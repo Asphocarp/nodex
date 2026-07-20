@@ -73,6 +73,7 @@ import {
 } from "./local-store/config";
 import { codexService } from "./codex/codex-service";
 import { createTypeScriptNodexAgentAuthorityPort } from "./codex/codex-nodex-agent-authority";
+import { createTypeScriptNodexAgentResourceAuthorityPort } from "./typescript-nodex-agent-resource-authority-port";
 import { NodexAgentAuthorizationBroker } from "./agent-tools/authorization-broker";
 import {
   startCodexScheduledAutomationScheduler,
@@ -169,6 +170,7 @@ import { createTypeScriptAutomationModulePort } from "./typescript-automation-mo
 import { createTypeScriptStoreAdministrationPort } from "./typescript-store-administration-port";
 import { createTypeScriptProjectWorkspacePort } from "./typescript-project-workspace-port";
 import { createDesktopNodexAgentAuthorityPort } from "./core-client/desktop-nodex-agent-authority";
+import { createDesktopNodexAgentResourceAuthorityPort } from "./core-client/desktop-nodex-agent-resource-authority";
 import {
   startStoreAdministrationBackupScheduler,
   type StoreAdministrationBackupScheduler,
@@ -1666,6 +1668,17 @@ export async function runMainAppStartup(
       typescript: createTypeScriptNodexAgentAuthorityPort(),
     }),
   );
+  const nodexAgentResourceAuthority = createDesktopNodexAgentResourceAuthorityPort({
+    authority: dataAuthority,
+    typescript: createTypeScriptNodexAgentResourceAuthorityPort({
+      persistProjectGrants: async (input) => {
+        await blockMutationWriter.persistNodexAgentProjectResourceGrants(input);
+      },
+    }),
+  });
+  codexService.setNodexAgentResourceAuthorityPort(
+    nodexAgentResourceAuthority,
+  );
   const automationModule = createDesktopAutomationModuleBridge({
     authority: dataAuthority,
     typescript: createTypeScriptAutomationModulePort(),
@@ -1917,7 +1930,7 @@ export async function runMainAppStartup(
         : readBlockStoreEpoch(getDb());
     },
     persistProjectGrants: async (input) =>
-      await blockMutationWriter.persistNodexAgentProjectResourceGrants(input),
+      await nodexAgentResourceAuthority.persistProjectGrants(input),
   }));
   registerIpcHandlers({
     automationModule,

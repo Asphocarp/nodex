@@ -485,6 +485,118 @@
   },
   "components": {
     "schemas": {
+      "AgentAuthorizationTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "database_id",
+              "kind"
+            ],
+            "properties": {
+              "database_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "database"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data_source_id",
+              "kind"
+            ],
+            "properties": {
+              "data_source_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "data_source"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "view_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "view"
+                ]
+              },
+              "view_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "library_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              },
+              "library_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "kind"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page_or_block"
+                ]
+              }
+            }
+          }
+        ]
+      },
       "AgentConsentRequirement": {
         "type": "string",
         "enum": [
@@ -644,6 +756,313 @@
               "null"
             ],
             "description": "Exact receipt replay may omit a token. A new mutation cannot."
+          }
+        }
+      },
+      "AgentProjectResourceAccess": {
+        "type": "string",
+        "enum": [
+          "read",
+          "read_write"
+        ]
+      },
+      "AgentProjectResourceAction": {
+        "type": "string",
+        "enum": [
+          "read",
+          "write",
+          "create_child",
+          "move",
+          "manage_schema",
+          "manage_views",
+          "manage_database"
+        ]
+      },
+      "AgentResourceAccessOverlay": {
+        "type": "object",
+        "required": [
+          "kind",
+          "scope",
+          "root_thread_id",
+          "actor_project_id",
+          "library_id",
+          "store_epoch",
+          "grants"
+        ],
+        "properties": {
+          "actor_project_id": {
+            "type": "string"
+          },
+          "call_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "grants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentResourceGrantSpec"
+            }
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AgentResourceAccessOverlayKind"
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "persist_resulting_page_grants": {
+            "type": "boolean"
+          },
+          "root_thread_id": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/AgentResourceAccessOverlayScope"
+          },
+          "store_epoch": {
+            "type": "string"
+          },
+          "thread_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turn_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AgentResourceAccessOverlayKind": {
+        "type": "string",
+        "enum": [
+          "inspection",
+          "consent"
+        ]
+      },
+      "AgentResourceAccessOverlayScope": {
+        "type": "string",
+        "enum": [
+          "call",
+          "task"
+        ]
+      },
+      "AgentResourceAccessPlan": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "authorized"
+                ]
+              },
+              "resource_access": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/AgentResourceAccessOverlay"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "requirements",
+              "inspection_access",
+              "kind"
+            ],
+            "properties": {
+              "inspection_access": {
+                "$ref": "#/components/schemas/AgentResourceAccessOverlay"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "consent_required"
+                ]
+              },
+              "requirements": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/AgentResourceConsentRequirement"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "intent",
+              "reason",
+              "kind"
+            ],
+            "properties": {
+              "intent": {
+                "$ref": "#/components/schemas/AgentResourceIntent"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "denied"
+                ]
+              },
+              "reason": {
+                "$ref": "#/components/schemas/AgentResourceAuthorizationReason"
+              }
+            }
+          }
+        ]
+      },
+      "AgentResourceAuthorizationReason": {
+        "type": "string",
+        "enum": [
+          "allowed",
+          "project_not_found",
+          "resource_not_found",
+          "resource_hierarchy_corrupt",
+          "library_mismatch",
+          "authority_stale",
+          "grant_missing",
+          "project_read_only",
+          "grant_read_only",
+          "structural_capability_required"
+        ]
+      },
+      "AgentResourceConsentReason": {
+        "type": "string",
+        "enum": [
+          "grant_missing",
+          "grant_read_only",
+          "library_consent_required"
+        ]
+      },
+      "AgentResourceConsentRequirement": {
+        "type": "object",
+        "required": [
+          "intent",
+          "grant",
+          "reason",
+          "persistable"
+        ],
+        "properties": {
+          "grant": {
+            "$ref": "#/components/schemas/AgentResourceGrantSpec"
+          },
+          "intent": {
+            "$ref": "#/components/schemas/AgentResourceIntent"
+          },
+          "persistable": {
+            "type": "boolean"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/AgentResourceConsentReason"
+          }
+        }
+      },
+      "AgentResourceGrantRoot": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "database_id",
+              "kind"
+            ],
+            "properties": {
+              "database_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "database"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "library_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              },
+              "library_id": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "AgentResourceGrantSpec": {
+        "type": "object",
+        "required": [
+          "root",
+          "access"
+        ],
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/AgentProjectResourceAccess"
+          },
+          "library_actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentProjectResourceAction"
+            }
+          },
+          "root": {
+            "$ref": "#/components/schemas/AgentResourceGrantRoot"
+          }
+        }
+      },
+      "AgentResourceIntent": {
+        "type": "object",
+        "required": [
+          "target",
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/AgentProjectResourceAction"
+          },
+          "target": {
+            "$ref": "#/components/schemas/AgentAuthorizationTarget"
           }
         }
       },
@@ -7878,6 +8297,31 @@
               {
                 "type": "object",
                 "required": [
+                  "provenance",
+                  "grants",
+                  "kind"
+                ],
+                "properties": {
+                  "grants": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/AgentResourceGrantSpec"
+                    }
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "persist_agent_project_resource_grants"
+                    ]
+                  },
+                  "provenance": {
+                    "$ref": "#/components/schemas/AgentTurnProvenance"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "intent",
                   "kind"
                 ],
@@ -10364,6 +10808,45 @@
                   },
                   "page_id": {
                     "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "provenance",
+                  "call_id",
+                  "intents",
+                  "kind"
+                ],
+                "properties": {
+                  "call_id": {
+                    "type": "string"
+                  },
+                  "intents": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/AgentResourceIntent"
+                    }
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "plan_agent_resource_access"
+                    ]
+                  },
+                  "provenance": {
+                    "$ref": "#/components/schemas/AgentTurnProvenance"
+                  },
+                  "task_access": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/AgentResourceAccessOverlay"
+                      }
+                    ]
                   }
                 }
               },
@@ -14571,6 +15054,24 @@
                           },
                           "value": {
                             "$ref": "#/components/schemas/LibraryPageHistoryPage"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "agent_resource_access_plan"
+                            ]
+                          },
+                          "value": {
+                            "$ref": "#/components/schemas/AgentResourceAccessPlan"
                           }
                         }
                       },

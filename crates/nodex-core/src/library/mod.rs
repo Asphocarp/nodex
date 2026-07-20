@@ -148,6 +148,22 @@ impl LibraryModule {
                                 )?),
                             }
                         }
+                        LibraryRead::PlanAgentResourceAccess {
+                            provenance,
+                            call_id,
+                            intents,
+                            task_access,
+                        } => LibraryReadValue::AgentResourceAccessPlan {
+                            value: Box::new(agent_authorization::plan(
+                                connection,
+                                &context,
+                                &library_id,
+                                &provenance,
+                                &call_id,
+                                &intents,
+                                task_access.as_deref(),
+                            )?),
+                        },
                         read => navigation::read(
                             connection,
                             &library_id,
@@ -424,6 +440,11 @@ fn unix_timestamp_millis() -> String {
 
 #[cfg(test)]
 mod tests {
+    use nodex_core_contracts::agent::{
+        AgentAuthorizationTarget, AgentProjectResourceAccess, AgentProjectResourceAction,
+        AgentResourceAccessPlan, AgentResourceGrantRoot, AgentResourceGrantSpec,
+        AgentResourceIntent, AgentTurnProvenance,
+    };
     use nodex_core_contracts::document::{
         DocumentBlockOperation as ContractDocumentBlockOperation, DocumentBlockUpdatePatch,
         DocumentOptionalValue, OwnedDocumentIntent,
@@ -437,6 +458,10 @@ mod tests {
         LibraryPageLifecycleState, LibraryPageLifecycleTagOption, LibraryPageWorkflowStatus,
         LibraryWriteParent,
     };
+    use nodex_core_contracts::workspace::{
+        ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch, ProjectWorkspaceTurnAuthority,
+        ProjectWorkspaceTurnAuthorityScope, ProjectWorkspaceTurnAuthoritySource,
+    };
     use nodex_core_contracts::{AdapterKind, LibraryId, ProfileId, ProjectId};
     use rusqlite::params;
     use sha2::{Digest, Sha256};
@@ -445,6 +470,7 @@ mod tests {
     use crate::document::OwnedDocumentModule;
     use crate::infrastructure::sqlite::with_immediate_transaction;
     use crate::infrastructure::store::SqliteStoreKernel;
+    use crate::workspace::ProjectWorkspaceModule;
 
     use super::*;
 
@@ -512,6 +538,183 @@ mod tests {
             .expect_err("different retry fails");
 
         assert_eq!(error.code, CoreErrorCode::IdempotencyKeyReused);
+    }
+
+    #[test]
+    fn plans_and_persists_agent_project_resource_consent_from_exact_turn_authority() {
+        const NOW: &str = "2026-07-20T09:20:00.000Z";
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO profiles(id, created_at, updated_at) \
+                         VALUES ('profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                         VALUES ('library-1', 'profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
+                         VALUES (1, 'epoch-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed authority identity");
+        let context = BoundModuleContext {
+            profile_id: ProfileId("profile-1".to_owned()),
+            library_id: LibraryId("library-1".to_owned()),
+            project_id: Some(ProjectId("project:default".to_owned())),
+            connection_id: "connection:agent-resource".to_owned(),
+            adapter: AdapterKind::Test,
+        };
+        let workspace = ProjectWorkspaceModule::new("profile-1", "library-1", &kernel)
+            .expect("Workspace module");
+        workspace
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "agent-thread".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: ProjectWorkspaceIntent::UpsertThread {
+                        thread_id: "thread:agent".to_owned(),
+                        patch: Box::new(ProjectWorkspaceThreadPatch {
+                            project_id: Some(Some("project:default".to_owned())),
+                            thread_name: Some(Some("Agent".to_owned())),
+                            created_at: Some(100),
+                            updated_at: Some(100),
+                            linked_at: Some(NOW.to_owned()),
+                            ..ProjectWorkspaceThreadPatch::default()
+                        }),
+                    },
+                },
+            )
+            .expect("persist Agent Thread");
+        workspace
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "agent-turn-authority".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: ProjectWorkspaceIntent::FreezeTurnAuthority {
+                        thread_id: "thread:agent".to_owned(),
+                        turn_id: "turn:agent".to_owned(),
+                        root_thread_id: "thread:agent".to_owned(),
+                        actor_project_id: "project:default".to_owned(),
+                        source: ProjectWorkspaceTurnAuthoritySource::ProjectTurn,
+                        inherited_from: None,
+                    },
+                },
+            )
+            .expect("freeze Agent Turn authority");
+        let module = LibraryModule::new("profile-1", "library-1", &kernel);
+        module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "agent-target-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: "page:agent-target".to_owned(),
+                        document_id: "document:agent-target".to_owned(),
+                        title: "Agent target".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("create ungranted target Page");
+        let provenance = AgentTurnProvenance {
+            profile_id: "profile-1".to_owned(),
+            authority: ProjectWorkspaceTurnAuthority {
+                thread_id: "thread:agent".to_owned(),
+                turn_id: "turn:agent".to_owned(),
+                root_thread_id: "thread:agent".to_owned(),
+                actor_project_id: "project:default".to_owned(),
+                library_id: "library-1".to_owned(),
+                store_epoch: "epoch-1".to_owned(),
+                scope: ProjectWorkspaceTurnAuthorityScope::Project,
+                source: ProjectWorkspaceTurnAuthoritySource::ProjectTurn,
+            },
+        };
+        let plan_request = ModuleReadRequest {
+            version: CORE_CONTRACT_VERSION,
+            read: LibraryRead::PlanAgentResourceAccess {
+                provenance: Box::new(provenance.clone()),
+                call_id: "call:agent".to_owned(),
+                intents: vec![AgentResourceIntent {
+                    target: AgentAuthorizationTarget::Page {
+                        page_id: "page:agent-target".to_owned(),
+                    },
+                    action: AgentProjectResourceAction::Write,
+                }],
+                task_access: None,
+            },
+        };
+        let LibraryReadValue::AgentResourceAccessPlan { value } = module
+            .read(&context, plan_request.clone())
+            .expect("plan Project resource consent")
+            .value
+        else {
+            panic!("Agent resource plan");
+        };
+        let AgentResourceAccessPlan::ConsentRequired { requirements, .. } = *value else {
+            panic!("missing resource requires consent");
+        };
+        assert_eq!(requirements.len(), 1);
+        assert_eq!(
+            requirements[0].grant,
+            AgentResourceGrantSpec {
+                root: AgentResourceGrantRoot::Page {
+                    page_id: "page:agent-target".to_owned(),
+                },
+                access: AgentProjectResourceAccess::ReadWrite,
+                library_actions: Vec::new(),
+            }
+        );
+
+        let grant_request = ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: "agent-persist-grant".to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::PersistAgentProjectResourceGrants {
+                provenance: Box::new(provenance),
+                grants: requirements
+                    .into_iter()
+                    .map(|requirement| requirement.grant)
+                    .collect(),
+            },
+        };
+        let committed = module
+            .apply(&context, grant_request.clone())
+            .expect("persist Project grant");
+        let replay = module
+            .apply(&context, grant_request)
+            .expect("replay Project grant persistence");
+        assert_eq!(
+            committed.committed.receipt.operation_kind,
+            "persist_agent_project_resource_grants"
+        );
+        assert!(replay.committed.receipt.mutation.duplicate);
+
+        let LibraryReadValue::AgentResourceAccessPlan { value } = module
+            .read(&context, plan_request)
+            .expect("replan persisted Project grant")
+            .value
+        else {
+            panic!("Agent resource plan");
+        };
+        assert!(matches!(*value, AgentResourceAccessPlan::Authorized { .. }));
     }
 
     #[test]
@@ -4045,6 +4248,7 @@ mod tests {
             .expect("Property authority evidence");
     }
 }
+mod agent_authorization;
 mod block_transfer;
 mod content;
 mod cursor;

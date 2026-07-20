@@ -16,6 +16,7 @@ import {
 import { createDesktopDatabaseModuleBridge } from "./core-client/desktop-database-module-bridge";
 import { createDesktopProjectWorkspaceBridge } from "./core-client/desktop-project-workspace-bridge";
 import { createDesktopNodexAgentAuthorityPort } from "./core-client/desktop-nodex-agent-authority";
+import { createDesktopNodexAgentResourceAuthorityPort } from "./core-client/desktop-nodex-agent-resource-authority";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
 import { createDesktopDocumentSyncBridge } from "./core-client/desktop-document-sync-bridge";
 import { createCoreBlockTransferAdapter } from "./core-client/block-transfer-adapter";
@@ -1784,9 +1785,11 @@ describe("Electron native data authority", () => {
         actorProjectId: createdProject.id,
         builtinFullAccess: false,
       });
-      await expect(
-        turnAuthority.bindTurn(authorityLaunch, "turn:electron-session"),
-      ).resolves.toMatchObject({
+      const frozenAuthority = await turnAuthority.bindTurn(
+        authorityLaunch,
+        "turn:electron-session",
+      );
+      expect(frozenAuthority).toMatchObject({
         threadId: "thread:electron-session",
         turnId: "turn:electron-session",
         rootThreadId: "thread:electron-session",
@@ -1794,6 +1797,9 @@ describe("Electron native data authority", () => {
         scope: "project",
         source: "project_turn",
       });
+      if (!frozenAuthority) {
+        throw new Error("Core did not freeze the Agent Turn authority");
+      }
       await expect(turnAuthority.capturePersisted({
         threadId: "thread:electron-session",
         turnId: "turn:electron-session",
@@ -1803,6 +1809,44 @@ describe("Electron native data authority", () => {
         storeEpoch: runtime.rootClient.handshake.store_epoch,
         libraryId: runtime.rootClient.handshake.library_id,
       });
+      const agentResources = createDesktopNodexAgentResourceAuthorityPort({
+        authority: Promise.resolve(runtime),
+        typescript: {} as never,
+      });
+      const consentPlan = await agentResources.plan({
+        authority: frozenAuthority,
+        callId: "call:electron-session",
+        intents: [{
+          target: { kind: "page", pageId: copiedDataSourcePageId },
+          action: "write",
+        }],
+      });
+      expect(consentPlan).toMatchObject({
+        kind: "consent_required",
+        requirements: [{
+          grant: {
+            root: { kind: "page", pageId: copiedDataSourcePageId },
+            access: "read_write",
+          },
+          persistable: true,
+        }],
+      });
+      if (consentPlan.kind !== "consent_required") {
+        throw new Error("Foreign Page did not require Project consent");
+      }
+      await agentResources.persistProjectGrants({
+        operationId: "electron-agent-project-grants",
+        authority: frozenAuthority,
+        grants: consentPlan.requirements.map((requirement) => requirement.grant),
+      });
+      await expect(agentResources.plan({
+        authority: frozenAuthority,
+        callId: "call:electron-session-after-grant",
+        intents: [{
+          target: { kind: "page", pageId: copiedDataSourcePageId },
+          action: "write",
+        }],
+      })).resolves.toEqual({ kind: "authorized" });
       await workspace.setProjectPinned(projectId, { pinned: true });
       await workspace.setProjectPinned(createdProject.id, { pinned: true });
       const pinnedOrder = [createdProject.id, projectId];

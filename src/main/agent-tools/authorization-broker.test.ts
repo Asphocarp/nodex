@@ -153,6 +153,7 @@ describe("NodexAgentAuthorizationBroker", () => {
       decision: "allow_project",
     });
     expect(persistProjectGrants).toHaveBeenCalledWith({
+      operationId: expect.stringMatching(/^nodex-agent-grants:[a-f0-9]{64}$/u),
       authority,
       grants: [{
         root: { kind: "page", pageId: "page-1" },

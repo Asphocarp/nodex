@@ -137,6 +137,7 @@ describe("Project resource grants", () => {
     })).toMatchObject({ kind: "authorized", resourceAccess: taskAccess });
 
     persistNodexAgentProjectResourceGrantsInDatabase(database, {
+      operationId: "persist-agent-grants",
       authority,
       grants: missing.requirements.map((requirement) => requirement.grant),
     });
@@ -219,6 +220,7 @@ describe("Project resource grants", () => {
       intents: [{ target: { kind: "page", pageId: page.id }, action: "read" }],
     })).toMatchObject({ kind: "denied", reason: "resource_not_found" });
     expect(() => persistNodexAgentProjectResourceGrantsInDatabase(database, {
+      operationId: "persist-deleted-agent-grant",
       authority,
       grants: [{
         root: { kind: "page", pageId: page.id },

@@ -264,6 +264,31 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        readonly AgentAuthorizationTarget: {
+            /** @enum {string} */
+            readonly kind: "page";
+            readonly page_id: string;
+        } | {
+            readonly database_id: string;
+            /** @enum {string} */
+            readonly kind: "database";
+        } | {
+            readonly data_source_id: string;
+            /** @enum {string} */
+            readonly kind: "data_source";
+        } | {
+            /** @enum {string} */
+            readonly kind: "view";
+            readonly view_id: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "library";
+            readonly library_id: string;
+        } | {
+            readonly id: string;
+            /** @enum {string} */
+            readonly kind: "page_or_block";
+        };
         /** @enum {string} */
         readonly AgentConsentRequirement: "none" | "resource";
         readonly AgentDocumentSemanticMutation: {
@@ -306,6 +331,74 @@ export interface components {
             readonly provenance: components["schemas"]["AgentTurnProvenance"];
             /** @description Exact receipt replay may omit a token. A new mutation cannot. */
             readonly token?: string | null;
+        };
+        /** @enum {string} */
+        readonly AgentProjectResourceAccess: "read" | "read_write";
+        /** @enum {string} */
+        readonly AgentProjectResourceAction: "read" | "write" | "create_child" | "move" | "manage_schema" | "manage_views" | "manage_database";
+        readonly AgentResourceAccessOverlay: {
+            readonly actor_project_id: string;
+            readonly call_id?: string | null;
+            readonly grants: readonly components["schemas"]["AgentResourceGrantSpec"][];
+            readonly kind: components["schemas"]["AgentResourceAccessOverlayKind"];
+            readonly library_id: string;
+            readonly persist_resulting_page_grants?: boolean;
+            readonly root_thread_id: string;
+            readonly scope: components["schemas"]["AgentResourceAccessOverlayScope"];
+            readonly store_epoch: string;
+            readonly thread_id?: string | null;
+            readonly turn_id?: string | null;
+        };
+        /** @enum {string} */
+        readonly AgentResourceAccessOverlayKind: "inspection" | "consent";
+        /** @enum {string} */
+        readonly AgentResourceAccessOverlayScope: "call" | "task";
+        readonly AgentResourceAccessPlan: {
+            /** @enum {string} */
+            readonly kind: "authorized";
+            readonly resource_access?: null | components["schemas"]["AgentResourceAccessOverlay"];
+        } | {
+            readonly inspection_access: components["schemas"]["AgentResourceAccessOverlay"];
+            /** @enum {string} */
+            readonly kind: "consent_required";
+            readonly requirements: readonly components["schemas"]["AgentResourceConsentRequirement"][];
+        } | {
+            readonly intent: components["schemas"]["AgentResourceIntent"];
+            /** @enum {string} */
+            readonly kind: "denied";
+            readonly reason: components["schemas"]["AgentResourceAuthorizationReason"];
+        };
+        /** @enum {string} */
+        readonly AgentResourceAuthorizationReason: "allowed" | "project_not_found" | "resource_not_found" | "resource_hierarchy_corrupt" | "library_mismatch" | "authority_stale" | "grant_missing" | "project_read_only" | "grant_read_only" | "structural_capability_required";
+        /** @enum {string} */
+        readonly AgentResourceConsentReason: "grant_missing" | "grant_read_only" | "library_consent_required";
+        readonly AgentResourceConsentRequirement: {
+            readonly grant: components["schemas"]["AgentResourceGrantSpec"];
+            readonly intent: components["schemas"]["AgentResourceIntent"];
+            readonly persistable: boolean;
+            readonly reason: components["schemas"]["AgentResourceConsentReason"];
+        };
+        readonly AgentResourceGrantRoot: {
+            /** @enum {string} */
+            readonly kind: "page";
+            readonly page_id: string;
+        } | {
+            readonly database_id: string;
+            /** @enum {string} */
+            readonly kind: "database";
+        } | {
+            /** @enum {string} */
+            readonly kind: "library";
+            readonly library_id: string;
+        };
+        readonly AgentResourceGrantSpec: {
+            readonly access: components["schemas"]["AgentProjectResourceAccess"];
+            readonly library_actions?: readonly components["schemas"]["AgentProjectResourceAction"][];
+            readonly root: components["schemas"]["AgentResourceGrantRoot"];
+        };
+        readonly AgentResourceIntent: {
+            readonly action: components["schemas"]["AgentProjectResourceAction"];
+            readonly target: components["schemas"]["AgentAuthorizationTarget"];
         };
         /** @enum {string} */
         readonly AgentResourceKind: "library" | "page" | "database";
@@ -2056,6 +2149,11 @@ export interface components {
                 readonly project_id: string;
                 readonly target: components["schemas"]["LibraryResourceTarget"];
             } | {
+                readonly grants: readonly components["schemas"]["AgentResourceGrantSpec"][];
+                /** @enum {string} */
+                readonly kind: "persist_agent_project_resource_grants";
+                readonly provenance: components["schemas"]["AgentTurnProvenance"];
+            } | {
                 readonly intent: components["schemas"]["LibraryBlockTransferLogicalIntent"];
                 /** @enum {string} */
                 readonly kind: "transfer_blocks";
@@ -2621,6 +2719,13 @@ export interface components {
                 /** Format: int32 */
                 readonly limit?: number | null;
                 readonly page_id: string;
+            } | {
+                readonly call_id: string;
+                readonly intents: readonly components["schemas"]["AgentResourceIntent"][];
+                /** @enum {string} */
+                readonly kind: "plan_agent_resource_access";
+                readonly provenance: components["schemas"]["AgentTurnProvenance"];
+                readonly task_access?: null | components["schemas"]["AgentResourceAccessOverlay"];
             } | {
                 readonly intent: components["schemas"]["LibraryBlockTransferLogicalIntent"];
                 /** @enum {string} */
@@ -3556,6 +3661,10 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "page_history";
                     readonly value: components["schemas"]["LibraryPageHistoryPage"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "agent_resource_access_plan";
+                    readonly value: components["schemas"]["AgentResourceAccessPlan"];
                 } | {
                     /** @enum {string} */
                     readonly kind: "block_transfer_plan";

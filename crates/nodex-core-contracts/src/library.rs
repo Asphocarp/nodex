@@ -3,6 +3,10 @@ use utoipa::ToSchema;
 
 use serde_json::Value;
 
+use crate::agent::{
+    AgentResourceAccessOverlay, AgentResourceAccessPlan, AgentResourceGrantSpec,
+    AgentResourceIntent, AgentTurnProvenance,
+};
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
 pub const LIBRARY_CONTRACT_VERSION: u32 = 1;
@@ -278,6 +282,12 @@ pub enum LibraryRead {
         page_id: String,
         before: Option<LibraryPageHistoryCursor>,
         limit: Option<u32>,
+    },
+    PlanAgentResourceAccess {
+        provenance: Box<AgentTurnProvenance>,
+        call_id: String,
+        intents: Vec<AgentResourceIntent>,
+        task_access: Option<Box<AgentResourceAccessOverlay>>,
     },
     PlanBlockTransfer {
         operation_id: String,
@@ -1095,6 +1105,9 @@ pub enum LibraryReadValue {
     PageHistory {
         value: Box<LibraryPageHistoryPage>,
     },
+    AgentResourceAccessPlan {
+        value: Box<AgentResourceAccessPlan>,
+    },
     BlockTransferPlan {
         value: Box<LibraryBlockTransferPlan>,
     },
@@ -1148,6 +1161,10 @@ pub enum LibraryIntent {
         project_id: String,
         target: LibraryResourceTarget,
         access: LibraryAccess,
+    },
+    PersistAgentProjectResourceGrants {
+        provenance: Box<AgentTurnProvenance>,
+        grants: Vec<AgentResourceGrantSpec>,
     },
     TransferBlocks {
         intent: LibraryBlockTransferLogicalIntent,

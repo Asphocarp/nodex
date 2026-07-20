@@ -294,8 +294,6 @@ import {
   type FrozenNodexAgentTurnAuthority,
 } from "../../shared/nodex-agent-authority";
 import type { NodexAgentResourceIntent } from "../../shared/nodex-agent-resource-access";
-import { getDb } from "../local-store/database";
-import { planNodexAgentResourceAccessInDatabase } from "../local-store/project-resource-grants";
 import {
   canAutoApproveNodexAgentWrite,
   createTypeScriptNodexAgentAuthorityPort,
@@ -305,6 +303,8 @@ import type {
   NodexAgentAuthorityPort,
   NodexAgentTurnAuthorityLaunch,
 } from "../nodex-agent-authority-port";
+import type { NodexAgentResourceAuthorityPort } from "../nodex-agent-resource-authority-port";
+import { createTypeScriptNodexAgentResourceAuthorityPort } from "../typescript-nodex-agent-resource-authority-port";
 import { CodexRendererViewRegistry } from "./codex-renderer-view-registry";
 import {
   buildPlanImplementationRequestId,
@@ -2856,6 +2856,8 @@ export class CodexService extends EventEmitter {
     new Map<string, string>();
   private nodexAgentAuthorityRegistry: NodexAgentAuthorityPort =
     createTypeScriptNodexAgentAuthorityPort();
+  private nodexAgentResourceAuthority: NodexAgentResourceAuthorityPort =
+    createTypeScriptNodexAgentResourceAuthorityPort();
 
   private readonly permissionStateByProject = new Map<string, CodexPermissionState>();
   private readonly verifiedPermissionModeByProject = new Map<string, CodexPermissionMode>();
@@ -4045,6 +4047,12 @@ export class CodexService extends EventEmitter {
 
   setNodexAgentAuthorityPort(port: NodexAgentAuthorityPort): void {
     this.nodexAgentAuthorityRegistry = port;
+  }
+
+  setNodexAgentResourceAuthorityPort(
+    port: NodexAgentResourceAuthorityPort,
+  ): void {
+    this.nodexAgentResourceAuthority = port;
   }
 
   setAutomationModule(module: DesktopAutomationModulePort): void {
@@ -20319,7 +20327,7 @@ export class CodexService extends EventEmitter {
           };
         }
         const currentTaskAccess = broker?.getTaskAccess(authority);
-        return planNodexAgentResourceAccessInDatabase(getDb(), {
+        return await this.nodexAgentResourceAuthority.plan({
           authority,
           callId: params.callId,
           intents,

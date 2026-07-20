@@ -127,6 +127,21 @@ pub(super) fn apply(
                     .map_err(|_| internal("Library Property mutation cannot be fingerprinted"))?;
                     sha256(&fingerprint)
                 }
+                LibraryIntent::PersistAgentProjectResourceGrants { provenance, grants } => {
+                    let grants = super::agent_authorization::canonicalize_grants(grants)?;
+                    let fingerprint = serde_json::to_vec(&(
+                        "nodex.agent.project-resource-grants.v1",
+                        &context.profile_id,
+                        &context.library_id,
+                        &context.project_id,
+                        request.version,
+                        &request.store_epoch,
+                        provenance,
+                        grants,
+                    ))
+                    .map_err(|_| internal("Agent Project grants cannot be fingerprinted"))?;
+                    sha256(&fingerprint)
+                }
                 _ => {
                     let fingerprint = serde_json::to_vec(&(
                         &context,
@@ -285,6 +300,18 @@ pub(super) fn apply(
                     target,
                     *access,
                 ),
+                LibraryIntent::PersistAgentProjectResourceGrants { provenance, grants } => {
+                    super::agent_authorization::persist_project_grants(
+                        transaction,
+                        &context,
+                        &store_epoch,
+                        &library_id,
+                        &request.operation_id,
+                        &request_hash,
+                        provenance,
+                        grants,
+                    )
+                }
                 LibraryIntent::MoveBlock {
                     target,
                     expected_location_revision,

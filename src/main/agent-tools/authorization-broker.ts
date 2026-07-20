@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   NODEX_AGENT_AUTHORIZATION_RENDERER_METHOD,
   NODEX_AGENT_AUTHORIZATION_TIMEOUT_MS,
@@ -6,15 +6,15 @@ import {
   type NodexAgentAuthorizationResponse,
 } from "../../shared/nodex-agent-tools";
 import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
-import type {
-  NodexAgentResourceAccessOverlay,
-  NodexAgentResourceGrantSpec,
-  PersistNodexAgentProjectResourceGrantsInput,
+import {
+  canonicalizeNodexAgentResourceGrantSpecs,
+  type NodexAgentResourceAccessOverlay,
+  type NodexAgentResourceGrantSpec,
+  type PersistNodexAgentProjectResourceGrantsInput,
 } from "../../shared/nodex-agent-resource-access";
 import type { RendererClientRouter } from "../codex/renderer-client-router";
 import { readBlockStoreEpoch } from "../local-store/block-store-metadata";
 import { getDb } from "../local-store/database";
-import { canonicalizeNodexAgentResourceGrantSpecs } from "../local-store/project-resource-grants";
 import type { NodexAgentDynamicAuthorizationInput } from "./dynamic-service-core";
 
 export type NodexAgentAuthorizationOutcome =
@@ -244,6 +244,13 @@ export class NodexAgentAuthorizationBroker {
       if (!this.persistProjectGrants) return "unavailable";
       try {
         await this.persistProjectGrants({
+          operationId: `nodex-agent-grants:${createHash("sha256")
+            .update(JSON.stringify([
+              input.authority.threadId,
+              input.authority.turnId,
+              input.callId,
+            ]))
+            .digest("hex")}`,
           authority: input.authority,
           grants: persistable,
         });

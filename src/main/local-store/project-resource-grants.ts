@@ -3,15 +3,16 @@ import type Database from "better-sqlite3";
 
 import type { ProjectResourceGrant } from "../../shared/library";
 import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
-import type {
-  NodexAgentAuthorizationTarget,
-  NodexAgentResourceAccessOverlay,
-  NodexAgentResourceAccessPlan,
-  NodexAgentResourceConsentRequirement,
-  NodexAgentResourceGrantRoot,
-  NodexAgentResourceGrantSpec,
-  NodexAgentResourceIntent,
-  PersistNodexAgentProjectResourceGrantsInput,
+import {
+  canonicalizeNodexAgentResourceGrantSpecs,
+  type NodexAgentAuthorizationTarget,
+  type NodexAgentResourceAccessOverlay,
+  type NodexAgentResourceAccessPlan,
+  type NodexAgentResourceConsentRequirement,
+  type NodexAgentResourceGrantRoot,
+  type NodexAgentResourceGrantSpec,
+  type NodexAgentResourceIntent,
+  type PersistNodexAgentProjectResourceGrantsInput,
 } from "../../shared/nodex-agent-resource-access";
 import type {
   LibraryResource,
@@ -414,33 +415,6 @@ const grantRootKey = (root: NodexAgentResourceGrantRoot): string => {
   if (root.kind === "page") return `page:${root.pageId}`;
   if (root.kind === "database") return `database:${root.databaseId}`;
   return `library:${root.libraryId}`;
-};
-
-export const canonicalizeNodexAgentResourceGrantSpecs = (
-  grants: readonly NodexAgentResourceGrantSpec[],
-): readonly NodexAgentResourceGrantSpec[] => {
-  const byRoot = new Map<string, NodexAgentResourceGrantSpec>();
-  for (const grant of grants) {
-    const key = grantRootKey(grant.root);
-    const current = byRoot.get(key);
-    const access = current?.access === "read_write" || grant.access === "read_write"
-      ? "read_write" as const
-      : "read" as const;
-    const libraryActions = grant.root.kind === "library"
-      ? [...new Set([
-          ...(current?.libraryActions ?? []),
-          ...(grant.libraryActions ?? []),
-        ])].sort()
-      : undefined;
-    byRoot.set(key, {
-      root: grant.root,
-      access,
-      ...(libraryActions && libraryActions.length > 0 ? { libraryActions } : {}),
-    });
-  }
-  return [...byRoot.entries()]
-    .sort(([left], [right]) => compareStrings(left, right))
-    .map(([, grant]) => grant);
 };
 
 const overlayIdentityMatches = (
