@@ -101,4 +101,12 @@ describe("getNodexDiffOptions", () => {
     expect(options.lineDiffType).toBe("none");
     expect(options.hunkSeparators).toBe("line-info");
   });
+
+  test("passes collapsed state through the Review layout options", () => {
+    const options = getNodexReviewDiffOptions("dark", true, {
+      collapsed: true,
+    });
+
+    expect(options.collapsed).toBe(true);
+  });
 });

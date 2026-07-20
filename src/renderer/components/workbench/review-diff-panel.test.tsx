@@ -428,6 +428,7 @@ const reviewDiffPanelTestDeps = {
           options,
           "expansionLineCount",
         ),
+        "data-collapsed": testDiffOptionValue(options, "collapsed"),
         "data-line-diff-type": testDiffOptionValue(options, "lineDiffType"),
         "data-diff-indicators": testDiffOptionValue(options, "diffIndicators"),
       },
@@ -2793,7 +2794,7 @@ describe("review diff panel", () => {
       const menuItems = Array.from(
         view.baseElement.ownerDocument.querySelectorAll('[role="menuitem"]'),
       );
-      if (menuItems.length !== 8) {
+      if (menuItems.length !== 7) {
         throw new Error("Expected review option rows to render.");
       }
     });
@@ -2806,7 +2807,7 @@ describe("review diff panel", () => {
     );
 
     expect(optionLabels.join("|")).toBe(
-      "Refresh|Enable word wrap|Collapse all diffs|Don't load full files|Enable rich preview|Disable word diffs|Hide white space|Copy git apply command",
+      "Refresh|Enable word wrap|Don't load full files|Enable rich preview|Disable word diffs|Hide white space|Copy git apply command",
     );
     expect(
       menuItems.every((node) => node.querySelector("svg") !== null),
@@ -2831,6 +2832,56 @@ describe("review diff panel", () => {
       menuItems.some((node) => node.textContent?.includes("Unified")),
     ).toBe(false);
     expect(view.getByLabelText("Switch to split diff").tagName).toBe("BUTTON");
+    expect(view.getByLabelText("Collapse all diffs").tagName).toBe("BUTTON");
+    await unmountReviewView(view);
+  });
+
+  test("keeps virtualized FileDiff instances mounted while collapsing all rows", async () => {
+    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+    const conversation = buildConversation();
+    conversation.turns[0]!.diff = buildMultiFilePatch(3);
+    const view = render(
+      <NodexTooltipProvider>
+        <ReviewDiffPanel
+          conversation={conversation}
+          projectWorkspacePath="/tmp/codex"
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await settleAsyncRender();
+    expect(view.container.querySelectorAll("[data-file-diff]")).toHaveLength(3);
+    expect(
+      Array.from(view.container.querySelectorAll("[data-file-diff]")).every(
+        (node) => node.getAttribute("data-collapsed") === "false",
+      ),
+    ).toBe(true);
+
+    await dispatchReviewEvent(() => {
+      fireEvent.click(view.getByLabelText("Collapse all diffs"));
+    });
+    await waitFor(() => {
+      expect(view.getByLabelText("Expand all diffs").tagName).toBe("BUTTON");
+      expect(view.container.querySelectorAll("[data-file-diff]")).toHaveLength(3);
+      expect(
+        Array.from(view.container.querySelectorAll("[data-file-diff]")).every(
+          (node) => node.getAttribute("data-collapsed") === "true",
+        ),
+      ).toBe(true);
+    });
+
+    await dispatchReviewEvent(() => {
+      fireEvent.click(view.getAllByLabelText("Toggle file diff")[0]!);
+    });
+    await waitFor(() => {
+      const diffHosts = Array.from(
+        view.container.querySelectorAll("[data-file-diff]"),
+      );
+      expect(diffHosts.map((node) => node.getAttribute("data-collapsed")))
+        .toEqual(["false", "true", "true"]);
+      expect(view.getByLabelText("Expand all diffs").tagName).toBe("BUTTON");
+    });
+
     await unmountReviewView(view);
   });
 

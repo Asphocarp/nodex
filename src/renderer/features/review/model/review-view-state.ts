@@ -5,6 +5,7 @@ import {
   scopedWritableAtom,
 } from "@/lib/maitai";
 import { RouteScope } from "@/lib/workbench-ui-scopes";
+import type { ReviewDiffExpansionState } from "./review-diff-expansion";
 
 export type ReviewSource = "last-turn" | "selected-turn" | GitReviewSource;
 export type ReviewDiffMode = "unified" | "split";
@@ -52,7 +53,7 @@ export interface ReviewDiffPreferences {
   readonly loadFullFilesEnabled: boolean;
 }
 
-export interface ReviewRouteState {
+export interface ReviewRouteState extends ReviewDiffExpansionState {
   readonly initialized: boolean;
   readonly source: ReviewSource;
   readonly transcriptThreadId: string | null;
@@ -65,9 +66,6 @@ export interface ReviewRouteState {
   readonly fileFilter: string;
   readonly expandedDirectoryPaths: readonly string[];
   readonly treeExpansionSourceKey: string | null;
-  readonly expandedDiffKeys: readonly string[];
-  readonly expandedDiffSourceKey: string | null;
-  readonly knownDiffKeys: readonly string[];
   readonly nextRevealRequestId: number;
   readonly pendingReveal: PendingReviewReveal | null;
 }
@@ -108,9 +106,9 @@ export const reviewRouteStateAtom = scopedAtom<ReviewRouteState>(
     fileFilter: "",
     expandedDirectoryPaths: [],
     treeExpansionSourceKey: null,
-    expandedDiffKeys: [],
-    expandedDiffSourceKey: null,
-    knownDiffKeys: [],
+    allDiffsExpanded: true,
+    diffExpansionOverrides: [],
+    diffExpansionSourceKey: null,
     nextRevealRequestId: 0,
     pendingReveal: null,
   },

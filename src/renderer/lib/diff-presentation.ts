@@ -262,6 +262,7 @@ export function getNodexReviewDiffOptions(
     overflow?: SharedDiffOptions["overflow"];
     wrap?: boolean;
     lineDiffType?: SharedDiffOptions["lineDiffType"];
+    collapsed?: SharedDiffOptions["collapsed"];
   },
 ): SharedDiffOptions {
   const options = getNodexDiffOptions(themeType, disableFileHeader, {
@@ -274,6 +275,7 @@ export function getNodexReviewDiffOptions(
     hunkSeparators: "line-info",
     collapsedContextThreshold: 1,
     expansionLineCount: NODEX_REVIEW_DIFF_EXPANSION_LINE_COUNT,
+    collapsed: opts?.collapsed,
     unsafeCSS: `${options.unsafeCSS ?? ""}\n${NODEX_REVIEW_DIFF_UNSAFE_CSS}`,
   };
 }

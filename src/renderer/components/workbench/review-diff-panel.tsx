@@ -107,6 +107,12 @@ import {
   type ResolvedTurnDiffReview,
 } from "@/features/review/model/review-view-state";
 import {
+  reconcileReviewDiffExpansionSource,
+  setAllReviewDiffsExpanded,
+  setReviewDiffExpanded,
+  toggleReviewDiffExpanded,
+} from "@/features/review/model/review-diff-expansion";
+import {
   canonicalizeReviewPath,
   getReviewPathAliases,
   resolveReviewPathCandidate,
@@ -1899,7 +1905,7 @@ interface ReviewFileRowProps {
   sourceKey: string;
   pendingCommentAttachments: CodexReviewDiffCommentAttachment[];
   deps: ReviewDiffPanelDeps;
-  onToggleExpandedKey: (key: string) => void;
+  onToggleExpandedKey: (key: string, canInheritExpanded: boolean) => void;
 }
 
 function areShallowArraysEqual<T>(left: T[], right: T[]): boolean {
@@ -2412,6 +2418,7 @@ const ReviewFileRow = memo(function ReviewFileRow({
       diffStyle: diffMode,
       wrap,
       lineDiffType,
+      collapsed: !expanded,
     }),
     enableLineSelection: true,
     enableGutterUtility: true,
@@ -2518,13 +2525,18 @@ const ReviewFileRow = memo(function ReviewFileRow({
       ref={rowRef}
       data-review-path={entry.displayPath}
       data-review-full-content-state={fullContentPhase}
-      className="group/file-diff flex flex-col overflow-clip pb-0.5 codex-review-diff-card extension:rounded-lg"
+      className={cn(
+        "group/file-diff flex flex-col overflow-clip codex-review-diff-card extension:rounded-lg",
+        expanded && "pb-0.5",
+      )}
       style={REVIEW_FILE_ROW_SURFACE_STYLE}
     >
       <div
         className="cursor-interaction select-none focus-visible:outline-none z-10 sticky top-0 backdrop-blur-sm"
         style={REVIEW_FILE_ROW_HEADER_STYLE}
-        onClick={() => onToggleExpandedKey(entry.key)}
+        onClick={() =>
+          onToggleExpandedKey(entry.key, entry.gitStatus !== "deleted")
+        }
       >
         <div>
           <div className="group/diff-header text-size-chat @container/diff-header relative flex items-center gap-2 py-0.5 ps-3 pe-2 hover:bg-token-list-hover-background bg-[color-mix(in_srgb,var(--color-token-main-surface-primary)_88%,transparent)] [.dark_&]:bg-[color-mix(in_srgb,var(--color-token-list-active-selection-background)_88%,transparent)] [.electron-dark_&]:bg-[color-mix(in_srgb,var(--color-token-list-active-selection-background)_88%,transparent)] mb-0.5">
@@ -2551,12 +2563,15 @@ const ReviewFileRow = memo(function ReviewFileRow({
                   aria-label="Toggle file diff"
                   onClick={(event) => {
                     event.stopPropagation();
-                    onToggleExpandedKey(entry.key);
+                    onToggleExpandedKey(
+                      entry.key,
+                      entry.gitStatus !== "deleted",
+                    );
                   }}
                 >
                   <ReviewFileToggleChevronIcon
                     className={cn(
-                      "icon-2xs transition-transform duration-200",
+                      "icon-2xs transition-transform duration-150 motion-reduce:transition-none",
                       expanded ? "rotate-90" : "rotate-0",
                     )}
                   />
@@ -2587,58 +2602,56 @@ const ReviewFileRow = memo(function ReviewFileRow({
           </div>
         </div>
       </div>
-      {expanded ? (
-        <div
-          className="bg-token-main-surface-primary"
-          data-code="true"
-          data-unified={diffMode === "unified" ? "true" : "false"}
-          data-container-size="regular"
-          onContextMenu={handleContextMenu}
-        >
-          {fileLevelComments.length > 0 ? (
-            <div
-              className="border-b border-token-border bg-token-list-hover-background/40 px-3 py-2"
-              data-review-code-comments="true"
-            >
-              <div className="flex flex-col gap-2">
-                {fileLevelComments.map((comment) => (
-                  <div
-                    key={`${comment.file}:${comment.start ?? "file"}:${comment.title}:${comment.body}`}
-                    className="grid grid-cols-[auto_1fr] gap-2 rounded-md border border-token-border/70 bg-token-main-surface-primary px-2.5 py-2 text-xs"
-                  >
-                    <div className="text-token-description-foreground">
-                      {comment.start
-                        ? `L${comment.start}${comment.end && comment.end !== comment.start ? `-L${comment.end}` : ""}`
-                        : "File"}
+      <div
+        className="bg-token-main-surface-primary"
+        data-code="true"
+        data-unified={diffMode === "unified" ? "true" : "false"}
+        data-container-size="regular"
+        onContextMenu={handleContextMenu}
+      >
+        {expanded && fileLevelComments.length > 0 ? (
+          <div
+            className="border-b border-token-border bg-token-list-hover-background/40 px-3 py-2"
+            data-review-code-comments="true"
+          >
+            <div className="flex flex-col gap-2">
+              {fileLevelComments.map((comment) => (
+                <div
+                  key={`${comment.file}:${comment.start ?? "file"}:${comment.title}:${comment.body}`}
+                  className="grid grid-cols-[auto_1fr] gap-2 rounded-md border border-token-border/70 bg-token-main-surface-primary px-2.5 py-2 text-xs"
+                >
+                  <div className="text-token-description-foreground">
+                    {comment.start
+                      ? `L${comment.start}${comment.end && comment.end !== comment.start ? `-L${comment.end}` : ""}`
+                      : "File"}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate font-medium text-token-foreground">
+                      {comment.title}
                     </div>
-                    <div className="min-w-0">
-                      <div className="truncate font-medium text-token-foreground">
-                        {comment.title}
-                      </div>
-                      <div className="text-token-description-foreground">
-                        {comment.body}
-                      </div>
+                    <div className="text-token-description-foreground">
+                      {comment.body}
                     </div>
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
-          ) : null}
-          {presentationFileDiff ? (
-            <FileDiff<ReviewDiffAnnotationMetadata>
-              fileDiff={presentationFileDiff}
-              className={NODEX_DIFF_HOST_CLASS}
-              style={diffHostStyle}
-              options={diffOptions}
-              lineAnnotations={lineAnnotations}
-              selectedLines={selectedLines}
-              renderAnnotation={renderAnnotation}
-            />
-          ) : (
-            <ReviewFileDiffPlaceholder entry={entry} />
-          )}
-        </div>
-      ) : null}
+          </div>
+        ) : null}
+        {presentationFileDiff ? (
+          <FileDiff<ReviewDiffAnnotationMetadata>
+            fileDiff={presentationFileDiff}
+            className={NODEX_DIFF_HOST_CLASS}
+            style={diffHostStyle}
+            options={diffOptions}
+            lineAnnotations={lineAnnotations}
+            selectedLines={selectedLines}
+            renderAnnotation={renderAnnotation}
+          />
+        ) : expanded ? (
+          <ReviewFileDiffPlaceholder entry={entry} />
+        ) : null}
+      </div>
     </section>
   );
 }, areReviewFileRowPropsEqual);
@@ -3350,20 +3363,15 @@ export function ReviewDiffPanel({
   const [branchCommitsError, setBranchCommitsError] = useState<string | null>(
     null,
   );
-  const expandedKeys = useMemo(
-    () => new Set(routeState.expandedDiffKeys),
-    [routeState.expandedDiffKeys],
-  );
-  const setExpandedKeys = useCallback(
-    (update: SetStateAction<Set<string>>) => {
-      setRouteState((current) => ({
-        ...current,
-        expandedDiffKeys: [
-          ...resolveStateUpdate(new Set(current.expandedDiffKeys), update),
-        ],
-      }));
-    },
-    [setRouteState],
+  const diffExpansionOverrides = useMemo(
+    () =>
+      new Map(
+        routeState.diffExpansionOverrides.map((override) => [
+          override.key,
+          override.expanded,
+        ]),
+      ),
+    [routeState.diffExpansionOverrides],
   );
   const gitLiveGenerationsRef = useRef(new Map<string, number>());
   const gitSummaryRequestSequenceRef = useRef(0);
@@ -4313,36 +4321,13 @@ export function ReviewDiffPanel({
 
   useEffect(() => {
     const nextFileKeys = new Set(snapshot.files.map((file) => file.key));
-    setRouteState((current) => {
-      if (current.expandedDiffSourceKey !== reviewSourceBucketKey) {
-        return {
-          ...current,
-          expandedDiffSourceKey: reviewSourceBucketKey,
-          knownDiffKeys: [...nextFileKeys],
-          expandedDiffKeys: [...nextFileKeys],
-        };
-      }
-      const previousFileKeys = new Set(current.knownDiffKeys);
-      const next = new Set(
-        current.expandedDiffKeys.filter((key) => nextFileKeys.has(key)),
-      );
-      for (const key of nextFileKeys) {
-        if (!previousFileKeys.has(key)) next.add(key);
-      }
-      if (
-        next.size === current.expandedDiffKeys.length
-        && current.knownDiffKeys.length === nextFileKeys.size
-        && current.expandedDiffKeys.every((key) => next.has(key))
-        && current.knownDiffKeys.every((key) => nextFileKeys.has(key))
-      ) {
-        return current;
-      }
-      return {
-        ...current,
-        knownDiffKeys: [...nextFileKeys],
-        expandedDiffKeys: [...next],
-      };
-    });
+    setRouteState((current) =>
+      reconcileReviewDiffExpansionSource(
+        current,
+        reviewSourceBucketKey,
+        nextFileKeys,
+      ),
+    );
   }, [reviewSourceBucketKey, setRouteState, snapshot.files]);
 
   useEffect(() => {
@@ -4491,12 +4476,14 @@ export function ReviewDiffPanel({
     if (!canonicalPath) return false;
     if (options.clearFilter && fileFilter.length > 0) setFileFilter("");
     setSelectedPath(canonicalPath);
-    setExpandedKeys((current) => {
-      if (current.has(entry.key)) return current;
-      const next = new Set(current);
-      next.add(entry.key);
-      return next;
-    });
+    setRouteState((current) =>
+      setReviewDiffExpanded(
+        current,
+        entry.key,
+        true,
+        current.allDiffsExpanded && entry.gitStatus !== "deleted",
+      ),
+    );
 
     await nextReviewAnimationFrame(options.signal);
     await nextReviewAnimationFrame(options.signal);
@@ -4513,7 +4500,7 @@ export function ReviewDiffPanel({
     canonicalPathByEntryKey,
     fileFilter.length,
     findReviewRow,
-    setExpandedKeys,
+    setRouteState,
     setFileFilter,
     setSelectedPath,
   ]);
@@ -4801,10 +4788,7 @@ export function ReviewDiffPanel({
     ],
   );
   useRegisterContentSearchSource(contentSearchSource);
-  const areAllDiffsExpanded = useMemo(() => {
-    if (snapshot.files.length === 0) return false;
-    return snapshot.files.every((entry) => expandedKeys.has(entry.key));
-  }, [expandedKeys, snapshot.files]);
+  const allDiffsExpanded = routeState.allDiffsExpanded;
   const jumpToFileMatches = useMemo(() => {
     return selectReviewJumpToFileMatches(
       snapshot.files,
@@ -4842,17 +4826,18 @@ export function ReviewDiffPanel({
     [revealFromReviewNavigation, reviewPathRoots, snapshot.files],
   );
 
-  const toggleReviewRow = useCallback((entryKey: string) => {
-    setExpandedKeys((current) => {
-      const next = new Set(current);
-      if (next.has(entryKey)) {
-        next.delete(entryKey);
-      } else {
-        next.add(entryKey);
-      }
-      return next;
-    });
-  }, [setExpandedKeys]);
+  const toggleReviewRow = useCallback(
+    (entryKey: string, canInheritExpanded: boolean) => {
+      setRouteState((current) =>
+        toggleReviewDiffExpanded(
+          current,
+          entryKey,
+          current.allDiffsExpanded && canInheritExpanded,
+        ),
+      );
+    },
+    [setRouteState],
+  );
 
   const reviewFilePathsIdentity = useMemo(
     () => snapshot.files.map((entry) => entry.displayPath).join("\0"),
@@ -4913,7 +4898,10 @@ export function ReviewDiffPanel({
           Boolean(reviewCwd?.trim()) &&
           (!isGitReviewSource(source) || snapshot.snapshotGeneration > 0)
         }
-        expanded={expandedKeys.has(entry.key)}
+        expanded={
+          diffExpansionOverrides.get(entry.key) ??
+          (routeState.allDiffsExpanded && entry.gitStatus !== "deleted")
+        }
         openerId={opener}
         fullContentKey={
           reviewFullContentKeysByPath.get(entry.displayPath) ?? entry.key
@@ -5006,7 +4994,7 @@ export function ReviewDiffPanel({
   const reviewOptionsWordWrapLabel = wrap
     ? "Disable word wrap"
     : "Enable word wrap";
-  const reviewOptionsExpandLabel = areAllDiffsExpanded
+  const reviewOptionsExpandLabel = allDiffsExpanded
     ? "Collapse all diffs"
     : "Expand all diffs";
   const reviewOptionsFullFilesLabel = loadFullFilesEnabled
@@ -5494,28 +5482,6 @@ export function ReviewDiffPanel({
               >
                 {reviewOptionsWordWrapLabel}
               </NodexDropdownItem>
-              <NodexDropdownItem
-                onSelect={() =>
-                  setExpandedKeys(
-                    areAllDiffsExpanded
-                      ? new Set()
-                      : new Set(snapshot.files.map((file) => file.key)),
-                  )
-                }
-                leftSlot={
-                  areAllDiffsExpanded ? (
-                    <ReviewCollapseAllDiffsIcon
-                      className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME}
-                    />
-                  ) : (
-                    <ReviewExpandAllDiffsIcon
-                      className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME}
-                    />
-                  )
-                }
-              >
-                {reviewOptionsExpandLabel}
-              </NodexDropdownItem>
               <NodexDropdownSeparator />
               <NodexDropdownItem
                 onSelect={() => setLoadFullFilesEnabled((current) => !current)}
@@ -5582,6 +5548,24 @@ export function ReviewDiffPanel({
                 Copy git apply command
               </NodexDropdownItem>
             </NodexDropdownMenu>
+            <NodexTooltip tooltipContent={reviewOptionsExpandLabel}>
+              <button
+                type="button"
+                className={toolbarIconButtonClassName()}
+                aria-label={reviewOptionsExpandLabel}
+                onClick={() =>
+                  setRouteState((current) =>
+                    setAllReviewDiffsExpanded(current, !allDiffsExpanded),
+                  )
+                }
+              >
+                {allDiffsExpanded ? (
+                  <ReviewCollapseAllDiffsIcon className="icon-xs" />
+                ) : (
+                  <ReviewExpandAllDiffsIcon className="icon-xs" />
+                )}
+              </button>
+            </NodexTooltip>
             <NodexDropdownMenu
               triggerButton={jumpToFileTrigger}
               align="end"

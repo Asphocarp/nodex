@@ -906,6 +906,23 @@ export const HeaderAndFileRows: Story = {
   },
 };
 
+export const AllDiffsCollapsed: Story = {
+  args: {
+    conversation: buildReviewParityConversation(),
+    projectWorkspacePath: "/Users/asc/repo/nodex",
+  },
+  render: (args) => (
+    <ReviewStorySurface {...args} openControlLabel="Collapse all diffs" />
+  ),
+  parameters: {
+    docs: {
+      description: {
+        story: "Collapse-all keeps every virtualized diff connected while reducing the list to stable file headers; the matching expand-all action remains in the toolbar.",
+      },
+    },
+  },
+};
+
 export const LastTurnWithFileTree: Story = {
   args: {
     initialFileTreeOpen: true,
