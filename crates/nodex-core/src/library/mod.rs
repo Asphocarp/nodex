@@ -417,9 +417,10 @@ mod tests {
         DocumentOptionalValue, OwnedDocumentIntent,
     };
     use nodex_core_contracts::library::{
-        LibraryAccess, LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode,
-        LibraryBlockTransferPlan, LibraryBlockTransferSource, LibraryBlockTransferTarget,
-        LibraryNavigationParent, LibraryPageWorkflowStatus, LibraryWriteParent,
+        LibraryAccess, LibraryBlockLocation, LibraryBlockTransferLogicalIntent,
+        LibraryBlockTransferMode, LibraryBlockTransferPlan, LibraryBlockTransferSource,
+        LibraryBlockTransferTarget, LibraryNavigationParent, LibraryPageWorkflowStatus,
+        LibraryWriteParent,
     };
     use nodex_core_contracts::{AdapterKind, LibraryId, ProfileId, ProjectId};
     use rusqlite::params;
@@ -1528,6 +1529,9 @@ mod tests {
         const ANCHOR_DOCUMENT: &str = "document:promotion-anchor";
         const PROMOTE_SIBLING: &str = "018f0000-0000-7000-8000-000000000311";
         const WRAP_SIBLING: &str = "018f0000-0000-7000-8000-000000000312";
+        const DATABASE: &str = "018f0000-0000-7000-8000-000000000321";
+        const DATA_SOURCE: &str = "018f0000-0000-7000-8000-000000000322";
+        const VIEW: &str = "018f0000-0000-7000-8000-000000000323";
         let context = BoundModuleContext {
             profile_id: ProfileId("profile-1".to_owned()),
             library_id: LibraryId("library-1".to_owned()),
@@ -1598,6 +1602,33 @@ mod tests {
                 )
                 .expect("create Page");
         }
+        library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "create-transform-database".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreateDatabase {
+                        database_id: DATABASE.to_owned(),
+                        data_source_id: DATA_SOURCE.to_owned(),
+                        view_id: VIEW.to_owned(),
+                        name: "Transform target".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("create Data Source target");
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE projects SET database_block_id = ?1 WHERE id = 'project-1'",
+                    [DATABASE],
+                )?;
+                Ok(())
+            })
+            .expect("bind primary Database");
         let roots = kernel
             .readers()
             .read_default(|connection| {
@@ -1828,6 +1859,83 @@ mod tests {
             "type_requires_wrapper"
         );
 
+        let data_source_intent = LibraryBlockTransferLogicalIntent {
+            actor: serde_json::json!({ "kind": "test" }),
+            mode: LibraryBlockTransferMode::Copy,
+            root_block_ids: vec![roots.1.clone()],
+            source: LibraryBlockTransferSource::Page {
+                page_id: WRAP_PAGE.to_owned(),
+            },
+            target: LibraryBlockTransferTarget::DataSource {
+                data_source_id: DATA_SOURCE.to_owned(),
+                view_id: VIEW.to_owned(),
+                group_key: Some("ship".to_owned()),
+                before_page_id: None,
+            },
+        };
+        let plan = library
+            .read(
+                &context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PlanBlockTransfer {
+                        operation_id: "copy-wrapper-to-data-source".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        intent: data_source_intent.clone(),
+                    },
+                },
+            )
+            .expect("plan Data Source wrapper");
+        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
+            panic!("Data Source plan");
+        };
+        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
+            panic!("prepared Data Source wrapper");
+        };
+        assert_eq!(preparation.lease_documents.len(), 1);
+        assert_eq!(preparation.target_document_id, None);
+        assert_eq!(preparation.target_database_id.as_deref(), Some(DATABASE));
+        let data_source_transfer = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "copy-wrapper-to-data-source".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: data_source_intent,
+                        write_fence: Some(preparation.lease_documents),
+                    },
+                },
+            )
+            .expect("copy wrapper to Data Source");
+        let data_source_result = data_source_transfer
+            .committed
+            .value
+            .block_transfer
+            .as_ref()
+            .expect("Data Source transfer result");
+        let data_source_page_id = data_source_result.result_root_block_ids[0].clone();
+        assert_eq!(
+            data_source_result.affected_database_ids,
+            vec![DATABASE.to_owned()]
+        );
+        assert_eq!(
+            data_source_result.transformation_evidence[0]["kind"],
+            "wrap"
+        );
+        assert_eq!(
+            data_source_result.final_locations[&data_source_page_id],
+            LibraryBlockLocation::DataSource {
+                database_id: DATABASE.to_owned(),
+                data_source_id: DATA_SOURCE.to_owned(),
+            }
+        );
+        assert_eq!(
+            data_source_result.final_location_revisions[&data_source_page_id],
+            2
+        );
+
         kernel
             .readers()
             .read_default(|connection| {
@@ -1891,6 +1999,70 @@ mod tests {
                     |row| row.get::<_, i64>(0),
                 )?;
                 assert_eq!(source_task_present, 1);
+                let data_source_evidence = connection.query_row(
+                    "SELECT block.project_id, block.location_kind, block.containing_database_id, \
+                            page.parent_kind, page.parent_id, membership.revision, \
+                            status.value_json, status.revision, position.group_key, \
+                            position.revision, projection.database_block_id, \
+                            projection.view_id, \
+                            (SELECT count(*) FROM library_block_placements WHERE block_id = block.id), \
+                            (SELECT count(*) FROM top_level_block_placements WHERE block_id = block.id) \
+                     FROM blocks block JOIN pages page ON page.block_id = block.id \
+                     JOIN data_source_page_memberships membership \
+                       ON membership.page_block_id = block.id AND membership.removed_at IS NULL \
+                     JOIN data_source_property_values status \
+                       ON status.membership_id = membership.id AND status.property_id = 'status' \
+                     JOIN database_view_page_positions position \
+                       ON position.page_block_id = block.id AND position.view_id = ?2 \
+                     JOIN page_read_model projection ON projection.page_block_id = block.id \
+                     WHERE block.id = ?1",
+                    params![data_source_page_id, VIEW],
+                    |row| {
+                        Ok((
+                            (
+                                row.get::<_, String>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, String>(2)?,
+                                row.get::<_, String>(3)?,
+                                row.get::<_, String>(4)?,
+                                row.get::<_, i64>(5)?,
+                                row.get::<_, String>(6)?,
+                            ),
+                            (
+                                row.get::<_, i64>(7)?,
+                                row.get::<_, String>(8)?,
+                                row.get::<_, i64>(9)?,
+                                row.get::<_, String>(10)?,
+                                row.get::<_, String>(11)?,
+                                row.get::<_, i64>(12)?,
+                                row.get::<_, i64>(13)?,
+                            ),
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    data_source_evidence,
+                    (
+                        (
+                            "project-1".to_owned(),
+                            "database".to_owned(),
+                            DATABASE.to_owned(),
+                            "data_source".to_owned(),
+                            DATA_SOURCE.to_owned(),
+                            1,
+                            "\"ship\"".to_owned(),
+                        ),
+                        (
+                            2,
+                            "ship".to_owned(),
+                            1,
+                            DATABASE.to_owned(),
+                            VIEW.to_owned(),
+                            0,
+                            0,
+                        ),
+                    )
+                );
                 Ok(())
             })
             .expect("transformation evidence");

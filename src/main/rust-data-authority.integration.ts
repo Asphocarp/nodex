@@ -182,10 +182,13 @@ describe("Electron native data authority", () => {
         throw new Error("Expected Core Database catalog");
       }
       expect(databaseCatalog.value.value.databases.length).toBeGreaterThan(0);
-      const primaryDataSource = databaseCatalog.value.value.databases[0]
-        ?.dataSources[0];
-      if (!primaryDataSource) {
-        throw new Error("Core Database catalog omitted the primary Data Source");
+      const primaryDatabase = databaseCatalog.value.value.databases[0];
+      const primaryDataSource = primaryDatabase?.dataSources[0];
+      const primaryView = primaryDatabase?.views.find((view) =>
+        view.dataSourceId === primaryDataSource?.dataSourceId
+      );
+      if (!primaryDatabase || !primaryDataSource || !primaryView) {
+        throw new Error("Core Database catalog omitted its primary authority");
       }
       const nativePropertyId = parseDataSourcePropertyId("p_rustcore");
       const databaseWrite = {
@@ -813,6 +816,76 @@ describe("Electron native data authority", () => {
             headSeq: 1,
           }),
         ]),
+      });
+      const copyToDataSourceIntent = {
+        ...transferIntent,
+        operationId: "electron-native-block-transfer-copy-to-data-source",
+        mode: "copy" as const,
+        rootBlockIds: [nativeTargetAnchorBlockId],
+        source: {
+          kind: "document" as const,
+          documentId: nativeTargetDocumentId,
+        },
+        target: {
+          kind: "data_source" as const,
+          dataSourceId: primaryDataSource.dataSourceId,
+          viewId: primaryView.viewId,
+          groupKey: "ship",
+        },
+      };
+      const preparedDataSourceCopy = await transferAdapter.prepare(
+        copyToDataSourceIntent,
+      );
+      if (!preparedDataSourceCopy.ok) {
+        throw new Error(
+          `Core Data Source copy preparation failed: ${preparedDataSourceCopy.error.code}: ${preparedDataSourceCopy.error.message}`,
+        );
+      }
+      expect(preparedDataSourceCopy.value).toMatchObject({
+        leaseDocuments: [{
+          documentId: nativeTargetDocumentId,
+          generation: 1,
+          expectedHeadSeq: 3,
+        }],
+        request: {
+          target: {
+            kind: "database",
+            databaseBlockId: primaryDatabase.database.databaseId,
+            dataSourceId: primaryDataSource.dataSourceId,
+            viewId: primaryView.viewId,
+            groupKey: "ship",
+          },
+        },
+      });
+      const copiedToDataSource = await transferAdapter.apply(
+        preparedDataSourceCopy.value.request,
+      );
+      if (!copiedToDataSource.ok) {
+        throw new Error(
+          `Core Data Source copy failed: ${copiedToDataSource.error.code}: ${copiedToDataSource.error.message}`,
+        );
+      }
+      const copiedDataSourcePageId =
+        copiedToDataSource.value.resultRootBlockIds[0];
+      if (!copiedDataSourcePageId) {
+        throw new Error("Core Data Source copy omitted its Page root");
+      }
+      expect(copiedToDataSource.value).toMatchObject({
+        operationId: copyToDataSourceIntent.operationId,
+        duplicate: false,
+        transformationEvidence: [{
+          sourceBlockId: nativeTargetAnchorBlockId,
+          resultPageId: copiedDataSourcePageId,
+          kind: "promote",
+        }],
+        finalLocations: {
+          [copiedDataSourcePageId]: {
+            kind: "database",
+            databaseBlockId: primaryDatabase.database.databaseId,
+          },
+        },
+        finalLocationRevisions: { [copiedDataSourcePageId]: 2 },
+        affectedDatabaseBlockIds: [primaryDatabase.database.databaseId],
       });
       databaseEventSubscription.close();
       expect(listCurrentProcessFiles()).not.toContain(databasePath);

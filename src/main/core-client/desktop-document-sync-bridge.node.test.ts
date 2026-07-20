@@ -728,6 +728,7 @@ describe("Desktop Document sync bridge", () => {
     const preparation = {
       source_document_id: "document:source",
       target_document_id: "document:target",
+      target_database_id: null,
       lease_documents: [{
         document_id: "document:source",
         generation: 1,

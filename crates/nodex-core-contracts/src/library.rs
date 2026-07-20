@@ -153,6 +153,7 @@ pub struct LibraryBlockTransferPreparation {
     pub expected_location_revisions: std::collections::BTreeMap<String, i64>,
     pub source_document_id: String,
     pub target_document_id: Option<String>,
+    pub target_database_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

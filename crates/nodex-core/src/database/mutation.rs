@@ -1029,12 +1029,110 @@ pub(crate) struct PageCopyDataSourceDestination {
 pub(crate) struct PageCopyDataSourcePlacement {
     pub(crate) database_id: String,
     pub(crate) data_source_id: String,
+    pub(crate) membership_id: String,
     pub(crate) affected_view_ids: Vec<String>,
     pub(crate) location_revision: i64,
     pub(crate) metadata_revision: i64,
     pub(crate) parent_revision: i64,
     pub(crate) value_revisions: BTreeMap<String, i64>,
     pub(crate) position_revision: Option<i64>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct StagedPagePlacementRevisions {
+    pub(crate) location_revision: i64,
+    pub(crate) metadata_revision: i64,
+    pub(crate) parent_revision: i64,
+}
+
+pub(crate) struct ResolvedPageTransferDataSourceDestination {
+    pub(crate) project_id: String,
+    pub(crate) database_id: String,
+    pub(crate) destination: PageCopyDataSourceDestination,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn resolve_page_transfer_data_source_destination(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: &str,
+    data_source_id: &str,
+    view_id: &str,
+    group_key: Option<&str>,
+    before_page_id: Option<&str>,
+) -> Result<ResolvedPageTransferDataSourceDestination, StoreError> {
+    let source = require_source(connection, library_id, data_source_id)?;
+    authorize_write(
+        connection,
+        requesting_project_id,
+        &source.database_id,
+        DatabaseWriteAction::Write,
+        false,
+    )?;
+    let project_id = connection
+        .query_row(
+            "SELECT project_id FROM blocks WHERE id = ?1 AND type = 'database' \
+             AND lifecycle = 'active'",
+            [&source.database_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .ok_or_else(|| corrupt("Target Data Source has no active Database authority"))?;
+    let view = view_row(connection, view_id)?
+        .filter(|view| view.lifecycle == "active")
+        .ok_or_else(|| not_found("Block transfer target View is unavailable"))?;
+    if view.database_id != source.database_id || view.data_source_id != source.id {
+        return Err(invalid(
+            "Block transfer target View belongs to another Data Source",
+        ));
+    }
+    let config = parse_json(&view.config_json, "Database View config")?;
+    let values = view_group_property(&config)
+        .map(|property_id| PageCopyValueDraft {
+            property_id: property_id.to_owned(),
+            value: group_key.map_or(Value::Null, |value| Value::String(value.to_owned())),
+        })
+        .into_iter()
+        .collect();
+    let before = before_page_id
+        .map(|page_id| {
+            let expected_position_revision = connection
+                .query_row(
+                    "SELECT COALESCE(position.revision, 0) \
+                     FROM data_source_page_memberships membership \
+                     JOIN pages page ON page.block_id = membership.page_block_id \
+                     LEFT JOIN database_view_page_positions position \
+                       ON position.view_id = ?1 AND position.page_block_id = page.block_id \
+                     WHERE membership.data_source_id = ?2 \
+                       AND membership.page_block_id = ?3 AND membership.removed_at IS NULL \
+                       AND page.parent_kind = 'data_source' AND page.parent_id = ?2 \
+                       AND page.lifecycle = 'active'",
+                    params![view_id, data_source_id, page_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()?
+                .ok_or_else(|| not_found("Block transfer View anchor is unavailable"))?;
+            Ok::<_, StoreError>(PageCopyPositionAnchor {
+                page_id: page_id.to_owned(),
+                expected_position_revision,
+            })
+        })
+        .transpose()?;
+    Ok(ResolvedPageTransferDataSourceDestination {
+        project_id,
+        database_id: source.database_id,
+        destination: PageCopyDataSourceDestination {
+            data_source_id: source.id,
+            expected_data_source_revision: source.revision,
+            values,
+            view: Some(PageCopyViewPlacement {
+                view_id: view.id,
+                expected_view_revision: view.revision,
+                group_key: group_key.map(str::to_owned),
+                before,
+            }),
+        },
+    })
 }
 
 pub(crate) fn resolve_page_copy_data_source_project(
@@ -1078,8 +1176,35 @@ pub(crate) fn place_copied_page_in_data_source(
     destination: &PageCopyDataSourceDestination,
     now: &str,
 ) -> Result<PageCopyDataSourcePlacement, StoreError> {
+    place_staged_page_in_data_source(
+        connection,
+        library_id,
+        requesting_project_id,
+        Some(source_page_id),
+        copied_page_id,
+        destination,
+        StagedPagePlacementRevisions {
+            location_revision: 1,
+            metadata_revision: 1,
+            parent_revision: 1,
+        },
+        now,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn place_staged_page_in_data_source(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: &str,
+    source_page_id: Option<&str>,
+    staged_page_id: &str,
+    destination: &PageCopyDataSourceDestination,
+    expected: StagedPagePlacementRevisions,
+    now: &str,
+) -> Result<PageCopyDataSourcePlacement, StoreError> {
     if destination.values.len() > 512 {
-        return Err(invalid("Page copy values exceed their bound"));
+        return Err(invalid("Data Source placement values exceed their bound"));
     }
     let property_ids = destination
         .values
@@ -1087,7 +1212,9 @@ pub(crate) fn place_copied_page_in_data_source(
         .map(|value| value.property_id.as_str())
         .collect::<HashSet<_>>();
     if property_ids.len() != destination.values.len() {
-        return Err(invalid("Page copy Property values must be unique"));
+        return Err(invalid(
+            "Data Source placement Property values must be unique",
+        ));
     }
     let source = require_source(connection, library_id, &destination.data_source_id)?;
     require_revision(
@@ -1111,14 +1238,14 @@ pub(crate) fn place_copied_page_in_data_source(
         )
         .optional()?
         .ok_or_else(|| corrupt("Target Data Source has no active Database authority"))?;
-    let copied = connection
+    let staged = connection
         .query_row(
             "SELECT block.project_id, block.location_kind, block.location_revision, \
                block.metadata_revision, page.parent_kind, page.parent_id, page.parent_revision \
              FROM blocks block JOIN pages page ON page.block_id = block.id \
              WHERE block.id = ?1 AND block.type = 'page' AND block.lifecycle = 'active' \
                AND page.lifecycle = 'active'",
-            [copied_page_id],
+            [staged_page_id],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
@@ -1132,39 +1259,42 @@ pub(crate) fn place_copied_page_in_data_source(
             },
         )
         .optional()?
-        .ok_or_else(|| corrupt("Staged copied Page authority disappeared"))?;
-    if copied.0 != storage_project_id
-        || copied.1 != "space"
-        || copied.2 != 1
-        || copied.3 != 1
-        || copied.4 != "library"
-        || copied.5 != library_id
-        || copied.6 != 1
+        .ok_or_else(|| corrupt("Staged Page authority disappeared"))?;
+    if staged.0 != storage_project_id
+        || staged.1 != "space"
+        || staged.2 != expected.location_revision
+        || staged.3 != expected.metadata_revision
+        || staged.4 != "library"
+        || staged.5 != library_id
+        || staged.6 != expected.parent_revision
     {
-        return Err(corrupt(
-            "Staged copied Page has noncanonical initial placement",
-        ));
+        return Err(corrupt("Staged Page has noncanonical initial placement"));
     }
-    let source_membership = connection
-        .query_row(
-            "SELECT id, data_source_id, revision FROM data_source_page_memberships \
-             WHERE page_block_id = ?1 AND removed_at IS NULL",
-            [source_page_id],
-            |row| {
-                Ok(ActiveMembership {
-                    id: row.get(0)?,
-                    data_source_id: row.get(1)?,
-                    revision: row.get(2)?,
-                })
-            },
-        )
-        .optional()?;
-    let membership_id = deterministic_membership_id(&destination.data_source_id, copied_page_id);
+    let source_membership = source_page_id
+        .map(|source_page_id| {
+            connection
+                .query_row(
+                    "SELECT id, data_source_id, revision FROM data_source_page_memberships \
+                     WHERE page_block_id = ?1 AND removed_at IS NULL",
+                    [source_page_id],
+                    |row| {
+                        Ok(ActiveMembership {
+                            id: row.get(0)?,
+                            data_source_id: row.get(1)?,
+                            revision: row.get(2)?,
+                        })
+                    },
+                )
+                .optional()
+        })
+        .transpose()?
+        .flatten();
+    let membership_id = deterministic_membership_id(&destination.data_source_id, staged_page_id);
     if connection
         .query_row(
             "SELECT 1 FROM data_source_page_memberships WHERE id = ?1 \
              OR (data_source_id = ?2 AND page_block_id = ?3)",
-            params![membership_id, destination.data_source_id, copied_page_id],
+            params![membership_id, destination.data_source_id, staged_page_id],
             |_| Ok(()),
         )
         .optional()?
@@ -1172,7 +1302,7 @@ pub(crate) fn place_copied_page_in_data_source(
     {
         return Err(StoreError::new(
             StoreErrorCode::AlreadyOwned,
-            "Copied Page membership identity is already owned",
+            "Staged Page membership identity is already owned",
             false,
         ));
     }
@@ -1229,18 +1359,36 @@ pub(crate) fn place_copied_page_in_data_source(
 
     connection.execute(
         "DELETE FROM top_level_block_placements WHERE block_id = ?1",
-        [copied_page_id],
+        [staged_page_id],
     )?;
     connection.execute(
         "DELETE FROM library_block_placements WHERE block_id = ?1",
-        [copied_page_id],
+        [staged_page_id],
     )?;
-    connection.execute(
-        "UPDATE blocks SET location_kind = 'database', containing_document_id = NULL, \
-           containing_database_id = ?1, location_revision = 2, metadata_revision = 2, \
-           updated_at = ?2 WHERE id = ?3",
-        params![source.database_id, now, copied_page_id],
-    )?;
+    let location_revision = connection
+        .query_row(
+            "UPDATE blocks SET location_kind = 'database', containing_document_id = NULL, \
+               containing_database_id = ?1, location_revision = location_revision + 1, \
+               metadata_revision = metadata_revision + 1, updated_at = ?2 \
+             WHERE id = ?3 AND location_revision = ?4 AND metadata_revision = ?5 \
+             RETURNING location_revision",
+            params![
+                source.database_id,
+                now,
+                staged_page_id,
+                expected.location_revision,
+                expected.metadata_revision,
+            ],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?
+        .ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::RevisionConflict,
+                "Staged Page location changed during placement",
+                true,
+            )
+        })?;
     connection.execute(
         "INSERT INTO data_source_page_memberships( \
            id, data_source_id, page_block_id, revision, created_at, removed_at \
@@ -1248,7 +1396,7 @@ pub(crate) fn place_copied_page_in_data_source(
         params![
             membership_id,
             destination.data_source_id,
-            copied_page_id,
+            staged_page_id,
             now
         ],
     )?;
@@ -1260,21 +1408,31 @@ pub(crate) fn place_copied_page_in_data_source(
         now,
         None,
     )?;
-    let updated = connection.execute(
-        "UPDATE pages SET parent_kind = 'data_source', parent_id = ?1, parent_revision = 2, \
-           metadata_revision = 2, updated_at = ?2 WHERE block_id = ?3 AND parent_revision = 1",
-        params![destination.data_source_id, now, copied_page_id],
-    )?;
-    if updated != 1 {
-        return Err(StoreError::new(
-            StoreErrorCode::RevisionConflict,
-            "Copied Page parent authority changed during placement",
-            true,
-        ));
-    }
+    let parent_revision = connection
+        .query_row(
+            "UPDATE pages SET parent_kind = 'data_source', parent_id = ?1, \
+               parent_revision = parent_revision + 1, metadata_revision = metadata_revision + 1, \
+               updated_at = ?2 WHERE block_id = ?3 AND parent_revision = ?4 \
+             RETURNING parent_revision",
+            params![
+                destination.data_source_id,
+                now,
+                staged_page_id,
+                expected.parent_revision,
+            ],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?
+        .ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::RevisionConflict,
+                "Staged Page parent authority changed during placement",
+                true,
+            )
+        })?;
     refresh_transferred_page_projection(
         connection,
-        copied_page_id,
+        staged_page_id,
         Some(&membership_id),
         Some(&destination.data_source_id),
         now,
@@ -1296,7 +1454,7 @@ pub(crate) fn place_copied_page_in_data_source(
             library_id,
             requesting_project_id,
             &DatabasePageValue {
-                page_id: copied_page_id.to_owned(),
+                page_id: staged_page_id.to_owned(),
                 data_source_id: destination.data_source_id.clone(),
                 property_id: value.property_id.clone(),
                 expected_value_revision,
@@ -1314,7 +1472,7 @@ pub(crate) fn place_copied_page_in_data_source(
             requesting_project_id,
             &placement.view_id,
             &[DatabasePagePosition {
-                page_id: copied_page_id.to_owned(),
+                page_id: staged_page_id.to_owned(),
                 expected_position_revision: 0,
             }],
             placement.group_key.as_deref(),
@@ -1329,10 +1487,10 @@ pub(crate) fn place_copied_page_in_data_source(
     }
     effects.database_ids.insert(source.database_id.clone());
     effects.data_source_ids.insert(source.id.clone());
-    effects.page_ids.insert(copied_page_id.to_owned());
+    effects.page_ids.insert(staged_page_id.to_owned());
     let metadata_revision = connection.query_row(
         "SELECT metadata_revision FROM blocks WHERE id = ?1",
-        [copied_page_id],
+        [staged_page_id],
         |row| row.get::<_, i64>(0),
     )?;
     let value_revisions = destination
@@ -1355,7 +1513,7 @@ pub(crate) fn place_copied_page_in_data_source(
             connection.query_row(
                 "SELECT revision FROM database_view_page_positions \
                  WHERE view_id = ?1 AND page_block_id = ?2",
-                params![placement.view_id, copied_page_id],
+                params![placement.view_id, staged_page_id],
                 |row| row.get::<_, i64>(0),
             )
         })
@@ -1363,10 +1521,11 @@ pub(crate) fn place_copied_page_in_data_source(
     Ok(PageCopyDataSourcePlacement {
         database_id: source.database_id,
         data_source_id: source.id,
+        membership_id,
         affected_view_ids: effects.view_ids.into_iter().collect(),
-        location_revision: 2,
+        location_revision,
         metadata_revision,
-        parent_revision: 2,
+        parent_revision,
         value_revisions,
         position_revision,
     })

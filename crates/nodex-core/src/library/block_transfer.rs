@@ -10,6 +10,10 @@ use nodex_core_contracts::{BoundModuleContext, CommittedModuleValue};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
 
+use crate::database::{
+    PageCopyDataSourceDestination, StagedPagePlacementRevisions, place_staged_page_in_data_source,
+    resolve_page_transfer_data_source_destination,
+};
 use crate::document::{
     BlockDocumentSchema, DocumentAuthorityRow, DocumentBlockOperation, DocumentMaterialization,
     NewDocumentCheckpoint, PersistYjsCommit, PersistYjsGenesis, PortableSubtreeDocumentHead,
@@ -65,6 +69,17 @@ struct PreparedPageParentTransfer {
     expected_location_revisions: BTreeMap<String, i64>,
     copied_block_ids: BTreeMap<String, String>,
     target_project_id: String,
+    target: PreparedPageParentTarget,
+}
+
+enum PreparedPageParentTarget {
+    Library {
+        before_block_id: Option<String>,
+    },
+    DataSource {
+        database_id: String,
+        destination: PageCopyDataSourceDestination,
+    },
 }
 
 struct PreparedPageParentRoot {
@@ -144,7 +159,10 @@ pub(super) fn plan(
             committed_at: committed.receipt.committed_at,
         });
     }
-    if matches!(intent.target, LibraryBlockTransferTarget::Library { .. }) {
+    if matches!(
+        intent.target,
+        LibraryBlockTransferTarget::Library { .. } | LibraryBlockTransferTarget::DataSource { .. }
+    ) {
         let prepared =
             prepare_page_parent_transfer(connection, context, library_id, operation_id, intent)?;
         return Ok(LibraryBlockTransferPlan::Prepared {
@@ -169,7 +187,10 @@ pub(super) fn apply(
     write_fence: Option<&[LibraryBlockTransferDocumentHead]>,
 ) -> Result<LibraryApplyOutcome, StoreError> {
     validate_intent(library_id, intent)?;
-    if matches!(intent.target, LibraryBlockTransferTarget::Library { .. }) {
+    if matches!(
+        intent.target,
+        LibraryBlockTransferTarget::Library { .. } | LibraryBlockTransferTarget::DataSource { .. }
+    ) {
         return apply_page_parent_transfer(
             connection,
             context,
@@ -470,18 +491,52 @@ fn prepare_page_parent_transfer(
 ) -> Result<PreparedPageParentTransfer, StoreError> {
     let project_id = bound_project_id(context)?;
     require_project_in_library(connection, project_id, library_id)?;
-    let LibraryBlockTransferTarget::Library {
-        library_id: target_library_id,
-        ..
-    } = &intent.target
-    else {
-        return Err(invalid("Page-parent transfer requires a Library target"));
+    let (target_project_id, target) = match &intent.target {
+        LibraryBlockTransferTarget::Library {
+            library_id: target_library_id,
+            before_block_id,
+        } => {
+            if target_library_id != library_id {
+                return Err(unauthorized(
+                    "Block transfer target belongs to another Library",
+                ));
+            }
+            (
+                project_id.to_owned(),
+                PreparedPageParentTarget::Library {
+                    before_block_id: before_block_id.clone(),
+                },
+            )
+        }
+        LibraryBlockTransferTarget::DataSource {
+            data_source_id,
+            view_id,
+            group_key,
+            before_page_id,
+        } => {
+            let resolved = resolve_page_transfer_data_source_destination(
+                connection,
+                library_id,
+                project_id,
+                data_source_id,
+                view_id,
+                group_key.as_deref(),
+                before_page_id.as_deref(),
+            )?;
+            (
+                resolved.project_id,
+                PreparedPageParentTarget::DataSource {
+                    database_id: resolved.database_id,
+                    destination: resolved.destination,
+                },
+            )
+        }
+        _ => {
+            return Err(invalid(
+                "Page-parent transfer requires a Library or Data Source target",
+            ));
+        }
     };
-    if target_library_id != library_id {
-        return Err(unauthorized(
-            "Block transfer target belongs to another Library",
-        ));
-    }
     let source_page_id = match &intent.source {
         LibraryBlockTransferSource::Page { page_id } => Some(page_id.as_str()),
         _ => None,
@@ -637,7 +692,8 @@ fn prepare_page_parent_transfer(
         roots,
         expected_location_revisions,
         copied_block_ids,
-        target_project_id: project_id.to_owned(),
+        target_project_id,
+        target,
     })
 }
 
@@ -653,6 +709,10 @@ fn page_parent_preparation(
         expected_location_revisions: prepared.expected_location_revisions.clone(),
         source_document_id: prepared.source_authority.head.id.clone(),
         target_document_id: None,
+        target_database_id: match &prepared.target {
+            PreparedPageParentTarget::Library { .. } => None,
+            PreparedPageParentTarget::DataSource { database_id, .. } => Some(database_id.clone()),
+        },
     }
 }
 
@@ -769,6 +829,7 @@ fn preparation(prepared: &PreparedTransfer) -> LibraryBlockTransferPreparation {
         expected_location_revisions: prepared.expected_location_revisions.clone(),
         source_document_id: prepared.source_authority.head.id.clone(),
         target_document_id: Some(prepared.target_authority.head.id.clone()),
+        target_database_id: None,
     }
 }
 
@@ -807,11 +868,9 @@ fn apply_page_parent_transfer(
         )?;
     }
 
-    let before_block_id = match &intent.target {
-        LibraryBlockTransferTarget::Library {
-            before_block_id, ..
-        } => before_block_id.as_deref(),
-        _ => None,
+    let before_block_id = match &prepared.target {
+        PreparedPageParentTarget::Library { before_block_id } => before_block_id.as_deref(),
+        PreparedPageParentTarget::DataSource { .. } => None,
     };
     let mut staged = Vec::with_capacity(prepared.roots.len());
     for root in &prepared.roots {
@@ -839,7 +898,14 @@ fn apply_page_parent_transfer(
             store_epoch,
         )?);
     }
+    let mut data_source_placements = Vec::new();
     for stage in staged {
+        let page_id = stage.page_id.clone();
+        let staged_revisions = StagedPagePlacementRevisions {
+            location_revision: stage.location_revision,
+            metadata_revision: stage.metadata_revision,
+            parent_revision: stage.parent_revision,
+        };
         document_commits.push(persist_page_parent_genesis(
             connection,
             store_epoch,
@@ -847,6 +913,19 @@ fn apply_page_parent_transfer(
             stage,
             &now,
         )?);
+        if let PreparedPageParentTarget::DataSource { destination, .. } = &prepared.target {
+            let placement = place_staged_page_in_data_source(
+                connection,
+                library_id,
+                bound_project_id(context)?,
+                None,
+                &page_id,
+                destination,
+                staged_revisions,
+                &now,
+            )?;
+            data_source_placements.push((page_id, placement));
+        }
     }
 
     let result_root_block_ids = prepared
@@ -861,6 +940,18 @@ fn apply_page_parent_transfer(
         .collect::<Vec<_>>();
     let (final_locations, final_location_revisions) =
         read_final_locations(connection, &result_block_ids)?;
+    let mut affected_database_ids = data_source_placements
+        .iter()
+        .map(|(_, placement)| placement.database_id.clone())
+        .collect::<Vec<_>>();
+    affected_database_ids.sort();
+    affected_database_ids.dedup();
+    let mut affected_view_ids = data_source_placements
+        .iter()
+        .flat_map(|(_, placement)| placement.affected_view_ids.clone())
+        .collect::<Vec<_>>();
+    affected_view_ids.sort();
+    affected_view_ids.dedup();
     let result = LibraryBlockTransferResult {
         mode: intent.mode,
         source_root_block_ids: intent.root_block_ids.clone(),
@@ -877,18 +968,54 @@ fn apply_page_parent_transfer(
             .iter()
             .map(|commit| commit.public.clone())
             .collect(),
-        affected_database_ids: Vec::new(),
+        affected_database_ids: affected_database_ids.clone(),
     };
-    let committed_revisions = final_location_revisions
+    let mut committed_revisions = final_location_revisions
         .iter()
         .map(|(block_id, revision)| (format!("blockLocation:{block_id}"), *revision))
-        .chain(document_commits.iter().map(|commit| {
-            (
-                format!("documentHead:{}", commit.public.document_id),
-                commit.public.head_seq,
-            )
-        }))
-        .collect();
+        .collect::<BTreeMap<_, _>>();
+    for commit in &document_commits {
+        committed_revisions.insert(
+            format!("documentHead:{}", commit.public.document_id),
+            commit.public.head_seq,
+        );
+    }
+    for (page_id, placement) in &data_source_placements {
+        committed_revisions.insert(
+            format!("blockMetadata:{page_id}"),
+            placement.metadata_revision,
+        );
+        committed_revisions.insert(format!("pageParent:{page_id}"), placement.parent_revision);
+        committed_revisions.insert(
+            format!(
+                "membership:{}:{}",
+                placement.data_source_id, placement.membership_id
+            ),
+            1,
+        );
+        for (property_id, revision) in &placement.value_revisions {
+            committed_revisions.insert(
+                format!(
+                    "propertyValue:{}:{}:{}",
+                    placement.data_source_id, page_id, property_id
+                ),
+                *revision,
+            );
+        }
+        if let (PreparedPageParentTarget::DataSource { destination, .. }, Some(revision)) =
+            (&prepared.target, placement.position_revision)
+            && let Some(view) = &destination.view
+        {
+            committed_revisions
+                .insert(format!("viewPosition:{}:{page_id}", view.view_id), revision);
+        }
+    }
+    let affected_parent_keys = match &prepared.target {
+        PreparedPageParentTarget::Library { .. } => vec![format!("library:{library_id}")],
+        PreparedPageParentTarget::DataSource { destination, .. } => {
+            vec![format!("data_source:{}", destination.data_source_id)]
+        }
+    };
     let outcome = finish_mutation(
         connection,
         context,
@@ -901,15 +1028,15 @@ fn apply_page_parent_transfer(
             change_kind: "block_mutation",
             did_mutate: true,
             created_target: None,
-            affected_parent_keys: vec![format!("library:{library_id}")],
+            affected_parent_keys,
             affected_block_ids: result_block_ids,
             affected_page_ids: prepared
                 .roots
                 .iter()
                 .map(|root| root.page_id.clone())
                 .collect(),
-            affected_database_ids: Vec::new(),
-            affected_view_ids: Vec::new(),
+            affected_database_ids,
+            affected_view_ids,
             affected_document_ids: document_commits
                 .iter()
                 .map(|commit| commit.public.document_id.clone())
@@ -947,6 +1074,9 @@ struct StagedPageParentGenesis {
     page_id: String,
     document_id: String,
     top_level_rank: String,
+    location_revision: i64,
+    metadata_revision: i64,
+    parent_revision: i64,
     prepared: crate::document::PreparedYjsGenesis,
 }
 
@@ -1104,6 +1234,9 @@ fn stage_page_parent_root(
         page_id: root.page_id.clone(),
         document_id: root.document_id.clone(),
         top_level_rank,
+        location_revision: revisions.0,
+        metadata_revision: revisions.1,
+        parent_revision: revisions.0,
         prepared: prepared_genesis,
     })
 }
@@ -1663,9 +1796,11 @@ fn read_final_locations(
                         location_revision, project.library_id, block.project_id, \
                         EXISTS(SELECT 1 FROM library_block_placements placement \
                           WHERE placement.block_id = block.id AND placement.library_id = project.library_id), \
-                        top_level.rank_key \
+                        top_level.rank_key, membership.data_source_id \
                  FROM blocks block JOIN projects project ON project.id = block.project_id \
                  LEFT JOIN top_level_block_placements top_level ON top_level.block_id = block.id \
+                 LEFT JOIN data_source_page_memberships membership \
+                   ON membership.page_block_id = block.id AND membership.removed_at IS NULL \
                  WHERE block.id = ?1",
                 [block_id],
                 |row| {
@@ -1678,20 +1813,27 @@ fn read_final_locations(
                         row.get::<_, String>(5)?,
                         row.get::<_, bool>(6)?,
                         row.get::<_, Option<String>>(7)?,
+                        row.get::<_, Option<String>>(8)?,
                     ))
                 },
             )
             .optional()?
             .ok_or_else(|| corrupt(format!("Committed Block disappeared: {block_id}")))?;
-        let location = match (row.0.as_str(), row.1, row.2, row.6, row.7) {
-            ("document", Some(document_id), None, false, None) => {
+        let location = match (row.0.as_str(), row.1, row.2, row.6, row.7, row.8) {
+            ("document", Some(document_id), None, false, None, None) => {
                 LibraryBlockLocation::Document { document_id }
             }
-            ("space", None, None, true, Some(rank_key)) => LibraryBlockLocation::Library {
+            ("space", None, None, true, Some(rank_key), None) => LibraryBlockLocation::Library {
                 library_id: row.4,
                 project_id: row.5,
                 rank_key,
             },
+            ("database", None, Some(database_id), false, None, Some(data_source_id)) => {
+                LibraryBlockLocation::DataSource {
+                    database_id,
+                    data_source_id,
+                }
+            }
             _ => {
                 return Err(corrupt(format!(
                     "Committed Block has invalid location: {block_id}"

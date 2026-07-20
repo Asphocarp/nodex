@@ -177,8 +177,8 @@ const toPreparedRequest = (
   const sourceHead = requireHead(leaseDocuments, plan.source_document_id);
   const target: BlockTransferRequest["target"] = (() => {
     if (intent.target.kind === "library") {
-      if (plan.target_document_id != null) {
-        throw new Error("Core returned a target Document for a Library placement");
+      if (plan.target_document_id != null || plan.target_database_id != null) {
+        throw new Error("Core returned storage authority for a Library placement");
       }
       return {
         kind: "space",
@@ -189,11 +189,21 @@ const toPreparedRequest = (
       };
     }
     if (intent.target.kind === "data_source") {
-      throw new Error(
-        "Core returned a prepared Data Source transfer before its placement mapping was implemented",
-      );
+      if (plan.target_document_id != null || plan.target_database_id == null) {
+        throw new Error("Core returned invalid Data Source placement authority");
+      }
+      return {
+        kind: "database",
+        databaseBlockId: plan.target_database_id,
+        dataSourceId: intent.target.dataSourceId,
+        viewId: intent.target.viewId,
+        groupKey: intent.target.groupKey,
+        ...(intent.target.beforePageId
+          ? { beforePageId: intent.target.beforePageId }
+          : {}),
+      };
     }
-    if (plan.target_document_id == null) {
+    if (plan.target_document_id == null || plan.target_database_id != null) {
       throw new Error("Core omitted the Block transfer target Document");
     }
     const targetHead = requireHead(leaseDocuments, plan.target_document_id);
@@ -334,11 +344,6 @@ const fromCoreResult = (
   changeLogSeq: number,
   committedAt: string,
 ): BlockTransferReceipt => {
-  if (result.affected_database_ids.length > 0) {
-    throw new Error(
-      "Core returned Data Source transfer evidence before the public native mapping was implemented",
-    );
-  }
   return {
     version: BLOCK_TRANSFER_CONTRACT_VERSION,
     operationId: intent.operationId,
@@ -366,7 +371,7 @@ const fromCoreResult = (
       update: Uint8Array.from(commit.update),
       stateVector: Uint8Array.from(commit.state_vector),
     })),
-    affectedDatabaseBlockIds: [],
+    affectedDatabaseBlockIds: result.affected_database_ids,
     changeLogSeq,
     committedAt,
   };

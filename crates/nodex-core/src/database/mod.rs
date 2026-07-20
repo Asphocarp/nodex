@@ -5,9 +5,10 @@ pub(crate) mod read;
 pub(crate) use genesis::create_database_authority_records;
 pub(crate) use mutation::{
     PageCopyDataSourceDestination, PageCopyPositionAnchor, PageCopyValueDraft,
-    PageCopyViewPlacement, place_copied_page_in_data_source,
+    PageCopyViewPlacement, StagedPagePlacementRevisions, place_copied_page_in_data_source,
+    place_staged_page_in_data_source,
     refresh_transferred_page_projection as refresh_copied_page_projection,
-    resolve_page_copy_data_source_project,
+    resolve_page_copy_data_source_project, resolve_page_transfer_data_source_destination,
 };
 
 use nodex_core_contracts::database::{

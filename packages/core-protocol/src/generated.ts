@@ -998,6 +998,7 @@ export interface components {
             };
             readonly lease_documents: readonly components["schemas"]["LibraryBlockTransferDocumentHead"][];
             readonly source_document_id: string;
+            readonly target_database_id?: string | null;
             readonly target_document_id?: string | null;
         };
         readonly LibraryBlockTransferResult: {

@@ -3478,6 +3478,12 @@
           "source_document_id": {
             "type": "string"
           },
+          "target_database_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "target_document_id": {
             "type": [
               "string",

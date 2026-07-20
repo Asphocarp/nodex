@@ -76,6 +76,7 @@ const preparedSnapshot = (): LibraryReadSnapshot => ({
       preparation: {
         source_document_id: "document:source",
         target_document_id: "document:target",
+        target_database_id: null,
         lease_documents: [{
           document_id: "document:source",
           generation: 1,
@@ -246,6 +247,7 @@ describe("Core Block Transfer Adapter", () => {
           preparation: {
             source_document_id: "document:source",
             target_document_id: null,
+            target_database_id: null,
             lease_documents: [{
               document_id: "document:source",
               generation: 1,
@@ -340,6 +342,131 @@ describe("Core Block Transfer Adapter", () => {
             kind: "library",
             library_id: identity.libraryId,
             before_block_id: "page:anchor",
+          },
+        },
+        write_fence: [{ document_id: "document:source" }],
+      },
+    });
+  });
+
+  test("maps native Data Source authority, placement, and affected Database evidence", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreBlockTransferAdapter({ client, ...identity });
+    const dataSourceIntent: BlockTransferIntent = {
+      ...intent,
+      operationId: "transfer:data-source",
+      mode: "copy",
+      target: {
+        kind: "data_source",
+        dataSourceId: "source:target",
+        viewId: "view:target",
+        groupKey: "ship",
+        beforePageId: "page:anchor",
+      },
+    };
+    client.enqueueRead({
+      ...preparedSnapshot(),
+      value: {
+        kind: "block_transfer_plan",
+        value: {
+          kind: "prepared",
+          preparation: {
+            source_document_id: "document:source",
+            target_document_id: null,
+            target_database_id: "database:target",
+            lease_documents: [{
+              document_id: "document:source",
+              generation: 1,
+              expected_head_seq: 3,
+            }],
+            expected_location_revisions: { "block:root": 1 },
+          },
+        },
+      },
+    });
+
+    const prepared = await adapter.prepare(dataSourceIntent);
+    expect(prepared).toMatchObject({
+      ok: true,
+      value: {
+        request: {
+          target: {
+            kind: "database",
+            databaseBlockId: "database:target",
+            dataSourceId: "source:target",
+            viewId: "view:target",
+            groupKey: "ship",
+            beforePageId: "page:anchor",
+          },
+        },
+        leaseDocuments: [{ documentId: "document:source" }],
+      },
+    });
+    if (!prepared.ok) throw new Error("Expected a prepared Data Source transfer");
+
+    const dataSourceResult = {
+      ...coreResult(),
+      mode: "copy" as const,
+      result_root_block_ids: ["page:wrapper"],
+      copied_block_ids: { "block:root": "block:copy" },
+      transformation_evidence: [{
+        sourceBlockId: "block:root",
+        resultPageId: "page:wrapper",
+        kind: "wrap",
+        sourceBlockType: "checkListItem",
+        semanticTitleHash: "b".repeat(64),
+        consumedPropertyKeys: [],
+        wrapperReason: "type_requires_wrapper",
+        bodyRootBlockIds: ["block:copy"],
+        sourceToResultBlockIds: { "block:root": "block:copy" },
+      }],
+      final_locations: {
+        "page:wrapper": {
+          kind: "data_source" as const,
+          database_id: "database:target",
+          data_source_id: "source:target",
+        },
+      },
+      final_location_revisions: { "page:wrapper": 2 },
+      document_commits: [coreResult().document_commits[0]!],
+      affected_database_ids: ["database:target"],
+    };
+    client.enqueueApply({
+      ...committedApply(),
+      value: {
+        affected_resource_ids: ["page:wrapper", "database:target"],
+        page_copy: null,
+        block_transfer: dataSourceResult,
+      },
+      receipt: {
+        ...committedApply().receipt,
+        operation_id: dataSourceIntent.operationId,
+        affected_database_ids: ["database:target"],
+      },
+    });
+    const committed = await adapter.apply(prepared.value.request);
+    expect(committed).toMatchObject({
+      ok: true,
+      value: {
+        finalLocations: {
+          "page:wrapper": {
+            kind: "database",
+            databaseBlockId: "database:target",
+          },
+        },
+        affectedDatabaseBlockIds: ["database:target"],
+        transformationEvidence: [{ resultPageId: "page:wrapper", kind: "wrap" }],
+      },
+    });
+    expect(client.applies[0]).toMatchObject({
+      intent: {
+        intent: {
+          target: {
+            kind: "data_source",
+            data_source_id: "source:target",
+            view_id: "view:target",
+            group_key: "ship",
+            before_page_id: "page:anchor",
           },
         },
         write_fence: [{ document_id: "document:source" }],
