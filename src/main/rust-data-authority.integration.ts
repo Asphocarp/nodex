@@ -1104,6 +1104,56 @@ describe("Electron native data authority", () => {
         },
       });
       expect(copiedRecursivePage.value.documentCommits.length).toBeGreaterThanOrEqual(2);
+      const sourceBodyRootId =
+        promotedToLibrary.value.transformationEvidence[0]?.bodyRootBlockIds[0];
+      const nestedCopyParentBlockId = sourceBodyRootId
+        ? copiedRecursivePage.value.copiedBlockIds[sourceBodyRootId]
+        : undefined;
+      if (!nestedCopyParentBlockId) {
+        throw new Error("Core recursive Page copy omitted its target body root mapping");
+      }
+      const nestedMultiPageCopyIntent = {
+        ...copyRecursivePageIntent,
+        operationId: "electron-native-nested-multi-page-copy",
+        rootBlockIds: [nativeContentBlockId, copiedRecursiveRootId],
+        target: {
+          kind: "page" as const,
+          pageId: copiedRecursiveRootId,
+          parentBlockId: nestedCopyParentBlockId,
+        },
+      };
+      const preparedNestedMultiPageCopy = await transferAdapter.prepare(
+        nestedMultiPageCopyIntent,
+      );
+      if (!preparedNestedMultiPageCopy.ok) {
+        throw new Error(
+          `Core nested multi-Page copy preparation failed: ${preparedNestedMultiPageCopy.error.code}: ${preparedNestedMultiPageCopy.error.message}`,
+        );
+      }
+      const nestedCopyTarget = preparedNestedMultiPageCopy.value.request.target;
+      if (nestedCopyTarget.kind !== "document") {
+        throw new Error("Core nested multi-Page copy omitted its target Document");
+      }
+      const nestedMultiPageCopy = await transferAdapter.apply(
+        preparedNestedMultiPageCopy.value.request,
+      );
+      if (!nestedMultiPageCopy.ok) {
+        throw new Error(
+          `Core nested multi-Page copy failed: ${nestedMultiPageCopy.error.code}: ${nestedMultiPageCopy.error.message}`,
+        );
+      }
+      expect(nestedMultiPageCopy.value.resultRootBlockIds).toHaveLength(2);
+      for (const resultPageId of nestedMultiPageCopy.value.resultRootBlockIds) {
+        expect(nestedMultiPageCopy.value.finalLocations[resultPageId]).toEqual({
+          kind: "document",
+          documentId: nestedCopyTarget.documentId,
+        });
+      }
+      expect(
+        nestedMultiPageCopy.value.documentCommits.filter(
+          (commit) => commit.documentId === nestedCopyTarget.documentId,
+        ),
+      ).toHaveLength(1);
       const moveNestedPageToLibraryIntent = {
         ...moveDataSourcePageIntoPageIntent,
         operationId: "electron-native-nested-page-transfer-to-library",

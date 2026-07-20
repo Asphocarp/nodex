@@ -42,7 +42,9 @@ use super::mutation::{
     MutationEffects, append_rank, finish_mutation, insert_library_placement,
     insert_page_read_model, require_project_in_library, sqlite_now,
 };
-use super::page_copy::{execute_page_copy, page_copy_closure_document_heads};
+use super::page_copy::{
+    PageCopyParentDocumentMode, execute_page_copy, page_copy_closure_document_heads,
+};
 
 const MODULE_NAME: &str = "library";
 const MAX_ID_LENGTH: usize = 512;
@@ -1176,50 +1178,44 @@ fn prepare_page_ownership_transfer(
                         }),
                 }
             }
-            PreparedPageOwnershipTarget::Document {
-                page_id,
-                parent_block_id,
-                before_block_id,
-                ..
-            } => {
-                if parent_block_id.is_some() || roots.len() != 1 {
-                    return Err(invalid(
-                        "Recursive Page copy into a nested or multi-root Document target is not available",
-                    ));
-                }
+            PreparedPageOwnershipTarget::Document { page_id, .. } => {
                 let document = target_document_base
                     .as_ref()
                     .ok_or_else(|| corrupt("Page copy target Document disappeared"))?;
-                let before = before_block_id
-                    .as_deref()
-                    .map(|block_id| {
-                        let expected_location_revision = connection
-                            .query_row(
-                                "SELECT block.location_revision \
-                                 FROM document_block_index indexed \
-                                 JOIN blocks block ON block.id = indexed.block_id \
-                                 WHERE indexed.document_id = ?1 AND indexed.block_id = ?2 \
-                                   AND indexed.parent_block_id IS NULL AND block.lifecycle = 'active'",
-                                params![document.authority.head.id, block_id],
-                                |row| row.get::<_, i64>(0),
-                            )
-                            .optional()?
-                            .ok_or_else(|| invalid("Page copy target anchor is unavailable"))?;
-                        Ok::<_, StoreError>(LibraryPlacementAnchor {
-                            block_id: block_id.to_owned(),
-                            expected_location_revision,
-                        })
-                    })
-                    .transpose()?;
                 LibraryPageCopyDestination::Page {
                     page_id: page_id.clone(),
                     expected_document_generation: document.authority.head.generation,
                     expected_document_head_seq: document.authority.head.head_seq,
-                    before,
+                    before: None,
                 }
             }
         });
-        (None, None)
+        let target_document = target_document_base
+            .map(|base| {
+                let PreparedPageOwnershipTarget::Document {
+                    parent_block_id,
+                    before_block_id,
+                    ..
+                } = &target
+                else {
+                    return Err(corrupt("Page copy target Document disappeared"));
+                };
+                let operations = roots
+                    .iter()
+                    .map(|root| DocumentBlockOperation::InsertBlock {
+                        block: embedded_page_shell(&stable_uuid_v7(
+                            operation_id,
+                            "block",
+                            &root.page_id,
+                        )),
+                        parent_block_id: parent_block_id.clone(),
+                        before_block_id: before_block_id.clone(),
+                    })
+                    .collect::<Vec<_>>();
+                prepare_page_ownership_document_update(base, &operations)
+            })
+            .transpose()?;
+        (None, target_document)
     };
     Ok(PreparedPageOwnershipTransfer {
         roots,
@@ -1589,7 +1585,7 @@ fn apply_page_ownership_copy(
     store_epoch: &str,
     request_hash: &str,
     intent: &LibraryBlockTransferLogicalIntent,
-    prepared: PreparedPageOwnershipTransfer,
+    mut prepared: PreparedPageOwnershipTransfer,
     assets_root: &Path,
 ) -> Result<LibraryApplyOutcome, StoreError> {
     let destination = prepared
@@ -1604,8 +1600,14 @@ fn apply_page_ownership_copy(
     let mut affected_document_ids = BTreeSet::new();
     let mut committed_revisions = BTreeMap::new();
     let mut document_commits = Vec::new();
+    let mut checkpoint_commits = Vec::new();
     let mut target_project_id = None;
     let mut affected_parent_keys = BTreeSet::new();
+    let parent_document_mode = if prepared.target_document.is_some() {
+        PageCopyParentDocumentMode::Defer
+    } else {
+        PageCopyParentDocumentMode::Commit
+    };
     for root in &prepared.roots {
         let execution = execute_page_copy(
             connection,
@@ -1622,6 +1624,7 @@ fn apply_page_ownership_copy(
             root.owned_document_generation,
             root.owned_document_head_seq,
             destination,
+            parent_document_mode,
             assets_root,
         )?;
         if target_project_id
@@ -1642,6 +1645,29 @@ fn apply_page_ownership_copy(
         document_commits.extend(execution.document_commits);
         result_root_block_ids.push(execution.result.page_id.clone());
         copied_block_ids.extend(execution.result.block_ids);
+    }
+    if let Some(mut document) = prepared.target_document.take() {
+        let update_id = format!(
+            "block-transfer-page-copy-target:{}",
+            sha256(request_hash.as_bytes())
+        );
+        let update = document.update;
+        let commit = persist_prepared_update(
+            connection,
+            &document.authority,
+            &document.base_materialization,
+            &mut document.engine,
+            update,
+            &update_id,
+            store_epoch,
+        )?;
+        committed_revisions.insert(
+            format!("documentHead:{}", commit.public.document_id),
+            commit.public.head_seq,
+        );
+        affected_document_ids.insert(commit.public.document_id.clone());
+        document_commits.push(commit.public.clone());
+        checkpoint_commits.push(commit);
     }
     let (final_locations, final_location_revisions) =
         read_final_locations(connection, &result_root_block_ids)?;
@@ -1698,6 +1724,15 @@ fn apply_page_ownership_copy(
         request_hash,
         intent,
         &result,
+        outcome.committed.event_sequence,
+        &now,
+    )?;
+    persist_operation_checkpoints(
+        connection,
+        context,
+        operation_id,
+        &intent.actor,
+        &checkpoint_commits,
         outcome.committed.event_sequence,
         &now,
     )?;

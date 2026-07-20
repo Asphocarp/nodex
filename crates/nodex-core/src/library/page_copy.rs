@@ -83,6 +83,12 @@ pub(super) struct PageCopyExecution {
     pub(super) committed_at: String,
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum PageCopyParentDocumentMode {
+    Commit,
+    Defer,
+}
+
 struct PersistedCopyDocuments {
     heads: BTreeMap<String, i64>,
     commits: Vec<LibraryBlockTransferDocumentCommit>,
@@ -203,6 +209,7 @@ pub(super) fn copy_page(
         expected_document_generation,
         expected_document_head_seq,
         destination,
+        PageCopyParentDocumentMode::Commit,
         assets_root,
     )?;
     finish_mutation(
@@ -247,6 +254,7 @@ pub(super) fn execute_page_copy(
     expected_document_generation: i64,
     expected_document_head_seq: i64,
     destination: &LibraryPageCopyDestination,
+    parent_document_mode: PageCopyParentDocumentMode,
     assets_root: &Path,
 ) -> Result<PageCopyExecution, StoreError> {
     let requesting_project_id = context
@@ -305,6 +313,13 @@ pub(super) fn execute_page_copy(
     let data_source_destination = data_source_destination(destination);
     let mut resolved_parent =
         resolve_write_parent(connection, library_id, requesting_project_id, &parent)?;
+    if matches!(parent_document_mode, PageCopyParentDocumentMode::Defer)
+        && resolved_parent.document.is_none()
+    {
+        return Err(corrupt(
+            "Deferred Page copy insertion requires a target Document",
+        ));
+    }
     if let Some(destination) = &data_source_destination {
         resolved_parent.project_id = resolve_page_copy_data_source_project(
             connection,
@@ -377,6 +392,7 @@ pub(super) fn execute_page_copy(
     let parent_commit = resolved_parent
         .document
         .as_ref()
+        .filter(|_| matches!(parent_document_mode, PageCopyParentDocumentMode::Commit))
         .map(|parent_document| {
             persist_parent_insert(
                 connection,

@@ -1622,6 +1622,7 @@ mod tests {
         const ANCHOR_DOCUMENT: &str = "document:promotion-anchor";
         const PROMOTE_SIBLING: &str = "018f0000-0000-7000-8000-000000000311";
         const WRAP_SIBLING: &str = "018f0000-0000-7000-8000-000000000312";
+        const WRAP_NESTED_ANCHOR: &str = "018f0000-0000-7000-8000-000000000313";
         const DATABASE: &str = "018f0000-0000-7000-8000-000000000321";
         const DATA_SOURCE: &str = "018f0000-0000-7000-8000-000000000322";
         const VIEW: &str = "018f0000-0000-7000-8000-000000000323";
@@ -1822,6 +1823,11 @@ mod tests {
                             ContractDocumentBlockOperation::InsertBlock {
                                 block: paragraph(WRAP_SIBLING),
                                 parent_block_id: None,
+                                before_block_id: None,
+                            },
+                            ContractDocumentBlockOperation::InsertBlock {
+                                block: paragraph(WRAP_NESTED_ANCHOR),
+                                parent_block_id: Some(roots.1.clone()),
                                 before_block_id: None,
                             },
                         ],
@@ -2705,6 +2711,123 @@ mod tests {
                 Ok(())
             })
             .expect("recursive Page copy ownership evidence");
+
+        let nested_multi_copy = LibraryBlockTransferLogicalIntent {
+            actor: serde_json::json!({ "kind": "test" }),
+            mode: LibraryBlockTransferMode::Copy,
+            root_block_ids: vec![ANCHOR_PAGE.to_owned(), roots.0.clone()],
+            source: LibraryBlockTransferSource::Library {
+                library_id: "library-1".to_owned(),
+            },
+            target: LibraryBlockTransferTarget::Page {
+                page_id: WRAP_PAGE.to_owned(),
+                parent_block_id: Some(roots.1.clone()),
+                before_block_id: Some(WRAP_NESTED_ANCHOR.to_owned()),
+            },
+        };
+        let plan = library
+            .read(
+                &context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PlanBlockTransfer {
+                        operation_id: "copy-multiple-pages-into-nested-target".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        intent: nested_multi_copy.clone(),
+                    },
+                },
+            )
+            .expect("plan nested multi-root Page copy");
+        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
+            panic!("nested multi-root Page copy plan");
+        };
+        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
+            panic!("prepared nested multi-root Page copy");
+        };
+        let target_head = preparation
+            .write_fence
+            .documents
+            .iter()
+            .find(|head| head.document_id == WRAP_DOCUMENT)
+            .expect("target Document fence")
+            .expected_head_seq;
+        let copied = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "copy-multiple-pages-into-nested-target".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: nested_multi_copy,
+                        write_fence: Some(preparation.write_fence),
+                    },
+                },
+            )
+            .expect("copy multiple Pages into nested target");
+        let copied_result = copied
+            .committed
+            .value
+            .block_transfer
+            .as_ref()
+            .expect("nested multi-root Page copy result");
+        let copied_anchor = copied_result.copied_block_ids[ANCHOR_PAGE].clone();
+        let copied_promoted = copied_result.copied_block_ids[&roots.0].clone();
+        assert_eq!(
+            copied_result.result_root_block_ids,
+            vec![copied_anchor.clone(), copied_promoted.clone()]
+        );
+        assert_eq!(
+            copied_result
+                .document_commits
+                .iter()
+                .filter(|commit| commit.document_id == WRAP_DOCUMENT)
+                .count(),
+            1
+        );
+        assert!(copied_result.document_commits.iter().any(|commit| {
+            commit.document_id == WRAP_DOCUMENT
+                && commit.base_head_seq == target_head
+                && commit.head_seq == target_head + 1
+        }));
+        kernel
+            .readers()
+            .read_default(|connection| {
+                for page_id in [&copied_anchor, &copied_promoted] {
+                    let page_parent = connection.query_row(
+                        "SELECT parent_kind, parent_id FROM pages WHERE block_id = ?1",
+                        [page_id],
+                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                    )?;
+                    assert_eq!(page_parent, ("page".to_owned(), WRAP_PAGE.to_owned()));
+                    let document_parent = connection.query_row(
+                        "SELECT parent_block_id FROM document_block_index \
+                         WHERE document_id = ?1 AND block_id = ?2",
+                        params![WRAP_DOCUMENT, page_id],
+                        |row| row.get::<_, String>(0),
+                    )?;
+                    assert_eq!(document_parent, roots.1);
+                }
+                let nested_order = connection
+                    .prepare(
+                        "SELECT block_id FROM document_block_index \
+                         WHERE document_id = ?1 AND parent_block_id = ?2 ORDER BY ordinal",
+                    )?
+                    .query_map(params![WRAP_DOCUMENT, roots.1], |row| {
+                        row.get::<_, String>(0)
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                assert_eq!(
+                    nested_order,
+                    vec![
+                        copied_anchor.clone(),
+                        copied_promoted.clone(),
+                        WRAP_NESTED_ANCHOR.to_owned()
+                    ]
+                );
+                Ok(())
+            })
+            .expect("nested multi-root Page copy evidence");
     }
 }
 mod block_transfer;
