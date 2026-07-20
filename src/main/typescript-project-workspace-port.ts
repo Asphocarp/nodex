@@ -9,7 +9,11 @@ import {
   getCodexProjectPermissionModeSelection,
   putCodexProjectPermissionModeSelection,
 } from "./local-store/codex-project-permission-modes";
-import { getCodexThreadWritableRoots } from "./local-store/codex-thread-writable-roots";
+import {
+  getCodexThreadWritableRoots,
+  mergeCodexThreadWritableRoots,
+  replaceCodexThreadWritableRoots,
+} from "./local-store/codex-thread-writable-roots";
 import { projectDeletionRuntime } from "./project-deletion-runtime";
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
 
@@ -114,4 +118,8 @@ export const createTypeScriptProjectWorkspacePort = (
     replaceCodexThreadDynamicToolCatalogs(threadId, catalogs);
     return getCodexThreadDynamicToolCatalogs(threadId);
   },
+  mergeThreadWritableRoots: async (threadId, roots) =>
+    mergeCodexThreadWritableRoots(threadId, roots),
+  replaceThreadWritableRoots: async (threadId, roots) =>
+    replaceCodexThreadWritableRoots(threadId, roots),
 });

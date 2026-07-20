@@ -10927,7 +10927,7 @@ describe("codex-service session-backed transcript recovery", () => {
       reconcileThreadStartWritableRoots: (
         response: ThreadStartResponse,
         sandbox: ThreadStartResponse["sandbox"],
-      ) => ThreadStartResponse;
+      ) => Promise<ThreadStartResponse>;
       hydrateCanonicalConversationState: (
         response: ThreadStartResponse,
         options: { resolvedCwd: string },
@@ -10951,9 +10951,14 @@ describe("codex-service session-backed transcript recovery", () => {
       ...rawStartResponse.sandbox,
       writableRoots: [projectRoot, retainedRoot],
     };
+    upsertCodexThread({
+      threadId,
+      cwd: projectRoot,
+      modelProvider: "openai",
+    });
 
     try {
-      const repaired = firstInternals.reconcileThreadStartWritableRoots(
+      const repaired = await firstInternals.reconcileThreadStartWritableRoots(
         rawStartResponse,
         requestedSandbox,
       );

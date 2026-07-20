@@ -516,7 +516,12 @@ fails closed and is never replaced by broader authority. One inherited
 full-access Turn must name an exact persisted Library-scope parent Turn.
 Per-Thread writable workspace roots are ordered Core rows with Thread-cascade
 lifecycle; v83 imports the former profile JSON projection once and retains the
-file only as rollback evidence. Background-process observations remain records
+file only as rollback evidence. The Desktop Host reads those roots only from
+the authority-selected execution-context snapshot and uses semantic merge or
+replace intents for app-server launch repair and workspace moves. A newly
+started Thread is persisted before any repair intent; failed external moves
+restore the previous native root set through the same port. Background-process
+observations remain records
 of Electron-owned app-server or terminal work: Workspace validates and bounds
 their Thread identity, preserves restart time according to the semantic intent,
 and prunes the global durable collection atomically with its receipt/event.

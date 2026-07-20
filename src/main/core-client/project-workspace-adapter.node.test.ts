@@ -331,6 +331,69 @@ describe("Core Project Workspace adapter", () => {
     }]);
   });
 
+  test("merges and replaces Thread writable roots through Workspace intents", async () => {
+    const client = new FakeCoreClient();
+    for (const [operationId, eventSequence, roots] of [
+      ["operation:merge-roots", 13, ["/workspace/one", "/workspace/shared"]],
+      ["operation:replace-roots", 14, ["/workspace/final"]],
+    ] as const) {
+      client.enqueueWorkspaceApply({
+        value: {
+          affected_project_ids: ["project:one"],
+          affected_session_ids: [],
+          affected_thread_ids: ["thread:one"],
+        },
+        receipt: {
+          operation_id: operationId,
+          duplicate: false,
+          affected_project_ids: ["project:one"],
+          affected_session_ids: [],
+        },
+        event_sequence: eventSequence,
+        store_epoch: "epoch:test",
+      });
+      client.enqueueWorkspaceRead({
+        version: 1,
+        event_head: eventSequence,
+        store_epoch: "epoch:test",
+        value: {
+          kind: "execution_context",
+          context: {
+            thread: { ...thread, writable_roots: roots },
+            project: project(),
+            permission_mode: "auto",
+          },
+        },
+      });
+    }
+    const adapter = createCoreProjectWorkspaceAdapter(client);
+
+    await expect(adapter.mergeThreadWritableRoots("thread:one", [
+      "/workspace/shared",
+    ])).resolves.toEqual(["/workspace/one", "/workspace/shared"]);
+    await expect(adapter.replaceThreadWritableRoots("thread:one", [
+      "/workspace/final",
+    ])).resolves.toEqual(["/workspace/final"]);
+    expect(client.workspaceApplies).toEqual([
+      {
+        operationId: expect.any(String),
+        intent: {
+          kind: "merge_thread_writable_roots",
+          thread_id: "thread:one",
+          roots: ["/workspace/shared"],
+        },
+      },
+      {
+        operationId: expect.any(String),
+        intent: {
+          kind: "replace_thread_writable_roots",
+          thread_id: "thread:one",
+          roots: ["/workspace/final"],
+        },
+      },
+    ]);
+  });
+
   test("hydrates one complete Session without leaking Core wire casing", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({

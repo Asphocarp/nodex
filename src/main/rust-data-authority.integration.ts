@@ -1799,6 +1799,20 @@ describe("Electron native data authority", () => {
       await expect(
         workspace.readProjectPermissionMode(createdProject.id),
       ).resolves.toBe("guardian-approvals");
+      const sharedWritableRoot = path.join(nodexHome, "shared-workspace");
+      await expect(workspace.replaceThreadWritableRoots(
+        "thread:electron-session",
+        [nodexHome],
+      )).resolves.toEqual([nodexHome]);
+      await expect(workspace.mergeThreadWritableRoots(
+        "thread:electron-session",
+        [sharedWritableRoot, nodexHome],
+      )).resolves.toEqual([nodexHome, sharedWritableRoot]);
+      await expect(
+        workspace.readThreadExecutionContext("thread:electron-session"),
+      ).resolves.toMatchObject({
+        writableRoots: [nodexHome, sharedWritableRoot],
+      });
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
       await expect(
         workspace.detachProjectSessionThread(createdSession.id),

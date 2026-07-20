@@ -121,6 +121,10 @@ export function createDesktopProjectWorkspaceBridge(
         threadId,
         catalogs,
       ),
+    mergeThreadWritableRoots: async (threadId, roots) =>
+      await (await resolve()).mergeThreadWritableRoots(threadId, roots),
+    replaceThreadWritableRoots: async (threadId, roots) =>
+      await (await resolve()).replaceThreadWritableRoots(threadId, roots),
   };
 }
 

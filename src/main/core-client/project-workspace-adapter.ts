@@ -218,6 +218,14 @@ export interface DesktopProjectWorkspacePort {
     threadId: string,
     catalogs: readonly DynamicToolCatalogSelection[],
   ): Promise<readonly DynamicToolCatalogSelection[]>;
+  mergeThreadWritableRoots(
+    threadId: string,
+    roots: readonly string[],
+  ): Promise<readonly string[]>;
+  replaceThreadWritableRoots(
+    threadId: string,
+    roots: readonly string[],
+  ): Promise<readonly string[]>;
 }
 
 const isNotFound = (error: unknown): boolean =>
@@ -1236,6 +1244,30 @@ export function createCoreProjectWorkspaceAdapter(
         throw new Error(`Updated Core Thread not found: ${threadId}`);
       }
       return context.dynamicToolCatalogs;
+    },
+    mergeThreadWritableRoots: async (threadId, roots) => {
+      await apply({
+        kind: "merge_thread_writable_roots",
+        thread_id: threadId,
+        roots: [...roots],
+      });
+      const context = await readThreadExecutionContext(threadId);
+      if (!context) {
+        throw new Error(`Updated Core Thread not found: ${threadId}`);
+      }
+      return context.writableRoots;
+    },
+    replaceThreadWritableRoots: async (threadId, roots) => {
+      await apply({
+        kind: "replace_thread_writable_roots",
+        thread_id: threadId,
+        roots: [...roots],
+      });
+      const context = await readThreadExecutionContext(threadId);
+      if (!context) {
+        throw new Error(`Updated Core Thread not found: ${threadId}`);
+      }
+      return context.writableRoots;
     },
   };
 }

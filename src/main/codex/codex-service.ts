@@ -460,9 +460,6 @@ import {
 } from "../local-store/config";
 import {
   deleteCodexThreadWritableRoots,
-  getCodexThreadWritableRoots,
-  mergeCodexThreadWritableRoots,
-  replaceCodexThreadWritableRoots,
 } from "../local-store/codex-thread-writable-roots";
 import {
   listCodexProjectThreadOrders,
@@ -5362,15 +5359,24 @@ export class CodexService extends EventEmitter {
     };
   }
 
-  private mergeThreadWritableRoots(threadId: string, roots: readonly string[]): void {
-    mergeCodexThreadWritableRoots(threadId, roots);
+  private async readThreadWritableRoots(threadId: string): Promise<string[]> {
+    const context =
+      await this.projectWorkspace.readThreadExecutionContext(threadId);
+    return [...(context?.writableRoots ?? [])];
+  }
+
+  private async mergeThreadWritableRoots(
+    threadId: string,
+    roots: readonly string[],
+  ): Promise<void> {
+    await this.projectWorkspace.mergeThreadWritableRoots(threadId, roots);
   }
 
   /** Exact new-thread response repair at bundle 83197-83229. */
-  private reconcileThreadStartWritableRoots(
+  private async reconcileThreadStartWritableRoots(
     response: ThreadStartResponse,
     requestedSandboxPolicy: TurnStartParams["sandboxPolicy"] | null | undefined,
-  ): ThreadStartResponse {
+  ): Promise<ThreadStartResponse> {
     if (requestedSandboxPolicy?.type !== "workspaceWrite") return response;
     const responseSandbox = response.sandbox;
     if (responseSandbox.type !== "workspaceWrite") return response;
@@ -5379,7 +5385,10 @@ export class CodexService extends EventEmitter {
     );
     if (!hasMissingRoot) return response;
 
-    this.mergeThreadWritableRoots(response.thread.id, requestedSandboxPolicy.writableRoots);
+    await this.mergeThreadWritableRoots(
+      response.thread.id,
+      requestedSandboxPolicy.writableRoots,
+    );
     return {
       ...response,
       activePermissionProfile: null,
@@ -7515,8 +7524,13 @@ export class CodexService extends EventEmitter {
     previous: CodexSidebarThreadWorkspaceState;
     move: CodexSidebarThreadWorkspaceMove;
   }): Promise<() => Promise<void>> {
-    const previousWritableRoots = getCodexThreadWritableRoots(input.threadId);
-    replaceCodexThreadWritableRoots(input.threadId, input.move.runtimeWorkspaceRoots);
+    const previousWritableRoots = await this.readThreadWritableRoots(
+      input.threadId,
+    );
+    await this.projectWorkspace.replaceThreadWritableRoots(
+      input.threadId,
+      input.move.runtimeWorkspaceRoots,
+    );
     let appServerUpdated = false;
 
     try {
@@ -7545,12 +7559,18 @@ export class CodexService extends EventEmitter {
         }
       }
     } catch (error) {
-      replaceCodexThreadWritableRoots(input.threadId, previousWritableRoots);
+      await this.projectWorkspace.replaceThreadWritableRoots(
+        input.threadId,
+        previousWritableRoots,
+      );
       throw error;
     }
 
     return async () => {
-      replaceCodexThreadWritableRoots(input.threadId, previousWritableRoots);
+      await this.projectWorkspace.replaceThreadWritableRoots(
+        input.threadId,
+        previousWritableRoots,
+      );
       if (!appServerUpdated) return;
       try {
         await this.client.request<"thread/settings/update", ThreadSettingsUpdateResponse>(
@@ -7689,7 +7709,7 @@ export class CodexService extends EventEmitter {
     const workspaceMove = sourceProjectId === targetProjectId
       ? {
           next: previousWorkspace,
-          runtimeWorkspaceRoots: getCodexThreadWritableRoots(threadId),
+          runtimeWorkspaceRoots: await this.readThreadWritableRoots(threadId),
         }
       : targetProject
         ? await resolveCodexProjectThreadWorkspaceMove({
@@ -7702,7 +7722,8 @@ export class CodexService extends EventEmitter {
           })
         : resolveCodexProjectlessThreadWorkspaceMove({
             current: previousWorkspace,
-            persistedRuntimeWorkspaceRoots: getCodexThreadWritableRoots(threadId),
+            persistedRuntimeWorkspaceRoots:
+              await this.readThreadWritableRoots(threadId),
           });
     const rollbackWorkspace = sourceProjectId === targetProjectId
       ? async () => undefined
@@ -9595,10 +9616,6 @@ export class CodexService extends EventEmitter {
       this.beginThreadStartNotificationDeferral();
       try {
         threadStart = await this.client.request<"thread/start", ThreadStartResponse>("thread/start", threadStartParams);
-        threadStart = this.reconcileThreadStartWritableRoots(
-          threadStart,
-          threadPermissionState.sandbox,
-        );
         effectiveCwd = resolveCodexCanonicalHydratedCwd({
           requestedCwd: runLocation.cwd,
           responseCwd: threadStart.cwd,
@@ -9616,6 +9633,10 @@ export class CodexService extends EventEmitter {
         if (!link) {
           throw new Error("Codex thread/start returned an invalid thread payload");
         }
+        threadStart = await this.reconcileThreadStartWritableRoots(
+          threadStart,
+          threadPermissionState.sandbox,
+        );
         await this.persistDynamicToolCatalogsForLaunch(
           link.threadId,
           threadStartParams.dynamicTools,
@@ -13929,10 +13950,6 @@ export class CodexService extends EventEmitter {
       let effectiveCwd = runLocation.cwd;
       try {
         threadStart = await this.client.request<"thread/start", ThreadStartResponse>("thread/start", threadStartParams);
-        threadStart = this.reconcileThreadStartWritableRoots(
-          threadStart,
-          effectivePermissionState.sandbox,
-        );
         effectiveCwd = resolveCodexCanonicalHydratedCwd({
           requestedCwd: runLocation.cwd,
           responseCwd: threadStart.cwd,
@@ -13954,6 +13971,10 @@ export class CodexService extends EventEmitter {
         if (!link) {
           throw new Error("Codex thread/start returned an invalid thread payload");
         }
+        threadStart = await this.reconcileThreadStartWritableRoots(
+          threadStart,
+          effectivePermissionState.sandbox,
+        );
         await this.persistDynamicToolCatalogsForLaunch(
           link.threadId,
           threadStartParams.dynamicTools,
@@ -14720,7 +14741,7 @@ export class CodexService extends EventEmitter {
             ? [requestedCwd]
             : []
       : fallbackWorkspaceRoots;
-    const persistedWritableRoots = getCodexThreadWritableRoots(threadId);
+    const persistedWritableRoots = await this.readThreadWritableRoots(threadId);
     const responseWorkspaceRoots = [
       ...(previousHydrationContext?.currentPermissions.runtimeWorkspaceRoots ?? []),
       ...permissionWorkspaceRoots,
@@ -19640,7 +19661,7 @@ export class CodexService extends EventEmitter {
   }): Promise<CodexDynamicCreatePermissionSelection> {
     let retainedWritableRoots: string[] = [];
     try {
-      retainedWritableRoots = getCodexThreadWritableRoots(input.threadId);
+      retainedWritableRoots = await this.readThreadWritableRoots(input.threadId);
     } catch (error) {
       if (!isUnavailableSqliteBindingError(error)) {
         this.logger.warn("Failed to load dynamic create-thread writable roots", {
@@ -19916,16 +19937,6 @@ export class CodexService extends EventEmitter {
         "thread/start",
         threadStartParams,
       );
-      if (input.permissionSelection) {
-        threadStart = this.reconcileThreadStartWritableRoots(
-          threadStart,
-          input.permissionSelection.context.sandboxPolicy,
-        );
-      }
-      responsePermissionContext = this.resolveDynamicCreateResponsePermissionContext(
-        threadStart,
-        input.permissionSelection?.context ?? null,
-      );
       effectiveCwd = resolveCodexCanonicalHydratedCwd({
         requestedCwd: input.target.cwd,
         responseCwd: threadStart.cwd,
@@ -19949,6 +19960,16 @@ export class CodexService extends EventEmitter {
         fallbackRef,
         effectiveCwd,
       ));
+      if (input.permissionSelection) {
+        threadStart = await this.reconcileThreadStartWritableRoots(
+          threadStart,
+          input.permissionSelection.context.sandboxPolicy,
+        );
+      }
+      responsePermissionContext = this.resolveDynamicCreateResponsePermissionContext(
+        threadStart,
+        input.permissionSelection?.context ?? null,
+      );
       await this.persistDynamicToolCatalogsForLaunch(
         detail.threadId,
         threadStartParams.dynamicTools,
