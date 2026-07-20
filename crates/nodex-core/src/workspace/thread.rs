@@ -722,6 +722,12 @@ pub(super) fn set_thread_unread(
     if unread && thread.archived {
         return Err(invalid("An archived Codex Thread cannot be marked unread"));
     }
+    let session_ids = linked_session_ids(
+        connection,
+        library_id,
+        thread_id,
+        thread.project_id.as_deref(),
+    )?;
     if unread {
         connection.execute(
             "INSERT OR IGNORE INTO codex_unread_threads(thread_id) VALUES (?1)",
@@ -733,6 +739,18 @@ pub(super) fn set_thread_unread(
             [thread_id],
         )?;
     }
+    let now = sqlite_now(connection)?;
+    for session_id in &session_ids {
+        let changed = connection.execute(
+            "UPDATE project_sessions SET unread = ?1, updated_at = ?2 WHERE id = ?3",
+            params![i64::from(unread), now, session_id],
+        )?;
+        if changed != 1 {
+            return Err(corrupt(
+                "Linked Project Session disappeared during Thread unread update",
+            ));
+        }
+    }
     finish_thread_mutation(
         connection,
         library_id,
@@ -742,7 +760,7 @@ pub(super) fn set_thread_unread(
         request_hash,
         "set_thread_unread",
         thread.project_id.into_iter().collect(),
-        Vec::new(),
+        session_ids,
         vec![thread_id.to_owned()],
     )
 }
@@ -2042,17 +2060,48 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(pinned_after_reinsert, vec![Some(0), Some(1), Some(2)]);
-        let session_pin = kernel
+        module
+            .apply(
+                &context(),
+                request(
+                    "thread-unread-b",
+                    ProjectWorkspaceIntent::SetThreadUnread {
+                        thread_id: "thread-b".to_owned(),
+                        unread: true,
+                    },
+                ),
+            )
+            .expect("mark linked Thread unread");
+        let session_id_for_state = session_id.clone();
+        let session_state = kernel
             .writer()
             .call(move |connection| {
                 Ok(connection.query_row(
-                    "SELECT pinned, pinned_order FROM project_sessions WHERE id = ?1",
-                    [&session_id],
-                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?)),
+                    "SELECT pinned, pinned_order, unread FROM project_sessions WHERE id = ?1",
+                    [&session_id_for_state],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, Option<i64>>(1)?,
+                            row.get::<_, i64>(2)?,
+                        ))
+                    },
                 )?)
             })
-            .expect("linked Session pin mirror");
-        assert_eq!(session_pin, (1, Some(0)));
+            .expect("linked Session Thread-state mirrors");
+        assert_eq!(session_state, (1, Some(0), 1));
+        module
+            .apply(
+                &context(),
+                request(
+                    "thread-read-b",
+                    ProjectWorkspaceIntent::SetThreadUnread {
+                        thread_id: "thread-b".to_owned(),
+                        unread: false,
+                    },
+                ),
+            )
+            .expect("mark linked Thread read");
 
         let ProjectWorkspaceReadValue::ChildThreads { threads } = read(
             &module,

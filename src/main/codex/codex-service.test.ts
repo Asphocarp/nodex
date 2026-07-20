@@ -162,6 +162,7 @@ import { resetPersistedAtomStateForTests } from "../local-store/persisted-atoms"
 import type {
   DesktopProjectWorkspacePort,
   DesktopProjectWorkspaceSidebar,
+  DesktopProjectWorkspaceThread,
 } from "../core-client/project-workspace-adapter";
 import { createTypeScriptProjectWorkspacePort } from "../typescript-project-workspace-port";
 
@@ -26634,7 +26635,10 @@ describe("codex-service approval fallback", () => {
           unreadMessageCount?: number;
         };
         acceptedConversationDocumentById: Map<string, CodexConversationSnapshot>;
-        setConversationUnreadState: (targetThreadId: string, hasUnreadTurn: boolean) => boolean;
+        setConversationUnreadState: (
+          targetThreadId: string,
+          hasUnreadTurn: boolean,
+        ) => Promise<boolean>;
       };
       const hostMessages: CodexHostMessage[] = [];
       const sessionChanges = collectProjectSessionChangeEvents();
@@ -26648,7 +26652,7 @@ describe("codex-service approval fallback", () => {
       hostMessages.length = 0;
 
       try {
-        expect(serviceInternals.setConversationUnreadState(threadId, true)).toBe(true);
+        expect(await serviceInternals.setConversationUnreadState(threadId, true)).toBe(true);
         expect(serviceInternals.getConversationRecord(threadId).hasUnreadTurn).toBe(true);
         expect(getCodexThread(threadId)?.hasUnreadTurn).toBe(true);
         expect(getProjectSession(session.id)?.unread).toBe(true);
@@ -26664,12 +26668,12 @@ describe("codex-service approval fallback", () => {
           event.changeType === "unread" && event.sessionId === session.id
         ).length).toBe(1);
 
-        expect(serviceInternals.setConversationUnreadState(threadId, true)).toBe(false);
+        expect(await serviceInternals.setConversationUnreadState(threadId, true)).toBe(false);
         expect(hostMessages.filter((message) => message.type === "threadReadStateChanged").length).toBe(1);
         expect(sessionChanges.events.filter((event) => event.changeType === "unread").length).toBe(1);
 
         serviceInternals.getConversationRecord(threadId).unreadMessageCount = 7;
-        expect(serviceInternals.setConversationUnreadState(threadId, false)).toBe(true);
+        expect(await serviceInternals.setConversationUnreadState(threadId, false)).toBe(true);
         expect(serviceInternals.getConversationRecord(threadId).hasUnreadTurn).toBe(false);
         expect(serviceInternals.getConversationRecord(threadId).unreadMessageCount).toBe(0);
         expect(service.serializeConversationSnapshot(threadId)?.unreadMessageCount).toBe(0);
@@ -26712,6 +26716,77 @@ describe("codex-service approval fallback", () => {
     if (!ran) expect(true).toBe(true);
   });
 
+  test("routes conversation unread commits through the selected Workspace authority", async () => {
+    const service = createService();
+    const calls: string[] = [];
+    const thread: DesktopProjectWorkspaceThread = {
+      threadId: "thread-authority-unread",
+      projectId: "project-authority",
+      sessionId: "session-authority",
+      parentThreadId: null,
+      threadName: "Authority unread",
+      threadPreview: "Authority unread",
+      modelProvider: "openai",
+      cwd: "/tmp/nodex",
+      managedWorktreePath: null,
+      projectlessOutputDirectory: null,
+      projectlessWorkspaceBrowserRoot: null,
+      statusType: "idle",
+      statusActiveFlags: [],
+      archived: false,
+      pinnedOrder: null,
+      hasUnreadTurn: false,
+      createdAt: 1,
+      updatedAt: 2,
+      linkedAt: "2026-07-20T00:00:00.000Z",
+    };
+    let persisted = thread;
+    const typescriptWorkspace = createTypeScriptProjectWorkspacePort();
+    service.setProjectWorkspacePort({
+      ...typescriptWorkspace,
+      getThread: async (threadId) => {
+        calls.push(`read:${threadId}`);
+        return persisted.threadId === threadId ? persisted : null;
+      },
+      setThreadUnread: async (threadId, unread) => {
+        calls.push(`write:${threadId}:${String(unread)}`);
+        if (persisted.threadId !== threadId) return null;
+        persisted = { ...persisted, hasUnreadTurn: unread };
+        return persisted;
+      },
+    });
+    const hostMessages: CodexHostMessage[] = [];
+    service.on("hostMessage", (message) => hostMessages.push(message));
+    const serviceInternals = service as unknown as {
+      setConversationUnreadState: (
+        threadId: string,
+        hasUnreadTurn: boolean,
+      ) => Promise<boolean>;
+    };
+
+    try {
+      await expect(serviceInternals.setConversationUnreadState(
+        thread.threadId,
+        true,
+      )).resolves.toBe(true);
+      await expect(serviceInternals.setConversationUnreadState(
+        thread.threadId,
+        true,
+      )).resolves.toBe(false);
+
+      expect(calls).toEqual([
+        "read:thread-authority-unread",
+        "write:thread-authority-unread:true",
+        "read:thread-authority-unread",
+      ]);
+      expect(hostMessages.filter(
+        (message) => message.type === "threadReadStateChanged",
+      )).toHaveLength(1);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
   test("clears durable and in-memory unread state before archive action and notification fanout", async () => {
     const ran = await withTempDatabase(async () => {
       const actionThreadId = "thr_archive_unread_action";
@@ -26748,7 +26823,10 @@ describe("codex-service approval fallback", () => {
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
         getMaybeConversationRecord: (threadId: string) => { hasUnreadTurn: boolean } | null;
-        setConversationUnreadState: (threadId: string, hasUnreadTurn: boolean) => boolean;
+        setConversationUnreadState: (
+          threadId: string,
+          hasUnreadTurn: boolean,
+        ) => Promise<boolean>;
         handleServerRequest: (request: {
           id: string | number;
           method: string;
@@ -26777,7 +26855,7 @@ describe("codex-service approval fallback", () => {
             ...makeThreadDetail(threadId),
             projectId: defaultProjectId,
           });
-          expect(serviceInternals.setConversationUnreadState(threadId, true)).toBe(true);
+          expect(await serviceInternals.setConversationUnreadState(threadId, true)).toBe(true);
         }
         service.setRendererConversationOwner(actionThreadId, "owner-before-archive");
         hostMessages.length = 0;
@@ -26812,7 +26890,7 @@ describe("codex-service approval fallback", () => {
           },
         })).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
         expect(serviceInternals.pendingApprovals.size).toBe(0);
-        expect(serviceInternals.setConversationUnreadState(actionThreadId, true)).toBe(false);
+        expect(await serviceInternals.setConversationUnreadState(actionThreadId, true)).toBe(false);
 
         for (const threadId of [actionThreadId, notificationThreadId]) {
           expect(serviceInternals.getMaybeConversationRecord(threadId)).toBe(null);

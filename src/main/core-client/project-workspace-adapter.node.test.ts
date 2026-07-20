@@ -331,6 +331,66 @@ describe("Core Project Workspace adapter", () => {
     }]);
   });
 
+  test("reads and commits Thread unread state through Workspace authority", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueWorkspaceRead({
+      version: 1,
+      event_head: 12,
+      store_epoch: "epoch:test",
+      value: { kind: "thread", thread },
+    });
+    client.enqueueWorkspaceApply({
+      value: {
+        affected_project_ids: ["project:one"],
+        affected_session_ids: ["session:one"],
+        affected_thread_ids: ["thread:one"],
+      },
+      receipt: {
+        operation_id: "operation:thread-unread",
+        duplicate: false,
+        affected_project_ids: ["project:one"],
+        affected_session_ids: ["session:one"],
+      },
+      event_sequence: 13,
+      store_epoch: "epoch:test",
+    });
+    client.enqueueWorkspaceRead({
+      version: 1,
+      event_head: 13,
+      store_epoch: "epoch:test",
+      value: {
+        kind: "thread",
+        thread: { ...thread, has_unread_turn: true },
+      },
+    });
+    const adapter = createCoreProjectWorkspaceAdapter(client);
+
+    await expect(adapter.getThread("thread:one")).resolves.toMatchObject({
+      threadId: "thread:one",
+      sessionId: "session:one",
+      hasUnreadTurn: true,
+    });
+    await expect(
+      adapter.setThreadUnread("thread:one", true),
+    ).resolves.toMatchObject({
+      threadId: "thread:one",
+      sessionId: "session:one",
+      hasUnreadTurn: true,
+    });
+    expect(client.workspaceReads).toEqual([
+      { kind: "thread", thread_id: "thread:one" },
+      { kind: "thread", thread_id: "thread:one" },
+    ]);
+    expect(client.workspaceApplies).toEqual([{
+      operationId: expect.any(String),
+      intent: {
+        kind: "set_thread_unread",
+        thread_id: "thread:one",
+        unread: true,
+      },
+    }]);
+  });
+
   test("merges and replaces Thread writable roots through Workspace intents", async () => {
     const client = new FakeCoreClient();
     for (const [operationId, eventSequence, roots] of [

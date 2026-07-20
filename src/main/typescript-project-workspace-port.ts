@@ -9,6 +9,7 @@ import {
   listCodexThreadLinks,
   listPinnedCodexThreadIds,
   setCodexPinnedThreadOrder,
+  setCodexThreadHasUnreadTurn,
   setCodexThreadPinned,
 } from "./codex/codex-link-repository";
 import {
@@ -37,7 +38,54 @@ import { dbNotifier } from "./local-store/notifier";
 import type {
   DesktopProjectWorkspacePort,
   DesktopProjectWorkspaceSidebar,
+  DesktopProjectWorkspaceThread,
 } from "./core-client/project-workspace-adapter";
+import type { CodexThreadSummary } from "../shared/types";
+
+const fromTypeScriptThread = (
+  thread: CodexThreadSummary,
+  pinnedOrderByThreadId: ReadonlyMap<string, number>,
+  sessionId: string | null,
+): DesktopProjectWorkspaceThread => {
+  return {
+    threadId: thread.threadId,
+    projectId: thread.projectId,
+    sessionId,
+    parentThreadId: thread.source?.parentThreadId ?? null,
+    threadName: thread.threadName,
+    threadPreview: thread.threadPreview,
+    modelProvider: thread.modelProvider,
+    cwd: thread.cwd,
+    managedWorktreePath: thread.managedWorktreePath ?? null,
+    projectlessOutputDirectory: thread.projectlessOutputDirectory ?? null,
+    projectlessWorkspaceBrowserRoot:
+      thread.projectlessWorkspaceBrowserRoot ?? null,
+    statusType: thread.statusType,
+    statusActiveFlags: [...thread.statusActiveFlags],
+    archived: thread.archived,
+    pinnedOrder: pinnedOrderByThreadId.get(thread.threadId) ?? null,
+    hasUnreadTurn: thread.hasUnreadTurn ?? false,
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
+    linkedAt: thread.linkedAt,
+  };
+};
+
+const readTypeScriptThread = (
+  threadId: string,
+): DesktopProjectWorkspaceThread | null => {
+  const thread = getCodexThread(threadId);
+  if (!thread) return null;
+  const pinnedOrderByThreadId = new Map(
+    listPinnedCodexThreadIds().map((id, index) => [id, index]),
+  );
+  const sessionLink = projectSessionService.getProjectSessionThreadLink(threadId);
+  return fromTypeScriptThread(
+    thread,
+    pinnedOrderByThreadId,
+    sessionLink?.sessionId ?? null,
+  );
+};
 
 const readTypeScriptSidebar = (
   includeArchived: boolean,
@@ -54,28 +102,11 @@ const readTypeScriptSidebar = (
       ? projectSessionService.getProjectSessionSummary(sessionLink.sessionId)
       : null;
     if (!includeArchived && session?.archived) return [];
-    return [{
-      threadId: thread.threadId,
-      projectId: thread.projectId,
-      sessionId: session?.id ?? null,
-      parentThreadId: thread.source?.parentThreadId ?? null,
-      threadName: thread.threadName,
-      threadPreview: thread.threadPreview,
-      modelProvider: thread.modelProvider,
-      cwd: thread.cwd,
-      managedWorktreePath: thread.managedWorktreePath ?? null,
-      projectlessOutputDirectory: thread.projectlessOutputDirectory ?? null,
-      projectlessWorkspaceBrowserRoot:
-        thread.projectlessWorkspaceBrowserRoot ?? null,
-      statusType: thread.statusType,
-      statusActiveFlags: [...thread.statusActiveFlags],
-      archived: thread.archived,
-      pinnedOrder: pinnedOrderByThreadId.get(thread.threadId) ?? null,
-      hasUnreadTurn: thread.hasUnreadTurn ?? false,
-      createdAt: thread.createdAt,
-      updatedAt: thread.updatedAt,
-      linkedAt: thread.linkedAt,
-    }];
+    return [fromTypeScriptThread(
+      thread,
+      pinnedOrderByThreadId,
+      session?.id ?? null,
+    )];
   });
   return {
     threads,
@@ -168,6 +199,20 @@ export const createTypeScriptProjectWorkspacePort = (
     projectSessionService.upsertProjectSessionThreadLink(input),
   detachProjectSessionThread: async (sessionId) =>
     projectSessionService.detachProjectSessionThread(sessionId),
+  getThread: async (threadId) => readTypeScriptThread(threadId),
+  setThreadUnread: async (threadId, unread) => {
+    const summary = setCodexThreadHasUnreadTurn(threadId, unread);
+    if (!summary) return null;
+    const owners = projectSessionService.syncProjectSessionUnreadForThread(threadId);
+    for (const owner of owners) {
+      dbNotifier.notifyProjectSessionsChanged(
+        owner.projectId,
+        "unread",
+        owner.sessionId,
+      );
+    }
+    return readTypeScriptThread(threadId);
+  },
   readThreadExecutionContext: async (threadId) => {
     const thread = getCodexThread(threadId);
     if (!thread) return null;

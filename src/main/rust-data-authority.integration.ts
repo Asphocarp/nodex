@@ -1911,6 +1911,26 @@ describe("Electron native data authority", () => {
           }),
         ]),
       });
+      await expect(workspace.setThreadUnread(
+        "thread:electron-session",
+        true,
+      )).resolves.toMatchObject({
+        threadId: "thread:electron-session",
+        hasUnreadTurn: true,
+      });
+      await expect(
+        workspace.getProjectSession(createdSession.id),
+      ).resolves.toMatchObject({ unread: true });
+      await expect(workspace.setThreadUnread(
+        "thread:electron-session",
+        false,
+      )).resolves.toMatchObject({
+        threadId: "thread:electron-session",
+        hasUnreadTurn: false,
+      });
+      await expect(
+        workspace.getProjectSession(createdSession.id),
+      ).resolves.toMatchObject({ unread: false });
       const backgroundProcess = {
         id: "thread:electron-session:item:dev-server",
         threadId: "thread:electron-session",

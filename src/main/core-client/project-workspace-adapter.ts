@@ -244,6 +244,13 @@ export interface DesktopProjectWorkspacePort {
     input: ProjectSessionThreadLinkInput,
   ): Promise<ProjectSessionThreadLink>;
   detachProjectSessionThread(sessionId: string): Promise<boolean>;
+  getThread(
+    threadId: string,
+  ): Promise<DesktopProjectWorkspaceThread | null>;
+  setThreadUnread(
+    threadId: string,
+    unread: boolean,
+  ): Promise<DesktopProjectWorkspaceThread | null>;
   readThreadExecutionContext(
     threadId: string,
   ): Promise<DesktopProjectWorkspaceExecutionContext | null>;
@@ -486,6 +493,13 @@ export function createCoreProjectWorkspaceAdapter(
       ),
       writableRoots: [...context.thread.writable_roots],
     };
+  };
+
+  const getThread = async (
+    threadId: string,
+  ): Promise<DesktopProjectWorkspaceThread | null> => {
+    const thread = await readCoreThread(threadId);
+    return thread ? fromCoreWorkspaceThread(thread) : null;
   };
 
   const readThread = async (
@@ -1370,6 +1384,20 @@ export function createCoreProjectWorkspaceAdapter(
         },
       });
       return true;
+    },
+    getThread,
+    setThreadUnread: async (threadId, unread) => {
+      try {
+        await apply({
+          kind: "set_thread_unread",
+          thread_id: threadId,
+          unread,
+        });
+      } catch (error) {
+        if (!isNotFound(error)) throw error;
+        return null;
+      }
+      return await getThread(threadId);
     },
     readThreadExecutionContext,
     replaceThreadDynamicToolCatalogs: async (threadId, catalogs) => {

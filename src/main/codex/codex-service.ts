@@ -474,7 +474,6 @@ import {
   listCodexThreadLinks,
   listCodexProjectThreads,
   setCodexThreadPinned,
-  setCodexThreadHasUnreadTurn,
   unlinkCodexThread,
   updateCodexThreadArchived,
   updateCodexThreadName,
@@ -616,6 +615,7 @@ import { createTypeScriptAutomationModulePort } from "../typescript-automation-m
 import type {
   DesktopProjectWorkspacePort,
   DesktopProjectWorkspaceSidebar,
+  DesktopProjectWorkspaceThread,
 } from "../core-client/project-workspace-adapter";
 import { createTypeScriptProjectWorkspacePort } from "../typescript-project-workspace-port";
 import { CodexScheduledAutomationRetryError } from "../codex-scheduled-automation-scheduler";
@@ -5724,27 +5724,15 @@ export class CodexService extends EventEmitter {
     return this.getThreadLinkSafely(threadId)?.archived === true;
   }
 
-  private persistConversationUnreadState(
+  private async persistConversationUnreadState(
     threadId: string,
     hasUnreadTurn: boolean,
-  ): CodexThreadSummary | null {
+  ): Promise<DesktopProjectWorkspaceThread | null> {
     try {
-      let summary = setCodexThreadHasUnreadTurn(threadId, hasUnreadTurn);
-      if (!summary) {
-        const durableSeed = this.getMaybeConversationRecord(threadId)?.detail
-          ?? this.getThreadLinkSafely(threadId);
-        if (durableSeed) {
-          upsertCodexThread(durableSeed);
-          summary = setCodexThreadHasUnreadTurn(threadId, hasUnreadTurn);
-        }
-      }
-      if (!summary) return null;
-      const owners = projectSessionService.syncProjectSessionUnreadForThread(threadId);
-      for (const owner of owners) {
-        dbNotifier.notifyProjectSessionsChanged(owner.projectId, "unread", owner.sessionId);
-      }
-      this.emitEvent({ type: "threadSummary", thread: summary });
-      return summary;
+      return await this.projectWorkspace.setThreadUnread(
+        threadId,
+        hasUnreadTurn,
+      );
     } catch (error) {
       this.logger.warn("Failed to persist Codex conversation unread state", {
         threadId,
@@ -5755,22 +5743,32 @@ export class CodexService extends EventEmitter {
     }
   }
 
-  setConversationUnreadState(threadId: string, hasUnreadTurn: boolean): boolean {
+  async setConversationUnreadState(
+    threadId: string,
+    hasUnreadTurn: boolean,
+  ): Promise<boolean> {
     const normalizedThreadId = threadId.trim();
     if (!normalizedThreadId) return false;
     const record = this.getMaybeConversationRecord(normalizedThreadId);
-    const summary = this.getThreadLinkSafely(normalizedThreadId);
-    if (!record && !summary) return false;
-    if (hasUnreadTurn && (summary?.archived || record?.detail?.archived)) return false;
+    const thread = await this.projectWorkspace.getThread(normalizedThreadId);
+    if (!record && !thread) return false;
+    if (hasUnreadTurn && (thread?.archived || record?.detail?.archived)) return false;
     const recordChanged = Boolean(record && record.hasUnreadTurn !== hasUnreadTurn);
-    const summaryChanged = Boolean(summary && summary.hasUnreadTurn !== hasUnreadTurn);
-    if (!recordChanged && !summaryChanged) return false;
+    const threadChanged = Boolean(
+      thread && thread.hasUnreadTurn !== hasUnreadTurn,
+    );
+    if (!recordChanged && !threadChanged) return false;
+
+    const committed = await this.persistConversationUnreadState(
+      normalizedThreadId,
+      hasUnreadTurn,
+    );
+    if (!committed) return false;
 
     if (record && recordChanged) {
       record.hasUnreadTurn = hasUnreadTurn;
       if (!hasUnreadTurn) record.unreadMessageCount = 0;
     }
-    this.persistConversationUnreadState(normalizedThreadId, hasUnreadTurn);
     const acceptedConversation = this.acceptedConversationDocumentById.get(normalizedThreadId);
     if (acceptedConversation && acceptedConversation.hasUnreadTurn !== hasUnreadTurn) {
       this.mutateAcceptedConversationDocumentSilently(normalizedThreadId, (draft) => {
@@ -11495,7 +11493,7 @@ export class CodexService extends EventEmitter {
     record.serverRequests = [...result.state.requests];
     record.hasUnreadTurn = result.state.hasUnreadTurn;
     if (record.hasUnreadTurn !== previousHasUnreadTurn) {
-      this.persistConversationUnreadState(threadId, record.hasUnreadTurn);
+      void this.persistConversationUnreadState(threadId, record.hasUnreadTurn);
     }
   }
 
@@ -11512,7 +11510,7 @@ export class CodexService extends EventEmitter {
     record.serverRequests = [...result.state.requests];
     record.hasUnreadTurn = result.state.sidecar.hasUnreadTurn;
     if (record.hasUnreadTurn !== previousHasUnreadTurn) {
-      this.persistConversationUnreadState(threadId, record.hasUnreadTurn);
+      void this.persistConversationUnreadState(threadId, record.hasUnreadTurn);
     }
     if (!record.detail) return;
 
@@ -16425,7 +16423,7 @@ export class CodexService extends EventEmitter {
       }
     }
     await this.deleteHeartbeatAutomationForArchivedThread(threadId);
-    this.setConversationUnreadState(threadId, false);
+    await this.setConversationUnreadState(threadId, false);
     updateCodexThreadArchived(threadId, true);
     setCodexThreadPinned(threadId, false);
     this.emitEvent({ type: "threadArchivedState", threadId, archived: true });
@@ -22449,7 +22447,7 @@ export class CodexService extends EventEmitter {
         archived,
       });
       if (archived) {
-        this.setConversationUnreadState(payload.threadId, false);
+        await this.setConversationUnreadState(payload.threadId, false);
       }
       const updated = updateCodexThreadArchived(payload.threadId, archived);
       if (!updated) {
