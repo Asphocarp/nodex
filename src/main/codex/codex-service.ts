@@ -7888,16 +7888,32 @@ export class CodexService extends EventEmitter {
   ): Promise<CodexSidebarSnapshot> {
     const normalizedThreadId = threadId.trim();
     if (!normalizedThreadId) {
-      return this.buildSidebarSnapshot({ includeArchived: false });
+      const sidebar = await this.projectWorkspace.readSidebar(false);
+      this.invalidateSidebarSnapshotCache();
+      return await this.buildWorkspaceSidebarSnapshot(sidebar);
     }
 
-    const summary = getCodexThread(normalizedThreadId) ?? await this.resolveThreadSummary(normalizedThreadId);
-    if (summary) {
-      this.persistThreadPinnedState(normalizedThreadId, pinned, beforeThreadId);
-      this.emitSidebarSyncUpdatedForThread(summary, "session-change");
+    const sidebar = await this.projectWorkspace.setThreadPinned(
+      normalizedThreadId,
+      pinned,
+      beforeThreadId,
+    );
+    const thread = sidebar.threads.find(
+      (candidate) => candidate.threadId === normalizedThreadId,
+    );
+    if (!thread) {
+      this.invalidateSidebarSnapshotCache();
+      return await this.buildWorkspaceSidebarSnapshot(sidebar);
     }
 
-    return this.buildSidebarSnapshot({ includeArchived: false });
+    const metadata = createSidebarThreadSyncMetadata();
+    markSidebarSyncScopeChanged(metadata, thread.projectId);
+    const result = await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
+      sidebar,
+      metadata,
+      "session-change",
+    );
+    return result.snapshot;
   }
 
   async setPinnedThreadOrder(

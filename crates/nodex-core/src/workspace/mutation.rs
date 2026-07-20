@@ -338,7 +338,11 @@ pub(super) fn apply(
                     &request_hash,
                     thread_id,
                 ),
-                ProjectWorkspaceIntent::SetThreadPinned { thread_id, pinned } => {
+                ProjectWorkspaceIntent::SetThreadPinned {
+                    thread_id,
+                    pinned,
+                    placement,
+                } => {
                     thread::set_thread_pinned(
                         transaction,
                         &library_id,
@@ -348,6 +352,7 @@ pub(super) fn apply(
                         &request_hash,
                         thread_id,
                         *pinned,
+                        placement.as_ref(),
                     )
                 }
                 ProjectWorkspaceIntent::ReorderPinnedThreads { thread_ids } => {

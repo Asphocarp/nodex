@@ -625,6 +625,8 @@ pub enum ProjectWorkspaceIntent {
     SetThreadPinned {
         thread_id: String,
         pinned: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        placement: Option<ProjectWorkspaceThreadPlacement>,
     },
     ReorderPinnedThreads {
         thread_ids: Vec<String>,

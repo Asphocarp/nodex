@@ -5,7 +5,7 @@ use nodex_core_contracts::BoundModuleContext;
 use nodex_core_contracts::workspace::{
     CodexPermissionMode, CodexThreadActiveFlag, CodexThreadStatusType,
     ProjectWorkspaceDynamicToolCatalog, ProjectWorkspaceThread, ProjectWorkspaceThreadPatch,
-    ProjectWorkspaceThreadStatus,
+    ProjectWorkspaceThreadPlacement, ProjectWorkspaceThreadStatus,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -492,6 +492,7 @@ pub(super) fn set_thread_pinned(
     request_hash: &str,
     thread_id: &str,
     pinned: bool,
+    placement: Option<&ProjectWorkspaceThreadPlacement>,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
     validate_id("thread_id", thread_id)?;
     let thread = require_thread(connection, library_id, thread_id)?;
@@ -500,6 +501,17 @@ pub(super) fn set_thread_pinned(
             "Child Codex Threads cannot be pinned in the sidebar",
         ));
     }
+    if !pinned && placement.is_some() {
+        return Err(invalid(
+            "An unpinned Codex Thread cannot have pin placement",
+        ));
+    }
+    let session_ids = linked_session_ids(
+        connection,
+        library_id,
+        thread_id,
+        thread.project_id.as_deref(),
+    )?;
     let now = sqlite_now(connection)?;
     if pinned {
         let next_order = connection.query_row(
@@ -513,12 +525,22 @@ pub(super) fn set_thread_pinned(
              ) VALUES (?1, ?2, ?3, ?3)",
             params![thread_id, next_order, now],
         )?;
+        if let Some(placement) = placement {
+            place_pinned_thread(connection, library_id, thread_id, placement, &now)?;
+        }
     } else {
         connection.execute(
             "DELETE FROM codex_pinned_threads WHERE thread_id = ?1",
             [thread_id],
         )?;
     }
+    sync_linked_session_pin_mirrors(
+        connection,
+        &session_ids,
+        thread.project_id.as_deref(),
+        pinned,
+        &now,
+    )?;
     finish_thread_mutation(
         connection,
         library_id,
@@ -528,9 +550,105 @@ pub(super) fn set_thread_pinned(
         request_hash,
         "set_thread_pinned",
         thread.project_id.into_iter().collect(),
-        Vec::new(),
+        session_ids,
         vec![thread_id.to_owned()],
     )
+}
+
+fn place_pinned_thread(
+    connection: &Connection,
+    library_id: &str,
+    thread_id: &str,
+    placement: &ProjectWorkspaceThreadPlacement,
+    now: &str,
+) -> Result<(), StoreError> {
+    let current = pinned_threads(connection, library_id)?;
+    let mut ordered = current
+        .iter()
+        .map(|thread| thread.thread_id.clone())
+        .filter(|candidate| candidate != thread_id)
+        .collect::<Vec<_>>();
+    let insertion_index = match placement {
+        ProjectWorkspaceThreadPlacement::Start => 0,
+        ProjectWorkspaceThreadPlacement::End => ordered.len(),
+        ProjectWorkspaceThreadPlacement::Before {
+            thread_id: before_thread_id,
+        } => {
+            validate_id("before_thread_id", before_thread_id)?;
+            ordered
+                .iter()
+                .position(|candidate| candidate == before_thread_id)
+                .unwrap_or(ordered.len())
+        }
+        ProjectWorkspaceThreadPlacement::Default => {
+            return Err(invalid(
+                "Pinned Codex Thread placement must be start, end, or before",
+            ));
+        }
+    };
+    ordered.insert(insertion_index, thread_id.to_owned());
+    write_pinned_thread_order(connection, &ordered, now)
+}
+
+fn sync_linked_session_pin_mirrors(
+    connection: &Connection,
+    session_ids: &[String],
+    project_id: Option<&str>,
+    pinned: bool,
+    now: &str,
+) -> Result<(), StoreError> {
+    for session_id in session_ids {
+        let (was_pinned, existing_order) = connection.query_row(
+            "SELECT pinned, pinned_order FROM project_sessions WHERE id = ?1",
+            [session_id],
+            |row| Ok((row.get::<_, i64>(0)? != 0, row.get::<_, Option<i64>>(1)?)),
+        )?;
+        let pinned_order = if pinned {
+            if was_pinned && existing_order.is_some() {
+                existing_order
+            } else {
+                Some(connection.query_row(
+                    "SELECT COALESCE(max(pinned_order), -1) + 1 \
+                             FROM project_sessions \
+                             WHERE project_id IS ?1 AND pinned = 1 AND archived = 0",
+                    [project_id],
+                    |row| row.get::<_, i64>(0),
+                )?)
+            }
+        } else {
+            None
+        };
+        let changed = connection.execute(
+            "UPDATE project_sessions SET pinned = ?1, pinned_order = ?2, updated_at = ?3 \
+             WHERE id = ?4",
+            params![i64::from(pinned), pinned_order, now, session_id],
+        )?;
+        if changed != 1 {
+            return Err(corrupt(
+                "Linked Project Session disappeared during Thread pin update",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn write_pinned_thread_order(
+    connection: &Connection,
+    ordered: &[String],
+    now: &str,
+) -> Result<(), StoreError> {
+    let mut update = connection.prepare(
+        "UPDATE codex_pinned_threads SET pinned_order = ?1, updated_at = ?2 \
+         WHERE thread_id = ?3",
+    )?;
+    for (index, thread_id) in ordered.iter().enumerate() {
+        update.execute(params![
+            i64::try_from(index).expect("pinned Thread order fits i64"),
+            now,
+            thread_id,
+        ])?;
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -567,17 +685,7 @@ pub(super) fn reorder_pinned_threads(
             .cloned(),
     );
     let now = sqlite_now(connection)?;
-    let mut update = connection.prepare(
-        "UPDATE codex_pinned_threads SET pinned_order = ?1, updated_at = ?2 \
-         WHERE thread_id = ?3",
-    )?;
-    for (index, thread_id) in ordered.iter().enumerate() {
-        update.execute(params![
-            i64::try_from(index).expect("pinned Thread order fits i64"),
-            now,
-            thread_id,
-        ])?;
-    }
+    write_pinned_thread_order(connection, &ordered, &now)?;
     let project_ids = current
         .iter()
         .filter_map(|thread| thread.project_id.clone())
@@ -1385,9 +1493,9 @@ mod tests {
         CodexPermissionMode, CodexThreadActiveFlag, CodexThreadStatusType, ProjectSessionIntent,
         ProjectWorkspaceBackgroundProcess, ProjectWorkspaceBackgroundProcessSource,
         ProjectWorkspaceDynamicToolCatalog, ProjectWorkspaceIntent, ProjectWorkspaceRead,
-        ProjectWorkspaceReadValue, ProjectWorkspaceThreadPatch, ProjectWorkspaceThreadStatus,
-        ProjectWorkspaceTurnAuthorityScope, ProjectWorkspaceTurnAuthoritySource,
-        ProjectWorkspaceTurnCoordinate,
+        ProjectWorkspaceReadValue, ProjectWorkspaceThreadPatch, ProjectWorkspaceThreadPlacement,
+        ProjectWorkspaceThreadStatus, ProjectWorkspaceTurnAuthorityScope,
+        ProjectWorkspaceTurnAuthoritySource, ProjectWorkspaceTurnCoordinate,
     };
     use nodex_core_contracts::{
         AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CoreErrorCode, LibraryId,
@@ -1593,6 +1701,7 @@ mod tests {
                     ProjectWorkspaceIntent::SetThreadPinned {
                         thread_id: "thread-root".to_owned(),
                         pinned: true,
+                        placement: None,
                     },
                 ),
             )
@@ -1780,7 +1889,7 @@ mod tests {
 
     #[test]
     fn owns_root_child_projectless_pinned_order_and_delete_collections() {
-        let (_directory, _kernel, module) = seeded_module();
+        let (_directory, kernel, module) = seeded_module();
         create_thread(
             &module,
             "thread-create-a",
@@ -1816,6 +1925,32 @@ mod tests {
             None,
             None,
         );
+        let session_id = kernel
+            .writer()
+            .call(|connection| {
+                Ok(connection.query_row(
+                    "SELECT id FROM project_sessions WHERE project_id = 'project:default' LIMIT 1",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?)
+            })
+            .expect("default Session identity");
+        module
+            .apply(
+                &context(),
+                request(
+                    "thread-link-b",
+                    ProjectWorkspaceIntent::MutateSession {
+                        session_id: session_id.clone(),
+                        intent: ProjectSessionIntent::LinkThread {
+                            thread_id: "thread-b".to_owned(),
+                            expected_project_id: Some("project:default".to_owned()),
+                            thread_patch: None,
+                        },
+                    },
+                ),
+            )
+            .expect("link Thread to Session");
 
         for thread_id in ["thread-a", "thread-b", "thread-c"] {
             module
@@ -1826,6 +1961,7 @@ mod tests {
                         ProjectWorkspaceIntent::SetThreadPinned {
                             thread_id: thread_id.to_owned(),
                             pinned: true,
+                            placement: None,
                         },
                     ),
                 )
@@ -1863,6 +1999,61 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(pinned_orders, vec![Some(0), Some(1), Some(2)]);
 
+        module
+            .apply(
+                &context(),
+                request(
+                    "thread-unpin-b",
+                    ProjectWorkspaceIntent::SetThreadPinned {
+                        thread_id: "thread-b".to_owned(),
+                        pinned: false,
+                        placement: None,
+                    },
+                ),
+            )
+            .expect("unpin linked Thread");
+        module
+            .apply(
+                &context(),
+                request(
+                    "thread-repin-b-before-c",
+                    ProjectWorkspaceIntent::SetThreadPinned {
+                        thread_id: "thread-b".to_owned(),
+                        pinned: true,
+                        placement: Some(ProjectWorkspaceThreadPlacement::Before {
+                            thread_id: "thread-c".to_owned(),
+                        }),
+                    },
+                ),
+            )
+            .expect("re-pin linked Thread before anchor");
+        let pinned_after_reinsert = ["thread-b", "thread-c", "thread-a"]
+            .into_iter()
+            .map(|thread_id| {
+                let ProjectWorkspaceReadValue::Thread { thread } = read(
+                    &module,
+                    ProjectWorkspaceRead::Thread {
+                        thread_id: thread_id.to_owned(),
+                    },
+                ) else {
+                    panic!("Thread read");
+                };
+                thread.pinned_order
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(pinned_after_reinsert, vec![Some(0), Some(1), Some(2)]);
+        let session_pin = kernel
+            .writer()
+            .call(move |connection| {
+                Ok(connection.query_row(
+                    "SELECT pinned, pinned_order FROM project_sessions WHERE id = ?1",
+                    [&session_id],
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?)),
+                )?)
+            })
+            .expect("linked Session pin mirror");
+        assert_eq!(session_pin, (1, Some(0)));
+
         let ProjectWorkspaceReadValue::ChildThreads { threads } = read(
             &module,
             ProjectWorkspaceRead::ChildThreads {
@@ -1887,6 +2078,7 @@ mod tests {
                     ProjectWorkspaceIntent::SetThreadPinned {
                         thread_id: "thread-child".to_owned(),
                         pinned: true,
+                        placement: None,
                     },
                 ),
             )

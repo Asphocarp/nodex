@@ -626,6 +626,7 @@ mod tests {
             ProjectWorkspaceIntent::SetThreadPinned {
                 thread_id: "thread:search-pinned".to_owned(),
                 pinned: true,
+                placement: None,
             },
         );
 

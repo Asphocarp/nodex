@@ -538,7 +538,10 @@ intents, projectless reorder replaces only the caller's visible slots, and a
 global pinned reorder changes only already-pinned Thread positions. Codex Host
 manual-order commands enter through the authority-selected Workspace port and
 publish the post-commit Workspace snapshot, so Project, Chats, and pinned lanes
-never acknowledge a speculative Electron-side order. A
+never acknowledge a speculative Electron-side order. Interactive pin/unpin and
+same-Project lane changes use one native pin intent with optional start/end or
+before-anchor placement; the same transaction updates the attached Session pin
+mirror and invalidates both Thread and Session projections. A
 cross-Project Thread move atomically updates Thread and Session ownership,
 browser-tab ownership, metadata, search-unit scope, and every affected Project
 manual order. Project and projectless lanes are explicit contract variants, so

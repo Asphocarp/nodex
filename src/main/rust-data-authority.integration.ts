@@ -1852,13 +1852,54 @@ describe("Electron native data authority", () => {
       })).resolves.toMatchObject({
         projectlessThreadOrder: ["thread:electron-projectless-order"],
       });
-      await runtime.rootClient.workspaceApply({
-        operationId: "electron-sidebar-pin-thread",
-        intent: {
-          kind: "set_thread_pinned",
-          thread_id: "thread:electron-session",
-          pinned: true,
-        },
+      await workspace.setThreadPinned(
+        "thread:electron-projectless-order",
+        true,
+      );
+      await expect(workspace.setThreadPinned(
+        "thread:electron-session",
+        true,
+        "thread:electron-projectless-order",
+      )).resolves.toMatchObject({
+        threads: expect.arrayContaining([
+          expect.objectContaining({
+            threadId: "thread:electron-session",
+            pinnedOrder: 0,
+          }),
+          expect.objectContaining({
+            threadId: "thread:electron-projectless-order",
+            pinnedOrder: 1,
+          }),
+        ]),
+      });
+      await expect(
+        workspace.getProjectSession(createdSession.id),
+      ).resolves.toMatchObject({ pinned: true });
+      await expect(workspace.setThreadPinned(
+        "thread:electron-session",
+        false,
+      )).resolves.toMatchObject({
+        threads: expect.arrayContaining([
+          expect.objectContaining({
+            threadId: "thread:electron-session",
+            pinnedOrder: null,
+          }),
+        ]),
+      });
+      await expect(
+        workspace.getProjectSession(createdSession.id),
+      ).resolves.toMatchObject({ pinned: false });
+      await expect(workspace.setThreadPinned(
+        "thread:electron-session",
+        true,
+        null,
+      )).resolves.toMatchObject({
+        threads: expect.arrayContaining([
+          expect.objectContaining({
+            threadId: "thread:electron-session",
+            pinnedOrder: 1,
+          }),
+        ]),
       });
       await expect(workspace.reorderPinnedThreads([
         "thread:electron-session",

@@ -138,6 +138,12 @@ export function createDesktopProjectWorkspaceBridge(
       ),
     setProjectlessThreadOrder: async (orderInput) =>
       await (await resolve()).setProjectlessThreadOrder(orderInput),
+    setThreadPinned: async (threadId, pinned, beforeThreadId) =>
+      await (await resolve()).setThreadPinned(
+        threadId,
+        pinned,
+        beforeThreadId,
+      ),
     reorderPinnedThreads: async (orderedThreadIds) =>
       await (await resolve()).reorderPinnedThreads(orderedThreadIds),
   };

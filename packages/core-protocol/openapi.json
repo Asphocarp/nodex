@@ -9113,6 +9113,16 @@
                   "pinned": {
                     "type": "boolean"
                   },
+                  "placement": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/ProjectWorkspaceThreadPlacement"
+                      }
+                    ]
+                  },
                   "thread_id": {
                     "type": "string"
                   }

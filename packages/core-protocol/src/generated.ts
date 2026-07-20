@@ -2337,6 +2337,7 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "set_thread_pinned";
                 readonly pinned: boolean;
+                readonly placement?: null | components["schemas"]["ProjectWorkspaceThreadPlacement"];
                 readonly thread_id: string;
             } | {
                 /** @enum {string} */

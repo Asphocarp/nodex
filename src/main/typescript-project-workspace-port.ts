@@ -9,6 +9,7 @@ import {
   listCodexThreadLinks,
   listPinnedCodexThreadIds,
   setCodexPinnedThreadOrder,
+  setCodexThreadPinned,
 } from "./codex/codex-link-repository";
 import {
   getCodexProjectPermissionModeSelection,
@@ -32,6 +33,7 @@ import {
   setCodexSidebarChatOrder,
 } from "./local-store/codex-sidebar-chat-order";
 import { projectDeletionRuntime } from "./project-deletion-runtime";
+import { dbNotifier } from "./local-store/notifier";
 import type {
   DesktopProjectWorkspacePort,
   DesktopProjectWorkspaceSidebar,
@@ -203,6 +205,22 @@ export const createTypeScriptProjectWorkspacePort = (
       visibleThreadIds: [...input.visibleThreadIds],
       nextVisibleThreadIds: [...input.nextVisibleThreadIds],
     });
+    return readTypeScriptSidebar(false);
+  },
+  setThreadPinned: async (threadId, pinned, beforeThreadId) => {
+    if (!getCodexThread(threadId)) return readTypeScriptSidebar(false);
+    setCodexThreadPinned(threadId, pinned, beforeThreadId);
+    const owners = projectSessionService.listProjectSessionThreadOwners(threadId);
+    for (const owner of owners) {
+      const session = projectSessionService.getProjectSession(owner.sessionId);
+      if (!session) continue;
+      projectSessionService.setProjectSessionPinned(session.id, { pinned });
+      dbNotifier.notifyProjectSessionsChanged(
+        session.projectId,
+        "pin",
+        session.id,
+      );
+    }
     return readTypeScriptSidebar(false);
   },
   reorderPinnedThreads: async (orderedThreadIds) => {

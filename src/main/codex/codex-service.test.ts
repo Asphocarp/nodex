@@ -8810,6 +8810,10 @@ describe("codex-service readThread fallback", () => {
           projectlessThreadOrder: ["thread-chat-committed"],
         };
       },
+      setThreadPinned: async (threadId, pinned, beforeThreadId) => {
+        calls.push(`pin:${threadId}:${String(pinned)}:${beforeThreadId ?? "end"}`);
+        return pinnedSidebar;
+      },
       reorderPinnedThreads: async (orderedThreadIds) => {
         calls.push(`pinned:${orderedThreadIds.join(",")}`);
         return pinnedSidebar;
@@ -8828,6 +8832,11 @@ describe("codex-service readThread fallback", () => {
         visibleThreadIds: ["thread-chat-requested"],
         nextVisibleThreadIds: ["thread-chat-requested"],
       });
+      const pin = await service.setThreadPinned(
+        "thread-pinned-committed",
+        true,
+        "thread-pin-anchor",
+      );
       const pinned = await service.setPinnedThreadOrder([
         "thread-pinned-requested",
       ]);
@@ -8835,6 +8844,7 @@ describe("codex-service readThread fallback", () => {
       expect(calls).toEqual([
         "project:project-authority:thread-project-requested",
         "chats:thread-chat-requested",
+        "pin:thread-pinned-committed:true:thread-pin-anchor",
         "pinned:thread-pinned-requested",
       ]);
       expect(project.snapshot.projectThreadOrders["project-authority"]).toEqual([
@@ -8844,10 +8854,11 @@ describe("codex-service readThread fallback", () => {
       expect(chats.snapshot.projectlessThreadOrder).toEqual([
         "thread-chat-committed",
       ]);
+      expect(pin.pinnedThreadIds).toEqual(["thread-pinned-committed"]);
       expect(pinned.pinnedThreadIds).toEqual(["thread-pinned-committed"]);
       expect(hostMessages.filter(
         (message) => message.type === "sidebarSyncUpdated",
-      )).toHaveLength(3);
+      )).toHaveLength(4);
     } finally {
       await service.shutdown();
     }

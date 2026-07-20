@@ -278,6 +278,11 @@ export interface DesktopProjectWorkspacePort {
     readonly visibleThreadIds: readonly string[];
     readonly nextVisibleThreadIds: readonly string[];
   }): Promise<DesktopProjectWorkspaceSidebar>;
+  setThreadPinned(
+    threadId: string,
+    pinned: boolean,
+    beforeThreadId?: string | null,
+  ): Promise<DesktopProjectWorkspaceSidebar>;
   reorderPinnedThreads(
     orderedThreadIds: readonly string[],
   ): Promise<DesktopProjectWorkspaceSidebar>;
@@ -1455,6 +1460,25 @@ export function createCoreProjectWorkspaceAdapter(
         visible_thread_ids: [...input.visibleThreadIds],
         next_visible_thread_ids: [...input.nextVisibleThreadIds],
       });
+      return await readSidebar(false);
+    },
+    setThreadPinned: async (threadId, pinned, beforeThreadId) => {
+      try {
+        await apply({
+          kind: "set_thread_pinned",
+          thread_id: threadId,
+          pinned,
+          ...(!pinned || beforeThreadId === undefined
+            ? {}
+            : {
+                placement: beforeThreadId === null
+                  ? { kind: "end" }
+                  : { kind: "before", thread_id: beforeThreadId },
+              }),
+        });
+      } catch (error) {
+        if (!isNotFound(error)) throw error;
+      }
       return await readSidebar(false);
     },
     reorderPinnedThreads: async (orderedThreadIds) => {

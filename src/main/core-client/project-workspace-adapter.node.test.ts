@@ -573,8 +573,14 @@ describe("Core Project Workspace adapter", () => {
     enqueueSidebarRead(23, {
       projectlessOrder: ["thread:projectless-b", "thread:projectless-a"],
     });
-    enqueueApply(24, "operation:reorder-pinned");
+    enqueueApply(24, "operation:pin-before");
     enqueueSidebarRead(24, { pinnedOrder: 0 });
+    enqueueApply(25, "operation:pin-at-end");
+    enqueueSidebarRead(25, { pinnedOrder: 0 });
+    enqueueApply(26, "operation:unpin");
+    enqueueSidebarRead(26);
+    enqueueApply(27, "operation:reorder-pinned");
+    enqueueSidebarRead(27, { pinnedOrder: 0 });
     const adapter = createCoreProjectWorkspaceAdapter(client);
 
     await expect(adapter.readSidebar(true)).resolves.toEqual({
@@ -617,6 +623,36 @@ describe("Core Project Workspace adapter", () => {
         "thread:projectless-a",
       ],
     });
+    await expect(adapter.setThreadPinned(
+      "thread:one",
+      true,
+      "thread:anchor",
+    )).resolves.toMatchObject({
+      threads: [expect.objectContaining({
+        threadId: "thread:one",
+        pinnedOrder: 0,
+      })],
+    });
+    await expect(adapter.setThreadPinned(
+      "thread:one",
+      true,
+      null,
+    )).resolves.toMatchObject({
+      threads: [expect.objectContaining({
+        threadId: "thread:one",
+        pinnedOrder: 0,
+      })],
+    });
+    await expect(adapter.setThreadPinned(
+      "thread:one",
+      false,
+      "thread:ignored-anchor",
+    )).resolves.toMatchObject({
+      threads: [expect.objectContaining({
+        threadId: "thread:one",
+        pinnedOrder: null,
+      })],
+    });
     await expect(adapter.reorderPinnedThreads([
       "thread:one",
     ])).resolves.toMatchObject({
@@ -627,6 +663,9 @@ describe("Core Project Workspace adapter", () => {
     });
     expect(client.workspaceReads).toEqual([
       { kind: "sidebar", include_archived: true },
+      { kind: "sidebar", include_archived: false },
+      { kind: "sidebar", include_archived: false },
+      { kind: "sidebar", include_archived: false },
       { kind: "sidebar", include_archived: false },
       { kind: "sidebar", include_archived: false },
       { kind: "sidebar", include_archived: false },
@@ -664,6 +703,35 @@ describe("Core Project Workspace adapter", () => {
             "thread:projectless-b",
             "thread:projectless-a",
           ],
+        },
+      },
+      {
+        operationId: expect.any(String),
+        intent: {
+          kind: "set_thread_pinned",
+          thread_id: "thread:one",
+          pinned: true,
+          placement: {
+            kind: "before",
+            thread_id: "thread:anchor",
+          },
+        },
+      },
+      {
+        operationId: expect.any(String),
+        intent: {
+          kind: "set_thread_pinned",
+          thread_id: "thread:one",
+          pinned: true,
+          placement: { kind: "end" },
+        },
+      },
+      {
+        operationId: expect.any(String),
+        intent: {
+          kind: "set_thread_pinned",
+          thread_id: "thread:one",
+          pinned: false,
         },
       },
       {
