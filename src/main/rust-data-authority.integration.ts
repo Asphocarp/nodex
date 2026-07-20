@@ -1813,6 +1813,63 @@ describe("Electron native data authority", () => {
       ).resolves.toMatchObject({
         writableRoots: [nodexHome, sharedWritableRoot],
       });
+      await expect(workspace.setProjectThreadOrder(
+        createdProject.id,
+        ["thread:electron-session"],
+      )).resolves.toMatchObject({
+        projectThreadOrders: {
+          [createdProject.id]: ["thread:electron-session"],
+        },
+      });
+      const clearedProjectOrder = await workspace.setProjectThreadOrder(
+        createdProject.id,
+        null,
+      );
+      expect(
+        clearedProjectOrder.projectThreadOrders[createdProject.id],
+      ).toBeUndefined();
+      const projectlessSession = await workspace.createProjectSession({
+        projectId: null,
+        noThreadFallbackTitle: "Projectless sidebar order",
+      });
+      await workspace.upsertProjectSessionThreadLink({
+        sessionId: projectlessSession.id,
+        projectId: null,
+        threadId: "thread:electron-projectless-order",
+        threadName: "Projectless ordered Thread",
+        threadPreview: "Native projectless ordering",
+        modelProvider: "openai",
+        cwd: nodexHome,
+        statusType: "idle",
+        statusActiveFlags: [],
+        createdAt: threadTimestamp + 3,
+        updatedAt: threadTimestamp + 3,
+      });
+      await expect(workspace.setProjectlessThreadOrder({
+        threadIdsInDisplayOrder: ["thread:electron-projectless-order"],
+        visibleThreadIds: ["thread:electron-projectless-order"],
+        nextVisibleThreadIds: ["thread:electron-projectless-order"],
+      })).resolves.toMatchObject({
+        projectlessThreadOrder: ["thread:electron-projectless-order"],
+      });
+      await runtime.rootClient.workspaceApply({
+        operationId: "electron-sidebar-pin-thread",
+        intent: {
+          kind: "set_thread_pinned",
+          thread_id: "thread:electron-session",
+          pinned: true,
+        },
+      });
+      await expect(workspace.reorderPinnedThreads([
+        "thread:electron-session",
+      ])).resolves.toMatchObject({
+        threads: expect.arrayContaining([
+          expect.objectContaining({
+            threadId: "thread:electron-session",
+            pinnedOrder: 0,
+          }),
+        ]),
+      });
       const backgroundProcess = {
         id: "thread:electron-session:item:dev-server",
         threadId: "thread:electron-session",

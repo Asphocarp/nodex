@@ -535,6 +535,10 @@ Workspace also owns the durable sidebar/search projection around those Threads.
 One snapshot returns eligible root Threads together with Project-lane and
 projectless manual identity order. Project order set and clear are distinct
 intents, projectless reorder replaces only the caller's visible slots, and a
+global pinned reorder changes only already-pinned Thread positions. Codex Host
+manual-order commands enter through the authority-selected Workspace port and
+publish the post-commit Workspace snapshot, so Project, Chats, and pinned lanes
+never acknowledge a speculative Electron-side order. A
 cross-Project Thread move atomically updates Thread and Session ownership,
 browser-tab ownership, metadata, search-unit scope, and every affected Project
 manual order. Project and projectless lanes are explicit contract variants, so

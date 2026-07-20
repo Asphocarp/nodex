@@ -129,6 +129,17 @@ export function createDesktopProjectWorkspaceBridge(
       await (await resolve()).listBackgroundProcesses(threadId),
     upsertBackgroundProcess: async (processInput, options) =>
       await (await resolve()).upsertBackgroundProcess(processInput, options),
+    readSidebar: async (includeArchived) =>
+      await (await resolve()).readSidebar(includeArchived),
+    setProjectThreadOrder: async (projectId, orderedThreadIds) =>
+      await (await resolve()).setProjectThreadOrder(
+        projectId,
+        orderedThreadIds,
+      ),
+    setProjectlessThreadOrder: async (orderInput) =>
+      await (await resolve()).setProjectlessThreadOrder(orderInput),
+    reorderPinnedThreads: async (orderedThreadIds) =>
+      await (await resolve()).reorderPinnedThreads(orderedThreadIds),
   };
 }
 

@@ -159,7 +159,10 @@ import {
   setCodexThreadWritableRootsPathOverrideForTests,
 } from "../local-store/codex-thread-writable-roots";
 import { resetPersistedAtomStateForTests } from "../local-store/persisted-atoms";
-import type { DesktopProjectWorkspacePort } from "../core-client/project-workspace-adapter";
+import type {
+  DesktopProjectWorkspacePort,
+  DesktopProjectWorkspaceSidebar,
+} from "../core-client/project-workspace-adapter";
 import { createTypeScriptProjectWorkspacePort } from "../typescript-project-workspace-port";
 
 interface TestableCodexService {
@@ -189,7 +192,7 @@ interface TestableCodexService {
   }) => Promise<import("../../shared/types").CodexSidebarSyncResult>;
   setPinnedThreadOrder: (
     orderedThreadIds: readonly string[],
-  ) => import("../../shared/types").CodexSidebarSnapshot;
+  ) => Promise<import("../../shared/types").CodexSidebarSnapshot>;
   setThreadPinned: (
     threadId: string,
     pinned: boolean,
@@ -8247,7 +8250,7 @@ describe("codex-service readThread fallback", () => {
       service.on("hostMessage", (message) => hostMessages.push(message));
 
       try {
-        const snapshot = service.setPinnedThreadOrder([
+        const snapshot = await service.setPinnedThreadOrder([
           "thr_pin_c",
           "thr_pin_a",
           "thr_pin_b",
@@ -8754,6 +8757,100 @@ describe("codex-service readThread fallback", () => {
     });
 
     if (!ran) expect(true).toBe(true);
+  });
+
+  test("routes manual sidebar orders through the selected Workspace and returns committed snapshots", async () => {
+    const service = createService();
+    const calls: string[] = [];
+    const typescriptWorkspace = createTypeScriptProjectWorkspacePort();
+    const emptySidebar: DesktopProjectWorkspaceSidebar = {
+      threads: [],
+      projectThreadOrders: {},
+      projectlessThreadOrder: null,
+    };
+    const pinnedSidebar: DesktopProjectWorkspaceSidebar = {
+      ...emptySidebar,
+      threads: [{
+        threadId: "thread-pinned-committed",
+        projectId: null,
+        sessionId: null,
+        parentThreadId: null,
+        threadName: "Committed pin",
+        threadPreview: "Committed by Workspace",
+        modelProvider: "openai",
+        cwd: "/tmp/nodex",
+        managedWorktreePath: null,
+        projectlessOutputDirectory: null,
+        projectlessWorkspaceBrowserRoot: null,
+        statusType: "idle",
+        statusActiveFlags: [],
+        archived: false,
+        pinnedOrder: 0,
+        hasUnreadTurn: false,
+        createdAt: 1,
+        updatedAt: 2,
+        linkedAt: "2026-07-20T00:00:00.000Z",
+      }],
+    };
+    service.setProjectWorkspacePort({
+      ...typescriptWorkspace,
+      setProjectThreadOrder: async (projectId, orderedThreadIds) => {
+        calls.push(`project:${projectId}:${orderedThreadIds?.join(",") ?? "clear"}`);
+        return {
+          ...emptySidebar,
+          projectThreadOrders: {
+            [projectId]: ["thread-project-committed"],
+          },
+        };
+      },
+      setProjectlessThreadOrder: async (input) => {
+        calls.push(`chats:${input.nextVisibleThreadIds.join(",")}`);
+        return {
+          ...emptySidebar,
+          projectlessThreadOrder: ["thread-chat-committed"],
+        };
+      },
+      reorderPinnedThreads: async (orderedThreadIds) => {
+        calls.push(`pinned:${orderedThreadIds.join(",")}`);
+        return pinnedSidebar;
+      },
+    });
+    const hostMessages: CodexHostMessage[] = [];
+    service.on("hostMessage", (message) => hostMessages.push(message));
+
+    try {
+      const project = await service.setSidebarProjectThreadOrder({
+        projectId: "project-authority",
+        orderedThreadIds: ["thread-project-requested"],
+      });
+      const chats = await service.setSidebarChatsThreadOrder({
+        threadIdsInDisplayOrder: ["thread-chat-requested"],
+        visibleThreadIds: ["thread-chat-requested"],
+        nextVisibleThreadIds: ["thread-chat-requested"],
+      });
+      const pinned = await service.setPinnedThreadOrder([
+        "thread-pinned-requested",
+      ]);
+
+      expect(calls).toEqual([
+        "project:project-authority:thread-project-requested",
+        "chats:thread-chat-requested",
+        "pinned:thread-pinned-requested",
+      ]);
+      expect(project.snapshot.projectThreadOrders["project-authority"]).toEqual([
+        "thread-project-committed",
+      ]);
+      expect(chats.orderedThreadIds).toEqual(["thread-chat-committed"]);
+      expect(chats.snapshot.projectlessThreadOrder).toEqual([
+        "thread-chat-committed",
+      ]);
+      expect(pinned.pinnedThreadIds).toEqual(["thread-pinned-committed"]);
+      expect(hostMessages.filter(
+        (message) => message.type === "sidebarSyncUpdated",
+      )).toHaveLength(3);
+    } finally {
+      await service.shutdown();
+    }
   });
 
   test("clears sidebar project assignment when sync explicitly resolves no project", async () => {

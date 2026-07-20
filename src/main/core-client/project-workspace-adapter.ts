@@ -100,6 +100,34 @@ type CoreBackgroundProcess = Extract<
   { kind: "background_processes" }
 >["processes"][number];
 
+export interface DesktopProjectWorkspaceThread {
+  readonly threadId: string;
+  readonly projectId: string | null;
+  readonly sessionId: string | null;
+  readonly parentThreadId: string | null;
+  readonly threadName: string | null;
+  readonly threadPreview: string;
+  readonly modelProvider: string;
+  readonly cwd: string | null;
+  readonly managedWorktreePath: string | null;
+  readonly projectlessOutputDirectory: string | null;
+  readonly projectlessWorkspaceBrowserRoot: string | null;
+  readonly statusType: ProjectSessionThreadLink["statusType"];
+  readonly statusActiveFlags: ProjectSessionThreadLink["statusActiveFlags"];
+  readonly archived: boolean;
+  readonly pinnedOrder: number | null;
+  readonly hasUnreadTurn: boolean;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+  readonly linkedAt: string;
+}
+
+export interface DesktopProjectWorkspaceSidebar {
+  readonly threads: readonly DesktopProjectWorkspaceThread[];
+  readonly projectThreadOrders: Readonly<Record<string, readonly string[]>>;
+  readonly projectlessThreadOrder: readonly string[] | null;
+}
+
 export interface DesktopProjectWorkspaceExecutionContext {
   readonly threadId: string;
   readonly projectId: string | null;
@@ -238,6 +266,21 @@ export interface DesktopProjectWorkspacePort {
     input: CodexBackgroundProcessRecord,
     options?: { readonly preserveStartedAt?: boolean },
   ): Promise<CodexBackgroundProcessRecord>;
+  readSidebar(
+    includeArchived: boolean,
+  ): Promise<DesktopProjectWorkspaceSidebar>;
+  setProjectThreadOrder(
+    projectId: string,
+    orderedThreadIds: readonly string[] | null,
+  ): Promise<DesktopProjectWorkspaceSidebar>;
+  setProjectlessThreadOrder(input: {
+    readonly threadIdsInDisplayOrder: readonly string[];
+    readonly visibleThreadIds: readonly string[];
+    readonly nextVisibleThreadIds: readonly string[];
+  }): Promise<DesktopProjectWorkspaceSidebar>;
+  reorderPinnedThreads(
+    orderedThreadIds: readonly string[],
+  ): Promise<DesktopProjectWorkspaceSidebar>;
 }
 
 const isNotFound = (error: unknown): boolean =>
@@ -306,6 +349,31 @@ const fromCoreBackgroundProcess = (
   source: process.source,
   startedAtMs: process.started_at_ms,
   updatedAtMs: process.updated_at_ms,
+});
+
+const fromCoreWorkspaceThread = (
+  thread: CoreThread,
+): DesktopProjectWorkspaceThread => ({
+  threadId: thread.thread_id,
+  projectId: thread.project_id ?? null,
+  sessionId: thread.session_id ?? null,
+  parentThreadId: thread.parent_thread_id ?? null,
+  threadName: thread.thread_name ?? null,
+  threadPreview: thread.thread_preview,
+  modelProvider: thread.model_provider,
+  cwd: thread.cwd ?? null,
+  managedWorktreePath: thread.managed_worktree_path ?? null,
+  projectlessOutputDirectory: thread.projectless_output_directory ?? null,
+  projectlessWorkspaceBrowserRoot:
+    thread.projectless_workspace_browser_root ?? null,
+  statusType: thread.status.status_type,
+  statusActiveFlags: [...thread.status.active_flags],
+  archived: thread.archived,
+  pinnedOrder: thread.pinned_order ?? null,
+  hasUnreadTurn: thread.has_unread_turn,
+  createdAt: thread.created_at,
+  updatedAt: thread.updated_at,
+  linkedAt: thread.linked_at,
 });
 
 const fromCoreSessionSummary = (
@@ -532,6 +600,31 @@ export function createCoreProjectWorkspaceAdapter(
       throw new Error("Core returned the wrong Project Workspace read variant");
     }
     return snapshot.value.processes.map(fromCoreBackgroundProcess);
+  };
+
+  const readSidebar = async (
+    includeArchived: boolean,
+  ): Promise<DesktopProjectWorkspaceSidebar> => {
+    const snapshot = await client.workspaceRead({
+      kind: "sidebar",
+      include_archived: includeArchived,
+    });
+    if (snapshot.value.kind !== "sidebar") {
+      throw new Error("Core returned the wrong Project Workspace read variant");
+    }
+    return {
+      threads: snapshot.value.sidebar.threads.map(fromCoreWorkspaceThread),
+      projectThreadOrders: Object.fromEntries(
+        Object.entries(snapshot.value.sidebar.project_thread_orders).map(
+          ([projectId, threadIds]) => [projectId, [...threadIds]],
+        ),
+      ),
+      projectlessThreadOrder:
+        snapshot.value.sidebar.projectless_thread_order === null
+        || snapshot.value.sidebar.projectless_thread_order === undefined
+          ? null
+          : [...snapshot.value.sidebar.projectless_thread_order],
+    };
   };
 
   const apply = async (
@@ -1340,6 +1433,36 @@ export function createCoreProjectWorkspaceAdapter(
         throw new Error(`Updated Core background process not found: ${input.id}`);
       }
       return persisted;
+    },
+    readSidebar,
+    setProjectThreadOrder: async (projectId, orderedThreadIds) => {
+      await apply(orderedThreadIds === null
+        ? {
+            kind: "clear_project_thread_order",
+            project_id: projectId,
+          }
+        : {
+            kind: "set_project_thread_order",
+            project_id: projectId,
+            ordered_thread_ids: [...orderedThreadIds],
+          });
+      return await readSidebar(false);
+    },
+    setProjectlessThreadOrder: async (input) => {
+      await apply({
+        kind: "set_projectless_thread_order",
+        thread_ids_in_display_order: [...input.threadIdsInDisplayOrder],
+        visible_thread_ids: [...input.visibleThreadIds],
+        next_visible_thread_ids: [...input.nextVisibleThreadIds],
+      });
+      return await readSidebar(false);
+    },
+    reorderPinnedThreads: async (orderedThreadIds) => {
+      await apply({
+        kind: "reorder_pinned_threads",
+        thread_ids: [...orderedThreadIds],
+      });
+      return await readSidebar(false);
     },
   };
 }

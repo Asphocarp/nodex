@@ -4,7 +4,12 @@ import {
   getCodexThreadDynamicToolCatalogs,
   replaceCodexThreadDynamicToolCatalogs,
 } from "./codex/codex-dynamic-tool-catalog-repository";
-import { getCodexThread } from "./codex/codex-link-repository";
+import {
+  getCodexThread,
+  listCodexThreadLinks,
+  listPinnedCodexThreadIds,
+  setCodexPinnedThreadOrder,
+} from "./codex/codex-link-repository";
 import {
   getCodexProjectPermissionModeSelection,
   putCodexProjectPermissionModeSelection,
@@ -18,8 +23,64 @@ import {
   listCodexBackgroundProcesses,
   upsertCodexBackgroundProcess,
 } from "./local-store/codex-background-processes";
+import {
+  listCodexProjectThreadOrders,
+  setCodexProjectThreadOrder,
+} from "./local-store/codex-project-thread-move";
+import {
+  getCodexSidebarChatOrder,
+  setCodexSidebarChatOrder,
+} from "./local-store/codex-sidebar-chat-order";
 import { projectDeletionRuntime } from "./project-deletion-runtime";
-import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
+import type {
+  DesktopProjectWorkspacePort,
+  DesktopProjectWorkspaceSidebar,
+} from "./core-client/project-workspace-adapter";
+
+const readTypeScriptSidebar = (
+  includeArchived: boolean,
+): DesktopProjectWorkspaceSidebar => {
+  const pinnedThreadIds = listPinnedCodexThreadIds();
+  const pinnedOrderByThreadId = new Map(
+    pinnedThreadIds.map((threadId, index) => [threadId, index]),
+  );
+  const threads = listCodexThreadLinks({ includeArchived }).flatMap((thread) => {
+    const sessionLink = projectSessionService.getProjectSessionThreadLink(
+      thread.threadId,
+    );
+    const session = sessionLink
+      ? projectSessionService.getProjectSessionSummary(sessionLink.sessionId)
+      : null;
+    if (!includeArchived && session?.archived) return [];
+    return [{
+      threadId: thread.threadId,
+      projectId: thread.projectId,
+      sessionId: session?.id ?? null,
+      parentThreadId: thread.source?.parentThreadId ?? null,
+      threadName: thread.threadName,
+      threadPreview: thread.threadPreview,
+      modelProvider: thread.modelProvider,
+      cwd: thread.cwd,
+      managedWorktreePath: thread.managedWorktreePath ?? null,
+      projectlessOutputDirectory: thread.projectlessOutputDirectory ?? null,
+      projectlessWorkspaceBrowserRoot:
+        thread.projectlessWorkspaceBrowserRoot ?? null,
+      statusType: thread.statusType,
+      statusActiveFlags: [...thread.statusActiveFlags],
+      archived: thread.archived,
+      pinnedOrder: pinnedOrderByThreadId.get(thread.threadId) ?? null,
+      hasUnreadTurn: thread.hasUnreadTurn ?? false,
+      createdAt: thread.createdAt,
+      updatedAt: thread.updatedAt,
+      linkedAt: thread.linkedAt,
+    }];
+  });
+  return {
+    threads,
+    projectThreadOrders: listCodexProjectThreadOrders(),
+    projectlessThreadOrder: getCodexSidebarChatOrder(),
+  };
+};
 
 /** TypeScript-oracle implementation of the deep Project Workspace port. */
 export const createTypeScriptProjectWorkspacePort = (
@@ -130,4 +191,22 @@ export const createTypeScriptProjectWorkspacePort = (
     listCodexBackgroundProcesses(threadId),
   upsertBackgroundProcess: async (input, options) =>
     upsertCodexBackgroundProcess(input, options),
+  readSidebar: async (includeArchived) =>
+    readTypeScriptSidebar(includeArchived),
+  setProjectThreadOrder: async (projectId, orderedThreadIds) => {
+    setCodexProjectThreadOrder(projectId, orderedThreadIds);
+    return readTypeScriptSidebar(false);
+  },
+  setProjectlessThreadOrder: async (input) => {
+    setCodexSidebarChatOrder({
+      threadIdsInDisplayOrder: [...input.threadIdsInDisplayOrder],
+      visibleThreadIds: [...input.visibleThreadIds],
+      nextVisibleThreadIds: [...input.nextVisibleThreadIds],
+    });
+    return readTypeScriptSidebar(false);
+  },
+  reorderPinnedThreads: async (orderedThreadIds) => {
+    setCodexPinnedThreadOrder(orderedThreadIds);
+    return readTypeScriptSidebar(false);
+  },
 });

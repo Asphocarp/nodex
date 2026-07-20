@@ -517,6 +517,165 @@ describe("Core Project Workspace adapter", () => {
     }]);
   });
 
+  test("reads and mutates all manual sidebar order families", async () => {
+    const client = new FakeCoreClient();
+    const enqueueSidebarRead = (
+      eventHead: number,
+      input: {
+        readonly projectOrder?: readonly string[];
+        readonly projectlessOrder?: readonly string[] | null;
+        readonly pinnedOrder?: number | null;
+      } = {},
+    ) => client.enqueueWorkspaceRead({
+      version: 1,
+      event_head: eventHead,
+      store_epoch: "epoch:test",
+      value: {
+        kind: "sidebar",
+        sidebar: {
+          threads: [{
+            ...thread,
+            pinned_order: input.pinnedOrder ?? null,
+          }],
+          project_thread_orders: input.projectOrder === undefined
+            ? {}
+            : { "project:one": input.projectOrder },
+          projectless_thread_order: input.projectlessOrder ?? null,
+        },
+      },
+    });
+    const enqueueApply = (eventSequence: number, operationId: string) =>
+      client.enqueueWorkspaceApply({
+        value: {
+          affected_project_ids: ["project:one"],
+          affected_session_ids: [],
+          affected_thread_ids: ["thread:one"],
+        },
+        receipt: {
+          operation_id: operationId,
+          duplicate: false,
+          affected_project_ids: ["project:one"],
+          affected_session_ids: [],
+        },
+        event_sequence: eventSequence,
+        store_epoch: "epoch:test",
+      });
+
+    enqueueSidebarRead(20, {
+      projectOrder: ["thread:one"],
+      projectlessOrder: ["thread:projectless"],
+    });
+    enqueueApply(21, "operation:set-project-order");
+    enqueueSidebarRead(21, { projectOrder: ["thread:one"] });
+    enqueueApply(22, "operation:clear-project-order");
+    enqueueSidebarRead(22);
+    enqueueApply(23, "operation:set-projectless-order");
+    enqueueSidebarRead(23, {
+      projectlessOrder: ["thread:projectless-b", "thread:projectless-a"],
+    });
+    enqueueApply(24, "operation:reorder-pinned");
+    enqueueSidebarRead(24, { pinnedOrder: 0 });
+    const adapter = createCoreProjectWorkspaceAdapter(client);
+
+    await expect(adapter.readSidebar(true)).resolves.toEqual({
+      threads: [expect.objectContaining({
+        threadId: "thread:one",
+        projectId: "project:one",
+        sessionId: "session:one",
+        statusType: "idle",
+        pinnedOrder: null,
+      })],
+      projectThreadOrders: { "project:one": ["thread:one"] },
+      projectlessThreadOrder: ["thread:projectless"],
+    });
+    await expect(adapter.setProjectThreadOrder(
+      "project:one",
+      ["thread:one"],
+    )).resolves.toMatchObject({
+      projectThreadOrders: { "project:one": ["thread:one"] },
+    });
+    await expect(adapter.setProjectThreadOrder(
+      "project:one",
+      null,
+    )).resolves.toMatchObject({ projectThreadOrders: {} });
+    await expect(adapter.setProjectlessThreadOrder({
+      threadIdsInDisplayOrder: [
+        "thread:projectless-a",
+        "thread:projectless-b",
+      ],
+      visibleThreadIds: [
+        "thread:projectless-a",
+        "thread:projectless-b",
+      ],
+      nextVisibleThreadIds: [
+        "thread:projectless-b",
+        "thread:projectless-a",
+      ],
+    })).resolves.toMatchObject({
+      projectlessThreadOrder: [
+        "thread:projectless-b",
+        "thread:projectless-a",
+      ],
+    });
+    await expect(adapter.reorderPinnedThreads([
+      "thread:one",
+    ])).resolves.toMatchObject({
+      threads: [expect.objectContaining({
+        threadId: "thread:one",
+        pinnedOrder: 0,
+      })],
+    });
+    expect(client.workspaceReads).toEqual([
+      { kind: "sidebar", include_archived: true },
+      { kind: "sidebar", include_archived: false },
+      { kind: "sidebar", include_archived: false },
+      { kind: "sidebar", include_archived: false },
+      { kind: "sidebar", include_archived: false },
+    ]);
+    expect(client.workspaceApplies).toEqual([
+      {
+        operationId: expect.any(String),
+        intent: {
+          kind: "set_project_thread_order",
+          project_id: "project:one",
+          ordered_thread_ids: ["thread:one"],
+        },
+      },
+      {
+        operationId: expect.any(String),
+        intent: {
+          kind: "clear_project_thread_order",
+          project_id: "project:one",
+        },
+      },
+      {
+        operationId: expect.any(String),
+        intent: {
+          kind: "set_projectless_thread_order",
+          thread_ids_in_display_order: [
+            "thread:projectless-a",
+            "thread:projectless-b",
+          ],
+          visible_thread_ids: [
+            "thread:projectless-a",
+            "thread:projectless-b",
+          ],
+          next_visible_thread_ids: [
+            "thread:projectless-b",
+            "thread:projectless-a",
+          ],
+        },
+      },
+      {
+        operationId: expect.any(String),
+        intent: {
+          kind: "reorder_pinned_threads",
+          thread_ids: ["thread:one"],
+        },
+      },
+    ]);
+  });
+
   test("hydrates one complete Session without leaking Core wire casing", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
