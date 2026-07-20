@@ -307,6 +307,8 @@ pub enum BackupCommand {
 pub struct DoctorArgs {
     #[arg(long)]
     pub full: bool,
+    #[command(flatten)]
+    pub mutation: MutationArgs,
 }
 
 #[derive(Clone, Debug, Args, PartialEq)]

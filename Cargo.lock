@@ -792,6 +792,8 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "clap",
+ "getrandom",
+ "hex",
  "nodex-core-contracts",
  "nodex-core-protocol",
  "serde",
@@ -839,9 +841,13 @@ dependencies = [
 name = "nodex-core-protocol"
 version = "0.1.0"
 dependencies = [
+ "getrandom",
+ "hex",
  "nodex-core-contracts",
+ "rustix",
  "serde",
  "serde_json",
+ "thiserror",
  "utoipa",
 ]
 

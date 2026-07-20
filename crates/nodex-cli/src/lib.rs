@@ -8,6 +8,7 @@ pub mod cli;
 pub mod error;
 pub mod meta_yaml;
 pub mod patch;
+pub mod runtime;
 pub mod sed;
 
 use cli::Cli;
@@ -37,14 +38,20 @@ pub fn run(arguments: impl IntoIterator<Item = OsString>) -> i32 {
         }
     };
 
-    render_error(
-        &CliError::new(
-            CliErrorCode::CoreUnavailable,
-            "native CLI execution is not connected to Core yet",
-        ),
-        cli.json,
-    );
-    EXIT_REJECTED
+    let json = cli.json;
+    match runtime::execute(cli) {
+        Ok(output) => match output.write(json) {
+            Ok(()) => EXIT_SUCCESS,
+            Err(error) => {
+                render_error(&error, json);
+                EXIT_REJECTED
+            }
+        },
+        Err(error) => {
+            render_error(&error, json);
+            EXIT_REJECTED
+        }
+    }
 }
 
 fn print_machine_help(arguments: &[OsString]) -> i32 {

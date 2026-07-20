@@ -782,7 +782,8 @@ or the Electron client from reaching the local store.
 
 ### CLI (`bin`)
 
-- `nodex.mjs`: Page commands address `pageId` directly. Source-defined metadata reads Page Detail and writes revisioned values through Database Module; title/body resolve the owned Page Document and use exact-head stable-ID/NFM mutations. `nodex block descriptor/apply/replace/title/export` exposes the owned Document contract directly; `nodex block command` submits the shared Synced/Template/Canvas ownership envelope. Explicit operation identity plus original logical intent provides lost-response retry.
+- `crates/nodex-cli`: native `nodex` command, selector, presentation, restricted `meta.yaml`, exact Page-patch, and local shell boundary. It discovers or cold-starts the packaged sibling `nodex-core`, validates the private current-user runtime descriptor/capability, binds a `native_cli` connection, and invokes only versioned Module requests over UDS. It never links the Core implementation, rusqlite, or Yrs. Store Administration-backed backup and doctor commands already execute natively with durable idempotency; the remaining content/snapshot/draft command handlers are completing under the same boundary.
+- `nodex.mjs`: legacy development launcher and pre-cutover HTTP command implementation. Packaged artifacts must expose the native binary; this script is removed once the native command transcript is complete.
 
 ### Renderer Application (`src/renderer`)
 - `app.tsx`: workbench orchestration, window-session bootstrap/layout persistence, Electron startup-gating screen, reminder deep-link handling, and feature-flagged shell entry.

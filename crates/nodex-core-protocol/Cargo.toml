@@ -7,6 +7,10 @@ license.workspace = true
 
 [dependencies]
 nodex-core-contracts.workspace = true
+getrandom.workspace = true
+hex.workspace = true
+rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
 utoipa.workspace = true

@@ -30,6 +30,9 @@ use utoipa::{OpenApi, ToSchema};
 pub const PROTOCOL_MIN: u32 = 1;
 pub const PROTOCOL_MAX: u32 = 1;
 
+#[cfg(unix)]
+pub mod client;
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct RuntimeDescriptor {
     pub protocol_min: u32,
