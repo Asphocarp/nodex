@@ -6728,13 +6728,13 @@ describe("codex-service readThread fallback", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
-        routeAppServerNotification: (notification: { method: string; params: unknown }) => void;
+        routeAppServerNotification: (notification: { method: string; params: unknown }) => Promise<void>;
         subagentThreadIds: Set<string>;
       };
 
       try {
         serviceInternals.handleNotification = async () => {};
-        serviceInternals.routeAppServerNotification({
+        await serviceInternals.routeAppServerNotification({
           method: "thread/started",
           params: {
             thread: {
@@ -6802,7 +6802,7 @@ describe("codex-service readThread fallback", () => {
         routeAppServerNotification: (notification: {
           method: string;
           params: unknown;
-        }) => void;
+        }) => Promise<void>;
         listKnownTurns: (threadId: string) => readonly {
           turnId: string | null;
           status: string;
@@ -6817,8 +6817,8 @@ describe("codex-service readThread fallback", () => {
             rootThreadId: string;
             actorProjectId: string;
             builtinFullAccess: boolean;
-          }) => unknown;
-          bindTurn: (launch: unknown, turnId: string) => unknown;
+          }) => Promise<unknown>;
+          bindTurn: (launch: unknown, turnId: string) => Promise<unknown>;
         };
       };
       serviceInternals.handleNotification = async () => {};
@@ -6828,19 +6828,19 @@ describe("codex-service readThread fallback", () => {
       serviceInternals.listKnownTurns = (threadId) => threadId === "thread-parent"
         ? [{ turnId: activeParentTurnId, status: "inProgress" }]
         : [];
-      const fullLaunch = serviceInternals.nodexAgentAuthorityRegistry.beginTurn({
+      const fullLaunch = await serviceInternals.nodexAgentAuthorityRegistry.beginTurn({
         threadId: "thread-parent",
         rootThreadId: "thread-parent",
         actorProjectId: project.id,
         builtinFullAccess: true,
       });
-      serviceInternals.nodexAgentAuthorityRegistry.bindTurn(
+      await serviceInternals.nodexAgentAuthorityRegistry.bindTurn(
         fullLaunch,
         activeParentTurnId,
       );
 
       try {
-        serviceInternals.routeAppServerNotification({
+        await serviceInternals.routeAppServerNotification({
           method: "thread/started",
           params: {
             thread: {
@@ -6860,17 +6860,17 @@ describe("codex-service readThread fallback", () => {
         });
 
         activeParentTurnId = "turn-parent-next";
-        const projectLaunch = serviceInternals.nodexAgentAuthorityRegistry.beginTurn({
+        const projectLaunch = await serviceInternals.nodexAgentAuthorityRegistry.beginTurn({
           threadId: "thread-parent",
           rootThreadId: "thread-parent",
           actorProjectId: project.id,
           builtinFullAccess: false,
         });
-        serviceInternals.nodexAgentAuthorityRegistry.bindTurn(
+        await serviceInternals.nodexAgentAuthorityRegistry.bindTurn(
           projectLaunch,
           activeParentTurnId,
         );
-        serviceInternals.routeAppServerNotification({
+        await serviceInternals.routeAppServerNotification({
           method: "turn/started",
           params: {
             threadId: "thread-child",
@@ -6905,7 +6905,7 @@ describe("codex-service readThread fallback", () => {
       const handledMethods: string[] = [];
       const serviceInternals = service as unknown as {
         handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
-        routeAppServerNotification: (notification: { method: string; params: unknown }) => void;
+        routeAppServerNotification: (notification: { method: string; params: unknown }) => Promise<void>;
         subagentThreadIds: Set<string>;
       };
 
@@ -6913,7 +6913,7 @@ describe("codex-service readThread fallback", () => {
         serviceInternals.handleNotification = async (notification) => {
           handledMethods.push(notification.method);
         };
-        serviceInternals.routeAppServerNotification({
+        await serviceInternals.routeAppServerNotification({
           method: "thread/started",
           params: {
             thread: {
@@ -7168,7 +7168,7 @@ describe("codex-service readThread fallback", () => {
       const handledMethods: string[] = [];
       const serviceInternals = service as unknown as {
         handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
-        routeAppServerNotification: (notification: { method: string; params: unknown }) => void;
+        routeAppServerNotification: (notification: { method: string; params: unknown }) => Promise<void>;
       };
       const qzMethods = [
         "item/agentMessage/delta",
@@ -7182,7 +7182,7 @@ describe("codex-service readThread fallback", () => {
         serviceInternals.handleNotification = async (notification) => {
           handledMethods.push(notification.method);
         };
-        serviceInternals.routeAppServerNotification({
+        await serviceInternals.routeAppServerNotification({
           method: "thread/started",
           params: {
             thread: {
@@ -7204,7 +7204,7 @@ describe("codex-service readThread fallback", () => {
         handledMethods.length = 0;
 
         for (const method of qzMethods) {
-          serviceInternals.routeAppServerNotification({
+          await serviceInternals.routeAppServerNotification({
             method,
             params: {
               threadId: "thr_unopened_subagent",
@@ -7214,7 +7214,7 @@ describe("codex-service readThread fallback", () => {
             },
           });
         }
-        serviceInternals.routeAppServerNotification({
+        await serviceInternals.routeAppServerNotification({
           method: "item/reasoning/summaryPartAdded",
           params: {
             threadId: "thr_unopened_subagent",
@@ -7228,7 +7228,7 @@ describe("codex-service readThread fallback", () => {
         service.markSubagentThreadOpened("thr_unopened_subagent");
         handledMethods.length = 0;
         for (const method of qzMethods) {
-          serviceInternals.routeAppServerNotification({
+          await serviceInternals.routeAppServerNotification({
             method,
             params: {
               threadId: "thr_unopened_subagent",
@@ -11005,6 +11005,20 @@ describe("codex-service session-backed transcript recovery", () => {
     const retainedRoot = "/workspace/retained-only";
     mergeCodexThreadWritableRoots(threadId, [retainedRoot]);
     const service = createService();
+    const typescriptWorkspace = createTypeScriptProjectWorkspacePort();
+    service.setProjectWorkspacePort({
+      ...typescriptWorkspace,
+      readThreadExecutionContext: async (candidateThreadId) =>
+        candidateThreadId === threadId
+          ? {
+              threadId,
+              projectId: null,
+              permissionMode: null,
+              dynamicToolCatalogs: [],
+              writableRoots: [retainedRoot],
+            }
+          : null,
+    });
     const requests: Array<{ method: string; params: unknown }> = [];
     const serviceInternals = service as unknown as {
       resumeConversationRecord: (id: string) => Promise<CodexThreadDetail | null>;
@@ -19598,14 +19612,14 @@ describe("codex-service startThreadForSession", () => {
           && event.runInTarget === "newWorktree"
         )).toBe(false);
 
-        (service as unknown as {
+        await (service as unknown as {
           createPendingWorktreeHeartbeat: (
             entry: Extract<
               CodexPendingWorktreeEntry,
               { readonly launchMode: "start-conversation" }
             >,
             threadId: string,
-          ) => void;
+          ) => Promise<void>;
         }).createPendingWorktreeHeartbeat(
           pending,
           "thr_session_worktree_heartbeat_fail",
@@ -24650,8 +24664,8 @@ describe("codex-service approval fallback", () => {
             rootThreadId: string;
             actorProjectId: string;
             builtinFullAccess: boolean;
-          }) => unknown;
-          bindTurn: (launch: unknown, turnId: string) => unknown;
+          }) => Promise<unknown>;
+          bindTurn: (launch: unknown, turnId: string) => Promise<unknown>;
         };
         setRendererConversationOwner: (
           threadId: string,
@@ -24667,13 +24681,13 @@ describe("codex-service approval fallback", () => {
         projectId: project.id,
         cwd: "/tmp/codex",
       });
-      const launch = serviceInternals.nodexAgentAuthorityRegistry.beginTurn({
+      const launch = await serviceInternals.nodexAgentAuthorityRegistry.beginTurn({
         threadId: "thread-direct-full",
         rootThreadId: "thread-direct-full",
         actorProjectId: project.id,
         builtinFullAccess: true,
       });
-      serviceInternals.nodexAgentAuthorityRegistry.bindTurn(
+      await serviceInternals.nodexAgentAuthorityRegistry.bindTurn(
         launch,
         "turn-direct-full",
       );
