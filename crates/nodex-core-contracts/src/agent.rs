@@ -186,6 +186,7 @@ pub struct AgentOperationFootprint {
     pub created_roots: Vec<String>,
     pub updated_roots: Vec<String>,
     pub deleted_roots: Vec<String>,
+    pub deleted_owner_roots: Vec<String>,
     pub ownership_transformations: Vec<AgentOwnershipTransformation>,
 }
 

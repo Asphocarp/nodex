@@ -1,5 +1,12 @@
-use nodex_core_contracts::document::{DocumentSemanticAnchor, DocumentSemanticCommand};
+use std::collections::BTreeMap;
+
+use base64::prelude::{BASE64_URL_SAFE_NO_PAD, Engine as _};
+use nodex_core_contracts::document::{
+    DocumentOptionalValue, DocumentSemanticAnchor, DocumentSemanticBlockDraft,
+    DocumentSemanticCommand,
+};
 use rusqlite::{Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -19,6 +26,32 @@ const ETAG_PREFIX: &str = "nxe1";
 const ETAG_KEY_BYTES: usize = 32;
 const ETAG_DIGEST_BYTES: usize = 32;
 const MAX_SEMANTIC_COMMANDS: usize = 512;
+const DOCUMENT_CURSOR_PREFIX: &str = "nxd1";
+const MAX_DOCUMENT_CURSOR_BYTES: usize = 2_048;
+
+#[derive(Debug, Deserialize, Serialize)]
+struct AgentDocumentCursorPayload {
+    version: u32,
+    project_id: String,
+    store_epoch: String,
+    document_id: String,
+    target_block_id: String,
+    generation: i64,
+    head_seq: i64,
+    max_depth: u32,
+    offset: usize,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct AgentDocumentCursorCoordinate<'a> {
+    pub(crate) project_id: &'a str,
+    pub(crate) store_epoch: &'a str,
+    pub(crate) document_id: &'a str,
+    pub(crate) target_block_id: &'a str,
+    pub(crate) generation: i64,
+    pub(crate) head_seq: i64,
+    pub(crate) max_depth: u32,
+}
 
 #[derive(Debug, Error)]
 pub(crate) enum SemanticMutationError {
@@ -40,6 +73,7 @@ pub(crate) struct PreparedSemanticMutation {
     pub(crate) materialization: DocumentMaterialization,
     pub(crate) write_fence_block_ids: Vec<String>,
     pub(crate) title_write_fence_required: bool,
+    pub(crate) local_block_ids: BTreeMap<String, String>,
 }
 
 pub(crate) struct SemanticMutationContext<'a> {
@@ -74,6 +108,7 @@ pub(crate) fn prepare_semantic_mutation(
     let mut replacement = None::<String>;
     let mut patches = Vec::<ExactNfmPatch>::new();
     let mut structural = Vec::<DocumentBlockOperation>::new();
+    let mut local_block_ids = BTreeMap::<String, String>::new();
     for command in commands {
         match command {
             DocumentSemanticCommand::SetTitle {
@@ -126,20 +161,78 @@ pub(crate) fn prepare_semantic_mutation(
                 assert_etag(expected_etag, &body_etag)?;
                 replacement = Some(nested_markdown.clone());
             }
-            DocumentSemanticCommand::DeleteBlock { block_id } => {
+            DocumentSemanticCommand::InsertBlock { anchor, block } => {
+                let (parent_block_id, before_block_id) =
+                    resolve_semantic_anchor(&context.materialization.block_tree, anchor)?;
+                let block =
+                    allocate_semantic_block_draft(block, allocate_block_id, &mut local_block_ids)?;
+                structural.push(DocumentBlockOperation::InsertBlock {
+                    block,
+                    parent_block_id,
+                    before_block_id,
+                });
+            }
+            DocumentSemanticCommand::UpdateBlock {
+                block_id,
+                expected_etag,
+                patch,
+            } => {
+                let block =
+                    find_block(&context.materialization.block_tree, block_id).ok_or_else(|| {
+                        SemanticMutationError::Invalid(format!(
+                            "semantic update Block {block_id} does not exist"
+                        ))
+                    })?;
+                let etag = mint_document_block_etag(
+                    connection,
+                    context.project_id,
+                    context.store_epoch,
+                    context.document_id,
+                    block,
+                )?;
+                assert_etag(expected_etag, &etag)?;
+                structural.push(DocumentBlockOperation::UpdateBlock {
+                    block_id: block_id.clone(),
+                    patch: super::DocumentBlockUpdatePatch {
+                        block_type: patch.block_type.clone(),
+                        props: patch.props.clone(),
+                        content: match &patch.content {
+                            DocumentOptionalValue::Absent => None,
+                            DocumentOptionalValue::Value { value } => Some(value.clone()),
+                        },
+                        unset_content: patch.unset_content,
+                    },
+                });
+            }
+            DocumentSemanticCommand::DeleteBlock {
+                block_id,
+                expected_etag,
+            } => {
+                let block =
+                    find_block(&context.materialization.block_tree, block_id).ok_or_else(|| {
+                        SemanticMutationError::Invalid(format!(
+                            "semantic delete Block {block_id} does not exist"
+                        ))
+                    })?;
+                let etag = mint_document_subtree_etag(
+                    connection,
+                    context.project_id,
+                    context.store_epoch,
+                    context.document_id,
+                    block,
+                )?;
+                assert_etag(expected_etag, &etag)?;
                 structural.push(DocumentBlockOperation::DeleteBlock {
                     block_id: block_id.clone(),
                 });
             }
-            DocumentSemanticCommand::MoveBlock {
-                block_id,
-                parent_block_id,
-                before_block_id,
-            } => {
+            DocumentSemanticCommand::MoveBlock { block_id, anchor } => {
+                let (parent_block_id, before_block_id) =
+                    resolve_semantic_anchor(&context.materialization.block_tree, anchor)?;
                 structural.push(DocumentBlockOperation::MoveBlock {
                     block_id: block_id.clone(),
-                    parent_block_id: parent_block_id.clone(),
-                    before_block_id: before_block_id.clone(),
+                    parent_block_id,
+                    before_block_id,
                 });
             }
         }
@@ -203,6 +296,45 @@ pub(crate) fn prepare_semantic_mutation(
         materialization: prepared.materialization,
         write_fence_block_ids: prepared.write_fence_block_ids,
         title_write_fence_required: prepared.title_write_fence_required,
+        local_block_ids,
+    })
+}
+
+fn allocate_semantic_block_draft(
+    draft: &DocumentSemanticBlockDraft,
+    allocate_block_id: &mut impl FnMut() -> String,
+    local_block_ids: &mut BTreeMap<String, String>,
+) -> Result<MaterializedBlockNode, SemanticMutationError> {
+    if draft.local_id.is_empty()
+        || draft.local_id.len() > 256
+        || draft.local_id.trim() != draft.local_id
+    {
+        return Err(SemanticMutationError::Invalid(
+            "semantic Block local identity is invalid".to_owned(),
+        ));
+    }
+    if local_block_ids.contains_key(&draft.local_id) {
+        return Err(SemanticMutationError::Invalid(format!(
+            "semantic Block local identity {} is repeated",
+            draft.local_id
+        )));
+    }
+    let block_id = allocate_block_id();
+    local_block_ids.insert(draft.local_id.clone(), block_id.clone());
+    let children = draft
+        .children
+        .iter()
+        .map(|child| allocate_semantic_block_draft(child, allocate_block_id, local_block_ids))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(MaterializedBlockNode {
+        id: block_id,
+        block_type: draft.block_type.clone(),
+        props: draft.props.clone(),
+        content: match &draft.content {
+            DocumentOptionalValue::Absent => None,
+            DocumentOptionalValue::Value { value } => Some(value.clone()),
+        },
+        children,
     })
 }
 
@@ -398,6 +530,116 @@ pub(crate) fn mint_etag(
     Ok(format!("{ETAG_PREFIX}.{}", base64_url_no_pad(&digest)))
 }
 
+pub(crate) fn mint_agent_document_cursor(
+    connection: &Connection,
+    coordinate: AgentDocumentCursorCoordinate<'_>,
+    offset: usize,
+) -> Result<String, SemanticMutationError> {
+    let payload = AgentDocumentCursorPayload {
+        version: 1,
+        project_id: coordinate.project_id.to_owned(),
+        store_epoch: coordinate.store_epoch.to_owned(),
+        document_id: coordinate.document_id.to_owned(),
+        target_block_id: coordinate.target_block_id.to_owned(),
+        generation: coordinate.generation,
+        head_seq: coordinate.head_seq,
+        max_depth: coordinate.max_depth,
+        offset,
+    };
+    let encoded = BASE64_URL_SAFE_NO_PAD.encode(
+        serde_json::to_vec(&payload)
+            .map_err(|error| SemanticMutationError::EtagAuthority(error.to_string()))?,
+    );
+    let signature = BASE64_URL_SAFE_NO_PAD.encode(sign_cursor(connection, &encoded)?);
+    let cursor = format!("{DOCUMENT_CURSOR_PREFIX}.{encoded}.{signature}");
+    if cursor.len() <= MAX_DOCUMENT_CURSOR_BYTES {
+        return Ok(cursor);
+    }
+    Err(SemanticMutationError::Invalid(
+        "Agent Document cursor exceeds its bound".to_owned(),
+    ))
+}
+
+pub(crate) fn decode_agent_document_cursor(
+    connection: &Connection,
+    coordinate: AgentDocumentCursorCoordinate<'_>,
+    cursor: &str,
+) -> Result<usize, SemanticMutationError> {
+    if cursor.is_empty() || cursor.len() > MAX_DOCUMENT_CURSOR_BYTES {
+        return Err(SemanticMutationError::Invalid(
+            "Agent Document cursor is malformed".to_owned(),
+        ));
+    }
+    let parts = cursor.split('.').collect::<Vec<_>>();
+    if parts.len() != 3
+        || parts[0] != DOCUMENT_CURSOR_PREFIX
+        || parts[1].is_empty()
+        || parts[2].len() != 43
+    {
+        return Err(SemanticMutationError::Invalid(
+            "Agent Document cursor is malformed".to_owned(),
+        ));
+    }
+    let supplied = BASE64_URL_SAFE_NO_PAD.decode(parts[2]).map_err(|_| {
+        SemanticMutationError::Invalid("Agent Document cursor signature is invalid".to_owned())
+    })?;
+    let expected = sign_cursor(connection, parts[1])?;
+    if supplied.len() != expected.len() || !constant_time_equal(&supplied, &expected) {
+        return Err(SemanticMutationError::Invalid(
+            "Agent Document cursor signature is invalid".to_owned(),
+        ));
+    }
+    let payload = BASE64_URL_SAFE_NO_PAD.decode(parts[1]).map_err(|_| {
+        SemanticMutationError::Invalid("Agent Document cursor payload is malformed".to_owned())
+    })?;
+    let payload = serde_json::from_slice::<AgentDocumentCursorPayload>(&payload).map_err(|_| {
+        SemanticMutationError::Invalid("Agent Document cursor payload is invalid".to_owned())
+    })?;
+    let exact = payload.version == 1
+        && payload.project_id == coordinate.project_id
+        && payload.store_epoch == coordinate.store_epoch
+        && payload.document_id == coordinate.document_id
+        && payload.target_block_id == coordinate.target_block_id
+        && payload.generation == coordinate.generation
+        && payload.head_seq == coordinate.head_seq
+        && payload.max_depth == coordinate.max_depth;
+    if exact {
+        return Ok(payload.offset);
+    }
+    Err(SemanticMutationError::RevisionConflict)
+}
+
+fn sign_cursor(
+    connection: &Connection,
+    encoded_payload: &str,
+) -> Result<[u8; ETAG_DIGEST_BYTES], SemanticMutationError> {
+    let key = connection
+        .query_row(
+            "SELECT key_material FROM nodex_agent_token_keys WHERE id = 1",
+            [],
+            |row| row.get::<_, Vec<u8>>(0),
+        )
+        .optional()
+        .map_err(|error| SemanticMutationError::EtagAuthority(error.to_string()))?
+        .filter(|key| key.len() == ETAG_KEY_BYTES)
+        .ok_or_else(|| {
+            SemanticMutationError::EtagAuthority("signing key is unavailable".to_owned())
+        })?;
+    Ok(hmac_sha256(
+        &key,
+        format!("{DOCUMENT_CURSOR_PREFIX}.{encoded_payload}").as_bytes(),
+    ))
+}
+
+fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
+    left.iter()
+        .zip(right)
+        .fold(0_u8, |difference, (left, right)| {
+            difference | (left ^ right)
+        })
+        == 0
+}
+
 pub(crate) fn mint_document_semantic_etags(
     connection: &Connection,
     project_id: &str,
@@ -422,6 +664,46 @@ pub(crate) fn mint_document_semantic_etags(
         json!({ "nfm": materialization.nfm }),
     )?;
     Ok((title, body))
+}
+
+pub(crate) fn mint_document_block_etag(
+    connection: &Connection,
+    project_id: &str,
+    store_epoch: &str,
+    document_id: &str,
+    block: &MaterializedBlockNode,
+) -> Result<String, SemanticMutationError> {
+    let mut block_state = Map::new();
+    block_state.insert("type".to_owned(), Value::String(block.block_type.clone()));
+    block_state.insert("props".to_owned(), json!(block.props));
+    if let Some(content) = &block.content {
+        block_state.insert("content".to_owned(), content.clone());
+    }
+    mint_etag(
+        connection,
+        "document_block",
+        project_id,
+        store_epoch,
+        &[document_id, &block.id],
+        json!({ "block": block_state }),
+    )
+}
+
+pub(crate) fn mint_document_subtree_etag(
+    connection: &Connection,
+    project_id: &str,
+    store_epoch: &str,
+    document_id: &str,
+    block: &MaterializedBlockNode,
+) -> Result<String, SemanticMutationError> {
+    mint_etag(
+        connection,
+        "document_subtree",
+        project_id,
+        store_epoch,
+        &[document_id, &block.id],
+        json!({ "subtree": block }),
+    )
 }
 
 fn canonical_json(value: Value) -> Value {
@@ -583,6 +865,57 @@ mod tests {
             )
             .unwrap(),
             "nxe1.NeZS7_17LKIgmH87yqTDVA5mm9gP9Atq3ACGpOgzpp4"
+        );
+    }
+
+    #[test]
+    fn block_etags_match_the_typescript_authority_vectors() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE nodex_agent_token_keys(\
+                   id INTEGER PRIMARY KEY, key_material BLOB NOT NULL\
+                 );",
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO nodex_agent_token_keys(id, key_material) VALUES (1, ?1)",
+                [vec![0x11_u8; 32]],
+            )
+            .unwrap();
+        let block = MaterializedBlockNode {
+            id: "block:test".to_owned(),
+            block_type: "paragraph".to_owned(),
+            props: BTreeMap::from([("textAlignment".to_owned(), json!("left"))]),
+            content: Some(json!([{
+                "type": "text",
+                "text": "Hello",
+                "styles": { "bold": true },
+            }])),
+            children: Vec::new(),
+        };
+        assert_eq!(
+            mint_document_block_etag(
+                &connection,
+                "project:test",
+                "epoch:test",
+                "document:test",
+                &block,
+            )
+            .unwrap(),
+            "nxe1.EnQ1us3xfWrZTXjJbz0fxn8YlwndxHmcf-QOm0hLFRI"
+        );
+        assert_eq!(
+            mint_document_subtree_etag(
+                &connection,
+                "project:test",
+                "epoch:test",
+                "document:test",
+                &block,
+            )
+            .unwrap(),
+            "nxe1.YfQL4rewgNpU0wwaMdqRBkypTTsp-1ED7NT84dpgH_Q"
         );
     }
 

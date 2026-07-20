@@ -3,7 +3,10 @@ import {
   NODEX_APP_TOOL_NAMESPACE,
   NODEX_APP_V5_TOOLSET_REVISION,
 } from "../../shared/nodex-agent-tools";
-import { UpdatePageV3InputSchema } from "../../shared/nodex-agent-tools/v3-write-schemas";
+import {
+  AdvancedUpdatePageV3InputSchema,
+  UpdatePageV3InputSchema,
+} from "../../shared/nodex-agent-tools/v3-write-schemas";
 import type { NodexAgentDynamicExecutionContext } from "../agent-tools/dynamic-service-core";
 import type {
   NodexAgentV3DocumentHub,
@@ -170,6 +173,175 @@ describe("native desktop Nodex Agent dynamic service", () => {
     expect(unavailable).not.toHaveBeenCalled();
   });
 
+  test("fetches native stable Blocks with Core-minted guards and pagination", async () => {
+    const libraryRead = vi.fn(async (read: { readonly kind: string }) => {
+      if (read.kind === "agent_block_target") {
+        return {
+          value: {
+            kind: "agent_block_target" as const,
+            value: {
+              block_id: "page-fetch",
+              block_type: "page",
+              lifecycle: "active",
+              owner_page_id: "page-fetch",
+              document_id: "document-fetch",
+              document_generation: 2,
+              document_head_seq: 7,
+            },
+          },
+        };
+      }
+      return {
+        value: {
+          kind: "page_detail" as const,
+          value: {
+            version: 2,
+            library_id: "library-native-agent",
+            store_epoch: "store-native-agent",
+            change_log_seq: 12,
+            page: {
+              pageId: "page-fetch",
+              parent: { kind: "data_source", dataSourceId: "source-fetch" },
+            },
+            document: {
+              readiness: "ready",
+              schema_key: "nodex.page",
+              schema_version: 2,
+            },
+            intrinsic_properties: [{
+              key: "status",
+              value_type: "string",
+              value: "todo",
+              revision: 3,
+            }],
+            data_source_context: {
+              kind: "member" as const,
+              membership: {
+                membership_id: "membership-fetch",
+                data_source_id: "source-fetch",
+                revision: 4,
+                created_at: "2026-07-20T00:00:00.000Z",
+              },
+              database: { databaseId: "database-fetch" },
+              data_source: { dataSourceId: "source-fetch" },
+              properties: [],
+              values: {
+                "p_Abcd1234": { value: "high" },
+              },
+            },
+            access_context: { kind: "library" as const },
+          },
+        },
+      };
+    });
+    const documentRead = vi.fn(async (
+      clientSessionId: string,
+      read: Record<string, unknown>,
+    ) => {
+      expect(clientSessionId).toBe("nodex-agent:thread-native-agent");
+      expect(read).toMatchObject({
+        kind: "agent_semantic_snapshot",
+        document_id: "document-fetch",
+        target_block_id: "page-fetch",
+        prepare_title: true,
+        prepare_body: false,
+        block_guards: [{ block_id: "block-fetch", kind: "update" }],
+        max_depth: 3,
+        limit: 1,
+      });
+      return {
+        value: {
+          kind: "agent_semantic_snapshot" as const,
+          snapshot: {
+            document_id: "document-fetch",
+            generation: 2,
+            head_seq: 7,
+            owner_block_id: "page-fetch",
+            target_block_id: "page-fetch",
+            title: "Fetch",
+            rich_title: [{ type: "text", text: "Fetch", styles: {} }],
+            nested_markdown: "Fetched body",
+            plain_text: "Fetched body",
+            blocks: [{
+              block_id: "block-fetch",
+              parent_block_id: null,
+              sibling_index: 0,
+              depth: 0,
+              block_type: "paragraph",
+              props: {},
+              content: [{ type: "text", text: "Fetched body", styles: {} }],
+              etag: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            }],
+            title_etag: "nxe1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+            has_more: true,
+            next_cursor: "nxd1.cursor.signature",
+          },
+        },
+      };
+    });
+    const runtime = {
+      backend: "rust" as const,
+      rootClient: {
+        handshake: { profile_id: "profile-native-agent" },
+      },
+      clientForProject: () => ({ libraryRead, documentRead }),
+    } as unknown as Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>;
+    const service = createDesktopNodexAgentV3DynamicService({
+      authority: Promise.resolve(runtime),
+      projectWorkspace: {} as DesktopProjectWorkspacePort,
+      databaseModule: {} as DesktopDatabaseModuleBridge,
+      typescript,
+    });
+
+    const result = await service.registry.execute({
+      namespace: NODEX_APP_TOOL_NAMESPACE,
+      toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+      tool: "fetch",
+    }, {
+      id: "page-fetch",
+      format: "blocks",
+      maxDepth: 3,
+      page: { limit: 1 },
+      propertyIds: ["status", "p_Abcd1234"],
+      prepareFor: [
+        { kind: "title" },
+        { kind: "block_update", blockIds: ["block-fetch"] },
+      ],
+    }, context);
+
+    expect(result.output).toMatchObject({
+      data: {
+        resource: {
+          id: "page-fetch",
+          title: {
+            markdown: "Fetch",
+            etag: "nxe1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+          },
+          location: { kind: "data_source", dataSourceId: "source-fetch" },
+          properties: {
+            status: { value: "todo" },
+            "p_Abcd1234": { value: "high" },
+          },
+        },
+        content: {
+          format: "blocks",
+          blocks: [{
+            id: "block-fetch",
+            etag: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          }],
+        },
+        dataSource: {
+          dataSourceId: "source-fetch",
+          databaseId: "database-fetch",
+        },
+      },
+      page: { hasMore: true, nextCursor: "nxd1.cursor.signature" },
+    });
+    expect(libraryRead).toHaveBeenCalledTimes(2);
+    expect(documentRead).toHaveBeenCalledOnce();
+    expect(unavailable).not.toHaveBeenCalled();
+  });
+
   test("commits exact Page patches through prepared native Document authority", async () => {
     let committed = false;
     let preparation = 0;
@@ -218,6 +390,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
               created_roots: ["block-created"],
               updated_roots: ["page-update"],
               deleted_roots: ["block-deleted"],
+              deleted_owner_roots: [],
               ownership_transformations: [],
             },
           },
@@ -355,6 +528,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
             created_roots: ["block-inserted"],
             updated_roots: ["page-insert"],
             deleted_roots: [],
+            deleted_owner_roots: [],
             ownership_transformations: [],
           },
         },
@@ -418,5 +592,223 @@ describe("native desktop Nodex Agent dynamic service", () => {
         effects: { createdBlockIds: ["block-inserted"] },
       },
     });
+  });
+
+  test("maps guarded stable-Block batches into native semantic commands", async () => {
+    const documentRead = vi.fn(async () => ({
+      store_epoch: "store-native-agent",
+      event_sequence: 9,
+      value: {
+        kind: "agent_semantic_mutation_preparation" as const,
+        preparation: {
+          state: "prepared" as const,
+          consent: "none" as const,
+          token: "stable-token",
+          preview_markdown: "Stable preview",
+          footprint: {
+            effect_class: "destructive" as const,
+            targets: [{ kind: "page" as const, page_id: "page-stable" }],
+            created_roots: ["block-created", "block-created-child"],
+            updated_roots: ["block-update", "block-move"],
+            deleted_roots: ["block-delete"],
+            deleted_owner_roots: ["block-delete"],
+            ownership_transformations: [{
+              resource_id: "block-move",
+              parent_id: "block-parent",
+              before_id: null,
+            }],
+          },
+        },
+      },
+    }));
+    const documentApply = vi.fn(async () => ({
+      store_epoch: "store-native-agent",
+      event_sequence: 10,
+      receipt: {
+        operation_id: "agent-stable",
+        duplicate: false,
+        document_id: "document-stable",
+        generation: 2,
+        head_seq: 9,
+      },
+      value: {
+        document_id: "document-stable",
+        generation: 2,
+        head_seq: 9,
+        outcome: "committed" as const,
+        committed_at: "2026-07-20T00:00:00.000Z",
+        mutation_effect: {
+          base_head_seq: 8,
+          touched_block_ids: [
+            "block-created",
+            "block-created-child",
+            "block-update",
+            "block-move",
+            "block-delete",
+          ],
+          created_block_ids: ["block-created", "block-created-child"],
+          deleted_block_ids: ["block-delete"],
+          updated_block_ids: ["block-update"],
+          moved_block_ids: ["block-move"],
+          write_fence_block_ids: ["block-delete"],
+          title_changed: false,
+          coordination: "write_fence" as const,
+        },
+        semantic_local_block_ids: {
+          "draft-root": "block-created",
+          "draft-child": "block-created-child",
+        },
+      },
+    }));
+    const runtime = {
+      backend: "rust" as const,
+      rootClient: {
+        handshake: { profile_id: "profile-native-agent" },
+        libraryRead: vi.fn(async () => ({
+          value: {
+            kind: "page_content" as const,
+            value: {
+              document_id: "document-stable",
+              document_generation: 2,
+              document_head_seq: 8,
+              body_nfm: "Before",
+            },
+          },
+        })),
+      },
+      clientForProject: () => ({ documentRead, documentApply }),
+    } as unknown as Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>;
+    const updates = new NativeNodexAgentPageUpdateRuntime(runtime);
+    const input = AdvancedUpdatePageV3InputSchema.parse({
+      pageId: "page-stable",
+      edits: [{
+        kind: "insert",
+        at: { kind: "before", blockId: "block-anchor" },
+        block: {
+          localId: "draft-root",
+          type: "paragraph",
+          props: { textAlignment: "left" },
+          content: [{ type: "text", text: "Draft", styles: {} }],
+          children: [{ localId: "draft-child", type: "divider" }],
+        },
+      }, {
+        kind: "update",
+        blockId: "block-update",
+        ifMatch: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        patch: { type: "heading", content: null },
+      }, {
+        kind: "move",
+        blockId: "block-move",
+        at: { kind: "end", parentBlockId: "block-parent" },
+      }, {
+        kind: "delete",
+        blockId: "block-delete",
+        ifMatch: "nxe1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+      }],
+      safety: { allowDeletingOwnedBlocks: true },
+      return: ["block_ids"],
+    });
+
+    const prepared = await updates.prepare({
+      tool: "advanced_update_page",
+      threadId: context.threadId,
+      callId: "call-stable",
+      projectId: context.authority.actorProjectId,
+      authority: context.authority,
+      input,
+    });
+
+    expect(documentRead).toHaveBeenCalledWith(
+      "nodex-agent:thread-native-agent",
+      expect.objectContaining({
+        mutation: expect.objectContaining({
+          allow_deleting_owned_blocks: true,
+          commands: [{
+            kind: "insert_block",
+            anchor: { kind: "before", block_id: "block-anchor" },
+            block: {
+              local_id: "draft-root",
+              block_type: "paragraph",
+              props: { textAlignment: "left" },
+              content: {
+                kind: "value",
+                value: [{ type: "text", text: "Draft", styles: {} }],
+              },
+              children: [{
+                local_id: "draft-child",
+                block_type: "divider",
+                props: {},
+                content: { kind: "absent" },
+                children: [],
+              }],
+            },
+          }, {
+            kind: "update_block",
+            block_id: "block-update",
+            expected_etag: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            patch: {
+              block_type: "heading",
+              content: { kind: "value", value: null },
+              unset_content: false,
+            },
+          }, {
+            kind: "move_block",
+            block_id: "block-move",
+            anchor: { kind: "end", parent_block_id: "block-parent" },
+          }, {
+            kind: "delete_block",
+            block_id: "block-delete",
+            expected_etag: "nxe1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+          }],
+        }),
+      }),
+    );
+    expect(prepared.result).toMatchObject({
+      ok: true,
+      value: {
+        kind: "prepared",
+        targetMarkdown: "Stable preview",
+        effects: {
+          createdBlockIds: ["block-created", "block-created-child"],
+          movedBlockIds: ["block-move"],
+          deletedBlockIds: ["block-delete"],
+          deletedOwnerBlockIds: ["block-delete"],
+        },
+      },
+    });
+    if (!prepared.result.ok || prepared.result.value.kind !== "prepared") {
+      throw new Error("Stable Block update was not prepared");
+    }
+    const applied = await updates.apply(prepared.result.value.mutation);
+    if (!applied.ok) throw new Error(applied.error.message);
+    const completed = await updates.complete({
+      tool: "advanced_update_page",
+      threadId: context.threadId,
+      callId: "call-stable",
+      projectId: context.authority.actorProjectId,
+      authority: context.authority,
+      pageId: "page-stable",
+      result: applied.value,
+    });
+    expect(completed.result).toMatchObject({
+      ok: true,
+      output: {
+        data: {
+          effects: {
+            blockIds: {
+              local: {
+                "draft-root": "block-created",
+                "draft-child": "block-created-child",
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(documentApply).toHaveBeenCalledWith(expect.objectContaining({
+      intent: expect.objectContaining({
+        authorization: expect.objectContaining({ token: "stable-token" }),
+      }),
+    }));
   });
 });

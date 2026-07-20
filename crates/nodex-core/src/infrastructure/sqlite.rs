@@ -26,6 +26,7 @@ pub enum StoreErrorCode {
     GenerationConflict,
     HeadConflict,
     IdempotencyKeyReused,
+    ProtectedOwnerDeletion,
     InvalidInput,
     InvalidProfile,
     MissingDependencies,

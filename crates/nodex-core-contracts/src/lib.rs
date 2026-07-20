@@ -54,6 +54,7 @@ pub enum CoreErrorCode {
     GenerationConflict,
     HeadConflict,
     IdempotencyKeyReused,
+    ProtectedOwnerDeletion,
     DocumentUpdateMissingDependencies,
     InvalidDocumentSchema,
     MaintenanceInProgress,

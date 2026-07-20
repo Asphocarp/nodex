@@ -1516,6 +1516,7 @@ fn record_core_error(error: CoreError) -> CoreError {
         CoreErrorCode::GenerationConflict => "generation_conflict",
         CoreErrorCode::HeadConflict => "head_conflict",
         CoreErrorCode::IdempotencyKeyReused => "idempotency_key_reused",
+        CoreErrorCode::ProtectedOwnerDeletion => "protected_owner_deletion",
         CoreErrorCode::DocumentUpdateMissingDependencies => "document_update_missing_dependencies",
         CoreErrorCode::InvalidDocumentSchema => "invalid_document_schema",
         CoreErrorCode::MaintenanceInProgress => "maintenance_in_progress",

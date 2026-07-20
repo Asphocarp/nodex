@@ -18,6 +18,7 @@ const SEED_BINARY = path.resolve(
   "target/debug/examples/seed_owned_document_profile",
 );
 const PROJECT_ID = "project:core-renderer-test";
+const PAGE_ID = "019bf52d-6870-7000-8000-000000000101";
 const DOCUMENT_ID = "019bf52d-6870-7000-8000-000000000102";
 
 const children = new Set<ChildProcessWithoutNullStreams>();
@@ -150,6 +151,7 @@ describe("Rust Core renderer Document adapter", () => {
         document_id: DOCUMENT_ID,
         generation: 1,
         expected_head_seq: 2,
+        allow_deleting_owned_blocks: false,
         commands: [{
           kind: "patch_body" as const,
           old_fragment: "Base body",
@@ -258,6 +260,7 @@ describe("Rust Core renderer Document adapter", () => {
         document_id: DOCUMENT_ID,
         generation: 1,
         expected_head_seq: 3,
+        allow_deleting_owned_blocks: false,
         commands: [{
           kind: "insert_body" as const,
           anchor: { kind: "end" as const, parent_block_id: null },
@@ -302,6 +305,142 @@ describe("Rust Core renderer Document adapter", () => {
           created_block_ids: insertPreflight.value.preparation.footprint.created_roots,
           deleted_block_ids: [],
         },
+      });
+
+      const resolved = await host.libraryRead({
+        kind: "agent_block_target",
+        block_id: PAGE_ID,
+      });
+      expect(resolved.value).toMatchObject({
+        kind: "agent_block_target",
+        value: {
+          block_id: PAGE_ID,
+          owner_page_id: PAGE_ID,
+          document_id: DOCUMENT_ID,
+          document_generation: 1,
+          document_head_seq: 4,
+        },
+      });
+      const stableOperationId = "agent-prepared-stable-insert";
+      const stableMutation = {
+        document_id: DOCUMENT_ID,
+        generation: 1,
+        expected_head_seq: 4,
+        allow_deleting_owned_blocks: false,
+        commands: [{
+          kind: "insert_block" as const,
+          anchor: { kind: "end" as const, parent_block_id: null },
+          block: {
+            local_id: "stable-root",
+            block_type: "paragraph",
+            props: {},
+            content: {
+              kind: "value" as const,
+              value: [{ type: "text", text: "Stable root", styles: {} }],
+            },
+            children: [],
+          },
+        }],
+      };
+      const stablePreflight = await host.documentRead("agent:prepared", {
+        kind: "prepare_agent_semantic_mutation",
+        operation_id: stableOperationId,
+        store_epoch: host.handshake.store_epoch,
+        provenance,
+        mutation: stableMutation,
+      });
+      if (stablePreflight.value.kind !== "agent_semantic_mutation_preparation") {
+        throw new Error("Expected prepared stable Block insertion");
+      }
+      const stableCommitted = await host.documentApply({
+        operationId: stableOperationId,
+        clientSessionId: "agent:prepared",
+        intent: {
+          kind: "execute_prepared_agent_semantic_mutation",
+          authorization: {
+            provenance,
+            token: stablePreflight.value.preparation.token,
+          },
+          mutation: stableMutation,
+        },
+      });
+      const stableRootId = stableCommitted.value.semantic_local_block_ids?.["stable-root"];
+      expect(stableRootId).toEqual(expect.any(String));
+      const stableSnapshot = await host.documentRead("agent:prepared", {
+        kind: "agent_semantic_snapshot",
+        store_epoch: host.handshake.store_epoch,
+        provenance,
+        document_id: DOCUMENT_ID,
+        target_block_id: PAGE_ID,
+        prepare_title: true,
+        prepare_body: true,
+        block_guards: [{
+          block_id: stableRootId as string,
+          kind: "update",
+        }],
+        max_depth: 512,
+        cursor: null,
+        limit: 100,
+      });
+      if (stableSnapshot.value.kind !== "agent_semantic_snapshot") {
+        throw new Error("Expected Agent semantic snapshot");
+      }
+      expect(stableSnapshot.value.snapshot).toMatchObject({
+        document_id: DOCUMENT_ID,
+        generation: 1,
+        head_seq: 5,
+        owner_block_id: PAGE_ID,
+        target_block_id: PAGE_ID,
+        title_etag: expect.stringMatching(/^nxe1\./u),
+        body_etag: expect.stringMatching(/^nxe1\./u),
+        has_more: false,
+      });
+      const guarded = stableSnapshot.value.snapshot.blocks.find(
+        (block) => block.block_id === stableRootId,
+      );
+      expect(guarded?.etag).toMatch(/^nxe1\./u);
+      const stableUpdateMutation = {
+        document_id: DOCUMENT_ID,
+        generation: 1,
+        expected_head_seq: 5,
+        allow_deleting_owned_blocks: false,
+        commands: [{
+          kind: "update_block" as const,
+          block_id: stableRootId as string,
+          expected_etag: guarded?.etag as string,
+          patch: {
+            block_type: null,
+            props: { textAlignment: "center" },
+            content: { kind: "absent" as const },
+            unset_content: false,
+          },
+        }],
+      };
+      const stableUpdatePreflight = await host.documentRead("agent:prepared", {
+        kind: "prepare_agent_semantic_mutation",
+        operation_id: "agent-prepared-stable-update",
+        store_epoch: host.handshake.store_epoch,
+        provenance,
+        mutation: stableUpdateMutation,
+      });
+      if (stableUpdatePreflight.value.kind !== "agent_semantic_mutation_preparation") {
+        throw new Error("Expected prepared stable Block update");
+      }
+      const stableUpdated = await host.documentApply({
+        operationId: "agent-prepared-stable-update",
+        clientSessionId: "agent:prepared",
+        intent: {
+          kind: "execute_prepared_agent_semantic_mutation",
+          authorization: {
+            provenance,
+            token: stableUpdatePreflight.value.preparation.token,
+          },
+          mutation: stableUpdateMutation,
+        },
+      });
+      expect(stableUpdated.value).toMatchObject({
+        head_seq: 6,
+        mutation_effect: { updated_block_ids: [stableRootId] },
       });
     } finally {
       await host.shutdown().catch(() => undefined);

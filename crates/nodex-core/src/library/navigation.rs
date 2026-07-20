@@ -2,12 +2,12 @@ use std::collections::HashSet;
 
 use nodex_core_contracts::AdapterKind;
 use nodex_core_contracts::library::{
-    LibraryCatalogEntry, LibraryCatalogKind, LibraryLifecycle, LibraryNavigationNode,
-    LibraryNavigationParent, LibraryPageAccessContext, LibraryPageDataSourceContext,
-    LibraryPageDetail, LibraryPageDocumentDescriptor, LibraryPageIntrinsicProperty,
-    LibraryPageLocation, LibraryPageMembership, LibraryPageOwnershipPath,
-    LibraryPageOwnershipPathAncestor, LibraryPageTarget, LibraryRead, LibraryReadValue,
-    LibraryResourceTarget, LibraryRouteTarget,
+    LibraryAgentBlockTarget, LibraryCatalogEntry, LibraryCatalogKind, LibraryLifecycle,
+    LibraryNavigationNode, LibraryNavigationParent, LibraryPageAccessContext,
+    LibraryPageDataSourceContext, LibraryPageDetail, LibraryPageDocumentDescriptor,
+    LibraryPageIntrinsicProperty, LibraryPageLocation, LibraryPageMembership,
+    LibraryPageOwnershipPath, LibraryPageOwnershipPathAncestor, LibraryPageTarget, LibraryRead,
+    LibraryReadValue, LibraryResourceTarget, LibraryRouteTarget,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
@@ -113,6 +113,19 @@ pub(super) fn read(
                     &page_id,
                 )?),
             })
+        }
+        LibraryRead::AgentBlockTarget { block_id } => {
+            let value = agent_block_target(connection, library_id, &block_id)?;
+            if let Some(target) = &value {
+                require_bound_page_read_access(
+                    connection,
+                    library_id,
+                    requesting_project_id,
+                    requesting_adapter,
+                    &target.owner_page_id,
+                )?;
+            }
+            Ok(LibraryReadValue::AgentBlockTarget { value })
         }
         LibraryRead::PageTarget { page_id } => Ok(LibraryReadValue::PageTarget {
             value: page_target(connection, library_id, requesting_project_id, &page_id)?
@@ -230,6 +243,48 @@ fn trusted_root_adapter(adapter: &AdapterKind) -> bool {
         adapter,
         AdapterKind::ElectronHost | AdapterKind::NativeCli | AdapterKind::Test
     )
+}
+
+fn agent_block_target(
+    connection: &Connection,
+    library_id: &str,
+    block_id: &str,
+) -> Result<Option<LibraryAgentBlockTarget>, StoreError> {
+    validate_page_identity(block_id, "Agent Block target")?;
+    connection
+        .query_row(
+            "SELECT block.id, block.type, block.lifecycle, \
+               CASE WHEN page.block_id IS NOT NULL THEN page.block_id ELSE owner_page.block_id END, \
+               CASE WHEN page.block_id IS NOT NULL THEN page.document_id ELSE block.containing_document_id END, \
+               CASE WHEN page.block_id IS NOT NULL THEN page_document.generation ELSE owner_document.generation END, \
+               CASE WHEN page.block_id IS NOT NULL THEN page_document.head_seq ELSE owner_document.head_seq END \
+             FROM blocks block \
+             LEFT JOIN pages page ON page.block_id = block.id AND page.library_id = ?2 \
+             LEFT JOIN documents page_document ON page_document.id = page.document_id \
+             LEFT JOIN block_documents ownership \
+               ON ownership.document_id = block.containing_document_id \
+             LEFT JOIN pages owner_page \
+               ON owner_page.block_id = ownership.block_id AND owner_page.library_id = ?2 \
+             LEFT JOIN documents owner_document \
+               ON owner_document.id = block.containing_document_id \
+             WHERE block.id = ?1 \
+               AND (page.block_id IS NOT NULL OR owner_page.block_id IS NOT NULL) \
+             LIMIT 1",
+            params![block_id, library_id],
+            |row| {
+                Ok(LibraryAgentBlockTarget {
+                    block_id: row.get(0)?,
+                    block_type: row.get(1)?,
+                    lifecycle: row.get(2)?,
+                    owner_page_id: row.get(3)?,
+                    document_id: row.get(4)?,
+                    document_generation: row.get(5)?,
+                    document_head_seq: row.get(6)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(StoreError::from)
 }
 
 fn page_target(

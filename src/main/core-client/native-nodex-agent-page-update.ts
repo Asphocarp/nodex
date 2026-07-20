@@ -9,6 +9,7 @@ import {
   type AgentDocumentEditEffects,
   type CompleteNodexAgentPageUpdateRequest,
   type CompleteNodexAgentPageUpdateResult,
+  type NewBlockDraftInput,
   type PrepareNodexAgentPageUpdateRequest,
   type PrepareNodexAgentPageUpdateResult,
   type ToolFailure,
@@ -56,15 +57,7 @@ const envelope = <Result>(
   },
 });
 
-const unsupported = (message: string): ToolError => ({
-  code: "unsupported_resource",
-  message,
-  retryable: false,
-  recovery: "none",
-  details: { domainCode: "native_agent_update_variant_unavailable" },
-});
-
-const mapCoreError = (error: unknown): ToolError => {
+export const mapNativeNodexAgentCoreError = (error: unknown): ToolError => {
   if (!(error instanceof CoreModuleResponseError)) {
     return {
       code: "internal_error",
@@ -86,6 +79,15 @@ const mapCoreError = (error: unknown): ToolError => {
   if (code === "idempotency_key_reused") {
     return {
       code: "idempotency_collision",
+      message: error.coreError.message,
+      retryable: false,
+      recovery: "none",
+      details: { domainCode: code },
+    };
+  }
+  if (code === "protected_owner_deletion") {
+    return {
+      code: "protected_owner_deletion",
       message: error.coreError.message,
       retryable: false,
       recovery: "none",
@@ -164,9 +166,49 @@ const effectsFromPreparation = (
     ),
     movedBlockIds: [...moved],
     deletedBlockIds: [...deleted],
+    deletedOwnerBlockIds: [...preparation.footprint.deleted_owner_roots],
     titleChanged,
   };
 };
+
+const semanticAnchor = (
+  anchor: {
+    readonly kind: "start";
+    readonly parentBlockId?: string;
+  } | {
+    readonly kind: "end";
+    readonly parentBlockId?: string;
+  } | {
+    readonly kind: "before";
+    readonly blockId: string;
+  } | {
+    readonly kind: "after";
+    readonly blockId: string;
+  },
+): components["schemas"]["DocumentSemanticAnchor"] => {
+  if (anchor.kind === "start" || anchor.kind === "end") {
+    return {
+      kind: anchor.kind,
+      parent_block_id: anchor.parentBlockId ?? null,
+    };
+  }
+  return {
+    kind: anchor.kind,
+    block_id: anchor.blockId,
+  };
+};
+
+const semanticBlockDraft = (
+  block: NewBlockDraftInput,
+): components["schemas"]["DocumentSemanticBlockDraft"] => ({
+  local_id: block.localId,
+  block_type: block.type,
+  props: block.props ?? {},
+  content: block.content === undefined
+    ? { kind: "absent" }
+    : { kind: "value", value: block.content },
+  children: (block.children ?? []).map(semanticBlockDraft),
+});
 
 const effectFromCommit = (
   committed: CoreCommittedDocument,
@@ -214,9 +256,46 @@ const mutationCommands = (
   request: PrepareNodexAgentPageUpdateRequest,
 ): CoreAgentMutation["commands"] | ToolError => {
   if (request.tool === "advanced_update_page") {
-    return unsupported(
-      "advanced_update_page will be enabled after native stable-Block ETag operations land",
-    );
+    return request.input.edits.map((edit): CoreAgentMutation["commands"][number] => {
+      if (edit.kind === "insert") {
+        return {
+          kind: "insert_block",
+          anchor: semanticAnchor(edit.at),
+          block: semanticBlockDraft(edit.block),
+        };
+      }
+      if (edit.kind === "update") {
+        return {
+          kind: "update_block",
+          block_id: edit.blockId,
+          expected_etag: edit.ifMatch,
+          patch: {
+            ...(edit.patch.type === undefined
+              ? {}
+              : { block_type: edit.patch.type }),
+            ...(edit.patch.props === undefined
+              ? {}
+              : { props: edit.patch.props }),
+            content: edit.patch.content === undefined
+              ? { kind: "absent" }
+              : { kind: "value", value: edit.patch.content },
+            unset_content: edit.patch.unsetContent === true,
+          },
+        };
+      }
+      if (edit.kind === "delete") {
+        return {
+          kind: "delete_block",
+          block_id: edit.blockId,
+          expected_etag: edit.ifMatch,
+        };
+      }
+      return {
+        kind: "move_block",
+        block_id: edit.blockId,
+        anchor: semanticAnchor(edit.at),
+      };
+    });
   }
   return [
     ...(request.input.title
@@ -242,16 +321,7 @@ const mutationCommands = (
         : request.input.body?.kind === "insert"
           ? [{
               kind: "insert_body" as const,
-              anchor: request.input.body.at.kind === "start"
-                || request.input.body.at.kind === "end"
-                ? {
-                    kind: request.input.body.at.kind,
-                    parent_block_id: request.input.body.at.parentBlockId ?? null,
-                  }
-                : {
-                    kind: request.input.body.at.kind,
-                    block_id: request.input.body.at.blockId,
-                  },
+              anchor: semanticAnchor(request.input.body.at),
               nested_markdown: request.input.body.markdown,
             }]
         : []),
@@ -314,6 +384,8 @@ export class NativeNodexAgentPageUpdateRuntime {
         document_id: content.document_id,
         generation: content.document_generation,
         expected_head_seq: content.document_head_seq,
+        allow_deleting_owned_blocks:
+          request.input.safety?.allowDeletingOwnedBlocks === true,
         commands,
       };
       const clientSessionId = `nodex-agent:${request.threadId}`.slice(0, 512);
@@ -394,7 +466,7 @@ export class NativeNodexAgentPageUpdateRuntime {
               ? "fetch_again" as const
               : "none" as const,
           }
-        : mapCoreError(error);
+        : mapNativeNodexAgentCoreError(error);
       return envelope({ ok: false, error: mapped }, operationId);
     }
   }
@@ -449,7 +521,7 @@ export class NativeNodexAgentPageUpdateRuntime {
       return { ok: true, value: toDocumentOperationResult(pending, committed) };
     } catch (error) {
       this.pending.delete(pending.operationId);
-      const mapped = mapCoreError(error);
+      const mapped = mapNativeNodexAgentCoreError(error);
       return {
         ok: false,
         error: {
@@ -498,7 +570,10 @@ export class NativeNodexAgentPageUpdateRuntime {
       this.pending.delete(operationId);
       return envelope({ ok: true, output }, operationId);
     } catch (error) {
-      return envelope({ ok: false, error: mapCoreError(error) }, operationId);
+      return envelope({
+        ok: false,
+        error: mapNativeNodexAgentCoreError(error),
+      }, operationId);
     }
   }
 
@@ -521,6 +596,7 @@ export class NativeNodexAgentPageUpdateRuntime {
     const wantsBlockIds = request.input.return?.includes("block_ids") ?? false;
     const wantsEtags = request.input.return?.includes("etags") ?? false;
     const semanticEtags = committed.value.semantic_etags;
+    const semanticLocalBlockIds = committed.value.semantic_local_block_ids ?? {};
     if (wantsEtags && !semanticEtags) {
       throw new Error("Core Agent Page update omitted its semantic ETags");
     }
@@ -551,7 +627,7 @@ export class NativeNodexAgentPageUpdateRuntime {
             ? {
                 blockIds: {
                   created,
-                  local: {},
+                  local: semanticLocalBlockIds,
                   copied: {},
                   updated,
                   moved,

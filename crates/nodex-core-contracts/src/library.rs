@@ -253,6 +253,9 @@ pub enum LibraryRead {
     PageContent {
         page_id: String,
     },
+    AgentBlockTarget {
+        block_id: String,
+    },
     PageTarget {
         page_id: String,
     },
@@ -799,6 +802,17 @@ pub struct LibraryPageContent {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryAgentBlockTarget {
+    pub block_id: String,
+    pub block_type: String,
+    pub lifecycle: String,
+    pub owner_page_id: String,
+    pub document_id: String,
+    pub document_generation: i64,
+    pub document_head_seq: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LibraryContentReference {
     Block {
@@ -1081,6 +1095,9 @@ pub enum LibraryReadValue {
     },
     PageContent {
         value: Box<LibraryPageContent>,
+    },
+    AgentBlockTarget {
+        value: Option<LibraryAgentBlockTarget>,
     },
     PageTarget {
         value: Option<Box<LibraryPageTarget>>,

@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -9,12 +9,14 @@ use nodex_core_contracts::agent::{
     AgentResourceKind, AgentResourceTarget, AgentTurnProvenance,
 };
 use nodex_core_contracts::document::{
-    AgentDocumentSemanticMutation, DocumentBlockOperation as ContractDocumentBlockOperation,
-    DocumentCheckpointEffect, DocumentCommitOutcome, DocumentInvalidationReason,
-    DocumentMutationCoordination, DocumentMutationEffect, DocumentOptionalValue,
-    DocumentOwnerCommand, DocumentRevisionKind, DocumentSemanticAnchor, DocumentSemanticCommand,
-    DocumentSemanticEtags, OwnedDocumentCommitValue, OwnedDocumentEvent, OwnedDocumentIntent,
-    OwnedDocumentRead, OwnedDocumentReadValue, OwnedDocumentReceipt,
+    AgentDocumentBlockGuard, AgentDocumentBlockGuardKind, AgentDocumentSemanticBlock,
+    AgentDocumentSemanticMutation, AgentDocumentSemanticSnapshot,
+    DocumentBlockOperation as ContractDocumentBlockOperation, DocumentCheckpointEffect,
+    DocumentCommitOutcome, DocumentInvalidationReason, DocumentMutationCoordination,
+    DocumentMutationEffect, DocumentOptionalValue, DocumentOwnerCommand, DocumentRevisionKind,
+    DocumentSemanticAnchor, DocumentSemanticCommand, DocumentSemanticEtags,
+    OwnedDocumentCommitValue, OwnedDocumentEvent, OwnedDocumentIntent, OwnedDocumentRead,
+    OwnedDocumentReadValue, OwnedDocumentReceipt,
 };
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent,
@@ -28,6 +30,7 @@ use yrs::updates::encoder::Encode;
 use yrs::{ReadTxn, Transact};
 
 use crate::domain::block_materialization::MaterializedBlockNode;
+use crate::domain::nfm::materialize_nfm;
 use crate::domain::rich_text::RichTextItem;
 use crate::infrastructure::agent_operations::{
     PreparedAgentOperationBinding, PreparedAgentOperationLease, PreparedAgentOperationRegistry,
@@ -72,8 +75,9 @@ use super::persistence::{
 use super::recovery::{StaleYjsUpdate, persist_recovery_if_barrier_crossed};
 use super::runtime::{DocumentRuntimeCache, reconstruction_duration_metrics};
 use super::semantic::{
-    SemanticMutationContext, SemanticMutationError, mint_document_semantic_etags,
-    prepare_semantic_mutation,
+    AgentDocumentCursorCoordinate, SemanticMutationContext, SemanticMutationError,
+    decode_agent_document_cursor, mint_agent_document_cursor, mint_document_block_etag,
+    mint_document_semantic_etags, mint_document_subtree_etag, prepare_semantic_mutation,
 };
 use super::{
     BlockDocumentSchema, DocumentMaterialization, YrsEngineError, decode_block_document,
@@ -143,6 +147,7 @@ enum PreparedUpdate {
         write_fence_block_ids: Vec<String>,
         title_write_fence_required: bool,
         mutation_effect: Option<Box<DocumentMutationEffect>>,
+        semantic_local_block_ids: Option<BTreeMap<String, String>>,
     },
     NoChange,
     Recovery {
@@ -358,6 +363,30 @@ impl OwnedDocumentModule {
                 store_epoch,
                 *provenance,
                 *mutation,
+            ),
+            OwnedDocumentRead::AgentSemanticSnapshot {
+                store_epoch,
+                provenance,
+                document_id,
+                target_block_id,
+                prepare_title,
+                prepare_body,
+                block_guards,
+                max_depth,
+                cursor,
+                limit,
+            } => self.agent_semantic_snapshot(
+                context,
+                store_epoch,
+                *provenance,
+                document_id,
+                target_block_id,
+                prepare_title,
+                prepare_body,
+                block_guards,
+                max_depth,
+                cursor,
+                limit,
             ),
         }
     }
@@ -600,6 +629,232 @@ impl OwnedDocumentModule {
         self.fail_after_commit.store(true, Ordering::Release);
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn agent_semantic_snapshot(
+        &self,
+        context: &BoundModuleContext,
+        expected_store_epoch: StoreEpoch,
+        provenance: AgentTurnProvenance,
+        document_id: String,
+        target_block_id: String,
+        prepare_title: bool,
+        prepare_body: bool,
+        block_guards: Vec<AgentDocumentBlockGuard>,
+        max_depth: Option<u32>,
+        cursor: Option<String>,
+        limit: Option<u32>,
+    ) -> Result<ModuleReadSnapshot<OwnedDocumentReadValue>, CoreError> {
+        validate_agent_transport_context(context, &provenance)?;
+        if block_guards.len() > 512 {
+            return Err(invalid(
+                "Agent Document read requests too many Block guards",
+            ));
+        }
+        let max_depth = max_depth.unwrap_or(512).min(512);
+        let limit = limit.unwrap_or(40);
+        if !(1..=100).contains(&limit) {
+            return Err(invalid(
+                "Agent Document read limit must be between 1 and 100",
+            ));
+        }
+        let cache = Arc::clone(&self.cache);
+        let context = context.clone();
+        self.readers
+            .read_default(|connection| {
+                let transaction = connection.unchecked_transaction()?;
+                let store_epoch = read_store_epoch(&transaction)?;
+                if store_epoch != expected_store_epoch.0 {
+                    return Err(StoreError::new(
+                        StoreErrorCode::StaleStoreEpoch,
+                        "Agent Document read targets a stale store epoch",
+                        true,
+                    ));
+                }
+                validate_persisted_turn_authority(
+                    &transaction,
+                    &context.library_id.0,
+                    &provenance,
+                )?;
+                let authority = read_document_authority(&transaction, &document_id)?
+                    .ok_or_else(|| not_found("Owned Document was not found"))?;
+                authorize_agent_page_document(&transaction, &provenance, &authority)?;
+                let engine = cache
+                    .lock()
+                    .map_err(|_| internal("Document cache lock failed"))?
+                    .clone_engine(&transaction, &authority.head)?;
+                let schema = registered_yjs_schema(&authority)?;
+                let materialization = materialize_engine(&engine, schema)?;
+                let target_coordinate = if target_block_id == authority.owner_block_id {
+                    None
+                } else {
+                    Some(
+                        find_agent_block_coordinate(
+                            &materialization.block_tree,
+                            &target_block_id,
+                            None,
+                            0,
+                        )
+                        .ok_or_else(|| not_found("Agent Document target Block was not found"))?,
+                    )
+                };
+                if (prepare_title || prepare_body) && target_coordinate.is_some() {
+                    return Err(invalid_store(
+                        "Title and body preparation require the owning Page".to_owned(),
+                    ));
+                }
+                let selected_roots = target_coordinate.as_ref().map_or_else(
+                    || materialization.block_tree.clone(),
+                    |coordinate| vec![coordinate.block.clone()],
+                );
+                let selected_nfm = materialize_nfm(&selected_roots)
+                    .map_err(|error| invalid_store(error.to_string()))?;
+                let mut coordinates = Vec::new();
+                if let Some(target) = &target_coordinate {
+                    collect_agent_block_coordinates(
+                        &selected_roots,
+                        target.parent_block_id.as_deref(),
+                        target.sibling_index,
+                        0,
+                        max_depth,
+                        &mut coordinates,
+                    );
+                } else {
+                    collect_agent_block_coordinates(
+                        &selected_roots,
+                        None,
+                        0,
+                        0,
+                        max_depth,
+                        &mut coordinates,
+                    );
+                }
+                let cursor_coordinate = AgentDocumentCursorCoordinate {
+                    project_id: &provenance.authority.actor_project_id,
+                    store_epoch: &store_epoch,
+                    document_id: &authority.head.id,
+                    target_block_id: &target_block_id,
+                    generation: authority.head.generation,
+                    head_seq: authority.head.head_seq,
+                    max_depth,
+                };
+                let offset = cursor.as_deref().map_or(Ok(0), |cursor| {
+                    decode_agent_document_cursor(&transaction, cursor_coordinate, cursor)
+                        .map_err(semantic_error)
+                })?;
+                if offset > coordinates.len() {
+                    return Err(invalid_store(
+                        "Agent Document cursor offset is invalid".to_owned(),
+                    ));
+                }
+                let page_end = offset.saturating_add(limit as usize).min(coordinates.len());
+                let page_coordinates = &coordinates[offset..page_end];
+                let page_ids = page_coordinates
+                    .iter()
+                    .map(|coordinate| coordinate.block.id.as_str())
+                    .collect::<HashSet<_>>();
+                let mut guard_kinds = HashMap::<String, AgentDocumentBlockGuardKind>::new();
+                for guard in block_guards {
+                    if !page_ids.contains(guard.block_id.as_str()) {
+                        return Err(invalid_store(format!(
+                            "Prepared Block {} is not present in the returned page",
+                            guard.block_id
+                        )));
+                    }
+                    if let Some(existing) = guard_kinds.insert(guard.block_id.clone(), guard.kind)
+                        && existing != guard.kind
+                    {
+                        return Err(invalid_store(format!(
+                            "Block {} cannot be prepared for update and deletion together",
+                            guard.block_id
+                        )));
+                    }
+                }
+                let blocks = page_coordinates
+                    .iter()
+                    .map(|coordinate| {
+                        let etag = guard_kinds
+                            .get(&coordinate.block.id)
+                            .map(|kind| match kind {
+                                AgentDocumentBlockGuardKind::Update => mint_document_block_etag(
+                                    &transaction,
+                                    &provenance.authority.actor_project_id,
+                                    &store_epoch,
+                                    &authority.head.id,
+                                    coordinate.block,
+                                ),
+                                AgentDocumentBlockGuardKind::Delete => mint_document_subtree_etag(
+                                    &transaction,
+                                    &provenance.authority.actor_project_id,
+                                    &store_epoch,
+                                    &authority.head.id,
+                                    coordinate.block,
+                                ),
+                            })
+                            .transpose()
+                            .map_err(semantic_error)?;
+                        Ok(AgentDocumentSemanticBlock {
+                            block_id: coordinate.block.id.clone(),
+                            parent_block_id: coordinate.parent_block_id.clone(),
+                            sibling_index: coordinate.sibling_index,
+                            depth: coordinate.depth,
+                            block_type: coordinate.block.block_type.clone(),
+                            props: coordinate.block.props.clone(),
+                            content: coordinate.block.content.clone(),
+                            etag,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, StoreError>>()?;
+                let (title_etag, body_etag) = if prepare_title || prepare_body {
+                    let (title, body) = mint_document_semantic_etags(
+                        &transaction,
+                        &provenance.authority.actor_project_id,
+                        &store_epoch,
+                        &authority.head.id,
+                        &materialization,
+                    )
+                    .map_err(semantic_error)?;
+                    (prepare_title.then_some(title), prepare_body.then_some(body))
+                } else {
+                    (None, None)
+                };
+                let has_more = page_end < coordinates.len();
+                let next_cursor = has_more
+                    .then(|| {
+                        mint_agent_document_cursor(&transaction, cursor_coordinate, page_end)
+                            .map_err(semantic_error)
+                    })
+                    .transpose()?;
+                let event_head = read_event_head(&transaction)?;
+                let snapshot = AgentDocumentSemanticSnapshot {
+                    document_id: authority.head.id.clone(),
+                    generation: authority.head.generation,
+                    head_seq: authority.head.head_seq,
+                    owner_block_id: authority.owner_block_id,
+                    target_block_id,
+                    title: materialization.title,
+                    rich_title: serde_json::to_value(materialization.rich_title)
+                        .map_err(|_| internal("Document rich title cannot be serialized"))?,
+                    nested_markdown: selected_nfm.nfm,
+                    plain_text: selected_nfm.plain_text,
+                    blocks,
+                    title_etag,
+                    body_etag,
+                    has_more,
+                    next_cursor,
+                };
+                transaction.commit()?;
+                Ok(ModuleReadSnapshot {
+                    version: CORE_CONTRACT_VERSION,
+                    store_epoch: StoreEpoch(store_epoch),
+                    event_head,
+                    value: OwnedDocumentReadValue::AgentSemanticSnapshot {
+                        snapshot: Box::new(snapshot),
+                    },
+                })
+            })
+            .map_err(core_error)
+    }
+
     fn prepare_agent_semantic_mutation(
         &self,
         context: &BoundModuleContext,
@@ -646,11 +901,16 @@ impl OwnedDocumentModule {
                     committed.receipt.mutation.duplicate = true;
                     let authority = read_document_authority(&transaction, &mutation.document_id)?
                         .ok_or_else(corrupt_receipt)?;
-                    let footprint = nominal_agent_semantic_footprint(
+                    let mut footprint = nominal_agent_semantic_footprint(
                         &authority.owner_block_id,
                         &mutation.commands,
                         committed.value.mutation_effect.as_ref(),
                     )?;
+                    footprint.deleted_owner_roots = committed
+                        .value
+                        .semantic_deleted_owner_block_ids
+                        .clone()
+                        .unwrap_or_default();
                     transaction.commit()?;
                     return Ok(AgentSemanticPreparationResult::CommittedReplay {
                         store_epoch,
@@ -705,6 +965,7 @@ impl OwnedDocumentModule {
                     &materialization,
                     mutation_effect,
                 )?;
+                assert_agent_owner_deletion_allowed(&mutation, &footprint)?;
                 let authority_revisions_hash = agent_authority_revisions_hash(
                     &transaction,
                     &authority_fingerprint,
@@ -908,6 +1169,8 @@ impl OwnedDocumentModule {
                         checkpoint_effect: None,
                         mutation_effect: None,
                         semantic_etags: None,
+                        semantic_local_block_ids: None,
+                        semantic_deleted_owner_block_ids: None,
                     },
                     receipt: OwnedDocumentReceipt {
                         mutation: ModuleMutationReceipt {
@@ -1562,6 +1825,7 @@ impl OwnedDocumentModule {
                     write_fence_block_ids: Vec::new(),
                     title_write_fence_required: false,
                     mutation_effect: None,
+                    semantic_local_block_ids: None,
                 })
             },
             None,
@@ -1587,6 +1851,7 @@ impl OwnedDocumentModule {
             document_id: document_id.clone(),
             generation,
             expected_head_seq,
+            allow_deleting_owned_blocks: false,
             commands: commands.clone(),
         };
         let fingerprint = if let Some(authorization) = prepared_agent.as_ref() {
@@ -1735,6 +2000,7 @@ impl OwnedDocumentModule {
                     write_fence_block_ids: prepared.write_fence_block_ids,
                     title_write_fence_required: prepared.title_write_fence_required,
                     mutation_effect: Some(Box::new(mutation_effect)),
+                    semantic_local_block_ids: None,
                 })
             },
             Some(DocumentCommitCheckpoint {
@@ -1834,6 +2100,7 @@ impl OwnedDocumentModule {
                     write_fence_block_ids: prepared.write_fence_block_ids,
                     title_write_fence_required: prepared.title_write_fence_required,
                     mutation_effect: Some(Box::new(mutation_effect)),
+                    semantic_local_block_ids: None,
                 })
             },
             Some(DocumentCommitCheckpoint {
@@ -2133,6 +2400,7 @@ impl OwnedDocumentModule {
                     write_fence_block_ids: prepared.write_fence_block_ids,
                     title_write_fence_required: prepared.title_write_fence_required,
                     mutation_effect: Some(Box::new(mutation_effect)),
+                    semantic_local_block_ids: None,
                 })
             },
             Some(after_restore_checkpoint),
@@ -2468,9 +2736,8 @@ impl OwnedDocumentModule {
                     &base_materialization,
                     &store_epoch,
                 )?;
-                let mut prepared_agent_lease = if let Some(prepared_agent) =
-                    job.prepared_agent.as_ref()
-                {
+                let (mut prepared_agent_lease, semantic_deleted_owner_block_ids) =
+                    if let Some(prepared_agent) = job.prepared_agent.as_ref() {
                     let mutation_effect = match &prepared {
                         PreparedUpdate::Apply {
                             mutation_effect, ..
@@ -2483,6 +2750,7 @@ impl OwnedDocumentModule {
                         &base_materialization,
                         mutation_effect,
                     )?;
+                    assert_agent_owner_deletion_allowed(&prepared_agent.mutation, &footprint)?;
                     let authority_revisions_hash = agent_authority_revisions_hash(
                         &transaction,
                         agent_authority_fingerprint
@@ -2507,9 +2775,14 @@ impl OwnedDocumentModule {
                         .token
                         .as_deref()
                         .ok_or_else(stale_agent_operation)?;
-                    Some(prepared_agent_operations.acquire(token, &binding)?)
+                    let deleted_owner_block_ids = (!footprint.deleted_owner_roots.is_empty())
+                        .then_some(footprint.deleted_owner_roots.clone());
+                    (
+                        Some(prepared_agent_operations.acquire(token, &binding)?),
+                        deleted_owner_block_ids,
+                    )
                 } else {
-                    None
+                    (None, None)
                 };
                 if let PreparedUpdate::Recovery { artifact_id } = &prepared {
                     let artifact_id = artifact_id.clone();
@@ -2530,6 +2803,7 @@ impl OwnedDocumentModule {
                     write_fence_block_ids,
                     title_write_fence_required,
                     mutation_effect,
+                    semantic_local_block_ids,
                 } = prepared
                 else {
                     let event_head = read_event_head(&transaction)?;
@@ -2541,6 +2815,8 @@ impl OwnedDocumentModule {
                         DocumentCommitOutcome::NoChange,
                         event_head,
                     );
+                    committed.value.semantic_deleted_owner_block_ids =
+                        semantic_deleted_owner_block_ids.clone();
                     attach_agent_semantic_etags(
                         &transaction,
                         &job,
@@ -2584,6 +2860,8 @@ impl OwnedDocumentModule {
                         DocumentCommitOutcome::NoChange,
                         event_head,
                     );
+                    committed.value.semantic_deleted_owner_block_ids =
+                        semantic_deleted_owner_block_ids.clone();
                     attach_agent_semantic_etags(
                         &transaction,
                         &job,
@@ -2707,6 +2985,9 @@ impl OwnedDocumentModule {
                 );
                 committed.value.committed_at = Some(persisted.committed_at.clone());
                 committed.value.mutation_effect = mutation_effect.map(|effect| *effect);
+                committed.value.semantic_local_block_ids = semantic_local_block_ids;
+                committed.value.semantic_deleted_owner_block_ids =
+                    semantic_deleted_owner_block_ids;
                 attach_agent_semantic_etags(
                     &transaction,
                     &job,
@@ -3148,6 +3429,8 @@ fn committed_value(
             checkpoint_effect: None,
             mutation_effect: None,
             semantic_etags: None,
+            semantic_local_block_ids: None,
+            semantic_deleted_owner_block_ids: None,
         },
         receipt: OwnedDocumentReceipt {
             mutation: ModuleMutationReceipt {
@@ -3381,6 +3664,8 @@ fn prepare_semantic_update(
     match prepared {
         Ok(prepared) => {
             let preview_markdown = prepared.materialization.nfm.clone();
+            let semantic_local_block_ids =
+                (!prepared.local_block_ids.is_empty()).then_some(prepared.local_block_ids.clone());
             let mutation_effect = document_mutation_effect(
                 &authority.owner_block_id,
                 authority.head.head_seq,
@@ -3404,6 +3689,7 @@ fn prepare_semantic_update(
                     write_fence_block_ids: prepared.write_fence_block_ids,
                     title_write_fence_required: prepared.title_write_fence_required,
                     mutation_effect: Some(Box::new(mutation_effect)),
+                    semantic_local_block_ids,
                 },
                 Some(preview_markdown),
             ))
@@ -3506,6 +3792,69 @@ fn agent_semantic_request_fingerprint(
     .map_err(|_| invalid("Prepared Agent semantic request cannot be fingerprinted"))
 }
 
+struct AgentBlockCoordinate<'a> {
+    block: &'a MaterializedBlockNode,
+    parent_block_id: Option<String>,
+    sibling_index: u32,
+    depth: u32,
+}
+
+fn find_agent_block_coordinate<'a>(
+    blocks: &'a [MaterializedBlockNode],
+    block_id: &str,
+    parent_block_id: Option<&str>,
+    depth: u32,
+) -> Option<AgentBlockCoordinate<'a>> {
+    for (sibling_index, block) in blocks.iter().enumerate() {
+        if block.id == block_id {
+            return Some(AgentBlockCoordinate {
+                block,
+                parent_block_id: parent_block_id.map(str::to_owned),
+                sibling_index: sibling_index as u32,
+                depth,
+            });
+        }
+        if let Some(coordinate) = find_agent_block_coordinate(
+            &block.children,
+            block_id,
+            Some(&block.id),
+            depth.saturating_add(1),
+        ) {
+            return Some(coordinate);
+        }
+    }
+    None
+}
+
+fn collect_agent_block_coordinates<'a>(
+    blocks: &'a [MaterializedBlockNode],
+    parent_block_id: Option<&str>,
+    first_sibling_index: u32,
+    depth: u32,
+    max_depth: u32,
+    coordinates: &mut Vec<AgentBlockCoordinate<'a>>,
+) {
+    if depth > max_depth {
+        return;
+    }
+    for (relative_index, block) in blocks.iter().enumerate() {
+        coordinates.push(AgentBlockCoordinate {
+            block,
+            parent_block_id: parent_block_id.map(str::to_owned),
+            sibling_index: first_sibling_index.saturating_add(relative_index as u32),
+            depth,
+        });
+        collect_agent_block_coordinates(
+            &block.children,
+            Some(&block.id),
+            0,
+            depth.saturating_add(1),
+            max_depth,
+            coordinates,
+        );
+    }
+}
+
 fn nominal_agent_semantic_footprint(
     owner_page_id: &str,
     commands: &[DocumentSemanticCommand],
@@ -3541,6 +3890,7 @@ fn build_agent_semantic_footprint(
     let mut destructive = false;
     let mut children = HashMap::<Option<String>, Vec<String>>::new();
     let mut parents = HashMap::<String, Option<String>>::new();
+    let mut block_types = HashMap::<String, String>::new();
     if let Some(materialization) = materialization {
         for unit in &materialization.search_units {
             children
@@ -3548,6 +3898,7 @@ fn build_agent_semantic_footprint(
                 .or_default()
                 .push(unit.block_id.clone());
             parents.insert(unit.block_id.clone(), unit.parent_block_id.clone());
+            block_types.insert(unit.block_id.clone(), unit.block_type.clone());
         }
     }
     for command in commands {
@@ -3561,17 +3912,17 @@ fn build_agent_semantic_footprint(
                 updated_roots.insert(owner_page_id.to_owned());
             }
             DocumentSemanticCommand::InsertBody { anchor, .. } => {
-                let parent_block_id = match anchor {
-                    DocumentSemanticAnchor::Start { parent_block_id }
-                    | DocumentSemanticAnchor::End { parent_block_id } => parent_block_id.clone(),
-                    DocumentSemanticAnchor::Before { block_id }
-                    | DocumentSemanticAnchor::After { block_id } => {
-                        parents.get(block_id).and_then(Clone::clone)
-                    }
-                };
+                let (parent_block_id, _) = semantic_footprint_anchor(anchor, &parents, &children);
                 updated_roots.insert(parent_block_id.unwrap_or_else(|| owner_page_id.to_owned()));
             }
-            DocumentSemanticCommand::DeleteBlock { block_id } => {
+            DocumentSemanticCommand::InsertBlock { anchor, .. } => {
+                let (parent_block_id, _) = semantic_footprint_anchor(anchor, &parents, &children);
+                updated_roots.insert(parent_block_id.unwrap_or_else(|| owner_page_id.to_owned()));
+            }
+            DocumentSemanticCommand::UpdateBlock { block_id, .. } => {
+                updated_roots.insert(block_id.clone());
+            }
+            DocumentSemanticCommand::DeleteBlock { block_id, .. } => {
                 destructive = true;
                 let parent = parents
                     .get(block_id)
@@ -3588,11 +3939,9 @@ fn build_agent_semantic_footprint(
                     }
                 }
             }
-            DocumentSemanticCommand::MoveBlock {
-                block_id,
-                parent_block_id,
-                before_block_id,
-            } => {
+            DocumentSemanticCommand::MoveBlock { block_id, anchor } => {
+                let (parent_block_id, before_block_id) =
+                    semantic_footprint_anchor(anchor, &parents, &children);
                 updated_roots.insert(block_id.clone());
                 updated_roots.insert(
                     parent_block_id
@@ -3604,8 +3953,8 @@ fn build_agent_semantic_footprint(
                 }
                 ownership_transformations.push(AgentOwnershipTransformation {
                     resource_id: block_id.clone(),
-                    parent_id: parent_block_id.clone(),
-                    before_id: before_block_id.clone(),
+                    parent_id: parent_block_id,
+                    before_id: before_block_id,
                 });
             }
         }
@@ -3623,10 +3972,20 @@ fn build_agent_semantic_footprint(
     created_roots.sort();
     updated_roots.sort();
     deleted_roots.sort();
+    let deleted_owner_roots = deleted_roots
+        .iter()
+        .filter(|block_id| {
+            block_types
+                .get(*block_id)
+                .is_some_and(|kind| kind == "page")
+        })
+        .cloned()
+        .collect::<Vec<_>>();
     let footprint_size = created_roots
         .len()
         .checked_add(updated_roots.len())
         .and_then(|size| size.checked_add(deleted_roots.len()))
+        .and_then(|size| size.checked_add(deleted_owner_roots.len()))
         .and_then(|size| size.checked_add(ownership_transformations.len()))
         .ok_or_else(|| exhausted_store("Agent operation footprint size overflowed"))?;
     if footprint_size > MAX_AGENT_FOOTPRINT_ROOTS {
@@ -3647,8 +4006,58 @@ fn build_agent_semantic_footprint(
         created_roots,
         updated_roots,
         deleted_roots,
+        deleted_owner_roots,
         ownership_transformations,
     })
+}
+
+fn assert_agent_owner_deletion_allowed(
+    mutation: &AgentDocumentSemanticMutation,
+    footprint: &AgentOperationFootprint,
+) -> Result<(), StoreError> {
+    if mutation.allow_deleting_owned_blocks || footprint.deleted_owner_roots.is_empty() {
+        return Ok(());
+    }
+    Err(StoreError::new(
+        StoreErrorCode::ProtectedOwnerDeletion,
+        format!(
+            "Document edit would delete owning Page Block(s): {}",
+            footprint.deleted_owner_roots.join(", ")
+        ),
+        false,
+    ))
+}
+
+fn semantic_footprint_anchor(
+    anchor: &DocumentSemanticAnchor,
+    parents: &HashMap<String, Option<String>>,
+    children: &HashMap<Option<String>, Vec<String>>,
+) -> (Option<String>, Option<String>) {
+    match anchor {
+        DocumentSemanticAnchor::Start { parent_block_id } => (
+            parent_block_id.clone(),
+            children
+                .get(parent_block_id)
+                .and_then(|siblings| siblings.first())
+                .cloned(),
+        ),
+        DocumentSemanticAnchor::End { parent_block_id } => (parent_block_id.clone(), None),
+        DocumentSemanticAnchor::Before { block_id } => (
+            parents.get(block_id).and_then(Clone::clone),
+            Some(block_id.clone()),
+        ),
+        DocumentSemanticAnchor::After { block_id } => {
+            let parent_block_id = parents.get(block_id).and_then(Clone::clone);
+            let before_block_id = children.get(&parent_block_id).and_then(|siblings| {
+                siblings
+                    .iter()
+                    .position(|sibling| sibling == block_id)
+                    .and_then(|index| siblings.get(index + 1))
+                    .cloned()
+            });
+            (parent_block_id, before_block_id)
+        }
+    }
 }
 
 fn agent_authority_revisions_hash(
@@ -4154,6 +4563,7 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::HeadConflict => CoreErrorCode::HeadConflict,
         StoreErrorCode::RevisionConflict => CoreErrorCode::RevisionConflict,
         StoreErrorCode::IdempotencyKeyReused => CoreErrorCode::IdempotencyKeyReused,
+        StoreErrorCode::ProtectedOwnerDeletion => CoreErrorCode::ProtectedOwnerDeletion,
         StoreErrorCode::MissingDependencies => CoreErrorCode::DocumentUpdateMissingDependencies,
         StoreErrorCode::UnsupportedSchema => CoreErrorCode::InvalidDocumentSchema,
         StoreErrorCode::StoreCorrupt => CoreErrorCode::StoreCorrupt,
@@ -4216,8 +4626,8 @@ mod tests {
         DocumentBlockOperation as ContractDocumentBlockOperation,
         DocumentBlockUpdatePatch as ContractDocumentBlockUpdatePatch, DocumentCommitOutcome,
         DocumentHeadRevision, DocumentMutationCoordination, DocumentOptionalValue,
-        DocumentOwnerCommand, DocumentOwnerRevision, DocumentSemanticCommand,
-        DocumentVersionCursor, OwnedDocumentIntent, OwnedDocumentRead,
+        DocumentOwnerCommand, DocumentOwnerRevision, DocumentSemanticBlockDraft,
+        DocumentSemanticCommand, DocumentVersionCursor, OwnedDocumentIntent, OwnedDocumentRead,
     };
     use nodex_core_contracts::workspace::{
         ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch, ProjectWorkspaceTurnAuthority,
@@ -7348,6 +7758,7 @@ mod tests {
             document_id: DOCUMENT_ID.to_owned(),
             generation: 1,
             expected_head_seq: 1,
+            allow_deleting_owned_blocks: false,
             commands: vec![DocumentSemanticCommand::SetTitle {
                 inline_markdown: "Prepared Agent authority".to_owned(),
                 expected_etag: title_etag,
@@ -7518,6 +7929,7 @@ mod tests {
             document_id: DOCUMENT_ID.to_owned(),
             generation: 1,
             expected_head_seq: 1,
+            allow_deleting_owned_blocks: false,
             commands: vec![DocumentSemanticCommand::InsertBody {
                 anchor: DocumentSemanticAnchor::End {
                     parent_block_id: None,
@@ -7587,6 +7999,359 @@ mod tests {
     }
 
     #[test]
+    fn agent_semantic_footprint_requires_explicit_owned_page_deletion_intent() {
+        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/yjs-yrs/empty-page.bin");
+        let full_state = fs::read(fixture).expect("empty Page fixture");
+        let engine =
+            YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &full_state).expect("Page engine");
+        let mut materialization =
+            materialize_engine(&engine, BlockDocumentSchema::PageV2).expect("Page materialization");
+        let page_block = materialization
+            .search_units
+            .first_mut()
+            .expect("fixture contains a body Block");
+        page_block.block_type = "page".to_owned();
+        let page_block_id = page_block.block_id.clone();
+        let commands = vec![DocumentSemanticCommand::DeleteBlock {
+            block_id: page_block_id.clone(),
+            expected_etag: "nxe1.test".to_owned(),
+        }];
+        let footprint = agent_semantic_footprint(OWNER_BLOCK_ID, &commands, &materialization, None)
+            .expect("classify Agent deletion");
+        assert_eq!(footprint.deleted_owner_roots, vec![page_block_id]);
+
+        let protected = AgentDocumentSemanticMutation {
+            document_id: DOCUMENT_ID.to_owned(),
+            generation: 1,
+            expected_head_seq: 1,
+            allow_deleting_owned_blocks: false,
+            commands,
+        };
+        let error = assert_agent_owner_deletion_allowed(&protected, &footprint)
+            .expect_err("owned Page deletion requires explicit intent");
+        assert_eq!(error.code, StoreErrorCode::ProtectedOwnerDeletion);
+
+        assert_agent_owner_deletion_allowed(
+            &AgentDocumentSemanticMutation {
+                allow_deleting_owned_blocks: true,
+                ..protected
+            },
+            &footprint,
+        )
+        .expect("explicit intent permits owned Page deletion");
+    }
+
+    #[test]
+    fn stable_block_commands_guard_fields_and_subtrees_and_replay_local_ids() {
+        let seeded = seeded_module();
+        let connection_id = "electron:agent-stable-blocks";
+        let provenance = seed_agent_turn(&seeded, connection_id);
+        let operation_id = "agent:stable-block-insert";
+        let mutation = AgentDocumentSemanticMutation {
+            document_id: DOCUMENT_ID.to_owned(),
+            generation: 1,
+            expected_head_seq: 1,
+            allow_deleting_owned_blocks: false,
+            commands: vec![DocumentSemanticCommand::InsertBlock {
+                anchor: DocumentSemanticAnchor::End {
+                    parent_block_id: None,
+                },
+                block: DocumentSemanticBlockDraft {
+                    local_id: "root".to_owned(),
+                    block_type: "paragraph".to_owned(),
+                    props: BTreeMap::new(),
+                    content: DocumentOptionalValue::Value {
+                        value: json!([{ "type": "text", "text": "Root", "styles": {} }]),
+                    },
+                    children: vec![DocumentSemanticBlockDraft {
+                        local_id: "child".to_owned(),
+                        block_type: "paragraph".to_owned(),
+                        props: BTreeMap::new(),
+                        content: DocumentOptionalValue::Value {
+                            value: json!([{ "type": "text", "text": "Child", "styles": {} }]),
+                        },
+                        children: Vec::new(),
+                    }],
+                },
+            }],
+        };
+        let prepared = seeded
+            .module
+            .read(
+                &context_for(connection_id),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::PrepareAgentSemanticMutation {
+                        operation_id: operation_id.to_owned(),
+                        store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                        provenance: Box::new(provenance.clone()),
+                        mutation: Box::new(mutation.clone()),
+                    },
+                },
+            )
+            .expect("prepare stable Block insertion");
+        let OwnedDocumentReadValue::AgentSemanticMutationPreparation {
+            preparation,
+            committed: None,
+        } = prepared.value
+        else {
+            panic!("expected prepared stable Block insertion")
+        };
+        assert_eq!(preparation.footprint.created_roots.len(), 2);
+        let committed = seeded
+            .module
+            .apply(
+                &context_for(connection_id),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: operation_id.to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ExecutePreparedAgentSemanticMutation {
+                        authorization: Box::new(AgentPreparedExecution {
+                            provenance: provenance.clone(),
+                            token: preparation.token,
+                        }),
+                        mutation: Box::new(mutation.clone()),
+                    },
+                },
+            )
+            .expect("commit stable Block insertion");
+        let local_block_ids = committed
+            .committed
+            .value
+            .semantic_local_block_ids
+            .clone()
+            .expect("stable Block insertion returns local identities");
+        let root_id = local_block_ids.get("root").expect("root identity").clone();
+        let child_id = local_block_ids
+            .get("child")
+            .expect("child identity")
+            .clone();
+        assert_eq!(
+            committed
+                .committed
+                .value
+                .mutation_effect
+                .as_ref()
+                .expect("stable insertion effect")
+                .created_block_ids
+                .len(),
+            2
+        );
+        let replay = seeded
+            .module
+            .apply(
+                &context_for(connection_id),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: operation_id.to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ExecutePreparedAgentSemanticMutation {
+                        authorization: Box::new(AgentPreparedExecution {
+                            provenance: provenance.clone(),
+                            token: None,
+                        }),
+                        mutation: Box::new(mutation),
+                    },
+                },
+            )
+            .expect("replay stable Block insertion");
+        assert!(replay.committed.receipt.mutation.duplicate);
+        assert_eq!(
+            replay.committed.value.semantic_local_block_ids,
+            Some(local_block_ids)
+        );
+
+        let read_snapshot = |guard_kind: Option<AgentDocumentBlockGuardKind>,
+                             cursor: Option<String>| {
+            let read = seeded
+                .module
+                .read(
+                    &context_for(connection_id),
+                    ModuleReadRequest {
+                        version: CORE_CONTRACT_VERSION,
+                        read: OwnedDocumentRead::AgentSemanticSnapshot {
+                            store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                            provenance: Box::new(provenance.clone()),
+                            document_id: DOCUMENT_ID.to_owned(),
+                            target_block_id: root_id.clone(),
+                            prepare_title: false,
+                            prepare_body: false,
+                            block_guards: guard_kind
+                                .map(|kind| {
+                                    vec![AgentDocumentBlockGuard {
+                                        block_id: root_id.clone(),
+                                        kind,
+                                    }]
+                                })
+                                .unwrap_or_default(),
+                            max_depth: Some(512),
+                            cursor,
+                            limit: Some(1),
+                        },
+                    },
+                )
+                .expect("read stable Block semantic snapshot");
+            let OwnedDocumentReadValue::AgentSemanticSnapshot { snapshot } = read.value else {
+                panic!("expected stable Block semantic snapshot")
+            };
+            *snapshot
+        };
+        let update_snapshot = read_snapshot(Some(AgentDocumentBlockGuardKind::Update), None);
+        assert_eq!(update_snapshot.blocks[0].block_id, root_id);
+        assert!(update_snapshot.nested_markdown.contains("Root"));
+        assert!(update_snapshot.has_more);
+        let block_etag = update_snapshot.blocks[0]
+            .etag
+            .clone()
+            .expect("Block update ETag");
+        let stale_cursor = update_snapshot.next_cursor.clone();
+        let next_page = read_snapshot(None, update_snapshot.next_cursor);
+        assert_eq!(next_page.blocks[0].block_id, child_id);
+        assert!(!next_page.has_more);
+        let delete_snapshot = read_snapshot(Some(AgentDocumentBlockGuardKind::Delete), None);
+        let subtree_etag = delete_snapshot.blocks[0]
+            .etag
+            .clone()
+            .expect("Block subtree ETag");
+        let updated = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "semantic:stable-update".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplySemanticMutation {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 2,
+                        commands: vec![DocumentSemanticCommand::UpdateBlock {
+                            block_id: root_id.clone(),
+                            expected_etag: block_etag.clone(),
+                            patch: ContractDocumentBlockUpdatePatch {
+                                block_type: None,
+                                props: Some(BTreeMap::from([(
+                                    "textAlignment".to_owned(),
+                                    json!("center"),
+                                )])),
+                                content: DocumentOptionalValue::Absent,
+                                unset_content: false,
+                            },
+                        }],
+                    },
+                },
+            )
+            .expect("guarded stable Block update");
+        assert_eq!(updated.committed.value.head_seq, 3);
+        assert_eq!(
+            updated
+                .committed
+                .value
+                .mutation_effect
+                .as_ref()
+                .expect("stable update effect")
+                .updated_block_ids,
+            vec![root_id.clone()]
+        );
+        let stale_cursor_error = seeded
+            .module
+            .read(
+                &context_for(connection_id),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::AgentSemanticSnapshot {
+                        store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                        provenance: Box::new(provenance.clone()),
+                        document_id: DOCUMENT_ID.to_owned(),
+                        target_block_id: root_id.clone(),
+                        prepare_title: false,
+                        prepare_body: false,
+                        block_guards: Vec::new(),
+                        max_depth: Some(512),
+                        cursor: stale_cursor,
+                        limit: Some(1),
+                    },
+                },
+            )
+            .expect_err("Agent Document cursor is stale after a commit");
+        assert_eq!(stale_cursor_error.code, CoreErrorCode::RevisionConflict);
+        let stale_update = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "semantic:stable-update-stale".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplySemanticMutation {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 3,
+                        commands: vec![DocumentSemanticCommand::UpdateBlock {
+                            block_id: root_id.clone(),
+                            expected_etag: block_etag,
+                            patch: ContractDocumentBlockUpdatePatch {
+                                block_type: None,
+                                props: Some(BTreeMap::new()),
+                                content: DocumentOptionalValue::Absent,
+                                unset_content: false,
+                            },
+                        }],
+                    },
+                },
+            )
+            .expect_err("stale stable Block update guard");
+        assert_eq!(stale_update.code, CoreErrorCode::RevisionConflict);
+
+        let moved = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "semantic:stable-move".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplySemanticMutation {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 3,
+                        commands: vec![DocumentSemanticCommand::MoveBlock {
+                            block_id: child_id,
+                            anchor: DocumentSemanticAnchor::Start {
+                                parent_block_id: None,
+                            },
+                        }],
+                    },
+                },
+            )
+            .expect("stable Block move");
+        assert_eq!(moved.committed.value.head_seq, 4);
+        let stale_delete = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "semantic:stable-delete-stale".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplySemanticMutation {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 4,
+                        commands: vec![DocumentSemanticCommand::DeleteBlock {
+                            block_id: root_id,
+                            expected_etag: subtree_etag,
+                        }],
+                    },
+                },
+            )
+            .expect_err("stale subtree delete guard");
+        assert_eq!(stale_delete.code, CoreErrorCode::RevisionConflict);
+    }
+
+    #[test]
     fn prepared_agent_semantic_operation_rejects_a_page_from_another_library() {
         const FOREIGN_PROFILE_ID: &str = "profile:foreign";
         const FOREIGN_LIBRARY_ID: &str = "library:foreign";
@@ -7630,6 +8395,7 @@ mod tests {
                             document_id: DOCUMENT_ID.to_owned(),
                             generation: 1,
                             expected_head_seq: 1,
+                            allow_deleting_owned_blocks: false,
                             commands: Vec::new(),
                         }),
                     },
@@ -7670,6 +8436,7 @@ mod tests {
             document_id: DOCUMENT_ID.to_owned(),
             generation: 1,
             expected_head_seq: 1,
+            allow_deleting_owned_blocks: false,
             commands: vec![DocumentSemanticCommand::SetTitle {
                 inline_markdown: "One-call consent".to_owned(),
                 expected_etag: title_etag,
@@ -7905,6 +8672,7 @@ mod tests {
                         expected_head_seq: 2,
                         commands: vec![DocumentSemanticCommand::DeleteBlock {
                             block_id: "019bf52d-6870-7000-8000-000000000099".to_owned(),
+                            expected_etag: String::new(),
                         }],
                     },
                 },

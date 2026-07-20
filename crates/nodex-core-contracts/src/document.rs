@@ -14,6 +14,7 @@ pub struct AgentDocumentSemanticMutation {
     pub document_id: String,
     pub generation: i64,
     pub expected_head_seq: i64,
+    pub allow_deleting_owned_blocks: bool,
     pub commands: Vec<DocumentSemanticCommand>,
 }
 
@@ -54,6 +55,18 @@ pub enum OwnedDocumentRead {
         provenance: Box<AgentTurnProvenance>,
         mutation: Box<AgentDocumentSemanticMutation>,
     },
+    AgentSemanticSnapshot {
+        store_epoch: StoreEpoch,
+        provenance: Box<AgentTurnProvenance>,
+        document_id: String,
+        target_block_id: String,
+        prepare_title: bool,
+        prepare_body: bool,
+        block_guards: Vec<AgentDocumentBlockGuard>,
+        max_depth: Option<u32>,
+        cursor: Option<String>,
+        limit: Option<u32>,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
@@ -84,6 +97,57 @@ pub enum OwnedDocumentReadValue {
         committed:
             Option<Box<CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>>>,
     },
+    AgentSemanticSnapshot {
+        snapshot: Box<AgentDocumentSemanticSnapshot>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentDocumentBlockGuardKind {
+    Update,
+    Delete,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct AgentDocumentBlockGuard {
+    pub block_id: String,
+    pub kind: AgentDocumentBlockGuardKind,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct AgentDocumentSemanticBlock {
+    pub block_id: String,
+    pub parent_block_id: Option<String>,
+    pub sibling_index: u32,
+    pub depth: u32,
+    pub block_type: String,
+    pub props: BTreeMap<String, Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub etag: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct AgentDocumentSemanticSnapshot {
+    pub document_id: String,
+    pub generation: i64,
+    pub head_seq: i64,
+    pub owner_block_id: String,
+    pub target_block_id: String,
+    pub title: String,
+    pub rich_title: Value,
+    pub nested_markdown: String,
+    pub plain_text: String,
+    pub blocks: Vec<AgentDocumentSemanticBlock>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title_etag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body_etag: Option<String>,
+    pub has_more: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
@@ -195,14 +259,33 @@ pub enum DocumentSemanticCommand {
         nested_markdown: String,
         expected_etag: String,
     },
+    InsertBlock {
+        anchor: DocumentSemanticAnchor,
+        block: DocumentSemanticBlockDraft,
+    },
+    UpdateBlock {
+        block_id: String,
+        expected_etag: String,
+        patch: DocumentBlockUpdatePatch,
+    },
     DeleteBlock {
         block_id: String,
+        expected_etag: String,
     },
     MoveBlock {
         block_id: String,
-        parent_block_id: Option<String>,
-        before_block_id: Option<String>,
+        anchor: DocumentSemanticAnchor,
     },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DocumentSemanticBlockDraft {
+    pub local_id: String,
+    pub block_type: String,
+    pub props: BTreeMap<String, Value>,
+    pub content: DocumentOptionalValue,
+    #[schema(no_recursion)]
+    pub children: Vec<DocumentSemanticBlockDraft>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -357,6 +440,10 @@ pub struct OwnedDocumentCommitValue {
     pub mutation_effect: Option<DocumentMutationEffect>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub semantic_etags: Option<DocumentSemanticEtags>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub semantic_local_block_ids: Option<BTreeMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub semantic_deleted_owner_block_ids: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

@@ -291,13 +291,52 @@ export interface components {
         };
         /** @enum {string} */
         readonly AgentConsentRequirement: "none" | "resource";
+        readonly AgentDocumentBlockGuard: {
+            readonly block_id: string;
+            readonly kind: components["schemas"]["AgentDocumentBlockGuardKind"];
+        };
+        /** @enum {string} */
+        readonly AgentDocumentBlockGuardKind: "update" | "delete";
+        readonly AgentDocumentSemanticBlock: {
+            readonly block_id: string;
+            readonly block_type: string;
+            readonly content?: unknown;
+            /** Format: int32 */
+            readonly depth: number;
+            readonly etag?: string | null;
+            readonly parent_block_id?: string | null;
+            readonly props: {
+                readonly [key: string]: unknown;
+            };
+            /** Format: int32 */
+            readonly sibling_index: number;
+        };
         readonly AgentDocumentSemanticMutation: {
+            readonly allow_deleting_owned_blocks: boolean;
             readonly commands: readonly components["schemas"]["DocumentSemanticCommand"][];
             readonly document_id: string;
             /** Format: int64 */
             readonly expected_head_seq: number;
             /** Format: int64 */
             readonly generation: number;
+        };
+        readonly AgentDocumentSemanticSnapshot: {
+            readonly blocks: readonly components["schemas"]["AgentDocumentSemanticBlock"][];
+            readonly body_etag?: string | null;
+            readonly document_id: string;
+            /** Format: int64 */
+            readonly generation: number;
+            readonly has_more: boolean;
+            /** Format: int64 */
+            readonly head_seq: number;
+            readonly nested_markdown: string;
+            readonly next_cursor?: string | null;
+            readonly owner_block_id: string;
+            readonly plain_text: string;
+            readonly rich_title: unknown;
+            readonly target_block_id: string;
+            readonly title: string;
+            readonly title_etag?: string | null;
         };
         /** @enum {string} */
         readonly AgentEffectClass: "write" | "destructive";
@@ -307,6 +346,7 @@ export interface components {
          */
         readonly AgentOperationFootprint: {
             readonly created_roots: readonly string[];
+            readonly deleted_owner_roots: readonly string[];
             readonly deleted_roots: readonly string[];
             readonly effect_class: components["schemas"]["AgentEffectClass"];
             readonly ownership_transformations: readonly components["schemas"]["AgentOwnershipTransformation"][];
@@ -614,7 +654,11 @@ export interface components {
                 readonly mutation_effect?: null | components["schemas"]["DocumentMutationEffect"];
                 readonly outcome: components["schemas"]["DocumentCommitOutcome"];
                 readonly owner_effect?: null | components["schemas"]["DocumentOwnerEffect"];
+                readonly semantic_deleted_owner_block_ids?: readonly string[] | null;
                 readonly semantic_etags?: null | components["schemas"]["DocumentSemanticEtags"];
+                readonly semantic_local_block_ids?: {
+                    readonly [key: string]: string;
+                } | null;
             };
         };
         readonly CoreError: {
@@ -624,7 +668,7 @@ export interface components {
             readonly retryable: boolean;
         };
         /** @enum {string} */
-        readonly CoreErrorCode: "invalid_input" | "unauthorized" | "not_found" | "ambiguous" | "stale_store_epoch" | "revision_conflict" | "generation_conflict" | "head_conflict" | "idempotency_key_reused" | "document_update_missing_dependencies" | "invalid_document_schema" | "maintenance_in_progress" | "schema_unsupported" | "store_corrupt" | "protocol_incompatible" | "event_replay_unavailable" | "resource_exhausted" | "core_unavailable";
+        readonly CoreErrorCode: "invalid_input" | "unauthorized" | "not_found" | "ambiguous" | "stale_store_epoch" | "revision_conflict" | "generation_conflict" | "head_conflict" | "idempotency_key_reused" | "protected_owner_deletion" | "document_update_missing_dependencies" | "invalid_document_schema" | "maintenance_in_progress" | "schema_unsupported" | "store_corrupt" | "protocol_incompatible" | "event_replay_unavailable" | "resource_exhausted" | "core_unavailable";
         readonly CoreErrorRecovery: {
             /** @enum {string} */
             readonly kind: "none";
@@ -954,6 +998,15 @@ export interface components {
             /** @enum {string} */
             readonly kind: "after";
         };
+        readonly DocumentSemanticBlockDraft: {
+            readonly block_type: string;
+            readonly children: readonly components["schemas"]["DocumentSemanticBlockDraft"][];
+            readonly content: components["schemas"]["DocumentOptionalValue"];
+            readonly local_id: string;
+            readonly props: {
+                readonly [key: string]: unknown;
+            };
+        };
         readonly DocumentSemanticCommand: {
             readonly expected_etag: string;
             readonly inline_markdown: string;
@@ -977,15 +1030,26 @@ export interface components {
             readonly kind: "replace_body";
             readonly nested_markdown: string;
         } | {
+            readonly anchor: components["schemas"]["DocumentSemanticAnchor"];
+            readonly block: components["schemas"]["DocumentSemanticBlockDraft"];
+            /** @enum {string} */
+            readonly kind: "insert_block";
+        } | {
             readonly block_id: string;
+            readonly expected_etag: string;
+            /** @enum {string} */
+            readonly kind: "update_block";
+            readonly patch: components["schemas"]["DocumentBlockUpdatePatch"];
+        } | {
+            readonly block_id: string;
+            readonly expected_etag: string;
             /** @enum {string} */
             readonly kind: "delete_block";
         } | {
-            readonly before_block_id?: string | null;
+            readonly anchor: components["schemas"]["DocumentSemanticAnchor"];
             readonly block_id: string;
             /** @enum {string} */
             readonly kind: "move_block";
-            readonly parent_block_id?: string | null;
         };
         readonly DocumentSemanticEtags: {
             readonly body: string;
@@ -1060,6 +1124,17 @@ export interface components {
         };
         /** @enum {string} */
         readonly LibraryAccess: "read" | "read_write";
+        readonly LibraryAgentBlockTarget: {
+            readonly block_id: string;
+            readonly block_type: string;
+            /** Format: int64 */
+            readonly document_generation: number;
+            /** Format: int64 */
+            readonly document_head_seq: number;
+            readonly document_id: string;
+            readonly lifecycle: string;
+            readonly owner_page_id: string;
+        };
         readonly LibraryApplyRequest: components["schemas"]["ModuleApplyRequest_LibraryIntent"];
         readonly LibraryApplyResponse: components["schemas"]["ResponseEnvelope_CommittedModuleValue_LibraryCommitValue_LibraryReceipt"];
         readonly LibraryBlockLocation: {
@@ -2722,6 +2797,10 @@ export interface components {
                 readonly kind: "page_content";
                 readonly page_id: string;
             } | {
+                readonly block_id: string;
+                /** @enum {string} */
+                readonly kind: "agent_block_target";
+            } | {
                 /** @enum {string} */
                 readonly kind: "page_target";
                 readonly page_id: string;
@@ -2811,6 +2890,21 @@ export interface components {
                 readonly operation_id: string;
                 readonly provenance: components["schemas"]["AgentTurnProvenance"];
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
+            } | {
+                readonly block_guards: readonly components["schemas"]["AgentDocumentBlockGuard"][];
+                readonly cursor?: string | null;
+                readonly document_id: string;
+                /** @enum {string} */
+                readonly kind: "agent_semantic_snapshot";
+                /** Format: int32 */
+                readonly limit?: number | null;
+                /** Format: int32 */
+                readonly max_depth?: number | null;
+                readonly prepare_body: boolean;
+                readonly prepare_title: boolean;
+                readonly provenance: components["schemas"]["AgentTurnProvenance"];
+                readonly store_epoch: components["schemas"]["StoreEpoch"];
+                readonly target_block_id: string;
             };
             /** Format: int32 */
             readonly version: number;
@@ -3491,7 +3585,11 @@ export interface components {
                     readonly mutation_effect?: null | components["schemas"]["DocumentMutationEffect"];
                     readonly outcome: components["schemas"]["DocumentCommitOutcome"];
                     readonly owner_effect?: null | components["schemas"]["DocumentOwnerEffect"];
+                    readonly semantic_deleted_owner_block_ids?: readonly string[] | null;
                     readonly semantic_etags?: null | components["schemas"]["DocumentSemanticEtags"];
+                    readonly semantic_local_block_ids?: {
+                        readonly [key: string]: string;
+                    } | null;
                 };
             };
             /** @enum {string} */
@@ -3682,6 +3780,10 @@ export interface components {
                     readonly value: components["schemas"]["LibraryPageContent"];
                 } | {
                     /** @enum {string} */
+                    readonly kind: "agent_block_target";
+                    readonly value?: null | components["schemas"]["LibraryAgentBlockTarget"];
+                } | {
+                    /** @enum {string} */
                     readonly kind: "page_target";
                     readonly value?: null | components["schemas"]["LibraryPageTarget"];
                 } | {
@@ -3763,6 +3865,10 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "agent_semantic_mutation_preparation";
                     readonly preparation: components["schemas"]["AgentOperationPreparation"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "agent_semantic_snapshot";
+                    readonly snapshot: components["schemas"]["AgentDocumentSemanticSnapshot"];
                 };
                 /** Format: int32 */
                 readonly version: number;

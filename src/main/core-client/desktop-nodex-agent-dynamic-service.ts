@@ -21,6 +21,7 @@ import {
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import type { DesktopDatabaseModuleBridge } from "./desktop-database-module-bridge";
 import type { DesktopProjectWorkspacePort } from "./project-workspace-adapter";
+import { readNativeFetch } from "./native-nodex-agent-fetch";
 import { NativeNodexAgentPageUpdateRuntime } from "./native-nodex-agent-page-update";
 
 type ToolError = ToolFailure["error"];
@@ -214,7 +215,9 @@ export function createDesktopNodexAgentV3DynamicService(
             input.projectWorkspace,
             input.databaseModule,
           )
-        : nativeReadFailure(request.tool);
+        : request.tool === "fetch"
+          ? await readNativeFetch(request, runtime)
+          : nativeReadFailure(request.tool);
       return envelope(result, request.callId ?? `nodex-agent:${request.tool}`);
     },
     prepareNodexAgentPageUpdate: async (request) => {

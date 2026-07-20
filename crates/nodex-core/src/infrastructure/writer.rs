@@ -633,6 +633,7 @@ fn store_error_code_name(code: StoreErrorCode) -> &'static str {
         StoreErrorCode::GenerationConflict => "generation_conflict",
         StoreErrorCode::HeadConflict => "head_conflict",
         StoreErrorCode::IdempotencyKeyReused => "idempotency_key_reused",
+        StoreErrorCode::ProtectedOwnerDeletion => "protected_owner_deletion",
         StoreErrorCode::InvalidInput => "invalid_input",
         StoreErrorCode::InvalidProfile => "invalid_profile",
         StoreErrorCode::MissingDependencies => "missing_dependencies",
