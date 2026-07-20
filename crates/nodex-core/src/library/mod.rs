@@ -563,6 +563,9 @@ fn core_error(error: StoreError) -> CoreError {
     let code = match error.code {
         StoreErrorCode::InvalidInput => CoreErrorCode::InvalidInput,
         StoreErrorCode::NotFound => CoreErrorCode::NotFound,
+        StoreErrorCode::PatchNotFound => CoreErrorCode::PatchNotFound,
+        StoreErrorCode::PatchAmbiguous => CoreErrorCode::PatchAmbiguous,
+        StoreErrorCode::PatchOverlap => CoreErrorCode::PatchOverlap,
         StoreErrorCode::StaleStoreEpoch => CoreErrorCode::StaleStoreEpoch,
         StoreErrorCode::Conflict
         | StoreErrorCode::HeadConflict
@@ -4686,8 +4689,7 @@ mod content;
 mod content_rehome;
 pub(crate) mod cursor;
 mod history;
-pub(crate) use history::require_page_read_access;
-pub(crate) use history::require_page_write_access;
+pub(crate) use history::{require_page_read_access, require_page_write_access};
 pub(crate) use page_copy::{OccurrencePageCloneInput, clone_page_for_occurrence};
 mod mutation;
 mod navigation;

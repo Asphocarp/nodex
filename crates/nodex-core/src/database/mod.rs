@@ -175,6 +175,9 @@ fn core_error(error: StoreError) -> CoreError {
     let code = match error.code {
         StoreErrorCode::InvalidInput => CoreErrorCode::InvalidInput,
         StoreErrorCode::NotFound => CoreErrorCode::NotFound,
+        StoreErrorCode::PatchNotFound => CoreErrorCode::PatchNotFound,
+        StoreErrorCode::PatchAmbiguous => CoreErrorCode::PatchAmbiguous,
+        StoreErrorCode::PatchOverlap => CoreErrorCode::PatchOverlap,
         StoreErrorCode::StaleStoreEpoch => CoreErrorCode::StaleStoreEpoch,
         StoreErrorCode::Conflict
         | StoreErrorCode::HeadConflict

@@ -155,7 +155,8 @@ pub enum DocumentOperationErrorCode {
     InvalidBlock,
     InvalidOperation,
     InvalidNfm,
-    NfmPatchMismatch,
+    NfmPatchNotFound,
+    NfmPatchAmbiguous,
     NfmPatchOverlap,
     NoChange,
     DocumentStateCorrupt,
@@ -377,8 +378,13 @@ pub fn apply_exact_nfm_patches(
         }
         let starts = overlapping_match_starts(source, &patch.old_nfm);
         if starts.len() != expected {
+            let code = if starts.is_empty() {
+                DocumentOperationErrorCode::NfmPatchNotFound
+            } else {
+                DocumentOperationErrorCode::NfmPatchAmbiguous
+            };
             return Err(operation_error(
-                DocumentOperationErrorCode::NfmPatchMismatch,
+                code,
                 format!(
                     "NFM patch {patch_index} matched {} span(s); expected {expected}",
                     starts.len()
@@ -485,7 +491,12 @@ pub fn prepare_exact_nfm_patch_update(
 ) -> Result<PreparedDocumentOperationUpdate, DocumentOperationError> {
     let source = load_document(document_id, full_state_v1)?;
     let source = materialize_decoded_document(&decode_block_document(&source, schema)?)?;
-    let nfm = apply_exact_nfm_patches(&source.nfm, patches)?;
+    let canonical_nfm = if source.nfm.ends_with('\n') {
+        source.nfm.clone()
+    } else {
+        format!("{}\n", source.nfm)
+    };
+    let nfm = apply_exact_nfm_patches(&canonical_nfm, patches)?;
     prepare_nfm_replacement_update(
         document_id,
         schema,
@@ -1775,7 +1786,7 @@ mod tests {
         .expect("exact patches");
         assert_eq!(patched, "Alpha 中\nGamma 中");
 
-        let mismatch = apply_exact_nfm_patches(
+        let missing = apply_exact_nfm_patches(
             "One",
             &[ExactNfmPatch {
                 old_nfm: "Missing".to_owned(),
@@ -1783,10 +1794,21 @@ mod tests {
                 expected_matches: None,
             }],
         )
-        .expect_err("mismatch");
+        .expect_err("missing fragment");
+        assert_eq!(missing.code(), DocumentOperationErrorCode::NfmPatchNotFound);
+
+        let ambiguous = apply_exact_nfm_patches(
+            "One One",
+            &[ExactNfmPatch {
+                old_nfm: "One".to_owned(),
+                new_nfm: "Two".to_owned(),
+                expected_matches: None,
+            }],
+        )
+        .expect_err("ambiguous fragment");
         assert_eq!(
-            mismatch.code(),
-            DocumentOperationErrorCode::NfmPatchMismatch
+            ambiguous.code(),
+            DocumentOperationErrorCode::NfmPatchAmbiguous
         );
 
         let overlap = apply_exact_nfm_patches(
@@ -1842,6 +1864,32 @@ mod tests {
         )
         .expect("consumer materialization");
         assert_eq!(actual, prepared.materialization);
+    }
+
+    #[test]
+    fn exact_patch_matches_the_public_body_projection_final_lf() {
+        let (state, vector) = matrix_state();
+        let source = load_document("operations-matrix", &state).unwrap();
+        let source = materialize_decoded_document(
+            &decode_block_document(&source, BlockDocumentSchema::PageV2).unwrap(),
+        )
+        .unwrap();
+        let prepared = prepare_exact_nfm_patch_update(
+            "operations-matrix",
+            BlockDocumentSchema::PageV2,
+            &state,
+            &vector,
+            &[ExactNfmPatch {
+                old_nfm: format!("{}\n", source.nfm),
+                new_nfm: "Replacement paragraph\n".to_owned(),
+                expected_matches: None,
+            }],
+            None,
+            &mut || "replacement-final-lf".to_owned(),
+        )
+        .expect("canonical body patch");
+
+        assert_eq!(prepared.materialization.nfm, "Replacement paragraph");
     }
 
     #[test]

@@ -30,7 +30,10 @@ use nodex_core_protocol::{
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::cli::{BackupCommand, Cli, Command, HistoryArgs, PrepareKind, ReadArgs, SedArgs};
+use crate::cli::{
+    BackupCommand, Cli, Command, HistoryArgs, PageArgs, PageCommand, PageTitleArgs,
+    PageTitleCommand, PrepareKind, ReadArgs, SedArgs,
+};
 use crate::error::{CliError, CliErrorCode};
 
 #[derive(Clone, Debug)]
@@ -104,6 +107,34 @@ pub fn execute(cli: Cli) -> Result<CommandOutput, CliError> {
             sed_page(&client, cli.project.as_deref(), &cwd, arguments, cli.json)
         }
         Command::History(arguments) => history(&client, cli.project.as_deref(), &cwd, arguments),
+        Command::Patch(arguments) => crate::page_mutation::patch_page(
+            &client,
+            cli.project.as_deref(),
+            &cwd,
+            arguments,
+            cli.json,
+        ),
+        Command::Page(PageArgs {
+            command: PageCommand::Replace(arguments),
+        }) => crate::page_mutation::replace_page(
+            &client,
+            cli.project.as_deref(),
+            &cwd,
+            arguments,
+            cli.json,
+        ),
+        Command::Page(PageArgs {
+            command:
+                PageCommand::Title(PageTitleArgs {
+                    command: PageTitleCommand::Set(arguments),
+                }),
+        }) => crate::page_mutation::set_page_title(
+            &client,
+            cli.project.as_deref(),
+            &cwd,
+            arguments,
+            cli.json,
+        ),
         Command::Tree { scope } => tree(
             &client,
             cli.project.as_deref(),
@@ -268,7 +299,7 @@ fn tree(
     Ok(CommandOutput::Text(rendered))
 }
 
-fn selected_project(
+pub(crate) fn selected_project(
     client: &CoreClient,
     explicit_project: Option<&str>,
     cwd: &Path,
@@ -280,7 +311,7 @@ fn selected_project(
     resolve_project(client, projects, explicit_project, cwd).map(|resolved| resolved.project)
 }
 
-fn resolve_page_selector(
+pub(crate) fn resolve_page_selector(
     client: &CoreClient,
     project_id: &str,
     selector: &str,
@@ -917,7 +948,7 @@ fn resolve_home(cwd: &Path) -> Result<PathBuf, CliError> {
     Ok(PathBuf::from(user_home).join(".nodex"))
 }
 
-fn operation_id(explicit: Option<&str>, json_output: bool) -> Result<String, CliError> {
+pub(crate) fn operation_id(explicit: Option<&str>, json_output: bool) -> Result<String, CliError> {
     if let Some(explicit) = explicit {
         if explicit.is_empty() || explicit.len() > 512 {
             return Err(CliError::new(
@@ -959,7 +990,7 @@ fn unwrap_workspace(
     }
 }
 
-fn unwrap_library(
+pub(crate) fn unwrap_library(
     result: Result<LibraryReadResponse, ClientError>,
 ) -> Result<nodex_core_contracts::ModuleReadSnapshot<LibraryReadValue>, CliError> {
     match result.map_err(map_client_error)?.0 {
@@ -1001,7 +1032,7 @@ fn unwrap_administration_apply(
     }
 }
 
-fn map_client_error(error: ClientError) -> CliError {
+pub(crate) fn map_client_error(error: ClientError) -> CliError {
     match error {
         ClientError::ProtocolIncompatible(message) => {
             CliError::new(CliErrorCode::ProtocolIncompatible, message)
@@ -1010,12 +1041,15 @@ fn map_client_error(error: ClientError) -> CliError {
     }
 }
 
-fn map_core_error(error: CoreError) -> CliError {
+pub(crate) fn map_core_error(error: CoreError) -> CliError {
     let code = match error.code {
         CoreErrorCode::NotFound => CliErrorCode::ScopeNotFound,
         CoreErrorCode::Ambiguous => CliErrorCode::ScopeAmbiguous,
         CoreErrorCode::Unauthorized => CliErrorCode::ScopeUnauthorized,
         CoreErrorCode::ResourceExhausted => CliErrorCode::ScopeBudgetExceeded,
+        CoreErrorCode::PatchNotFound => CliErrorCode::PatchNotFound,
+        CoreErrorCode::PatchAmbiguous => CliErrorCode::PatchAmbiguous,
+        CoreErrorCode::PatchOverlap => CliErrorCode::PatchOverlap,
         CoreErrorCode::IdempotencyKeyReused => CliErrorCode::IdempotencyKeyReused,
         CoreErrorCode::ProtectedOwnerDeletion => CliErrorCode::ProtectedOwnerDeletion,
         CoreErrorCode::ProtocolIncompatible => CliErrorCode::ProtocolIncompatible,

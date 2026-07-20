@@ -25,8 +25,8 @@ use crate::{
     LibraryApplyResponse, LibraryReadRequest, LibraryReadResponse, OwnedDocumentApplyRequest,
     OwnedDocumentApplyResponse, OwnedDocumentReadRequest, OwnedDocumentReadResponse, PROTOCOL_MAX,
     PROTOCOL_MIN, ProjectWorkspaceApplyRequest, ProjectWorkspaceApplyResponse,
-    ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse, RuntimeDescriptor,
-    StoreAdministrationApplyRequest, StoreAdministrationApplyResponse,
+    ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse, RuntimeDescriptor, ShutdownRequest,
+    ShutdownResponse, StoreAdministrationApplyRequest, StoreAdministrationApplyResponse,
     StoreAdministrationReadRequest, StoreAdministrationReadResponse,
 };
 
@@ -267,6 +267,14 @@ impl CoreClient {
         self.connected_request(
             "/core/v1/modules/administration/apply",
             &StoreAdministrationApplyRequest(request),
+            ScopeHeaders::default(),
+        )
+    }
+
+    pub fn shutdown(&self) -> Result<ShutdownResponse, ClientError> {
+        self.connected_request(
+            "/core/v1/admin/shutdown",
+            &ShutdownRequest::default(),
             ScopeHeaders::default(),
         )
     }

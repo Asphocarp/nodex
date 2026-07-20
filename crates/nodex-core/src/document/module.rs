@@ -248,7 +248,12 @@ impl OwnedDocumentModule {
                         .ok_or_else(|| not_found("Owned Document descriptor was not found"))?;
                     let authority = read_document_authority(connection, &authority)?
                         .ok_or_else(|| not_found("Owned Document was not found"))?;
-                    authorize_document_access(context, &authority, DocumentAccessKind::Read)?;
+                    authorize_document_access(
+                        connection,
+                        context,
+                        &authority,
+                        DocumentAccessKind::Read,
+                    )?;
                     let store_epoch = read_store_epoch(connection)?;
                     Ok(ModuleReadSnapshot {
                         version: CORE_CONTRACT_VERSION,
@@ -270,7 +275,7 @@ impl OwnedDocumentModule {
                     .call(move |connection| {
                         let authority = read_document_authority(connection, &document_id)?
                             .ok_or_else(|| not_found("Owned Document was not found"))?;
-                        authorize_yjs(&context, &authority, DocumentAccessKind::Read)?;
+                        authorize_yjs(connection, &context, &authority, DocumentAccessKind::Read)?;
                         let update = cache
                             .lock()
                             .map_err(|_| internal("Document cache lock failed"))?
@@ -297,7 +302,12 @@ impl OwnedDocumentModule {
                 .read_default(|connection| {
                     let authority = read_document_authority(connection, &document_id)?
                         .ok_or_else(|| not_found("Owned Document was not found"))?;
-                    authorize_owned_document(context, &authority, DocumentAccessKind::Read)?;
+                    authorize_owned_document(
+                        connection,
+                        context,
+                        &authority,
+                        DocumentAccessKind::Read,
+                    )?;
                     let (items, next) =
                         list_document_versions(connection, &authority, before.as_ref(), limit)?;
                     Ok(ModuleReadSnapshot {
@@ -316,7 +326,12 @@ impl OwnedDocumentModule {
                 .read_default(|connection| {
                     let authority = read_document_authority(connection, &document_id)?
                         .ok_or_else(|| not_found("Owned Document was not found"))?;
-                    authorize_owned_document(context, &authority, DocumentAccessKind::Read)?;
+                    authorize_owned_document(
+                        connection,
+                        context,
+                        &authority,
+                        DocumentAccessKind::Read,
+                    )?;
                     let version = get_document_version(connection, &authority, &version_id)?
                         .ok_or_else(|| not_found("Document version was not found"))?;
                     Ok(ModuleReadSnapshot {
@@ -337,7 +352,7 @@ impl OwnedDocumentModule {
                 .read_default(|connection| {
                     let authority = read_document_authority(connection, &document_id)?
                         .ok_or_else(|| not_found("Owned Document was not found"))?;
-                    authorize_canvas(context, &authority, DocumentAccessKind::Read)?;
+                    authorize_canvas(connection, context, &authority, DocumentAccessKind::Read)?;
                     let loaded = load_canvas_scene(connection, &authority)?;
                     let store_epoch = read_store_epoch(connection)?;
                     Ok(ModuleReadSnapshot {
@@ -568,7 +583,12 @@ impl OwnedDocumentModule {
             .read_default(|connection| {
                 let authority = read_document_authority(connection, document_id)?
                     .ok_or_else(|| not_found("Owned Document was not found"))?;
-                authorize_owned_document(context, &authority, DocumentAccessKind::Read)?;
+                authorize_owned_document(
+                    connection,
+                    context,
+                    &authority,
+                    DocumentAccessKind::Read,
+                )?;
                 Ok(RealtimeDocumentBoundary {
                     store_epoch: StoreEpoch(read_store_epoch(connection)?),
                     generation: authority.head.generation,
@@ -1077,7 +1097,12 @@ impl OwnedDocumentModule {
                 }
                 let authority = read_document_authority(&transaction, &document_id)?
                     .ok_or_else(|| not_found("Owned Document was not found"))?;
-                authorize_yjs(&context, &authority, DocumentAccessKind::Write)?;
+                authorize_yjs(
+                    &transaction,
+                    &context,
+                    &authority,
+                    DocumentAccessKind::Write,
+                )?;
                 assert_document_head(&authority, generation, expected_head_seq)?;
                 let engine = cache
                     .lock()
@@ -1278,7 +1303,12 @@ impl OwnedDocumentModule {
                     .ok_or_else(|| not_found("Owned Document owner was not found"))?;
                 let authority = read_document_authority(&transaction, &document_id)?
                     .ok_or_else(|| not_found("Owned Document was not found"))?;
-                authorize_document_access(&context, &authority, DocumentAccessKind::Write)?;
+                authorize_document_access(
+                    &transaction,
+                    &context,
+                    &authority,
+                    DocumentAccessKind::Write,
+                )?;
                 if authority.owner_block_id != owner_block_id
                     || authority.owner_lifecycle != "active"
                 {
@@ -1289,7 +1319,12 @@ impl OwnedDocumentModule {
                     ));
                 }
                 if authority.head.sync_engine == DocumentSyncEngine::CanvasScene {
-                    authorize_canvas(&context, &authority, DocumentAccessKind::Write)?;
+                    authorize_canvas(
+                        &transaction,
+                        &context,
+                        &authority,
+                        DocumentAccessKind::Write,
+                    )?;
                     let (_, created) = ensure_canvas_scene(&transaction, &authority, &assets_root)?;
                     let event_head = read_event_head(&transaction)?;
                     let committed = committed_value(
@@ -1392,7 +1427,12 @@ impl OwnedDocumentModule {
                             (committed, Some(event), next_head, prepared.engine)
                         }
                         (DocumentReadiness::Ready, DocumentAuthority::YdocPrimary) => {
-                            authorize_yjs(&context, &authority, DocumentAccessKind::Write)?;
+                            authorize_yjs(
+                                &transaction,
+                                &context,
+                                &authority,
+                                DocumentAccessKind::Write,
+                            )?;
                             let mut engine = cache
                                 .lock()
                                 .map_err(|_| internal("Document cache lock failed"))?
@@ -1599,7 +1639,12 @@ impl OwnedDocumentModule {
                 }
                 let authority = read_document_authority(&transaction, &document_id)?
                     .ok_or_else(|| not_found("Canvas Document was not found"))?;
-                authorize_canvas(&context, &authority, DocumentAccessKind::Write)?;
+                authorize_canvas(
+                    &transaction,
+                    &context,
+                    &authority,
+                    DocumentAccessKind::Write,
+                )?;
                 if authority.head.generation != generation {
                     return Err(StoreError::new(
                         StoreErrorCode::GenerationConflict,
@@ -1867,11 +1912,15 @@ impl OwnedDocumentModule {
             )?
         } else {
             serde_json::to_vec(&(
-                context,
+                "nodex.document.semantic-mutation.v2",
+                &context.profile_id,
+                &context.library_id,
+                &context.project_id,
+                &context.adapter,
                 expected_store_epoch.clone(),
                 &document_id,
                 generation,
-                expected_head_seq,
+                allow_deleting_owned_blocks,
                 &commands,
             ))
             .map_err(|_| invalid("Owned Document semantic request cannot be fingerprinted"))?
@@ -2208,7 +2257,12 @@ impl OwnedDocumentModule {
                 };
                 let (yjs_engine, inserted_checkpoint) = match authority.head.sync_engine {
                     DocumentSyncEngine::Yjs => {
-                        authorize_yjs(&context, &authority, DocumentAccessKind::Write)?;
+                        authorize_yjs(
+                            &transaction,
+                            &context,
+                            &authority,
+                            DocumentAccessKind::Write,
+                        )?;
                         let engine = cache
                             .lock()
                             .map_err(|_| internal("Document cache lock failed"))?
@@ -2224,7 +2278,12 @@ impl OwnedDocumentModule {
                         (Some(engine), inserted)
                     }
                     DocumentSyncEngine::CanvasScene => {
-                        authorize_canvas(&context, &authority, DocumentAccessKind::Write)?;
+                        authorize_canvas(
+                            &transaction,
+                            &context,
+                            &authority,
+                            DocumentAccessKind::Write,
+                        )?;
                         let loaded = load_canvas_scene(&transaction, &authority)?;
                         let inserted = insert_canvas_checkpoint(
                             &transaction,
@@ -2484,7 +2543,12 @@ impl OwnedDocumentModule {
                 }
                 let authority = read_document_authority(&transaction, &document_id)?
                     .ok_or_else(|| not_found("Canvas Document was not found"))?;
-                authorize_canvas(&context, &authority, DocumentAccessKind::Write)?;
+                authorize_canvas(
+                    &transaction,
+                    &context,
+                    &authority,
+                    DocumentAccessKind::Write,
+                )?;
                 assert_document_head(&authority, generation, expected_head_seq)?;
                 require_restore_write_fence(write_fence_prepared)?;
                 let loaded = load_canvas_scene(&transaction, &authority)?;
@@ -2709,7 +2773,12 @@ impl OwnedDocumentModule {
                         AgentProjectResourceAction::Write,
                     )?)
                 } else {
-                    authorize_yjs(&job.context, &authority, DocumentAccessKind::Write)?;
+                    authorize_yjs(
+                        &transaction,
+                        &job.context,
+                        &authority,
+                        DocumentAccessKind::Write,
+                    )?;
                     None
                 };
                 if authority.head.generation != job.generation {
@@ -2824,7 +2893,7 @@ impl OwnedDocumentModule {
                     );
                     committed.value.semantic_deleted_owner_block_ids =
                         semantic_deleted_owner_block_ids.clone();
-                    attach_agent_semantic_etags(
+                    attach_semantic_etags(
                         &transaction,
                         &job,
                         &store_epoch,
@@ -2869,7 +2938,7 @@ impl OwnedDocumentModule {
                     );
                     committed.value.semantic_deleted_owner_block_ids =
                         semantic_deleted_owner_block_ids.clone();
-                    attach_agent_semantic_etags(
+                    attach_semantic_etags(
                         &transaction,
                         &job,
                         &store_epoch,
@@ -2995,7 +3064,7 @@ impl OwnedDocumentModule {
                 committed.value.semantic_local_block_ids = semantic_local_block_ids;
                 committed.value.semantic_deleted_owner_block_ids =
                     semantic_deleted_owner_block_ids;
-                attach_agent_semantic_etags(
+                attach_semantic_etags(
                     &transaction,
                     &job,
                     &store_epoch,
@@ -3453,7 +3522,7 @@ fn committed_value(
     }
 }
 
-fn attach_agent_semantic_etags(
+fn attach_semantic_etags(
     connection: &Connection,
     job: &DocumentUpdateJob,
     store_epoch: &str,
@@ -3461,17 +3530,25 @@ fn attach_agent_semantic_etags(
     materialization: &DocumentMaterialization,
     committed: &mut CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
 ) -> Result<(), StoreError> {
-    let Some(prepared_agent) = job.prepared_agent.as_ref() else {
-        return Ok(());
+    let project_id = match job.prepared_agent.as_ref() {
+        Some(prepared_agent) => {
+            &prepared_agent
+                .authorization
+                .authorization
+                .provenance
+                .authority
+                .actor_project_id
+        }
+        None if job.context.adapter == AdapterKind::NativeCli
+            && job.operation_kind == "apply_semantic_mutation" =>
+        {
+            &authority.head.project_id
+        }
+        None => return Ok(()),
     };
     let (title, body) = mint_document_semantic_etags(
         connection,
-        &prepared_agent
-            .authorization
-            .authorization
-            .provenance
-            .authority
-            .actor_project_id,
+        project_id,
         store_epoch,
         &authority.head.id,
         materialization,
@@ -4207,12 +4284,28 @@ enum DocumentAccessKind {
 }
 
 fn authorize_document_access(
+    connection: &Connection,
     context: &BoundModuleContext,
     authority: &DocumentAuthorityRow,
     access: DocumentAccessKind,
 ) -> Result<(), StoreError> {
     if let Some(project_id) = context.project_id.as_ref() {
-        if project_id.0 != authority.head.project_id {
+        if context.adapter == AdapterKind::NativeCli && authority.owner_type == "page" {
+            match access {
+                DocumentAccessKind::Read => crate::library::require_page_read_access(
+                    connection,
+                    &context.library_id.0,
+                    &project_id.0,
+                    &authority.owner_block_id,
+                )?,
+                DocumentAccessKind::Write => crate::library::require_page_write_access(
+                    connection,
+                    &context.library_id.0,
+                    &project_id.0,
+                    &authority.owner_block_id,
+                )?,
+            }
+        } else if project_id.0 != authority.head.project_id {
             return Err(StoreError::new(
                 StoreErrorCode::Unauthorized,
                 "Owned Document is outside the bound Project",
@@ -4272,11 +4365,12 @@ fn authorize_library_document_scope(context: &BoundModuleContext) -> Result<(), 
 }
 
 fn authorize_yjs(
+    connection: &Connection,
     context: &BoundModuleContext,
     authority: &DocumentAuthorityRow,
     access: DocumentAccessKind,
 ) -> Result<(), StoreError> {
-    authorize_document_access(context, authority, access)?;
+    authorize_document_access(connection, context, authority, access)?;
     if authority.owner_lifecycle == "deleted"
         || authority.head.readiness != DocumentReadiness::Ready
         || authority.head.authority != DocumentAuthority::YdocPrimary
@@ -4293,11 +4387,12 @@ fn authorize_yjs(
 }
 
 fn authorize_canvas(
+    connection: &Connection,
     context: &BoundModuleContext,
     authority: &DocumentAuthorityRow,
     access: DocumentAccessKind,
 ) -> Result<(), StoreError> {
-    authorize_document_access(context, authority, access)?;
+    authorize_document_access(connection, context, authority, access)?;
     if authority.owner_lifecycle == "deleted" {
         return Err(StoreError::new(
             StoreErrorCode::Unauthorized,
@@ -4309,13 +4404,14 @@ fn authorize_canvas(
 }
 
 fn authorize_owned_document(
+    connection: &Connection,
     context: &BoundModuleContext,
     authority: &DocumentAuthorityRow,
     access: DocumentAccessKind,
 ) -> Result<(), StoreError> {
     match authority.head.sync_engine {
-        DocumentSyncEngine::Yjs => authorize_yjs(context, authority, access),
-        DocumentSyncEngine::CanvasScene => authorize_canvas(context, authority, access),
+        DocumentSyncEngine::Yjs => authorize_yjs(connection, context, authority, access),
+        DocumentSyncEngine::CanvasScene => authorize_canvas(connection, context, authority, access),
     }
 }
 
@@ -4387,6 +4483,13 @@ fn semantic_error(error: SemanticMutationError) -> StoreError {
         SemanticMutationError::Operation(error) => {
             let code = match error.code() {
                 super::DocumentOperationErrorCode::StaleStateVector => StoreErrorCode::HeadConflict,
+                super::DocumentOperationErrorCode::NfmPatchNotFound => {
+                    StoreErrorCode::PatchNotFound
+                }
+                super::DocumentOperationErrorCode::NfmPatchAmbiguous => {
+                    StoreErrorCode::PatchAmbiguous
+                }
+                super::DocumentOperationErrorCode::NfmPatchOverlap => StoreErrorCode::PatchOverlap,
                 _ => StoreErrorCode::InvalidInput,
             };
             StoreError::new(code, error.to_string(), false)
@@ -4453,6 +4556,9 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::Conflict => CoreErrorCode::RevisionConflict,
         StoreErrorCode::GenerationConflict => CoreErrorCode::GenerationConflict,
         StoreErrorCode::HeadConflict => CoreErrorCode::HeadConflict,
+        StoreErrorCode::PatchNotFound => CoreErrorCode::PatchNotFound,
+        StoreErrorCode::PatchAmbiguous => CoreErrorCode::PatchAmbiguous,
+        StoreErrorCode::PatchOverlap => CoreErrorCode::PatchOverlap,
         StoreErrorCode::RevisionConflict => CoreErrorCode::RevisionConflict,
         StoreErrorCode::IdempotencyKeyReused => CoreErrorCode::IdempotencyKeyReused,
         StoreErrorCode::ProtectedOwnerDeletion => CoreErrorCode::ProtectedOwnerDeletion,
@@ -4585,6 +4691,13 @@ mod tests {
             project_id: Some(ProjectId(project_id.to_owned())),
             connection_id: connection_id.to_owned(),
             adapter: AdapterKind::Test,
+        }
+    }
+
+    fn native_cli_context_for(connection_id: &str, project_id: &str) -> BoundModuleContext {
+        BoundModuleContext {
+            adapter: AdapterKind::NativeCli,
+            ..context_for_project(connection_id, project_id)
         }
     }
 
@@ -8645,5 +8758,264 @@ mod tests {
             )
             .expect_err("structural edits retain the exact-head barrier");
         assert_eq!(structural.code, CoreErrorCode::HeadConflict);
+    }
+
+    #[test]
+    fn native_cli_semantic_replay_is_connection_and_head_independent() {
+        let seeded = seeded_module();
+        let materialization = materialize_engine(
+            &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state).unwrap(),
+            BlockDocumentSchema::PageV2,
+        )
+        .unwrap();
+        let title_etag = seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                super::super::semantic::mint_etag(
+                    connection,
+                    "title",
+                    PROJECT_ID,
+                    STORE_EPOCH,
+                    &[DOCUMENT_ID],
+                    json!({ "richTitle": materialization.rich_title }),
+                )
+                .map_err(semantic_error)
+            })
+            .unwrap();
+        let command = DocumentSemanticCommand::SetTitle {
+            inline_markdown: "Native CLI title".to_owned(),
+            expected_etag: title_etag,
+        };
+        let request = |expected_head_seq| ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: "cli:set-title:replay".to_owned(),
+            store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+            intent: OwnedDocumentIntent::ApplySemanticMutation {
+                document_id: DOCUMENT_ID.to_owned(),
+                generation: 1,
+                expected_head_seq,
+                commands: vec![command.clone()],
+            },
+        };
+
+        let committed = seeded
+            .module
+            .apply(
+                &native_cli_context_for("native-cli:first", PROJECT_ID),
+                request(1),
+            )
+            .expect("native CLI semantic mutation");
+        let etags = committed
+            .committed
+            .value
+            .semantic_etags
+            .clone()
+            .expect("native CLI receipt ETags");
+        assert!(etags.title.starts_with("nxe1."));
+        assert!(etags.body.starts_with("nxe1."));
+
+        let replay = seeded
+            .module
+            .apply(
+                &native_cli_context_for("native-cli:retry", PROJECT_ID),
+                request(2),
+            )
+            .expect("lost-response replay from a new CLI process");
+        assert!(replay.committed.receipt.mutation.duplicate);
+        assert_eq!(replay.committed.value.semantic_etags, Some(etags));
+        assert!(replay.events.is_empty());
+    }
+
+    #[test]
+    fn native_cli_semantic_write_uses_recursive_project_grant_authority() {
+        const CLI_PROJECT_ID: &str = "project:native-cli-grant";
+        let seeded = seeded_module();
+        seeded
+            .kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated) \
+                         VALUES (?1, ?2, 'CLI project', ?3, ?3)",
+                        params![CLI_PROJECT_ID, LIBRARY_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO project_resource_grants(\
+                           id, project_id, library_id, root_kind, root_id, access, recursive, \
+                           revision, lifecycle, created_at, updated_at\
+                         ) VALUES ('grant:native-cli-page', ?1, ?2, 'page', ?3, 'read', 1, 1, \
+                           'active', ?4, ?4)",
+                        params![CLI_PROJECT_ID, LIBRARY_ID, OWNER_BLOCK_ID, NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .unwrap();
+        let materialization = materialize_engine(
+            &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state).unwrap(),
+            BlockDocumentSchema::PageV2,
+        )
+        .unwrap();
+        let title_etag = seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                super::super::semantic::mint_etag(
+                    connection,
+                    "title",
+                    PROJECT_ID,
+                    STORE_EPOCH,
+                    &[DOCUMENT_ID],
+                    json!({ "richTitle": materialization.rich_title }),
+                )
+                .map_err(semantic_error)
+            })
+            .unwrap();
+        let request = |operation_id: &str| ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: operation_id.to_owned(),
+            store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+            intent: OwnedDocumentIntent::ApplySemanticMutation {
+                document_id: DOCUMENT_ID.to_owned(),
+                generation: 1,
+                expected_head_seq: 1,
+                commands: vec![DocumentSemanticCommand::SetTitle {
+                    inline_markdown: "Granted CLI title".to_owned(),
+                    expected_etag: title_etag.clone(),
+                }],
+            },
+        };
+        let denied = seeded
+            .module
+            .apply(
+                &native_cli_context_for("native-cli:read-grant", CLI_PROJECT_ID),
+                request("cli:read-grant-denied"),
+            )
+            .expect_err("read-only recursive grant cannot mutate");
+        assert_eq!(denied.code, CoreErrorCode::NotFound);
+
+        seeded
+            .kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE project_resource_grants SET access = 'read_write', revision = 2 \
+                     WHERE id = 'grant:native-cli-page'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        let committed = seeded
+            .module
+            .apply(
+                &native_cli_context_for("native-cli:write-grant", CLI_PROJECT_ID),
+                request("cli:write-grant-accepted"),
+            )
+            .expect("read-write recursive grant authorizes the Page mutation");
+        assert_eq!(committed.committed.value.head_seq, 2);
+    }
+
+    #[test]
+    fn semantic_patch_failures_expose_stable_core_error_codes() {
+        let seeded = seeded_module();
+        let materialization = materialize_engine(
+            &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state).unwrap(),
+            BlockDocumentSchema::PageV2,
+        )
+        .unwrap();
+        let body_etag = seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                super::super::semantic::mint_etag(
+                    connection,
+                    "document_body",
+                    PROJECT_ID,
+                    STORE_EPOCH,
+                    &[DOCUMENT_ID],
+                    json!({ "nfm": materialization.nfm }),
+                )
+                .map_err(semantic_error)
+            })
+            .unwrap();
+        seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "semantic:patch-errors:seed".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplySemanticMutation {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 1,
+                        commands: vec![DocumentSemanticCommand::ReplaceBody {
+                            nested_markdown: "a\nb\nc\nsame\nsame".to_owned(),
+                            expected_etag: body_etag,
+                        }],
+                    },
+                },
+            )
+            .expect("seed patch corpus");
+        let patch = |operation_id: &str, commands| {
+            seeded.module.apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: operation_id.to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplySemanticMutation {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 2,
+                        commands,
+                    },
+                },
+            )
+        };
+
+        let missing = patch(
+            "semantic:patch-errors:missing",
+            vec![DocumentSemanticCommand::PatchBody {
+                old_fragment: "missing\n".to_owned(),
+                new_fragment: "replacement\n".to_owned(),
+                expected_matches: None,
+            }],
+        )
+        .expect_err("missing exact fragment");
+        assert_eq!(missing.code, CoreErrorCode::PatchNotFound);
+
+        let ambiguous = patch(
+            "semantic:patch-errors:ambiguous",
+            vec![DocumentSemanticCommand::PatchBody {
+                old_fragment: "same".to_owned(),
+                new_fragment: "different".to_owned(),
+                expected_matches: None,
+            }],
+        )
+        .expect_err("ambiguous exact fragment");
+        assert_eq!(ambiguous.code, CoreErrorCode::PatchAmbiguous);
+
+        let overlap = patch(
+            "semantic:patch-errors:overlap",
+            vec![
+                DocumentSemanticCommand::PatchBody {
+                    old_fragment: "a\nb\n".to_owned(),
+                    new_fragment: "A\nb\n".to_owned(),
+                    expected_matches: None,
+                },
+                DocumentSemanticCommand::PatchBody {
+                    old_fragment: "b\nc\n".to_owned(),
+                    new_fragment: "B\nc\n".to_owned(),
+                    expected_matches: None,
+                },
+            ],
+        )
+        .expect_err("overlapping exact fragments");
+        assert_eq!(overlap.code, CoreErrorCode::PatchOverlap);
     }
 }
