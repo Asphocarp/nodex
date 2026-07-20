@@ -25,7 +25,7 @@ import {
 } from "./page-occurrence-receipts";
 import { readDatabasePageById } from "./page-read-store";
 import { applyAuthoritativePageSchedulePatchInTransaction } from "./page-schedule-authority";
-import { assertValidPageInput } from "./page-input-validation";
+import { assertValidPageInput } from "../../shared/page-input-validation";
 import { getDb } from "./database";
 import { dbNotifier } from "./notifier";
 import { authorizeProjectResourceInDatabase } from "./project-resource-grants";

@@ -306,6 +306,7 @@ impl LibraryModule {
                 affected_resource_ids: vec![resource_id],
                 page_copy: None,
                 block_transfer: None,
+                page_lifecycle: None,
             },
             receipt,
             event_sequence,
@@ -429,7 +430,8 @@ mod tests {
     use nodex_core_contracts::library::{
         LibraryAccess, LibraryBlockLocation, LibraryBlockTransferLogicalIntent,
         LibraryBlockTransferMode, LibraryBlockTransferPlan, LibraryBlockTransferSource,
-        LibraryBlockTransferTarget, LibraryNavigationParent, LibraryPageWorkflowStatus,
+        LibraryBlockTransferTarget, LibraryNavigationParent, LibraryPageLifecycleMutation,
+        LibraryPageLifecycleState, LibraryPageLifecycleTagOption, LibraryPageWorkflowStatus,
         LibraryWriteParent,
     };
     use nodex_core_contracts::{AdapterKind, LibraryId, ProfileId, ProjectId};
@@ -507,6 +509,462 @@ mod tests {
             .expect_err("different retry fails");
 
         assert_eq!(error.code, CoreErrorCode::IdempotencyKeyReused);
+    }
+
+    #[test]
+    fn persistent_page_lifecycle_transitions_and_library_move_are_atomic_and_replayable() {
+        const NOW: &str = "2026-07-20T06:40:00.000Z";
+        const PAGE_A: &str = "page:lifecycle-a";
+        const PAGE_B: &str = "page:lifecycle-b";
+        let persistent_context = BoundModuleContext {
+            profile_id: ProfileId("profile-1".to_owned()),
+            library_id: LibraryId("library-1".to_owned()),
+            project_id: Some(ProjectId("project-1".to_owned())),
+            connection_id: "connection:page-lifecycle".to_owned(),
+            adapter: AdapterKind::Test,
+        };
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO profiles(id, created_at, updated_at) VALUES ('profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                         VALUES ('library-1', 'profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated) \
+                         VALUES ('project-1', 'library-1', 'Lifecycle', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
+                         VALUES (1, 'epoch-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed Library");
+        let module = LibraryModule::new("profile-1", "library-1", &kernel);
+        for (page_id, document_id) in [
+            (PAGE_A, "document:lifecycle-a"),
+            (PAGE_B, "document:lifecycle-b"),
+        ] {
+            module
+                .apply(
+                    &persistent_context,
+                    ModuleApplyRequest {
+                        version: CORE_CONTRACT_VERSION,
+                        operation_id: format!("create:{page_id}"),
+                        store_epoch: StoreEpoch("epoch-1".to_owned()),
+                        intent: LibraryIntent::CreatePage {
+                            page_id: page_id.to_owned(),
+                            document_id: document_id.to_owned(),
+                            title: page_id.to_owned(),
+                            parent: LibraryWriteParent::Library { before: None },
+                        },
+                    },
+                )
+                .expect("create Page");
+        }
+
+        let archive_request = ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: "lifecycle:archive-a".to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::ApplyPageLifecycle {
+                mutation: Box::new(LibraryPageLifecycleMutation::ArchivePage {
+                    page_id: PAGE_A.to_owned(),
+                    expected_metadata_revision: 1,
+                }),
+            },
+        };
+        let archived = module
+            .apply(&persistent_context, archive_request.clone())
+            .expect("archive Page");
+        let archive_receipt = archived
+            .committed
+            .value
+            .page_lifecycle
+            .as_ref()
+            .expect("Page lifecycle receipt");
+        assert_eq!(
+            archive_receipt.lifecycle,
+            LibraryPageLifecycleState::Archived
+        );
+        assert_eq!(archive_receipt.metadata_revision, 2);
+        assert!(archived.event.is_some());
+        let replay = module
+            .apply(&persistent_context, archive_request)
+            .expect("replay archive");
+        assert!(replay.committed.receipt.mutation.duplicate);
+        assert!(replay.event.is_none());
+
+        let unarchived = module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "lifecycle:unarchive-a".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyPageLifecycle {
+                        mutation: Box::new(LibraryPageLifecycleMutation::UnarchivePage {
+                            page_id: PAGE_A.to_owned(),
+                            expected_metadata_revision: 2,
+                        }),
+                    },
+                },
+            )
+            .expect("unarchive Page");
+        assert_eq!(
+            unarchived
+                .committed
+                .value
+                .page_lifecycle
+                .expect("Page lifecycle receipt")
+                .metadata_revision,
+            3
+        );
+
+        let moved = module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "lifecycle:move-b".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyPageLifecycle {
+                        mutation: Box::new(LibraryPageLifecycleMutation::MovePageInLibrary {
+                            page_id: PAGE_B.to_owned(),
+                            expected_parent_revision: 1,
+                            before_block_id: Some(PAGE_A.to_owned()),
+                        }),
+                    },
+                },
+            )
+            .expect("move Page in Library");
+        assert_eq!(
+            moved
+                .committed
+                .value
+                .page_lifecycle
+                .expect("Page lifecycle receipt")
+                .parent_revision,
+            2
+        );
+        kernel
+            .writer()
+            .call(|connection| {
+                let revisions = connection.query_row(
+                    "SELECT block.location_revision, page.parent_revision, \
+                       projection.location_revision FROM blocks block \
+                     JOIN pages page ON page.block_id = block.id \
+                     JOIN page_read_model projection ON projection.page_block_id = block.id \
+                     WHERE block.id = ?1",
+                    [PAGE_B],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(revisions, (2, 2, 2));
+                let order = connection
+                    .prepare(
+                        "SELECT block_id FROM library_block_placements \
+                         WHERE library_id = 'library-1' ORDER BY rank_key, block_id",
+                    )?
+                    .query_map([], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                assert_eq!(order, vec![PAGE_B.to_owned(), PAGE_A.to_owned()]);
+                Ok(())
+            })
+            .expect("Page lifecycle projections remain synchronized");
+
+        let delete_request = ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: "lifecycle:delete-a".to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::ApplyPageLifecycle {
+                mutation: Box::new(LibraryPageLifecycleMutation::DeletePage {
+                    page_id: PAGE_A.to_owned(),
+                    expected_metadata_revision: 3,
+                    expected_parent_revision: 1,
+                }),
+            },
+        };
+        let deleted = module
+            .apply(&persistent_context, delete_request.clone())
+            .expect("delete Page");
+        let delete_receipt = deleted
+            .committed
+            .value
+            .page_lifecycle
+            .expect("Page delete receipt");
+        assert_eq!(delete_receipt.lifecycle, LibraryPageLifecycleState::Deleted);
+        assert_eq!(delete_receipt.metadata_revision, 4);
+        assert_eq!(delete_receipt.parent_revision, 2);
+        assert!(
+            delete_receipt
+                .delete_evidence
+                .as_ref()
+                .is_some_and(|evidence| !evidence.tombstoned_blocks.is_empty())
+        );
+        let restored = module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "lifecycle:restore-a".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyPageLifecycle {
+                        mutation: Box::new(LibraryPageLifecycleMutation::RestorePage {
+                            page_id: PAGE_A.to_owned(),
+                            delete_operation_id: "lifecycle:delete-a".to_owned(),
+                            expected_metadata_revision: 4,
+                            expected_parent_revision: 2,
+                            membership: None,
+                            before_block_id: Some(PAGE_B.to_owned()),
+                        }),
+                    },
+                },
+            )
+            .expect("restore Page");
+        let restore_receipt = restored
+            .committed
+            .value
+            .page_lifecycle
+            .expect("Page restore receipt");
+        assert_eq!(restore_receipt.lifecycle, LibraryPageLifecycleState::Active);
+        assert_eq!(restore_receipt.metadata_revision, 5);
+        assert_eq!(restore_receipt.parent_revision, 3);
+        assert!(restore_receipt.library_rank_key.is_some());
+        let replayed_delete = module
+            .apply(&persistent_context, delete_request)
+            .expect("delete receipt replays after restore");
+        assert!(replayed_delete.committed.receipt.mutation.duplicate);
+        assert_eq!(
+            replayed_delete
+                .committed
+                .value
+                .page_lifecycle
+                .expect("replayed delete receipt")
+                .lifecycle,
+            LibraryPageLifecycleState::Deleted
+        );
+        kernel
+            .writer()
+            .call(|connection| {
+                let non_active = connection.query_row(
+                    "SELECT count(*) FROM document_block_index index_row \
+                     JOIN blocks block ON block.id = index_row.block_id \
+                     WHERE index_row.document_id = 'document:lifecycle-a' \
+                       AND block.lifecycle <> 'active'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(non_active, 0);
+                Ok(())
+            })
+            .expect("restore revives the indexed Page closure");
+
+        let stale = module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "lifecycle:stale".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyPageLifecycle {
+                        mutation: Box::new(LibraryPageLifecycleMutation::ArchivePage {
+                            page_id: PAGE_B.to_owned(),
+                            expected_metadata_revision: 99,
+                        }),
+                    },
+                },
+            )
+            .expect_err("stale lifecycle write");
+        assert_eq!(stale.code, CoreErrorCode::RevisionConflict);
+    }
+
+    #[test]
+    fn persistent_page_lifecycle_create_commits_document_database_and_projection_authority_once() {
+        const NOW: &str = "2026-07-20T08:10:00.000Z";
+        const DATABASE: &str = "019b1000-0000-7000-8000-000000000001";
+        const SOURCE: &str = "019b1000-0000-7000-8000-000000000002";
+        const VIEW: &str = "019b1000-0000-7000-8000-000000000003";
+        const PAGE: &str = "019b1000-0000-7000-8000-000000000004";
+        let persistent_context = BoundModuleContext {
+            profile_id: ProfileId("profile-1".to_owned()),
+            library_id: LibraryId("library-1".to_owned()),
+            project_id: Some(ProjectId("project-1".to_owned())),
+            connection_id: "connection:page-lifecycle-create".to_owned(),
+            adapter: AdapterKind::Test,
+        };
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO profiles(id, created_at, updated_at) VALUES ('profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                         VALUES ('library-1', 'profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated) \
+                         VALUES ('project-1', 'library-1', 'Lifecycle create', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
+                         VALUES (1, 'epoch-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed Library");
+        let module = LibraryModule::new("profile-1", "library-1", &kernel);
+        module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "create:default-database".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreateDatabase {
+                        database_id: DATABASE.to_owned(),
+                        data_source_id: SOURCE.to_owned(),
+                        view_id: VIEW.to_owned(),
+                        name: "Tasks".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("create default Database");
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE projects SET database_block_id = ?1 WHERE id = 'project-1'",
+                    [DATABASE],
+                )?;
+                Ok(())
+            })
+            .expect("bind default Database");
+        let create_request = ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: "lifecycle:create-page".to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::ApplyPageLifecycle {
+                mutation: Box::new(LibraryPageLifecycleMutation::CreatePage {
+                    page_id: PAGE.to_owned(),
+                    title: "Native lifecycle".to_owned(),
+                    rich_title: None,
+                    nfm: "Native body".to_owned(),
+                    status: LibraryPageWorkflowStatus::Triage,
+                    priority: None,
+                    estimate: None,
+                    due_date: None,
+                    scheduled_start: None,
+                    scheduled_end: None,
+                    is_all_day: false,
+                    recurrence: None,
+                    reminders: Vec::new(),
+                    schedule_timezone: None,
+                    assignee: None,
+                    run_in_target: "localProject".to_owned(),
+                    run_in_local_path: None,
+                    run_in_base_branch: None,
+                    run_in_worktree_path: None,
+                    run_in_environment_path: None,
+                    before_block_id: None,
+                    before_view_page_id: None,
+                    data_source_id: SOURCE.to_owned(),
+                    tag_option_ids: vec!["tag:native".to_owned()],
+                    new_tag_options: vec![LibraryPageLifecycleTagOption {
+                        option_id: "tag:native".to_owned(),
+                        name: "Native".to_owned(),
+                    }],
+                    expected_tags_property_revision: 1,
+                }),
+            },
+        };
+        let created = module
+            .apply(&persistent_context, create_request.clone())
+            .expect("create Data Source Page");
+        let receipt = created
+            .committed
+            .value
+            .page_lifecycle
+            .as_ref()
+            .expect("Page create receipt");
+        assert_eq!(receipt.page_id, PAGE);
+        assert_eq!(receipt.database_id.as_deref(), Some(DATABASE));
+        assert_eq!(receipt.data_source_id.as_deref(), Some(SOURCE));
+        assert_eq!(receipt.view_id.as_deref(), Some(VIEW));
+        assert!(!receipt.created_block_ids.is_empty());
+        assert_eq!(receipt.created_tag_option_ids, vec!["tag:native"]);
+        let replay = module
+            .apply(&persistent_context, create_request)
+            .expect("replay Page create");
+        assert!(replay.committed.receipt.mutation.duplicate);
+        assert!(replay.event.is_none());
+        let LibraryReadValue::PageContent { value } = module
+            .read(
+                &persistent_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PageContent {
+                        page_id: PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect("read created Page content")
+            .value
+        else {
+            panic!("Page content");
+        };
+        assert_eq!(value.title, "Native lifecycle");
+        assert_eq!(value.body_nfm, "Native body");
+        let LibraryReadValue::PageLifecyclePreflight { value } = module
+            .read(
+                &persistent_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PageLifecyclePreflight {
+                        page_id: PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect("created Page preflight")
+            .value
+        else {
+            panic!("Page lifecycle preflight");
+        };
+        let page = value.page.expect("created Page authority");
+        assert_eq!(page.metadata_revision, 1);
+        assert_eq!(
+            page.membership.expect("created membership").status,
+            LibraryPageWorkflowStatus::Triage
+        );
     }
 
     #[test]
@@ -702,6 +1160,22 @@ mod tests {
                         .iter()
                         .map(|byte| format!("{byte:02x}"))
                         .collect::<String>();
+                    transaction.execute(
+                        "INSERT OR IGNORE INTO page_read_model( \
+                           page_block_id, project_id, lifecycle, location_kind, \
+                           containing_document_id, containing_database_id, top_level_rank_key, \
+                           location_revision, metadata_revision, document_id, document_generation, \
+                           document_projected_seq, document_schema_version, document_authority, \
+                           membership_id, database_block_id, view_id, view_group_key, view_rank_key, \
+                           title, description_preview, description_length, has_description, \
+                           database_values_json, intrinsic_properties_json, property_revisions_json, \
+                           projection_version, created_at, updated_at \
+                         ) VALUES (?1, 'project-1', 'active', 'database', NULL, ?2, NULL, 1, 1, \
+                           ?3, 1, 1, 2, 'ydoc_primary', 'membership:row', ?2, NULL, NULL, NULL, \
+                           'Say hi', '', 0, 0, '{\"status\":\"triage\"}', '{}', \
+                           '{\"database\":{\"status\":1},\"intrinsic\":{}}', 1, ?4, ?4)",
+                        params![ROW_PAGE, DATABASE, ROW_DOCUMENT, NOW],
+                    )?;
                     transaction.execute(
                         "UPDATE document_materializations SET title = 'Say hi' \
                          WHERE document_id = ?1",
@@ -924,6 +1398,115 @@ mod tests {
         assert_eq!(membership.status, LibraryPageWorkflowStatus::Triage);
         assert_eq!(membership.view_id, VIEW);
         assert!(membership.position.is_none());
+        let deleted = module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "lifecycle:delete-row".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyPageLifecycle {
+                        mutation: Box::new(LibraryPageLifecycleMutation::DeletePage {
+                            page_id: ROW_PAGE.to_owned(),
+                            expected_metadata_revision: 1,
+                            expected_parent_revision: 1,
+                        }),
+                    },
+                },
+            )
+            .expect("delete Data Source Page");
+        assert_eq!(
+            deleted
+                .committed
+                .value
+                .page_lifecycle
+                .expect("delete receipt")
+                .membership_id
+                .as_deref(),
+            Some("membership:row")
+        );
+        let LibraryReadValue::PageLifecyclePreflight { value } = module
+            .read(
+                &persistent_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PageLifecyclePreflight {
+                        page_id: ROW_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect("deleted Page lifecycle preflight")
+            .value
+        else {
+            panic!("deleted Page lifecycle preflight");
+        };
+        let deleted_page = value.page.expect("deleted Page authority");
+        assert_eq!(deleted_page.lifecycle, "deleted");
+        assert!(deleted_page.membership.is_none());
+        let restore_evidence = deleted_page.restore_evidence.expect("restore evidence");
+        assert_eq!(restore_evidence.delete_operation_id, "lifecycle:delete-row");
+        let restore_membership = restore_evidence.membership.expect("restore membership");
+        assert_eq!(restore_membership.membership_id, "membership:row");
+        module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "lifecycle:restore-row".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyPageLifecycle {
+                        mutation: Box::new(LibraryPageLifecycleMutation::RestorePage {
+                            page_id: ROW_PAGE.to_owned(),
+                            delete_operation_id: restore_evidence.delete_operation_id,
+                            expected_metadata_revision: 2,
+                            expected_parent_revision: 2,
+                            membership: Some(
+                                nodex_core_contracts::library::LibraryPageLifecycleMutationMembership {
+                                    membership_id: restore_membership.membership_id,
+                                    database_id: restore_membership.database_id,
+                                    data_source_id: restore_membership.data_source_id,
+                                    status: restore_membership.status,
+                                    position: restore_membership.view_id.map(|view_id| {
+                                        nodex_core_contracts::library::LibraryPageLifecycleRestorePosition {
+                                            view_id,
+                                            before_view_page_id: None,
+                                        }
+                                    }),
+                                },
+                            ),
+                            before_block_id: None,
+                        }),
+                    },
+                },
+            )
+            .expect("restore Data Source Page");
+        let LibraryReadValue::PageLifecyclePreflight { value } = module
+            .read(
+                &persistent_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PageLifecyclePreflight {
+                        page_id: ROW_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect("restored Page lifecycle preflight")
+            .value
+        else {
+            panic!("restored Page lifecycle preflight");
+        };
+        let restored_page = value.page.expect("restored Page authority");
+        assert_eq!(restored_page.lifecycle, "active");
+        assert_eq!(restored_page.metadata_revision, 3);
+        assert_eq!(restored_page.parent_revision, 3);
+        assert_eq!(
+            restored_page
+                .membership
+                .expect("restored membership")
+                .membership_revision,
+            3
+        );
+        assert!(restored_page.restore_evidence.is_none());
         let location_error = module
             .read(
                 &persistent_context,
@@ -3117,3 +3700,4 @@ mod mutation;
 mod navigation;
 mod page_copy;
 mod page_lifecycle;
+mod page_lifecycle_mutation;

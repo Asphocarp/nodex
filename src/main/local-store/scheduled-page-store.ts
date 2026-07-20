@@ -6,7 +6,7 @@ import type {
   RecurrenceConfig,
   ReminderConfig,
 } from "../../shared/types";
-import { assertValidPageInput } from "./page-input-validation";
+import { assertValidPageInput } from "../../shared/page-input-validation";
 import { readDatabasePageSummariesByIds } from "./page-read-store";
 import { authorizeProjectResourceInDatabase } from "./project-resource-grants";
 import { expandPageOccurrences, type RecurrenceException } from "./recurrence";

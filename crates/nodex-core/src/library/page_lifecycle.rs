@@ -209,7 +209,10 @@ fn project_page_authority(
             |row| row.get::<_, String>(0),
         )
         .optional()?;
-    if matches!(parent, LibraryPageLifecycleParent::Library { .. }) && library_rank_key.is_none() {
+    if matches!(parent, LibraryPageLifecycleParent::Library { .. })
+        && page_lifecycle != "deleted"
+        && library_rank_key.is_none()
+    {
         return Err(corrupt("Library Page has no canonical placement"));
     }
     let membership = read_membership(connection, page_id)?;
@@ -248,6 +251,19 @@ fn project_page_authority(
     if document.readiness != "ready" || document.authority != "ydoc_primary" {
         return Err(corrupt("Page Document is not current Yjs authority"));
     }
+    let restore_coordinates = super::page_lifecycle_mutation::PageTombstoneCoordinates {
+        page_id,
+        metadata_revision: page_metadata_revision,
+        parent_revision,
+        document_id: &document.document_id,
+        document_generation: document.generation,
+        document_head_seq: document.head_seq,
+    };
+    let restore_evidence = super::page_lifecycle_mutation::read_restore_evidence(
+        connection,
+        &page_lifecycle,
+        &restore_coordinates,
+    )?;
     Ok(LibraryPageLifecycleAuthority {
         page_id: page_id.to_owned(),
         lifecycle: page_lifecycle,
@@ -257,7 +273,7 @@ fn project_page_authority(
         parent_revision: positive(parent_revision, "Page parent revision")?,
         document,
         membership,
-        restore_evidence: None,
+        restore_evidence,
     })
 }
 

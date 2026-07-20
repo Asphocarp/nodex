@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import type { PageInput } from "../../shared/types";
 import { MAX_PAGE_DESCRIPTION_LENGTH, MAX_PAGE_TITLE_LENGTH } from "../../shared/page-limits";
-import { assertValidPageInput } from "./page-input-validation";
+import { assertValidPageInput } from "../../shared/page-input-validation";
 
 function createValidInput(): PageInput {
   return {

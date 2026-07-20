@@ -6,14 +6,14 @@ import type {
   RecurrenceEndCondition,
   RecurrenceFrequency,
   ReminderConfig,
-} from "../../shared/types";
+} from "./types";
 import {
   MAX_PAGE_ASSIGNEE_LENGTH,
   MAX_PAGE_DESCRIPTION_LENGTH,
   MAX_PAGE_TAG_COUNT,
   MAX_PAGE_TAG_LENGTH,
   MAX_PAGE_TITLE_LENGTH,
-} from "../../shared/page-limits";
+} from "./page-limits";
 
 const PRIORITY_VALUES: Priority[] = [
   "p0-critical",

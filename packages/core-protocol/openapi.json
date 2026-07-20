@@ -5292,6 +5292,57 @@
           }
         }
       },
+      "LibraryPageLifecycleDeleteEvidence": {
+        "type": "object",
+        "required": [
+          "previous_lifecycle",
+          "tombstoned_blocks",
+          "indexed_document_ids"
+        ],
+        "properties": {
+          "indexed_document_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "membership": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryPageLifecycleMutationMembership"
+              }
+            ]
+          },
+          "previous_lifecycle": {
+            "$ref": "#/components/schemas/LibraryLifecycle"
+          },
+          "tombstoned_blocks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryPageLifecycleDeletedBlock"
+            }
+          }
+        }
+      },
+      "LibraryPageLifecycleDeletedBlock": {
+        "type": "object",
+        "required": [
+          "block_id",
+          "metadata_revision"
+        ],
+        "properties": {
+          "block_id": {
+            "type": "string"
+          },
+          "metadata_revision": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "LibraryPageLifecycleDocument": {
         "type": "object",
         "required": [
@@ -5383,6 +5434,443 @@
           "view_revision": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "LibraryPageLifecycleMutation": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "title",
+              "nfm",
+              "status",
+              "is_all_day",
+              "reminders",
+              "run_in_target",
+              "data_source_id",
+              "tag_option_ids",
+              "new_tag_options",
+              "expected_tags_property_revision",
+              "kind"
+            ],
+            "properties": {
+              "assignee": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "before_block_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "before_view_page_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "data_source_id": {
+                "type": "string"
+              },
+              "due_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "estimate": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expected_tags_property_revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "is_all_day": {
+                "type": "boolean"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "create_page"
+                ]
+              },
+              "new_tag_options": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LibraryPageLifecycleTagOption"
+                }
+              },
+              "nfm": {
+                "type": "string"
+              },
+              "page_id": {
+                "type": "string"
+              },
+              "priority": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "recurrence": {},
+              "reminders": {
+                "type": "array",
+                "items": {}
+              },
+              "rich_title": {},
+              "run_in_base_branch": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "run_in_environment_path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "run_in_local_path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "run_in_target": {
+                "type": "string"
+              },
+              "run_in_worktree_path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "schedule_timezone": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "scheduled_end": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "scheduled_start": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "$ref": "#/components/schemas/LibraryPageWorkflowStatus"
+              },
+              "tag_option_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "title": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "expected_metadata_revision",
+              "kind"
+            ],
+            "properties": {
+              "expected_metadata_revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "archive_page"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "expected_metadata_revision",
+              "kind"
+            ],
+            "properties": {
+              "expected_metadata_revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "unarchive_page"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "expected_metadata_revision",
+              "expected_parent_revision",
+              "kind"
+            ],
+            "properties": {
+              "expected_metadata_revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "expected_parent_revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "delete_page"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "delete_operation_id",
+              "expected_metadata_revision",
+              "expected_parent_revision",
+              "kind"
+            ],
+            "properties": {
+              "before_block_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "delete_operation_id": {
+                "type": "string"
+              },
+              "expected_metadata_revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "expected_parent_revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "restore_page"
+                ]
+              },
+              "membership": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LibraryPageLifecycleMutationMembership"
+                  }
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "expected_parent_revision",
+              "kind"
+            ],
+            "properties": {
+              "before_block_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expected_parent_revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "move_page_in_library"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "LibraryPageLifecycleMutationMembership": {
+        "type": "object",
+        "required": [
+          "membership_id",
+          "database_id",
+          "data_source_id",
+          "status"
+        ],
+        "properties": {
+          "data_source_id": {
+            "type": "string"
+          },
+          "database_id": {
+            "type": "string"
+          },
+          "membership_id": {
+            "type": "string"
+          },
+          "position": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryPageLifecycleRestorePosition"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/LibraryPageWorkflowStatus"
+          }
+        }
+      },
+      "LibraryPageLifecycleMutationReceipt": {
+        "type": "object",
+        "required": [
+          "operation_kind",
+          "page_id",
+          "metadata_revision",
+          "parent_revision",
+          "lifecycle",
+          "document_id",
+          "document_generation",
+          "document_head_seq",
+          "created_block_ids",
+          "created_tag_option_ids"
+        ],
+        "properties": {
+          "created_block_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "created_tag_option_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "data_source_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "database_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "delete_evidence": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryPageLifecycleDeleteEvidence"
+              }
+            ]
+          },
+          "document_generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "document_head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "library_rank_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lifecycle": {
+            "$ref": "#/components/schemas/LibraryPageLifecycleState"
+          },
+          "membership_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "metadata_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "operation_kind": {
+            "type": "string"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "parent_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "view_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "view_rank_key": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -5550,6 +6038,46 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "LibraryPageLifecycleRestorePosition": {
+        "type": "object",
+        "required": [
+          "view_id"
+        ],
+        "properties": {
+          "before_view_page_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "view_id": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryPageLifecycleState": {
+        "type": "string",
+        "enum": [
+          "active",
+          "archived",
+          "deleted"
+        ]
+      },
+      "LibraryPageLifecycleTagOption": {
+        "type": "object",
+        "required": [
+          "option_id",
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "option_id": {
+            "type": "string"
           }
         }
       },
@@ -6945,6 +7473,24 @@
                   },
                   "target": {
                     "$ref": "#/components/schemas/LibraryResourceTarget"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "mutation",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "apply_page_lifecycle"
+                    ]
+                  },
+                  "mutation": {
+                    "$ref": "#/components/schemas/LibraryPageLifecycleMutation"
                   }
                 }
               },
@@ -12478,6 +13024,16 @@
                           },
                           {
                             "$ref": "#/components/schemas/LibraryPageCopyResult"
+                          }
+                        ]
+                      },
+                      "page_lifecycle": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "$ref": "#/components/schemas/LibraryPageLifecycleMutationReceipt"
                           }
                         ]
                       }

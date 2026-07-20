@@ -1,7 +1,7 @@
 # Architecture
 
 ## Overview
-Nodex is a local-first, block-based agent orchestrator for coordinating coding-agent work. The Electron main process hosts SQLite authority, an embedded HTTP Interface, and a Codex app-server runtime so CLI clients, browser clients, and the desktop renderer operate on one product model while Codex Threads run Electron-first.
+Nodex is a local-first, block-based agent orchestrator for coordinating coding-agent work. The TypeScript oracle keeps SQLite authority in Electron, while the Rust development selector gives the detached native Core exclusive store authority before Electron initializes. Electron continues to host the embedded public HTTP Interface and Codex app-server runtime so CLI clients, browser clients, and the desktop renderer operate on one product model while Codex Threads run Electron-first.
 
 Each local Profile owns one Library. Library is the durable content scope for
 Blocks, Pages, Documents, Database Containers, Data Sources, Views, assets,
@@ -74,9 +74,9 @@ development/app-bundle executable and polls the same handshake until readiness;
 it never interprets process output as authority. Main initialization now routes
 through that selection: the Rust branch skips the TypeScript database, worker,
 maintenance schedulers, public HTTP server, and revision-flush shutdown path,
-and disconnecting Electron does not terminate the detached Core. Electron
-Module adapters still need to replace the TypeScript stores before the Rust
-development selector can serve the full desktop workflow. The first active
+and disconnecting Electron does not terminate the detached Core. Remaining
+desktop and loopback boundaries still need to replace their TypeScript stores
+before the Rust development selector can serve the full workflow. The active
 proxy slices cover the established Library catalog/navigation `read`/`apply`
 IPC pair, Project/Library Page Detail, Project-scoped Page references and
 ownership paths, trusted-root Page deep-link location, and the Project catalog
@@ -266,6 +266,20 @@ Database value and position mutations advance `blocks`, `pages`, and the Page
 read model to the same metadata revision; lifecycle CAS therefore observes the
 same Page authority after any Database edit instead of failing on projection
 drift.
+Page lifecycle writes use the same Project-bound Library bridge and one native
+`apply_page_lifecycle` aggregate. Create, archive, unarchive, delete, restore,
+and Library reorder validate their exact Page/Document/Data Source authority,
+compile Yrs genesis or recursive indexed-Document tombstones where required,
+update membership, Property compatibility values, View/Library placements,
+schedule and Page projections, and commit one immutable Library receipt/event
+inside the existing immediate writer transaction. Delete receipts retain the
+exact previous lifecycle, dormant membership/View coordinates, indexed
+Document closure, and tombstoned Block revisions needed for restore; preflight
+derives restore evidence from that receipt rather than mutable Electron state.
+All Library and View placement receipts use the canonical 32-digit fractional
+rank format, including bounded repair of imported legacy ranks. Exact replay
+returns the original receipt without reverting a later restore or advancing a
+revision again.
 Trusted Library Database access uses a distinct root-client capability accepted
 only from local Electron-host, native-CLI, and test adapters. Core resolves the
 concrete Library Database/Data Source/View itself and keeps the non-null legacy
@@ -632,7 +646,7 @@ or the Electron client from reaching the local store.
 - `local-store/description-revisions.ts`, `legacy-card-shadow-*`, and `foreign-reference-migration.ts`: shipped-schema staging-import helpers. They are unreachable from current-store editing/history paths, and their backing tables are absent from a published v58 store.
 - `local-store/block-retention-gc.ts`, `block-retention-maintenance.ts`, `block-retention-maintenance-store.ts`, and `block-retention-maintenance-scheduler.ts`: fail-closed tombstone retention planning and production collection. The background scheduler samples the current store epoch and retention setting, then submits one bounded all-Project pass through `BlockMutationWriter`. Each candidate rechecks global reference/history/recovery reachability in an IMMEDIATE transaction, prunes only attributable expiring evidence, preserves immutable mutation/change receipts, permanently records every removed application ID in `retired_block_identities`, and removes a verified ownership closure or nothing.
 - `local-store/reminders.ts`, `backups.ts`, `assets.ts`, `primary-canvas-document.ts`, `canvas-scene-store.ts`, `canvas-scene-authority-reader.ts`, and `sql-inspection.ts`: the explicit TypeScript-oracle reminder and whole-store backup/restore implementations, managed asset storage, deterministic primary Canvas ownership/migration, normalized scene authority, and read-only SQLite inspection. Desktop reminder delivery and backup scheduling/IPC depend on their backend-neutral Automation and Store Administration ports rather than importing these stores in the Rust branch.
-- `local-store/page-input-validation.ts`: shared Page write validation used by all mutation paths.
+- `shared/page-input-validation.ts`: transport-neutral Page write validation used by TypeScript authority paths and Core-client compatibility projections without importing a local store.
 - `logging/logger.ts`: structured backend logger with child scopes, sensitive-field redaction, bounded payload serialization, independently filtered console/file/observer sinks, and a profile-scoped bounded JSONL writer under `${NODEX_HOME}/logs`. The file sink uses size-based segments, a global byte budget, a priority-aware bounded queue, stream backpressure, retention pruning, and shutdown flush; dev/unpackaged runs enable console `warn+`, file `info+`, and observer `warn+` by default, while packaged diagnostics remain opt-in.
 - `window-session-state.ts`: profile-scoped persisted Electron window-session catalog with per-window layout snapshots, restore-policy selection support, focus recency, and saved window bounds.
 - `terminal-manager.ts`: integrated terminal owner for session terminal ids, including typed `terminal-*` IPC, xterm attach snapshots, owner checks, 16k buffer retention, node-pty local backend lifecycle, restart actions, and `read_thread_terminal` snapshot lookup.
@@ -707,7 +721,7 @@ or the Electron client from reaching the local store.
 1. Renderer issues a command through `lib/api.ts`.
 2. Transport resolves to IPC or HTTP based on runtime.
    Focused-window UI commands do not enter this mutation transport: application-menu accelerators send a typed command request through preload, `app.tsx` assigns a monotonic request tick, and `WorkbenchShell` executes the same handler used by toolbar and command-palette entry points.
-3. Main process routes Page lifecycle, intrinsic Block property, Database Module, Document, history, relocation, transfer, maintenance commands, and Project-bound Agent read snapshots through `BlockMutationWriter`. A Page editor sends binary Yjs updates; there is no Page title/body snapshot command or main-process SQLite fallback. Agent reads use the worker's deferred transaction path and publish no mutation events. Non-Block write domains continue to call their local-store Modules directly from main.
+3. Main selects one authority before opening the Profile. The TypeScript oracle routes Page lifecycle, intrinsic Block property, Database Module, Document, history, relocation, transfer, maintenance commands, and Project-bound Agent read snapshots through `BlockMutationWriter`. The Rust selector sends enabled capabilities to the owning native deep Module; Electron never opens SQLite or reconstructs their transaction. A Page editor sends binary Yjs updates; there is no Page title/body snapshot command or main-process SQLite fallback. Agent reads publish no mutation events.
 4. Page local-store writes emit domain events inside the worker, where they are captured into the mutation envelope. Every committed Page Document head emits membership-independent `page-target-changed` by Project access context and Page identity; lifecycle, location, and target-visible metadata changes use the same invalidation boundary. A Database-row summary additionally emits `board-changed` when that optional projection exists. Main republishes both only after the durable ACK boundary.
 5. Electron main broadcasts ordinary change events to all open windows through the safe IPC sender; Codex host-message/event fanout goes through the renderer-client router, which itself uses the safe sender. Direct `webContents.send` fanout is not allowed outside those helpers because renderer reload/close can dispose frames between lookup and send. Board and session renderer subscriptions filter by `projectId`; project-list subscriptions are global.
 6. Renderer shared Project stores (`kanban-store`) receive IPC/SSE board-change events. Events carrying a `DatabasePageSummary` patch the local summary cache directly; Document summaries come from committed exact-head materializations. Structurally ambiguous board events are coalesced into a summary refetch per Project. Page target queries use the separate Project stream event, dispatch by `targetBlockId`, and invalidate only the exact TanStack Query key; deleted targets retain their Project subscription for restoration. Page Stage breadcrumb queries read the root-to-parent ownership chain from one main-process Page hierarchy/authority snapshot rather than session navigation state and observe the target plus returned ancestor identities. A Library-scoped, identity-free ownership-path event also invalidates their Project prefix after location/lifecycle changes that make the changed Page fail post-change authorization; Project-scoped access events cover grant changes without exposing Page identities or titles. Workbench sidebar session rows receive IPC/SSE session-change signals and refresh affected lightweight project-session summaries; full session detail is loaded through explicit selected-session or panel/tab paths.

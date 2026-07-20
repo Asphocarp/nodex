@@ -345,7 +345,7 @@ pub struct LibraryCatalogEntry {
     pub metadata_revision: i64,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryPageDocumentDescriptor {
     pub readiness: String,
     pub schema_key: String,
@@ -474,6 +474,147 @@ pub struct LibraryPageLifecyclePreflight {
     pub tags_property: Value,
     pub reserved_block_type: Option<String>,
     pub page: Option<LibraryPageLifecycleAuthority>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageLifecycleTagOption {
+    pub option_id: String,
+    pub name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageLifecycleRestorePosition {
+    pub view_id: String,
+    pub before_view_page_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageLifecycleMutationMembership {
+    pub membership_id: String,
+    pub database_id: String,
+    pub data_source_id: String,
+    pub status: LibraryPageWorkflowStatus,
+    pub position: Option<LibraryPageLifecycleRestorePosition>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+// This is an externally stable, internally tagged protocol union. The large
+// create payload is boxed by `LibraryIntent::ApplyPageLifecycle`; splitting or
+// boxing individual fields would complicate the wire contract without reducing
+// the size of the request retained by the transport.
+#[allow(clippy::large_enum_variant)]
+pub enum LibraryPageLifecycleMutation {
+    CreatePage {
+        page_id: String,
+        title: String,
+        rich_title: Option<Value>,
+        nfm: String,
+        status: LibraryPageWorkflowStatus,
+        priority: Option<String>,
+        estimate: Option<String>,
+        due_date: Option<String>,
+        scheduled_start: Option<String>,
+        scheduled_end: Option<String>,
+        is_all_day: bool,
+        recurrence: Option<Value>,
+        reminders: Vec<Value>,
+        schedule_timezone: Option<String>,
+        assignee: Option<String>,
+        run_in_target: String,
+        run_in_local_path: Option<String>,
+        run_in_base_branch: Option<String>,
+        run_in_worktree_path: Option<String>,
+        run_in_environment_path: Option<String>,
+        before_block_id: Option<String>,
+        before_view_page_id: Option<String>,
+        data_source_id: String,
+        tag_option_ids: Vec<String>,
+        new_tag_options: Vec<LibraryPageLifecycleTagOption>,
+        expected_tags_property_revision: i64,
+    },
+    ArchivePage {
+        page_id: String,
+        expected_metadata_revision: i64,
+    },
+    UnarchivePage {
+        page_id: String,
+        expected_metadata_revision: i64,
+    },
+    DeletePage {
+        page_id: String,
+        expected_metadata_revision: i64,
+        expected_parent_revision: i64,
+    },
+    RestorePage {
+        page_id: String,
+        delete_operation_id: String,
+        expected_metadata_revision: i64,
+        expected_parent_revision: i64,
+        membership: Option<LibraryPageLifecycleMutationMembership>,
+        before_block_id: Option<String>,
+    },
+    MovePageInLibrary {
+        page_id: String,
+        expected_parent_revision: i64,
+        before_block_id: Option<String>,
+    },
+}
+
+impl LibraryPageLifecycleMutation {
+    pub fn page_id(&self) -> &str {
+        match self {
+            Self::CreatePage { page_id, .. }
+            | Self::ArchivePage { page_id, .. }
+            | Self::UnarchivePage { page_id, .. }
+            | Self::DeletePage { page_id, .. }
+            | Self::RestorePage { page_id, .. }
+            | Self::MovePageInLibrary { page_id, .. } => page_id,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryPageLifecycleState {
+    Active,
+    Archived,
+    Deleted,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageLifecycleDeletedBlock {
+    pub block_id: String,
+    pub metadata_revision: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageLifecycleDeleteEvidence {
+    pub previous_lifecycle: LibraryLifecycle,
+    pub membership: Option<LibraryPageLifecycleMutationMembership>,
+    pub tombstoned_blocks: Vec<LibraryPageLifecycleDeletedBlock>,
+    pub indexed_document_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageLifecycleMutationReceipt {
+    pub operation_kind: String,
+    pub page_id: String,
+    pub metadata_revision: i64,
+    pub parent_revision: i64,
+    pub lifecycle: LibraryPageLifecycleState,
+    pub document_id: String,
+    pub document_generation: i64,
+    pub document_head_seq: i64,
+    pub database_id: Option<String>,
+    pub data_source_id: Option<String>,
+    pub membership_id: Option<String>,
+    pub view_id: Option<String>,
+    pub library_rank_key: Option<String>,
+    pub view_rank_key: Option<String>,
+    pub created_block_ids: Vec<String>,
+    pub created_tag_option_ids: Vec<String>,
+    pub delete_evidence: Option<LibraryPageLifecycleDeleteEvidence>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
@@ -897,6 +1038,9 @@ pub enum LibraryIntent {
         target: LibraryResourceTarget,
         expected_metadata_revision: i64,
     },
+    ApplyPageLifecycle {
+        mutation: Box<LibraryPageLifecycleMutation>,
+    },
     GrantProjectAccess {
         project_id: String,
         target: LibraryResourceTarget,
@@ -936,6 +1080,7 @@ pub struct LibraryCommitValue {
     pub affected_resource_ids: Vec<String>,
     pub page_copy: Option<LibraryPageCopyResult>,
     pub block_transfer: Option<LibraryBlockTransferResult>,
+    pub page_lifecycle: Option<LibraryPageLifecycleMutationReceipt>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

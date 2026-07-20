@@ -6,6 +6,8 @@ use yrs::{ReadTxn, Transact};
 
 use crate::domain::block_materialization::{MaterializedBlockNode, dematerialize_block_tree};
 use crate::domain::block_tree::TextDelta;
+use crate::domain::nfm_parser::parse_nfm_with_ids;
+use crate::domain::rich_text::{RichTextItem, rich_text_to_delta};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::operations::{DocumentBlockOperation, PreparedDocumentOperationUpdate};
@@ -69,6 +71,34 @@ pub(crate) fn prepare_page_yjs_genesis(
             attributes: BTreeMap::new(),
         }]
     });
+    let document = encode_block_document(
+        document_id,
+        BlockDocumentSchema::PageV2,
+        title.as_deref(),
+        &tree,
+    )
+    .map_err(|error| invalid(format!("Page genesis is invalid: {error}")))?;
+    prepare_encoded_genesis(document_id, "page", BlockDocumentSchema::PageV2, document)
+}
+
+pub(crate) fn prepare_page_yjs_genesis_with_content(
+    document_id: &str,
+    rich_title: &[RichTextItem],
+    nfm: &str,
+    allocate_block_id: &mut impl FnMut() -> String,
+) -> Result<PreparedYjsGenesis, StoreError> {
+    let blocks = parse_nfm_with_ids(nfm, allocate_block_id)
+        .map_err(|error| invalid(format!("Page genesis Nested Markdown is invalid: {error}")))?;
+    let tree = dematerialize_block_tree(&blocks)
+        .map_err(|error| invalid(format!("Page genesis Blocks are invalid: {error}")))?;
+    let title = if rich_title.is_empty() {
+        None
+    } else {
+        Some(
+            rich_text_to_delta(rich_title)
+                .map_err(|error| invalid(format!("Page genesis title is invalid: {error}")))?,
+        )
+    };
     let document = encode_block_document(
         document_id,
         BlockDocumentSchema::PageV2,

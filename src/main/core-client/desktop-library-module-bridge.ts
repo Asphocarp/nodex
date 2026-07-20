@@ -15,6 +15,10 @@ import type { PageHistoryCommandResult } from "../../shared/page-history-transpo
 import type { PageSearchInput, PageSearchResult } from "../../shared/types";
 import type { PageLifecyclePreflightResultV2 } from "../../shared/page-lifecycle-v2-runtime";
 import type {
+  PageLifecycleMutationCommandResultV2,
+  PageLifecycleMutationRequestV2,
+} from "../../shared/page-lifecycle-v2";
+import type {
   PageTargetReadModel,
   ResolvePageTargetInput,
 } from "../../shared/page-targets";
@@ -57,6 +61,9 @@ export interface DesktopLibraryModuleBridgeInput {
       projectId: string,
       pageId: string,
     ): Promise<PageLifecyclePreflightResultV2>;
+    applyPageLifecycleMutation(
+      request: PageLifecycleMutationRequestV2,
+    ): Promise<PageLifecycleMutationCommandResultV2>;
   };
 }
 
@@ -88,6 +95,9 @@ export interface DesktopLibraryModuleBridge {
     projectId: string,
     pageId: string,
   ): Promise<PageLifecyclePreflightResultV2>;
+  applyPageLifecycleMutation(
+    request: PageLifecycleMutationRequestV2,
+  ): Promise<PageLifecycleMutationCommandResultV2>;
 }
 
 export function createDesktopLibraryModuleBridge(
@@ -210,6 +220,14 @@ export function createDesktopLibraryModuleBridge(
       }
       return await projectCoreAdapter(runtime, projectId)
         .readPageLifecyclePreflight(projectId, pageId);
+    },
+    applyPageLifecycleMutation: async (request) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.applyPageLifecycleMutation(request);
+      }
+      return await projectCoreAdapter(runtime, request.projectId)
+        .applyPageLifecycleMutation(request);
     },
   };
 }

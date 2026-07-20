@@ -4,7 +4,7 @@ use std::path::Path;
 use nodex_core_contracts::library::{
     LibraryAccess, LibraryBlockTransferDocumentCommit, LibraryBlockTransferResult,
     LibraryCommitValue, LibraryEvent, LibraryEventKind, LibraryIntent, LibraryPageCopyResult,
-    LibraryReceipt, LibraryResourceTarget, LibraryWriteParent,
+    LibraryPageLifecycleMutationReceipt, LibraryReceipt, LibraryResourceTarget, LibraryWriteParent,
 };
 use nodex_core_contracts::{
     BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue,
@@ -24,6 +24,9 @@ use crate::document::{
     read_store_epoch, reconstruct_yjs_engine, sha256,
 };
 use crate::domain::block_materialization::MaterializedBlockNode;
+use crate::domain::fractional_rank::{
+    FractionalRankErrorCode, RankedItem, plan as plan_fractional_rank,
+};
 use crate::infrastructure::module_receipts::{
     NewModuleReceipt, insert_module_receipt, read_module_receipt,
 };
@@ -51,6 +54,7 @@ pub(super) struct MutationEffects {
     pub(super) committed_revisions: BTreeMap<String, i64>,
     pub(super) page_copy: Option<LibraryPageCopyResult>,
     pub(super) block_transfer: Option<LibraryBlockTransferResult>,
+    pub(super) page_lifecycle: Option<LibraryPageLifecycleMutationReceipt>,
     pub(super) committed_at: String,
 }
 
@@ -229,6 +233,17 @@ pub(super) fn apply(
                     *expected_metadata_revision,
                     true,
                 ),
+                LibraryIntent::ApplyPageLifecycle { mutation } => {
+                    super::page_lifecycle_mutation::apply(
+                        transaction,
+                        &context,
+                        &store_epoch,
+                        &library_id,
+                        &request.operation_id,
+                        &request_hash,
+                        mutation,
+                    )
+                }
                 LibraryIntent::GrantProjectAccess {
                     project_id,
                     target,
@@ -577,6 +592,7 @@ fn move_block(
             committed_revisions,
             page_copy: None,
             block_transfer: None,
+            page_lifecycle: None,
             committed_at: now,
         },
     )
@@ -767,6 +783,7 @@ fn change_resource_lifecycle(
             ),
             page_copy: None,
             block_transfer: None,
+            page_lifecycle: None,
             committed_at: now,
         },
     )
@@ -910,6 +927,7 @@ fn grant_project_access(
                 .collect(),
             page_copy: None,
             block_transfer: None,
+            page_lifecycle: None,
             committed_at: now,
         },
     )
@@ -1417,6 +1435,7 @@ fn create_database(
             ),
             page_copy: None,
             block_transfer: None,
+            page_lifecycle: None,
             committed_at: now,
         },
     )
@@ -1654,6 +1673,7 @@ fn create_page(
             ),
             page_copy: None,
             block_transfer: None,
+            page_lifecycle: None,
             committed_at: now,
         },
     )
@@ -1724,6 +1744,7 @@ pub(super) fn finish_mutation(
             affected_resource_ids: block_ids,
             page_copy: effects.page_copy,
             block_transfer: effects.block_transfer,
+            page_lifecycle: effects.page_lifecycle,
         },
         receipt,
         event_sequence,
@@ -1818,21 +1839,40 @@ pub(super) fn append_rank(
     table: &str,
     scope_id: &str,
 ) -> Result<String, StoreError> {
-    let sql = match table {
-        "top_level_block_placements" => {
-            "SELECT rank_key FROM top_level_block_placements WHERE project_id = ?1 \
-             ORDER BY rank_key DESC, block_id DESC LIMIT 1"
-        }
-        "library_block_placements" => {
-            "SELECT rank_key FROM library_block_placements WHERE library_id = ?1 \
-             ORDER BY rank_key DESC, block_id DESC LIMIT 1"
-        }
+    let (select_sql, update_sql) = match table {
+        "top_level_block_placements" => (
+            "SELECT block_id, rank_key FROM top_level_block_placements \
+                 WHERE project_id = ?1 ORDER BY rank_key, block_id",
+            "UPDATE top_level_block_placements SET rank_key = ?1, updated_at = ?2 \
+                 WHERE block_id = ?3 AND project_id = ?4 AND rank_key <> ?1",
+        ),
+        "library_block_placements" => (
+            "SELECT block_id, rank_key FROM library_block_placements \
+                 WHERE library_id = ?1 ORDER BY rank_key, block_id",
+            "UPDATE library_block_placements SET rank_key = ?1, revision = revision + 1, \
+                   updated_at = ?2 WHERE block_id = ?3 AND library_id = ?4 AND rank_key <> ?1",
+        ),
         _ => return Err(internal("Unsupported placement table")),
     };
-    let previous = connection
-        .query_row(sql, [scope_id], |row| row.get::<_, String>(0))
-        .optional()?;
-    Ok(previous.map_or_else(|| "a".to_owned(), |rank| format!("{rank}~")))
+    let items = connection
+        .prepare(select_sql)?
+        .query_map([scope_id], |row| {
+            Ok(RankedItem {
+                id: row.get(0)?,
+                rank_key: row.get(1)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut target_id = "__new_placement__".to_owned();
+    while items.iter().any(|item| item.id == target_id) {
+        target_id.push('_');
+    }
+    let plan = plan_fractional_rank(&items, &target_id, None).map_err(placement_rank_error)?;
+    let now = sqlite_now(connection)?;
+    for (block_id, rank_key) in plan.rebalanced_rank_keys {
+        connection.execute(update_sql, params![rank_key, now, block_id, scope_id])?;
+    }
+    Ok(plan.rank_key)
 }
 
 pub(super) fn insert_library_placement(
@@ -1844,46 +1884,48 @@ pub(super) fn insert_library_placement(
 ) -> Result<String, StoreError> {
     if let Some(anchor) = before {
         validate_library_anchor(connection, library_id, anchor)?;
-        let ids = connection
-            .prepare(
-                "SELECT block_id FROM library_block_placements WHERE library_id = ?1 \
-                 ORDER BY rank_key, block_id",
-            )?
-            .query_map([library_id], |row| row.get::<_, String>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        let position = ids
-            .iter()
-            .position(|id| id == &anchor.block_id)
-            .ok_or_else(|| corrupt("Validated placement anchor disappeared"))?;
-        let mut ordered = ids;
-        ordered.insert(position, block_id.to_owned());
-        for (index, id) in ordered.iter().enumerate() {
-            let rank = format!("{:020}", index + 1);
-            if id == block_id {
-                connection.execute(
-                    "INSERT INTO library_block_placements(\
-                       block_id, library_id, rank_key, revision, created_at, updated_at\
-                     ) VALUES (?1, ?2, ?3, 1, ?4, ?4)",
-                    params![id, library_id, rank, now],
-                )?;
-                continue;
-            }
-            connection.execute(
-                "UPDATE library_block_placements SET rank_key = ?1, revision = revision + 1, \
-                   updated_at = ?2 WHERE block_id = ?3 AND library_id = ?4 AND rank_key <> ?1",
-                params![rank, now, id, library_id],
-            )?;
-        }
-        return Ok(format!("{:020}", position + 1));
     }
-    let rank = append_rank(connection, "library_block_placements", library_id)?;
+    let items = connection
+        .prepare(
+            "SELECT block_id, rank_key FROM library_block_placements WHERE library_id = ?1 \
+             ORDER BY rank_key, block_id",
+        )?
+        .query_map([library_id], |row| {
+            Ok(RankedItem {
+                id: row.get(0)?,
+                rank_key: row.get(1)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let plan = plan_fractional_rank(
+        &items,
+        block_id,
+        before.map(|anchor| anchor.block_id.as_str()),
+    )
+    .map_err(placement_rank_error)?;
+    for (sibling_id, rank_key) in &plan.rebalanced_rank_keys {
+        connection.execute(
+            "UPDATE library_block_placements SET rank_key = ?1, revision = revision + 1, \
+               updated_at = ?2 WHERE block_id = ?3 AND library_id = ?4 AND rank_key <> ?1",
+            params![rank_key, now, sibling_id, library_id],
+        )?;
+    }
     connection.execute(
         "INSERT INTO library_block_placements(\
            block_id, library_id, rank_key, revision, created_at, updated_at\
          ) VALUES (?1, ?2, ?3, 1, ?4, ?4)",
-        params![block_id, library_id, rank, now],
+        params![block_id, library_id, plan.rank_key, now],
     )?;
-    Ok(rank)
+    Ok(plan.rank_key)
+}
+
+fn placement_rank_error(error: crate::domain::fractional_rank::FractionalRankError) -> StoreError {
+    match error.code {
+        FractionalRankErrorCode::AnchorNotFound => invalid("Placement anchor disappeared"),
+        FractionalRankErrorCode::RebalanceLimit => {
+            StoreError::new(StoreErrorCode::ResourceExhausted, error.message, false)
+        }
+    }
 }
 
 fn validate_library_anchor(

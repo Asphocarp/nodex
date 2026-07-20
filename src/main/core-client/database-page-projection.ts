@@ -26,7 +26,7 @@ import {
   WORKFLOW_STATUS_COLUMNS,
   isWorkflowStatus,
 } from "../../shared/workflow-status";
-import { assertValidPageInput } from "../local-store/page-input-validation";
+import { assertValidPageInput } from "../../shared/page-input-validation";
 
 const INTRINSIC_PROPERTY_KEYS = [
   "run.target",

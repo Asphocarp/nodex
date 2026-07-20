@@ -10,7 +10,7 @@ import type {
 import { isWorkflowStatus, type WorkflowStatus } from "../../shared/workflow-status";
 import { upgradeLegacyWorkflowStatus } from "../../shared/workflow-status-cutover";
 import { summarizePageDescription } from "../../shared/page-summary";
-import { assertValidPageInput } from "./page-input-validation";
+import { assertValidPageInput } from "../../shared/page-input-validation";
 import {
   canonicalizePortableRichText,
   portableRichTextPlainText,

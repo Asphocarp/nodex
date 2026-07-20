@@ -236,6 +236,7 @@ pub(super) fn copy_page(
             committed_revisions: execution.committed_revisions,
             page_copy: Some(execution.result),
             block_transfer: None,
+            page_lifecycle: None,
             committed_at: execution.committed_at,
         },
     )

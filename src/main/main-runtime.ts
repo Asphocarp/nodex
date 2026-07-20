@@ -1707,6 +1707,8 @@ export async function runMainAppStartup(
             pageId,
           )
         ).result,
+      applyPageLifecycleMutation: async (request) =>
+        (await blockMutationWriter.applyPageLifecycleMutation(request)).result,
     },
   });
   desktopLibraryModule = libraryModule;

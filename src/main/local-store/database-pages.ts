@@ -19,7 +19,7 @@ import type { PageLifecycleCreateDisplayIntent } from "../../shared/page-lifecyc
 import { databaseGroupKeyForValue } from "../../shared/database-kernel";
 import { applyPageLifecycleMutationV2 } from "./page-lifecycle-v2-store";
 import { compilePageLifecycleCreateRequestV2InDatabase } from "./page-lifecycle-v2-compiler";
-import { assertValidPageInput } from "./page-input-validation";
+import { assertValidPageInput } from "../../shared/page-input-validation";
 import {
   readDatabasePageById,
   readDatabasePageColumn,

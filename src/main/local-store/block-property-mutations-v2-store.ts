@@ -29,7 +29,7 @@ import {
 } from "../../shared/database-kernel";
 import type { DataSourceOptionId } from "../../shared/database-identities";
 import type { PageInput } from "../../shared/types";
-import { assertValidPageInput } from "./page-input-validation";
+import { assertValidPageInput } from "../../shared/page-input-validation";
 import { authorizeProjectResourceInDatabase } from "./project-resource-grants";
 import {
   authorizeContentResourceInDatabase,

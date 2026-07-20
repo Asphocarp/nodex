@@ -35,6 +35,13 @@ import type { PageSearchInput, PageSearchResult } from "../../shared/types";
 import { parsePage } from "../../shared/page";
 import type { PageLifecyclePreflightResultV2 } from "../../shared/page-lifecycle-v2-runtime";
 import { parsePageLifecyclePreflightResultV2 } from "../../shared/page-lifecycle-v2-transport";
+import {
+  parsePageLifecycleMutationCommandResultV2,
+  type PageLifecycleMutationCommandResultV2,
+  type PageLifecycleMutationErrorCodeV2,
+  type PageLifecycleMutationRequestV2,
+  type PageLifecycleOperationV2,
+} from "../../shared/page-lifecycle-v2";
 import type {
   PageTargetReadModel,
   ResolvePageTargetInput,
@@ -85,6 +92,9 @@ export interface CoreLibraryModuleAdapter {
     projectId: string,
     pageId: string,
   ): Promise<PageLifecyclePreflightResultV2>;
+  applyPageLifecycleMutation(
+    request: PageLifecycleMutationRequestV2,
+  ): Promise<PageLifecycleMutationCommandResultV2>;
 }
 
 const toCoreRouteTarget = (target: LibraryRouteTarget) => {
@@ -195,6 +205,97 @@ const toCoreIntent = (operation: LibraryApplyOperation): LibraryIntent => {
             ? { kind: "page", page_id: operation.target.pageId }
             : { kind: "database", database_id: operation.target.databaseId },
         access: operation.access,
+      };
+  }
+};
+
+type CorePageLifecycleMutation = Extract<
+  LibraryIntent,
+  { kind: "apply_page_lifecycle" }
+>["mutation"];
+
+const toCorePageLifecycleMutation = (
+  operation: PageLifecycleOperationV2,
+): CorePageLifecycleMutation => {
+  switch (operation.kind) {
+    case "create_page":
+      return {
+        kind: operation.kind,
+        page_id: operation.pageId,
+        title: operation.title,
+        rich_title: operation.richTitle ?? null,
+        nfm: operation.nfm,
+        status: operation.status,
+        priority: operation.priority,
+        estimate: operation.estimate,
+        due_date: operation.dueDate,
+        scheduled_start: operation.scheduledStart,
+        scheduled_end: operation.scheduledEnd,
+        is_all_day: operation.isAllDay,
+        recurrence: operation.recurrence,
+        reminders: [...operation.reminders],
+        schedule_timezone: operation.scheduleTimezone,
+        assignee: operation.assignee,
+        run_in_target: operation.runInTarget,
+        run_in_local_path: operation.runInLocalPath,
+        run_in_base_branch: operation.runInBaseBranch,
+        run_in_worktree_path: operation.runInWorktreePath,
+        run_in_environment_path: operation.runInEnvironmentPath,
+        before_block_id: operation.beforeBlockId ?? null,
+        before_view_page_id: operation.beforeViewPageId ?? null,
+        data_source_id: operation.dataSourceId,
+        tag_option_ids: [...operation.tagOptionIds],
+        new_tag_options: operation.newTagOptions.map((option) => ({
+          option_id: option.optionId,
+          name: option.name,
+        })),
+        expected_tags_property_revision:
+          operation.expectedTagsPropertyRevision,
+      };
+    case "archive_page":
+    case "unarchive_page":
+      return {
+        kind: operation.kind,
+        page_id: operation.pageId,
+        expected_metadata_revision: operation.expectedMetadataRevision,
+      };
+    case "delete_page":
+      return {
+        kind: operation.kind,
+        page_id: operation.pageId,
+        expected_metadata_revision: operation.expectedMetadataRevision,
+        expected_parent_revision: operation.expectedParentRevision,
+      };
+    case "restore_page":
+      return {
+        kind: operation.kind,
+        page_id: operation.pageId,
+        delete_operation_id: operation.deleteOperationId,
+        expected_metadata_revision: operation.expectedMetadataRevision,
+        expected_parent_revision: operation.expectedParentRevision,
+        membership: operation.membership
+          ? {
+              membership_id: operation.membership.membershipId,
+              database_id: operation.membership.databaseId,
+              data_source_id: operation.membership.dataSourceId,
+              status: operation.membership.status,
+              position: operation.membership.position
+                ? {
+                    view_id: operation.membership.position.viewId,
+                    before_view_page_id:
+                      operation.membership.position.beforeViewPageId ?? null,
+                  }
+                : null,
+            }
+          : null,
+        before_block_id: operation.beforeBlockId ?? null,
+      };
+    case "move_page_in_library":
+      return {
+        kind: operation.kind,
+        page_id: operation.pageId,
+        expected_parent_revision: operation.expectedParentRevision,
+        before_block_id: operation.beforeBlockId ?? null,
       };
   }
 };
@@ -716,6 +817,48 @@ const pageLifecyclePreflightFailure = (
   };
 };
 
+const pageLifecycleMutationFailure = (
+  request: PageLifecycleMutationRequestV2,
+  error: unknown,
+): PageLifecycleMutationCommandResultV2 => {
+  const coreError = error instanceof CoreModuleResponseError
+    ? error.coreError
+    : null;
+  const code = (() => {
+    switch (coreError?.code) {
+      case "invalid_input":
+        return "invalid_page_lifecycle_request";
+      case "stale_store_epoch":
+        return "store_epoch_mismatch";
+      case "idempotency_key_reused":
+        return "operation_id_collision";
+      case "not_found":
+        return "page_not_found";
+      case "unauthorized":
+        return "authorization_denied";
+      case "revision_conflict":
+        return request.operation.kind === "move_page_in_library"
+          ? "parent_revision_conflict"
+          : "metadata_revision_conflict";
+      case "store_corrupt":
+      case "invalid_document_schema":
+        return "document_state_corrupt";
+      default:
+        return "unknown";
+    }
+  })() satisfies PageLifecycleMutationErrorCodeV2;
+  return parsePageLifecycleMutationCommandResultV2({
+    ok: false,
+    error: {
+      code,
+      message: error instanceof Error ? error.message : String(error),
+      retryable: coreError?.retryable ?? true,
+      operationId: request.operationId,
+      pageId: request.operation.pageId,
+    },
+  });
+};
+
 const mapCoreError = (error: CoreModuleError): LibraryModuleError => {
   const code = (() => {
     switch (error.code) {
@@ -1074,6 +1217,72 @@ export const createCoreLibraryModuleAdapter = (
         });
       } catch (error) {
         return pageLifecyclePreflightFailure(error);
+      }
+    },
+    applyPageLifecycleMutation: async (request) => {
+      if (request.storeEpoch !== input.storeEpoch) {
+        return parsePageLifecycleMutationCommandResultV2({
+          ok: false,
+          error: {
+            code: "store_epoch_mismatch",
+            message: "Page lifecycle operation targets a stale Store epoch",
+            retryable: false,
+            operationId: request.operationId,
+            pageId: request.operation.pageId,
+          },
+        });
+      }
+      try {
+        const committed = await input.client.libraryApply({
+          operationId: request.operationId,
+          intent: {
+            kind: "apply_page_lifecycle",
+            mutation: toCorePageLifecycleMutation(request.operation),
+          },
+        });
+        const lifecycle = committed.value.page_lifecycle;
+        if (
+          !lifecycle
+          || committed.store_epoch !== request.storeEpoch
+          || committed.receipt.operation_id !== request.operationId
+          || committed.receipt.operation_kind !== request.operation.kind
+          || lifecycle.operation_kind !== request.operation.kind
+          || lifecycle.page_id !== request.operation.pageId
+        ) {
+          throw new Error(
+            "Core Page lifecycle receipt escaped its operation boundary",
+          );
+        }
+        return parsePageLifecycleMutationCommandResultV2({
+          ok: true,
+          value: {
+            version: 2,
+            operationKind: lifecycle.operation_kind,
+            operationId: committed.receipt.operation_id,
+            projectId: request.projectId,
+            storeEpoch: committed.store_epoch,
+            pageId: lifecycle.page_id,
+            duplicate: committed.receipt.duplicate,
+            metadataRevision: lifecycle.metadata_revision,
+            parentRevision: lifecycle.parent_revision,
+            lifecycle: lifecycle.lifecycle,
+            documentId: lifecycle.document_id,
+            documentGeneration: lifecycle.document_generation,
+            documentHeadSeq: lifecycle.document_head_seq,
+            databaseId: lifecycle.database_id,
+            dataSourceId: lifecycle.data_source_id,
+            membershipId: lifecycle.membership_id,
+            viewId: lifecycle.view_id,
+            libraryRankKey: lifecycle.library_rank_key,
+            viewRankKey: lifecycle.view_rank_key,
+            createdBlockIds: lifecycle.created_block_ids,
+            createdTagOptionIds: lifecycle.created_tag_option_ids,
+            changeLogSeq: committed.receipt.change_log_seq,
+            committedAt: committed.receipt.committed_at,
+          },
+        });
+      } catch (error) {
+        return pageLifecycleMutationFailure(request, error);
       }
     },
   };

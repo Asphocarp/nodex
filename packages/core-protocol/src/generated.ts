@@ -1432,6 +1432,17 @@ export interface components {
             readonly parent_revision: number;
             readonly restore_evidence?: null | components["schemas"]["LibraryPageLifecycleRestoreEvidence"];
         };
+        readonly LibraryPageLifecycleDeletedBlock: {
+            readonly block_id: string;
+            /** Format: int64 */
+            readonly metadata_revision: number;
+        };
+        readonly LibraryPageLifecycleDeleteEvidence: {
+            readonly indexed_document_ids: readonly string[];
+            readonly membership?: null | components["schemas"]["LibraryPageLifecycleMutationMembership"];
+            readonly previous_lifecycle: components["schemas"]["LibraryLifecycle"];
+            readonly tombstoned_blocks: readonly components["schemas"]["LibraryPageLifecycleDeletedBlock"][];
+        };
         readonly LibraryPageLifecycleDocument: {
             readonly authority: string;
             readonly document_id: string;
@@ -1458,6 +1469,105 @@ export interface components {
             readonly view_id: string;
             /** Format: int64 */
             readonly view_revision: number;
+        };
+        readonly LibraryPageLifecycleMutation: {
+            readonly assignee?: string | null;
+            readonly before_block_id?: string | null;
+            readonly before_view_page_id?: string | null;
+            readonly data_source_id: string;
+            readonly due_date?: string | null;
+            readonly estimate?: string | null;
+            /** Format: int64 */
+            readonly expected_tags_property_revision: number;
+            readonly is_all_day: boolean;
+            /** @enum {string} */
+            readonly kind: "create_page";
+            readonly new_tag_options: readonly components["schemas"]["LibraryPageLifecycleTagOption"][];
+            readonly nfm: string;
+            readonly page_id: string;
+            readonly priority?: string | null;
+            readonly recurrence?: unknown;
+            readonly reminders: readonly unknown[];
+            readonly rich_title?: unknown;
+            readonly run_in_base_branch?: string | null;
+            readonly run_in_environment_path?: string | null;
+            readonly run_in_local_path?: string | null;
+            readonly run_in_target: string;
+            readonly run_in_worktree_path?: string | null;
+            readonly schedule_timezone?: string | null;
+            readonly scheduled_end?: string | null;
+            readonly scheduled_start?: string | null;
+            readonly status: components["schemas"]["LibraryPageWorkflowStatus"];
+            readonly tag_option_ids: readonly string[];
+            readonly title: string;
+        } | {
+            /** Format: int64 */
+            readonly expected_metadata_revision: number;
+            /** @enum {string} */
+            readonly kind: "archive_page";
+            readonly page_id: string;
+        } | {
+            /** Format: int64 */
+            readonly expected_metadata_revision: number;
+            /** @enum {string} */
+            readonly kind: "unarchive_page";
+            readonly page_id: string;
+        } | {
+            /** Format: int64 */
+            readonly expected_metadata_revision: number;
+            /** Format: int64 */
+            readonly expected_parent_revision: number;
+            /** @enum {string} */
+            readonly kind: "delete_page";
+            readonly page_id: string;
+        } | {
+            readonly before_block_id?: string | null;
+            readonly delete_operation_id: string;
+            /** Format: int64 */
+            readonly expected_metadata_revision: number;
+            /** Format: int64 */
+            readonly expected_parent_revision: number;
+            /** @enum {string} */
+            readonly kind: "restore_page";
+            readonly membership?: null | components["schemas"]["LibraryPageLifecycleMutationMembership"];
+            readonly page_id: string;
+        } | {
+            readonly before_block_id?: string | null;
+            /** Format: int64 */
+            readonly expected_parent_revision: number;
+            /** @enum {string} */
+            readonly kind: "move_page_in_library";
+            readonly page_id: string;
+        };
+        readonly LibraryPageLifecycleMutationMembership: {
+            readonly data_source_id: string;
+            readonly database_id: string;
+            readonly membership_id: string;
+            readonly position?: null | components["schemas"]["LibraryPageLifecycleRestorePosition"];
+            readonly status: components["schemas"]["LibraryPageWorkflowStatus"];
+        };
+        readonly LibraryPageLifecycleMutationReceipt: {
+            readonly created_block_ids: readonly string[];
+            readonly created_tag_option_ids: readonly string[];
+            readonly data_source_id?: string | null;
+            readonly database_id?: string | null;
+            readonly delete_evidence?: null | components["schemas"]["LibraryPageLifecycleDeleteEvidence"];
+            /** Format: int64 */
+            readonly document_generation: number;
+            /** Format: int64 */
+            readonly document_head_seq: number;
+            readonly document_id: string;
+            readonly library_rank_key?: string | null;
+            readonly lifecycle: components["schemas"]["LibraryPageLifecycleState"];
+            readonly membership_id?: string | null;
+            /** Format: int64 */
+            readonly metadata_revision: number;
+            readonly operation_kind: string;
+            readonly page_id: string;
+            /** Format: int64 */
+            readonly parent_revision: number;
+            readonly view_id?: string | null;
+            readonly view_rank_key?: string | null;
         };
         readonly LibraryPageLifecycleParent: {
             /** @enum {string} */
@@ -1497,6 +1607,16 @@ export interface components {
             readonly membership_id: string;
             readonly status: components["schemas"]["LibraryPageWorkflowStatus"];
             readonly view_id?: string | null;
+        };
+        readonly LibraryPageLifecycleRestorePosition: {
+            readonly before_view_page_id?: string | null;
+            readonly view_id: string;
+        };
+        /** @enum {string} */
+        readonly LibraryPageLifecycleState: "active" | "archived" | "deleted";
+        readonly LibraryPageLifecycleTagOption: {
+            readonly name: string;
+            readonly option_id: string;
         };
         readonly LibraryPageLocation: {
             readonly page_id: string;
@@ -1841,6 +1961,10 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "restore_resource";
                 readonly target: components["schemas"]["LibraryResourceTarget"];
+            } | {
+                /** @enum {string} */
+                readonly kind: "apply_page_lifecycle";
+                readonly mutation: components["schemas"]["LibraryPageLifecycleMutation"];
             } | {
                 readonly access: components["schemas"]["LibraryAccess"];
                 /** @enum {string} */
@@ -3095,6 +3219,7 @@ export interface components {
                     readonly affected_resource_ids: readonly string[];
                     readonly block_transfer?: null | components["schemas"]["LibraryBlockTransferResult"];
                     readonly page_copy?: null | components["schemas"]["LibraryPageCopyResult"];
+                    readonly page_lifecycle?: null | components["schemas"]["LibraryPageLifecycleMutationReceipt"];
                 };
             };
             /** @enum {string} */

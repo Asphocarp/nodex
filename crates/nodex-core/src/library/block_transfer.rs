@@ -429,6 +429,7 @@ pub(super) fn apply(
             committed_revisions,
             page_copy: None,
             block_transfer: Some(result.clone()),
+            page_lifecycle: None,
             committed_at: now.clone(),
         },
     )?;
@@ -1551,6 +1552,7 @@ fn apply_page_ownership_transfer(
             committed_revisions,
             page_copy: None,
             block_transfer: Some(result.clone()),
+            page_lifecycle: None,
             committed_at: now.clone(),
         },
     )?;
@@ -1714,6 +1716,7 @@ fn apply_page_ownership_copy(
             committed_revisions,
             page_copy: None,
             block_transfer: Some(result.clone()),
+            page_lifecycle: None,
             committed_at: now.clone(),
         },
     )?;
@@ -2310,6 +2313,7 @@ fn apply_page_parent_transfer(
             committed_revisions,
             page_copy: None,
             block_transfer: Some(result.clone()),
+            page_lifecycle: None,
             committed_at: now.clone(),
         },
     )?;

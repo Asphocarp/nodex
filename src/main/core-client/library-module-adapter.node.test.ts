@@ -1,8 +1,13 @@
 import { describe, expect, test } from "vitest";
 
 import { plainTextToPortableRichText } from "../../shared/block-documents";
+import {
+  parseDataSourceId,
+  parseDataSourceOptionId,
+} from "../../shared/database-identities";
 import { LIBRARY_MODULE_CONTRACT_VERSION } from "../../shared/library-module";
 import { PAGE_HISTORY_CONTRACT_VERSION } from "../../shared/page-history";
+import type { PageLifecycleMutationRequestV2 } from "../../shared/page-lifecycle-v2";
 import { FakeCoreClient } from "./testing/fake-core-client";
 import { createCoreLibraryModuleAdapter } from "./library-module-adapter";
 import {
@@ -316,6 +321,9 @@ const neverTypeScript = (): DesktopLibraryModuleBridgeInput["typescript"] => ({
   readPageLifecyclePreflight: async () => {
     throw new Error("TypeScript lifecycle preflight must not run");
   },
+  applyPageLifecycleMutation: async () => {
+    throw new Error("TypeScript lifecycle mutation must not run");
+  },
 });
 
 describe("Core Library Module Adapter", () => {
@@ -564,6 +572,247 @@ describe("Core Library Module Adapter", () => {
     }]);
   });
 
+  test("maps Page lifecycle mutations through one native Library aggregate", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueApply({
+      value: {
+        affected_resource_ids: ["page:one", "database:test"],
+        page_copy: null,
+        block_transfer: null,
+        page_lifecycle: {
+          operation_kind: "archive_page",
+          page_id: "page:one",
+          metadata_revision: 4,
+          parent_revision: 2,
+          lifecycle: "archived",
+          document_id: "document:one",
+          document_generation: 1,
+          document_head_seq: 4,
+          database_id: "database:test",
+          data_source_id: "source:test",
+          membership_id: "membership:one",
+          view_id: "view:test",
+          library_rank_key: null,
+          view_rank_key: "7fffffffffffffffffffffffffffffff",
+          created_block_ids: [],
+          created_tag_option_ids: [],
+          delete_evidence: null,
+        },
+      },
+      receipt: {
+        operation_id: "lifecycle:archive-one",
+        duplicate: false,
+        operation_kind: "archive_page",
+        did_mutate: true,
+        created_target: null,
+        affected_parent_keys: ["database:database:test"],
+        affected_page_ids: ["page:one"],
+        affected_database_ids: ["database:test"],
+        affected_view_ids: ["view:test"],
+        committed_revisions: { "blockMetadata:page:one": 4 },
+        change_log_seq: 16,
+        committed_at: "2026-07-20T08:30:00.000Z",
+      },
+      event_sequence: 16,
+      store_epoch: identity.storeEpoch,
+    });
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+    const request = {
+      version: 2 as const,
+      operationId: "lifecycle:archive-one",
+      projectId: "project:test",
+      storeEpoch: identity.storeEpoch,
+      actor: { kind: "electron_renderer" },
+      operation: {
+        kind: "archive_page" as const,
+        pageId: "page:one",
+        expectedMetadataRevision: 3,
+      },
+    };
+
+    await expect(adapter.applyPageLifecycleMutation(request)).resolves.toEqual({
+      ok: true,
+      value: {
+        version: 2,
+        operationKind: "archive_page",
+        operationId: request.operationId,
+        projectId: request.projectId,
+        storeEpoch: identity.storeEpoch,
+        pageId: "page:one",
+        duplicate: false,
+        metadataRevision: 4,
+        parentRevision: 2,
+        lifecycle: "archived",
+        documentId: "document:one",
+        documentGeneration: 1,
+        documentHeadSeq: 4,
+        databaseId: "database:test",
+        dataSourceId: "source:test",
+        membershipId: "membership:one",
+        viewId: "view:test",
+        libraryRankKey: null,
+        viewRankKey: "7fffffffffffffffffffffffffffffff",
+        createdBlockIds: [],
+        createdTagOptionIds: [],
+        changeLogSeq: 16,
+        committedAt: "2026-07-20T08:30:00.000Z",
+      },
+    });
+    expect(client.applies).toEqual([{
+      operationId: request.operationId,
+      intent: {
+        kind: "apply_page_lifecycle",
+        mutation: {
+          kind: "archive_page",
+          page_id: "page:one",
+          expected_metadata_revision: 3,
+        },
+      },
+    }]);
+  });
+
+  test("preserves the complete authority-ready Page creation contract", async () => {
+    const client = new FakeCoreClient();
+    const pageId = "019b0000-0000-7000-8000-000000000001";
+    const dataSourceId = parseDataSourceId("source:test");
+    const existingOptionId = parseDataSourceOptionId({
+      propertyId: "tags",
+      value: "o_AAAAAAAA",
+    });
+    const createdOptionId = parseDataSourceOptionId({
+      propertyId: "tags",
+      value: "o_BBBBBBBB",
+    });
+    client.enqueueApply({
+      value: {
+        affected_resource_ids: [pageId, "database:test"],
+        page_copy: null,
+        block_transfer: null,
+        page_lifecycle: {
+          operation_kind: "create_page",
+          page_id: pageId,
+          metadata_revision: 1,
+          parent_revision: 1,
+          lifecycle: "active",
+          document_id: "document:created",
+          document_generation: 1,
+          document_head_seq: 1,
+          database_id: "database:test",
+          data_source_id: "source:test",
+          membership_id: "membership:created",
+          view_id: "view:test",
+          library_rank_key: null,
+          view_rank_key: "7fffffffffffffffffffffffffffffff",
+          created_block_ids: [pageId, "body:created"],
+          created_tag_option_ids: ["o_BBBBBBBB"],
+          delete_evidence: null,
+        },
+      },
+      receipt: {
+        operation_id: "lifecycle:create-one",
+        duplicate: false,
+        operation_kind: "create_page",
+        did_mutate: true,
+        created_target: { kind: "page", page_id: pageId },
+        affected_parent_keys: ["database:database:test"],
+        affected_page_ids: [pageId],
+        affected_database_ids: ["database:test"],
+        affected_view_ids: ["view:test"],
+        committed_revisions: { [`blockMetadata:${pageId}`]: 1 },
+        change_log_seq: 17,
+        committed_at: "2026-07-20T08:31:00.000Z",
+      },
+      event_sequence: 17,
+      store_epoch: identity.storeEpoch,
+    });
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+    const richTitle = plainTextToPortableRichText("Rich Page");
+    const request: PageLifecycleMutationRequestV2 = {
+      version: 2,
+      operationId: "lifecycle:create-one",
+      projectId: "project:test",
+      storeEpoch: identity.storeEpoch,
+      clientSessionId: "session:test",
+      actor: { kind: "electron_renderer" },
+      operation: {
+        kind: "create_page",
+        pageId,
+        title: "Rich Page",
+        richTitle,
+        nfm: "# Durable body",
+        status: "build",
+        priority: "p1-high",
+        estimate: "m",
+        dueDate: "2026-07-31",
+        scheduledStart: "2026-07-31T01:00:00.000Z",
+        scheduledEnd: "2026-07-31T02:00:00.000Z",
+        isAllDay: false,
+        recurrence: null,
+        reminders: [],
+        scheduleTimezone: "Asia/Shanghai",
+        assignee: "asc",
+        runInTarget: "localProject",
+        runInLocalPath: "/tmp/nodex",
+        runInBaseBranch: "main",
+        runInWorktreePath: null,
+        runInEnvironmentPath: null,
+        beforeBlockId: "page:before",
+        beforeViewPageId: "page:view-before",
+        dataSourceId,
+        tagOptionIds: [existingOptionId, createdOptionId],
+        newTagOptions: [{ optionId: createdOptionId, name: "New tag" }],
+        expectedTagsPropertyRevision: 3,
+      },
+    };
+
+    await expect(adapter.applyPageLifecycleMutation(request)).resolves
+      .toMatchObject({
+        ok: true,
+        value: {
+          operationKind: "create_page",
+          operationId: request.operationId,
+          pageId,
+          createdBlockIds: [pageId, "body:created"],
+          createdTagOptionIds: ["o_BBBBBBBB"],
+        },
+      });
+    expect(client.applies).toEqual([{
+      operationId: request.operationId,
+      intent: {
+        kind: "apply_page_lifecycle",
+        mutation: {
+          kind: "create_page",
+          page_id: pageId,
+          title: "Rich Page",
+          rich_title: richTitle,
+          nfm: "# Durable body",
+          status: "build",
+          priority: "p1-high",
+          estimate: "m",
+          due_date: "2026-07-31",
+          scheduled_start: "2026-07-31T01:00:00.000Z",
+          scheduled_end: "2026-07-31T02:00:00.000Z",
+          is_all_day: false,
+          recurrence: null,
+          reminders: [],
+          schedule_timezone: "Asia/Shanghai",
+          assignee: "asc",
+          run_in_target: "localProject",
+          run_in_local_path: "/tmp/nodex",
+          run_in_base_branch: "main",
+          run_in_worktree_path: null,
+          run_in_environment_path: null,
+          before_block_id: "page:before",
+          before_view_page_id: "page:view-before",
+          data_source_id: "source:test",
+          tag_option_ids: ["o_AAAAAAAA", "o_BBBBBBBB"],
+          new_tag_options: [{ option_id: "o_BBBBBBBB", name: "New tag" }],
+          expected_tags_property_revision: 3,
+        },
+      },
+    }]);
+  });
+
   test("binds reference reads to their Project and locations to the trusted root", async () => {
     const rootClient = new FakeCoreClient();
     const projectClient = new FakeCoreClient();
@@ -710,7 +959,12 @@ describe("Core Library Module Adapter", () => {
   test("maps a committed aggregate and rejects a stale epoch before Core", async () => {
     const client = new FakeCoreClient();
     client.enqueueApply({
-      value: { affected_resource_ids: ["page:one"], page_copy: null },
+      value: {
+        affected_resource_ids: ["page:one"],
+        page_copy: null,
+        block_transfer: null,
+        page_lifecycle: null,
+      },
       receipt: {
         operation_id: "operation:create",
         duplicate: false,

@@ -969,6 +969,138 @@ describe("Electron native data authority", () => {
           },
         },
       });
+      const initialLifecyclePage = lifecyclePreflight.value.value.page;
+      if (!initialLifecyclePage) {
+        throw new Error("Expected native Page lifecycle authority");
+      }
+      const lifecycleRequestBase = {
+        version: 2 as const,
+        projectId,
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+        actor: { kind: "electron_renderer", clientId: "rust-authority-test" },
+      };
+      const archived = await lifecycleLibrary.applyPageLifecycleMutation({
+        ...lifecycleRequestBase,
+        operationId: "electron-page-lifecycle-archive",
+        operation: {
+          kind: "archive_page",
+          pageId: copiedDataSourcePageId,
+          expectedMetadataRevision: initialLifecyclePage.metadataRevision,
+        },
+      });
+      expect(archived).toMatchObject({
+        ok: true,
+        value: { lifecycle: "archived", duplicate: false },
+      });
+      if (!archived.ok) throw new Error(archived.error.message);
+      await expect(desktopDatabase.getDatabaseRowPage(
+        projectId,
+        copiedDataSourcePageId,
+        "ship",
+      )).resolves.toMatchObject({ archived: true });
+      const unarchived = await lifecycleLibrary.applyPageLifecycleMutation({
+        ...lifecycleRequestBase,
+        operationId: "electron-page-lifecycle-unarchive",
+        operation: {
+          kind: "unarchive_page",
+          pageId: copiedDataSourcePageId,
+          expectedMetadataRevision: archived.value.metadataRevision,
+        },
+      });
+      expect(unarchived).toMatchObject({
+        ok: true,
+        value: { lifecycle: "active" },
+      });
+      if (!unarchived.ok) throw new Error(unarchived.error.message);
+      const deleteRequest = {
+        ...lifecycleRequestBase,
+        operationId: "electron-page-lifecycle-delete",
+        operation: {
+          kind: "delete_page" as const,
+          pageId: copiedDataSourcePageId,
+          expectedMetadataRevision: unarchived.value.metadataRevision,
+          expectedParentRevision: unarchived.value.parentRevision,
+        },
+      };
+      const deleted = await lifecycleLibrary.applyPageLifecycleMutation(
+        deleteRequest,
+      );
+      expect(deleted).toMatchObject({
+        ok: true,
+        value: { lifecycle: "deleted" },
+      });
+      if (!deleted.ok) throw new Error(deleted.error.message);
+      const deletedPreflight = await lifecycleLibrary.readPageLifecyclePreflight(
+        projectId,
+        copiedDataSourcePageId,
+      );
+      if (!deletedPreflight.ok) {
+        throw new Error(deletedPreflight.error.message);
+      }
+      const restoreEvidence = deletedPreflight.value.value.page?.restoreEvidence;
+      if (!restoreEvidence) {
+        throw new Error("Native delete receipt did not compile restore evidence");
+      }
+      const lifecycleRestored = await lifecycleLibrary.applyPageLifecycleMutation({
+        ...lifecycleRequestBase,
+        operationId: "electron-page-lifecycle-restore",
+        operation: {
+          kind: "restore_page",
+          pageId: copiedDataSourcePageId,
+          deleteOperationId: restoreEvidence.deleteOperationId,
+          expectedMetadataRevision: deleted.value.metadataRevision,
+          expectedParentRevision: deleted.value.parentRevision,
+          membership: restoreEvidence.membership,
+        },
+      });
+      expect(lifecycleRestored).toMatchObject({
+        ok: true,
+        value: {
+          lifecycle: "active",
+          membershipId: restoreEvidence.membership?.membershipId,
+        },
+      });
+      const replayedDelete = await lifecycleLibrary.applyPageLifecycleMutation(
+        deleteRequest,
+      );
+      expect(replayedDelete).toMatchObject({
+        ok: true,
+        value: { lifecycle: "deleted", duplicate: true },
+      });
+      const afterDeleteReplay = await lifecycleLibrary.readPageLifecyclePreflight(
+        projectId,
+        copiedDataSourcePageId,
+      );
+      if (!afterDeleteReplay.ok) {
+        throw new Error(afterDeleteReplay.error.message);
+      }
+      const restoredMembershipRevision =
+        afterDeleteReplay.value.value.page?.membership?.membershipRevision;
+      const restoredParentRevision =
+        afterDeleteReplay.value.value.page?.parentRevision;
+      expect(afterDeleteReplay).toMatchObject({
+        ok: true,
+        value: {
+          value: {
+            page: {
+              lifecycle: "active",
+              membership: {
+                membershipId: restoreEvidence.membership?.membershipId,
+                membershipRevision: 3,
+                position: { groupKey: "ship" },
+              },
+            },
+          },
+        },
+      });
+      if (!restoredMembershipRevision || !restoredParentRevision) {
+        throw new Error("Restored Page has no durable parent or membership revision");
+      }
+      await expect(desktopDatabase.getDatabaseRowPage(
+        projectId,
+        copiedDataSourcePageId,
+        "ship",
+      )).resolves.toMatchObject({ archived: false });
       await expect(desktopDatabase.resolveDatabaseViewReference({
         requestingProjectId: projectId,
         databaseViewId: primaryView.viewId,
@@ -1019,7 +1151,7 @@ describe("Electron native data authority", () => {
             memberships: {
               [copiedDataSourcePageId]: {
                 membershipId: expect.any(String),
-                revision: 1,
+                revision: restoredMembershipRevision,
               },
             },
           },
@@ -1045,7 +1177,9 @@ describe("Electron native data authority", () => {
             projectId,
           },
         },
-        finalLocationRevisions: { [copiedDataSourcePageId]: 3 },
+        finalLocationRevisions: {
+          [copiedDataSourcePageId]: restoredParentRevision + 1,
+        },
         documentCommits: [],
         affectedDatabaseBlockIds: [primaryDatabase.database.databaseId],
       });
@@ -1099,7 +1233,9 @@ describe("Electron native data authority", () => {
             databaseBlockId: primaryDatabase.database.databaseId,
           },
         },
-        finalLocationRevisions: { [copiedDataSourcePageId]: 4 },
+        finalLocationRevisions: {
+          [copiedDataSourcePageId]: restoredParentRevision + 2,
+        },
         documentCommits: [],
       });
       const moveDataSourcePageIntoPageIntent = {
@@ -1128,7 +1264,9 @@ describe("Electron native data authority", () => {
           source: {
             kind: "database",
             memberships: {
-              [copiedDataSourcePageId]: { revision: 3 },
+              [copiedDataSourcePageId]: {
+                revision: restoredMembershipRevision + 2,
+              },
             },
           },
           target: {
@@ -1152,7 +1290,9 @@ describe("Electron native data authority", () => {
             documentId: expect.any(String),
           },
         },
-        finalLocationRevisions: { [copiedDataSourcePageId]: 5 },
+        finalLocationRevisions: {
+          [copiedDataSourcePageId]: restoredParentRevision + 3,
+        },
         documentCommits: [{ documentId: expect.any(String) }],
       });
       const copyRecursivePageIntent = {
@@ -1286,7 +1426,9 @@ describe("Electron native data authority", () => {
         finalLocations: {
           [copiedDataSourcePageId]: { kind: "space", projectId },
         },
-        finalLocationRevisions: { [copiedDataSourcePageId]: 6 },
+        finalLocationRevisions: {
+          [copiedDataSourcePageId]: restoredParentRevision + 4,
+        },
         documentCommits: [{ documentId: expect.any(String) }],
       });
       databaseEventSubscription.close();

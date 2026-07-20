@@ -585,6 +585,7 @@ interface RegisterIpcHandlersOptions {
     | "resolvePageTarget"
     | "resolvePageOwnershipPath"
     | "readPageLifecyclePreflight"
+    | "applyPageLifecycleMutation"
   >;
   databaseModule?: Pick<
     DesktopDatabaseModuleBridge,
@@ -1569,8 +1570,9 @@ export function registerIpcHandlers(
         actor: { kind: "electron_renderer", clientId },
       };
     },
-    applyMutation: async (request) =>
-      (await blockMutationWriter.applyPageLifecycleMutation(request)).result,
+    applyMutation: options.libraryModule?.applyPageLifecycleMutation ??
+      (async (request) =>
+        (await blockMutationWriter.applyPageLifecycleMutation(request)).result),
   });
 
   registerDocumentMutationIpcHandler({
