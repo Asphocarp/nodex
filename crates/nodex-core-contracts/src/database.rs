@@ -15,6 +15,7 @@ pub enum DatabaseTarget {
     Database { database_id: String },
     DataSource { data_source_id: String },
     View { view_id: String },
+    Page { page_id: String },
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

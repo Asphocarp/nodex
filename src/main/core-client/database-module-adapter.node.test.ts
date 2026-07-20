@@ -100,6 +100,21 @@ describe("Core Database Module Adapter", () => {
     }]);
   });
 
+  test("maps exact Page row targets without adding query state", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueDatabaseRead(emptyCatalogSnapshot());
+    const adapter = createCoreDatabaseModuleAdapter({ client, ...identity });
+
+    await adapter.readPage("page:test");
+
+    expect(client.databaseReads).toEqual([{
+      target: { kind: "page", page_id: "page:test" },
+      mode: "query",
+      filter: undefined,
+      sort: null,
+    }]);
+  });
+
   test("maps ordered mutation semantics and validates the atomic Core receipt", async () => {
     const client = new FakeCoreClient();
     const databaseId = parseDatabaseId("database:test");
@@ -484,6 +499,18 @@ describe("Core Database Module Adapter", () => {
         },
         applyLibrary: async () => {
           throw new Error("TypeScript Library Database apply must not run");
+        },
+        getBoardSummary: async () => {
+          throw new Error("TypeScript Board summary must not run");
+        },
+        getDatabaseRowsDetails: async () => {
+          throw new Error("TypeScript Database row details must not run");
+        },
+        getDatabaseRowPage: async () => {
+          throw new Error("TypeScript Database row read must not run");
+        },
+        resolveDatabaseViewReference: async () => {
+          throw new Error("TypeScript Database View reference must not run");
         },
       },
     });

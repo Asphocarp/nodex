@@ -24,8 +24,9 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::LibraryApplyOutcome;
 use super::mutation::{
-    MutationEffects, append_rank, finish_mutation, insert_library_placement,
-    insert_page_read_model, persist_parent_insert, resolve_write_parent, sqlite_now,
+    MutationEffects, append_rank, ensure_default_page_intrinsic_properties, finish_mutation,
+    insert_library_placement, insert_page_read_model, persist_parent_insert,
+    refresh_page_intrinsic_projection, resolve_write_parent, sqlite_now,
 };
 
 const MAX_COPY_BLOCKS: usize = 10_000;
@@ -785,7 +786,7 @@ pub(crate) fn clone_page_for_occurrence(
             ],
         )?;
     }
-    reset_page_intrinsic_projection(connection, input.new_page_id, &source.0, input.now)?;
+    refresh_page_intrinsic_projection(connection, input.new_page_id, &source.0, input.now)?;
     crate::database::refresh_copied_page_projection(
         connection,
         input.new_page_id,
@@ -918,7 +919,13 @@ fn persist_copy_documents(
             persisted.head_seq,
             now,
         )?;
-        reset_page_intrinsic_projection(
+        ensure_default_page_intrinsic_properties(
+            connection,
+            &document.target_owner_id,
+            &resolved_parent.project_id,
+            now,
+        )?;
+        refresh_page_intrinsic_projection(
             connection,
             &document.target_owner_id,
             &resolved_parent.project_id,
@@ -1335,44 +1342,6 @@ fn stage_copy_authority(
             ],
         )?;
     }
-    Ok(())
-}
-
-fn reset_page_intrinsic_projection(
-    connection: &Connection,
-    page_id: &str,
-    project_id: &str,
-    now: &str,
-) -> Result<(), StoreError> {
-    let rows = connection
-        .prepare(
-            "SELECT property_key, value_json FROM block_properties \
-             WHERE block_id = ?1 AND project_id = ?2 ORDER BY property_key",
-        )?
-        .query_map(params![page_id, project_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut values = serde_json::Map::new();
-    let mut intrinsic_revisions = serde_json::Map::new();
-    for (key, value_json) in rows {
-        let value = serde_json::from_str(&value_json)
-            .map_err(|_| corrupt("Copied Page intrinsic Property JSON is invalid"))?;
-        values.insert(key.clone(), value);
-        intrinsic_revisions.insert(key, serde_json::Value::from(1));
-    }
-    let revisions = serde_json::json!({ "intrinsic": intrinsic_revisions, "database": {} });
-    connection.execute(
-        "UPDATE page_read_model SET intrinsic_properties_json = ?1, \
-           property_revisions_json = ?2, updated_at = ?3 WHERE page_block_id = ?4",
-        params![
-            serde_json::to_string(&values).map_err(|_| internal("Copied intrinsic values"))?,
-            serde_json::to_string(&revisions)
-                .map_err(|_| internal("Copied intrinsic revisions"))?,
-            now,
-            page_id,
-        ],
-    )?;
     Ok(())
 }
 

@@ -78,8 +78,15 @@ export interface DataSourcePageValueV2
   readonly propertyId: DataSourcePropertyId;
 }
 
+export interface PageIntrinsicPropertyValueV2 {
+  readonly key: string;
+  readonly valueType: string;
+  readonly value: DatabaseJsonValue;
+  readonly revision: number;
+}
+
 export interface DataSourcePageRowV2
-  extends Omit<DataSourcePageRowV1, "membership" | "values"> {
+  extends Omit<DataSourcePageRowV1, "membership" | "values" | "position"> {
   readonly membership: Omit<
     DataSourcePageRowV1["membership"],
     "dataSourceId"
@@ -87,6 +94,14 @@ export interface DataSourcePageRowV2
     readonly dataSourceId: DataSourceId;
   };
   readonly values: Readonly<Record<string, DataSourcePageValueV2>>;
+  readonly position: null | (NonNullable<DataSourcePageRowV1["position"]> & {
+    /** Zero-based order inside this View group when supplied by native Core. */
+    readonly order?: number;
+  });
+  /** Exact-head Page body projection supplied by native Database authority. */
+  readonly bodyNfm?: string;
+  /** Page-intrinsic properties needed by compatibility row projections. */
+  readonly intrinsicProperties?: readonly PageIntrinsicPropertyValueV2[];
 }
 
 export interface DatabaseViewQueryResultV2 {

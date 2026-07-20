@@ -671,6 +671,10 @@ export interface components {
             /** @enum {string} */
             readonly kind: "view";
             readonly view_id: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "page";
+            readonly page_id: string;
         };
         readonly DatabaseTransferTarget: {
             /** @enum {string} */

@@ -242,6 +242,19 @@ Database v2 parsers. Core records operation kinds, every committed revision,
 change-log sequence, and commit time inside the writer transaction; durable
 Database events also retain the actor Project so Electron can publish the
 existing resource-scoped Database and Library invalidations after commit.
+Under Rust authority, Database query rows also carry the exact-head Page NFM
+body and revisioned intrinsic Page Properties needed by the desktop
+compatibility projection. One strict, storage-independent Adapter projects
+those rows into Board summaries, requested full row details, and inline
+Database View references; IPC never opens SQLite or performs a follow-up Page
+read to fill missing fields. Page creation, ordinary Block-to-Page promotion,
+and recursive Page copy initialize the same nine intrinsic Properties in Core,
+so incomplete durable authority fails at the projection boundary instead of
+being repaired with read-time defaults. A private exact-Page Database target
+serves the legacy single-row compatibility read for active or archived Pages,
+including default-View group order; it authorizes through the owning Database
+and remains behind the desktop port rather than expanding the public
+TypeScript Database v2 request union.
 Trusted Library Database access uses a distinct root-client capability accepted
 only from local Electron-host, native-CLI, and test adapters. Core resolves the
 concrete Library Database/Data Source/View itself and keeps the non-null legacy

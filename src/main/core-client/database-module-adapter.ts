@@ -11,6 +11,7 @@ import type {
   LibraryDatabaseModuleReadRequestV2,
   LibraryDatabaseModuleReadResultV2,
 } from "../../shared/database-module-v2";
+import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../shared/database-module-v2";
 import {
   parseDatabaseApplyResultV2,
   parseDatabaseModuleReadResultV2,
@@ -37,6 +38,7 @@ export interface CoreDatabaseModuleAdapter {
   read(
     request: DatabaseModuleReadRequestV2,
   ): Promise<DatabaseModuleReadResultV2>;
+  readPage(pageId: string): Promise<DatabaseModuleReadResultV2>;
   apply(request: DatabaseApplyV2): Promise<DatabaseApplyResultV2>;
 }
 
@@ -335,30 +337,42 @@ export const createCoreDatabaseModuleAdapter = (
     };
   };
 
+  const readCore = async (
+    read: DatabaseRead,
+  ): Promise<DatabaseModuleReadResultV2> => {
+    try {
+      const snapshot = await input.client.databaseRead(read);
+      if (snapshot.store_epoch !== input.storeEpoch) {
+        throw new Error("Core Database read crossed its Store epoch boundary");
+      }
+      return parseDatabaseModuleReadResultV2({
+        ok: true,
+        value: {
+          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+          projectId: input.projectId,
+          libraryId: input.libraryId,
+          storeEpoch: snapshot.store_epoch,
+          changeLogSeq: snapshot.event_head,
+          value: snapshot.value,
+        },
+      });
+    } catch (error) {
+      return failure(error);
+    }
+  };
+
   return {
     read: async (request) => {
       const projectError = assertBoundProject(request.projectId);
       if (projectError) return { ok: false, error: projectError };
-      try {
-        const snapshot = await input.client.databaseRead(toCoreRead(request.read));
-        if (snapshot.store_epoch !== input.storeEpoch) {
-          throw new Error("Core Database read crossed its Store epoch boundary");
-        }
-        return parseDatabaseModuleReadResultV2({
-          ok: true,
-          value: {
-            version: request.version,
-            projectId: input.projectId,
-            libraryId: input.libraryId,
-            storeEpoch: snapshot.store_epoch,
-            changeLogSeq: snapshot.event_head,
-            value: snapshot.value,
-          },
-        });
-      } catch (error) {
-        return failure(error);
-      }
+      return await readCore(toCoreRead(request.read));
     },
+    readPage: async (pageId) => await readCore({
+      target: { kind: "page", page_id: pageId },
+      mode: "query",
+      filter: undefined,
+      sort: null,
+    }),
     apply: async (request) => {
       const projectError = assertBoundProject(request.projectId);
       if (projectError) {

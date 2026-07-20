@@ -13,6 +13,7 @@ import {
   createCoreDatabaseModuleAdapter,
   createCoreLibraryDatabaseModuleAdapter,
 } from "./core-client/database-module-adapter";
+import { createDesktopDatabaseModuleBridge } from "./core-client/desktop-database-module-bridge";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
 import { createCoreBlockTransferAdapter } from "./core-client/block-transfer-adapter";
 import { createCoreProjectWorkspaceAdapter } from "./core-client/project-workspace-adapter";
@@ -887,6 +888,68 @@ describe("Electron native data authority", () => {
         finalLocationRevisions: { [copiedDataSourcePageId]: 2 },
         affectedDatabaseBlockIds: [primaryDatabase.database.databaseId],
       });
+      const unavailableDatabaseFallback = async (): Promise<never> => {
+        throw new Error("TypeScript Database fallback must not run");
+      };
+      const desktopDatabase = createDesktopDatabaseModuleBridge({
+        authority: Promise.resolve(runtime),
+        typescript: {
+          read: unavailableDatabaseFallback,
+          apply: unavailableDatabaseFallback,
+          readLibrary: unavailableDatabaseFallback,
+          applyLibrary: unavailableDatabaseFallback,
+          getBoardSummary: unavailableDatabaseFallback,
+          getDatabaseRowsDetails: unavailableDatabaseFallback,
+          getDatabaseRowPage: unavailableDatabaseFallback,
+          resolveDatabaseViewReference: unavailableDatabaseFallback,
+        },
+      });
+      const nativeBoard = await desktopDatabase.getBoardSummary(projectId);
+      expect(nativeBoard.columns.find((column) => column.id === "ship")?.cards)
+        .toEqual(expect.arrayContaining([
+          expect.objectContaining({
+            id: copiedDataSourcePageId,
+            status: "ship",
+            hasDescription: false,
+          }),
+        ]));
+      await expect(desktopDatabase.getDatabaseRowsDetails(projectId, {
+        pageIds: [copiedDataSourcePageId, copiedDataSourcePageId],
+      })).resolves.toEqual([
+        expect.objectContaining({
+          id: copiedDataSourcePageId,
+          status: "ship",
+          description: expect.any(String),
+          runInTarget: "localProject",
+        }),
+      ]);
+      await expect(desktopDatabase.getDatabaseRowPage(
+        projectId,
+        copiedDataSourcePageId,
+        "ship",
+      )).resolves.toMatchObject({
+        id: copiedDataSourcePageId,
+        status: "ship",
+        order: 0,
+      });
+      await expect(desktopDatabase.resolveDatabaseViewReference({
+        requestingProjectId: projectId,
+        databaseViewId: primaryView.viewId,
+        hostBlockId: copiedDataSourcePageId,
+      })).resolves.toMatchObject({
+        view: {
+          id: primaryView.viewId,
+          databaseBlockId: primaryDatabase.database.databaseId,
+          projectId,
+          isPrimary: true,
+        },
+        rows: expect.not.arrayContaining([
+          expect.objectContaining({
+            page: expect.objectContaining({ id: copiedDataSourcePageId }),
+          }),
+        ]),
+      });
+      expect(listCurrentProcessFiles()).not.toContain(databasePath);
       const moveDataSourcePageToLibraryIntent = {
         ...transferIntent,
         operationId: "electron-native-page-transfer-to-library",

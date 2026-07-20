@@ -1779,7 +1779,12 @@ mod tests {
                         "INSERT INTO block_properties( \
                            block_id, project_id, property_key, value_type, value_json, revision, updated_at \
                          ) VALUES (?1, 'project:default', ?2, ?3, ?4, 1, \
-                           '2026-07-18T00:00:00.000Z')",
+                           '2026-07-18T00:00:00.000Z') \
+                         ON CONFLICT(block_id, property_key) DO UPDATE SET \
+                           value_type = excluded.value_type, \
+                           value_json = excluded.value_json, \
+                           revision = block_properties.revision + 1, \
+                           updated_at = excluded.updated_at",
                         params![page_id, key, value_type, value.to_string()],
                     )?;
                 }

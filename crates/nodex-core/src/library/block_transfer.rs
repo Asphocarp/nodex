@@ -39,8 +39,9 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::LibraryApplyOutcome;
 use super::mutation::{
-    MutationEffects, append_rank, finish_mutation, insert_library_placement,
-    insert_page_read_model, require_project_in_library, sqlite_now,
+    MutationEffects, append_rank, ensure_default_page_intrinsic_properties, finish_mutation,
+    insert_library_placement, insert_page_read_model, refresh_page_intrinsic_projection,
+    require_project_in_library, sqlite_now,
 };
 use super::page_copy::{
     PageCopyParentDocumentMode, execute_page_copy, page_copy_closure_document_heads,
@@ -2547,6 +2548,13 @@ fn persist_page_parent_genesis(
         persisted.head_seq,
         now,
     )?;
+    ensure_default_page_intrinsic_properties(
+        connection,
+        &stage.page_id,
+        &authority.head.project_id,
+        now,
+    )?;
+    refresh_page_intrinsic_projection(connection, &stage.page_id, &authority.head.project_id, now)?;
     let revisions = connection.query_row(
         "SELECT location_revision, metadata_revision FROM blocks WHERE id = ?1",
         [&stage.page_id],

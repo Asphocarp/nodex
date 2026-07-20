@@ -1589,6 +1589,8 @@ fn create_page(
         persisted.head_seq,
         &now,
     )?;
+    ensure_default_page_intrinsic_properties(connection, page_id, &project_id, &now)?;
+    refresh_page_intrinsic_projection(connection, page_id, &project_id, &now)?;
 
     let parent_head_seq = resolved_parent
         .document
@@ -1959,6 +1961,74 @@ pub(super) fn insert_page_read_model(
     Ok(())
 }
 
+pub(super) fn ensure_default_page_intrinsic_properties(
+    connection: &Connection,
+    page_id: &str,
+    project_id: &str,
+    now: &str,
+) -> Result<(), StoreError> {
+    const DEFAULTS: &[(&str, &str, &str)] = &[
+        ("run.target", "string", "\"localProject\""),
+        ("run.localPath", "string", "null"),
+        ("run.baseBranch", "string", "null"),
+        ("run.worktreePath", "string", "null"),
+        ("run.environmentPath", "string", "null"),
+        ("schedule.isAllDay", "boolean", "false"),
+        ("schedule.timezone", "string", "null"),
+        ("recurrence.config", "json", "null"),
+        ("reminders.config", "json", "[]"),
+    ];
+    for (key, value_type, value_json) in DEFAULTS {
+        connection.execute(
+            "INSERT OR IGNORE INTO block_properties( \
+               block_id, project_id, property_key, value_type, value_json, revision, updated_at \
+             ) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6)",
+            params![page_id, project_id, key, value_type, value_json, now],
+        )?;
+    }
+    Ok(())
+}
+
+pub(super) fn refresh_page_intrinsic_projection(
+    connection: &Connection,
+    page_id: &str,
+    project_id: &str,
+    now: &str,
+) -> Result<(), StoreError> {
+    let rows = connection
+        .prepare(
+            "SELECT property_key, value_json FROM block_properties \
+             WHERE block_id = ?1 AND project_id = ?2 ORDER BY property_key",
+        )?
+        .query_map(params![page_id, project_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut values = serde_json::Map::new();
+    let mut intrinsic_revisions = serde_json::Map::new();
+    for (key, value_json) in rows {
+        let value = serde_json::from_str(&value_json)
+            .map_err(|_| corrupt("Page intrinsic Property JSON is invalid"))?;
+        values.insert(key.clone(), value);
+        intrinsic_revisions.insert(key, serde_json::Value::from(1));
+    }
+    let revisions = serde_json::json!({ "intrinsic": intrinsic_revisions, "database": {} });
+    let changed = connection.execute(
+        "UPDATE page_read_model SET intrinsic_properties_json = ?1, \
+           property_revisions_json = ?2, updated_at = ?3 WHERE page_block_id = ?4",
+        params![
+            serde_json::to_string(&values).map_err(|_| internal("Page intrinsic values"))?,
+            serde_json::to_string(&revisions).map_err(|_| internal("Page intrinsic revisions"))?,
+            now,
+            page_id,
+        ],
+    )?;
+    if changed == 1 {
+        return Ok(());
+    }
+    Err(corrupt("Page intrinsic projection has no Page read model"))
+}
+
 fn validate_id(name: &str, value: &str) -> Result<(), StoreError> {
     if !value.trim().is_empty() && value.len() <= MAX_ID_LENGTH {
         return Ok(());
@@ -2228,6 +2298,30 @@ mod tests {
                         1,
                         1,
                         0,
+                    )
+                );
+                let intrinsic = connection.query_row(
+                    "SELECT count(*), \
+                       max(CASE WHEN property_key = 'run.target' THEN value_json END), \
+                       json_extract(projection.intrinsic_properties_json, '$.\"run.target\"') \
+                     FROM block_properties property \
+                     JOIN page_read_model projection ON projection.page_block_id = property.block_id \
+                     WHERE property.block_id = 'page:created'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    intrinsic,
+                    (
+                        9,
+                        "\"localProject\"".to_owned(),
+                        "localProject".to_owned(),
                     )
                 );
                 Ok(())

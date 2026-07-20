@@ -23,9 +23,13 @@ import { registerIpcHandlers } from "./ipc-handlers";
 import { startHttpServer } from "./http-server";
 import {
   findPageLocationById,
+  getBoardSummary,
+  getDatabaseRowPage,
+  getDatabaseRowsDetails,
   searchPages,
 } from "./local-store/database-pages";
 import {
+  readProjectScopedDatabaseViewReference,
   resolveProjectScopedPageOwnershipPath,
   resolveProjectScopedPageTarget,
 } from "./local-store/reference-reads";
@@ -1867,6 +1871,11 @@ export async function runMainAppStartup(
             { kind: "electron_renderer" },
             "app_window",
           ),
+        getBoardSummary,
+        getDatabaseRowPage,
+        getDatabaseRowsDetails,
+        resolveDatabaseViewReference: async (input) =>
+          readProjectScopedDatabaseViewReference(input),
       },
     }),
     rendererClientRouter,

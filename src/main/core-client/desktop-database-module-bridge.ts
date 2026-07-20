@@ -1,12 +1,22 @@
 import type {
-  DatabaseApplyResultV2,
-  DatabaseApplyV2,
-  DatabaseModuleReadRequestV2,
-  DatabaseModuleReadResultV2,
-  LibraryDatabaseApplyResultV2,
-  LibraryDatabaseApplyV2,
-  LibraryDatabaseModuleReadRequestV2,
-  LibraryDatabaseModuleReadResultV2,
+  BoardSummary,
+  DatabasePage,
+  DatabaseRowsDetailsInput,
+} from "../../shared/types";
+import type {
+  DatabaseViewReadModel,
+  ReadDatabaseViewReferenceInput,
+} from "../../shared/database-views";
+import {
+  DATABASE_MODULE_V2_CONTRACT_VERSION,
+  type DatabaseApplyResultV2,
+  type DatabaseApplyV2,
+  type DatabaseModuleReadRequestV2,
+  type DatabaseModuleReadResultV2,
+  type LibraryDatabaseApplyResultV2,
+  type LibraryDatabaseApplyV2,
+  type LibraryDatabaseModuleReadRequestV2,
+  type LibraryDatabaseModuleReadResultV2,
 } from "../../shared/database-module-v2";
 import {
   DATABASE_CHANGE_EVENT_VERSION,
@@ -31,6 +41,12 @@ import {
   createCoreLibraryDatabaseModuleAdapter,
   type CoreLibraryDatabaseModuleAdapter,
 } from "./database-module-adapter";
+import {
+  projectBoardSummary,
+  projectDatabasePage,
+  projectDatabaseQueryPages,
+  projectDatabaseViewReference,
+} from "./database-page-projection";
 
 export interface DesktopDatabaseModuleBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
@@ -45,6 +61,19 @@ export interface DesktopDatabaseModuleBridgeInput {
     applyLibrary(
       request: LibraryDatabaseApplyV2,
     ): Promise<LibraryDatabaseApplyResultV2>;
+    getBoardSummary(projectId: string): Promise<BoardSummary>;
+    getDatabaseRowsDetails(
+      projectId: string,
+      input: DatabaseRowsDetailsInput,
+    ): Promise<DatabasePage[]>;
+    getDatabaseRowPage(
+      projectId: string,
+      pageId: string,
+      status?: DatabasePage["status"],
+    ): Promise<DatabasePage | null>;
+    resolveDatabaseViewReference(
+      input: ReadDatabaseViewReferenceInput,
+    ): Promise<DatabaseViewReadModel | null>;
   };
 }
 
@@ -59,7 +88,34 @@ export interface DesktopDatabaseModuleBridge {
   applyLibrary(
     request: LibraryDatabaseApplyV2,
   ): Promise<LibraryDatabaseApplyResultV2>;
+  getBoardSummary(projectId: string): Promise<BoardSummary>;
+  getDatabaseRowsDetails(
+    projectId: string,
+    input: DatabaseRowsDetailsInput,
+  ): Promise<DatabasePage[]>;
+  getDatabaseRowPage(
+    projectId: string,
+    pageId: string,
+    status?: DatabasePage["status"],
+  ): Promise<DatabasePage | null>;
+  resolveDatabaseViewReference(
+    input: ReadDatabaseViewReferenceInput,
+  ): Promise<DatabaseViewReadModel | null>;
 }
+
+const requireQuerySnapshot = async (
+  adapter: CoreDatabaseModuleAdapter,
+  request: DatabaseModuleReadRequestV2,
+) => {
+  const result = await adapter.read(request);
+  if (!result.ok) {
+    throw new Error(
+      `Database Core read failed (${result.error.code}): ${result.error.message}`,
+    );
+  }
+  if (result.value.value.kind === "query") return result.value.value.value;
+  throw new Error("Database Core returned a non-query snapshot");
+};
 
 export const createDesktopDatabaseModuleBridge = (
   input: DesktopDatabaseModuleBridgeInput,
@@ -121,6 +177,123 @@ export const createDesktopDatabaseModuleBridge = (
         return await input.typescript.applyLibrary(request);
       }
       return await libraryAdapterFor(runtime).apply(request);
+    },
+    getBoardSummary: async (projectId) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.getBoardSummary(projectId);
+      }
+      const query = await requireQuerySnapshot(
+        coreAdapterFor(runtime, projectId),
+        {
+          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+          projectId,
+          read: { target: { kind: "project_default" }, mode: "query" },
+        },
+      );
+      return projectBoardSummary(query);
+    },
+    getDatabaseRowsDetails: async (projectId, detailsInput) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.getDatabaseRowsDetails(
+          projectId,
+          detailsInput,
+        );
+      }
+      const pageIds = Array.from(new Set(
+        detailsInput.pageIds.map((pageId) => pageId.trim()).filter(Boolean),
+      ));
+      if (pageIds.length === 0) return [];
+      const query = await requireQuerySnapshot(
+        coreAdapterFor(runtime, projectId),
+        {
+          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+          projectId,
+          read: { target: { kind: "project_default" }, mode: "query" },
+        },
+      );
+      const pagesById = new Map(
+        projectDatabaseQueryPages(query).map((page) => [page.id, page]),
+      );
+      return pageIds.flatMap((pageId) => {
+        const page = pagesById.get(pageId);
+        return page ? [page] : [];
+      });
+    },
+    getDatabaseRowPage: async (projectId, pageId, status) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.getDatabaseRowPage(
+          projectId,
+          pageId,
+          status,
+        );
+      }
+      const result = await coreAdapterFor(runtime, projectId).readPage(pageId);
+      if (!result.ok) {
+        if (
+          result.error.code === "authorization_denied"
+          || result.error.code === "resource_not_found"
+        ) {
+          return null;
+        }
+        throw new Error(
+          `Database Core read failed (${result.error.code}): ${result.error.message}`,
+        );
+      }
+      if (result.value.value.kind !== "data_source_query") {
+        throw new Error("Database Core returned a non-row Page snapshot");
+      }
+      const query = result.value.value.value;
+      const [row] = query.rows;
+      if (!row) return null;
+      if (query.rows.length !== 1 || row.page.pageId !== pageId) {
+        throw new Error("Database Core Page query escaped its requested identity");
+      }
+      const page = projectDatabasePage(row, query.properties);
+      if (status && page.status !== status) return null;
+      return page;
+    },
+    resolveDatabaseViewReference: async (referenceInput) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.resolveDatabaseViewReference(
+          referenceInput,
+        );
+      }
+      let viewId;
+      try {
+        viewId = parseDatabaseViewId(referenceInput.databaseViewId);
+      } catch {
+        return null;
+      }
+      const result = await coreAdapterFor(
+        runtime,
+        referenceInput.requestingProjectId,
+      ).read({
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        projectId: referenceInput.requestingProjectId,
+        read: { target: { kind: "view", viewId }, mode: "query" },
+      });
+      if (!result.ok) {
+        if (
+          result.error.code === "authorization_denied"
+          || result.error.code === "resource_not_found"
+        ) {
+          return null;
+        }
+        throw new Error(
+          `Database Core read failed (${result.error.code}): ${result.error.message}`,
+        );
+      }
+      if (result.value.value.kind !== "query") {
+        throw new Error("Database Core returned a non-query View snapshot");
+      }
+      return projectDatabaseViewReference(
+        result.value.value.value,
+        referenceInput,
+      );
     },
   };
 };

@@ -231,6 +231,19 @@ pub(super) fn read(
                 )?,
             })
         }
+        (DatabaseTarget::Page { page_id }, DatabaseReadMode::Query) => {
+            let data_source_id = data_source_for_page(connection, library_id, page_id)?;
+            let database_id = database_for_source(connection, library_id, &data_source_id)?;
+            authorize_required(
+                connection,
+                project_id,
+                primary_database_id.as_deref(),
+                &database_id,
+            )?;
+            Ok(DatabaseReadValue::DataSourceQuery {
+                value: query_page(connection, library_id, page_id, &data_source_id)?,
+            })
+        }
         _ => Err(invalid("Database target and read mode are incompatible")),
     }
 }
@@ -375,6 +388,23 @@ fn database_for_view(
         )
         .optional()?
         .ok_or_else(|| not_found("Database View is unavailable"))
+}
+
+fn data_source_for_page(
+    connection: &Connection,
+    library_id: &str,
+    page_id: &str,
+) -> Result<String, StoreError> {
+    connection
+        .query_row(
+            "SELECT parent_id FROM pages \
+             WHERE block_id = ?1 AND library_id = ?2 AND parent_kind = 'data_source' \
+               AND lifecycle <> 'deleted'",
+            params![page_id, library_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Database Page is unavailable"))
 }
 
 fn database_descriptor(
@@ -622,6 +652,73 @@ fn query_source(
     }))
 }
 
+fn query_page(
+    connection: &Connection,
+    library_id: &str,
+    page_id: &str,
+    data_source_id: &str,
+) -> Result<Value, StoreError> {
+    let projection = page_data_source_projection(connection, library_id, page_id, data_source_id)?;
+    let view_id = projection
+        .database
+        .get("defaultViewId")
+        .and_then(Value::as_str);
+    let position = view_id
+        .map(|view_id| {
+            connection
+                .query_row(
+                    "SELECT position.group_key, position.rank_key, position.revision, \
+                       (SELECT count(*) FROM database_view_page_positions peer \
+                        WHERE peer.view_id = position.view_id \
+                          AND peer.group_key IS position.group_key \
+                          AND (peer.rank_key < position.rank_key \
+                            OR (peer.rank_key = position.rank_key \
+                              AND peer.page_block_id < position.page_block_id))) \
+                     FROM database_view_page_positions position \
+                     WHERE position.view_id = ?1 AND position.page_block_id = ?2",
+                    params![view_id, page_id],
+                    |row| {
+                        Ok(json!({
+                            "groupKey": row.get::<_, Option<String>>(0)?,
+                            "rankKey": row.get::<_, String>(1)?,
+                            "revision": row.get::<_, i64>(2)?,
+                            "order": row.get::<_, i64>(3)?,
+                        }))
+                    },
+                )
+                .optional()
+                .map_err(StoreError::from)
+        })
+        .transpose()?
+        .flatten();
+    let effective_group_key = position
+        .as_ref()
+        .and_then(|value| value.get("groupKey"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let (body_nfm, intrinsic_properties) = page_database_projection(connection, page_id)?;
+    let row = json!({
+        "page": page_record(connection, page_id)?,
+        "bodyNfm": body_nfm,
+        "intrinsicProperties": intrinsic_properties,
+        "membership": {
+            "membershipId": projection.membership_id,
+            "dataSourceId": projection.data_source_id,
+            "revision": projection.membership_revision,
+            "createdAt": projection.membership_created_at,
+        },
+        "values": projection.values,
+        "position": position,
+        "effectiveGroupKey": effective_group_key,
+    });
+    Ok(json!({
+        "database": projection.database,
+        "dataSource": projection.data_source,
+        "properties": projection.properties,
+        "rows": [row],
+    }))
+}
+
 fn query_rows(
     connection: &Connection,
     data_source_id: &str,
@@ -671,8 +768,11 @@ fn query_rows(
         let position = rank_key.zip(position_revision).map(|(rank_key, revision)| {
             json!({ "groupKey": group_key, "rankKey": rank_key, "revision": revision })
         });
+        let (body_nfm, intrinsic_properties) = page_database_projection(connection, &page_id)?;
         rows.push(json!({
             "page": page_record(connection, &page_id)?,
+            "bodyNfm": body_nfm,
+            "intrinsicProperties": intrinsic_properties,
             "membership": {
                 "membershipId": membership_id,
                 "dataSourceId": data_source_id,
@@ -686,6 +786,43 @@ fn query_rows(
     }
     sort_rows(&mut rows, sort)?;
     Ok(rows)
+}
+
+fn page_database_projection(
+    connection: &Connection,
+    page_id: &str,
+) -> Result<(String, Vec<Value>), StoreError> {
+    let body_nfm = connection
+        .query_row(
+            "SELECT materialization.nfm FROM pages page \
+             JOIN documents document ON document.id = page.document_id \
+             JOIN document_materializations materialization \
+               ON materialization.document_id = document.id \
+               AND materialization.generation = document.generation \
+               AND materialization.projected_seq = document.head_seq \
+               AND materialization.schema_version = document.schema_version \
+             WHERE page.block_id = ?1",
+            [page_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .ok_or_else(|| corrupt("Database Page has no exact-head body projection"))?;
+    let properties = connection
+        .prepare(
+            "SELECT property_key, value_type, value_json, revision \
+             FROM block_properties WHERE block_id = ?1 ORDER BY property_key",
+        )?
+        .query_map([page_id], |row| {
+            let value_json = row.get::<_, String>(2)?;
+            Ok(json!({
+                "key": row.get::<_, String>(0)?,
+                "valueType": row.get::<_, String>(1)?,
+                "value": parse_json(value_json, "Page intrinsic Property")?,
+                "revision": row.get::<_, i64>(3)?,
+            }))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok((body_nfm, properties))
 }
 
 fn read_values(

@@ -35,6 +35,7 @@ import {
   type DataSourceDescriptorV2,
   type DataSourcePageRowV2,
   type DataSourcePageValueV2,
+  type PageIntrinsicPropertyValueV2,
   type DataSourcePropertyRecordV2,
   type DataSourceQueryResultV2,
   type DataSourceRecordV2,
@@ -47,6 +48,7 @@ import {
   type DatabaseViewKind,
 } from "./database-kernel";
 import { parsePage } from "./page";
+import { MAX_PAGE_DESCRIPTION_LENGTH } from "./page-limits";
 
 const MAX_ID_LENGTH = 512;
 const MAX_NAME_LENGTH = 256;
@@ -1217,6 +1219,40 @@ const parsePageValue = (
   };
 };
 
+const parseIntrinsicProperty = (
+  value: unknown,
+  label: string,
+): PageIntrinsicPropertyValueV2 => {
+  const property = readRecord(value, label);
+  assertExactKeys(property, label, ["key", "valueType", "value", "revision"]);
+  return {
+    key: readString(property.key, `${label}.key`),
+    valueType: readString(property.valueType, `${label}.valueType`),
+    value: readJsonValue(property.value, `${label}.value`),
+    revision: readPositiveRevision(property.revision, `${label}.revision`),
+  };
+};
+
+const readPageBodyNfm = (value: unknown, label: string): string => {
+  if (
+    typeof value === "string"
+    && value.length <= MAX_PAGE_DESCRIPTION_LENGTH
+  ) return value;
+  throw new TypeError(`${label} must be a bounded string`);
+};
+
+const parseIntrinsicProperties = (
+  value: unknown,
+  label: string,
+): readonly PageIntrinsicPropertyValueV2[] => {
+  if (!Array.isArray(value)) {
+    throw new TypeError(`${label} must be an array`);
+  }
+  return value.map((entry, index) =>
+    parseIntrinsicProperty(entry, `${label}[${index}]`)
+  );
+};
+
 const parsePageRow = (value: unknown, label: string): DataSourcePageRowV2 => {
   const row = readRecord(value, label);
   assertExactKeys(row, label, [
@@ -1225,7 +1261,7 @@ const parsePageRow = (value: unknown, label: string): DataSourcePageRowV2 => {
     "values",
     "position",
     "effectiveGroupKey",
-  ]);
+  ], ["bodyNfm", "intrinsicProperties"]);
   const page = parsePage(row.page);
   const membership = readRecord(row.membership, `${label}.membership`);
   assertExactKeys(membership, `${label}.membership`, [
@@ -1245,16 +1281,33 @@ const parsePageRow = (value: unknown, label: string): DataSourcePageRowV2 => {
       return [propertyId, parsed] as const;
     }),
   );
+  const bodyNfm = row.bodyNfm === undefined
+    ? undefined
+    : readPageBodyNfm(row.bodyNfm, `${label}.bodyNfm`);
+  const intrinsicProperties = row.intrinsicProperties === undefined
+    ? undefined
+    : parseIntrinsicProperties(
+        row.intrinsicProperties,
+        `${label}.intrinsicProperties`,
+      );
   let position: DataSourcePageRowV2["position"] = null;
   if (row.position !== null) {
     const candidate = readRecord(row.position, `${label}.position`);
-    assertExactKeys(candidate, `${label}.position`, ["groupKey", "rankKey", "revision"]);
+    assertExactKeys(
+      candidate,
+      `${label}.position`,
+      ["groupKey", "rankKey", "revision"],
+      ["order"],
+    );
     position = {
       groupKey: candidate.groupKey === null
         ? null
         : readString(candidate.groupKey, `${label}.position.groupKey`),
       rankKey: readString(candidate.rankKey, `${label}.position.rankKey`),
       revision: readPositiveRevision(candidate.revision, `${label}.position.revision`),
+      ...(candidate.order === undefined
+        ? {}
+        : { order: readRevision(candidate.order, `${label}.position.order`) }),
     };
   }
   return {
@@ -1269,6 +1322,8 @@ const parsePageRow = (value: unknown, label: string): DataSourcePageRowV2 => {
       createdAt: readTimestamp(membership.createdAt, `${label}.membership.createdAt`),
     },
     values,
+    ...(bodyNfm === undefined ? {} : { bodyNfm }),
+    ...(intrinsicProperties === undefined ? {} : { intrinsicProperties }),
     position,
     effectiveGroupKey: row.effectiveGroupKey === null
       ? null

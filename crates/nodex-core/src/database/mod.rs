@@ -438,6 +438,97 @@ mod tests {
         assert_eq!(value["properties"].as_array().map(Vec::len), Some(8));
         assert_eq!(value["rows"][0]["page"]["title"], "Fix sign-in");
         assert_eq!(value["rows"][0]["values"]["status"]["value"], "triage");
+        assert_eq!(value["rows"][0]["bodyNfm"], "");
+        assert!(
+            value["rows"][0]["intrinsicProperties"]
+                .as_array()
+                .is_some_and(|properties| {
+                    properties.iter().any(|property| {
+                        property["key"] == "run.target" && property["value"] == "localProject"
+                    })
+                })
+        );
+
+        let page_row = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::Page {
+                            page_id: "page:database-row".to_owned(),
+                        },
+                        mode: DatabaseReadMode::Query,
+                        filter: None,
+                        sort: None,
+                    },
+                },
+            )
+            .expect("read exact Database Page row");
+        let DatabaseReadValue::DataSourceQuery { value: page_row } = page_row.value else {
+            panic!("Database Page row snapshot");
+        };
+        assert_eq!(page_row["rows"][0]["page"]["pageId"], "page:database-row");
+        assert_eq!(page_row["rows"][0]["position"]["order"], 0);
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "UPDATE blocks SET lifecycle = 'archived' \
+                         WHERE id = 'page:database-row'",
+                        [],
+                    )?;
+                    transaction.execute(
+                        "UPDATE pages SET lifecycle = 'archived' \
+                         WHERE block_id = 'page:database-row'",
+                        [],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("archive Database Page fixture");
+        let archived_row = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::Page {
+                            page_id: "page:database-row".to_owned(),
+                        },
+                        mode: DatabaseReadMode::Query,
+                        filter: None,
+                        sort: None,
+                    },
+                },
+            )
+            .expect("read archived Database Page row");
+        let DatabaseReadValue::DataSourceQuery {
+            value: archived_row,
+        } = archived_row.value
+        else {
+            panic!("archived Database Page row snapshot");
+        };
+        assert_eq!(archived_row["rows"][0]["page"]["lifecycle"], "archived");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "UPDATE blocks SET lifecycle = 'active' \
+                         WHERE id = 'page:database-row'",
+                        [],
+                    )?;
+                    transaction.execute(
+                        "UPDATE pages SET lifecycle = 'active' \
+                         WHERE block_id = 'page:database-row'",
+                        [],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("restore Database Page fixture");
 
         let request = ModuleApplyRequest {
             version: CORE_CONTRACT_VERSION,

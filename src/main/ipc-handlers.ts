@@ -587,7 +587,14 @@ interface RegisterIpcHandlersOptions {
   >;
   databaseModule?: Pick<
     DesktopDatabaseModuleBridge,
-    "read" | "apply" | "readLibrary" | "applyLibrary"
+    | "read"
+    | "apply"
+    | "readLibrary"
+    | "applyLibrary"
+    | "getBoardSummary"
+    | "getDatabaseRowsDetails"
+    | "getDatabaseRowPage"
+    | "resolveDatabaseViewReference"
   >;
   automationModule?: DesktopAutomationModulePort;
   storeAdministration?: DesktopStoreAdministrationPort;
@@ -1070,7 +1077,8 @@ export function registerIpcHandlers(
       ?? resolveProjectScopedPageOwnershipPath(input),
   );
   registerHandle("database-view:reference:get", (_, input) =>
-    readProjectScopedDatabaseViewReference(input),
+    options.databaseModule?.resolveDatabaseViewReference(input)
+      ?? readProjectScopedDatabaseViewReference(input),
   );
   registerHandle(
     "block-document:owned:get",
@@ -2135,7 +2143,9 @@ export function registerIpcHandlers(
   // Board
   registerHandle("board:summary:get", async (_, projectId: string) => {
     const startedAt = performance.now();
-    const board = await boardReadModel.getBoardSummary(projectId);
+    const board = options.databaseModule
+      ? await options.databaseModule.getBoardSummary(projectId)
+      : await boardReadModel.getBoardSummary(projectId);
     ipcPayloadLogger.info("board summary payload served", {
       channel: "board:summary:get",
       projectId,
@@ -2149,7 +2159,9 @@ export function registerIpcHandlers(
   // Database Pages
   registerHandle("database-rows:details:get", async (_, projectId, input) => {
     const startedAt = performance.now();
-    const pages = await boardReadModel.getDatabaseRowsDetails(projectId, input);
+    const pages = options.databaseModule
+      ? await options.databaseModule.getDatabaseRowsDetails(projectId, input)
+      : await boardReadModel.getDatabaseRowsDetails(projectId, input);
     ipcPayloadLogger.info("database row details payload served", {
       channel: "database-rows:details:get",
       projectId,
@@ -2179,11 +2191,17 @@ export function registerIpcHandlers(
   registerHandle(
     "database-row:get",
     (_, projectId: string, pageId: string, status?: string) =>
-      pagesStore.getDatabaseRowPage(
-        projectId,
-        pageId,
-        status as Parameters<typeof pagesStore.getDatabaseRowPage>[2],
-      ),
+      options.databaseModule
+        ? options.databaseModule.getDatabaseRowPage(
+            projectId,
+            pageId,
+            status as Parameters<typeof pagesStore.getDatabaseRowPage>[2],
+          )
+        : pagesStore.getDatabaseRowPage(
+            projectId,
+            pageId,
+            status as Parameters<typeof pagesStore.getDatabaseRowPage>[2],
+          ),
   );
 
   registerHandle(
