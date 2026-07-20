@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
 
+use crate::agent::AgentExecutionAuthorization;
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
 pub const DATABASE_CONTRACT_VERSION: u32 = 2;
@@ -12,10 +13,26 @@ pub const DATABASE_CONTRACT_VERSION: u32 = 2;
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DatabaseTarget {
     ProjectDefault,
-    Database { database_id: String },
-    DataSource { data_source_id: String },
-    View { view_id: String },
-    Page { page_id: String },
+    Database {
+        database_id: String,
+    },
+    DataSource {
+        data_source_id: String,
+    },
+    View {
+        view_id: String,
+    },
+    Page {
+        page_id: String,
+    },
+    AgentDataSource {
+        data_source_id: String,
+        query: Box<DatabaseAgentQuery>,
+    },
+    AgentView {
+        view_id: String,
+        query: Box<DatabaseAgentQuery>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -36,15 +53,39 @@ pub struct DatabaseRead {
     pub sort: Option<Vec<Value>>,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseAgentQuery {
+    pub authorization: AgentExecutionAuthorization,
+    pub cursor: Option<String>,
+    pub limit: Option<u32>,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DatabaseReadValue {
-    Catalog { databases: Vec<Value> },
-    Database { value: Value },
-    DataSource { value: Value },
-    View { value: Value },
-    Query { value: Value },
-    DataSourceQuery { value: Value },
+    Catalog {
+        databases: Vec<Value>,
+    },
+    Database {
+        value: Value,
+    },
+    DataSource {
+        value: Value,
+    },
+    View {
+        value: Value,
+    },
+    Query {
+        value: Value,
+    },
+    DataSourceQuery {
+        value: Value,
+    },
+    AgentQuery {
+        value: Value,
+        next_cursor: Option<String>,
+        has_more: bool,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]

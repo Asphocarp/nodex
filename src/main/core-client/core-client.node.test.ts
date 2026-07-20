@@ -220,6 +220,70 @@ describe("CoreClient over a Unix socket", () => {
           },
         },
       });
+      await client.workspaceApply({
+        operationId: "node-workspace-turn-authority-1",
+        intent: {
+          kind: "freeze_turn_authority",
+          thread_id: "thread:node-integration",
+          turn_id: "turn:node-integration",
+          root_thread_id: "thread:node-integration",
+          actor_project_id: "project:default",
+          source: "project_turn",
+          inherited_from: null,
+        },
+      });
+      const databaseCatalog = await client.databaseRead({
+        target: { kind: "project_default" },
+        mode: "catalog",
+        filter: null,
+        sort: null,
+      });
+      if (databaseCatalog.value.kind !== "catalog") {
+        throw new Error("Expected native Database catalog");
+      }
+      const descriptor = databaseCatalog.value.databases[0] as {
+        readonly dataSources?: readonly [{ readonly dataSourceId?: string }];
+      } | undefined;
+      const dataSourceId = descriptor?.dataSources?.[0]?.dataSourceId;
+      if (!dataSourceId) throw new Error("Default Project has no Data Source");
+      const agentDatabaseQuery = await client.databaseRead({
+        target: {
+          kind: "agent_data_source",
+          data_source_id: dataSourceId,
+          query: {
+            authorization: {
+              provenance: {
+                profile_id: client.handshake.profile_id,
+                authority: {
+                  thread_id: "thread:node-integration",
+                  turn_id: "turn:node-integration",
+                  root_thread_id: "thread:node-integration",
+                  actor_project_id: "project:default",
+                  library_id: client.handshake.library_id,
+                  store_epoch: client.handshake.store_epoch,
+                  scope: "project",
+                  source: "project_turn",
+                },
+              },
+              call_id: "call:node-database-query",
+            },
+            cursor: null,
+            limit: 1,
+          },
+        },
+        mode: "query",
+        filter: null,
+        sort: null,
+      });
+      expect(agentDatabaseQuery.value).toMatchObject({
+        kind: "agent_query",
+        has_more: false,
+        next_cursor: null,
+        value: {
+          dataSource: { dataSourceId },
+          rows: [],
+        },
+      });
       const automationInput = {
         operationId: "node-automation-create-1",
         intent: {

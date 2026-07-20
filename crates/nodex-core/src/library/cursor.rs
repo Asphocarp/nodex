@@ -21,12 +21,12 @@ struct CursorPayload {
     change_log_seq: i64,
 }
 
-pub(super) struct DecodedCursor {
-    pub(super) offset: usize,
-    pub(super) change_log_seq: i64,
+pub(crate) struct DecodedCursor {
+    pub(crate) offset: usize,
+    pub(crate) change_log_seq: i64,
 }
 
-pub(super) fn mint(
+pub(crate) fn mint(
     connection: &Connection,
     library_id: &str,
     subject: &[String],
@@ -53,7 +53,7 @@ pub(super) fn mint(
     Ok(cursor)
 }
 
-pub(super) fn decode(
+pub(crate) fn decode(
     connection: &Connection,
     cursor: &str,
     library_id: &str,

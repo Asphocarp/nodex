@@ -20,11 +20,7 @@ import {
   QueryDatabaseV3OutputSchema,
   SearchV3OutputSchema,
 } from "../../shared/nodex-agent-tools/v3-read-schemas";
-import {
-  DATABASE_MODULE_V2_CONTRACT_VERSION,
-  type DatabaseViewQueryResultV2,
-  type DataSourceQueryResultV2,
-} from "../../shared/database-module-v2";
+import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../shared/database-module-v2";
 import {
   parseDatabaseViewId,
   parseDataSourceId,
@@ -52,6 +48,7 @@ import {
   readPageLocation,
   requirePageStorageContext,
 } from "./page-adapter";
+import { projectNodexAgentQueryV3Data } from "./query-v3-projection";
 
 function readContextV3(
   database: Database.Database,
@@ -499,44 +496,15 @@ function readQueryV3(
       { domainCode: result.error.code },
     );
   }
-  const query: DatabaseViewQueryResultV2 | DataSourceQueryResultV2 =
-    result.value.value.kind === "query"
-      ? result.value.value.value
-      : result.value.value.kind === "data_source_query"
-        ? result.value.value.value
-        : (() => {
-            throw new NodexAgentReadError(
-              "internal_error",
-              "Database Module returned an incompatible query result",
-              false,
-              "none",
-            );
-          })();
-  const selectedPropertyIds = request.input.select?.propertyIds?.map(
-    parseDataSourcePropertyId,
-  );
-  const activeProperties = query.properties.filter(
-    (property) => property.lifecycle === "active",
-  );
-  const propertyById = new Map(
-    activeProperties.map((property) => [property.propertyId, property] as const),
-  );
-  const properties = selectedPropertyIds
-    ? selectedPropertyIds.map((propertyId) => {
-        const property = propertyById.get(propertyId);
-        if (property) return property;
-        throw new NodexAgentReadError(
-          "not_found",
-          `Data Source property ${propertyId} was not found`,
-          false,
-          "none",
-          { resourceId: propertyId, domainCode: "property_not_found" },
-        );
-      })
-    : activeProperties;
-  const selected = new Set<string>(
-    properties.map((property) => property.propertyId),
-  );
+  const query = result.value.value;
+  if (query.kind !== "query" && query.kind !== "data_source_query") {
+    throw new NodexAgentReadError(
+      "internal_error",
+      "Database Module returned an incompatible query result",
+      false,
+      "none",
+    );
+  }
   const resourceId = request.tool === "query_database_view"
     ? request.input.viewId
     : request.input.dataSourceId;
@@ -549,12 +517,12 @@ function readQueryV3(
       },
     }),
     changeLogSeq: result.value.changeLogSeq,
-    dataSourceId: query.dataSource.dataSourceId,
-    schemaRevision: query.dataSource.schemaRevision,
-    ...(result.value.value.kind === "query"
+    dataSourceId: query.value.dataSource.dataSourceId,
+    schemaRevision: query.value.dataSource.schemaRevision,
+    ...(query.kind === "query"
       ? {
-          viewId: result.value.value.value.view.viewId,
-          viewRevision: result.value.value.value.view.revision,
+          viewId: query.value.view.viewId,
+          viewRevision: query.value.view.revision,
         }
       : {}),
   };
@@ -567,50 +535,17 @@ function readQueryV3(
     recovery: "none",
   });
   const limit = request.input.page?.limit ?? 50;
-  const rows = query.rows.slice(offset, offset + limit);
+  const rows = query.value.rows.slice(offset, offset + limit);
   const nextOffset = offset + rows.length;
-  const hasMore = nextOffset < query.rows.length;
+  const hasMore = nextOffset < query.value.rows.length;
+  const pagedQuery = query.kind === "query"
+    ? { kind: query.kind, value: { ...query.value, rows } }
+    : { kind: query.kind, value: { ...query.value, rows } };
   const output = {
-    data: {
-      database: {
-        databaseId: query.database.databaseId,
-        name: query.database.name,
-      },
-      dataSource: {
-        dataSourceId: query.dataSource.dataSourceId,
-        name: query.dataSource.name,
-        properties: properties.map((property) => ({
-          propertyId: property.propertyId,
-          name: property.name,
-          valueType: property.valueType,
-          config: property.config,
-        })),
-      },
-      ...(result.value.value.kind === "query" ? {
-        view: {
-          viewId: result.value.value.value.view.viewId,
-          dataSourceId: result.value.value.value.view.dataSourceId,
-          name: result.value.value.value.view.name,
-          kind: result.value.value.value.view.kind,
-        },
-      } : {}),
-      rows: rows.map((row) => ({
-        pageId: row.page.pageId,
-        title: row.page.title,
-        values: Object.fromEntries(Object.entries(row.values)
-          .filter(([propertyId]) => selected.has(propertyId))
-          .map(([propertyId, value]) => [propertyId, value.value])),
-        ...(result.value.value.kind === "query" && row.position ? {
-          placement: {
-            viewId: result.value.value.value.view.viewId,
-            groupKey: row.position.groupKey,
-          },
-        } : {}),
-        ...(request.input.select?.documentSummary
-          ? { documentSummary: row.page.preview }
-          : {}),
-      })),
-    },
+    data: projectNodexAgentQueryV3Data(
+      pagedQuery,
+      request.input.select,
+    ),
     page: {
       hasMore,
       ...(hasMore ? {

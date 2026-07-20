@@ -81,7 +81,8 @@ impl DatabaseModule {
         let context = context.clone();
         readers
             .read_default(move |connection| {
-                let identity = connection
+                let transaction = connection.unchecked_transaction()?;
+                let identity = transaction
                     .query_row(
                         "SELECT 1 FROM libraries WHERE id = ?1 AND profile_id = ?2",
                         rusqlite::params![library_id, profile_id],
@@ -95,7 +96,7 @@ impl DatabaseModule {
                         false,
                     ));
                 }
-                let store_epoch = connection
+                let store_epoch = transaction
                     .query_row(
                         "SELECT store_epoch FROM block_store_metadata WHERE id = 1",
                         [],
@@ -103,12 +104,19 @@ impl DatabaseModule {
                     )
                     .optional()?
                     .ok_or_else(|| corrupt("Profile store epoch is unavailable"))?;
-                let event_head = connection.query_row(
+                let event_head = transaction.query_row(
                     "SELECT COALESCE(max(seq), 0) FROM change_log",
                     [],
                     |row| row.get::<_, i64>(0),
                 )?;
-                let value = read::read(connection, &library_id, &context, request.read)?;
+                let value = read::read_at_event_head(
+                    &transaction,
+                    &library_id,
+                    event_head,
+                    &context,
+                    request.read,
+                )?;
+                transaction.commit()?;
                 Ok(ModuleReadSnapshot {
                     version: CORE_CONTRACT_VERSION,
                     store_epoch: nodex_core_contracts::StoreEpoch(store_epoch),
@@ -221,10 +229,16 @@ fn corrupt(message: &str) -> StoreError {
 mod tests {
     use std::collections::BTreeMap;
 
+    use nodex_core_contracts::agent::{AgentExecutionAuthorization, AgentTurnProvenance};
     use nodex_core_contracts::database::{
-        DatabaseIntent, DatabaseReadMode, DatabaseTarget, DatabaseTransferTarget,
+        DatabaseAgentQuery, DatabaseIntent, DatabaseReadMode, DatabaseTarget,
+        DatabaseTransferTarget,
     };
     use nodex_core_contracts::library::{LibraryIntent, LibraryWriteParent};
+    use nodex_core_contracts::workspace::{
+        ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch, ProjectWorkspaceTurnAuthority,
+        ProjectWorkspaceTurnAuthorityScope, ProjectWorkspaceTurnAuthoritySource,
+    };
     use nodex_core_contracts::{
         AdapterKind, CoreModuleEventPayload, LibraryId, ModuleApplyRequest, ProfileId, ProjectId,
         StoreEpoch,
@@ -235,6 +249,7 @@ mod tests {
 
     use crate::infrastructure::sqlite::with_immediate_transaction;
     use crate::library::LibraryModule;
+    use crate::workspace::ProjectWorkspaceModule;
 
     use super::*;
 
@@ -329,6 +344,22 @@ mod tests {
                 },
             )
             .expect("create Page");
+        library
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:database-row-page-2".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: "page:database-row-2".to_owned(),
+                        document_id: "document:database-row-2".to_owned(),
+                        title: "Review release".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("create second Page");
         kernel
             .writer()
             .call(|connection| {
@@ -383,11 +414,213 @@ mod tests {
                          WHERE page_block_id = 'page:database-row'",
                         params![DATABASE_ID, VIEW_ID],
                     )?;
+                    transaction.execute(
+                        "DELETE FROM library_block_placements \
+                         WHERE block_id = 'page:database-row-2'",
+                        [],
+                    )?;
+                    transaction.execute(
+                        "DELETE FROM top_level_block_placements \
+                         WHERE block_id = 'page:database-row-2'",
+                        [],
+                    )?;
+                    transaction.execute(
+                        "UPDATE blocks SET location_kind = 'database', \
+                           containing_document_id = NULL, containing_database_id = ?1 \
+                         WHERE id = 'page:database-row-2'",
+                        [DATABASE_ID],
+                    )?;
+                    transaction.execute(
+                        "UPDATE pages SET parent_kind = 'data_source', parent_id = ?1 \
+                         WHERE block_id = 'page:database-row-2'",
+                        [SOURCE_ID],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO data_source_page_memberships(\
+                           id, data_source_id, page_block_id, revision, created_at, removed_at\
+                         ) VALUES ('membership:row-2', ?1, 'page:database-row-2', 1, ?2, NULL)",
+                        params![SOURCE_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "UPDATE page_read_model SET location_kind = 'database', \
+                           containing_document_id = NULL, containing_database_id = ?1, \
+                           top_level_rank_key = NULL, membership_id = 'membership:row-2', \
+                           database_block_id = ?1, view_id = NULL, view_group_key = NULL, \
+                           view_rank_key = NULL, database_values_json = '{}' \
+                         WHERE page_block_id = 'page:database-row-2'",
+                        [DATABASE_ID],
+                    )?;
                     Ok(())
                 })
             })
             .expect("place Database row");
+        let workspace = ProjectWorkspaceModule::new("profile-1", "library-1", &kernel)
+            .expect("Workspace module");
+        workspace
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:database-agent-thread".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: ProjectWorkspaceIntent::UpsertThread {
+                        thread_id: "thread:database-agent".to_owned(),
+                        patch: Box::new(ProjectWorkspaceThreadPatch {
+                            project_id: Some(Some("project-1".to_owned())),
+                            thread_name: Some(Some("Database Agent".to_owned())),
+                            created_at: Some(1),
+                            updated_at: Some(1),
+                            linked_at: Some(NOW.to_owned()),
+                            ..ProjectWorkspaceThreadPatch::default()
+                        }),
+                    },
+                },
+            )
+            .expect("persist Database Agent Thread");
+        workspace
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:database-agent-turn".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: ProjectWorkspaceIntent::FreezeTurnAuthority {
+                        thread_id: "thread:database-agent".to_owned(),
+                        turn_id: "turn:database-agent".to_owned(),
+                        root_thread_id: "thread:database-agent".to_owned(),
+                        actor_project_id: "project-1".to_owned(),
+                        source: ProjectWorkspaceTurnAuthoritySource::ProjectTurn,
+                        inherited_from: None,
+                    },
+                },
+            )
+            .expect("freeze Database Agent Turn");
+        let agent_authorization = AgentExecutionAuthorization {
+            provenance: AgentTurnProvenance {
+                profile_id: "profile-1".to_owned(),
+                authority: ProjectWorkspaceTurnAuthority {
+                    thread_id: "thread:database-agent".to_owned(),
+                    turn_id: "turn:database-agent".to_owned(),
+                    root_thread_id: "thread:database-agent".to_owned(),
+                    actor_project_id: "project-1".to_owned(),
+                    library_id: "library-1".to_owned(),
+                    store_epoch: "epoch-1".to_owned(),
+                    scope: ProjectWorkspaceTurnAuthorityScope::Project,
+                    source: ProjectWorkspaceTurnAuthoritySource::ProjectTurn,
+                },
+            },
+            call_id: "call:database-agent".to_owned(),
+            resource_access: None,
+        };
         let module = DatabaseModule::new("profile-1", "library-1", &kernel);
+
+        let agent_query = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::AgentDataSource {
+                            data_source_id: SOURCE_ID.to_owned(),
+                            query: Box::new(DatabaseAgentQuery {
+                                authorization: agent_authorization.clone(),
+                                cursor: None,
+                                limit: Some(1),
+                            }),
+                        },
+                        mode: DatabaseReadMode::Query,
+                        filter: None,
+                        sort: None,
+                    },
+                },
+            )
+            .expect("query primary Data Source with exact Agent Turn authority");
+        let DatabaseReadValue::AgentQuery {
+            value,
+            next_cursor,
+            has_more,
+        } = agent_query.value
+        else {
+            panic!("Agent Database query snapshot");
+        };
+        assert_eq!(value["rows"][0]["page"]["pageId"], "page:database-row");
+        assert!(has_more);
+        let next_cursor = next_cursor.expect("Agent query has a next cursor");
+        let cursor_before_change = next_cursor.clone();
+        let mut continuation_authorization = agent_authorization.clone();
+        continuation_authorization.call_id = "call:database-agent-next".to_owned();
+        let next_agent_query = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::AgentDataSource {
+                            data_source_id: SOURCE_ID.to_owned(),
+                            query: Box::new(DatabaseAgentQuery {
+                                authorization: continuation_authorization,
+                                cursor: Some(next_cursor),
+                                limit: Some(1),
+                            }),
+                        },
+                        mode: DatabaseReadMode::Query,
+                        filter: None,
+                        sort: None,
+                    },
+                },
+            )
+            .expect("continue exact Agent Database query");
+        let DatabaseReadValue::AgentQuery {
+            value,
+            next_cursor,
+            has_more,
+        } = next_agent_query.value
+        else {
+            panic!("next Agent Database query snapshot");
+        };
+        assert_eq!(value["rows"][0]["page"]["pageId"], "page:database-row-2");
+        assert!(!has_more);
+        assert!(next_cursor.is_none());
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:database-agent-page-2-cleanup".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::TransferPage {
+                        page_id: "page:database-row-2".to_owned(),
+                        expected_parent_revision: 1,
+                        expected_active_membership_revision: 1,
+                        target: DatabaseTransferTarget::Library {
+                            library_id: "library-1".to_owned(),
+                        },
+                    }],
+                },
+            )
+            .expect("remove second Agent query row from the shared fixture");
+        let stale_cursor = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::AgentDataSource {
+                            data_source_id: SOURCE_ID.to_owned(),
+                            query: Box::new(DatabaseAgentQuery {
+                                authorization: agent_authorization,
+                                cursor: Some(cursor_before_change),
+                                limit: Some(1),
+                            }),
+                        },
+                        mode: DatabaseReadMode::Query,
+                        filter: None,
+                        sort: None,
+                    },
+                },
+            )
+            .expect_err("Agent Database cursor is stale after a commit");
+        assert_eq!(stale_cursor.code, CoreErrorCode::RevisionConflict);
 
         let catalog = module
             .read(
@@ -1075,6 +1308,6 @@ mod tests {
                     .map_err(StoreError::from)
             })
             .expect("count Database events");
-        assert_eq!(database_events, 7);
+        assert_eq!(database_events, 8);
     }
 }

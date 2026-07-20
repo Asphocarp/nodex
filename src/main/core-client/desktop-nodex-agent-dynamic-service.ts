@@ -22,6 +22,7 @@ import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import type { DesktopDatabaseModuleBridge } from "./desktop-database-module-bridge";
 import type { DesktopProjectWorkspacePort } from "./project-workspace-adapter";
 import { readNativeFetch } from "./native-nodex-agent-fetch";
+import { readNativeDatabaseQuery } from "./native-nodex-agent-query";
 import { NativeNodexAgentPageUpdateRuntime } from "./native-nodex-agent-page-update";
 
 type ToolError = ToolFailure["error"];
@@ -217,6 +218,9 @@ export function createDesktopNodexAgentV3DynamicService(
           )
         : request.tool === "fetch"
           ? await readNativeFetch(request, runtime)
+          : request.tool === "query_database_view"
+              || request.tool === "query_data_source"
+            ? await readNativeDatabaseQuery(request, runtime)
           : nativeReadFailure(request.tool);
       return envelope(result, request.callId ?? `nodex-agent:${request.tool}`);
     },

@@ -772,6 +772,12 @@ export interface components {
         };
         /** @enum {string} */
         readonly CoreReadiness: "starting" | "ready" | "maintenance" | "draining" | "failed";
+        readonly DatabaseAgentQuery: {
+            readonly authorization: components["schemas"]["AgentExecutionAuthorization"];
+            readonly cursor?: string | null;
+            /** Format: int32 */
+            readonly limit?: number | null;
+        };
         readonly DatabaseApplyRequest: components["schemas"]["ModuleApplyRequest_Vec_DatabaseIntent"];
         readonly DatabaseApplyResponse: components["schemas"]["ResponseEnvelope_CommittedModuleValue_DatabaseCommitValue_DatabaseReceipt"];
         readonly DatabaseEvent: {
@@ -820,6 +826,16 @@ export interface components {
             /** @enum {string} */
             readonly kind: "page";
             readonly page_id: string;
+        } | {
+            readonly data_source_id: string;
+            /** @enum {string} */
+            readonly kind: "agent_data_source";
+            readonly query: components["schemas"]["DatabaseAgentQuery"];
+        } | {
+            /** @enum {string} */
+            readonly kind: "agent_view";
+            readonly query: components["schemas"]["DatabaseAgentQuery"];
+            readonly view_id: string;
         };
         readonly DatabaseTransferTarget: {
             /** @enum {string} */
@@ -3731,6 +3747,12 @@ export interface components {
                 } | {
                     /** @enum {string} */
                     readonly kind: "data_source_query";
+                    readonly value: unknown;
+                } | {
+                    readonly has_more: boolean;
+                    /** @enum {string} */
+                    readonly kind: "agent_query";
+                    readonly next_cursor?: string | null;
                     readonly value: unknown;
                 };
                 /** Format: int32 */

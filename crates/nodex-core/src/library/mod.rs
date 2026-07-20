@@ -98,7 +98,8 @@ impl LibraryModule {
             let context = context.clone();
             return readers
                 .read_default(move |connection| {
-                    let store_epoch = connection
+                    let transaction = connection.unchecked_transaction()?;
+                    let store_epoch = transaction
                         .query_row(
                             "SELECT store_epoch FROM block_store_metadata WHERE id = 1",
                             [],
@@ -112,7 +113,7 @@ impl LibraryModule {
                                 false,
                             )
                         })?;
-                    let event_head = navigation::event_head(connection)?;
+                    let event_head = navigation::event_head(&transaction)?;
                     let value = match request.read {
                         LibraryRead::Metadata => LibraryReadValue::Metadata {
                             profile_id,
@@ -125,7 +126,7 @@ impl LibraryModule {
                             intent,
                         } => LibraryReadValue::BlockTransferPlan {
                             value: Box::new(block_transfer::plan(
-                                connection,
+                                &transaction,
                                 &context,
                                 &library_id,
                                 &operation_id,
@@ -136,7 +137,7 @@ impl LibraryModule {
                         LibraryRead::PageLifecyclePreflight { page_id } => {
                             LibraryReadValue::PageLifecyclePreflight {
                                 value: Box::new(page_lifecycle::read_preflight(
-                                    connection,
+                                    &transaction,
                                     &library_id,
                                     &context,
                                     &page_id,
@@ -150,7 +151,7 @@ impl LibraryModule {
                             task_access,
                         } => LibraryReadValue::AgentResourceAccessPlan {
                             value: Box::new(agent_authorization::plan(
-                                connection,
+                                &transaction,
                                 &context,
                                 &library_id,
                                 &provenance,
@@ -160,7 +161,7 @@ impl LibraryModule {
                             )?),
                         },
                         read => navigation::read(
-                            connection,
+                            &transaction,
                             &library_id,
                             &store_epoch,
                             event_head,
@@ -168,6 +169,7 @@ impl LibraryModule {
                             read,
                         )?,
                     };
+                    transaction.commit()?;
                     Ok(ModuleReadSnapshot {
                         version: CORE_CONTRACT_VERSION,
                         store_epoch: StoreEpoch(store_epoch),
@@ -4246,7 +4248,7 @@ mod tests {
 pub(crate) mod agent_authorization;
 mod block_transfer;
 mod content;
-mod cursor;
+pub(crate) mod cursor;
 mod history;
 pub(crate) use history::require_page_read_access;
 pub(crate) use history::require_page_write_access;

@@ -2592,6 +2592,31 @@
           "failed"
         ]
       },
+      "DatabaseAgentQuery": {
+        "type": "object",
+        "required": [
+          "authorization"
+        ],
+        "properties": {
+          "authorization": {
+            "$ref": "#/components/schemas/AgentExecutionAuthorization"
+          },
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "DatabaseApplyRequest": {
         "$ref": "#/components/schemas/ModuleApplyRequest_Vec_DatabaseIntent"
       },
@@ -2791,6 +2816,50 @@
                 ]
               },
               "page_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data_source_id",
+              "query",
+              "kind"
+            ],
+            "properties": {
+              "data_source_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "agent_data_source"
+                ]
+              },
+              "query": {
+                "$ref": "#/components/schemas/DatabaseAgentQuery"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "view_id",
+              "query",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "agent_view"
+                ]
+              },
+              "query": {
+                "$ref": "#/components/schemas/DatabaseAgentQuery"
+              },
+              "view_id": {
                 "type": "string"
               }
             }
@@ -15333,6 +15402,32 @@
                             "type": "string",
                             "enum": [
                               "data_source_query"
+                            ]
+                          },
+                          "value": {}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "has_more",
+                          "kind"
+                        ],
+                        "properties": {
+                          "has_more": {
+                            "type": "boolean"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "agent_query"
+                            ]
+                          },
+                          "next_cursor": {
+                            "type": [
+                              "string",
+                              "null"
                             ]
                           },
                           "value": {}

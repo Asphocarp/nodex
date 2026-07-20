@@ -2,11 +2,13 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
 use nodex_core_contracts::BoundModuleContext;
+use nodex_core_contracts::agent::{AgentAuthorizationTarget, AgentProjectResourceAction};
 use nodex_core_contracts::database::{
-    DatabaseRead, DatabaseReadMode, DatabaseReadValue, DatabaseTarget,
+    DatabaseAgentQuery, DatabaseRead, DatabaseReadMode, DatabaseReadValue, DatabaseTarget,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
@@ -81,6 +83,20 @@ pub(crate) fn page_data_source_projection(
 pub(crate) fn read(
     connection: &Connection,
     library_id: &str,
+    context: &BoundModuleContext,
+    request: DatabaseRead,
+) -> Result<DatabaseReadValue, StoreError> {
+    let event_head =
+        connection.query_row("SELECT COALESCE(max(seq), 0) FROM change_log", [], |row| {
+            row.get::<_, i64>(0)
+        })?;
+    read_at_event_head(connection, library_id, event_head, context, request)
+}
+
+pub(crate) fn read_at_event_head(
+    connection: &Connection,
+    library_id: &str,
+    event_head: i64,
     context: &BoundModuleContext,
     request: DatabaseRead,
 ) -> Result<DatabaseReadValue, StoreError> {
@@ -244,8 +260,128 @@ pub(crate) fn read(
                 value: query_page(connection, library_id, page_id, &data_source_id)?,
             })
         }
+        (
+            DatabaseTarget::AgentDataSource {
+                data_source_id,
+                query,
+            },
+            DatabaseReadMode::Query,
+        ) => {
+            crate::library::agent_authorization::authorize_execution(
+                connection,
+                context,
+                library_id,
+                &query.authorization,
+                &AgentAuthorizationTarget::DataSource {
+                    data_source_id: data_source_id.clone(),
+                },
+                AgentProjectResourceAction::Read,
+            )?;
+            let value = query_source(
+                connection,
+                library_id,
+                data_source_id,
+                request.filter.as_ref(),
+                request.sort.as_deref(),
+            )?;
+            paginate_agent_query(connection, library_id, event_head, &request, query, value)
+        }
+        (DatabaseTarget::AgentView { view_id, query }, DatabaseReadMode::Query) => {
+            crate::library::agent_authorization::authorize_execution(
+                connection,
+                context,
+                library_id,
+                &query.authorization,
+                &AgentAuthorizationTarget::View {
+                    view_id: view_id.clone(),
+                },
+                AgentProjectResourceAction::Read,
+            )?;
+            let value = query_view(
+                connection,
+                library_id,
+                view_id,
+                request.filter.as_ref(),
+                request.sort.as_deref(),
+            )?;
+            paginate_agent_query(connection, library_id, event_head, &request, query, value)
+        }
         _ => Err(invalid("Database target and read mode are incompatible")),
     }
+}
+
+fn paginate_agent_query(
+    connection: &Connection,
+    library_id: &str,
+    event_head: i64,
+    request: &DatabaseRead,
+    query: &DatabaseAgentQuery,
+    mut value: Value,
+) -> Result<DatabaseReadValue, StoreError> {
+    let limit = usize::try_from(query.limit.unwrap_or(50))
+        .map_err(|_| invalid("Agent Database query limit is invalid"))?;
+    if !(1..=200).contains(&limit) {
+        return Err(invalid(
+            "Agent Database query limit must be between 1 and 200",
+        ));
+    }
+    let target = match &request.target {
+        DatabaseTarget::AgentDataSource { data_source_id, .. } => {
+            ("data_source", data_source_id.as_str())
+        }
+        DatabaseTarget::AgentView { view_id, .. } => ("view", view_id.as_str()),
+        _ => return Err(invalid("Agent Database query target is invalid")),
+    };
+    let fingerprint = serde_json::to_vec(&(
+        "nodex.agent.database.query.v1",
+        target,
+        &request.filter,
+        &request.sort,
+        &query.authorization.provenance.authority.actor_project_id,
+    ))
+    .map_err(|_| invalid("Agent Database query cannot be fingerprinted"))?;
+    let fingerprint = Sha256::digest(fingerprint)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let subject = vec!["agent_database_query".to_owned(), fingerprint];
+    let offset = if let Some(cursor) = query.cursor.as_deref() {
+        let decoded = crate::library::cursor::decode(connection, cursor, library_id, &subject)?;
+        if decoded.change_log_seq != event_head {
+            return Err(StoreError::new(
+                StoreErrorCode::RevisionConflict,
+                "Database changed while Agent query results were being paged",
+                false,
+            ));
+        }
+        decoded.offset
+    } else {
+        0
+    };
+    let rows = value
+        .as_object_mut()
+        .and_then(|object| object.get_mut("rows"))
+        .and_then(Value::as_array_mut)
+        .ok_or_else(|| corrupt("Database query result has no row collection"))?;
+    if offset > rows.len() {
+        return Err(StoreError::new(
+            StoreErrorCode::RevisionConflict,
+            "Agent Database query cursor is outside the current result set",
+            false,
+        ));
+    }
+    let end = offset.saturating_add(limit).min(rows.len());
+    let has_more = end < rows.len();
+    let selected = rows[offset..end].to_vec();
+    *rows = selected;
+    let next_cursor = has_more
+        .then(|| crate::library::cursor::mint(connection, library_id, &subject, end, event_head))
+        .transpose()?;
+    Ok(DatabaseReadValue::AgentQuery {
+        value,
+        next_cursor,
+        has_more,
+    })
 }
 
 fn project_primary_database(

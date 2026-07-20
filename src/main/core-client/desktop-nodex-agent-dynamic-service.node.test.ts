@@ -339,6 +339,94 @@ describe("native desktop Nodex Agent dynamic service", () => {
     expect(unavailable).not.toHaveBeenCalled();
   });
 
+  test("queries native Data Sources with exact Agent authority and Core pagination", async () => {
+    const databaseRead = vi.fn(async () => ({
+      store_epoch: "store-native-agent",
+      event_head: 13,
+      value: {
+        kind: "agent_query" as const,
+        value: {
+          database: {
+            databaseId: "database-native-agent",
+            libraryId: "library-native-agent",
+            name: "Tasks",
+            lifecycle: "active",
+            defaultViewId: null,
+            accessRevision: 1,
+            metadataRevision: 1,
+            createdAt: "2026-07-20T00:00:00.000Z",
+            updatedAt: "2026-07-20T00:00:00.000Z",
+          },
+          dataSource: {
+            dataSourceId: "data-source-native-agent",
+            libraryId: "library-native-agent",
+            homeDatabaseId: "database-native-agent",
+            name: "Tasks",
+            schemaKey: "nodex.data-source",
+            schemaRevision: 4,
+            lifecycle: "active",
+            rankKey: "a",
+            createdAt: "2026-07-20T00:00:00.000Z",
+            updatedAt: "2026-07-20T00:00:00.000Z",
+          },
+          properties: [],
+          rows: [],
+        },
+        has_more: true,
+        next_cursor: "nxl1.query.signature",
+      },
+    }));
+    const runtime = {
+      backend: "rust" as const,
+      rootClient: {
+        handshake: { profile_id: "profile-native-agent" },
+      },
+      clientForProject: () => ({ databaseRead }),
+    } as unknown as Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>;
+    const service = createDesktopNodexAgentV3DynamicService({
+      authority: Promise.resolve(runtime),
+      projectWorkspace: {} as DesktopProjectWorkspacePort,
+      databaseModule: {} as DesktopDatabaseModuleBridge,
+      typescript,
+    });
+
+    const result = await service.registry.execute({
+      namespace: NODEX_APP_TOOL_NAMESPACE,
+      toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+      tool: "query_data_source",
+    }, {
+      dataSourceId: "data-source-native-agent",
+      page: { limit: 25 },
+    }, context);
+
+    expect(result.output).toMatchObject({
+      data: {
+        database: { databaseId: "database-native-agent", name: "Tasks" },
+        dataSource: {
+          dataSourceId: "data-source-native-agent",
+          name: "Tasks",
+          properties: [],
+        },
+        rows: [],
+      },
+      page: { hasMore: true, nextCursor: "nxl1.query.signature" },
+    });
+    expect(databaseRead).toHaveBeenCalledWith(expect.objectContaining({
+      target: expect.objectContaining({
+        kind: "agent_data_source",
+        data_source_id: "data-source-native-agent",
+        query: expect.objectContaining({
+          authorization: expect.objectContaining({
+            call_id: "call-native-agent",
+          }),
+          limit: 25,
+        }),
+      }),
+      mode: "query",
+    }));
+    expect(unavailable).not.toHaveBeenCalled();
+  });
+
   test("commits exact Page patches through prepared native Document authority", async () => {
     let committed = false;
     let preparation = 0;
