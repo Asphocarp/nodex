@@ -14,6 +14,7 @@ import type {
 } from "../agent-tools/dynamic-service-v3";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import type { DesktopDatabaseModuleBridge } from "./desktop-database-module-bridge";
+import type { DesktopDocumentSyncPort } from "./desktop-document-sync-bridge";
 import { createDesktopNodexAgentV3DynamicService } from "./desktop-nodex-agent-dynamic-service";
 import { NativeNodexAgentPageUpdateRuntime } from "./native-nodex-agent-page-update";
 import type { DesktopProjectWorkspacePort } from "./project-workspace-adapter";
@@ -38,6 +39,12 @@ const typescript = {
     executeNodexAgentMovePages: unavailable,
   } as unknown as NodexAgentV3DocumentHub,
 };
+
+const documentSync = {
+  coordinateNodexAgentLeasedMutation: async (options: {
+    readonly execute: () => Promise<unknown>;
+  }) => await options.execute(),
+} as unknown as Pick<DesktopDocumentSyncPort, "coordinateNodexAgentLeasedMutation">;
 
 const context = {
   threadId: "thread-native-agent",
@@ -117,6 +124,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
       databaseModule: {
         read: readDatabase,
       } as unknown as DesktopDatabaseModuleBridge,
+      documentSync,
       typescript,
     });
 
@@ -154,6 +162,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
       authority: Promise.resolve({ backend: "rust" } as DesktopDataAuthorityRuntime),
       projectWorkspace: {} as DesktopProjectWorkspacePort,
       databaseModule: {} as DesktopDatabaseModuleBridge,
+      documentSync,
       typescript,
     });
 
@@ -173,6 +182,219 @@ describe("native desktop Nodex Agent dynamic service", () => {
         },
       },
     });
+    expect(unavailable).not.toHaveBeenCalled();
+  });
+
+  test("duplicates a Page through Core only after coordinating its exact Document lease", async () => {
+    let preparationCount = 0;
+    const libraryRead = vi.fn(async (read: Record<string, unknown>) => {
+      expect(read).toMatchObject({
+        kind: "prepare_agent_page_copy",
+        store_epoch: "store-native-agent",
+        request: {
+          source_page_id: "page-copy-source",
+          destination: {
+            kind: "page",
+            page_id: "page-copy-target",
+            at: { kind: "before", block_id: "block-copy-anchor" },
+          },
+          include_block_map: true,
+          include_etags: true,
+        },
+        authorization: {
+          call_id: "call-native-agent",
+          provenance: {
+            profile_id: "profile-native-agent",
+          },
+        },
+      });
+      preparationCount += 1;
+      return {
+        store_epoch: "store-native-agent",
+        event_sequence: 20,
+        value: {
+          kind: "agent_page_copy_preparation" as const,
+          value: {
+            preparation: {
+              state: "prepared" as const,
+              consent: "none" as const,
+              token: `copy-token-${preparationCount}`,
+              expires_at_unix_ms: Date.now() + 30_000,
+              footprint: {
+                effect_class: "write" as const,
+                targets: [],
+                created_roots: ["page-copy-result"],
+                updated_roots: [],
+                deleted_roots: [],
+                deleted_owner_roots: [],
+                ownership_transformations: [],
+              },
+            },
+            page_id: "page-copy-result",
+            body_block_count: 2,
+            document_heads: [{
+              document_id: "document-copy-source",
+              generation: 1,
+              expected_head_seq: 5,
+            }, {
+              document_id: "document-copy-child",
+              generation: 1,
+              expected_head_seq: 2,
+            }, {
+              document_id: "document-copy-target",
+              generation: 3,
+              expected_head_seq: 8,
+            }],
+            destination: {
+              kind: "page" as const,
+              page_id: "page-copy-target",
+              expected_document_generation: 3,
+              expected_document_head_seq: 8,
+              before: {
+                block_id: "block-copy-anchor",
+                expected_location_revision: 4,
+              },
+            },
+            destination_document: {
+              document_id: "document-copy-target",
+              generation: 3,
+              expected_head_seq: 8,
+            },
+            destination_database_id: null,
+            destination_project_id: "project-native-agent",
+            committed: null,
+          },
+        },
+      };
+    });
+    const libraryApply = vi.fn(async (request: {
+      readonly operationId: string;
+      readonly intent: {
+        readonly authorization: { readonly token?: string | null };
+      };
+    }) => {
+      expect(request.operationId).toMatch(/^nodex-agent-duplicate:/u);
+      expect(request.intent.authorization.token).toBe("copy-token-2");
+      return {
+        store_epoch: "store-native-agent",
+        event_sequence: 21,
+        receipt: {
+          operation_id: request.operationId,
+          duplicate: false,
+        },
+        value: {
+          agent_page_copy: {
+            source_page_id: "page-copy-source",
+            page_id: "page-copy-result",
+            location: { kind: "page" as const, page_id: "page-copy-target" },
+            body_blocks_created: 2,
+            block_map: {
+              "page-copy-source": "page-copy-result",
+              "block-copy-source": "block-copy-result",
+            },
+            etags: {
+              title: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              body: "nxe1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+            },
+            document_commits: [{
+              document_id: "document-copy-target",
+              generation: 3,
+              base_head_seq: 8,
+              head_seq: 9,
+              update_id: "update-copy-target",
+              update: [1, 2, 3],
+              state_vector: [4, 5],
+            }],
+            affected_database_ids: [],
+          },
+        },
+      };
+    });
+    const coordinate = vi.fn(async (options: {
+      readonly projectId: string;
+      readonly storeEpoch: string;
+      readonly leaseDocuments: readonly {
+        readonly documentId: string;
+        readonly generation: number;
+        readonly expectedHeadSeq: number;
+      }[];
+      readonly execute: () => Promise<unknown>;
+    }) => {
+      expect(options.projectId).toBe("project-native-agent");
+      expect(options.storeEpoch).toBe("store-native-agent");
+      expect(options.leaseDocuments).toEqual([{
+        documentId: "document-copy-source",
+        generation: 1,
+        expectedHeadSeq: 5,
+      }, {
+        documentId: "document-copy-child",
+        generation: 1,
+        expectedHeadSeq: 2,
+      }, {
+        documentId: "document-copy-target",
+        generation: 3,
+        expectedHeadSeq: 8,
+      }]);
+      expect(libraryApply).not.toHaveBeenCalled();
+      return await options.execute();
+    });
+    const runtime = {
+      backend: "rust" as const,
+      rootClient: {
+        handshake: {
+          profile_id: "profile-native-agent",
+          library_id: "library-native-agent",
+          store_epoch: "store-native-agent",
+        },
+      },
+      clientForProject: () => ({ libraryRead, libraryApply }),
+    } as unknown as Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>;
+    const service = createDesktopNodexAgentV3DynamicService({
+      authority: Promise.resolve(runtime),
+      projectWorkspace: {} as DesktopProjectWorkspacePort,
+      databaseModule: {} as DesktopDatabaseModuleBridge,
+      documentSync: {
+        coordinateNodexAgentLeasedMutation: coordinate,
+      } as unknown as Pick<DesktopDocumentSyncPort, "coordinateNodexAgentLeasedMutation">,
+      typescript,
+    });
+
+    const result = await service.registry.execute({
+      namespace: NODEX_APP_TOOL_NAMESPACE,
+      toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+      tool: "duplicate_page",
+    }, {
+      pageId: "page-copy-source",
+      destination: {
+        kind: "page",
+        pageId: "page-copy-target",
+        at: { kind: "before", blockId: "block-copy-anchor" },
+      },
+      return: ["block_map", "etags"],
+    }, context);
+
+    expect(result).toMatchObject({
+      effect: "write",
+      output: {
+        data: {
+          sourcePageId: "page-copy-source",
+          pageId: "page-copy-result",
+          location: { kind: "page", pageId: "page-copy-target" },
+          bodyBlocksCreated: 2,
+          blockMap: {
+            "page-copy-source": "page-copy-result",
+            "block-copy-source": "block-copy-result",
+          },
+          etags: {
+            title: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            body: "nxe1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+          },
+        },
+      },
+    });
+    expect(libraryRead).toHaveBeenCalledTimes(2);
+    expect(coordinate).toHaveBeenCalledOnce();
+    expect(libraryApply).toHaveBeenCalledOnce();
     expect(unavailable).not.toHaveBeenCalled();
   });
 
@@ -211,6 +433,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
       authority: Promise.resolve(runtime),
       projectWorkspace: {} as DesktopProjectWorkspacePort,
       databaseModule: {} as DesktopDatabaseModuleBridge,
+      documentSync,
       typescript,
     });
 
@@ -374,6 +597,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
       authority: Promise.resolve(runtime),
       projectWorkspace: {} as DesktopProjectWorkspacePort,
       databaseModule: {} as DesktopDatabaseModuleBridge,
+      documentSync,
       typescript,
     });
 
@@ -474,6 +698,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
       authority: Promise.resolve(runtime),
       projectWorkspace: {} as DesktopProjectWorkspacePort,
       databaseModule: {} as DesktopDatabaseModuleBridge,
+      documentSync,
       typescript,
     });
 
@@ -633,6 +858,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
       authority: Promise.resolve(runtime),
       projectWorkspace: {} as DesktopProjectWorkspacePort,
       databaseModule: {} as DesktopDatabaseModuleBridge,
+      documentSync,
       typescript,
     });
 

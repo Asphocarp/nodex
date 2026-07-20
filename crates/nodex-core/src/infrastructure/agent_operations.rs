@@ -14,6 +14,7 @@ const DEFAULT_MAX_OPERATIONS_PER_CONNECTION: usize = 32;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PreparedAgentOperationBinding {
     pub connection_id: String,
+    pub operation_id: String,
     pub request_hash: String,
     pub authority_revisions_hash: String,
     pub footprint_hash: String,
@@ -88,14 +89,35 @@ impl PreparedAgentOperationRegistry {
         let now = Instant::now();
         let mut state = self.lock()?;
         prune_expired(&mut state, now);
-        if state.records.len() >= self.max_operations {
+        let superseded = state
+            .records
+            .iter()
+            .filter_map(|(token_hash, record)| {
+                (record.binding.connection_id == binding.connection_id
+                    && record.binding.operation_id == binding.operation_id)
+                    .then_some((token_hash.clone(), record.state))
+            })
+            .collect::<Vec<_>>();
+        if superseded
+            .iter()
+            .any(|(_, record_state)| matches!(record_state, PreparedRecordState::InFlight(_)))
+        {
+            return Err(StoreError::new(
+                StoreErrorCode::RevisionConflict,
+                "Prepared Agent operation is already executing",
+                true,
+            ));
+        }
+        let retained_count = state.records.len().saturating_sub(superseded.len());
+        if retained_count >= self.max_operations {
             return Err(exhausted("Prepared Agent operation capacity is exhausted"));
         }
         let connection_count = state
             .records
             .values()
             .filter(|record| record.binding.connection_id == binding.connection_id)
-            .count();
+            .count()
+            .saturating_sub(superseded.len());
         if connection_count >= self.max_operations_per_connection {
             return Err(exhausted(
                 "Prepared Agent operation capacity for this connection is exhausted",
@@ -132,6 +154,9 @@ impl PreparedAgentOperationRegistry {
                     false,
                 )
             })?;
+        for (superseded_hash, _) in superseded {
+            state.records.remove(&superseded_hash);
+        }
         state.records.insert(
             token_hash,
             PreparedRecord {
@@ -304,6 +329,7 @@ mod tests {
     fn binding(connection_id: &str, suffix: &str) -> PreparedAgentOperationBinding {
         PreparedAgentOperationBinding {
             connection_id: connection_id.to_owned(),
+            operation_id: format!("operation:{suffix}"),
             request_hash: format!("request:{suffix}"),
             authority_revisions_hash: format!("revisions:{suffix}"),
             footprint_hash: format!("footprint:{suffix}"),
@@ -343,6 +369,26 @@ mod tests {
         registry
             .acquire(&issued.token, &expected)
             .expect("released token can retry");
+    }
+
+    #[test]
+    fn repreparation_supersedes_the_previous_ready_token_for_one_operation() {
+        let registry = PreparedAgentOperationRegistry::new();
+        let first_binding = binding("connection:a", "a");
+        let first = registry
+            .issue(first_binding.clone())
+            .expect("issue first token");
+        let mut refreshed_binding = first_binding.clone();
+        refreshed_binding.request_hash = "request:refreshed".to_owned();
+        let refreshed = registry
+            .issue(refreshed_binding.clone())
+            .expect("refresh preparation");
+
+        assert_eq!(registry.active_count().expect("active preparation"), 1);
+        assert!(registry.acquire(&first.token, &first_binding).is_err());
+        registry
+            .acquire(&refreshed.token, &refreshed_binding)
+            .expect("acquire refreshed token");
     }
 
     #[test]

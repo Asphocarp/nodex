@@ -1040,6 +1040,7 @@ describe("Electron native data authority", () => {
         authority: Promise.resolve(runtime),
         projectWorkspace: desktopWorkspace,
         databaseModule: desktopDatabase,
+        documentSync: desktopDocuments,
         typescript: {
           writer: {} as never,
           documentHub: {} as never,
@@ -1067,7 +1068,11 @@ describe("Electron native data authority", () => {
         access: {
           read: "allowed",
           write: "consent_required",
-          domains: ["document", "placement", "database"],
+          domains: ["document", "placement", "database"] as (
+            | "document"
+            | "placement"
+            | "database"
+          )[],
         },
         resolveResourceAccess: async () => ({ kind: "authorized" }),
         authorize: async () => "deny",
@@ -2243,6 +2248,65 @@ describe("Electron native data authority", () => {
           action: "write",
         }],
       })).resolves.toEqual({ kind: "authorized" });
+      const nativeDuplicateContext = {
+        threadId: frozenAuthority.threadId,
+        callId: "call:electron-native-duplicate",
+        authority: frozenAuthority,
+        access: {
+          read: "allowed" as const,
+          write: "consent_required" as const,
+          domains: ["document", "placement", "database"] as (
+            | "document"
+            | "placement"
+            | "database"
+          )[],
+        },
+        resolveResourceAccess: async (
+          intents: Parameters<typeof agentResources.plan>[0]["intents"],
+        ) => await agentResources.plan({
+          authority: frozenAuthority,
+          callId: "call:electron-native-duplicate",
+          intents,
+        }),
+        authorize: async () => "deny" as const,
+      };
+      const nativeDuplicateInput = {
+        pageId: copiedDataSourcePageId,
+        destination: {
+          kind: "page" as const,
+          pageId: copiedDataSourcePageId,
+          at: { kind: "end" as const },
+        },
+        return: ["block_map" as const, "etags" as const],
+      };
+      const nativeDuplicate = await nativeAgentService.registry.execute({
+        namespace: NODEX_APP_TOOL_NAMESPACE,
+        toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+        tool: "duplicate_page",
+      }, nativeDuplicateInput, nativeDuplicateContext);
+      expect(nativeDuplicate).toMatchObject({
+        effect: "write",
+        output: {
+          data: {
+            sourcePageId: copiedDataSourcePageId,
+            pageId: expect.any(String),
+            location: { kind: "page", pageId: copiedDataSourcePageId },
+            bodyBlocksCreated: expect.any(Number),
+            blockMap: expect.objectContaining({
+              [copiedDataSourcePageId]: expect.any(String),
+            }),
+            etags: {
+              title: expect.stringMatching(/^nxe1\./u),
+              body: expect.stringMatching(/^nxe1\./u),
+            },
+          },
+        },
+      });
+      await expect(nativeAgentService.registry.execute({
+        namespace: NODEX_APP_TOOL_NAMESPACE,
+        toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+        tool: "duplicate_page",
+      }, nativeDuplicateInput, nativeDuplicateContext)).resolves.toEqual(nativeDuplicate);
       await workspace.setProjectPinned(projectId, { pinned: true });
       await workspace.setProjectPinned(createdProject.id, { pinned: true });
       const pinnedOrder = [createdProject.id, projectId];

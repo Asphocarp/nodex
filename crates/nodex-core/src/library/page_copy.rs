@@ -10,7 +10,9 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::database::{
     PageCopyDataSourceDestination, PageCopyPositionAnchor, PageCopyValueDraft,
-    PageCopyViewPlacement, place_copied_page_in_data_source, resolve_page_copy_data_source_project,
+    PageCopyViewPlacement, place_copied_page_in_data_source,
+    place_copied_page_in_data_source_prevalidated, resolve_page_copy_data_source_project,
+    resolve_page_copy_data_source_project_prevalidated,
 };
 use crate::document::{
     BlockDocumentSchema, DocumentMaterialization, PersistYjsGenesis, clone_canvas_genesis,
@@ -69,6 +71,13 @@ struct CopyPlan {
     block_ids: BTreeMap<String, String>,
     document_ids: BTreeMap<String, String>,
     documents: Vec<CopyDocument>,
+}
+
+pub(super) struct PageCopyPlanPreview {
+    pub(super) page_id: String,
+    pub(super) block_ids: BTreeMap<String, String>,
+    pub(super) document_heads: Vec<LibraryBlockTransferDocumentHead>,
+    pub(super) body_block_count: u32,
 }
 
 pub(super) struct PageCopyExecution {
@@ -211,6 +220,7 @@ pub(super) fn copy_page(
         expected_document_head_seq,
         destination,
         PageCopyParentDocumentMode::Commit,
+        false,
         assets_root,
     )?;
     finish_mutation(
@@ -238,6 +248,7 @@ pub(super) fn copy_page(
             block_transfer: None,
             page_lifecycle: None,
             block_property_mutation: None,
+            agent_page_copy: None,
             change_payload: None,
             committed_at: execution.committed_at,
         },
@@ -259,6 +270,7 @@ pub(super) fn execute_page_copy(
     expected_document_head_seq: i64,
     destination: &LibraryPageCopyDestination,
     parent_document_mode: PageCopyParentDocumentMode,
+    access_prevalidated: bool,
     assets_root: &Path,
 ) -> Result<PageCopyExecution, StoreError> {
     let requesting_project_id = context
@@ -266,12 +278,14 @@ pub(super) fn execute_page_copy(
         .as_ref()
         .map(|project_id| project_id.0.as_str())
         .ok_or_else(|| unauthorized("Page copy requires a bound Project"))?;
-    super::history::require_page_read_access(
-        connection,
-        library_id,
-        requesting_project_id,
-        source_page_id,
-    )?;
+    if !access_prevalidated {
+        super::history::require_page_read_access(
+            connection,
+            library_id,
+            requesting_project_id,
+            source_page_id,
+        )?;
+    }
     let source = connection
         .query_row(
             "SELECT block.project_id, block.lifecycle, block.location_revision, \
@@ -315,8 +329,16 @@ pub(super) fn execute_page_copy(
 
     let parent = write_parent(destination)?;
     let data_source_destination = data_source_destination(destination);
-    let mut resolved_parent =
-        resolve_write_parent(connection, library_id, requesting_project_id, &parent)?;
+    let mut resolved_parent = if access_prevalidated {
+        super::mutation::resolve_write_parent_prevalidated(
+            connection,
+            library_id,
+            requesting_project_id,
+            &parent,
+        )?
+    } else {
+        resolve_write_parent(connection, library_id, requesting_project_id, &parent)?
+    };
     if matches!(parent_document_mode, PageCopyParentDocumentMode::Defer)
         && resolved_parent.document.is_none()
     {
@@ -325,13 +347,23 @@ pub(super) fn execute_page_copy(
         ));
     }
     if let Some(destination) = &data_source_destination {
-        resolved_parent.project_id = resolve_page_copy_data_source_project(
-            connection,
-            library_id,
-            requesting_project_id,
-            &destination.data_source_id,
-            destination.expected_data_source_revision,
-        )?;
+        resolved_parent.project_id = if access_prevalidated {
+            resolve_page_copy_data_source_project_prevalidated(
+                connection,
+                library_id,
+                requesting_project_id,
+                &destination.data_source_id,
+                destination.expected_data_source_revision,
+            )?
+        } else {
+            resolve_page_copy_data_source_project(
+                connection,
+                library_id,
+                requesting_project_id,
+                &destination.data_source_id,
+                destination.expected_data_source_revision,
+            )?
+        };
         resolved_parent.parent_key = format!("data_source:{}", destination.data_source_id);
     }
     let plan = build_copy_plan(
@@ -379,15 +411,27 @@ pub(super) fn execute_page_copy(
     let data_source_placement = data_source_destination
         .as_ref()
         .map(|destination| {
-            place_copied_page_in_data_source(
-                connection,
-                library_id,
-                requesting_project_id,
-                source_page_id,
-                &target_page_id,
-                destination,
-                &now,
-            )
+            if access_prevalidated {
+                place_copied_page_in_data_source_prevalidated(
+                    connection,
+                    library_id,
+                    requesting_project_id,
+                    source_page_id,
+                    &target_page_id,
+                    destination,
+                    &now,
+                )
+            } else {
+                place_copied_page_in_data_source(
+                    connection,
+                    library_id,
+                    requesting_project_id,
+                    source_page_id,
+                    &target_page_id,
+                    destination,
+                    &now,
+                )
+            }
         })
         .transpose()?;
     if data_source_placement.is_none() {
@@ -1152,6 +1196,58 @@ fn build_copy_plan(
     })
 }
 
+pub(super) fn preview_page_copy(
+    connection: &Connection,
+    operation_id: &str,
+    source_project_id: &str,
+    source_page_id: &str,
+    source_document_id: &str,
+) -> Result<PageCopyPlanPreview, StoreError> {
+    let plan = build_copy_plan(
+        connection,
+        operation_id,
+        source_project_id,
+        source_page_id,
+        source_document_id,
+        None,
+    )?;
+    let page_id = plan
+        .block_ids
+        .get(source_page_id)
+        .cloned()
+        .ok_or_else(|| corrupt("Page copy omitted its root identity"))?;
+    let body_block_count = plan
+        .documents
+        .iter()
+        .find(|document| document.source_owner_id == source_page_id)
+        .and_then(|document| match &document.body {
+            CopyDocumentBody::Yjs {
+                materialization, ..
+            } => Some(flatten_blocks(&materialization.block_tree).len()),
+            CopyDocumentBody::Canvas => None,
+        })
+        .ok_or_else(|| corrupt("Page copy root materialization is unavailable"))?;
+    let body_block_count = u32::try_from(body_block_count)
+        .map_err(|_| invalid("Page copy body exceeds its public count bound"))?;
+    let mut document_heads = plan
+        .documents
+        .iter()
+        .map(|document| LibraryBlockTransferDocumentHead {
+            document_id: document.source_document_id.clone(),
+            generation: document.source_generation,
+            expected_head_seq: document.source_head_seq,
+        })
+        .collect::<Vec<_>>();
+    document_heads.sort_by(|left, right| left.document_id.cmp(&right.document_id));
+    document_heads.dedup_by(|left, right| left.document_id == right.document_id);
+    Ok(PageCopyPlanPreview {
+        page_id,
+        block_ids: plan.block_ids,
+        document_heads,
+        body_block_count,
+    })
+}
+
 pub(super) fn page_copy_closure_document_heads(
     connection: &Connection,
     operation_id: &str,
@@ -1509,11 +1605,22 @@ fn internal(message: impl Into<String>) -> StoreError {
 
 #[cfg(test)]
 mod tests {
+    use nodex_core_contracts::agent::{
+        AgentExecutionAuthorization, AgentOperationPreparationState, AgentPreparedExecution,
+        AgentProjectResourceAccess, AgentResourceAccessOverlay, AgentResourceAccessOverlayKind,
+        AgentResourceAccessOverlayScope, AgentResourceGrantRoot, AgentResourceGrantSpec,
+        AgentTurnProvenance,
+    };
     use nodex_core_contracts::document::{DocumentOwnerCommand, OwnedDocumentIntent};
     use nodex_core_contracts::library::{
-        LibraryAccess, LibraryIntent, LibraryNavigationNode, LibraryNavigationParent,
-        LibraryPageCopyDestination, LibraryPageCopyValue, LibraryPageCopyViewPlacement,
-        LibraryRead, LibraryReadValue, LibraryResourceTarget, LibraryWriteParent,
+        LibraryAccess, LibraryAgentPageCopyRequest, LibraryAgentPageDestination, LibraryIntent,
+        LibraryNavigationNode, LibraryNavigationParent, LibraryPageCopyDestination,
+        LibraryPageCopyValue, LibraryPageCopyViewPlacement, LibraryRead, LibraryReadValue,
+        LibraryResourceTarget, LibraryWriteParent,
+    };
+    use nodex_core_contracts::workspace::{
+        ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch, ProjectWorkspaceTurnAuthority,
+        ProjectWorkspaceTurnAuthorityScope, ProjectWorkspaceTurnAuthoritySource,
     };
     use nodex_core_contracts::{
         AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CoreErrorCode, LibraryId,
@@ -1525,6 +1632,7 @@ mod tests {
     use crate::infrastructure::sqlite::with_immediate_transaction;
     use crate::infrastructure::store::SqliteStoreKernel;
     use crate::library::LibraryModule;
+    use crate::workspace::ProjectWorkspaceModule;
 
     use super::*;
 
@@ -1666,6 +1774,307 @@ mod tests {
                 },
             )
             .expect("create target Database");
+    }
+
+    #[test]
+    fn agent_page_copy_prepares_without_mutation_and_executes_once_under_exact_authority() {
+        let (_directory, kernel) = seeded_kernel();
+        let module = LibraryModule::new("profile-1", "library-1", &kernel);
+        create_page(
+            &module,
+            "operation:create-agent-source",
+            "page:agent-source",
+            "document:agent-source",
+            "Agent source",
+            LibraryWriteParent::Library { before: None },
+        );
+        create_page(
+            &module,
+            "operation:create-agent-child",
+            "page:agent-child",
+            "document:agent-child",
+            "Agent child",
+            LibraryWriteParent::Page {
+                page_id: "page:agent-source".to_owned(),
+                expected_document_generation: 1,
+                expected_document_head_seq: 1,
+                before: None,
+            },
+        );
+        create_page(
+            &module,
+            "operation:create-agent-target",
+            "page:agent-target",
+            "document:agent-target",
+            "Agent target",
+            LibraryWriteParent::Library { before: None },
+        );
+
+        let workspace = ProjectWorkspaceModule::new("profile-1", "library-1", &kernel)
+            .expect("Workspace module");
+        workspace
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:create-agent-thread".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: ProjectWorkspaceIntent::UpsertThread {
+                        thread_id: "thread:agent-copy".to_owned(),
+                        patch: Box::new(ProjectWorkspaceThreadPatch {
+                            project_id: Some(Some("project-1".to_owned())),
+                            thread_name: Some(Some("Agent copy".to_owned())),
+                            created_at: Some(100),
+                            updated_at: Some(100),
+                            linked_at: Some(NOW.to_owned()),
+                            ..ProjectWorkspaceThreadPatch::default()
+                        }),
+                    },
+                },
+            )
+            .expect("persist Agent Thread");
+        workspace
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:freeze-agent-copy-turn".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: ProjectWorkspaceIntent::FreezeTurnAuthority {
+                        thread_id: "thread:agent-copy".to_owned(),
+                        turn_id: "turn:agent-copy".to_owned(),
+                        root_thread_id: "thread:agent-copy".to_owned(),
+                        actor_project_id: "project-1".to_owned(),
+                        source: ProjectWorkspaceTurnAuthoritySource::ProjectTurn,
+                        inherited_from: None,
+                    },
+                },
+            )
+            .expect("freeze Agent copy Turn");
+
+        let authority = ProjectWorkspaceTurnAuthority {
+            thread_id: "thread:agent-copy".to_owned(),
+            turn_id: "turn:agent-copy".to_owned(),
+            root_thread_id: "thread:agent-copy".to_owned(),
+            actor_project_id: "project-1".to_owned(),
+            library_id: "library-1".to_owned(),
+            store_epoch: "epoch-1".to_owned(),
+            scope: ProjectWorkspaceTurnAuthorityScope::Project,
+            source: ProjectWorkspaceTurnAuthoritySource::ProjectTurn,
+        };
+        let authorization = AgentExecutionAuthorization {
+            provenance: AgentTurnProvenance {
+                profile_id: "profile-1".to_owned(),
+                authority: authority.clone(),
+            },
+            call_id: "call:agent-copy".to_owned(),
+            resource_access: Some(AgentResourceAccessOverlay {
+                kind: AgentResourceAccessOverlayKind::Consent,
+                scope: AgentResourceAccessOverlayScope::Call,
+                thread_id: Some(authority.thread_id.clone()),
+                turn_id: Some(authority.turn_id.clone()),
+                call_id: Some("call:agent-copy".to_owned()),
+                root_thread_id: authority.root_thread_id.clone(),
+                actor_project_id: authority.actor_project_id.clone(),
+                library_id: authority.library_id.clone(),
+                store_epoch: authority.store_epoch.clone(),
+                grants: vec![
+                    AgentResourceGrantSpec {
+                        root: AgentResourceGrantRoot::Page {
+                            page_id: "page:agent-source".to_owned(),
+                        },
+                        access: AgentProjectResourceAccess::Read,
+                        library_actions: Vec::new(),
+                    },
+                    AgentResourceGrantSpec {
+                        root: AgentResourceGrantRoot::Page {
+                            page_id: "page:agent-target".to_owned(),
+                        },
+                        access: AgentProjectResourceAccess::ReadWrite,
+                        library_actions: Vec::new(),
+                    },
+                ],
+                persist_resulting_page_grants: false,
+            }),
+        };
+        let copy = LibraryAgentPageCopyRequest {
+            source_page_id: "page:agent-source".to_owned(),
+            destination: LibraryAgentPageDestination::Page {
+                page_id: "page:agent-target".to_owned(),
+                at: None,
+            },
+            include_block_map: true,
+            include_etags: true,
+        };
+        let durable_before = kernel
+            .readers()
+            .read_default(|connection| {
+                Ok((
+                    connection.query_row("SELECT count(*) FROM blocks", [], |row| {
+                        row.get::<_, i64>(0)
+                    })?,
+                    connection.query_row(
+                        "SELECT count(*) FROM core_module_receipts",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                ))
+            })
+            .expect("read pre-prepare counts");
+        let prepared = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PrepareAgentPageCopy {
+                        operation_id: "operation:agent-copy".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        authorization: Box::new(authorization.clone()),
+                        request: Box::new(copy.clone()),
+                    },
+                },
+            )
+            .expect("prepare Agent Page copy");
+        let durable_after = kernel
+            .readers()
+            .read_default(|connection| {
+                Ok((
+                    connection.query_row("SELECT count(*) FROM blocks", [], |row| {
+                        row.get::<_, i64>(0)
+                    })?,
+                    connection.query_row(
+                        "SELECT count(*) FROM core_module_receipts",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                ))
+            })
+            .expect("read post-prepare counts");
+        assert_eq!(durable_after, durable_before);
+        assert_eq!(
+            module
+                .prepared_agent_operation_count()
+                .expect("prepared count"),
+            1
+        );
+        let LibraryReadValue::AgentPageCopyPreparation { value: prepared } = prepared.value else {
+            panic!("Agent Page copy preparation");
+        };
+        assert_eq!(
+            prepared.preparation.state,
+            AgentOperationPreparationState::Prepared
+        );
+        assert_eq!(prepared.document_heads.len(), 3);
+        assert_eq!(
+            prepared
+                .destination_document
+                .as_ref()
+                .map(|head| head.document_id.as_str()),
+            Some("document:agent-target")
+        );
+        assert!(matches!(
+            prepared.destination,
+            Some(LibraryPageCopyDestination::Page { ref page_id, .. })
+                if page_id == "page:agent-target"
+        ));
+        let token = prepared.preparation.token.expect("single-use token");
+        let execute = ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: "operation:agent-copy".to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::ExecutePreparedAgentPageCopy {
+                authorization: Box::new(AgentPreparedExecution {
+                    authorization: authorization.clone(),
+                    token: Some(token.clone()),
+                }),
+                request: Box::new(copy.clone()),
+            },
+        };
+        let mut wrong_connection = context();
+        wrong_connection.connection_id = "connection:wrong-agent-copy".to_owned();
+        let wrong = module
+            .apply(&wrong_connection, execute.clone())
+            .expect_err("reject token on another connection");
+        assert_eq!(wrong.code, CoreErrorCode::RevisionConflict, "{wrong:?}");
+        assert_eq!(
+            module
+                .prepared_agent_operation_count()
+                .expect("retained token"),
+            1
+        );
+
+        let committed = module
+            .apply(&context(), execute.clone())
+            .expect("execute Agent Page copy");
+        let replay = module
+            .apply(&context(), execute)
+            .expect("replay committed Agent Page copy");
+        assert_eq!(
+            module
+                .prepared_agent_operation_count()
+                .expect("consumed token"),
+            0
+        );
+        assert!(replay.committed.receipt.mutation.duplicate);
+        assert!(replay.event.is_none());
+        let result = committed
+            .committed
+            .value
+            .agent_page_copy
+            .as_ref()
+            .expect("Agent copy result");
+        assert!(result.etags.is_some());
+        assert!(result.block_map.as_ref().expect("identity map").len() >= 2);
+        assert!(result.document_commits.len() >= 3);
+        assert!(matches!(
+            result.location,
+            nodex_core_contracts::library::LibraryAgentPageLocation::Page { ref page_id }
+                if page_id == "page:agent-target"
+        ));
+        let copied_child_id =
+            result.block_map.as_ref().expect("identity map")["page:agent-child"].clone();
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let parent = connection.query_row(
+                    "SELECT parent_id FROM pages WHERE block_id = ?1",
+                    [&result.page_id],
+                    |row| row.get::<_, String>(0),
+                )?;
+                let child_parent = connection.query_row(
+                    "SELECT parent_id FROM pages WHERE block_id = ?1",
+                    [&copied_child_id],
+                    |row| row.get::<_, String>(0),
+                )?;
+                assert_eq!(parent, "page:agent-target");
+                assert_eq!(child_parent, result.page_id);
+                Ok(())
+            })
+            .expect("verify recursive copy hierarchy");
+
+        let replay_preparation = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PrepareAgentPageCopy {
+                        operation_id: "operation:agent-copy".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        authorization: Box::new(authorization),
+                        request: Box::new(copy),
+                    },
+                },
+            )
+            .expect("prepare committed replay");
+        let LibraryReadValue::AgentPageCopyPreparation { value } = replay_preparation.value else {
+            panic!("Agent Page copy replay preparation");
+        };
+        assert_eq!(
+            value.preparation.state,
+            AgentOperationPreparationState::CommittedReplay
+        );
+        assert!(value.preparation.token.is_none());
+        assert!(value.committed.is_some());
     }
 
     #[test]

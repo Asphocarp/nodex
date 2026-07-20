@@ -40,7 +40,14 @@ import {
   toLibraryOwnedDocumentDescriptor,
   type LibraryOwnedDocumentDescriptor,
   type OwnedDocumentDescriptor,
+  type RelocationDocumentCommit,
 } from "../../shared/block-documents/contracts";
+import type {
+  ExecuteNodexAgentCreatePagesResult,
+  ExecuteNodexAgentDuplicatePageResult,
+  ExecuteNodexAgentMovePagesResult,
+  NodexAgentLeaseDocument,
+} from "../../shared/nodex-agent-tools";
 import type {
   DocumentAccessAck,
   DocumentAccessKind,
@@ -88,6 +95,31 @@ const DOCUMENT_SYNC_EVENT_CHANNEL = "document-sync:event";
 export type DesktopDocumentSyncScope =
   | { readonly kind: "project"; readonly projectId: string }
   | { readonly kind: "library" };
+
+type NativeNodexAgentLeasedMutationResult =
+  | ExecuteNodexAgentCreatePagesResult
+  | ExecuteNodexAgentDuplicatePageResult
+  | ExecuteNodexAgentMovePagesResult;
+
+type SuccessfulNativeNodexAgentLeasedMutation = Extract<
+  NativeNodexAgentLeasedMutationResult,
+  { readonly ok: true }
+>;
+
+export interface NativeNodexAgentLeaseCoordination<
+  Result extends NativeNodexAgentLeasedMutationResult,
+> {
+  readonly projectId: string;
+  readonly storeEpoch: string;
+  readonly leaseDocuments: readonly NodexAgentLeaseDocument[];
+  readonly execute: () => Promise<Result>;
+  readonly failure: (
+    message: string,
+    recovery?: "get_block_again" | "none",
+  ) => Result;
+  readonly operationLabel: string;
+  readonly conflictMessage: string;
+}
 
 export interface DesktopDocumentSyncPort {
   getOwnedDocumentDescriptor(
@@ -168,6 +200,9 @@ export interface DesktopDocumentSyncPort {
   transferBlocks(
     intent: BlockTransferIntent,
   ): Promise<BlockTransferCommandResult>;
+  coordinateNodexAgentLeasedMutation<
+    Result extends NativeNodexAgentLeasedMutationResult,
+  >(options: NativeNodexAgentLeaseCoordination<Result>): Promise<Result>;
 }
 
 export interface DesktopDocumentSyncBridgeInput {
@@ -856,12 +891,14 @@ export function createDesktopDocumentSyncBridge(
     );
   };
 
-  const fanoutBlockTransfer = (
+  const fanoutDocumentCommits = (
     projectId: string,
-    receipt: BlockTransferReceipt,
+    storeEpoch: string,
+    commits: readonly RelocationDocumentCommit[],
     resyncOnly: boolean,
+    clientSessionId: string,
   ): void => {
-    for (const commit of receipt.documentCommits) {
+    for (const commit of commits) {
       const targets = new Map<number, DocumentSyncClientTarget>();
       for (const [key, subscription] of subscriptions) {
         if (
@@ -872,7 +909,7 @@ export function createDesktopDocumentSyncBridge(
           continue;
         }
         adoptSubscriptionBoundary(key, {
-          storeEpoch: receipt.storeEpoch,
+          storeEpoch,
           generation: commit.generation,
           headSeq: commit.headSeq,
         });
@@ -882,7 +919,7 @@ export function createDesktopDocumentSyncBridge(
         ? {
             kind: "resync-required" as const,
             documentId: commit.documentId,
-            storeEpoch: receipt.storeEpoch,
+            storeEpoch,
             generation: commit.generation,
             headSeq: commit.headSeq,
             reason: commit.update === null
@@ -892,11 +929,11 @@ export function createDesktopDocumentSyncBridge(
         : {
             kind: "document-update" as const,
             documentId: commit.documentId,
-            storeEpoch: receipt.storeEpoch,
+            storeEpoch,
             generation: commit.generation,
             headSeq: commit.headSeq,
             updateId: commit.updateId,
-            clientSessionId: "rust:block-transfer",
+            clientSessionId,
             update: commit.update.slice(),
           };
       for (const target of targets.values()) {
@@ -905,15 +942,27 @@ export function createDesktopDocumentSyncBridge(
     }
   };
 
-  const publishBlockTransferReleaseFallback = (
+  const fanoutBlockTransfer = (
+    projectId: string,
+    receipt: BlockTransferReceipt,
+    resyncOnly: boolean,
+  ): void => fanoutDocumentCommits(
+    projectId,
+    receipt.storeEpoch,
+    receipt.documentCommits,
+    resyncOnly,
+    "rust:block-transfer",
+  );
+
+  const publishDocumentCommitReleaseFallback = (
     leaseId: string,
     projectId: string,
     storeEpoch: string,
     leasedHeads: readonly BlockTransferDocumentHead[],
-    receipt: BlockTransferReceipt,
+    commits: readonly RelocationDocumentCommit[],
   ): void => {
     const committedById = new Map(
-      receipt.documentCommits.map((commit) => [commit.documentId, commit]),
+      commits.map((commit) => [commit.documentId, commit]),
     );
     for (const leased of leasedHeads) {
       const committed = committedById.get(leased.documentId);
@@ -939,6 +988,20 @@ export function createDesktopDocumentSyncBridge(
       }
     }
   };
+
+  const publishBlockTransferReleaseFallback = (
+    leaseId: string,
+    projectId: string,
+    storeEpoch: string,
+    leasedHeads: readonly BlockTransferDocumentHead[],
+    receipt: BlockTransferReceipt,
+  ): void => publishDocumentCommitReleaseFallback(
+    leaseId,
+    projectId,
+    storeEpoch,
+    leasedHeads,
+    receipt.documentCommits,
+  );
 
   const transferBlocks = async (
     intent: BlockTransferIntent,
@@ -1003,6 +1066,121 @@ export function createDesktopDocumentSyncBridge(
           receipt,
         ),
     });
+  };
+
+  const coordinateNodexAgentLeasedMutation = async <
+    Result extends NativeNodexAgentLeasedMutationResult,
+  >(
+    options: NativeNodexAgentLeaseCoordination<Result>,
+  ): Promise<Result> => {
+    const { leaseDocuments } = options;
+    if (leaseDocuments.length === 0) {
+      try {
+        return await options.execute();
+      } catch {
+        return options.failure(`${options.operationLabel} commit failed`);
+      }
+    }
+
+    blockTransferLeaseSequence += 1;
+    const leaseId = `native-agent-mutation:${blockTransferLeaseSequence.toString(36)}`;
+    setBlockTransferLeaseBoundary(
+      leaseId,
+      options.projectId,
+      options.storeEpoch,
+      leaseDocuments,
+    );
+    let prepared;
+    try {
+      prepared = await relocationLeaseCoordinator.prepare({
+        leaseId,
+        documents: leaseDocuments,
+      });
+    } catch {
+      relocationLeaseCoordinator.cancel(leaseId);
+      nativeWriteLeaseBoundaries.delete(leaseId);
+      return options.failure(
+        `${options.operationLabel} write lease preparation failed`,
+      );
+    }
+    if (!prepared.ok) {
+      nativeWriteLeaseBoundaries.delete(leaseId);
+      return options.failure(prepared.error.message);
+    }
+    const resolved = new Map(
+      prepared.value.resolvedHeads.map((head) => [head.documentId, head]),
+    );
+    const exact = leaseDocuments.every((head) => {
+      const current = resolved.get(head.documentId);
+      return current?.generation === head.generation
+        && current.headSeq === head.expectedHeadSeq;
+    });
+    if (!exact || resolved.size !== leaseDocuments.length) {
+      relocationLeaseCoordinator.cancel(leaseId);
+      nativeWriteLeaseBoundaries.delete(leaseId);
+      return options.failure(options.conflictMessage, "get_block_again");
+    }
+
+    let result: Result;
+    try {
+      result = await options.execute();
+    } catch {
+      relocationLeaseCoordinator.cancel(leaseId);
+      nativeWriteLeaseBoundaries.delete(leaseId);
+      return options.failure(`${options.operationLabel} commit failed`);
+    }
+    if (!result.ok) {
+      relocationLeaseCoordinator.cancel(leaseId);
+      nativeWriteLeaseBoundaries.delete(leaseId);
+      return result;
+    }
+
+    const success = result as Result & SuccessfulNativeNodexAgentLeasedMutation;
+    fanoutDocumentCommits(
+      options.projectId,
+      options.storeEpoch,
+      success.value.documentCommits,
+      false,
+      "rust:nodex-agent",
+    );
+    const committedById = new Map(
+      success.value.documentCommits.map((commit) => [commit.documentId, commit]),
+    );
+    const resolvedHeads = leaseDocuments.map((head) => {
+      const commit = committedById.get(head.documentId);
+      return commit
+        ? {
+            documentId: commit.documentId,
+            generation: commit.generation,
+            expectedHeadSeq: commit.headSeq,
+          }
+        : head;
+    });
+    setBlockTransferLeaseBoundary(
+      leaseId,
+      options.projectId,
+      options.storeEpoch,
+      resolvedHeads,
+    );
+    const released = relocationLeaseCoordinator.release(leaseId);
+    if (!released.ok) {
+      publishDocumentCommitReleaseFallback(
+        leaseId,
+        options.projectId,
+        options.storeEpoch,
+        leaseDocuments,
+        success.value.documentCommits,
+      );
+      fanoutDocumentCommits(
+        options.projectId,
+        options.storeEpoch,
+        success.value.documentCommits,
+        true,
+        "rust:nodex-agent",
+      );
+    }
+    nativeWriteLeaseBoundaries.delete(leaseId);
+    return result;
   };
 
   return {
@@ -1472,6 +1650,7 @@ export function createDesktopDocumentSyncBridge(
     },
     applyDocumentMutation,
     transferBlocks,
+    coordinateNodexAgentLeasedMutation,
     restoreVersion: async (request) => await applyDocumentMutation(request),
   };
 }

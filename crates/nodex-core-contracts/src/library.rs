@@ -4,10 +4,11 @@ use utoipa::ToSchema;
 use serde_json::Value;
 
 use crate::agent::{
-    AgentExecutionAuthorization, AgentResourceAccessOverlay, AgentResourceAccessPlan,
-    AgentResourceGrantSpec, AgentResourceIntent, AgentTurnProvenance,
+    AgentExecutionAuthorization, AgentOperationPreparation, AgentPreparedExecution,
+    AgentResourceAccessOverlay, AgentResourceAccessPlan, AgentResourceGrantSpec,
+    AgentResourceIntent, AgentTurnProvenance,
 };
-use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
+use crate::{CommittedModuleValue, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
 pub const LIBRARY_CONTRACT_VERSION: u32 = 1;
 
@@ -92,6 +93,87 @@ pub struct LibraryPageCopyViewPlacement {
 pub struct LibraryPageCopyPositionAnchor {
     pub page_id: String,
     pub expected_position_revision: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryAgentSiblingAnchor {
+    Start,
+    End,
+    Before { block_id: String },
+    After { block_id: String },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryAgentPageDestination {
+    Library {
+        at: Option<LibraryAgentSiblingAnchor>,
+    },
+    Page {
+        page_id: String,
+        at: Option<LibraryAgentSiblingAnchor>,
+    },
+    DataSource {
+        data_source_id: String,
+        values: Vec<LibraryPageCopyValue>,
+        view_id: Option<String>,
+        group_key: Option<String>,
+        at: Option<LibraryAgentSiblingAnchor>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryAgentPageCopyRequest {
+    pub source_page_id: String,
+    pub destination: LibraryAgentPageDestination,
+    pub include_block_map: bool,
+    pub include_etags: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryAgentDocumentHead {
+    pub document_id: String,
+    pub generation: i64,
+    pub expected_head_seq: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct LibraryAgentPageCopyPreparation {
+    pub preparation: AgentOperationPreparation,
+    pub page_id: String,
+    pub body_block_count: u32,
+    pub document_heads: Vec<LibraryAgentDocumentHead>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination: Option<LibraryPageCopyDestination>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination_document: Option<LibraryAgentDocumentHead>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination_database_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination_project_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub committed: Option<Box<CommittedModuleValue<LibraryCommitValue, LibraryReceipt>>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryAgentPageEtags {
+    pub title: String,
+    pub body: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryAgentPageCopyResult {
+    pub source_page_id: String,
+    pub page_id: String,
+    pub location: LibraryAgentPageLocation,
+    pub body_blocks_created: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub block_map: Option<std::collections::BTreeMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub etags: Option<LibraryAgentPageEtags>,
+    pub document_commits: Vec<LibraryBlockTransferDocumentCommit>,
+    pub affected_database_ids: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -302,6 +384,12 @@ pub enum LibraryRead {
         call_id: String,
         intents: Vec<AgentResourceIntent>,
         task_access: Option<Box<AgentResourceAccessOverlay>>,
+    },
+    PrepareAgentPageCopy {
+        operation_id: String,
+        store_epoch: String,
+        authorization: Box<AgentExecutionAuthorization>,
+        request: Box<LibraryAgentPageCopyRequest>,
     },
     PlanBlockTransfer {
         operation_id: String,
@@ -1218,6 +1306,9 @@ pub enum LibraryReadValue {
     AgentResourceAccessPlan {
         value: Box<AgentResourceAccessPlan>,
     },
+    AgentPageCopyPreparation {
+        value: Box<LibraryAgentPageCopyPreparation>,
+    },
     BlockTransferPlan {
         value: Box<LibraryBlockTransferPlan>,
     },
@@ -1276,6 +1367,10 @@ pub enum LibraryIntent {
         provenance: Box<AgentTurnProvenance>,
         grants: Vec<AgentResourceGrantSpec>,
     },
+    ExecutePreparedAgentPageCopy {
+        authorization: Box<AgentPreparedExecution>,
+        request: Box<LibraryAgentPageCopyRequest>,
+    },
     TransferBlocks {
         intent: LibraryBlockTransferLogicalIntent,
         write_fence: Option<LibraryBlockTransferWriteFence>,
@@ -1312,6 +1407,7 @@ pub struct LibraryCommitValue {
     pub block_transfer: Option<LibraryBlockTransferResult>,
     pub page_lifecycle: Option<LibraryPageLifecycleMutationReceipt>,
     pub block_property_mutation: Option<LibraryBlockPropertyMutationReceipt>,
+    pub agent_page_copy: Option<LibraryAgentPageCopyResult>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

@@ -247,6 +247,9 @@ pub(super) fn read(
         LibraryRead::PlanAgentResourceAccess { .. } => Err(invalid(
             "Agent resource planning is assembled by the Library Module",
         )),
+        LibraryRead::PrepareAgentPageCopy { .. } => Err(invalid(
+            "Agent Page copy preparation is assembled by the Library Module",
+        )),
         LibraryRead::PageLifecyclePreflight { .. } => Err(invalid(
             "Page lifecycle preflight is assembled by the Library Module",
         )),

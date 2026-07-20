@@ -331,7 +331,16 @@ fn health_metrics(state: &ServerState) -> (CoreReadiness, CoreHealthMetrics) {
     let connections = state.connections.activity().ok();
     let realtime = state.document_realtime.activity().ok();
     let cache = state.document.cache_metrics().ok();
-    let prepared_operations = state.document.prepared_agent_operation_count().ok();
+    let prepared_operations = state
+        .document
+        .prepared_agent_operation_count()
+        .and_then(|document| {
+            state
+                .library
+                .prepared_agent_operation_count()
+                .map(|library| document.saturating_add(library))
+        })
+        .ok();
     let event_head = state.event_log.head().ok();
     let wal_size_bytes = wal_size_bytes(state.store.database_path()).ok();
     if connections.is_none()
@@ -2149,6 +2158,7 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let (event_sender, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
     let (document_sender, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
     let library = LibraryModule::new(&identity.profile_id, &identity.library_id, &store);
+    let replacement_library_operations = library.prepared_agent_operation_registry();
     let database = DatabaseModule::new(&identity.profile_id, &identity.library_id, &store);
     let automation = AutomationModule::new(&identity.profile_id, &identity.library_id, &store);
     let document = OwnedDocumentModule::new(
@@ -2164,6 +2174,7 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let administration =
         StoreAdministrationModule::new(&identity.profile_id, &identity.library_id, &store)
             .with_store_replacement_hook(move |store_epoch| {
+                replacement_library_operations.invalidate_all()?;
                 replacement_document
                     .reset_for_store_replacement()
                     .map_err(store_replacement_hook_error)?;
@@ -2276,7 +2287,17 @@ fn server_is_idle(state: &ServerState) -> bool {
     if realtime.subscriptions != 0 || realtime.awareness_clients != 0 {
         return false;
     }
-    let Ok(prepared_operations) = state.document.prepared_agent_operation_count() else {
+    let Ok(prepared_operations) =
+        state
+            .document
+            .prepared_agent_operation_count()
+            .and_then(|document| {
+                state
+                    .library
+                    .prepared_agent_operation_count()
+                    .map(|library| document.saturating_add(library))
+            })
+    else {
         return false;
     };
     if prepared_operations != 0 {

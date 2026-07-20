@@ -14,6 +14,7 @@ use nodex_core_contracts::{
 };
 use rusqlite::OptionalExtension;
 
+use crate::infrastructure::agent_operations::PreparedAgentOperationRegistry;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
@@ -45,6 +46,7 @@ pub struct LibraryModule {
     readers: Option<StoreReaders>,
     writer: Option<StoreWriter>,
     assets_root: Option<PathBuf>,
+    prepared_agent_operations: PreparedAgentOperationRegistry,
 }
 
 impl LibraryModule {
@@ -57,6 +59,7 @@ impl LibraryModule {
             readers: None,
             writer: None,
             assets_root: None,
+            prepared_agent_operations: PreparedAgentOperationRegistry::new(),
         }
     }
 
@@ -79,6 +82,7 @@ impl LibraryModule {
                     .expect("Profile database has a parent")
                     .join("assets"),
             ),
+            prepared_agent_operations: PreparedAgentOperationRegistry::new(),
         }
     }
 
@@ -90,6 +94,32 @@ impl LibraryModule {
         self.validate_context(context)?;
         if request.version != CORE_CONTRACT_VERSION {
             return Err(invalid_input("unsupported Library contract version"));
+        }
+
+        if let LibraryRead::PrepareAgentPageCopy {
+            operation_id,
+            store_epoch,
+            authorization,
+            request: copy_request,
+        } = &request.read
+        {
+            let readers = self
+                .readers
+                .as_ref()
+                .ok_or_else(|| invalid_input("the Library tracer cannot prepare Agent writes"))?;
+            return agent_page_write::prepare_page_copy(
+                readers,
+                &self.prepared_agent_operations,
+                context,
+                &self.library_id,
+                agent_page_write::PreparePageCopyInput {
+                    operation_id: operation_id.clone(),
+                    expected_store_epoch: store_epoch.clone(),
+                    authorization: (**authorization).clone(),
+                    request: (**copy_request).clone(),
+                },
+            )
+            .map_err(core_error);
         }
 
         if let Some(readers) = &self.readers {
@@ -211,6 +241,30 @@ impl LibraryModule {
         if request.version != CORE_CONTRACT_VERSION {
             return Err(invalid_input("unsupported Library contract version"));
         }
+        if let LibraryIntent::ExecutePreparedAgentPageCopy {
+            authorization,
+            request: copy_request,
+        } = request.intent.clone()
+        {
+            let writer = self
+                .writer
+                .as_ref()
+                .ok_or_else(|| invalid_input("the Library tracer cannot execute Agent writes"))?;
+            return agent_page_write::execute_page_copy(
+                writer,
+                &self.prepared_agent_operations,
+                &self.profile_id,
+                &self.library_id,
+                context,
+                request,
+                *authorization,
+                *copy_request,
+                self.assets_root
+                    .as_ref()
+                    .expect("persistent Library has an assets root"),
+            )
+            .map_err(core_error);
+        }
         if let Some(writer) = &self.writer {
             return mutation::apply(
                 writer,
@@ -320,6 +374,7 @@ impl LibraryModule {
                 block_transfer: None,
                 page_lifecycle: None,
                 block_property_mutation: None,
+                agent_page_copy: None,
             },
             receipt,
             event_sequence,
@@ -350,6 +405,22 @@ impl LibraryModule {
             committed,
             event: Some(event),
         })
+    }
+
+    pub fn invalidate_prepared_agent_operations(&self) -> Result<(), CoreError> {
+        self.prepared_agent_operations
+            .invalidate_all()
+            .map_err(core_error)
+    }
+
+    pub fn prepared_agent_operation_count(&self) -> Result<usize, CoreError> {
+        self.prepared_agent_operations
+            .active_count()
+            .map_err(core_error)
+    }
+
+    pub fn prepared_agent_operation_registry(&self) -> PreparedAgentOperationRegistry {
+        self.prepared_agent_operations.clone()
     }
 
     fn validate_context(&self, context: &BoundModuleContext) -> Result<(), CoreError> {
@@ -4428,6 +4499,7 @@ mod tests {
     }
 }
 pub(crate) mod agent_authorization;
+mod agent_page_write;
 mod agent_search;
 mod block_transfer;
 mod content;

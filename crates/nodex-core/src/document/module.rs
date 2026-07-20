@@ -979,6 +979,7 @@ impl OwnedDocumentModule {
                 )?;
                 let binding = PreparedAgentOperationBinding {
                     connection_id: context.connection_id.clone(),
+                    operation_id: operation_id.clone(),
                     request_hash: request_hash.clone(),
                     authority_revisions_hash,
                     footprint_hash: hash_serializable(
@@ -2767,6 +2768,7 @@ impl OwnedDocumentModule {
                     )?;
                     let binding = PreparedAgentOperationBinding {
                         connection_id: job.context.connection_id.clone(),
+                        operation_id: job.operation_id.clone(),
                         request_hash: job.request_hash.clone(),
                         authority_revisions_hash,
                         footprint_hash: hash_serializable(

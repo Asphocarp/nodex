@@ -1205,19 +1205,56 @@ pub(crate) fn resolve_page_copy_data_source_project(
     data_source_id: &str,
     expected_data_source_revision: i64,
 ) -> Result<String, StoreError> {
+    resolve_page_copy_data_source_project_with_access(
+        connection,
+        library_id,
+        requesting_project_id,
+        data_source_id,
+        expected_data_source_revision,
+        true,
+    )
+}
+
+pub(crate) fn resolve_page_copy_data_source_project_prevalidated(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: &str,
+    data_source_id: &str,
+    expected_data_source_revision: i64,
+) -> Result<String, StoreError> {
+    resolve_page_copy_data_source_project_with_access(
+        connection,
+        library_id,
+        requesting_project_id,
+        data_source_id,
+        expected_data_source_revision,
+        false,
+    )
+}
+
+fn resolve_page_copy_data_source_project_with_access(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: &str,
+    data_source_id: &str,
+    expected_data_source_revision: i64,
+    require_access: bool,
+) -> Result<String, StoreError> {
     let source = require_source(connection, library_id, data_source_id)?;
     require_revision(
         expected_data_source_revision,
         source.revision,
         "Target Data Source revision changed",
     )?;
-    authorize_write(
-        connection,
-        requesting_project_id,
-        &source.database_id,
-        DatabaseWriteAction::Write,
-        false,
-    )?;
+    if require_access {
+        authorize_write(
+            connection,
+            requesting_project_id,
+            &source.database_id,
+            DatabaseWriteAction::Write,
+            false,
+        )?;
+    }
     connection
         .query_row(
             "SELECT project_id FROM blocks WHERE id = ?1 AND type = 'database' \
@@ -1239,7 +1276,7 @@ pub(crate) fn place_copied_page_in_data_source(
     destination: &PageCopyDataSourceDestination,
     now: &str,
 ) -> Result<PageCopyDataSourcePlacement, StoreError> {
-    place_staged_page_in_data_source(
+    place_staged_page_in_data_source_with_access(
         connection,
         library_id,
         requesting_project_id,
@@ -1252,6 +1289,34 @@ pub(crate) fn place_copied_page_in_data_source(
             parent_revision: 1,
         },
         now,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn place_copied_page_in_data_source_prevalidated(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: &str,
+    source_page_id: &str,
+    copied_page_id: &str,
+    destination: &PageCopyDataSourceDestination,
+    now: &str,
+) -> Result<PageCopyDataSourcePlacement, StoreError> {
+    place_staged_page_in_data_source_with_access(
+        connection,
+        library_id,
+        requesting_project_id,
+        Some(source_page_id),
+        copied_page_id,
+        destination,
+        StagedPagePlacementRevisions {
+            location_revision: 1,
+            metadata_revision: 1,
+            parent_revision: 1,
+        },
+        now,
+        false,
     )
 }
 
@@ -1265,6 +1330,31 @@ pub(crate) fn place_staged_page_in_data_source(
     destination: &PageCopyDataSourceDestination,
     expected: StagedPagePlacementRevisions,
     now: &str,
+) -> Result<PageCopyDataSourcePlacement, StoreError> {
+    place_staged_page_in_data_source_with_access(
+        connection,
+        library_id,
+        requesting_project_id,
+        source_page_id,
+        staged_page_id,
+        destination,
+        expected,
+        now,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn place_staged_page_in_data_source_with_access(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: &str,
+    source_page_id: Option<&str>,
+    staged_page_id: &str,
+    destination: &PageCopyDataSourceDestination,
+    expected: StagedPagePlacementRevisions,
+    now: &str,
+    require_access: bool,
 ) -> Result<PageCopyDataSourcePlacement, StoreError> {
     if destination.values.len() > 512 {
         return Err(invalid("Data Source placement values exceed their bound"));
@@ -1285,13 +1375,15 @@ pub(crate) fn place_staged_page_in_data_source(
         source.revision,
         "Target Data Source revision changed",
     )?;
-    authorize_write(
-        connection,
-        requesting_project_id,
-        &source.database_id,
-        DatabaseWriteAction::Write,
-        false,
-    )?;
+    if require_access {
+        authorize_write(
+            connection,
+            requesting_project_id,
+            &source.database_id,
+            DatabaseWriteAction::Write,
+            false,
+        )?;
+    }
     let storage_project_id = connection
         .query_row(
             "SELECT project_id FROM blocks WHERE id = ?1 AND type = 'database' \

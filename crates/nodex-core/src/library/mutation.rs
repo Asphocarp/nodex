@@ -57,6 +57,7 @@ pub(super) struct MutationEffects {
     pub(super) block_transfer: Option<LibraryBlockTransferResult>,
     pub(super) page_lifecycle: Option<LibraryPageLifecycleMutationReceipt>,
     pub(super) block_property_mutation: Option<LibraryBlockPropertyMutationReceipt>,
+    pub(super) agent_page_copy: Option<nodex_core_contracts::library::LibraryAgentPageCopyResult>,
     pub(super) change_payload: Option<serde_json::Value>,
     pub(super) committed_at: String,
 }
@@ -341,6 +342,9 @@ pub(super) fn apply(
                     write_fence.as_ref(),
                     &assets_root,
                 ),
+                LibraryIntent::ExecutePreparedAgentPageCopy { .. } => Err(invalid(
+                    "Prepared Agent Page copy is assembled by the Library Module",
+                )),
             }
         })
     })
@@ -647,6 +651,7 @@ fn move_block(
             block_transfer: None,
             page_lifecycle: None,
             block_property_mutation: None,
+            agent_page_copy: None,
             change_payload: None,
             committed_at: now,
         },
@@ -840,6 +845,7 @@ fn change_resource_lifecycle(
             block_transfer: None,
             page_lifecycle: None,
             block_property_mutation: None,
+            agent_page_copy: None,
             change_payload: None,
             committed_at: now,
         },
@@ -986,6 +992,7 @@ fn grant_project_access(
             block_transfer: None,
             page_lifecycle: None,
             block_property_mutation: None,
+            agent_page_copy: None,
             change_payload: None,
             committed_at: now,
         },
@@ -1070,6 +1077,25 @@ pub(super) fn resolve_write_parent(
     requesting_project_id: &str,
     parent: &LibraryWriteParent,
 ) -> Result<ResolvedWriteParent, StoreError> {
+    resolve_write_parent_with_access(connection, library_id, requesting_project_id, parent, true)
+}
+
+pub(super) fn resolve_write_parent_prevalidated(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: &str,
+    parent: &LibraryWriteParent,
+) -> Result<ResolvedWriteParent, StoreError> {
+    resolve_write_parent_with_access(connection, library_id, requesting_project_id, parent, false)
+}
+
+fn resolve_write_parent_with_access(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: &str,
+    parent: &LibraryWriteParent,
+    require_access: bool,
+) -> Result<ResolvedWriteParent, StoreError> {
     let LibraryWriteParent::Page {
         page_id,
         expected_document_generation,
@@ -1117,12 +1143,14 @@ pub(super) fn resolve_write_parent(
     if lifecycle != "active" {
         return Err(invalid("Target Page is unavailable"));
     }
-    super::history::require_page_write_access(
-        connection,
-        library_id,
-        requesting_project_id,
-        page_id,
-    )?;
+    if require_access {
+        super::history::require_page_write_access(
+            connection,
+            library_id,
+            requesting_project_id,
+            page_id,
+        )?;
+    }
     let authority = read_document_authority(connection, &document_id)?
         .ok_or_else(|| corrupt("Target Page has no Document authority"))?;
     if authority.owner_block_id != *page_id
@@ -1496,6 +1524,7 @@ fn create_database(
             block_transfer: None,
             page_lifecycle: None,
             block_property_mutation: None,
+            agent_page_copy: None,
             change_payload: None,
             committed_at: now,
         },
@@ -1736,6 +1765,7 @@ fn create_page(
             block_transfer: None,
             page_lifecycle: None,
             block_property_mutation: None,
+            agent_page_copy: None,
             change_payload: None,
             committed_at: now,
         },
@@ -1811,6 +1841,7 @@ pub(super) fn finish_mutation(
             block_transfer: effects.block_transfer,
             page_lifecycle: effects.page_lifecycle,
             block_property_mutation: effects.block_property_mutation,
+            agent_page_copy: effects.agent_page_copy,
         },
         receipt,
         event_sequence,
@@ -1851,7 +1882,7 @@ pub(super) fn finish_mutation(
     })
 }
 
-fn assert_identity(
+pub(super) fn assert_identity(
     connection: &Connection,
     profile_id: &str,
     library_id: &str,

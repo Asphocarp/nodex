@@ -6,7 +6,6 @@ import type {
   NodexAgentV3ReadCommandResult,
   NodexAgentV3ReadRequest,
   PrepareNodexAgentCreatePagesResult,
-  PrepareNodexAgentDuplicatePageResult,
   PrepareNodexAgentMovePagesResult,
   ToolFailure,
 } from "../../shared/nodex-agent-tools";
@@ -20,10 +19,12 @@ import {
 } from "../agent-tools/dynamic-service-v3";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import type { DesktopDatabaseModuleBridge } from "./desktop-database-module-bridge";
+import type { DesktopDocumentSyncPort } from "./desktop-document-sync-bridge";
 import type { DesktopProjectWorkspacePort } from "./project-workspace-adapter";
 import { readNativeFetch } from "./native-nodex-agent-fetch";
 import { readNativeDatabaseQuery } from "./native-nodex-agent-query";
 import { readNativeSearch } from "./native-nodex-agent-search";
+import { NativeNodexAgentPageCopyRuntime } from "./native-nodex-agent-page-copy";
 import { NativeNodexAgentPageUpdateRuntime } from "./native-nodex-agent-page-update";
 
 type ToolError = ToolFailure["error"];
@@ -32,6 +33,10 @@ export interface DesktopNodexAgentDynamicServiceInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
   readonly projectWorkspace: DesktopProjectWorkspacePort;
   readonly databaseModule: DesktopDatabaseModuleBridge;
+  readonly documentSync: Pick<
+    DesktopDocumentSyncPort,
+    "coordinateNodexAgentLeasedMutation"
+  >;
   readonly typescript: {
     readonly writer: NodexAgentV3Writer;
     readonly documentHub: NodexAgentV3DocumentHub;
@@ -44,6 +49,19 @@ const nativeUnavailableError = (tool: string): ToolError => ({
   retryable: false,
   recovery: "none",
   details: { domainCode: "native_agent_tool_unavailable" },
+});
+
+const nativeDuplicatePageFailure = (
+  message: string,
+  recovery: "get_block_again" | "none" = "none",
+): ExecuteNodexAgentDuplicatePageResult => ({
+  ok: false,
+  error: {
+    code: recovery === "get_block_again" ? "conflict" : "internal_error",
+    message,
+    retryable: false,
+    recovery,
+  },
 });
 
 const envelope = <Result>(
@@ -194,11 +212,18 @@ export function createDesktopNodexAgentV3DynamicService(
   input: DesktopNodexAgentDynamicServiceInput,
 ): NodexAgentV3DynamicService {
   let nativePageUpdates: NativeNodexAgentPageUpdateRuntime | null = null;
+  let nativePageCopies: NativeNodexAgentPageCopyRuntime | null = null;
   const pageUpdatesFor = (
     runtime: Extract<DesktopDataAuthorityRuntime, { readonly backend: "rust" }>,
   ): NativeNodexAgentPageUpdateRuntime => {
     nativePageUpdates ??= new NativeNodexAgentPageUpdateRuntime(runtime);
     return nativePageUpdates;
+  };
+  const pageCopiesFor = (
+    runtime: Extract<DesktopDataAuthorityRuntime, { readonly backend: "rust" }>,
+  ): NativeNodexAgentPageCopyRuntime => {
+    nativePageCopies ??= new NativeNodexAgentPageCopyRuntime(runtime);
+    return nativePageCopies;
   };
   const writer: NodexAgentV3Writer = {
     readNodexAgentV3Tool: async (request) => {
@@ -249,11 +274,7 @@ export function createDesktopNodexAgentV3DynamicService(
       if (runtime.backend === "typescript") {
         return await input.typescript.writer.prepareNodexAgentDuplicatePage(request);
       }
-      const result: PrepareNodexAgentDuplicatePageResult = {
-        ok: false,
-        error: nativeUnavailableError("duplicate_page"),
-      };
-      return envelope(result, request.callId);
+      return await pageCopiesFor(runtime).prepare(request);
     },
     prepareNodexAgentMovePages: async (request) => {
       const runtime = await input.authority;
@@ -292,11 +313,16 @@ export function createDesktopNodexAgentV3DynamicService(
       if (runtime.backend === "typescript") {
         return await input.typescript.documentHub.executeNodexAgentDuplicatePage(...args);
       }
-      const result: ExecuteNodexAgentDuplicatePageResult = {
-        ok: false,
-        error: nativeUnavailableError("duplicate_page"),
-      };
-      return result;
+      const command = args[0];
+      return await input.documentSync.coordinateNodexAgentLeasedMutation({
+        projectId: command.projectId,
+        storeEpoch: command.storeEpoch,
+        leaseDocuments: command.leaseDocuments,
+        execute: async () => await pageCopiesFor(runtime).execute(command),
+        failure: nativeDuplicatePageFailure,
+        operationLabel: "Agent Page duplicate",
+        conflictMessage: "A copied Page Document changed while preparing duplication",
+      });
     },
     executeNodexAgentMovePages: async (...args) => {
       const runtime = await input.authority;

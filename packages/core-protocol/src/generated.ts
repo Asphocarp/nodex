@@ -636,6 +636,34 @@ export interface components {
             /** Format: int32 */
             readonly version: number;
         };
+        readonly CommittedModuleValue_LibraryCommitValue_LibraryReceipt: {
+            /** Format: int64 */
+            readonly event_sequence: number;
+            readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
+                readonly affected_database_ids: readonly string[];
+                readonly affected_page_ids: readonly string[];
+                readonly affected_parent_keys: readonly string[];
+                readonly affected_view_ids: readonly string[];
+                /** Format: int64 */
+                readonly change_log_seq: number;
+                readonly committed_at: string;
+                readonly committed_revisions: {
+                    readonly [key: string]: number;
+                };
+                readonly created_target?: null | components["schemas"]["LibraryResourceTarget"];
+                readonly did_mutate: boolean;
+                readonly operation_kind: string;
+            };
+            readonly store_epoch: components["schemas"]["StoreEpoch"];
+            readonly value: {
+                readonly affected_resource_ids: readonly string[];
+                readonly agent_page_copy?: null | components["schemas"]["LibraryAgentPageCopyResult"];
+                readonly block_property_mutation?: null | components["schemas"]["LibraryBlockPropertyMutationReceipt"];
+                readonly block_transfer?: null | components["schemas"]["LibraryBlockTransferResult"];
+                readonly page_copy?: null | components["schemas"]["LibraryPageCopyResult"];
+                readonly page_lifecycle?: null | components["schemas"]["LibraryPageLifecycleMutationReceipt"];
+            };
+        };
         readonly CommittedModuleValue_OwnedDocumentCommitValue_OwnedDocumentReceipt: {
             /** Format: int64 */
             readonly event_sequence: number;
@@ -1157,6 +1185,66 @@ export interface components {
             readonly owner_page: components["schemas"]["LibraryPageDetail"];
             readonly owner_page_id: string;
         };
+        readonly LibraryAgentDocumentHead: {
+            readonly document_id: string;
+            /** Format: int64 */
+            readonly expected_head_seq: number;
+            /** Format: int64 */
+            readonly generation: number;
+        };
+        readonly LibraryAgentPageCopyPreparation: {
+            /** Format: int32 */
+            readonly body_block_count: number;
+            readonly committed?: null | components["schemas"]["CommittedModuleValue_LibraryCommitValue_LibraryReceipt"];
+            readonly destination?: null | components["schemas"]["LibraryPageCopyDestination"];
+            readonly destination_database_id?: string | null;
+            readonly destination_document?: null | components["schemas"]["LibraryAgentDocumentHead"];
+            readonly destination_project_id?: string | null;
+            readonly document_heads: readonly components["schemas"]["LibraryAgentDocumentHead"][];
+            readonly page_id: string;
+            readonly preparation: components["schemas"]["AgentOperationPreparation"];
+        };
+        readonly LibraryAgentPageCopyRequest: {
+            readonly destination: components["schemas"]["LibraryAgentPageDestination"];
+            readonly include_block_map: boolean;
+            readonly include_etags: boolean;
+            readonly source_page_id: string;
+        };
+        readonly LibraryAgentPageCopyResult: {
+            readonly affected_database_ids: readonly string[];
+            readonly block_map?: {
+                readonly [key: string]: string;
+            } | null;
+            /** Format: int32 */
+            readonly body_blocks_created: number;
+            readonly document_commits: readonly components["schemas"]["LibraryBlockTransferDocumentCommit"][];
+            readonly etags?: null | components["schemas"]["LibraryAgentPageEtags"];
+            readonly location: components["schemas"]["LibraryAgentPageLocation"];
+            readonly page_id: string;
+            readonly source_page_id: string;
+        };
+        readonly LibraryAgentPageDestination: {
+            readonly at?: null | components["schemas"]["LibraryAgentSiblingAnchor"];
+            /** @enum {string} */
+            readonly kind: "library";
+        } | {
+            readonly at?: null | components["schemas"]["LibraryAgentSiblingAnchor"];
+            /** @enum {string} */
+            readonly kind: "page";
+            readonly page_id: string;
+        } | {
+            readonly at?: null | components["schemas"]["LibraryAgentSiblingAnchor"];
+            readonly data_source_id: string;
+            readonly group_key?: string | null;
+            /** @enum {string} */
+            readonly kind: "data_source";
+            readonly values: readonly components["schemas"]["LibraryPageCopyValue"][];
+            readonly view_id?: string | null;
+        };
+        readonly LibraryAgentPageEtags: {
+            readonly body: string;
+            readonly title: string;
+        };
         readonly LibraryAgentPageLocation: {
             /** @enum {string} */
             readonly kind: "library";
@@ -1232,6 +1320,21 @@ export interface components {
         };
         /** @enum {string} */
         readonly LibraryAgentSearchTarget: "pages" | "blocks";
+        readonly LibraryAgentSiblingAnchor: {
+            /** @enum {string} */
+            readonly kind: "start";
+        } | {
+            /** @enum {string} */
+            readonly kind: "end";
+        } | {
+            readonly block_id: string;
+            /** @enum {string} */
+            readonly kind: "before";
+        } | {
+            readonly block_id: string;
+            /** @enum {string} */
+            readonly kind: "after";
+        };
         readonly LibraryApplyRequest: components["schemas"]["ModuleApplyRequest_LibraryIntent"];
         readonly LibraryApplyResponse: components["schemas"]["ResponseEnvelope_CommittedModuleValue_LibraryCommitValue_LibraryReceipt"];
         readonly LibraryBlockLocation: {
@@ -2357,6 +2460,11 @@ export interface components {
                 readonly kind: "persist_agent_project_resource_grants";
                 readonly provenance: components["schemas"]["AgentTurnProvenance"];
             } | {
+                readonly authorization: components["schemas"]["AgentPreparedExecution"];
+                /** @enum {string} */
+                readonly kind: "execute_prepared_agent_page_copy";
+                readonly request: components["schemas"]["LibraryAgentPageCopyRequest"];
+            } | {
                 readonly intent: components["schemas"]["LibraryBlockTransferLogicalIntent"];
                 /** @enum {string} */
                 readonly kind: "transfer_blocks";
@@ -2957,6 +3065,13 @@ export interface components {
                 readonly kind: "plan_agent_resource_access";
                 readonly provenance: components["schemas"]["AgentTurnProvenance"];
                 readonly task_access?: null | components["schemas"]["AgentResourceAccessOverlay"];
+            } | {
+                readonly authorization: components["schemas"]["AgentExecutionAuthorization"];
+                /** @enum {string} */
+                readonly kind: "prepare_agent_page_copy";
+                readonly operation_id: string;
+                readonly request: components["schemas"]["LibraryAgentPageCopyRequest"];
+                readonly store_epoch: string;
             } | {
                 readonly intent: components["schemas"]["LibraryBlockTransferLogicalIntent"];
                 /** @enum {string} */
@@ -3658,6 +3773,7 @@ export interface components {
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly value: {
                     readonly affected_resource_ids: readonly string[];
+                    readonly agent_page_copy?: null | components["schemas"]["LibraryAgentPageCopyResult"];
                     readonly block_property_mutation?: null | components["schemas"]["LibraryBlockPropertyMutationReceipt"];
                     readonly block_transfer?: null | components["schemas"]["LibraryBlockTransferResult"];
                     readonly page_copy?: null | components["schemas"]["LibraryPageCopyResult"];
@@ -3938,6 +4054,10 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "agent_resource_access_plan";
                     readonly value: components["schemas"]["AgentResourceAccessPlan"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "agent_page_copy_preparation";
+                    readonly value: components["schemas"]["LibraryAgentPageCopyPreparation"];
                 } | {
                     /** @enum {string} */
                     readonly kind: "block_transfer_plan";

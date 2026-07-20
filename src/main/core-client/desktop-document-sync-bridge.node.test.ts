@@ -11,6 +11,8 @@ import {
   type BlockTransferIntent,
 } from "../../shared/block-transfer";
 import type { DocumentSyncClientTarget } from "../document-sync-hub";
+import type { ExecuteNodexAgentDuplicatePageResult } from "../../shared/nodex-agent-tools";
+import { DuplicatePageV3OutputSchema } from "../../shared/nodex-agent-tools/v3-write-schemas";
 import { CoreModuleResponseError } from "./core-client";
 import {
   createDesktopDocumentSyncBridge,
@@ -917,6 +919,126 @@ describe("Desktop Document sync bridge", () => {
         && delivery.payload.kind === "relocation-lease-release"
       )).toBe(true);
     }
+  });
+
+  test("freezes a live Document before a native Agent mutation and fans out its commit", async () => {
+    const rootClient = new FakeCoreClient();
+    const projectClient = new FakeCoreClient();
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
+      typescript: neverTypeScript(),
+    });
+    const target = new FakeTarget(21);
+    const scope = { kind: "project", projectId: "project:one" } as const;
+    await bridge.subscribe(scope, target, {
+      documentId: "document:agent-target",
+      clientSessionId: "renderer:agent-target",
+    });
+    const execute = vi.fn(async (): Promise<ExecuteNodexAgentDuplicatePageResult> => ({
+      ok: true,
+      value: {
+        output: DuplicatePageV3OutputSchema.parse({
+          data: {
+            sourcePageId: "page:source",
+            pageId: "page:copy",
+            location: { kind: "page", pageId: "page:target" },
+            bodyBlocksCreated: 1,
+          },
+        }),
+        duplicate: false,
+        documentCommits: [{
+          documentId: "document:agent-target",
+          generation: 2,
+          baseHeadSeq: 7,
+          headSeq: 8,
+          updateId: "update:agent-copy",
+          update: new Uint8Array([1, 2, 3]),
+          stateVector: new Uint8Array([4, 5]),
+        }],
+        affectedDatabaseBlockIds: [],
+        changeLogSeq: 14,
+      },
+    }));
+    const pending = bridge.coordinateNodexAgentLeasedMutation({
+      projectId: "project:one",
+      storeEpoch: "epoch:test",
+      leaseDocuments: [{
+        documentId: "document:agent-target",
+        generation: 2,
+        expectedHeadSeq: 7,
+      }],
+      execute,
+      failure: (message, recovery = "none") => ({
+        ok: false,
+        error: {
+          code: recovery === "get_block_again" ? "conflict" : "internal_error",
+          message,
+          retryable: false,
+          recovery,
+        },
+      }),
+      operationLabel: "Agent Page duplicate",
+      conflictMessage: "Destination changed",
+    });
+
+    await vi.waitFor(() => {
+      expect(target.sent.some((delivery) =>
+        typeof delivery.payload === "object"
+        && delivery.payload !== null
+        && "kind" in delivery.payload
+        && delivery.payload.kind === "relocation-lease-prepare"
+      )).toBe(true);
+    });
+    expect(execute).not.toHaveBeenCalled();
+    const prepare = target.sent
+      .map((delivery) => delivery.payload)
+      .find((payload) =>
+        typeof payload === "object"
+        && payload !== null
+        && "kind" in payload
+        && payload.kind === "relocation-lease-prepare"
+      );
+    if (
+      typeof prepare !== "object"
+      || prepare === null
+      || !("leaseId" in prepare)
+      || !("documentId" in prepare)
+      || !("clientSessionId" in prepare)
+      || !("storeEpoch" in prepare)
+      || !("generation" in prepare)
+      || !("expectedHeadSeq" in prepare)
+    ) {
+      throw new Error("Expected native Agent mutation lease preparation");
+    }
+    await expect(bridge.respondToRelocationLease(scope, target, {
+      response: "ack",
+      leaseId: String(prepare.leaseId),
+      documentId: String(prepare.documentId),
+      clientSessionId: String(prepare.clientSessionId),
+      storeEpoch: String(prepare.storeEpoch),
+      generation: Number(prepare.generation),
+      headSeq: Number(prepare.expectedHeadSeq),
+    })).resolves.toMatchObject({ ok: true, value: { status: "frozen" } });
+
+    const result = await pending;
+    if (!result.ok) throw new Error(JSON.stringify(result.error));
+    expect(result).toMatchObject({
+      ok: true,
+      value: { changeLogSeq: 14 },
+    });
+    expect(execute).toHaveBeenCalledOnce();
+    expect(target.sent.some((delivery) =>
+      typeof delivery.payload === "object"
+      && delivery.payload !== null
+      && "kind" in delivery.payload
+      && delivery.payload.kind === "document-update"
+    )).toBe(true);
+    expect(target.sent.some((delivery) =>
+      typeof delivery.payload === "object"
+      && delivery.payload !== null
+      && "kind" in delivery.payload
+      && delivery.payload.kind === "relocation-lease-release"
+    )).toBe(true);
   });
 
   test("binds Canvas sync to its Project client, engine, and exact target", async () => {

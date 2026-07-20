@@ -7,12 +7,12 @@ pub(crate) use mutation::{
     ExistingPageTransferTarget, PageCopyDataSourceDestination, PageCopyPositionAnchor,
     PageCopyValueDraft, PageCopyViewPlacement, PageValueProjectionEffects,
     StagedPagePlacementRevisions, active_property, authorize_page_value_write, normalize_value,
-    place_copied_page_in_data_source, place_staged_page_in_data_source,
-    refresh_page_value_projection,
+    place_copied_page_in_data_source, place_copied_page_in_data_source_prevalidated,
+    place_staged_page_in_data_source, refresh_page_value_projection,
     refresh_transferred_page_projection as refresh_copied_page_projection,
-    resolve_page_copy_data_source_project, resolve_page_copy_data_source_source,
-    resolve_page_transfer_data_source_destination, resolve_page_transfer_data_source_source,
-    transfer_existing_page_for_block_transfer,
+    resolve_page_copy_data_source_project, resolve_page_copy_data_source_project_prevalidated,
+    resolve_page_copy_data_source_source, resolve_page_transfer_data_source_destination,
+    resolve_page_transfer_data_source_source, transfer_existing_page_for_block_transfer,
 };
 
 use nodex_core_contracts::database::{

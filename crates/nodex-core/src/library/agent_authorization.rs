@@ -234,6 +234,39 @@ pub(crate) fn authorize_execution(
     let authority = &authorization.provenance.authority;
     let project = read_project(connection, library_id, &authority.actor_project_id)?
         .ok_or_else(|| unauthorized("Agent Turn Project is unavailable"))?;
+    if let AgentAuthorizationTarget::Library {
+        library_id: target_library_id,
+    } = target
+    {
+        if target_library_id != library_id {
+            return Err(unauthorized("Agent target belongs to another Library"));
+        }
+        if authority.scope == ProjectWorkspaceTurnAuthorityScope::Library {
+            return Ok(authority_fingerprint);
+        }
+        if action != AgentProjectResourceAction::CreateChild {
+            return Err(unauthorized(
+                "Agent target requires a structural Project capability",
+            ));
+        }
+        let overlay_allowed = authorization
+            .resource_access
+            .as_ref()
+            .is_some_and(|overlay| {
+                overlay_covers_library(
+                    authority,
+                    overlay,
+                    target_library_id,
+                    &authorization.call_id,
+                )
+            });
+        if overlay_allowed {
+            return Ok(authority_fingerprint);
+        }
+        return Err(unauthorized(
+            "Agent target requires Library resource consent",
+        ));
+    }
     let coordinates = match resolve_coordinates(connection, library_id, target)? {
         CoordinateResolution::Found(coordinates) => coordinates,
         CoordinateResolution::Missing => {
@@ -585,6 +618,7 @@ pub(super) fn persist_project_grants(
             block_transfer: None,
             page_lifecycle: None,
             block_property_mutation: None,
+            agent_page_copy: None,
             change_payload: None,
             committed_at: now,
         },

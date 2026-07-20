@@ -1827,6 +1827,7 @@ export async function runMainAppStartup(
       authority: dataAuthority,
       projectWorkspace,
       databaseModule,
+      documentSync,
       typescript: {
         writer: blockMutationWriter,
         documentHub: documentSyncHub,

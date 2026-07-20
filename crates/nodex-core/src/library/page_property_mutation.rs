@@ -345,6 +345,7 @@ pub(super) fn apply(
             block_transfer: None,
             page_lifecycle: None,
             block_property_mutation: Some(outcome_receipt),
+            agent_page_copy: None,
             change_payload: Some(change_payload),
             committed_at: now.clone(),
         },
@@ -1891,6 +1892,7 @@ fn finish_rejection(
             block_property_mutation: Some(LibraryBlockPropertyMutationReceipt {
                 outcome: LibraryBlockPropertyMutationOutcome::Rejected { error },
             }),
+            agent_page_copy: None,
         },
         receipt: LibraryReceipt {
             mutation: ModuleMutationReceipt {
