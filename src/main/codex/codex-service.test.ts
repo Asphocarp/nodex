@@ -185,6 +185,10 @@ interface TestableCodexService {
   logoutAccount: () => Promise<boolean>;
   readThread: (threadId: string, includeTurns?: boolean) => Promise<CodexThreadDetail | null>;
   resolveThreadSummary: (threadId: string) => Promise<import("../../shared/types").CodexThreadSummary | null>;
+  listProjectThreads: (
+    projectId: string,
+    opts?: { includeArchived?: boolean },
+  ) => Promise<CodexThreadSummary[]>;
   syncSidebarThreads: (input?: { includeArchived?: boolean; refresh?: boolean }) => Promise<import("../../shared/types").CodexSidebarSnapshot>;
   syncSidebarThreadsDetailed: (input?: {
     includeArchived?: boolean;
@@ -208,7 +212,9 @@ interface TestableCodexService {
   setSidebarChatsThreadOrder: (
     input: import("../../shared/codex-sidebar-thread-move").CodexSidebarChatsThreadOrderInput,
   ) => Promise<import("../../shared/codex-sidebar-thread-move").CodexSidebarChatsThreadOrderResult>;
-  listCommandPaletteThreads: (input: { scope: "sidebar" }) => CommandPaletteThreadSummary[];
+  listCommandPaletteThreads: (
+    input: { scope: "sidebar" },
+  ) => Promise<CommandPaletteThreadSummary[]>;
   searchCommandPaletteThreadContent: (input: {
     scope: "sidebar";
     query: string;
@@ -9005,7 +9011,7 @@ describe("codex-service readThread fallback", () => {
 
       const service = createService();
       try {
-        const results = service.listCommandPaletteThreads({ scope: "sidebar" });
+        const results = await service.listCommandPaletteThreads({ scope: "sidebar" });
         const ids = results.map((thread) => thread.threadId).join(",");
 
         expect(results.length).toBe(3);
@@ -9056,7 +9062,7 @@ describe("codex-service readThread fallback", () => {
       const service = createService();
       const searchIndexer = new CommandPaletteThreadSearchService();
       try {
-        const summaries = service.listCommandPaletteThreads({ scope: "sidebar" });
+        const summaries = await service.listCommandPaletteThreads({ scope: "sidebar" });
         for (const summary of summaries) {
           const thread = getCodexThread(summary.threadId);
           if (!thread) continue;
@@ -27020,6 +27026,117 @@ describe("codex-service approval fallback", () => {
         `attach:session-authority:${persisted.threadId}`,
         `read:${persisted.threadId}`,
       ]);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("routes Thread catalogs and content search through the selected Workspace authority", async () => {
+    let legacyBackfillCalls = 0;
+    let legacySearchCalls = 0;
+    const legacySearchClient: CommandPaletteThreadSearchClient = {
+      enqueueBackfill: () => {
+        legacyBackfillCalls += 1;
+      },
+      search: async () => {
+        legacySearchCalls += 1;
+        return [];
+      },
+      indexConversation: () => undefined,
+      removeThread: () => undefined,
+      shutdown: () => undefined,
+    };
+    const service = createService({
+      commandPaletteThreadSearchClient: legacySearchClient,
+    });
+    const calls: string[] = [];
+    const thread = makeDesktopWorkspaceThread({
+      threadId: "thread-authority-catalog",
+      projectId: "project-authority",
+      sessionId: null,
+      threadName: "Authority catalog",
+      threadPreview: "Native catalog preview",
+    });
+    const typescriptWorkspace = createTypeScriptProjectWorkspacePort();
+    service.setProjectWorkspacePort({
+      ...typescriptWorkspace,
+      readSidebar: async (includeArchived) => {
+        calls.push(`sidebar:${String(includeArchived)}`);
+        return {
+          threads: [thread],
+          projectThreadOrders: {},
+          projectlessThreadOrder: null,
+        };
+      },
+      listProjects: async () => {
+        calls.push("projects");
+        return [{
+          id: "project-authority",
+          libraryId: "library-authority",
+          databaseId: "database-authority",
+          lifecycle: "active",
+          bindingRevision: 1,
+          name: "Authority Project",
+          description: "",
+          sources: [],
+          primaryWorkspaceRoot: null,
+          pinned: false,
+          pinnedOrder: null,
+          created: new Date(0),
+          updated: new Date(0),
+        }];
+      },
+      listThreadSearchBackfillCandidates: async (limit, force) => {
+        calls.push(`backfill:${limit}:${String(force)}`);
+        return [];
+      },
+      replaceThreadSearchProjection: async () => undefined,
+      failThreadSearchProjection: async () => undefined,
+      searchThreadContent: async (query, limit) => {
+        calls.push(`search:${query}:${limit ?? "default"}`);
+        return [
+          {
+            threadId: thread.threadId,
+            snippet: "Native match",
+            score: 10,
+            matchKind: "fts",
+          },
+          {
+            threadId: "thread-outside-sidebar",
+            snippet: "Hidden match",
+            score: 9,
+            matchKind: "fts",
+          },
+        ];
+      },
+    });
+
+    try {
+      await expect(service.listProjectThreads(
+        "project-authority",
+      )).resolves.toMatchObject([{ threadId: thread.threadId }]);
+      await expect(service.listCommandPaletteThreads({
+        scope: "sidebar",
+      })).resolves.toMatchObject([{
+        threadId: thread.threadId,
+        projectName: "Authority Project",
+      }]);
+      await expect(service.searchCommandPaletteThreadContent({
+        scope: "sidebar",
+        query: "native",
+        limit: 20,
+      })).resolves.toEqual([{
+        threadId: thread.threadId,
+        snippet: "Native match",
+        score: 10,
+        matchKind: "fts",
+      }]);
+      await Promise.resolve();
+
+      expect(calls).toContain("backfill:2:false");
+      expect(calls).toContain("search:native:20");
+      expect(legacyBackfillCalls).toBe(0);
+      expect(legacySearchCalls).toBe(0);
     } finally {
       await service.shutdown();
     }

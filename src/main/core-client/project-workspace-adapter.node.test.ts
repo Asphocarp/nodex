@@ -141,6 +141,116 @@ describe("Core Project Workspace adapter", () => {
     expect(client.workspaceReads).toEqual([{ kind: "startup" }]);
   });
 
+  test("maps native Thread search reads and projection writes", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueWorkspaceRead({
+      version: 1,
+      event_head: 3,
+      store_epoch: "epoch:test",
+      value: {
+        kind: "thread_search",
+        results: [{
+          thread_id: "thread:one",
+          snippet: "matched text",
+          score: 42,
+          match_kind: "fts",
+          snippet_segments: [
+            { text: "matched", highlight: true },
+            { text: " text", highlight: false },
+          ],
+        }],
+      },
+    });
+    client.enqueueWorkspaceRead({
+      version: 1,
+      event_head: 3,
+      store_epoch: "epoch:test",
+      value: {
+        kind: "thread_search_backfill_candidates",
+        candidates: [{
+          thread_id: "thread:one",
+          source_updated_at: 12,
+          pinned_order: 0,
+        }],
+      },
+    });
+    for (const operationId of ["replace-search", "fail-search"]) {
+      client.enqueueWorkspaceApply({
+        value: {
+          affected_project_ids: ["project:one"],
+          affected_session_ids: [],
+          affected_thread_ids: ["thread:one"],
+        },
+        receipt: {
+          operation_id: operationId,
+          duplicate: false,
+          affected_project_ids: ["project:one"],
+          affected_session_ids: [],
+        },
+        event_sequence: 4,
+        store_epoch: "epoch:test",
+      });
+    }
+    const adapter = createCoreProjectWorkspaceAdapter(client);
+    if (
+      !adapter.searchThreadContent
+      || !adapter.listThreadSearchBackfillCandidates
+      || !adapter.replaceThreadSearchProjection
+      || !adapter.failThreadSearchProjection
+    ) {
+      throw new Error("Core Thread search authority is unavailable");
+    }
+
+    await expect(adapter.searchThreadContent("matched", 20)).resolves.toEqual([{
+      threadId: "thread:one",
+      snippet: "matched text",
+      score: 42,
+      matchKind: "fts",
+      snippetSegments: [
+        { text: "matched", highlight: true },
+        { text: " text", highlight: false },
+      ],
+    }]);
+    await expect(
+      adapter.listThreadSearchBackfillCandidates(2, true),
+    ).resolves.toEqual([{
+      threadId: "thread:one",
+      sourceUpdatedAt: 12,
+      pinnedOrder: 0,
+    }]);
+    await adapter.replaceThreadSearchProjection("thread:one", 12, [{
+      turnId: "turn:one",
+      itemId: "item:one",
+      role: "user",
+      text: "matched text",
+    }]);
+    await adapter.failThreadSearchProjection("thread:one", 12, "missing rollout");
+
+    expect(client.workspaceReads).toEqual([
+      { kind: "thread_search", query: "matched", limit: 20 },
+      { kind: "thread_search_backfill_candidates", limit: 2, force: true },
+    ]);
+    expect(client.workspaceApplies.map((request) => request.intent)).toEqual([
+      {
+        kind: "replace_thread_search_projection",
+        thread_id: "thread:one",
+        expected_thread_updated_at: 12,
+        units: [{
+          turn_id: "turn:one",
+          item_id: "item:one",
+          role: "user",
+          text: "matched text",
+        }],
+      },
+      {
+        kind: "fail_thread_search_projection",
+        thread_id: "thread:one",
+        expected_thread_updated_at: 12,
+        error: "missing rollout",
+      },
+    ]);
+  });
+
   test("uses the current binding revision for one Project update aggregate", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({

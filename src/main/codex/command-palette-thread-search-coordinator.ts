@@ -30,7 +30,9 @@ type ThreadSearchWorkerRequestInput = ThreadSearchWorkerRequest extends infer Re
 
 export interface ThreadSearchLiveSource {
   readConversation: (threadId: string) => CodexConversationSnapshot | null;
-  readSummary: (threadId: string) => CommandPaletteThreadSummary | null;
+  readSummary: (
+    threadId: string,
+  ) => CommandPaletteThreadSummary | null | Promise<CommandPaletteThreadSummary | null>;
 }
 
 export interface CommandPaletteThreadSearchClient {
@@ -298,15 +300,22 @@ export class CommandPaletteThreadSearchCoordinator {
     if (existing) clearTimeout(existing);
 
     const timer = setTimeout(() => {
-      this.liveIndexTimers.delete(threadId);
-      const summary = source.readSummary(threadId);
-      if (!summary) {
-        this.removeThread(threadId);
-        return;
-      }
-      const conversation = source.readConversation(threadId);
-      if (!conversation) return;
-      this.client.indexConversation(summary, conversation);
+      void (async () => {
+        this.liveIndexTimers.delete(threadId);
+        const summary = await source.readSummary(threadId);
+        if (!summary) {
+          this.removeThread(threadId);
+          return;
+        }
+        const conversation = source.readConversation(threadId);
+        if (!conversation) return;
+        this.client.indexConversation(summary, conversation);
+      })().catch((error) => {
+        logger.debug("Live Thread indexing skipped", {
+          error: error instanceof Error ? error.message : String(error),
+          threadId,
+        });
+      });
     }, LIVE_INDEX_DEBOUNCE_MS);
 
     this.liveIndexTimers.set(threadId, timer);

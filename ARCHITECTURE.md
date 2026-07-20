@@ -572,6 +572,13 @@ Codex app-server content and extracts only bounded user/assistant transcript
 units; Core admits that projection only at the exact current Thread
 `updated_at`, owns the FTS5 index, retry clock, stale-work selection, eligibility,
 and snippets, and emits the normal Workspace invalidation event after commit.
+Project Thread catalogs, command-palette metadata, native content queries,
+live transcript indexing, stale rollout backfill, and managed-worktree catalogs
+all enter through the authority-selected Workspace port. The TypeScript worker
+remains only behind the oracle selection; the Rust Host reads rollout files and
+submits bounded search units without opening the legacy database. Managed
+worktree removal remains a Host filesystem action, then deletes every owning
+Thread through native lifecycle commands.
 Generic persisted renderer atoms remain shell-owned until their owning semantic
 Module adopts a typed field; Core does not provide a catch-all JSON persistence
 surface.

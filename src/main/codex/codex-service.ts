@@ -85,6 +85,7 @@ import type {
   PageRunInTarget,
   CommandPaletteThreadContentSearchInput,
   CommandPaletteThreadContentSearchResult,
+  CommandPaletteThreadIndexUpdatedEvent,
   CommandPaletteThreadListInput,
   CommandPaletteThreadSummary,
   CodexAccountIdentity,
@@ -466,8 +467,6 @@ import {
   listCodexChildThreadLinks,
   listPinnedCodexThreadIds,
   listCodexThreadLinks,
-  listCodexProjectThreads,
-  unlinkCodexThread,
   updateCodexThreadArchived,
   updateCodexThreadName,
   updateCodexThreadStatus,
@@ -687,6 +686,10 @@ import {
   CommandPaletteThreadSearchCoordinator,
   type CommandPaletteThreadSearchClient,
 } from "./command-palette-thread-search-coordinator";
+import {
+  extractThreadSearchUnitsFromConversation,
+  extractThreadSearchUnitsFromDetail,
+} from "./command-palette-thread-search-helpers";
 import { captureCodexOrdinaryBrowserTransfer } from "./codex-browser-transfer-capture";
 import {
   CodexForkSidePanelTransferManager,
@@ -2916,6 +2919,12 @@ export class CodexService extends EventEmitter {
   private readonly terminalInputBuffers = new Map<string, string>();
   private readonly manualCompactionTracker = new CodexManualCompactionTracker();
   private readonly commandPaletteThreadSearchService: CommandPaletteThreadSearchCoordinator;
+  private readonly nativeThreadSearchLiveTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
+  private nativeThreadSearchBackfillInFlight = false;
+  private nativeThreadSearchGeneration = 0;
   private readonly dictationService = new CodexDictationService({
     readConfig: async () => await this.readConfigForChatGptServices(),
     readAuthStatus: async (input) => await this.readAuthStatusForChatGptServices(input),
@@ -6738,6 +6747,10 @@ export class CodexService extends EventEmitter {
     this.readyDeferredThreadStartThreadIds.clear();
     this.threadStartNotificationDeferralDepth = 0;
     this.commandPaletteThreadSearchService.shutdown();
+    for (const timer of this.nativeThreadSearchLiveTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.nativeThreadSearchLiveTimers.clear();
     this.stopRateLimitsPolling();
     if (this.sidebarThreadListRepairTimer !== null) {
       clearTimeout(this.sidebarThreadListRepairTimer);
@@ -7213,7 +7226,19 @@ export class CodexService extends EventEmitter {
     projectId: string,
     opts?: { includeArchived?: boolean },
   ): Promise<CodexThreadSummary[]> {
-    return listCodexProjectThreads(projectId, opts);
+    const normalizedProjectId = projectId.trim();
+    if (!normalizedProjectId) throw new Error("Project id is required");
+    const sidebar = await this.projectWorkspace.readSidebar(
+      opts?.includeArchived === true,
+    );
+    return sidebar.threads
+      .filter((thread) =>
+        thread.projectId === normalizedProjectId
+        && thread.parentThreadId === null
+        && (opts?.includeArchived === true || !thread.archived)
+      )
+      .map((thread) => this.buildWorkspaceThreadSummary(thread))
+      .sort((left, right) => right.updatedAt - left.updatedAt);
   }
 
   async syncSidebarThreads(input: {
@@ -8019,9 +8044,9 @@ export class CodexService extends EventEmitter {
       return null;
     }
     const session = await this.ensureWorkspaceSidebarThreadSession(thread);
-    const paletteSummary = this.getCommandPaletteSidebarChat(normalizedThreadId);
+    const paletteSummary = await this.getCommandPaletteSidebarChat(normalizedThreadId);
     if (paletteSummary) {
-      this.commandPaletteThreadSearchService.enqueueBackfill([paletteSummary], { force: true });
+      this.enqueueThreadSearchBackfill([paletteSummary], { force: true });
     }
     return session;
   }
@@ -8833,23 +8858,139 @@ export class CodexService extends EventEmitter {
     return result;
   }
 
-  private listCommandPaletteSidebarChats(): CommandPaletteThreadSummary[] {
-    const snapshot = this.buildSidebarSnapshot({ includeArchived: false });
+  private enqueueThreadSearchBackfill(
+    summaries: CommandPaletteThreadSummary[],
+    options: { readonly force?: boolean } = {},
+  ): void {
+    const listCandidates = this.projectWorkspace.listThreadSearchBackfillCandidates;
+    const replaceProjection = this.projectWorkspace.replaceThreadSearchProjection;
+    const failProjection = this.projectWorkspace.failThreadSearchProjection;
+    if (!listCandidates || !replaceProjection || !failProjection) {
+      this.commandPaletteThreadSearchService.enqueueBackfill(summaries, options);
+      return;
+    }
+    if (this.nativeThreadSearchBackfillInFlight) return;
+
+    this.nativeThreadSearchBackfillInFlight = true;
+    void (async () => {
+      let changed = false;
+      const candidates = await listCandidates(2, options.force === true);
+      for (const candidate of candidates) {
+        const thread = await this.projectWorkspace.getThread(candidate.threadId);
+        if (!thread || thread.updatedAt !== candidate.sourceUpdatedAt) continue;
+        const summary = this.buildWorkspaceThreadSummary(thread);
+        try {
+          const detail = readCodexSessionThreadDetail({
+            threadId: candidate.threadId,
+            link: summary,
+          });
+          if (!detail) {
+            throw new Error("Codex session transcript is unavailable");
+          }
+          await replaceProjection(
+            candidate.threadId,
+            candidate.sourceUpdatedAt,
+            extractThreadSearchUnitsFromDetail(detail),
+          );
+          changed = true;
+        } catch (error) {
+          await failProjection(
+            candidate.threadId,
+            candidate.sourceUpdatedAt,
+            error instanceof Error ? error.message : String(error),
+          ).catch(() => undefined);
+        }
+      }
+      if (changed) this.emitNativeThreadSearchIndexUpdated();
+    })().catch((error) => {
+      this.logger.debug("Native Thread search backfill skipped", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }).finally(() => {
+      this.nativeThreadSearchBackfillInFlight = false;
+    });
+  }
+
+  private scheduleThreadSearchLiveIndex(threadId: string): void {
+    if (!this.projectWorkspace.replaceThreadSearchProjection) {
+      this.commandPaletteThreadSearchService.scheduleLiveIndex(threadId, {
+        readConversation: (targetThreadId) =>
+          this.serializeConversationSnapshot(targetThreadId),
+        readSummary: (targetThreadId) =>
+          this.getCommandPaletteSidebarChat(targetThreadId),
+      });
+      return;
+    }
+
+    const existing = this.nativeThreadSearchLiveTimers.get(threadId);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      this.nativeThreadSearchLiveTimers.delete(threadId);
+      void (async () => {
+        const replaceProjection = this.projectWorkspace.replaceThreadSearchProjection;
+        if (!replaceProjection) return;
+        const [thread, conversation] = await Promise.all([
+          this.projectWorkspace.getThread(threadId),
+          Promise.resolve(this.serializeConversationSnapshot(threadId)),
+        ]);
+        if (!thread || !conversation) return;
+        await replaceProjection(
+          threadId,
+          thread.updatedAt,
+          extractThreadSearchUnitsFromConversation(conversation),
+        );
+        this.emitNativeThreadSearchIndexUpdated();
+      })().catch((error) => {
+        this.logger.debug("Native live Thread indexing skipped", {
+          error: error instanceof Error ? error.message : String(error),
+          threadId,
+        });
+      });
+    }, 500);
+    this.nativeThreadSearchLiveTimers.set(threadId, timer);
+  }
+
+  private emitNativeThreadSearchIndexUpdated(): void {
+    this.nativeThreadSearchGeneration += 1;
+    this.emit("threadSearchIndexUpdated", {
+      generation: this.nativeThreadSearchGeneration,
+      reason: "backfill",
+    } satisfies CommandPaletteThreadIndexUpdatedEvent);
+  }
+
+  private removeThreadSearchProjection(threadId: string): void {
+    if (this.projectWorkspace.replaceThreadSearchProjection) return;
+    this.commandPaletteThreadSearchService.removeThread(threadId);
+  }
+
+  private async listCommandPaletteSidebarChats(): Promise<CommandPaletteThreadSummary[]> {
+    const [sidebar, projects] = await Promise.all([
+      this.projectWorkspace.readSidebar(false),
+      this.projectWorkspace.listProjects(),
+    ]);
+    const snapshot = await this.buildWorkspaceSidebarSnapshot(sidebar, false);
+    const threadById = new Map(
+      sidebar.threads.map((thread) => [thread.threadId, thread] as const),
+    );
+    const projectNameById = new Map(
+      projects.map((project) => [project.id, project.name] as const),
+    );
     const seenThreadIds = new Set<string>();
     const summaries: CommandPaletteThreadSummary[] = [];
 
     for (const item of snapshot.items) {
       if (item.archived || item.disabled || seenThreadIds.has(item.threadId)) continue;
-      const thread = getCodexThread(item.threadId);
-      if (!thread || thread.archived || thread.ephemeral || thread.source?.sideConversation) continue;
+      const thread = threadById.get(item.threadId);
+      if (!thread || thread.archived || thread.parentThreadId !== null) continue;
       seenThreadIds.add(item.threadId);
 
-      const project = item.projectId ? getProject(item.projectId) : null;
       summaries.push({
         threadId: item.threadId,
         sessionId: item.sessionId,
         projectId: item.projectId,
-        projectName: project?.name ?? null,
+        projectName: item.projectId
+          ? projectNameById.get(item.projectId) ?? null
+          : null,
         title: item.title,
         preview: item.preview,
         cwd: item.cwd,
@@ -8867,15 +9008,19 @@ export class CodexService extends EventEmitter {
     return summaries;
   }
 
-  private getCommandPaletteSidebarChat(threadId: string): CommandPaletteThreadSummary | null {
-    return this.listCommandPaletteSidebarChats()
+  private async getCommandPaletteSidebarChat(
+    threadId: string,
+  ): Promise<CommandPaletteThreadSummary | null> {
+    return (await this.listCommandPaletteSidebarChats())
       .find((summary) => summary.threadId === threadId) ?? null;
   }
 
-  listCommandPaletteThreads(input: CommandPaletteThreadListInput): CommandPaletteThreadSummary[] {
+  async listCommandPaletteThreads(
+    input: CommandPaletteThreadListInput,
+  ): Promise<CommandPaletteThreadSummary[]> {
     if (input.scope !== "sidebar") return [];
-    const summaries = this.listCommandPaletteSidebarChats();
-    this.commandPaletteThreadSearchService.enqueueBackfill(summaries);
+    const summaries = await this.listCommandPaletteSidebarChats();
+    this.enqueueThreadSearchBackfill(summaries);
     return summaries;
   }
 
@@ -8885,7 +9030,17 @@ export class CodexService extends EventEmitter {
     const query = input.query.trim();
     if (input.scope !== "sidebar" || query.length === 0) return [];
 
-    const summaries = this.listCommandPaletteSidebarChats();
+    const summaries = await this.listCommandPaletteSidebarChats();
+
+    const nativeSearch = this.projectWorkspace.searchThreadContent;
+    if (nativeSearch) {
+      if (query.length < 2 || summaries.length === 0) return [];
+      const eligibleThreadIds = new Set(
+        summaries.map((summary) => summary.threadId),
+      );
+      return (await nativeSearch(query, input.limit))
+        .filter((result) => eligibleThreadIds.has(result.threadId));
+    }
 
     return this.commandPaletteThreadSearchService.search({
       scope: input.scope,
@@ -8898,8 +9053,8 @@ export class CodexService extends EventEmitter {
     const normalizedThreadId = threadId.trim();
     if (!normalizedThreadId) return null;
 
-    const cached = getCodexThread(normalizedThreadId);
-    if (cached) return cached;
+    const cached = await this.projectWorkspace.getThread(normalizedThreadId);
+    if (cached) return this.buildWorkspaceThreadSummary(cached);
 
     await this.ensureClientReady();
     const result = await this.client.request<"thread/read", ThreadReadResponse>("thread/read", {
@@ -8911,9 +9066,12 @@ export class CodexService extends EventEmitter {
         `Codex thread/read expected '${normalizedThreadId}' but received '${result.thread.id}'`,
       );
     }
-    const previous = getCodexThread(normalizedThreadId);
+    const previousThread = await this.projectWorkspace.getThread(normalizedThreadId);
+    const previous = previousThread
+      ? this.buildWorkspaceThreadSummary(previousThread)
+      : null;
     const summary = await this.upsertLinkFromThread(result.thread)
-      ?? getCodexThread(normalizedThreadId);
+      ?? previous;
     if (summary && hasSidebarThreadSummaryChanged(previous, summary)) {
       const metadata = createSidebarThreadSyncMetadata();
       markSidebarSyncScopeChanged(metadata, summary.projectId);
@@ -9003,7 +9161,7 @@ export class CodexService extends EventEmitter {
   }
 
   async listWorktreeEnvironments(projectId: string): Promise<WorktreeEnvironmentOption[]> {
-    const project = getProject(projectId);
+    const project = await this.projectWorkspace.getProject(projectId);
     const workspacePath = project?.primaryWorkspaceRoot?.trim();
     if (!workspacePath) return [];
     try {
@@ -9014,7 +9172,7 @@ export class CodexService extends EventEmitter {
   }
 
   async listWorktreeEnvironmentConfigs(projectId: string): Promise<WorktreeEnvironmentConfigRecord[]> {
-    const project = getProject(projectId);
+    const project = await this.projectWorkspace.getProject(projectId);
     const workspacePath = project?.primaryWorkspaceRoot?.trim();
     if (!workspacePath) return [];
 
@@ -9041,7 +9199,7 @@ export class CodexService extends EventEmitter {
     projectId: string,
     configPath?: string | null,
   ): Promise<WorktreeEnvironmentSettingsSnapshot> {
-    const project = getProject(projectId);
+    const project = await this.projectWorkspace.getProject(projectId);
     const workspacePath = project?.primaryWorkspaceRoot?.trim();
     if (!project || !workspacePath) {
       throw new Error("Project source folder is required for local environments.");
@@ -9058,7 +9216,7 @@ export class CodexService extends EventEmitter {
   async saveWorktreeEnvironmentConfig(
     input: UpdateWorktreeEnvironmentConfigInput,
   ): Promise<WorktreeEnvironmentSettingsSnapshot> {
-    const project = getProject(input.projectId);
+    const project = await this.projectWorkspace.getProject(input.projectId);
     const workspacePath = project?.primaryWorkspaceRoot?.trim();
     if (!project || !workspacePath) {
       throw new Error("Project source folder is required for local environments.");
@@ -9073,8 +9231,25 @@ export class CodexService extends EventEmitter {
 
   async listManagedWorktrees(): Promise<ManagedWorktreeRecord[]> {
     const managedRoot = path.resolve(getNodexHome(), "worktrees");
-    const links = listCodexThreadLinks({ includeArchived: true });
-    const recordsByPath = links.reduce<Map<string, ManagedWorktreeRecord>>((acc, link) => {
+    const [sidebar, projects] = await Promise.all([
+      this.projectWorkspace.readSidebar(true),
+      this.projectWorkspace.listProjects(),
+    ]);
+    const projectNameById = new Map(
+      projects.map((project) => [project.id, project.name] as const),
+    );
+    const sessions = await Promise.all(
+      sidebar.threads.map(async (thread) => [
+        thread.threadId,
+        thread.sessionId
+          ? await this.projectWorkspace.getProjectSession(thread.sessionId)
+          : null,
+      ] as const),
+    );
+    const sessionByThreadId = new Map(sessions);
+    const recordsByPath = sidebar.threads.reduce<Map<string, ManagedWorktreeRecord>>((acc, thread) => {
+      if (thread.parentThreadId !== null) return acc;
+      const link = this.buildWorkspaceThreadSummary(thread);
       const resolvedPath = resolveManagedWorktreeGitRoot(link);
       if (!resolvedPath) return acc;
       if (!link.projectId) return acc;
@@ -9086,15 +9261,13 @@ export class CodexService extends EventEmitter {
         return acc;
       }
 
-      const project = link.projectId ? getProject(link.projectId) : null;
-      const sessionLink = projectSessionService.getProjectSessionThreadLink(link.threadId);
-      const session = sessionLink?.sessionId ? projectSessionService.getProjectSession(sessionLink.sessionId) : null;
+      const session = sessionByThreadId.get(link.threadId) ?? null;
 
       acc.set(resolvedPath, {
         threadId: link.threadId,
         projectId: link.projectId,
-        projectName: project?.name ?? null,
-        sessionId: sessionLink?.sessionId ?? null,
+        projectName: projectNameById.get(link.projectId) ?? null,
+        sessionId: session?.id ?? thread.sessionId,
         sessionTitle: session?.displayTitle ?? null,
         threadName: link.threadName,
         path: resolvedPath,
@@ -9113,8 +9286,9 @@ export class CodexService extends EventEmitter {
   /** Remove a managed worktree directory. Returns true if deletion was performed. */
   async deleteManagedWorktree(threadId: string): Promise<boolean> {
     const managedRoot = path.resolve(getNodexHome(), "worktrees");
-    const link = this.getThreadLinkSafely(threadId);
-    if (!link) return false;
+    const thread = await this.projectWorkspace.getThread(threadId);
+    if (!thread) return false;
+    const link = this.buildWorkspaceThreadSummary(thread);
 
     const resolvedPath = resolveManagedWorktreeGitRoot(link);
     if (!resolvedPath) return false;
@@ -9122,15 +9296,21 @@ export class CodexService extends EventEmitter {
 
     await removeManagedWorktree(resolvedPath);
 
-    const linkedThreadIds = listCodexThreadLinks({ includeArchived: true })
-      .filter((candidate) => resolveManagedWorktreeGitRoot(candidate) === resolvedPath)
+    const sidebar = await this.projectWorkspace.readSidebar(true);
+    const linkedThreadIds = sidebar.threads
+      .filter((candidate) =>
+        resolveManagedWorktreeGitRoot(
+          this.buildWorkspaceThreadSummary(candidate),
+        ) === resolvedPath
+      )
       .map((candidate) => candidate.threadId);
 
     const threadIdsToUnlink = Array.from(new Set([threadId, ...linkedThreadIds]));
 
     let removedAnyLink = false;
     for (const linkedThreadId of threadIdsToUnlink) {
-      removedAnyLink = unlinkCodexThread(linkedThreadId) || removedAnyLink;
+      const result = await this.projectWorkspace.deleteThread(linkedThreadId);
+      removedAnyLink = result.deleted || removedAnyLink;
     }
 
     return removedAnyLink;
@@ -12580,10 +12760,7 @@ export class CodexService extends EventEmitter {
     const detail = this.ensureConversationDetail(threadId);
     if (!detail) return;
     detail.transcript = transcript;
-    this.commandPaletteThreadSearchService.scheduleLiveIndex(threadId, {
-      readConversation: (targetThreadId) => this.serializeConversationSnapshot(targetThreadId),
-      readSummary: (targetThreadId) => this.getCommandPaletteSidebarChat(targetThreadId),
-    });
+    this.scheduleThreadSearchLiveIndex(threadId);
   }
 
   private persistThreadDetailSummary(detail: CodexThreadDetail): void {
@@ -22793,7 +22970,7 @@ export class CodexService extends EventEmitter {
           broadcast: hadUnreadState,
         });
         await this.deleteHeartbeatAutomationForArchivedThread(payload.threadId);
-        this.commandPaletteThreadSearchService.removeThread(payload.threadId);
+        this.removeThreadSearchProjection(payload.threadId);
       }
       if (updated) {
         this.emitEvent({ type: "threadSummary", thread: updated });
@@ -22840,7 +23017,7 @@ export class CodexService extends EventEmitter {
       this.applyCommittedConversationUnreadState(payload.threadId, false, {
         broadcast: hadUnreadState,
       });
-      this.commandPaletteThreadSearchService.removeThread(payload.threadId);
+      this.removeThreadSearchProjection(payload.threadId);
       this.forgetThreadLocalState(payload.threadId);
       this.deletedThreadIds.add(payload.threadId);
       if (existingThread?.parentThreadId) {
