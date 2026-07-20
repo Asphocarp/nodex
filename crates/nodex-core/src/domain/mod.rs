@@ -1,4 +1,5 @@
 pub mod block_materialization;
+pub mod block_to_page;
 pub mod block_tree;
 pub mod derived_records;
 pub mod fractional_rank;
