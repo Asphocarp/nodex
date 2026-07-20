@@ -3,6 +3,7 @@ import {
   NODEX_APP_TOOL_NAMESPACE,
   NODEX_APP_V5_TOOLSET_REVISION,
 } from "../../shared/nodex-agent-tools";
+import { UpdatePageV3InputSchema } from "../../shared/nodex-agent-tools/v3-write-schemas";
 import type { NodexAgentDynamicExecutionContext } from "../agent-tools/dynamic-service-core";
 import type {
   NodexAgentV3DocumentHub,
@@ -11,6 +12,7 @@ import type {
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import type { DesktopDatabaseModuleBridge } from "./desktop-database-module-bridge";
 import { createDesktopNodexAgentV3DynamicService } from "./desktop-nodex-agent-dynamic-service";
+import { NativeNodexAgentPageUpdateRuntime } from "./native-nodex-agent-page-update";
 import type { DesktopProjectWorkspacePort } from "./project-workspace-adapter";
 
 const unavailable = vi.fn(async () => {
@@ -334,5 +336,87 @@ describe("native desktop Nodex Agent dynamic service", () => {
     expect(documentApply).toHaveBeenCalledOnce();
     expect(libraryRead).toHaveBeenCalledTimes(3);
     expect(unavailable).not.toHaveBeenCalled();
+  });
+
+  test("maps Page insertion anchors and uses Core canonical preview Markdown", async () => {
+    const documentRead = vi.fn(async () => ({
+      store_epoch: "store-native-agent",
+      event_sequence: 9,
+      value: {
+        kind: "agent_semantic_mutation_preparation" as const,
+        preparation: {
+          state: "prepared" as const,
+          consent: "none" as const,
+          token: "insert-token",
+          preview_markdown: "Current\n\nInserted",
+          footprint: {
+            effect_class: "write" as const,
+            targets: [{ kind: "page" as const, page_id: "page-insert" }],
+            created_roots: ["block-inserted"],
+            updated_roots: ["page-insert"],
+            deleted_roots: [],
+            ownership_transformations: [],
+          },
+        },
+      },
+    }));
+    const runtime = {
+      backend: "rust" as const,
+      rootClient: {
+        handshake: { profile_id: "profile-native-agent" },
+        libraryRead: vi.fn(async () => ({
+          value: {
+            kind: "page_content" as const,
+            value: {
+              document_id: "document-insert",
+              document_generation: 1,
+              document_head_seq: 4,
+              body_nfm: "Current",
+            },
+          },
+        })),
+      },
+      clientForProject: () => ({ documentRead }),
+    } as unknown as Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>;
+    const updates = new NativeNodexAgentPageUpdateRuntime(runtime);
+    const input = UpdatePageV3InputSchema.parse({
+      pageId: "page-insert",
+      body: {
+        kind: "insert",
+        at: { kind: "after", blockId: "block-anchor" },
+        markdown: "Inserted",
+      },
+      return: ["block_ids"],
+    });
+
+    const prepared = await updates.prepare({
+      tool: "update_page",
+      threadId: context.threadId,
+      callId: "call-insert",
+      projectId: context.authority.actorProjectId,
+      authority: context.authority,
+      input,
+    });
+
+    expect(documentRead).toHaveBeenCalledWith(
+      "nodex-agent:thread-native-agent",
+      expect.objectContaining({
+        mutation: expect.objectContaining({
+          commands: [{
+            kind: "insert_body",
+            anchor: { kind: "after", block_id: "block-anchor" },
+            nested_markdown: "Inserted",
+          }],
+        }),
+      }),
+    );
+    expect(prepared.result).toMatchObject({
+      ok: true,
+      value: {
+        kind: "prepared",
+        targetMarkdown: "Current\n\nInserted",
+        effects: { createdBlockIds: ["block-inserted"] },
+      },
+    });
   });
 });

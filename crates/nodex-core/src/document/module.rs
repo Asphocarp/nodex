@@ -12,9 +12,9 @@ use nodex_core_contracts::document::{
     AgentDocumentSemanticMutation, DocumentBlockOperation as ContractDocumentBlockOperation,
     DocumentCheckpointEffect, DocumentCommitOutcome, DocumentInvalidationReason,
     DocumentMutationCoordination, DocumentMutationEffect, DocumentOptionalValue,
-    DocumentOwnerCommand, DocumentRevisionKind, DocumentSemanticCommand, DocumentSemanticEtags,
-    OwnedDocumentCommitValue, OwnedDocumentEvent, OwnedDocumentIntent, OwnedDocumentRead,
-    OwnedDocumentReadValue, OwnedDocumentReceipt,
+    DocumentOwnerCommand, DocumentRevisionKind, DocumentSemanticAnchor, DocumentSemanticCommand,
+    DocumentSemanticEtags, OwnedDocumentCommitValue, OwnedDocumentEvent, OwnedDocumentIntent,
+    OwnedDocumentRead, OwnedDocumentReadValue, OwnedDocumentReceipt,
 };
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent,
@@ -109,6 +109,7 @@ struct DocumentCommitCheckpoint {
 
 struct AgentSemanticPreflight {
     footprint: AgentOperationFootprint,
+    preview_markdown: Option<String>,
     consent: AgentConsentRequirement,
     binding: PreparedAgentOperationBinding,
 }
@@ -680,7 +681,7 @@ impl OwnedDocumentModule {
                     .clone_engine(&transaction, &authority.head)?;
                 let schema = registered_yjs_schema(&authority)?;
                 let materialization = materialize_engine(&engine, schema)?;
-                let prepared_update = prepare_semantic_update(
+                let (prepared_update, preview_markdown) = prepare_semantic_update(
                     &transaction,
                     &authority,
                     &engine,
@@ -729,6 +730,7 @@ impl OwnedDocumentModule {
                     event_head,
                     preflight: AgentSemanticPreflight {
                         footprint,
+                        preview_markdown,
                         consent,
                         binding,
                     },
@@ -751,6 +753,7 @@ impl OwnedDocumentModule {
                         state: AgentOperationPreparationState::CommittedReplay,
                         consent: AgentConsentRequirement::None,
                         footprint,
+                        preview_markdown: None,
                         token: None,
                         expires_at_unix_ms: None,
                     },
@@ -775,6 +778,7 @@ impl OwnedDocumentModule {
                             state: AgentOperationPreparationState::Prepared,
                             consent: preflight.consent,
                             footprint: preflight.footprint,
+                            preview_markdown: preflight.preview_markdown,
                             token: Some(issued.token),
                             expires_at_unix_ms: Some(issued.expires_at_unix_ms),
                         },
@@ -1645,6 +1649,7 @@ impl OwnedDocumentModule {
                         .as_deref()
                         .unwrap_or(&authority.head.project_id),
                 )
+                .map(|(prepared, _preview_markdown)| prepared)
             },
             None,
         )
@@ -3326,7 +3331,7 @@ fn prepare_semantic_update(
     allocation_seed: &str,
     update_id: &str,
     etag_project_id: &str,
-) -> Result<PreparedUpdate, StoreError> {
+) -> Result<(PreparedUpdate, Option<String>), StoreError> {
     let requires_structural_barrier = commands.iter().any(|command| {
         matches!(
             command,
@@ -3375,6 +3380,7 @@ fn prepare_semantic_update(
     );
     match prepared {
         Ok(prepared) => {
+            let preview_markdown = prepared.materialization.nfm.clone();
             let mutation_effect = document_mutation_effect(
                 &authority.owner_block_id,
                 authority.head.head_seq,
@@ -3389,17 +3395,22 @@ fn prepare_semantic_update(
                 authority,
                 &mutation_effect.created_block_ids,
             )?;
-            Ok(PreparedUpdate::Apply {
-                base_head_seq: authority.head.head_seq,
-                update_id: update_id.to_owned(),
-                touched_block_ids: mutation_effect.touched_block_ids.clone(),
-                update: prepared.update_v1,
-                write_fence_block_ids: prepared.write_fence_block_ids,
-                title_write_fence_required: prepared.title_write_fence_required,
-                mutation_effect: Some(Box::new(mutation_effect)),
-            })
+            Ok((
+                PreparedUpdate::Apply {
+                    base_head_seq: authority.head.head_seq,
+                    update_id: update_id.to_owned(),
+                    touched_block_ids: mutation_effect.touched_block_ids.clone(),
+                    update: prepared.update_v1,
+                    write_fence_block_ids: prepared.write_fence_block_ids,
+                    title_write_fence_required: prepared.title_write_fence_required,
+                    mutation_effect: Some(Box::new(mutation_effect)),
+                },
+                Some(preview_markdown),
+            ))
         }
-        Err(SemanticMutationError::NoChange) => Ok(PreparedUpdate::NoChange),
+        Err(SemanticMutationError::NoChange) => {
+            Ok((PreparedUpdate::NoChange, Some(materialization.nfm.clone())))
+        }
         Err(error) => Err(semantic_error(error)),
     }
 }
@@ -3548,6 +3559,17 @@ fn build_agent_semantic_footprint(
             DocumentSemanticCommand::ReplaceBody { .. } => {
                 destructive = true;
                 updated_roots.insert(owner_page_id.to_owned());
+            }
+            DocumentSemanticCommand::InsertBody { anchor, .. } => {
+                let parent_block_id = match anchor {
+                    DocumentSemanticAnchor::Start { parent_block_id }
+                    | DocumentSemanticAnchor::End { parent_block_id } => parent_block_id.clone(),
+                    DocumentSemanticAnchor::Before { block_id }
+                    | DocumentSemanticAnchor::After { block_id } => {
+                        parents.get(block_id).and_then(Clone::clone)
+                    }
+                };
+                updated_roots.insert(parent_block_id.unwrap_or_else(|| owner_page_id.to_owned()));
             }
             DocumentSemanticCommand::DeleteBlock { block_id } => {
                 destructive = true;
@@ -7484,6 +7506,84 @@ mod tests {
                 Ok::<_, StoreError>(())
             })
             .unwrap();
+    }
+
+    #[test]
+    fn prepared_agent_body_insertion_returns_canonical_preview_and_created_roots() {
+        let seeded = seeded_module();
+        let connection_id = "electron:agent-insert";
+        let provenance = seed_agent_turn(&seeded, connection_id);
+        let operation_id = "agent:semantic-insert";
+        let mutation = AgentDocumentSemanticMutation {
+            document_id: DOCUMENT_ID.to_owned(),
+            generation: 1,
+            expected_head_seq: 1,
+            commands: vec![DocumentSemanticCommand::InsertBody {
+                anchor: DocumentSemanticAnchor::End {
+                    parent_block_id: None,
+                },
+                nested_markdown: "Inserted by Agent".to_owned(),
+            }],
+        };
+        let prepared = seeded
+            .module
+            .read(
+                &context_for(connection_id),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::PrepareAgentSemanticMutation {
+                        operation_id: operation_id.to_owned(),
+                        store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                        provenance: Box::new(provenance.clone()),
+                        mutation: Box::new(mutation.clone()),
+                    },
+                },
+            )
+            .expect("prepare body insertion");
+        let OwnedDocumentReadValue::AgentSemanticMutationPreparation {
+            preparation,
+            committed: None,
+        } = prepared.value
+        else {
+            panic!("expected prepared body insertion")
+        };
+        assert_eq!(preparation.footprint.effect_class, AgentEffectClass::Write);
+        assert_eq!(preparation.footprint.created_roots.len(), 1);
+        assert!(preparation.footprint.deleted_roots.is_empty());
+        let preview = preparation
+            .preview_markdown
+            .as_deref()
+            .expect("insertion preflight returns canonical preview");
+        assert!(preview.contains("Inserted by Agent"));
+        let committed = seeded
+            .module
+            .apply(
+                &context_for(connection_id),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: operation_id.to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ExecutePreparedAgentSemanticMutation {
+                        authorization: Box::new(AgentPreparedExecution {
+                            provenance,
+                            token: preparation.token,
+                        }),
+                        mutation: Box::new(mutation),
+                    },
+                },
+            )
+            .expect("commit body insertion");
+        let effect = committed
+            .committed
+            .value
+            .mutation_effect
+            .expect("insertion returns exact effect");
+        assert_eq!(
+            effect.created_block_ids,
+            preparation.footprint.created_roots
+        );
+        assert!(effect.deleted_block_ids.is_empty());
+        assert!(!effect.title_changed);
     }
 
     #[test]

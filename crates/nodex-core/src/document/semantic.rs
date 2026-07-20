@@ -1,11 +1,12 @@
-use nodex_core_contracts::document::DocumentSemanticCommand;
+use nodex_core_contracts::document::{DocumentSemanticAnchor, DocumentSemanticCommand};
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+use crate::domain::block_materialization::MaterializedBlockNode;
 use crate::domain::nfm::{NfmBlock, NfmInlineContent, NfmStyleSet};
-use crate::domain::nfm_parser::parse_nfm;
+use crate::domain::nfm_parser::{parse_nfm, parse_nfm_with_ids};
 use crate::domain::rich_text::{RichTextItem, RichTextStyles, canonicalize_rich_text};
 
 use super::{
@@ -97,6 +98,22 @@ pub(crate) fn prepare_semantic_mutation(
                 new_nfm: new_fragment.clone(),
                 expected_matches: expected_matches.map(|value| value as usize).or(Some(1)),
             }),
+            DocumentSemanticCommand::InsertBody {
+                anchor,
+                nested_markdown,
+            } => {
+                let (parent_block_id, before_block_id) =
+                    resolve_semantic_anchor(&context.materialization.block_tree, anchor)?;
+                let blocks = parse_nfm_with_ids(nested_markdown, allocate_block_id)
+                    .map_err(|error| SemanticMutationError::Invalid(error.to_string()))?;
+                structural.extend(blocks.into_iter().map(|block| {
+                    DocumentBlockOperation::InsertBlock {
+                        block,
+                        parent_block_id: parent_block_id.clone(),
+                        before_block_id: before_block_id.clone(),
+                    }
+                }));
+            }
             DocumentSemanticCommand::ReplaceBody {
                 nested_markdown,
                 expected_etag,
@@ -187,6 +204,78 @@ pub(crate) fn prepare_semantic_mutation(
         write_fence_block_ids: prepared.write_fence_block_ids,
         title_write_fence_required: prepared.title_write_fence_required,
     })
+}
+
+fn resolve_semantic_anchor(
+    blocks: &[MaterializedBlockNode],
+    anchor: &DocumentSemanticAnchor,
+) -> Result<(Option<String>, Option<String>), SemanticMutationError> {
+    match anchor {
+        DocumentSemanticAnchor::Start { parent_block_id }
+        | DocumentSemanticAnchor::End { parent_block_id } => {
+            let siblings = match parent_block_id {
+                Some(parent_block_id) => find_block(blocks, parent_block_id)
+                    .map(|parent| parent.children.as_slice())
+                    .ok_or_else(|| {
+                        SemanticMutationError::Invalid(format!(
+                            "semantic insertion parent Block {parent_block_id} does not exist"
+                        ))
+                    })?,
+                None => blocks,
+            };
+            let before_block_id = if matches!(anchor, DocumentSemanticAnchor::Start { .. }) {
+                siblings.first().map(|block| block.id.clone())
+            } else {
+                None
+            };
+            Ok((parent_block_id.clone(), before_block_id))
+        }
+        DocumentSemanticAnchor::Before { block_id }
+        | DocumentSemanticAnchor::After { block_id } => {
+            let (parent_block_id, sibling_index, siblings) =
+                find_block_coordinate(blocks, block_id, None).ok_or_else(|| {
+                    SemanticMutationError::Invalid(format!(
+                        "semantic insertion anchor Block {block_id} does not exist"
+                    ))
+                })?;
+            let before_block_id = if matches!(anchor, DocumentSemanticAnchor::Before { .. }) {
+                Some(block_id.clone())
+            } else {
+                siblings
+                    .get(sibling_index + 1)
+                    .map(|block| block.id.clone())
+            };
+            Ok((parent_block_id, before_block_id))
+        }
+    }
+}
+
+fn find_block<'a>(
+    blocks: &'a [MaterializedBlockNode],
+    block_id: &str,
+) -> Option<&'a MaterializedBlockNode> {
+    blocks.iter().find_map(|block| {
+        (block.id == block_id)
+            .then_some(block)
+            .or_else(|| find_block(&block.children, block_id))
+    })
+}
+
+fn find_block_coordinate<'a>(
+    blocks: &'a [MaterializedBlockNode],
+    block_id: &str,
+    parent_block_id: Option<&str>,
+) -> Option<(Option<String>, usize, &'a [MaterializedBlockNode])> {
+    for (sibling_index, block) in blocks.iter().enumerate() {
+        if block.id == block_id {
+            return Some((parent_block_id.map(str::to_owned), sibling_index, blocks));
+        }
+        if let Some(coordinate) = find_block_coordinate(&block.children, block_id, Some(&block.id))
+        {
+            return Some(coordinate);
+        }
+    }
+    None
 }
 
 fn parse_inline_markdown_title(markdown: &str) -> Result<Vec<RichTextItem>, SemanticMutationError> {

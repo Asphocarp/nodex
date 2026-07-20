@@ -707,6 +707,12 @@
           "footprint": {
             "$ref": "#/components/schemas/AgentOperationFootprint"
           },
+          "preview_markdown": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "state": {
             "$ref": "#/components/schemas/AgentOperationPreparationState"
           },
@@ -3318,6 +3324,86 @@
           "safety"
         ]
       },
+      "DocumentSemanticAnchor": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "start"
+                ]
+              },
+              "parent_block_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "end"
+                ]
+              },
+              "parent_block_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "block_id",
+              "kind"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "before"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "block_id",
+              "kind"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "after"
+                ]
+              }
+            }
+          }
+        ]
+      },
       "DocumentSemanticCommand": {
         "oneOf": [
           {
@@ -3368,6 +3454,28 @@
                 "type": "string"
               },
               "old_fragment": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "anchor",
+              "nested_markdown",
+              "kind"
+            ],
+            "properties": {
+              "anchor": {
+                "$ref": "#/components/schemas/DocumentSemanticAnchor"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "insert_body"
+                ]
+              },
+              "nested_markdown": {
                 "type": "string"
               }
             }

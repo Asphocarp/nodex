@@ -318,6 +318,7 @@ export interface components {
             /** Format: int64 */
             readonly expires_at_unix_ms?: number | null;
             readonly footprint: components["schemas"]["AgentOperationFootprint"];
+            readonly preview_markdown?: string | null;
             readonly state: components["schemas"]["AgentOperationPreparationState"];
             readonly token?: string | null;
         };
@@ -936,6 +937,23 @@ export interface components {
         };
         /** @enum {string} */
         readonly DocumentRevisionKind: "automatic" | "manual" | "operation" | "restore" | "safety";
+        readonly DocumentSemanticAnchor: {
+            /** @enum {string} */
+            readonly kind: "start";
+            readonly parent_block_id?: string | null;
+        } | {
+            /** @enum {string} */
+            readonly kind: "end";
+            readonly parent_block_id?: string | null;
+        } | {
+            readonly block_id: string;
+            /** @enum {string} */
+            readonly kind: "before";
+        } | {
+            readonly block_id: string;
+            /** @enum {string} */
+            readonly kind: "after";
+        };
         readonly DocumentSemanticCommand: {
             readonly expected_etag: string;
             readonly inline_markdown: string;
@@ -948,6 +966,11 @@ export interface components {
             readonly kind: "patch_body";
             readonly new_fragment: string;
             readonly old_fragment: string;
+        } | {
+            readonly anchor: components["schemas"]["DocumentSemanticAnchor"];
+            /** @enum {string} */
+            readonly kind: "insert_body";
+            readonly nested_markdown: string;
         } | {
             readonly expected_etag: string;
             /** @enum {string} */

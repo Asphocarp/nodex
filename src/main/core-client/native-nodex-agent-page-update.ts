@@ -218,11 +218,6 @@ const mutationCommands = (
       "advanced_update_page will be enabled after native stable-Block ETag operations land",
     );
   }
-  if (request.input.body?.kind === "insert") {
-    return unsupported(
-      "Native update_page insertion will be enabled with stable Block insertion",
-    );
-  }
   return [
     ...(request.input.title
       ? [{
@@ -244,6 +239,21 @@ const mutationCommands = (
             nested_markdown: request.input.body.markdown,
             expected_etag: request.input.body.ifMatch,
           }]
+        : request.input.body?.kind === "insert"
+          ? [{
+              kind: "insert_body" as const,
+              anchor: request.input.body.at.kind === "start"
+                || request.input.body.at.kind === "end"
+                ? {
+                    kind: request.input.body.at.kind,
+                    parent_block_id: request.input.body.at.parentBlockId ?? null,
+                  }
+                : {
+                    kind: request.input.body.at.kind,
+                    block_id: request.input.body.at.blockId,
+                  },
+              nested_markdown: request.input.body.markdown,
+            }]
         : []),
   ];
 };
@@ -335,6 +345,8 @@ export class NativeNodexAgentPageUpdateRuntime {
         snapshot.value.preparation,
         request.tool === "update_page" && request.input.title !== undefined,
       );
+      const canonicalTargetMarkdown =
+        snapshot.value.preparation.preview_markdown ?? targetMarkdown;
       const pending: PendingNativePageUpdate = {
         request,
         operationId,
@@ -365,7 +377,7 @@ export class NativeNodexAgentPageUpdateRuntime {
           kind: "prepared",
           mutation: fakeMutation,
           effects,
-          targetMarkdown,
+          targetMarkdown: canonicalTargetMarkdown,
           ...(request.resourceAccess
             ? { resourceAccess: request.resourceAccess }
             : {}),

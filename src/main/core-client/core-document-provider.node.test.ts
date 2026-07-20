@@ -252,6 +252,57 @@ describe("Rust Core renderer Document adapter", () => {
         throw new Error("Expected committed Agent replay");
       }
       expect(replayPreflight.value.preparation.token).toBeUndefined();
+
+      const insertOperationId = "agent-prepared-insert";
+      const insertMutation = {
+        document_id: DOCUMENT_ID,
+        generation: 1,
+        expected_head_seq: 3,
+        commands: [{
+          kind: "insert_body" as const,
+          anchor: { kind: "end" as const, parent_block_id: null },
+          nested_markdown: "Inserted through prepared Core",
+        }],
+      };
+      const insertPreflight = await host.documentRead("agent:prepared", {
+        kind: "prepare_agent_semantic_mutation",
+        operation_id: insertOperationId,
+        store_epoch: host.handshake.store_epoch,
+        provenance,
+        mutation: insertMutation,
+      });
+      if (insertPreflight.value.kind !== "agent_semantic_mutation_preparation") {
+        throw new Error("Expected prepared Agent insertion");
+      }
+      expect(insertPreflight.value.preparation).toMatchObject({
+        state: "prepared",
+        footprint: {
+          effect_class: "write",
+          created_roots: [expect.any(String)],
+          deleted_roots: [],
+        },
+      });
+      expect(insertPreflight.value.preparation.preview_markdown)
+        .toContain("Inserted through prepared Core");
+      const insertCommitted = await host.documentApply({
+        operationId: insertOperationId,
+        clientSessionId: "agent:prepared",
+        intent: {
+          kind: "execute_prepared_agent_semantic_mutation",
+          authorization: {
+            provenance,
+            token: insertPreflight.value.preparation.token,
+          },
+          mutation: insertMutation,
+        },
+      });
+      expect(insertCommitted.value).toMatchObject({
+        head_seq: 4,
+        mutation_effect: {
+          created_block_ids: insertPreflight.value.preparation.footprint.created_roots,
+          deleted_block_ids: [],
+        },
+      });
     } finally {
       await host.shutdown().catch(() => undefined);
     }

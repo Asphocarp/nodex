@@ -19,6 +19,15 @@ pub struct AgentDocumentSemanticMutation {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DocumentSemanticAnchor {
+    Start { parent_block_id: Option<String> },
+    End { parent_block_id: Option<String> },
+    Before { block_id: String },
+    After { block_id: String },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum OwnedDocumentRead {
     Descriptor {
         owner_block_id: String,
@@ -177,6 +186,10 @@ pub enum DocumentSemanticCommand {
         new_fragment: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         expected_matches: Option<u32>,
+    },
+    InsertBody {
+        anchor: DocumentSemanticAnchor,
+        nested_markdown: String,
     },
     ReplaceBody {
         nested_markdown: String,

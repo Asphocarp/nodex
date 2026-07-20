@@ -202,6 +202,8 @@ pub struct AgentOperationPreparation {
     pub consent: AgentConsentRequirement,
     pub footprint: AgentOperationFootprint,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview_markdown: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at_unix_ms: Option<i64>,
