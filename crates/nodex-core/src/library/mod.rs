@@ -2258,6 +2258,303 @@ mod tests {
                 Ok(())
             })
             .expect("reactivated membership evidence");
+
+        let move_into_page = LibraryBlockTransferLogicalIntent {
+            actor: serde_json::json!({ "kind": "test" }),
+            mode: LibraryBlockTransferMode::Move,
+            root_block_ids: vec![data_source_page_id.clone()],
+            source: LibraryBlockTransferSource::DataSource {
+                data_source_id: DATA_SOURCE.to_owned(),
+            },
+            target: LibraryBlockTransferTarget::Page {
+                page_id: ANCHOR_PAGE.to_owned(),
+                parent_block_id: None,
+                before_block_id: None,
+            },
+        };
+        let plan = library
+            .read(
+                &context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PlanBlockTransfer {
+                        operation_id: "move-data-source-page-into-page".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        intent: move_into_page.clone(),
+                    },
+                },
+            )
+            .expect("plan Data Source Page nesting");
+        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
+            panic!("Data Source Page nesting plan");
+        };
+        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
+            panic!("prepared Data Source Page nesting");
+        };
+        assert_eq!(preparation.write_fence.documents.len(), 1);
+        assert_eq!(
+            preparation.target_document_id.as_deref(),
+            Some(ANCHOR_DOCUMENT)
+        );
+        assert_eq!(
+            preparation.write_fence.source_memberships[&data_source_page_id].revision,
+            3
+        );
+        let nested = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "move-data-source-page-into-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: move_into_page,
+                        write_fence: Some(preparation.write_fence),
+                    },
+                },
+            )
+            .expect("move Data Source Page into Page");
+        let nested_result = nested
+            .committed
+            .value
+            .block_transfer
+            .as_ref()
+            .expect("nested Page result");
+        assert_eq!(nested_result.document_commits.len(), 1);
+        assert_eq!(
+            nested_result.final_locations[&data_source_page_id],
+            LibraryBlockLocation::Document {
+                document_id: ANCHOR_DOCUMENT.to_owned(),
+            }
+        );
+        assert_eq!(
+            nested_result.final_location_revisions[&data_source_page_id],
+            5
+        );
+
+        let move_nested_to_library = LibraryBlockTransferLogicalIntent {
+            actor: serde_json::json!({ "kind": "test" }),
+            mode: LibraryBlockTransferMode::Move,
+            root_block_ids: vec![data_source_page_id.clone()],
+            source: LibraryBlockTransferSource::Page {
+                page_id: ANCHOR_PAGE.to_owned(),
+            },
+            target: LibraryBlockTransferTarget::Library {
+                library_id: "library-1".to_owned(),
+                before_block_id: Some(ANCHOR_PAGE.to_owned()),
+            },
+        };
+        let plan = library
+            .read(
+                &context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PlanBlockTransfer {
+                        operation_id: "move-nested-page-to-library".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        intent: move_nested_to_library.clone(),
+                    },
+                },
+            )
+            .expect("plan nested Page Library return");
+        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
+            panic!("nested Page Library plan");
+        };
+        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
+            panic!("prepared nested Page Library return");
+        };
+        assert_eq!(preparation.write_fence.documents.len(), 1);
+        assert_eq!(
+            preparation.source_document_id.as_deref(),
+            Some(ANCHOR_DOCUMENT)
+        );
+        let returned = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "move-nested-page-to-library".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: move_nested_to_library,
+                        write_fence: Some(preparation.write_fence),
+                    },
+                },
+            )
+            .expect("move nested Page to Library");
+        let returned_result = returned
+            .committed
+            .value
+            .block_transfer
+            .as_ref()
+            .expect("nested Page Library result");
+        assert_eq!(returned_result.document_commits.len(), 1);
+        assert!(matches!(
+            &returned_result.final_locations[&data_source_page_id],
+            LibraryBlockLocation::Library { .. }
+        ));
+        assert_eq!(
+            returned_result.final_location_revisions[&data_source_page_id],
+            6
+        );
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let nested_shell_count = connection.query_row(
+                    "SELECT count(*) FROM document_block_index \
+                     WHERE document_id = ?1 AND block_id = ?2",
+                    params![ANCHOR_DOCUMENT, data_source_page_id],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(nested_shell_count, 0);
+                Ok(())
+            })
+            .expect("nested Page shell deletion evidence");
+
+        let move_library_page_into_document = LibraryBlockTransferLogicalIntent {
+            actor: serde_json::json!({ "kind": "test" }),
+            mode: LibraryBlockTransferMode::Move,
+            root_block_ids: vec![data_source_page_id.clone()],
+            source: LibraryBlockTransferSource::Library {
+                library_id: "library-1".to_owned(),
+            },
+            target: LibraryBlockTransferTarget::Page {
+                page_id: WRAP_PAGE.to_owned(),
+                parent_block_id: None,
+                before_block_id: None,
+            },
+        };
+        let plan = library
+            .read(
+                &context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PlanBlockTransfer {
+                        operation_id: "move-library-page-into-document".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        intent: move_library_page_into_document.clone(),
+                    },
+                },
+            )
+            .expect("plan Library Page nesting");
+        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
+            panic!("Library Page nesting plan");
+        };
+        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
+            panic!("prepared Library Page nesting");
+        };
+        let nested = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "move-library-page-into-document".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: move_library_page_into_document,
+                        write_fence: Some(preparation.write_fence),
+                    },
+                },
+            )
+            .expect("move Library Page into Document");
+        assert_eq!(
+            nested
+                .committed
+                .value
+                .block_transfer
+                .as_ref()
+                .expect("Library Page nesting result")
+                .document_commits
+                .len(),
+            1
+        );
+
+        let move_between_pages = LibraryBlockTransferLogicalIntent {
+            actor: serde_json::json!({ "kind": "test" }),
+            mode: LibraryBlockTransferMode::Move,
+            root_block_ids: vec![data_source_page_id.clone()],
+            source: LibraryBlockTransferSource::Page {
+                page_id: WRAP_PAGE.to_owned(),
+            },
+            target: LibraryBlockTransferTarget::Page {
+                page_id: ANCHOR_PAGE.to_owned(),
+                parent_block_id: None,
+                before_block_id: None,
+            },
+        };
+        let plan = library
+            .read(
+                &context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PlanBlockTransfer {
+                        operation_id: "move-page-between-documents".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        intent: move_between_pages.clone(),
+                    },
+                },
+            )
+            .expect("plan Page-to-Page move");
+        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
+            panic!("Page-to-Page move plan");
+        };
+        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
+            panic!("prepared Page-to-Page move");
+        };
+        assert_eq!(preparation.write_fence.documents.len(), 2);
+        let moved = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "move-page-between-documents".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: move_between_pages,
+                        write_fence: Some(preparation.write_fence),
+                    },
+                },
+            )
+            .expect("move Page between Documents");
+        let moved_result = moved
+            .committed
+            .value
+            .block_transfer
+            .as_ref()
+            .expect("Page-to-Page result");
+        assert_eq!(moved_result.document_commits.len(), 2);
+        assert_eq!(
+            moved_result.final_location_revisions[&data_source_page_id],
+            8
+        );
+
+        let cycle_intent = LibraryBlockTransferLogicalIntent {
+            actor: serde_json::json!({ "kind": "test" }),
+            mode: LibraryBlockTransferMode::Move,
+            root_block_ids: vec![ANCHOR_PAGE.to_owned()],
+            source: LibraryBlockTransferSource::Library {
+                library_id: "library-1".to_owned(),
+            },
+            target: LibraryBlockTransferTarget::Page {
+                page_id: data_source_page_id,
+                parent_block_id: None,
+                before_block_id: None,
+            },
+        };
+        let cycle = library
+            .read(
+                &context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PlanBlockTransfer {
+                        operation_id: "reject-page-ownership-cycle".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        intent: cycle_intent,
+                    },
+                },
+            )
+            .expect_err("Page ownership cycle must fail");
+        assert_eq!(cycle.code, CoreErrorCode::InvalidInput);
     }
 }
 mod block_transfer;

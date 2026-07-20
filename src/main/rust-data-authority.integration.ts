@@ -1002,6 +1002,94 @@ describe("Electron native data authority", () => {
         finalLocationRevisions: { [copiedDataSourcePageId]: 4 },
         documentCommits: [],
       });
+      const moveDataSourcePageIntoPageIntent = {
+        ...moveLibraryPageToDataSourceIntent,
+        operationId: "electron-native-page-transfer-into-page",
+        source: {
+          kind: "data_source" as const,
+          dataSourceId: primaryDataSource.dataSourceId,
+        },
+        target: {
+          kind: "page" as const,
+          pageId: nativeContentBlockId,
+        },
+      };
+      const preparedPageNesting = await transferAdapter.prepare(
+        moveDataSourcePageIntoPageIntent,
+      );
+      if (!preparedPageNesting.ok) {
+        throw new Error(
+          `Core Page nesting preparation failed: ${preparedPageNesting.error.code}: ${preparedPageNesting.error.message}`,
+        );
+      }
+      expect(preparedPageNesting.value).toMatchObject({
+        leaseDocuments: [{ documentId: expect.any(String) }],
+        request: {
+          source: {
+            kind: "database",
+            memberships: {
+              [copiedDataSourcePageId]: { revision: 3 },
+            },
+          },
+          target: {
+            kind: "document",
+            pageId: nativeContentBlockId,
+          },
+        },
+      });
+      const nestedPage = await transferAdapter.apply(
+        preparedPageNesting.value.request,
+      );
+      if (!nestedPage.ok) {
+        throw new Error(
+          `Core Page nesting failed: ${nestedPage.error.code}: ${nestedPage.error.message}`,
+        );
+      }
+      expect(nestedPage.value).toMatchObject({
+        finalLocations: {
+          [copiedDataSourcePageId]: {
+            kind: "document",
+            documentId: expect.any(String),
+          },
+        },
+        finalLocationRevisions: { [copiedDataSourcePageId]: 5 },
+        documentCommits: [{ documentId: expect.any(String) }],
+      });
+      const moveNestedPageToLibraryIntent = {
+        ...moveDataSourcePageIntoPageIntent,
+        operationId: "electron-native-nested-page-transfer-to-library",
+        source: {
+          kind: "page" as const,
+          pageId: nativeContentBlockId,
+        },
+        target: {
+          kind: "library" as const,
+          libraryId: runtime.rootClient.handshake.library_id,
+        },
+      };
+      const preparedNestedReturn = await transferAdapter.prepare(
+        moveNestedPageToLibraryIntent,
+      );
+      if (!preparedNestedReturn.ok) {
+        throw new Error(
+          `Core nested Page return preparation failed: ${preparedNestedReturn.error.code}: ${preparedNestedReturn.error.message}`,
+        );
+      }
+      const returnedNestedPage = await transferAdapter.apply(
+        preparedNestedReturn.value.request,
+      );
+      if (!returnedNestedPage.ok) {
+        throw new Error(
+          `Core nested Page return failed: ${returnedNestedPage.error.code}: ${returnedNestedPage.error.message}`,
+        );
+      }
+      expect(returnedNestedPage.value).toMatchObject({
+        finalLocations: {
+          [copiedDataSourcePageId]: { kind: "space", projectId },
+        },
+        finalLocationRevisions: { [copiedDataSourcePageId]: 6 },
+        documentCommits: [{ documentId: expect.any(String) }],
+      });
       databaseEventSubscription.close();
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
       const workspace = createCoreProjectWorkspaceAdapter(runtime.rootClient);

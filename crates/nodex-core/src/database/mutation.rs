@@ -462,6 +462,7 @@ fn apply_intent(
             now,
             effects,
             library_scope,
+            false,
         ),
     }
 }
@@ -1059,6 +1060,7 @@ pub(crate) struct ResolvedPageTransferDataSourceSource {
 
 pub(crate) enum ExistingPageTransferTarget<'a> {
     Library,
+    Page { page_id: &'a str },
     DataSource(&'a PageCopyDataSourceDestination),
 }
 
@@ -1600,6 +1602,9 @@ pub(crate) fn transfer_existing_page_for_block_transfer(
         ExistingPageTransferTarget::Library => DatabaseTransferTarget::Library {
             library_id: library_id.to_owned(),
         },
+        ExistingPageTransferTarget::Page { page_id } => DatabaseTransferTarget::Page {
+            page_id: page_id.to_owned(),
+        },
         ExistingPageTransferTarget::DataSource(destination) => DatabaseTransferTarget::DataSource {
             data_source_id: destination.data_source_id.clone(),
         },
@@ -1615,6 +1620,7 @@ pub(crate) fn transfer_existing_page_for_block_transfer(
         now,
         &mut effects,
         false,
+        true,
     )?;
     if let ExistingPageTransferTarget::DataSource(destination) = target {
         for value in &destination.values {
@@ -1730,6 +1736,7 @@ fn transfer_page(
     now: &str,
     effects: &mut MutationEffects,
     library_scope: bool,
+    allow_page_parent_transition: bool,
 ) -> Result<(), StoreError> {
     validate_id(page_id, "page_id", MAX_ID_LENGTH)?;
     let page = connection
@@ -1756,7 +1763,9 @@ fn transfer_page(
             "Bound Project cannot transfer this Page authority",
         ));
     }
-    if parent_kind == "page" || matches!(target, DatabaseTransferTarget::Page { .. }) {
+    if !allow_page_parent_transition
+        && (parent_kind == "page" || matches!(target, DatabaseTransferTarget::Page { .. }))
+    {
         return Err(StoreError::new(
             StoreErrorCode::InvalidInput,
             "Page-parent transitions require Library Block/Document authority",
@@ -1967,14 +1976,49 @@ fn transfer_page(
             effects.data_source_ids.insert(data_source_id.clone());
             (Some(membership_id), Some(data_source_id.clone()))
         }
-        DatabaseTransferTarget::Page { .. } => unreachable!("Page target rejected above"),
+        DatabaseTransferTarget::Page {
+            page_id: target_page_id,
+        } => {
+            let (target_document_id, target_project_id) = connection
+                .query_row(
+                    "SELECT page.document_id, block.project_id \
+                     FROM pages page JOIN blocks block ON block.id = page.block_id \
+                     WHERE page.block_id = ?1 AND page.library_id = ?2 \
+                       AND page.lifecycle = 'active' AND block.lifecycle = 'active'",
+                    params![target_page_id, library_id],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )
+                .optional()?
+                .ok_or_else(|| not_found("Target Page is unavailable"))?;
+            if target_project_id != project_id {
+                return Err(unauthorized(
+                    "A Page cannot transfer across Project ownership",
+                ));
+            }
+            connection.execute(
+                "DELETE FROM top_level_block_placements WHERE block_id = ?1",
+                [page_id],
+            )?;
+            connection.execute(
+                "DELETE FROM library_block_placements WHERE block_id = ?1",
+                [page_id],
+            )?;
+            connection.execute(
+                "UPDATE blocks SET location_kind = 'document', containing_document_id = ?1, \
+                   containing_database_id = NULL, location_revision = location_revision + 1, \
+                   metadata_revision = metadata_revision + 1, updated_at = ?2 WHERE id = ?3",
+                params![target_document_id, now, page_id],
+            )?;
+            effects.page_ids.insert(target_page_id.clone());
+            (None, None)
+        }
     };
     let (parent_kind, parent_id) = match target {
         DatabaseTransferTarget::Library { library_id } => ("library", library_id.as_str()),
         DatabaseTransferTarget::DataSource { data_source_id } => {
             ("data_source", data_source_id.as_str())
         }
-        DatabaseTransferTarget::Page { .. } => unreachable!("Page target rejected above"),
+        DatabaseTransferTarget::Page { page_id } => ("page", page_id.as_str()),
     };
     let updated = connection
         .query_row(
