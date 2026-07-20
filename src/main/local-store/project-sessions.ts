@@ -402,7 +402,7 @@ function rowToTab(
   };
 }
 
-function stringifyProjectSessionTabConfig(
+export function stringifyProjectSessionTabConfig(
   ownerProjectId: string | null,
   config: ProjectSessionTabConfig,
 ): string {

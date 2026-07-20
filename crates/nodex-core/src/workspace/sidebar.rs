@@ -11,6 +11,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::ProjectWorkspaceApplyOutcome;
+use super::session_lifecycle::rewrite_browser_tab_projects;
 use super::session_mutation::{sqlite_now, validate_id};
 use super::thread::{finish_thread_mutation, read_threads};
 
@@ -602,6 +603,7 @@ fn move_thread_membership(
              WHERE session_id = ?3",
             params![target_project_id, now, owner.session_id],
         )?;
+        rewrite_browser_tab_projects(connection, &owner.session_id, Some(target_project_id), &now)?;
     }
 
     let updated = connection.execute(
@@ -934,6 +936,25 @@ mod tests {
         );
         apply(
             &workspace.module,
+            "move-browser-tab",
+            ProjectWorkspaceIntent::MutateSession {
+                session_id: "session:move".to_owned(),
+                intent: ProjectSessionIntent::CreateTab {
+                    tab_id: "tab:move-browser".to_owned(),
+                    panel_id: ProjectSessionPanelId::Right,
+                    target_leaf_id: None,
+                    browser_tab_id: None,
+                    tab_kind: ProjectSessionTabKind::Browser,
+                    title: "Move browser".to_owned(),
+                    config: json!({
+                        "projectId": "project:default",
+                        "url": "https://example.test/move"
+                    }),
+                },
+            },
+        );
+        apply(
+            &workspace.module,
             "move-search-projection",
             ProjectWorkspaceIntent::ReplaceThreadSearchProjection {
                 thread_id: "thread:move".to_owned(),
@@ -1030,7 +1051,21 @@ mod tests {
         ) else {
             panic!("moved Session");
         };
-        assert_eq!(tabs[0].project_id.as_deref(), Some("project:target"));
+        assert!(
+            tabs.iter()
+                .all(|tab| { tab.project_id.as_deref() == Some("project:target") })
+        );
+        let browser = tabs
+            .iter()
+            .find(|tab| tab.id == "tab:move-browser")
+            .expect("moved browser tab");
+        assert_eq!(
+            browser
+                .config
+                .get("projectId")
+                .and_then(|value| value.as_str()),
+            Some("project:target")
+        );
         let ProjectWorkspaceReadValue::ThreadSearch { results } = read(
             &workspace.module,
             ProjectWorkspaceRead::ThreadSearch {

@@ -32,6 +32,7 @@ import {
 } from "./local-store/codex-background-processes";
 import {
   listCodexProjectThreadOrders,
+  moveCodexProjectThread,
   setCodexProjectThreadOrder,
 } from "./local-store/codex-project-thread-move";
 import {
@@ -285,8 +286,15 @@ export const createTypeScriptProjectWorkspacePort = (
     projectSessionService.deleteProjectSessionTab(input),
   moveProjectSessionTab: async (input) =>
     projectSessionService.moveProjectSessionTab(input),
-  upsertProjectSessionThreadLink: async (input) =>
-    projectSessionService.upsertProjectSessionThreadLink(input),
+  upsertProjectSessionThreadLink: async (input) => {
+    const link = projectSessionService.upsertProjectSessionThreadLink(input);
+    dbNotifier.notifyProjectSessionsChanged(
+      link.projectId,
+      "create",
+      link.sessionId,
+    );
+    return link;
+  },
   detachProjectSessionThread: async (sessionId) =>
     projectSessionService.detachProjectSessionThread(sessionId),
   getThread: async (threadId) => readTypeScriptThread(threadId),
@@ -307,6 +315,42 @@ export const createTypeScriptProjectWorkspacePort = (
   updateThread: async (threadId, patch) => {
     if (!getCodexThread(threadId)) return null;
     return upsertTypeScriptThread(threadId, patch);
+  },
+  moveThread: async (input) => {
+    const moved = moveCodexProjectThread({
+      threadId: input.threadId,
+      sourceProjectId: input.sourceProjectId,
+      targetProjectId: input.targetProjectId,
+      ...(input.beforeThreadId === undefined
+        ? {}
+        : { beforeThreadId: input.beforeThreadId }),
+      ...(input.insertAtEnd === undefined
+        ? {}
+        : { insertAtEnd: input.insertAtEnd }),
+      ...(input.useDefaultOrder === undefined
+        ? {}
+        : { useDefaultOrder: input.useDefaultOrder }),
+      ...(input.metadata === undefined
+        ? {}
+        : { threadMetadataPatch: input.metadata }),
+    });
+    if (moved.sourceProjectId !== moved.targetProjectId) {
+      dbNotifier.notifyProjectSessionsChanged(
+        moved.sourceProjectId,
+        "link",
+        moved.sessionId,
+      );
+      dbNotifier.notifyProjectSessionsChanged(
+        moved.targetProjectId,
+        "link",
+        moved.sessionId,
+      );
+    }
+    const thread = readTypeScriptThread(input.threadId);
+    if (!thread) {
+      throw new Error(`Unable to read moved Codex Thread '${input.threadId}'`);
+    }
+    return { thread, sidebar: readTypeScriptSidebar(false) };
   },
   setThreadArchived: async (threadId, archived) => {
     if (!getCodexThread(threadId)) return readTypeScriptSidebar(false);

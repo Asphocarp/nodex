@@ -340,7 +340,7 @@ fn read_ordered_session_ids(
     Ok(rows)
 }
 
-fn rewrite_browser_tab_projects(
+pub(super) fn rewrite_browser_tab_projects(
     connection: &Connection,
     session_id: &str,
     project_id: Option<&str>,

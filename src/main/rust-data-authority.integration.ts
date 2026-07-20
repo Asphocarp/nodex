@@ -1845,6 +1845,60 @@ describe("Electron native data authority", () => {
       expect(
         clearedProjectOrder.projectThreadOrders[createdProject.id],
       ).toBeUndefined();
+      const moveTargetProject = await workspace.createProject({
+        name: "Electron Thread Move Target",
+        sources: [nodexHome],
+      });
+      const moveSession = await workspace.createProjectSession({
+        projectId: createdProject.id,
+        noThreadFallbackTitle: "Electron native move",
+      });
+      const moveBrowserTab = await workspace.createProjectSessionTab({
+        sessionId: moveSession.id,
+        projectId: createdProject.id,
+        panelId: "right",
+        kind: "browser",
+        title: "Move Browser",
+        config: { projectId: createdProject.id, url: "https://example.test/move" },
+      });
+      await workspace.upsertProjectSessionThreadLink({
+        sessionId: moveSession.id,
+        projectId: createdProject.id,
+        threadId: "thread:electron-native-move",
+        threadName: "Electron native move",
+        threadPreview: "Atomic Thread aggregate move",
+        modelProvider: "openai",
+        cwd: nodexHome,
+        statusType: "idle",
+        statusActiveFlags: [],
+        createdAt: threadTimestamp + 2,
+        updatedAt: threadTimestamp + 2,
+      });
+      await expect(workspace.moveThread({
+        threadId: "thread:electron-native-move",
+        sourceProjectId: createdProject.id,
+        targetProjectId: moveTargetProject.id,
+        useDefaultOrder: true,
+        metadata: {
+          cwd: nodexHome,
+          managedWorktreePath: null,
+          projectlessOutputDirectory: null,
+          projectlessWorkspaceBrowserRoot: null,
+        },
+      })).resolves.toMatchObject({
+        thread: {
+          threadId: "thread:electron-native-move",
+          projectId: moveTargetProject.id,
+          sessionId: moveSession.id,
+        },
+      });
+      await expect(workspace.getProjectSession(moveSession.id)).resolves.toMatchObject({
+        projectId: moveTargetProject.id,
+        tabs: [expect.objectContaining({
+          id: moveBrowserTab.id,
+          projectId: moveTargetProject.id,
+        })],
+      });
       const projectlessSession = await workspace.createProjectSession({
         projectId: null,
         noThreadFallbackTitle: "Projectless sidebar order",

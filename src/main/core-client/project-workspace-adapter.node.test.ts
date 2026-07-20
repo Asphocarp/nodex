@@ -422,6 +422,91 @@ describe("Core Project Workspace adapter", () => {
     ]);
   });
 
+  test("moves a linked Thread aggregate through one native Workspace intent", async () => {
+    const client = new FakeCoreClient();
+    const movedThread = {
+      ...thread,
+      project_id: "project:two",
+      cwd: "/workspace/two",
+      managed_worktree_path: "/workspace/two/.worktrees/task",
+      projectless_output_directory: null,
+      projectless_workspace_browser_root: null,
+    };
+    client.enqueueWorkspaceApply({
+      value: {
+        affected_project_ids: ["project:one", "project:two"],
+        affected_session_ids: ["session:one"],
+        affected_thread_ids: ["thread:one"],
+      },
+      receipt: {
+        operation_id: "operation:move-thread",
+        duplicate: false,
+        affected_project_ids: ["project:one", "project:two"],
+        affected_session_ids: ["session:one"],
+      },
+      event_sequence: 13,
+      store_epoch: "epoch:test",
+    });
+    client.enqueueWorkspaceRead({
+      version: 1,
+      event_head: 13,
+      store_epoch: "epoch:test",
+      value: { kind: "thread", thread: movedThread },
+    });
+    client.enqueueWorkspaceRead({
+      version: 1,
+      event_head: 13,
+      store_epoch: "epoch:test",
+      value: {
+        kind: "sidebar",
+        sidebar: {
+          threads: [movedThread],
+          project_thread_orders: { "project:two": ["thread:one"] },
+          projectless_thread_order: null,
+        },
+      },
+    });
+    const adapter = createCoreProjectWorkspaceAdapter(client);
+
+    await expect(adapter.moveThread({
+      threadId: "thread:one",
+      sourceProjectId: "project:one",
+      targetProjectId: "project:two",
+      beforeThreadId: "thread:anchor",
+      metadata: {
+        cwd: "/workspace/two",
+        managedWorktreePath: "/workspace/two/.worktrees/task",
+        projectlessOutputDirectory: null,
+        projectlessWorkspaceBrowserRoot: null,
+      },
+    })).resolves.toMatchObject({
+      thread: {
+        threadId: "thread:one",
+        projectId: "project:two",
+        cwd: "/workspace/two",
+      },
+      sidebar: {
+        projectThreadOrders: { "project:two": ["thread:one"] },
+      },
+    });
+    expect(client.workspaceApplies).toEqual([{
+      operationId: expect.any(String),
+      intent: {
+        kind: "move_thread",
+        thread_id: "thread:one",
+        source: { kind: "project", project_id: "project:one" },
+        target: { kind: "project", project_id: "project:two" },
+        placement: { kind: "before", thread_id: "thread:anchor" },
+        metadata: {
+          cwd: "/workspace/two",
+          managed_worktree_path: "/workspace/two/.worktrees/task",
+          projectless_output_directory: null,
+          projectless_workspace_browser_root: null,
+        },
+      },
+    }]);
+  });
+
   test("reads and commits Thread unread state through Workspace authority", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({

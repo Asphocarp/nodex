@@ -1691,7 +1691,7 @@ test("fork rollback rematerializes through the attached-session owner", async ()
         detail: CodexThreadDetail;
         summary: null;
       };
-    }) => { detail: CodexThreadDetail; summary: null };
+    }) => Promise<{ detail: CodexThreadDetail; summary: null }>;
   };
   serviceInternals.setConversationRecordDetail({
     ...makeThreadDetail(threadId),
@@ -1713,7 +1713,7 @@ test("fork rollback rematerializes through the attached-session owner", async ()
   let materializeCalls = 0;
 
   try {
-    const materialized = serviceInternals.applyForkRollbackResponse({
+    const materialized = await serviceInternals.applyForkRollbackResponse({
       threadId,
       response: { thread: rollbackThread },
       fallbackRef: null,
@@ -23336,17 +23336,19 @@ describe("codex-service approval fallback", () => {
       const sourceThreadId = "thr_dynamic_service_source";
       const firstService = createService();
       const firstInternals = firstService as unknown as {
-        upsertLinkFromThread: (thread: unknown) => CodexThreadSummary | null;
+        upsertLinkFromThread: (
+          thread: unknown,
+        ) => Promise<CodexThreadSummary | null>;
       };
 
       try {
-        const created = firstInternals.upsertLinkFromThread({
+        const created = await firstInternals.upsertLinkFromThread({
           id: sourceThreadId,
           serviceName: "durable-source-service",
         });
         expect(created?.serviceName).toBe("durable-source-service");
 
-        const refreshed = firstInternals.upsertLinkFromThread({
+        const refreshed = await firstInternals.upsertLinkFromThread({
           id: sourceThreadId,
           name: "Hydrated source thread",
         });

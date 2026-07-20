@@ -1,5 +1,7 @@
 import type Database from "better-sqlite3";
+import { parseProjectSessionTabConfig } from "../../shared/schemas/project-sessions";
 import { getDb } from "./database";
+import { stringifyProjectSessionTabConfig } from "./project-sessions";
 
 export type CodexProjectThreadMoveErrorCode =
   | "invalid_custom_order"
@@ -58,6 +60,11 @@ interface ProjectThreadRow {
 interface CustomOrderRow {
   projectId: string;
   orderedThreadIdsJson: string;
+}
+
+interface BrowserTabConfigRow {
+  id: string;
+  configJson: string;
 }
 
 type Placement =
@@ -442,6 +449,32 @@ function moveCodexProjectThreadMembership(
       SET project_id = ?, updated_at = ?
       WHERE session_id = ?
     `).run(targetProjectId, now, sessionId);
+    const browserTabs = database.prepare(`
+      SELECT id, config_json AS configJson
+      FROM project_session_tabs
+      WHERE session_id = ? AND kind = 'browser'
+      ORDER BY id
+    `).all(sessionId) as BrowserTabConfigRow[];
+    const updateBrowserTabConfig = database.prepare(`
+      UPDATE project_session_tabs
+      SET config_json = ?, updated_at = ?
+      WHERE id = ? AND session_id = ?
+    `);
+    for (const browserTab of browserTabs) {
+      const config = parseProjectSessionTabConfig(
+        "browser",
+        JSON.parse(browserTab.configJson),
+      );
+      updateBrowserTabConfig.run(
+        stringifyProjectSessionTabConfig(targetProjectId, {
+          ...config,
+          projectId: targetProjectId,
+        }),
+        now,
+        browserTab.id,
+        sessionId,
+      );
+    }
   }
   updateThreadOwnershipAndMetadata({
     database,

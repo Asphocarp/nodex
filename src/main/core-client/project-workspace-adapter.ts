@@ -157,6 +157,22 @@ export interface DesktopProjectWorkspaceThreadPatch {
   readonly linkedAt?: string;
 }
 
+export interface DesktopProjectWorkspaceThreadMoveInput {
+  readonly threadId: string;
+  readonly sourceProjectId: string | null;
+  readonly targetProjectId: string | null;
+  readonly beforeThreadId?: string | null;
+  readonly insertAtEnd?: boolean;
+  readonly useDefaultOrder?: boolean;
+  readonly metadata?: Pick<
+    DesktopProjectWorkspaceThreadPatch,
+    | "cwd"
+    | "managedWorktreePath"
+    | "projectlessOutputDirectory"
+    | "projectlessWorkspaceBrowserRoot"
+  >;
+}
+
 export interface DesktopProjectWorkspaceSidebar {
   readonly threads: readonly DesktopProjectWorkspaceThread[];
   readonly projectThreadOrders: Readonly<Record<string, readonly string[]>>;
@@ -290,6 +306,10 @@ export interface DesktopProjectWorkspacePort {
     threadId: string,
     patch: DesktopProjectWorkspaceThreadPatch,
   ): Promise<DesktopProjectWorkspaceThread | null>;
+  moveThread(input: DesktopProjectWorkspaceThreadMoveInput): Promise<{
+    readonly thread: DesktopProjectWorkspaceThread;
+    readonly sidebar: DesktopProjectWorkspaceSidebar;
+  }>;
   setThreadUnread(
     threadId: string,
     unread: boolean,
@@ -508,6 +528,53 @@ const toCoreThreadPatch = (
   ...(patch.createdAt === undefined ? {} : { created_at: patch.createdAt }),
   ...(patch.updatedAt === undefined ? {} : { updated_at: patch.updatedAt }),
   ...(patch.linkedAt === undefined ? {} : { linked_at: patch.linkedAt }),
+});
+
+const toCoreThreadLane = (projectId: string | null) =>
+  projectId === null
+    ? { kind: "projectless" as const }
+    : { kind: "project" as const, project_id: projectId };
+
+const toCoreThreadMovePlacement = (
+  input: DesktopProjectWorkspaceThreadMoveInput,
+) => {
+  const beforeThreadId = input.beforeThreadId?.trim() || null;
+  const insertAtEnd = input.insertAtEnd === true;
+  const useDefaultOrder = input.useDefaultOrder === true;
+  if (useDefaultOrder && (beforeThreadId !== null || insertAtEnd)) {
+    throw new Error(
+      "useDefaultOrder cannot be combined with beforeThreadId or insertAtEnd",
+    );
+  }
+  if (beforeThreadId !== null && insertAtEnd) {
+    throw new Error("beforeThreadId cannot be combined with insertAtEnd");
+  }
+  if (useDefaultOrder) return { kind: "default" as const };
+  if (beforeThreadId !== null) {
+    return { kind: "before" as const, thread_id: beforeThreadId };
+  }
+  if (insertAtEnd) return { kind: "end" as const };
+  return { kind: "start" as const };
+};
+
+const toCoreThreadMoveMetadata = (
+  metadata: DesktopProjectWorkspaceThreadMoveInput["metadata"],
+) => ({
+  ...(metadata && Object.prototype.hasOwnProperty.call(metadata, "cwd")
+    ? { cwd: metadata.cwd ?? null }
+    : {}),
+  ...(metadata && Object.prototype.hasOwnProperty.call(metadata, "managedWorktreePath")
+    ? { managed_worktree_path: metadata.managedWorktreePath ?? null }
+    : {}),
+  ...(metadata && Object.prototype.hasOwnProperty.call(metadata, "projectlessOutputDirectory")
+    ? { projectless_output_directory: metadata.projectlessOutputDirectory ?? null }
+    : {}),
+  ...(metadata && Object.prototype.hasOwnProperty.call(metadata, "projectlessWorkspaceBrowserRoot")
+    ? {
+        projectless_workspace_browser_root:
+          metadata.projectlessWorkspaceBrowserRoot ?? null,
+      }
+    : {}),
 });
 
 const fromCoreSessionSummary = (
@@ -1532,6 +1599,21 @@ export function createCoreProjectWorkspaceAdapter(
         return null;
       }
       return await getThread(threadId);
+    },
+    moveThread: async (input) => {
+      await apply({
+        kind: "move_thread",
+        thread_id: input.threadId,
+        source: toCoreThreadLane(input.sourceProjectId),
+        target: toCoreThreadLane(input.targetProjectId),
+        placement: toCoreThreadMovePlacement(input),
+        metadata: toCoreThreadMoveMetadata(input.metadata),
+      });
+      const thread = await getThread(input.threadId);
+      if (!thread) {
+        throw new Error(`Unable to read moved Codex Thread '${input.threadId}'`);
+      }
+      return { thread, sidebar: await readSidebar(false) };
     },
     setThreadUnread: async (threadId, unread) => {
       try {
