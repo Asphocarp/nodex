@@ -394,6 +394,129 @@ describe("Core Project Workspace adapter", () => {
     ]);
   });
 
+  test("maps and upserts background processes through the Workspace aggregate", async () => {
+    const client = new FakeCoreClient();
+    const process = {
+      id: "thread:one:item:dev",
+      thread_id: "thread:one",
+      thread_title: "Thread one",
+      item_id: "item:dev",
+      turn_id: "turn:one",
+      command: "pnpm dev",
+      cwd: "/workspace/one",
+      process_id: "process:one",
+      os_pid: 4201,
+      terminal_session_id: null,
+      source: "app-server" as const,
+      started_at_ms: 100,
+      updated_at_ms: 200,
+    };
+    client.enqueueWorkspaceRead({
+      version: 1,
+      event_head: 14,
+      store_epoch: "epoch:test",
+      value: { kind: "background_processes", processes: [process] },
+    });
+    client.enqueueWorkspaceApply({
+      value: {
+        affected_project_ids: ["project:one"],
+        affected_session_ids: [],
+        affected_thread_ids: ["thread:one"],
+      },
+      receipt: {
+        operation_id: "operation:upsert-process",
+        duplicate: false,
+        affected_project_ids: ["project:one"],
+        affected_session_ids: [],
+      },
+      event_sequence: 15,
+      store_epoch: "epoch:test",
+    });
+    client.enqueueWorkspaceRead({
+      version: 1,
+      event_head: 15,
+      store_epoch: "epoch:test",
+      value: {
+        kind: "background_processes",
+        processes: [{
+          ...process,
+          command: "pnpm dev --host",
+          process_id: null,
+          os_pid: null,
+          terminal_session_id: "terminal:one",
+          source: "terminal-action",
+          started_at_ms: 300,
+          updated_at_ms: 400,
+        }],
+      },
+    });
+    const adapter = createCoreProjectWorkspaceAdapter(client);
+
+    await expect(
+      adapter.listBackgroundProcesses(" thread:one "),
+    ).resolves.toEqual([{
+      id: "thread:one:item:dev",
+      threadId: "thread:one",
+      threadTitle: "Thread one",
+      itemId: "item:dev",
+      turnId: "turn:one",
+      command: "pnpm dev",
+      cwd: "/workspace/one",
+      processId: "process:one",
+      osPid: 4201,
+      terminalSessionId: null,
+      source: "app-server",
+      startedAtMs: 100,
+      updatedAtMs: 200,
+    }]);
+    await expect(adapter.upsertBackgroundProcess({
+      id: "thread:one:item:dev",
+      threadId: "thread:one",
+      threadTitle: "Thread one",
+      itemId: "item:dev",
+      turnId: "turn:one",
+      command: "pnpm dev --host",
+      cwd: "/workspace/one",
+      processId: null,
+      osPid: null,
+      terminalSessionId: "terminal:one",
+      source: "terminal-action",
+      startedAtMs: 300,
+      updatedAtMs: 400,
+    }, { preserveStartedAt: false })).resolves.toMatchObject({
+      command: "pnpm dev --host",
+      source: "terminal-action",
+      startedAtMs: 300,
+      terminalSessionId: "terminal:one",
+    });
+    expect(client.workspaceReads).toEqual([
+      { kind: "background_processes", thread_id: "thread:one" },
+      { kind: "background_processes", thread_id: "thread:one" },
+    ]);
+    expect(client.workspaceApplies).toEqual([{
+      operationId: expect.any(String),
+      intent: {
+        kind: "upsert_background_process",
+        process: {
+          id: "thread:one:item:dev",
+          thread_id: "thread:one",
+          thread_title: "Thread one",
+          item_id: "item:dev",
+          turn_id: "turn:one",
+          command: "pnpm dev --host",
+          cwd: "/workspace/one",
+          process_id: null,
+          os_pid: null,
+          terminal_session_id: "terminal:one",
+          source: "terminal-action",
+          started_at_ms: 300,
+          updated_at_ms: 400,
+        },
+        preserve_started_at: false,
+      },
+    }]);
+  });
+
   test("hydrates one complete Session without leaking Core wire casing", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({

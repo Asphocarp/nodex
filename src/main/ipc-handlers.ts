@@ -3332,7 +3332,7 @@ export function registerIpcHandlers(
     "codex:thread:background-processes:run-action",
     async (event, input: CodexBackgroundProcessRunActionInput) => {
       const sender = event.sender;
-      codexService.registerBackgroundProcessRunAction(input);
+      await codexService.registerBackgroundProcessRunAction(input);
       await terminalManager.runAction(
         sender,
         {

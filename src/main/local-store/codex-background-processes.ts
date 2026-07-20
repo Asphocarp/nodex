@@ -3,6 +3,7 @@ import type {
   CodexBackgroundProcessRecord,
   CodexBackgroundProcessRecordSource,
 } from "../../shared/types";
+export { makeCodexBackgroundProcessRecordId } from "../../shared/codex-background-processes";
 
 const MAX_BACKGROUND_PROCESS_RECORDS = 200;
 
@@ -79,16 +80,6 @@ function pruneBackgroundProcessRecords(): void {
       LIMIT ?
     )
   `).run(MAX_BACKGROUND_PROCESS_RECORDS);
-}
-
-export function makeCodexBackgroundProcessRecordId(input: {
-  threadId: string;
-  itemId: string;
-  processId?: string | null;
-}): string {
-  const threadId = normalizeRequiredString(input.threadId, "Thread id");
-  const itemId = normalizeRequiredString(input.itemId, "Process item id");
-  return `${threadId}:${itemId}`;
 }
 
 export function listCodexBackgroundProcesses(threadId?: string | null): CodexBackgroundProcessRecord[] {

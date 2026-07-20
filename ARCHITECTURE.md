@@ -521,10 +521,15 @@ the authority-selected execution-context snapshot and uses semantic merge or
 replace intents for app-server launch repair and workspace moves. A newly
 started Thread is persisted before any repair intent; failed external moves
 restore the previous native root set through the same port. Background-process
-observations remain records
-of Electron-owned app-server or terminal work: Workspace validates and bounds
-their Thread identity, preserves restart time according to the semantic intent,
-and prunes the global durable collection atomically with its receipt/event.
+observations remain records of Electron-owned app-server or terminal work:
+Codex persists both app-server observations and manual terminal-action
+registrations through the authority-selected Workspace port, awaiting the
+manual record before launching its external terminal action. The Host then
+uses one committed record snapshot for metric refresh and row projection;
+under Rust it never opens SQLite for this continuity path. Workspace validates
+and bounds each Thread identity, preserves restart time according to the
+semantic intent, and prunes the global durable collection atomically with its
+receipt/event.
 
 Workspace also owns the durable sidebar/search projection around those Threads.
 One snapshot returns eligible root Threads together with Project-lane and

@@ -4,7 +4,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type {
+  CodexBackgroundProcessRecord,
   CodexBackgroundProcessRow,
+  CodexBackgroundProcessRunActionInput,
   CodexBackgroundSubagentThreadsHydrateInput,
   CodexSubagentPanelHydrateInput,
   CodexAgentMode,
@@ -157,6 +159,8 @@ import {
   setCodexThreadWritableRootsPathOverrideForTests,
 } from "../local-store/codex-thread-writable-roots";
 import { resetPersistedAtomStateForTests } from "../local-store/persisted-atoms";
+import type { DesktopProjectWorkspacePort } from "../core-client/project-workspace-adapter";
+import { createTypeScriptProjectWorkspacePort } from "../typescript-project-workspace-port";
 
 interface TestableCodexService {
   on: {
@@ -301,6 +305,10 @@ interface TestableCodexService {
     threadId: string;
     observedTerminals?: ThreadBackgroundTerminal[];
   }) => Promise<CodexBackgroundProcessRow[]>;
+  registerBackgroundProcessRunAction: (
+    input: CodexBackgroundProcessRunActionInput,
+  ) => Promise<CodexBackgroundProcessRow[]>;
+  setProjectWorkspacePort: (port: DesktopProjectWorkspacePort) => void;
   terminateBackgroundTerminal: (input: { threadId: string; processId: string }) => Promise<boolean>;
   markSubagentThreadOpened: (threadId: string) => boolean;
   hydrateBackgroundSubagentThreads: (
@@ -13210,6 +13218,97 @@ describe("codex-service session-backed transcript recovery", () => {
     });
 
     if (!ran) expect(true).toBe(true);
+  });
+
+  test("routes observed and terminal-action background processes through the Workspace authority", async () => {
+    const service = createService();
+    const records: CodexBackgroundProcessRecord[] = [];
+    const upserts: Array<{
+      input: CodexBackgroundProcessRecord;
+      options: { readonly preserveStartedAt?: boolean } | undefined;
+    }> = [];
+    const typescriptWorkspace = createTypeScriptProjectWorkspacePort();
+    service.setProjectWorkspacePort({
+      ...typescriptWorkspace,
+      listBackgroundProcesses: async (threadId) =>
+        records.filter((record) => !threadId || record.threadId === threadId),
+      upsertBackgroundProcess: async (input, options) => {
+        upserts.push({ input, options });
+        const existingIndex = records.findIndex(
+          (candidate) => candidate.id === input.id,
+        );
+        if (existingIndex < 0) {
+          records.push(input);
+          return input;
+        }
+        const existing = records[existingIndex];
+        if (!existing) throw new Error("Missing background process fixture");
+        const persisted = {
+          ...input,
+          startedAtMs: options?.preserveStartedAt === false
+            ? input.startedAtMs
+            : existing.startedAtMs,
+        };
+        records[existingIndex] = persisted;
+        return persisted;
+      },
+    });
+
+    try {
+      await expect(service.listBackgroundProcessRows({
+        threadId: "thread-authority-processes",
+        observedTerminals: [{
+          itemId: "item-observed",
+          processId: "process-observed",
+          command: "pnpm dev",
+          cwd: "/tmp/nodex",
+          osPid: 4301,
+          cpuPercent: 8.5,
+          rssKb: 4096n,
+        }],
+      })).resolves.toEqual([
+        expect.objectContaining({
+          itemId: "item-observed",
+          processId: "process-observed",
+          source: "app-server",
+          status: "running",
+        }),
+      ]);
+      await expect(service.registerBackgroundProcessRunAction({
+        threadId: "thread-authority-processes",
+        threadTitle: "Authority Thread",
+        itemId: "item-action",
+        turnId: "turn-action",
+        command: "pnpm test",
+        cwd: "/tmp/nodex",
+        terminalSessionId: "terminal-action",
+      })).resolves.toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          itemId: "item-action",
+          source: "terminal-action",
+          terminalSessionId: "terminal-action",
+        }),
+      ]));
+
+      expect(upserts).toHaveLength(2);
+      expect(upserts[0]).toMatchObject({
+        input: {
+          id: "thread-authority-processes:item-observed",
+          source: "app-server",
+        },
+      });
+      expect(upserts[0]?.options).toBeUndefined();
+      expect(upserts[1]).toMatchObject({
+        input: {
+          id: "thread-authority-processes:item-action",
+          threadTitle: "Authority Thread",
+          source: "terminal-action",
+        },
+        options: { preserveStartedAt: false },
+      });
+    } finally {
+      await service.shutdown();
+    }
   });
 
   test("terminateBackgroundTerminal delegates to app-server process id", async () => {

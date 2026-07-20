@@ -125,6 +125,10 @@ export function createDesktopProjectWorkspaceBridge(
       await (await resolve()).mergeThreadWritableRoots(threadId, roots),
     replaceThreadWritableRoots: async (threadId, roots) =>
       await (await resolve()).replaceThreadWritableRoots(threadId, roots),
+    listBackgroundProcesses: async (threadId) =>
+      await (await resolve()).listBackgroundProcesses(threadId),
+    upsertBackgroundProcess: async (processInput, options) =>
+      await (await resolve()).upsertBackgroundProcess(processInput, options),
   };
 }
 

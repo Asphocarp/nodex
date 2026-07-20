@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type {
+  CodexBackgroundProcessRecord,
   CodexPermissionMode,
   PanelId,
   Project,
@@ -94,6 +95,10 @@ type CoreThread = Extract<
   ProjectWorkspaceReadSnapshot["value"],
   { kind: "thread" }
 >["thread"];
+type CoreBackgroundProcess = Extract<
+  ProjectWorkspaceReadSnapshot["value"],
+  { kind: "background_processes" }
+>["processes"][number];
 
 export interface DesktopProjectWorkspaceExecutionContext {
   readonly threadId: string;
@@ -226,6 +231,13 @@ export interface DesktopProjectWorkspacePort {
     threadId: string,
     roots: readonly string[],
   ): Promise<readonly string[]>;
+  listBackgroundProcesses(
+    threadId?: string | null,
+  ): Promise<CodexBackgroundProcessRecord[]>;
+  upsertBackgroundProcess(
+    input: CodexBackgroundProcessRecord,
+    options?: { readonly preserveStartedAt?: boolean },
+  ): Promise<CodexBackgroundProcessRecord>;
 }
 
 const isNotFound = (error: unknown): boolean =>
@@ -276,6 +288,24 @@ const fromCoreThread = (
   createdAt: thread.created_at,
   updatedAt: thread.updated_at,
   linkedAt: thread.linked_at,
+});
+
+const fromCoreBackgroundProcess = (
+  process: CoreBackgroundProcess,
+): CodexBackgroundProcessRecord => ({
+  id: process.id,
+  threadId: process.thread_id,
+  threadTitle: process.thread_title ?? null,
+  itemId: process.item_id,
+  turnId: process.turn_id ?? null,
+  command: process.command,
+  cwd: process.cwd ?? null,
+  processId: process.process_id ?? null,
+  osPid: process.os_pid ?? null,
+  terminalSessionId: process.terminal_session_id ?? null,
+  source: process.source,
+  startedAtMs: process.started_at_ms,
+  updatedAtMs: process.updated_at_ms,
 });
 
 const fromCoreSessionSummary = (
@@ -488,6 +518,20 @@ export function createCoreProjectWorkspaceAdapter(
       throw new Error("Core returned the wrong Project Workspace read variant");
     }
     return snapshot.value.mode ?? null;
+  };
+
+  const listBackgroundProcesses = async (
+    threadId?: string | null,
+  ): Promise<CodexBackgroundProcessRecord[]> => {
+    const normalizedThreadId = threadId?.trim() || null;
+    const snapshot = await client.workspaceRead({
+      kind: "background_processes",
+      thread_id: normalizedThreadId,
+    });
+    if (snapshot.value.kind !== "background_processes") {
+      throw new Error("Core returned the wrong Project Workspace read variant");
+    }
+    return snapshot.value.processes.map(fromCoreBackgroundProcess);
   };
 
   const apply = async (
@@ -1268,6 +1312,34 @@ export function createCoreProjectWorkspaceAdapter(
         throw new Error(`Updated Core Thread not found: ${threadId}`);
       }
       return context.writableRoots;
+    },
+    listBackgroundProcesses,
+    upsertBackgroundProcess: async (input, options = {}) => {
+      await apply({
+        kind: "upsert_background_process",
+        process: {
+          id: input.id,
+          thread_id: input.threadId,
+          thread_title: input.threadTitle,
+          item_id: input.itemId,
+          turn_id: input.turnId,
+          command: input.command,
+          cwd: input.cwd,
+          process_id: input.processId,
+          os_pid: input.osPid,
+          terminal_session_id: input.terminalSessionId,
+          source: input.source,
+          started_at_ms: input.startedAtMs,
+          updated_at_ms: input.updatedAtMs,
+        },
+        preserve_started_at: options.preserveStartedAt ?? true,
+      });
+      const persisted = (await listBackgroundProcesses(input.threadId))
+        .find((candidate) => candidate.id === input.id);
+      if (!persisted) {
+        throw new Error(`Updated Core background process not found: ${input.id}`);
+      }
+      return persisted;
     },
   };
 }

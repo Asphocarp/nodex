@@ -93,6 +93,7 @@ import type {
   CodexAutomationRunsUpdatedEvent,
   CodexApprovalRequest,
   CodexApprovalResponse,
+  CodexBackgroundProcessRecord,
   CodexBackgroundProcessRow,
   CodexBackgroundProcessRunActionInput,
   CodexBackgroundSubagentThreadsHydrateInput,
@@ -598,11 +599,7 @@ import {
 } from "./codex-client-thread-identity";
 import { requestChatGptDesktop } from "./chatgpt-desktop-request";
 import { terminalManager } from "../terminal-manager";
-import {
-  listCodexBackgroundProcesses,
-  makeCodexBackgroundProcessRecordId,
-  upsertCodexBackgroundProcess,
-} from "../local-store/codex-background-processes";
+import { makeCodexBackgroundProcessRecordId } from "../../shared/codex-background-processes";
 import {
   recordCodexScheduledAutomationNextRun,
   recordCodexScheduledAutomationNextScheduledRun,
@@ -17344,12 +17341,15 @@ export class CodexService extends EventEmitter {
       }
     }
 
-    this.recordObservedBackgroundTerminals(threadId, terminals);
-    await this.refreshBackgroundProcessTerminalSessionMetrics(threadId);
-    return this.buildBackgroundProcessRows(threadId, terminals);
+    await this.recordObservedBackgroundTerminals(threadId, terminals);
+    const records = await this.projectWorkspace.listBackgroundProcesses(threadId);
+    await this.refreshBackgroundProcessTerminalSessionMetrics(records);
+    return this.buildBackgroundProcessRows(threadId, records, terminals);
   }
 
-  registerBackgroundProcessRunAction(input: CodexBackgroundProcessRunActionInput): CodexBackgroundProcessRow[] {
+  async registerBackgroundProcessRunAction(
+    input: CodexBackgroundProcessRunActionInput,
+  ): Promise<CodexBackgroundProcessRow[]> {
     const threadId = input.threadId.trim();
     const itemId = input.itemId.trim();
     const command = input.command.trim();
@@ -17359,12 +17359,12 @@ export class CodexService extends EventEmitter {
       return [];
     }
 
-    const thread = getCodexThread(threadId);
     const now = Date.now();
-    upsertCodexBackgroundProcess({
+    await this.projectWorkspace.upsertBackgroundProcess({
       id: makeCodexBackgroundProcessRecordId({ threadId, itemId }),
       threadId,
-      threadTitle: input.threadTitle?.trim() || thread?.threadName || thread?.threadPreview || null,
+      threadTitle: input.threadTitle?.trim()
+        || this.resolveBackgroundProcessThreadTitle(threadId),
       itemId,
       turnId: input.turnId?.trim() || null,
       command,
@@ -17377,7 +17377,8 @@ export class CodexService extends EventEmitter {
       updatedAtMs: now,
     }, { preserveStartedAt: false });
 
-    return this.buildBackgroundProcessRows(threadId, []);
+    const records = await this.projectWorkspace.listBackgroundProcesses(threadId);
+    return this.buildBackgroundProcessRows(threadId, records, []);
   }
 
   async terminateBackgroundTerminal(input: { threadId: string; processId: string }): Promise<boolean> {
@@ -17399,16 +17400,15 @@ export class CodexService extends EventEmitter {
     return response.terminated;
   }
 
-  private recordObservedBackgroundTerminals(
+  private async recordObservedBackgroundTerminals(
     threadId: string,
     terminals: readonly ThreadBackgroundTerminal[],
-  ): void {
+  ): Promise<void> {
     if (terminals.length === 0) {
       return;
     }
 
-    const thread = getCodexThread(threadId);
-    const threadTitle = thread?.threadName ?? thread?.threadPreview ?? null;
+    const threadTitle = this.resolveBackgroundProcessThreadTitle(threadId);
     const conversationRowByTerminalKey = this.getBackgroundTerminalConversationRowsByTerminalKey(threadId);
     const now = Date.now();
 
@@ -17425,9 +17425,8 @@ export class CodexService extends EventEmitter {
       const recordId = makeCodexBackgroundProcessRecordId({
         threadId,
         itemId: terminal.itemId,
-        processId,
       });
-      upsertCodexBackgroundProcess({
+      await this.projectWorkspace.upsertBackgroundProcess({
         id: recordId,
         threadId,
         threadTitle,
@@ -17445,53 +17444,62 @@ export class CodexService extends EventEmitter {
     }
   }
 
-  private getBackgroundTerminalConversationRowsByTerminalKey(threadId: string): Map<string, CodexConversationItem> {
-    const conversation = this.serializeConversationSnapshot(threadId);
-    const rows = new Map<string, CodexConversationItem>();
-    if (!conversation) {
+  private getBackgroundTerminalConversationRowsByTerminalKey(threadId: string): Map<
+    string,
+    Pick<CodexConversationItem, "turnId" | "createdAt">
+  > {
+    const transcript = this.getMaybeConversationRecord(threadId)?.detail?.transcript;
+    const rows = new Map<
+      string,
+      Pick<CodexConversationItem, "turnId" | "createdAt">
+    >();
+    if (!transcript) {
       return rows;
     }
 
-    for (const turn of conversation.turns) {
-      for (const item of turn.items) {
-        if (item.kind !== "commandExecution") {
-          continue;
-        }
-        rows.set(item.itemId, item);
-        const processId = this.extractBackgroundTerminalProcessId(item);
-        if (processId !== null && processId !== undefined) {
-          rows.set(String(processId), item);
-        }
+    for (const item of transcript) {
+      if (item.kind !== "commandExecution") {
+        continue;
+      }
+      rows.set(item.itemId, item);
+      if (item.processId !== null && item.processId !== undefined) {
+        rows.set(String(item.processId), item);
       }
     }
 
     return rows;
   }
 
+  private resolveBackgroundProcessThreadTitle(threadId: string): string | null {
+    const thread = this.getMaybeConversationRecord(threadId)?.detail;
+    return thread?.threadName?.trim() || thread?.threadPreview?.trim() || null;
+  }
+
   private buildBackgroundProcessRows(
     threadId: string,
+    records: readonly CodexBackgroundProcessRecord[],
     terminals: readonly ThreadBackgroundTerminal[],
   ): CodexBackgroundProcessRow[] {
     const terminalByRecordKey = new Map<string, ThreadBackgroundTerminal>();
     for (const terminal of terminals) {
-      const processId = terminal.processId.trim() || null;
       const recordId = makeCodexBackgroundProcessRecordId({
         threadId,
         itemId: terminal.itemId,
-        processId,
       });
       terminalByRecordKey.set(recordId, terminal);
     }
 
-    return listCodexBackgroundProcesses(threadId).map((record) => {
+    return records.map((record) => {
       const terminal = terminalByRecordKey.get(record.id) ?? null;
       const terminalSession = this.getBackgroundProcessTerminalSession(record.terminalSessionId);
       return buildCodexBackgroundProcessRow({ record, terminal, terminalSession });
     });
   }
 
-  private async refreshBackgroundProcessTerminalSessionMetrics(threadId: string): Promise<void> {
-    const terminalSessionIds = listCodexBackgroundProcesses(threadId)
+  private async refreshBackgroundProcessTerminalSessionMetrics(
+    records: readonly CodexBackgroundProcessRecord[],
+  ): Promise<void> {
+    const terminalSessionIds = records
       .map((record) => record.terminalSessionId)
       .filter((sessionId): sessionId is string => sessionId !== null);
     await terminalManager.refreshSessionProcessMetrics(terminalSessionIds);

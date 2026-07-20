@@ -14,6 +14,10 @@ import {
   mergeCodexThreadWritableRoots,
   replaceCodexThreadWritableRoots,
 } from "./local-store/codex-thread-writable-roots";
+import {
+  listCodexBackgroundProcesses,
+  upsertCodexBackgroundProcess,
+} from "./local-store/codex-background-processes";
 import { projectDeletionRuntime } from "./project-deletion-runtime";
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
 
@@ -122,4 +126,8 @@ export const createTypeScriptProjectWorkspacePort = (
     mergeCodexThreadWritableRoots(threadId, roots),
   replaceThreadWritableRoots: async (threadId, roots) =>
     replaceCodexThreadWritableRoots(threadId, roots),
+  listBackgroundProcesses: async (threadId) =>
+    listCodexBackgroundProcesses(threadId),
+  upsertBackgroundProcess: async (input, options) =>
+    upsertCodexBackgroundProcess(input, options),
 });

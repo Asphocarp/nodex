@@ -1813,6 +1813,27 @@ describe("Electron native data authority", () => {
       ).resolves.toMatchObject({
         writableRoots: [nodexHome, sharedWritableRoot],
       });
+      const backgroundProcess = {
+        id: "thread:electron-session:item:dev-server",
+        threadId: "thread:electron-session",
+        threadTitle: "Electron linked Thread",
+        itemId: "item:dev-server",
+        turnId: "turn:dev-server",
+        command: "pnpm dev",
+        cwd: nodexHome,
+        processId: "process:dev-server",
+        osPid: 4812,
+        terminalSessionId: null,
+        source: "app-server" as const,
+        startedAtMs: threadTimestamp + 1,
+        updatedAtMs: threadTimestamp + 2,
+      };
+      await expect(
+        workspace.upsertBackgroundProcess(backgroundProcess),
+      ).resolves.toEqual(backgroundProcess);
+      await expect(
+        workspace.listBackgroundProcesses("thread:electron-session"),
+      ).resolves.toEqual([backgroundProcess]);
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
       await expect(
         workspace.detachProjectSessionThread(createdSession.id),
