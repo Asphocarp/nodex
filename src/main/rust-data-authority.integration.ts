@@ -14,6 +14,7 @@ import {
   createCoreLibraryDatabaseModuleAdapter,
 } from "./core-client/database-module-adapter";
 import { createDesktopDatabaseModuleBridge } from "./core-client/desktop-database-module-bridge";
+import { createDesktopProjectWorkspaceBridge } from "./core-client/desktop-project-workspace-bridge";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
 import { createDesktopDocumentSyncBridge } from "./core-client/desktop-document-sync-bridge";
 import { createCoreBlockTransferAdapter } from "./core-client/block-transfer-adapter";
@@ -172,6 +173,22 @@ describe("Electron native data authority", () => {
       }
       const projectId = startup.value.projects[0]?.id;
       if (!projectId) throw new Error("Core startup has no Project");
+      const desktopWorkspace = createDesktopProjectWorkspaceBridge({
+        authority: Promise.resolve(runtime),
+        typescript: {} as never,
+      });
+      __setHttpContentModuleDependenciesForTests({
+        projectWorkspace: desktopWorkspace,
+      });
+      const projectsHttpResponse = await getHttpServerOptions(51_284).fetch(
+        new Request("http://127.0.0.1:51284/api/projects"),
+      );
+      expect(projectsHttpResponse.status).toBe(200);
+      await expect(projectsHttpResponse.json()).resolves.toMatchObject({
+        projects: expect.arrayContaining([
+          expect.objectContaining({ id: projectId }),
+        ]),
+      });
       const database = createCoreDatabaseModuleAdapter({
         client: runtime.clientForProject(projectId),
         projectId,

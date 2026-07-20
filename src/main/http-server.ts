@@ -7,8 +7,6 @@ import * as backupService from "./local-store/backups";
 import * as boardReadModel from "./local-store/board-read-model";
 import * as pageOccurrences from "./local-store/page-occurrences";
 import * as pagesStore from "./local-store/database-pages";
-import * as projectSessionService from "./local-store/project-sessions";
-import * as projectsStore from "./local-store/projects";
 import * as sqlInspection from "./local-store/sql-inspection";
 import {
   getBackupSettings,
@@ -22,7 +20,6 @@ import {
 } from "./local-store/config";
 import { dbNotifier } from "./local-store/notifier";
 import { blockMutationWriter } from "./block-mutation-writer";
-import { projectDeletionRuntime } from "./project-deletion-runtime";
 import {
   checkoutGitBranch,
   createAndCheckoutGitBranch,
@@ -139,11 +136,13 @@ import {
 } from "./local-store/reference-reads";
 import { authorizeProjectResource } from "./local-store/project-resource-grants";
 import {
-  deleteProjectSessionTabWithBrowserCleanup,
-  deleteProjectSessionWithBrowserCleanup,
-  deleteProjectWithBrowserCleanup,
+  deleteProjectSessionTabWithBrowserCleanupUsing,
+  deleteProjectSessionWithBrowserCleanupUsing,
+  deleteProjectWithBrowserCleanupUsing,
   type ProjectSessionBrowserRuntime,
 } from "./project-session-browser-ownership";
+import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
+import { createTypeScriptProjectWorkspacePort } from "./typescript-project-workspace-port";
 import { productFeatureGates } from "./product-feature-gates";
 
 /** SSE keep-alive ping interval (ms) */
@@ -211,6 +210,7 @@ export interface HttpContentModuleDependencies {
   libraryPageDetail: LibraryPageDetailHttpDependencies;
   pageLifecyclePreflight: PageLifecyclePreflightHttpDependencies;
   pageLifecycle: PageLifecycleHttpDependencies;
+  projectWorkspace: DesktopProjectWorkspacePort;
   documentSync: DocumentSyncHttpDependencies;
   documentMutation: DocumentMutationHttpDependencies;
   additionalDocumentCommand: AdditionalDocumentCommandHttpDependencies;
@@ -428,6 +428,7 @@ const defaultHttpServerDependencies: HttpServerDependencies = {
       applyMutation: async (request) =>
         (await blockMutationWriter.applyPageLifecycleMutation(request)).result,
     },
+    projectWorkspace: createTypeScriptProjectWorkspacePort(),
     documentSync: defaultDocumentSyncHttpDependencies,
     documentMutation: {
       applyMutation: (request) => documentSyncHub.applyDocumentMutation(request),
@@ -1004,10 +1005,13 @@ function normalizePageBody(body: Record<string, unknown>): Record<string, unknow
   return HttpPageBodySchema.parse(body);
 }
 
+const projectWorkspaceAuthority = (): DesktopProjectWorkspacePort =>
+  httpServerDependencies.contentModules.projectWorkspace;
+
 // === Project routes ===
 
-app.get("/api/projects", (c) => {
-  const projects = projectsStore.listProjects();
+app.get("/api/projects", async (c) => {
+  const projects = await projectWorkspaceAuthority().listProjects();
   return c.json({ projects });
 });
 
@@ -1018,7 +1022,7 @@ app.post("/api/projects", async (c) => {
     if (legacyField) {
       return c.json({ error: `Unsupported legacy project field: ${legacyField}` }, 400);
     }
-    const project = projectsStore.createProject({
+    const project = await projectWorkspaceAuthority().createProject({
       name: typeof body.name === "string" ? body.name : undefined,
       description: typeof body.description === "string" ? body.description : undefined,
       icon: typeof body.icon === "string" ? body.icon : undefined,
@@ -1033,7 +1037,9 @@ app.post("/api/projects", async (c) => {
 app.put("/api/projects/order", async (c) => {
   const body = await c.req.json();
   try {
-    const projects = projectsStore.reorderProjects(ProjectOrderInputSchema.parse(body));
+    const projects = await projectWorkspaceAuthority().reorderProjects(
+      ProjectOrderInputSchema.parse(body),
+    );
     return c.json({ projects });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -1043,15 +1049,19 @@ app.put("/api/projects/order", async (c) => {
 app.put("/api/projects/pinned-order", async (c) => {
   const body = await c.req.json();
   try {
-    const projects = projectsStore.setPinnedProjectOrder(ProjectPinnedOrderInputSchema.parse(body));
+    const projects = await projectWorkspaceAuthority().setPinnedProjectOrder(
+      ProjectPinnedOrderInputSchema.parse(body),
+    );
     return c.json({ projects });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
   }
 });
 
-app.get("/api/projects/:projectId", (c) => {
-  const project = projectsStore.getProject(c.req.param("projectId"));
+app.get("/api/projects/:projectId", async (c) => {
+  const project = await projectWorkspaceAuthority().getProject(
+    c.req.param("projectId"),
+  );
   if (!project) return c.json({ error: "Not found" }, 404);
   return c.json(project);
 });
@@ -1064,7 +1074,7 @@ app.put("/api/projects/:projectId", async (c) => {
     if (legacyField) {
       return c.json({ error: `Unsupported legacy project field: ${legacyField}` }, 400);
     }
-    const result = projectsStore.updateProject(projectId, {
+    const result = await projectWorkspaceAuthority().updateProject(projectId, {
       name: typeof body.name === "string" ? body.name : undefined,
       description: typeof body.description === "string" ? body.description : undefined,
       icon: typeof body.icon === "string" ? body.icon : undefined,
@@ -1080,7 +1090,7 @@ app.put("/api/projects/:projectId", async (c) => {
 app.put("/api/projects/:projectId/pinned", async (c) => {
   const body = await c.req.json();
   try {
-    const result = projectsStore.setProjectPinned(
+    const result = await projectWorkspaceAuthority().setProjectPinned(
       c.req.param("projectId"),
       ProjectPinnedInputSchema.parse(body),
     );
@@ -1092,34 +1102,47 @@ app.put("/api/projects/:projectId/pinned", async (c) => {
 });
 
 app.delete("/api/projects/:projectId", async (c) => {
-  const success = await deleteProjectWithBrowserCleanup(
-    c.req.param("projectId"),
-    httpServerDependencies.browserRuntime,
-    (projectId) => projectDeletionRuntime.deleteProject(projectId),
-  );
+  const projectId = c.req.param("projectId");
+  const workspace = projectWorkspaceAuthority();
+  const success = await deleteProjectWithBrowserCleanupUsing({
+    projectId,
+    browserRuntime: httpServerDependencies.browserRuntime,
+    getProject: workspace.getProject,
+    listProjectSessions: (targetProjectId) =>
+      workspace.listProjectSessions(targetProjectId, { includeArchived: true }),
+    deleteProject: workspace.deleteProject,
+  });
   if (!success) return c.json({ error: "Not found" }, 404);
   return c.json({ success: true });
 });
 
 // === Project session routes ===
 
-app.get("/api/projects/:projectId/sessions", (c) => {
+app.get("/api/projects/:projectId/sessions", async (c) => {
   try {
     const includeArchived = c.req.query("includeArchived") === "true";
     const options = {
       includeArchived,
     };
     const sessions = c.req.query("summary") === "true"
-      ? projectSessionService.listProjectSessionSummaries(c.req.param("projectId"), options)
-      : projectSessionService.listProjectSessions(c.req.param("projectId"), options);
+      ? await projectWorkspaceAuthority().listProjectSessionSummaries(
+          c.req.param("projectId"),
+          options,
+        )
+      : await projectWorkspaceAuthority().listProjectSessions(
+          c.req.param("projectId"),
+          options,
+        );
     return c.json({ sessions });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 404);
   }
 });
 
-app.get("/api/project-sessions/:sessionId", (c) => {
-  const session = projectSessionService.getProjectSession(c.req.param("sessionId"));
+app.get("/api/project-sessions/:sessionId", async (c) => {
+  const session = await projectWorkspaceAuthority().getProjectSession(
+    c.req.param("sessionId"),
+  );
   if (!session) return c.json({ error: "Not found" }, 404);
   return c.json(session);
 });
@@ -1128,7 +1151,10 @@ app.post("/api/projects/:projectId/sessions", async (c) => {
   const projectId = c.req.param("projectId");
   const body = await c.req.json();
   try {
-    const session = projectSessionService.createProjectSession({ ...body, projectId });
+    const session = await projectWorkspaceAuthority().createProjectSession({
+      ...body,
+      projectId,
+    });
     dbNotifier.notifyProjectSessionsChanged(session.projectId, "create", session.id);
     return c.json(session, 201);
   } catch (err) {
@@ -1140,9 +1166,12 @@ app.put("/api/project-sessions/:sessionId", async (c) => {
   const body = await c.req.json();
   try {
     const sessionId = c.req.param("sessionId");
-    const existing = projectSessionService.getProjectSession(sessionId);
+    const existing = await projectWorkspaceAuthority().getProjectSession(sessionId);
     if (!existing) return c.json({ error: "Not found" }, 404);
-    const session = projectSessionService.updateProjectSession(sessionId, body);
+    const session = await projectWorkspaceAuthority().updateProjectSession(
+      sessionId,
+      body,
+    );
     if (!session) return c.json({ error: "Not found" }, 404);
     dbNotifier.notifyProjectSessionsChanged(session.projectId, "update", session.id);
     return c.json(session);
@@ -1155,14 +1184,8 @@ app.put("/api/project-sessions/:sessionId/rename", async (c) => {
   const body = await c.req.json();
   try {
     const session = await renameProjectSessionChat(c.req.param("sessionId"), body, {
-      getProjectSession: projectSessionService.getProjectSession,
-      renameProjectSession: (sessionId, input) => {
-        const existing = projectSessionService.getProjectSession(sessionId);
-        if (!existing || existing.thread) return existing;
-        return projectSessionService.updateProjectSession(sessionId, {
-          noThreadFallbackTitle: input.title,
-        });
-      },
+      getProjectSession: projectWorkspaceAuthority().getProjectSession,
+      renameProjectSession: projectWorkspaceAuthority().renameProjectSession,
       setThreadName: (threadId, rawTitle) => codexService.setThreadName(threadId, rawTitle),
       notifyProjectSessionsChanged: (projectId, changeType, sessionId) => {
         dbNotifier.notifyProjectSessionsChanged(projectId, changeType, sessionId);
@@ -1178,7 +1201,10 @@ app.put("/api/project-sessions/:sessionId/rename", async (c) => {
 app.put("/api/project-sessions/:sessionId/pinned", async (c) => {
   const body = await c.req.json();
   try {
-    const session = projectSessionService.setProjectSessionPinned(c.req.param("sessionId"), body);
+    const session = await projectWorkspaceAuthority().setProjectSessionPinned(
+      c.req.param("sessionId"),
+      body,
+    );
     if (!session) return c.json({ error: "Not found" }, 404);
     dbNotifier.notifyProjectSessionsChanged(session.projectId, "pin", session.id);
     return c.json(session);
@@ -1191,8 +1217,11 @@ app.put("/api/projects/:projectId/sessions/pinned-order", async (c) => {
   const projectId = c.req.param("projectId");
   const body = await c.req.json();
   try {
-    const sessions = projectSessionService.setPinnedProjectSessionOrder(projectId, body);
-    const canonicalProjectId = sessions[0]?.projectId ?? projectsStore.getProject(projectId)?.id ?? projectId;
+    const sessions = await projectWorkspaceAuthority()
+      .setPinnedProjectSessionOrder(projectId, body);
+    const canonicalProjectId = sessions[0]?.projectId
+      ?? (await projectWorkspaceAuthority().getProject(projectId))?.id
+      ?? projectId;
     dbNotifier.notifyProjectSessionsChanged(canonicalProjectId, "pin");
     return c.json({ sessions });
   } catch (err) {
@@ -1203,12 +1232,14 @@ app.put("/api/projects/:projectId/sessions/pinned-order", async (c) => {
 app.put("/api/project-sessions/:sessionId/archive", async (c) => {
   const sessionId = c.req.param("sessionId");
   try {
-    const existing = projectSessionService.getProjectSession(sessionId);
+    const existing = await projectWorkspaceAuthority().getProjectSession(sessionId);
     if (!existing) return c.json({ error: "Not found" }, 404);
     if (existing.thread) {
       await codexService.archiveThread(existing.thread.threadId);
     }
-    const session = projectSessionService.archiveProjectSession(sessionId);
+    const session = await projectWorkspaceAuthority().archiveProjectSession(
+      sessionId,
+    );
     if (!session) return c.json({ error: "Not found" }, 404);
     dbNotifier.notifyProjectSessionsChanged(session.projectId, "archive", session.id);
     return c.json(session);
@@ -1220,12 +1251,14 @@ app.put("/api/project-sessions/:sessionId/archive", async (c) => {
 app.put("/api/project-sessions/:sessionId/unarchive", async (c) => {
   const sessionId = c.req.param("sessionId");
   try {
-    const existing = projectSessionService.getProjectSession(sessionId);
+    const existing = await projectWorkspaceAuthority().getProjectSession(sessionId);
     if (!existing) return c.json({ error: "Not found" }, 404);
     if (existing.thread) {
       await codexService.unarchiveThread(existing.thread.threadId);
     }
-    const session = projectSessionService.unarchiveProjectSession(sessionId);
+    const session = await projectWorkspaceAuthority().unarchiveProjectSession(
+      sessionId,
+    );
     if (!session) return c.json({ error: "Not found" }, 404);
     dbNotifier.notifyProjectSessionsChanged(session.projectId, "unarchive", session.id);
     return c.json(session);
@@ -1282,7 +1315,10 @@ app.put("/api/codex/sidebar/chats-thread-order", async (c) => {
 app.put("/api/project-sessions/:sessionId/unread", async (c) => {
   const body = await c.req.json();
   try {
-    const session = projectSessionService.markProjectSessionUnread(c.req.param("sessionId"), body);
+    const session = await projectWorkspaceAuthority().markProjectSessionUnread(
+      c.req.param("sessionId"),
+      body,
+    );
     if (!session) return c.json({ error: "Not found" }, 404);
     dbNotifier.notifyProjectSessionsChanged(session.projectId, "unread", session.id);
     return c.json(session);
@@ -1309,7 +1345,11 @@ app.put("/api/project-sessions/:sessionId/panels/:panelId", async (c) => {
   try {
     const panelId = c.req.param("panelId");
     if (panelId !== "right" && panelId !== "bottom") return c.json({ error: "Invalid panel" }, 400);
-    const session = projectSessionService.updateProjectSessionPanel(c.req.param("sessionId"), panelId, body);
+    const session = await projectWorkspaceAuthority().updateProjectSessionPanel(
+      c.req.param("sessionId"),
+      panelId,
+      body,
+    );
     if (!session) return c.json({ error: "Not found" }, 404);
     return c.json(session);
   } catch (err) {
@@ -1322,11 +1362,12 @@ app.post("/api/project-sessions/:sessionId/panels/:panelId/split", async (c) => 
   try {
     const panelId = c.req.param("panelId");
     if (panelId !== "right" && panelId !== "bottom") return c.json({ error: "Invalid panel" }, 400);
-    const session = projectSessionService.splitProjectSessionPanelGroup({
-      ...body,
-      sessionId: c.req.param("sessionId"),
-      panelId,
-    });
+    const session = await projectWorkspaceAuthority()
+      .splitProjectSessionPanelGroup({
+        ...body,
+        sessionId: c.req.param("sessionId"),
+        panelId,
+      });
     if (!session) return c.json({ error: "Not found" }, 404);
     return c.json(session);
   } catch (err) {
@@ -1339,11 +1380,12 @@ app.post("/api/project-sessions/:sessionId/panels/:panelId/ensure-right-leaf", a
   try {
     const panelId = c.req.param("panelId");
     if (panelId !== "right" && panelId !== "bottom") return c.json({ error: "Invalid panel" }, 400);
-    const result = projectSessionService.ensureProjectSessionPanelLeafToRight({
-      ...body,
-      sessionId: c.req.param("sessionId"),
-      panelId,
-    });
+    const result = await projectWorkspaceAuthority()
+      .ensureProjectSessionPanelLeafToRight({
+        ...body,
+        sessionId: c.req.param("sessionId"),
+        panelId,
+      });
     if (!result) return c.json({ error: "Not found" }, 404);
     return c.json(result);
   } catch (err) {
@@ -1356,7 +1398,7 @@ app.post("/api/project-sessions/:sessionId/panels/:panelId/merge", async (c) => 
   try {
     const panelId = c.req.param("panelId");
     if (panelId !== "right" && panelId !== "bottom") return c.json({ error: "Invalid panel" }, 400);
-    const session = projectSessionService.mergeProjectSessionPanelGroup({
+    const session = await projectWorkspaceAuthority().mergeProjectSessionPanelGroup({
       ...body,
       sessionId: c.req.param("sessionId"),
       panelId,
@@ -1373,11 +1415,12 @@ app.put("/api/project-sessions/:sessionId/panels/:panelId/active-group", async (
   try {
     const panelId = c.req.param("panelId");
     if (panelId !== "right" && panelId !== "bottom") return c.json({ error: "Invalid panel" }, 400);
-    const session = projectSessionService.activateProjectSessionPanelGroup({
-      ...body,
-      sessionId: c.req.param("sessionId"),
-      panelId,
-    });
+    const session = await projectWorkspaceAuthority()
+      .activateProjectSessionPanelGroup({
+        ...body,
+        sessionId: c.req.param("sessionId"),
+        panelId,
+      });
     if (!session) return c.json({ error: "Not found" }, 404);
     return c.json(session);
   } catch (err) {
@@ -1390,7 +1433,7 @@ app.put("/api/project-sessions/:sessionId/panels/:panelId/resize-group", async (
   try {
     const panelId = c.req.param("panelId");
     if (panelId !== "right" && panelId !== "bottom") return c.json({ error: "Invalid panel" }, 400);
-    const session = projectSessionService.resizeProjectSessionPanelGroup({
+    const session = await projectWorkspaceAuthority().resizeProjectSessionPanelGroup({
       ...body,
       sessionId: c.req.param("sessionId"),
       panelId,
@@ -1407,11 +1450,12 @@ app.put("/api/project-sessions/:sessionId/panels/:panelId/maximized-group", asyn
   try {
     const panelId = c.req.param("panelId");
     if (panelId !== "right" && panelId !== "bottom") return c.json({ error: "Invalid panel" }, 400);
-    const session = projectSessionService.maximizeProjectSessionPanelGroup({
-      ...body,
-      sessionId: c.req.param("sessionId"),
-      panelId,
-    });
+    const session = await projectWorkspaceAuthority()
+      .maximizeProjectSessionPanelGroup({
+        ...body,
+        sessionId: c.req.param("sessionId"),
+        panelId,
+      });
     if (!session) return c.json({ error: "Not found" }, 404);
     return c.json(session);
   } catch (err) {
@@ -1422,11 +1466,14 @@ app.put("/api/project-sessions/:sessionId/panels/:panelId/maximized-group", asyn
 app.delete("/api/project-sessions/:sessionId", async (c) => {
   try {
     const sessionId = c.req.param("sessionId");
-    const existing = projectSessionService.getProjectSession(sessionId);
-    const success = await deleteProjectSessionWithBrowserCleanup(
+    const workspace = projectWorkspaceAuthority();
+    const existing = await workspace.getProjectSession(sessionId);
+    const success = await deleteProjectSessionWithBrowserCleanupUsing({
       sessionId,
-      httpServerDependencies.browserRuntime,
-    );
+      browserRuntime: httpServerDependencies.browserRuntime,
+      getProjectSession: workspace.getProjectSession,
+      deleteProjectSession: workspace.deleteProjectSession,
+    });
     if (!success) return c.json({ error: "Not found" }, 404);
     if (existing) {
       dbNotifier.notifyProjectSessionsChanged(existing.projectId, "delete", sessionId);
@@ -1442,11 +1489,13 @@ app.put("/api/projects/:projectId/sessions/reorder", async (c) => {
   const body = await c.req.json();
   try {
     const orderedSessionIds = Array.isArray(body.orderedSessionIds) ? body.orderedSessionIds : [];
-    const sessions = projectSessionService.reorderProjectSessions(
+    const sessions = await projectWorkspaceAuthority().reorderProjectSessions(
       projectId,
       orderedSessionIds.filter((item: unknown): item is string => typeof item === "string"),
     );
-    const canonicalProjectId = sessions[0]?.projectId ?? projectsStore.getProject(projectId)?.id ?? projectId;
+    const canonicalProjectId = sessions[0]?.projectId
+      ?? (await projectWorkspaceAuthority().getProject(projectId))?.id
+      ?? projectId;
     dbNotifier.notifyProjectSessionsChanged(canonicalProjectId, "reorder");
     return c.json({ sessions });
   } catch (err) {
@@ -1458,7 +1507,10 @@ app.post("/api/project-sessions/:sessionId/tabs", async (c) => {
   const sessionId = c.req.param("sessionId");
   const body = await c.req.json();
   try {
-    const tab = projectSessionService.createProjectSessionTab({ ...body, sessionId });
+    const tab = await projectWorkspaceAuthority().createProjectSessionTab({
+      ...body,
+      sessionId,
+    });
     return c.json(tab, 201);
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -1468,7 +1520,10 @@ app.post("/api/project-sessions/:sessionId/tabs", async (c) => {
 app.put("/api/project-session-tabs/:tabId", async (c) => {
   const body = await c.req.json();
   try {
-    const tab = projectSessionService.updateProjectSessionTab(c.req.param("tabId"), body);
+    const tab = await projectWorkspaceAuthority().updateProjectSessionTab(
+      c.req.param("tabId"),
+      body,
+    );
     if (!tab) return c.json({ error: "Not found" }, 404);
     return c.json(tab);
   } catch (err) {
@@ -1479,7 +1534,7 @@ app.put("/api/project-session-tabs/:tabId", async (c) => {
 app.put("/api/project-session-tabs/:tabId/state", async (c) => {
   const body = await c.req.json();
   try {
-    const tab = projectSessionService.updateProjectSessionTabState(
+    const tab = await projectWorkspaceAuthority().updateProjectSessionTabState(
       c.req.param("tabId"),
       typeof body.stateKey === "number" ? body.stateKey : 0,
       body.state,
@@ -1513,12 +1568,19 @@ app.delete("/api/project-session-tabs/:tabId", async (c) => {
         ? null
         : undefined
     : undefined;
-  const success = await deleteProjectSessionTabWithBrowserCleanup({
-    tabId: c.req.param("tabId"),
-    preserveEmptyLeafIds,
-    preferredActiveLeafId,
-    preferredActiveTabId,
-  }, httpServerDependencies.browserRuntime);
+  const workspace = projectWorkspaceAuthority();
+  const success = await deleteProjectSessionTabWithBrowserCleanupUsing({
+    input: {
+      tabId: c.req.param("tabId"),
+      preserveEmptyLeafIds,
+      preferredActiveLeafId,
+      preferredActiveTabId,
+    },
+    browserRuntime: httpServerDependencies.browserRuntime,
+    getProjectSessionTab: workspace.getProjectSessionTab,
+    deleteProjectSessionTab: workspace.deleteProjectSessionTab,
+    getProjectSession: workspace.getProjectSession,
+  });
   if (!success) return c.json({ error: "Not found" }, 404);
   return c.json({ success: true });
 });
@@ -1529,7 +1591,7 @@ app.put("/api/project-sessions/:sessionId/tabs/reorder", async (c) => {
   try {
     const panelId = body.panelId === "bottom" ? "bottom" : "right";
     const orderedTabIds = Array.isArray(body.orderedTabIds) ? body.orderedTabIds : [];
-    const session = projectSessionService.reorderProjectSessionTabs(
+    const session = await projectWorkspaceAuthority().reorderProjectSessionTabs(
       {
         sessionId,
         panelId,
@@ -1547,7 +1609,7 @@ app.put("/api/project-sessions/:sessionId/tabs/reorder", async (c) => {
 app.put("/api/project-session-tabs/:tabId/move", async (c) => {
   const body = await c.req.json();
   try {
-    const session = projectSessionService.moveProjectSessionTab({
+    const session = await projectWorkspaceAuthority().moveProjectSessionTab({
       tabId: c.req.param("tabId"),
       targetPanelId: body.targetPanelId,
       targetLeafId: body.targetLeafId,
@@ -1568,7 +1630,8 @@ app.put("/api/project-sessions/:sessionId/thread", async (c) => {
   const sessionId = c.req.param("sessionId");
   const body = await c.req.json();
   try {
-    const thread = projectSessionService.upsertProjectSessionThreadLink({ ...body, sessionId });
+    const thread = await projectWorkspaceAuthority()
+      .upsertProjectSessionThreadLink({ ...body, sessionId });
     dbNotifier.notifyProjectSessionsChanged(thread.projectId, "link", sessionId);
     return c.json(thread);
   } catch (err) {
@@ -1576,10 +1639,11 @@ app.put("/api/project-sessions/:sessionId/thread", async (c) => {
   }
 });
 
-app.delete("/api/project-sessions/:sessionId/thread", (c) => {
+app.delete("/api/project-sessions/:sessionId/thread", async (c) => {
   const sessionId = c.req.param("sessionId");
-  const existing = projectSessionService.getProjectSession(sessionId);
-  const success = projectSessionService.detachProjectSessionThread(sessionId);
+  const existing = await projectWorkspaceAuthority().getProjectSession(sessionId);
+  const success = await projectWorkspaceAuthority()
+    .detachProjectSessionThread(sessionId);
   if (success && existing) {
     dbNotifier.notifyProjectSessionsChanged(existing.projectId, "link", sessionId);
   }
@@ -1955,8 +2019,10 @@ app.get("/api/projects/events", (c) => {
   });
 });
 
-app.get("/api/projects/:projectId/events", (c) => {
-  const project = projectsStore.getProject(c.req.param("projectId"));
+app.get("/api/projects/:projectId/events", async (c) => {
+  const project = await projectWorkspaceAuthority().getProject(
+    c.req.param("projectId"),
+  );
   const projectId = project?.id ?? c.req.param("projectId");
 
   const stream = new ReadableStream({

@@ -45,6 +45,21 @@ describe("HTTP content Module authority", () => {
     });
   });
 
+  test("routes Project Workspace reads through the configured authority", async () => {
+    const listProjects = vi.fn(async () => []);
+    __setHttpContentModuleDependenciesForTests({
+      projectWorkspace: { listProjects } as never,
+    });
+
+    const response = await getHttpServerOptions(PORT).fetch(new Request(
+      `http://127.0.0.1:${PORT}/api/projects`,
+    ));
+
+    expect(response.status).toBe(200);
+    expect(listProjects).toHaveBeenCalledOnce();
+    await expect(response.json()).resolves.toEqual({ projects: [] });
+  });
+
   test("binds Block Transfer transport identity before the configured authority", async () => {
     const transfer = vi.fn(async (
       intent: BlockTransferIntent,

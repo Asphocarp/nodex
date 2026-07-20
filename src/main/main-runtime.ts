@@ -38,7 +38,6 @@ import {
 } from "./local-store/reference-reads";
 import { getDb, initializeDatabase } from "./local-store/database";
 import * as projectSessionService from "./local-store/project-sessions";
-import * as projectsStore from "./local-store/projects";
 import { dbNotifier } from "./local-store/notifier";
 import { getAssetsPathPrefix } from "./local-store/assets";
 import { runReminderTick, startReminderScheduler } from "./local-store/reminders";
@@ -49,7 +48,6 @@ import type { ReminderNotificationPayload } from "./reminder-notification";
 import { terminalManager } from "./terminal-manager";
 import { blockMutationWriter } from "./block-mutation-writer";
 import { documentSyncHub } from "./document-sync-runtime";
-import { projectDeletionRuntime } from "./project-deletion-runtime";
 import { startBlockDocumentCompactionScheduler } from "./block-document-compaction-scheduler";
 import { createBlockDocumentCompactionRuntime } from "./block-document-compaction-runtime";
 import {
@@ -166,6 +164,7 @@ import {
 } from "./core-client";
 import { createTypeScriptAutomationModulePort } from "./typescript-automation-module-port";
 import { createTypeScriptStoreAdministrationPort } from "./typescript-store-administration-port";
+import { createTypeScriptProjectWorkspacePort } from "./typescript-project-workspace-port";
 import {
   startStoreAdministrationBackupScheduler,
   type StoreAdministrationBackupScheduler,
@@ -1783,6 +1782,10 @@ export async function runMainAppStartup(
         readProjectScopedDatabaseViewReference(input),
     },
   });
+  const projectWorkspace = createDesktopProjectWorkspaceBridge({
+    authority: dataAuthority,
+    typescript: createTypeScriptProjectWorkspacePort(),
+  });
   configureHttpContentModuleAuthorities({
     referenceReads: {
       resolvePageOwnershipPath: (input) =>
@@ -1827,6 +1830,7 @@ export async function runMainAppStartup(
       applyMutation: (request) =>
         libraryModule.applyPageLifecycleMutation(request),
     },
+    projectWorkspace,
     documentSync: {
       realtime: documentSync,
       getOwnedDocumentDescriptor: (projectId, ownerBlockId) =>
@@ -1881,97 +1885,7 @@ export async function runMainAppStartup(
       restart.unref?.();
     },
     documentSync,
-    projectWorkspace: createDesktopProjectWorkspaceBridge({
-      authority: dataAuthority,
-      typescript: {
-        listProjects: async () => projectsStore.listProjects(),
-        getProject: async (projectId) => projectsStore.getProject(projectId),
-        createProject: async (input) => projectsStore.createProject(input),
-        updateProject: async (projectId, input) =>
-          projectsStore.updateProject(projectId, input),
-        reorderProjects: async (input) => projectsStore.reorderProjects(input),
-        setProjectPinned: async (projectId, input) =>
-          projectsStore.setProjectPinned(projectId, input),
-        setPinnedProjectOrder: async (input) =>
-          projectsStore.setPinnedProjectOrder(input),
-        deleteProject: async (projectId) =>
-          await projectDeletionRuntime.deleteProject(projectId),
-        listProjectSessions: async (projectId, options) =>
-          projectSessionService.listProjectSessions(projectId, options),
-        listProjectSessionSummaries: async (projectId, options) =>
-          projectSessionService.listProjectSessionSummaries(projectId, options),
-        getProjectSession: async (sessionId) =>
-          projectSessionService.getProjectSession(sessionId),
-        updateProjectSession: async (sessionId, input) =>
-          projectSessionService.updateProjectSession(sessionId, input),
-        renameProjectSession: async (sessionId, input) => {
-          const existing = projectSessionService.getProjectSession(sessionId);
-          if (!existing || existing.thread) return existing;
-          return projectSessionService.updateProjectSession(sessionId, {
-            noThreadFallbackTitle: input.title,
-          });
-        },
-        createProjectSession: async (input) =>
-          projectSessionService.createProjectSession(input),
-        deleteProjectSession: async (sessionId) =>
-          projectSessionService.deleteProjectSession(sessionId),
-        reorderProjectSessions: async (projectId, orderedSessionIds) =>
-          projectSessionService.reorderProjectSessions(
-            projectId,
-            orderedSessionIds,
-          ),
-        setProjectSessionPinned: async (sessionId, input) =>
-          projectSessionService.setProjectSessionPinned(sessionId, input),
-        setPinnedProjectSessionOrder: async (projectId, input) =>
-          projectSessionService.setPinnedProjectSessionOrder(projectId, input),
-        archiveProjectSession: async (sessionId) =>
-          projectSessionService.archiveProjectSession(sessionId),
-        unarchiveProjectSession: async (sessionId) =>
-          projectSessionService.unarchiveProjectSession(sessionId),
-        markProjectSessionUnread: async (sessionId, input) =>
-          projectSessionService.markProjectSessionUnread(sessionId, input),
-        createProjectSessionTab: async (input) =>
-          projectSessionService.createProjectSessionTab(input),
-        splitProjectSessionPanelGroup: async (input) =>
-          projectSessionService.splitProjectSessionPanelGroup(input),
-        ensureProjectSessionPanelLeafToRight: async (input) =>
-          projectSessionService.ensureProjectSessionPanelLeafToRight(input),
-        mergeProjectSessionPanelGroup: async (input) =>
-          projectSessionService.mergeProjectSessionPanelGroup(input),
-        activateProjectSessionPanelGroup: async (input) =>
-          projectSessionService.activateProjectSessionPanelGroup(input),
-        resizeProjectSessionPanelGroup: async (input) =>
-          projectSessionService.resizeProjectSessionPanelGroup(input),
-        maximizeProjectSessionPanelGroup: async (input) =>
-          projectSessionService.maximizeProjectSessionPanelGroup(input),
-        reorderProjectSessionTabs: async (input) =>
-          projectSessionService.reorderProjectSessionTabs(input),
-        getProjectSessionTab: async (tabId) =>
-          projectSessionService.getProjectSessionTab(tabId),
-        updateProjectSessionTab: async (tabId, input) =>
-          projectSessionService.updateProjectSessionTab(tabId, input),
-        updateProjectSessionTabState: async (tabId, stateKey, state) =>
-          projectSessionService.updateProjectSessionTabState(
-            tabId,
-            stateKey,
-            state,
-          ),
-        updateProjectSessionPanel: async (sessionId, panelId, input) =>
-          projectSessionService.updateProjectSessionPanel(
-            sessionId,
-            panelId,
-            input,
-          ),
-        deleteProjectSessionTab: async (input) =>
-          projectSessionService.deleteProjectSessionTab(input),
-        moveProjectSessionTab: async (input) =>
-          projectSessionService.moveProjectSessionTab(input),
-        upsertProjectSessionThreadLink: async (input) =>
-          projectSessionService.upsertProjectSessionThreadLink(input),
-        detachProjectSessionThread: async (sessionId) =>
-          projectSessionService.detachProjectSessionThread(sessionId),
-      },
-    }),
+    projectWorkspace,
     libraryModule,
     databaseModule,
     rendererClientRouter,
