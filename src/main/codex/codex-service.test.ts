@@ -27156,6 +27156,105 @@ describe("codex-service approval fallback", () => {
     }
   });
 
+  test("routes Codex Project catalogs and run contexts through the selected Workspace authority", async () => {
+    const service = createService();
+    const calls: string[] = [];
+    const project = {
+      id: "project-authority",
+      libraryId: "library-authority",
+      databaseId: "database-authority",
+      lifecycle: "active" as const,
+      bindingRevision: 1,
+      name: "Authority Project",
+      description: "",
+      sources: [
+        { root: "/workspace/authority", order: 0 },
+        { root: "/workspace/shared", order: 1 },
+      ],
+      primaryWorkspaceRoot: "/workspace/authority",
+      pinned: false,
+      pinnedOrder: null,
+      created: new Date(0),
+      updated: new Date(0),
+    };
+    const typescriptWorkspace = createTypeScriptProjectWorkspacePort();
+    service.setProjectWorkspacePort({
+      ...typescriptWorkspace,
+      listProjects: async () => {
+        calls.push("list");
+        return [project];
+      },
+      getProject: async (projectId) => {
+        calls.push(`get:${projectId}`);
+        return projectId === project.id ? project : null;
+      },
+    });
+    const serviceInternals = service as unknown as {
+      resolveProjectRuntimeContext: (projectId: string) => Promise<{
+        canonicalProjectId: string;
+        primaryWorkspaceRoot: string | null;
+        workspaceRoots: string[];
+      }>;
+      handleDynamicToolCall: (params: {
+        threadId: string;
+        turnId: string;
+        callId: string;
+        namespace: string;
+        tool: string;
+        arguments: Record<string, unknown>;
+      }) => Promise<{ contentItems: Array<{ text?: string }>; success: boolean }>;
+    };
+
+    try {
+      await expect(serviceInternals.resolveProjectRuntimeContext(project.id))
+        .resolves.toEqual({
+          canonicalProjectId: project.id,
+          primaryWorkspaceRoot: "/workspace/authority",
+          workspaceRoots: ["/workspace/authority", "/workspace/shared"],
+        });
+      const listed = await serviceInternals.handleDynamicToolCall({
+        threadId: "thread-project-authority",
+        turnId: "turn-project-authority",
+        callId: "call-project-list",
+        namespace: "codex_app",
+        tool: "list_projects",
+        arguments: {},
+      });
+      expect(listed.success).toBe(true);
+      expect(JSON.parse(listed.contentItems[0]?.text ?? "null")).toMatchObject({
+        projects: [{
+          projectId: project.id,
+          label: project.name,
+          path: project.primaryWorkspaceRoot,
+        }],
+      });
+      const missing = await serviceInternals.handleDynamicToolCall({
+        threadId: "thread-project-authority",
+        turnId: "turn-project-authority",
+        callId: "call-project-missing",
+        namespace: "codex_app",
+        tool: "create_thread",
+        arguments: {
+          prompt: "Use the missing project",
+          target: {
+            type: "project",
+            projectId: "project-missing",
+            environment: { type: "local" },
+          },
+        },
+      });
+      expect(missing.success).toBe(false);
+      expect(missing.contentItems[0]?.text).toContain("Unknown projectId: project-missing");
+      expect(calls).toEqual([
+        "get:project-authority",
+        "list",
+        "get:project-missing",
+      ]);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
   test("routes Thread archive, restore, and delete through the selected Workspace authority", async () => {
     const service = createService();
     const calls: string[] = [];

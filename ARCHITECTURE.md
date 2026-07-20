@@ -589,7 +589,10 @@ their local projection events. Archived mutations reread the exact Thread
 because the active-sidebar response intentionally omits it. The TypeScript
 oracle preserves omitted fields for Workspace partial updates, matching Core's
 presence-sensitive patch contract instead of resetting absent preview, provider,
-or status values.
+or status values. Codex Project catalogs, active-run context, permission roots,
+worktree registration, and dynamic Project targeting use the same asynchronous
+Workspace Project reads and creates; Codex Host never falls back to the
+TypeScript Project repository when the native authority is selected.
 Generic persisted renderer atoms remain shell-owned until their owning semantic
 Module adopts a typed field; Core does not provide a catch-all JSON persistence
 surface.

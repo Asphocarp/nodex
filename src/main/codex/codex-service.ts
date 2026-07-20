@@ -446,12 +446,6 @@ import { buildTurnErrorItemView } from "../../shared/codex-turn-error-projection
 import { normalizeCodexAppInfoLogos } from "../../shared/codex-app-info";
 import { CODEX_INTEGRATION_CAPABILITIES } from "../../shared/codex-integration-capabilities";
 import { dbNotifier } from "../local-store/notifier";
-import {
-  createProject,
-  getProject,
-  listProjects,
-  resolveProjectRunContext,
-} from "../local-store/projects";
 import { resolveAssetPath } from "../local-store/assets";
 import {
   getCodexDeveloperInstructionSettings,
@@ -2993,8 +2987,11 @@ export class CodexService extends EventEmitter {
         await removeManagedWorktree(worktreeGitRoot);
       },
       cleanupGoalSources: async (entry) => await this.cleanupPendingGoalSources(entry),
-      addWorkspaceRoot: (workspaceRoot, label) => {
-        createProject({ name: label, sources: [workspaceRoot] });
+      addWorkspaceRoot: async (workspaceRoot, label) => {
+        await this.projectWorkspace.createProject({
+          name: label,
+          sources: [workspaceRoot],
+        });
       },
       onChanged: (entries) => {
         this.invalidateSidebarSnapshotCache();
@@ -6326,7 +6323,7 @@ export class CodexService extends EventEmitter {
 
     let workspaceRoots: string[] = [];
     try {
-      const project = getProject(projectId);
+      const project = await this.projectWorkspace.getProject(projectId);
       workspaceRoots = project?.sources.map((source) => source.root).filter((root) => root.trim().length > 0) ?? [];
     } catch (error) {
       if (!isUnavailableSqliteBindingError(error)) {
@@ -10618,38 +10615,45 @@ export class CodexService extends EventEmitter {
     };
   }
 
-  private resolveProjectRuntimeContext(projectId: string): {
+  private async resolveProjectRuntimeContext(projectId: string): Promise<{
     canonicalProjectId: string;
     primaryWorkspaceRoot: string | null;
     workspaceRoots: string[];
-  } {
-    const context = resolveProjectRunContext(projectId);
+  }> {
+    const project = await this.projectWorkspace.getProject(projectId);
+    if (!project) throw new Error(`Project not found: ${projectId}`);
+    if (project.lifecycle !== "active") {
+      throw new Error(
+        `Project ${projectId} is ${project.lifecycle} and cannot start work`,
+      );
+    }
+    const workspaceRoots = project.sources.map((source) => source.root);
     return {
-      canonicalProjectId: context.canonicalProjectId,
-      primaryWorkspaceRoot: context.cwd,
-      workspaceRoots: context.workspaceRoots,
+      canonicalProjectId: project.id,
+      primaryWorkspaceRoot: workspaceRoots[0] ?? null,
+      workspaceRoots,
     };
   }
 
-  private maybeResolveProjectRuntimeContext(projectId: string): {
+  private async maybeResolveProjectRuntimeContext(projectId: string): Promise<{
     canonicalProjectId: string;
     primaryWorkspaceRoot: string | null;
     workspaceRoots: string[];
-  } | null {
+  } | null> {
     try {
-      return this.resolveProjectRuntimeContext(projectId);
+      return await this.resolveProjectRuntimeContext(projectId);
     } catch (error) {
       if (isUnavailableSqliteBindingError(error)) return null;
       throw error;
     }
   }
 
-  private requirePrimaryWorkspaceRoot(projectId: string): {
+  private async requirePrimaryWorkspaceRoot(projectId: string): Promise<{
     canonicalProjectId: string;
     primaryWorkspaceRoot: string;
     workspaceRoots: string[];
-  } {
-    const context = this.resolveProjectRuntimeContext(projectId);
+  }> {
+    const context = await this.resolveProjectRuntimeContext(projectId);
     if (!context.primaryWorkspaceRoot) {
       throw new Error("Project requires at least one source folder for this action.");
     }
@@ -10660,8 +10664,8 @@ export class CodexService extends EventEmitter {
     };
   }
 
-  private createProjectlessThreadWorkspace(projectId: string): string {
-    const context = this.resolveProjectRuntimeContext(projectId);
+  private async createProjectlessThreadWorkspace(projectId: string): Promise<string> {
+    const context = await this.resolveProjectRuntimeContext(projectId);
     const workspacePath = path.resolve(
       getNodexHome(),
       "projectless-workspaces",
@@ -10672,18 +10676,18 @@ export class CodexService extends EventEmitter {
     return workspacePath;
   }
 
-  private resolveLocalProjectThreadRoot(projectId: string): {
+  private async resolveLocalProjectThreadRoot(projectId: string): Promise<{
     cwd: string;
     workspaceRoots: string[];
-  } {
-    const context = this.resolveProjectRuntimeContext(projectId);
+  }> {
+    const context = await this.resolveProjectRuntimeContext(projectId);
     if (context.primaryWorkspaceRoot) {
       return {
         cwd: context.primaryWorkspaceRoot,
         workspaceRoots: context.workspaceRoots,
       };
     }
-    const cwd = this.createProjectlessThreadWorkspace(projectId);
+    const cwd = await this.createProjectlessThreadWorkspace(projectId);
     return {
       cwd,
       workspaceRoots: [cwd],
@@ -10725,7 +10729,7 @@ export class CodexService extends EventEmitter {
     }
 
     if (runInTarget !== "newWorktree") {
-      const localContext = this.resolveLocalProjectThreadRoot(input.projectId);
+      const localContext = await this.resolveLocalProjectThreadRoot(input.projectId);
       return {
         cwd: localContext.cwd,
         workspaceRoots: localContext.workspaceRoots,
@@ -10738,7 +10742,7 @@ export class CodexService extends EventEmitter {
       throw new Error("Request canceled");
     }
 
-    const projectContext = this.requirePrimaryWorkspaceRoot(input.projectId);
+    const projectContext = await this.requirePrimaryWorkspaceRoot(input.projectId);
     const workspacePath = projectContext.primaryWorkspaceRoot;
 
     input.onProgress?.({
@@ -13427,8 +13431,8 @@ export class CodexService extends EventEmitter {
     return summary;
   }
 
-  private parseWorkspacePath(projectId: string): string {
-    return this.requirePrimaryWorkspaceRoot(projectId).primaryWorkspaceRoot;
+  private async parseWorkspacePath(projectId: string): Promise<string> {
+    return (await this.requirePrimaryWorkspaceRoot(projectId)).primaryWorkspaceRoot;
   }
 
   private emitThreadTitleUpdated(threadId: string, title: string): void {
@@ -13907,7 +13911,7 @@ export class CodexService extends EventEmitter {
   }): Promise<Extract<CodexThreadStartForSessionResult, { readonly kind: "pending" }>> {
     if (input.signal?.aborted) throw new Error("Request canceled");
 
-    const projectContext = this.requirePrimaryWorkspaceRoot(input.request.projectId);
+    const projectContext = await this.requirePrimaryWorkspaceRoot(input.request.projectId);
     const sourceWorkspaceRoot = projectContext.primaryWorkspaceRoot;
     const [startingState, destinationSnapshot, permissionState] = await Promise.all([
       resolveManagedWorktreeDefaultStartingState(sourceWorkspaceRoot, input.signal),
@@ -15055,7 +15059,7 @@ export class CodexService extends EventEmitter {
     const pendingRequestsBeforeResume = [...record.serverRequests];
     let threadRef = this.parseThreadRef(threadId);
     const projectRuntimeContext = threadRef?.projectId
-      ? this.maybeResolveProjectRuntimeContext(threadRef.projectId)
+      ? await this.maybeResolveProjectRuntimeContext(threadRef.projectId)
       : null;
     const previousHydrationContext = record.canonicalState?.sidecar.hydrationContext ?? null;
     const projectless = threadRef?.projectId === null;
@@ -16364,7 +16368,7 @@ export class CodexService extends EventEmitter {
       throw new Error(`Thread '${threadId}' is not linked to a project card`);
     }
     const forkWorkspaceRoots = threadRef.projectId
-      ? this.maybeResolveProjectRuntimeContext(threadRef.projectId)?.workspaceRoots ?? []
+      ? (await this.maybeResolveProjectRuntimeContext(threadRef.projectId))?.workspaceRoots ?? []
       : [currentDetail.cwd].filter((cwd): cwd is string => cwd !== null);
 
     const shouldDeferThreadStarted = threadRef.projectId !== null;
@@ -16469,7 +16473,7 @@ export class CodexService extends EventEmitter {
 
     const fallbackContext = parentDetail.cwd?.trim()
       ? null
-      : this.resolveLocalProjectThreadRoot(input.projectId);
+      : await this.resolveLocalProjectThreadRoot(input.projectId);
     const cwd = parentDetail.cwd?.trim() || fallbackContext?.cwd || "";
     const workspaceRoots = parentDetail.cwd?.trim()
       ? [cwd]
@@ -17288,18 +17292,16 @@ export class CodexService extends EventEmitter {
     const threadRef = this.parseThreadRef(threadId);
     const threadCwd = threadRef?.cwd?.trim() || null;
     const projectRunContext = !threadCwd && threadRef?.projectId
-      ? this.maybeResolveProjectRuntimeContext(threadRef.projectId)
+      ? await this.maybeResolveProjectRuntimeContext(threadRef.projectId)
       : null;
-    const fallbackWorkspacePath = !threadCwd && !projectRunContext?.primaryWorkspaceRoot && threadRef?.projectId
-      ? (() => {
-          try {
-            return this.parseWorkspacePath(threadRef.projectId);
-          } catch (error) {
-            if (isUnavailableSqliteBindingError(error)) return null;
-            throw error;
-          }
-        })()
-      : null;
+    let fallbackWorkspacePath: string | null = null;
+    if (!threadCwd && !projectRunContext?.primaryWorkspaceRoot && threadRef?.projectId) {
+      try {
+        fallbackWorkspacePath = await this.parseWorkspacePath(threadRef.projectId);
+      } catch (error) {
+        if (!isUnavailableSqliteBindingError(error)) throw error;
+      }
+    }
     let workspacePath = threadCwd || projectRunContext?.primaryWorkspaceRoot || fallbackWorkspacePath || null;
     let workspaceRoots = threadCwd
       ? [threadCwd]
@@ -20956,7 +20958,7 @@ export class CodexService extends EventEmitter {
 
       if (params.tool === "list_projects") {
         if (Object.keys(args).length > 0) throw new Error("list_projects received invalid arguments.");
-        const projects = listProjects().map((project) => ({
+        const projects = (await this.projectWorkspace.listProjects()).map((project) => ({
           projectId: project.id,
           projectKind: "local",
           label: project.name,
@@ -21091,7 +21093,7 @@ export class CodexService extends EventEmitter {
         }
         const sourceRef = this.parseThreadRef(sourceThreadId);
         const sourceWorkspaceRoots = sourceRef?.projectId
-          ? this.maybeResolveProjectRuntimeContext(sourceRef.projectId)?.workspaceRoots ?? []
+          ? (await this.maybeResolveProjectRuntimeContext(sourceRef.projectId))?.workspaceRoots ?? []
           : [sourceDetail.cwd].filter((cwd): cwd is string => cwd !== null);
         const shouldDeferThreadStarted = sourceRef?.projectId !== null
           && sourceRef?.projectId !== undefined;
@@ -21147,14 +21149,6 @@ export class CodexService extends EventEmitter {
       if (params.tool === "create_thread") {
         const createInput = parseCodexDynamicCreateThreadInput(args);
         if (!createInput) throw new Error("create_thread received invalid arguments.");
-        if (
-          createInput.target.type === "project"
-          && getProject(createInput.target.projectId) === null
-        ) {
-          throw new Error(
-            `Unknown projectId: ${createInput.target.projectId}. Call list_projects to find available projects.`,
-          );
-        }
         if (createInput.model !== undefined && createInput.thinking !== undefined) {
           const validationError = validateCodexDynamicCreateModelReasoning(
             createInput.model,
@@ -21167,7 +21161,8 @@ export class CodexService extends EventEmitter {
           prompt: createInput.prompt,
           target: createInput.target,
         }, {
-          getProject,
+          getProject: async (projectId) =>
+            await this.projectWorkspace.getProject(projectId),
           createProjectlessWorkspace: async (workspaceInput) =>
             await createCodexProjectlessWorkspace(workspaceInput),
         });
