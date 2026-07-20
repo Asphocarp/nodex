@@ -41,6 +41,7 @@ import {
   NODEX_APP_TOOL_NAMESPACE,
   NODEX_APP_V5_TOOLSET_REVISION,
 } from "../shared/nodex-agent-tools";
+import { CreatePagesV3OutputSchema } from "../shared/nodex-agent-tools/v3-write-schemas";
 import {
   CANVAS_SCENE_SYNC_VERSION,
   primaryCanvasDocumentId,
@@ -2333,6 +2334,70 @@ describe("Electron native data authority", () => {
         toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
         tool: "create_pages",
       }, nativeCreateInput, nativeCreateContext)).resolves.toEqual(nativeCreated);
+      const nativeMoveContext = {
+        ...nativeDuplicateContext,
+        callId: "call:electron-native-move-pages",
+        resolveResourceAccess: async (
+          intents: Parameters<typeof agentResources.plan>[0]["intents"],
+        ) => await agentResources.plan({
+          authority: frozenAuthority,
+          callId: "call:electron-native-move-pages",
+          intents,
+        }),
+      };
+      const moveTargetConsent = await agentResources.plan({
+        authority: frozenAuthority,
+        callId: "call:electron-native-move-target-consent",
+        intents: [{
+          target: { kind: "page", pageId: nativeContentBlockId },
+          action: "create_child",
+        }],
+      });
+      if (moveTargetConsent.kind === "consent_required") {
+        await agentResources.persistProjectGrants({
+          operationId: "electron-agent-move-target-grant",
+          authority: frozenAuthority,
+          grants: moveTargetConsent.requirements.map((requirement) => requirement.grant),
+        });
+      } else if (moveTargetConsent.kind !== "authorized") {
+        throw new Error("Native Agent Page-move target was not grantable");
+      }
+      const createdPageIds = CreatePagesV3OutputSchema.parse(nativeCreated.output).data.pages
+        .map((page) => page.pageId)
+        .reverse();
+      const nativeMoveInput = {
+        pageIds: createdPageIds,
+        destination: {
+          kind: "page" as const,
+          pageId: nativeContentBlockId,
+          at: { kind: "start" as const },
+        },
+      };
+      const nativeMoved = await nativeAgentService.registry.execute({
+        namespace: NODEX_APP_TOOL_NAMESPACE,
+        toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+        tool: "move_pages",
+      }, nativeMoveInput, nativeMoveContext);
+      expect(nativeMoved).toMatchObject({
+        effect: "write",
+        output: {
+          data: {
+            moved: 2,
+            pages: [{
+              pageId: createdPageIds[0],
+              location: { kind: "page", pageId: nativeContentBlockId },
+            }, {
+              pageId: createdPageIds[1],
+              location: { kind: "page", pageId: nativeContentBlockId },
+            }],
+          },
+        },
+      });
+      await expect(nativeAgentService.registry.execute({
+        namespace: NODEX_APP_TOOL_NAMESPACE,
+        toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+        tool: "move_pages",
+      }, nativeMoveInput, nativeMoveContext)).resolves.toEqual(nativeMoved);
       const nativeDuplicateInput = {
         pageId: copiedDataSourcePageId,
         destination: {

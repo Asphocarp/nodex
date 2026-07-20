@@ -385,6 +385,7 @@ pub(super) fn execute_page_copy(
                 block_property_mutation: None,
                 agent_page_copy: Some(result),
                 agent_create_pages: None,
+                agent_move_pages: None,
                 change_payload: None,
                 committed_at: execution.committed_at,
             },
@@ -813,7 +814,7 @@ fn resolve_data_source_destination(
     })
 }
 
-fn resolve_before_id(
+pub(super) fn resolve_before_id(
     ids: &[String],
     anchor: Option<&LibraryAgentSiblingAnchor>,
     label: &str,
@@ -841,7 +842,7 @@ fn resolve_before_id(
     }
 }
 
-fn read_location_anchor(
+pub(super) fn read_location_anchor(
     connection: &Connection,
     block_id: &str,
 ) -> Result<LibraryPlacementAnchor, StoreError> {

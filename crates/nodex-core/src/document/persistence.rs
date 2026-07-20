@@ -706,7 +706,7 @@ fn persist_materialization(
     Ok(())
 }
 
-fn replace_secondary_projections(
+pub(super) fn replace_secondary_projections(
     connection: &Connection,
     authority: &DocumentAuthorityRow,
     materialization: &DocumentMaterialization,

@@ -157,34 +157,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
     expect(unavailable).not.toHaveBeenCalled();
   });
 
-  test("fails closed for an unported native write instead of invoking TypeScript", async () => {
-    const service = createDesktopNodexAgentV3DynamicService({
-      authority: Promise.resolve({ backend: "rust" } as DesktopDataAuthorityRuntime),
-      projectWorkspace: {} as DesktopProjectWorkspacePort,
-      databaseModule: {} as DesktopDatabaseModuleBridge,
-      documentSync,
-      typescript,
-    });
-
-    await expect(service.registry.execute({
-      namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
-      tool: "move_pages",
-    }, {
-      destination: { kind: "library" },
-      pageIds: ["page-native-move"],
-    }, context)).rejects.toMatchObject({
-      failure: {
-        error: {
-          code: "internal_error",
-          retryable: false,
-          details: { domainCode: "native_agent_tool_unavailable" },
-        },
-      },
-    });
-    expect(unavailable).not.toHaveBeenCalled();
-  });
-
   test("creates a Page batch through Core under the exact target Document lease", async () => {
     let preparationCount = 0;
     const libraryRead = vi.fn(async (read: Record<string, unknown>) => {
@@ -385,6 +357,197 @@ describe("native desktop Nodex Agent dynamic service", () => {
           location: { kind: "page", pageId: "page-create-target" },
           blockIds: ["body-created-2"],
         }],
+      },
+    });
+    expect(libraryRead).toHaveBeenCalledTimes(2);
+    expect(coordinate).toHaveBeenCalledOnce();
+    expect(libraryApply).toHaveBeenCalledOnce();
+    expect(unavailable).not.toHaveBeenCalled();
+  });
+
+  test("moves a mixed-source Page batch through Core under one exact target lease", async () => {
+    let preparationCount = 0;
+    const libraryRead = vi.fn(async (read: Record<string, unknown>) => {
+      expect(read).toMatchObject({
+        kind: "prepare_agent_move_pages",
+        store_epoch: "store-native-agent",
+        request: {
+          page_ids: ["page-move-database", "page-move-library"],
+          destination: {
+            kind: "page",
+            page_id: "page-move-target",
+            at: { kind: "end" },
+          },
+        },
+        authorization: {
+          call_id: "call-native-agent",
+          provenance: { profile_id: "profile-native-agent" },
+        },
+      });
+      preparationCount += 1;
+      return {
+        store_epoch: "store-native-agent",
+        event_sequence: 40,
+        value: {
+          kind: "agent_move_pages_preparation" as const,
+          value: {
+            preparation: {
+              state: "prepared" as const,
+              consent: "none" as const,
+              token: `move-token-${preparationCount}`,
+              expires_at_unix_ms: Date.now() + 30_000,
+              footprint: {
+                effect_class: "write" as const,
+                targets: [],
+                created_roots: [],
+                updated_roots: ["page-move-database", "page-move-library"],
+                deleted_roots: [],
+                deleted_owner_roots: [],
+                ownership_transformations: [],
+              },
+            },
+            pages: [{
+              page_id: "page-move-database",
+              source: {
+                kind: "data_source" as const,
+                data_source_id: "data-source-move",
+              },
+              source_document_id: null,
+              source_database_id: "database-move",
+              source_project_id: "project-native-agent",
+              target_project_id: "project-native-agent",
+            }, {
+              page_id: "page-move-library",
+              source: {
+                kind: "library" as const,
+                library_id: "library-native-agent",
+              },
+              source_document_id: null,
+              source_database_id: null,
+              source_project_id: "project-native-agent",
+              target_project_id: "project-native-agent",
+            }],
+            document_heads: [{
+              document_id: "document-move-target",
+              generation: 3,
+              expected_head_seq: 8,
+            }],
+            destination: {
+              kind: "page" as const,
+              page_id: "page-move-target",
+              expected_document_generation: 3,
+              expected_document_head_seq: 8,
+              before: null,
+            },
+            destination_document: {
+              document_id: "document-move-target",
+              generation: 3,
+              expected_head_seq: 8,
+            },
+            destination_database_id: null,
+            destination_project_id: "project-native-agent",
+            committed: null,
+          },
+        },
+      };
+    });
+    const libraryApply = vi.fn(async (request: {
+      readonly operationId: string;
+      readonly intent: {
+        readonly authorization: { readonly token?: string | null };
+      };
+    }) => {
+      expect(request.operationId).toMatch(/^nodex-agent-move-pages:/u);
+      expect(request.intent.authorization.token).toBe("move-token-2");
+      return {
+        event_sequence: 43,
+        receipt: { operation_id: request.operationId, duplicate: false },
+        value: {
+          agent_move_pages: {
+            pages: [{
+              page_id: "page-move-database",
+              location: { kind: "page" as const, page_id: "page-move-target" },
+            }, {
+              page_id: "page-move-library",
+              location: { kind: "page" as const, page_id: "page-move-target" },
+            }],
+            document_commits: [{
+              document_id: "document-move-target",
+              generation: 3,
+              base_head_seq: 8,
+              head_seq: 9,
+              update_id: "move-target-1",
+              update: [1],
+              state_vector: [2],
+            }, {
+              document_id: "document-move-target",
+              generation: 3,
+              base_head_seq: 9,
+              head_seq: 10,
+              update_id: "move-target-2",
+              update: [3],
+              state_vector: [4],
+            }],
+            affected_database_ids: ["database-move"],
+          },
+        },
+      };
+    });
+    const coordinate = vi.fn(async (options: {
+      readonly leaseDocuments: readonly unknown[];
+      readonly execute: () => Promise<unknown>;
+    }) => {
+      expect(options.leaseDocuments).toEqual([{
+        documentId: "document-move-target",
+        generation: 3,
+        expectedHeadSeq: 8,
+      }]);
+      return await options.execute();
+    });
+    const runtime = {
+      backend: "rust" as const,
+      rootClient: {
+        handshake: {
+          profile_id: "profile-native-agent",
+          library_id: "library-native-agent",
+          store_epoch: "store-native-agent",
+        },
+      },
+      clientForProject: () => ({ libraryRead, libraryApply }),
+    } as unknown as Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>;
+    const service = createDesktopNodexAgentV3DynamicService({
+      authority: Promise.resolve(runtime),
+      projectWorkspace: {} as DesktopProjectWorkspacePort,
+      databaseModule: {} as DesktopDatabaseModuleBridge,
+      documentSync: {
+        coordinateNodexAgentLeasedMutation: coordinate,
+      } as unknown as Pick<DesktopDocumentSyncPort, "coordinateNodexAgentLeasedMutation">,
+      typescript,
+    });
+
+    const result = await service.registry.execute({
+      namespace: NODEX_APP_TOOL_NAMESPACE,
+      toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+      tool: "move_pages",
+    }, {
+      pageIds: ["page-move-database", "page-move-library"],
+      destination: {
+        kind: "page",
+        pageId: "page-move-target",
+        at: { kind: "end" },
+      },
+    }, context);
+
+    expect(result.output).toEqual({
+      data: {
+        pages: [{
+          pageId: "page-move-database",
+          location: { kind: "page", pageId: "page-move-target" },
+        }, {
+          pageId: "page-move-library",
+          location: { kind: "page", pageId: "page-move-target" },
+        }],
+        moved: 2,
       },
     });
     expect(libraryRead).toHaveBeenCalledTimes(2);

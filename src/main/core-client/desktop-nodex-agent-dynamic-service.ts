@@ -5,8 +5,6 @@ import type {
   ExecuteNodexAgentMovePagesResult,
   NodexAgentV3ReadCommandResult,
   NodexAgentV3ReadRequest,
-  PrepareNodexAgentMovePagesResult,
-  ToolFailure,
 } from "../../shared/nodex-agent-tools";
 import { GetContextV3OutputSchema } from "../../shared/nodex-agent-tools/v3-read-schemas";
 import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../shared/database-module-v2";
@@ -25,9 +23,8 @@ import { readNativeDatabaseQuery } from "./native-nodex-agent-query";
 import { readNativeSearch } from "./native-nodex-agent-search";
 import { NativeNodexAgentPageCopyRuntime } from "./native-nodex-agent-page-copy";
 import { NativeNodexAgentPageCreateRuntime } from "./native-nodex-agent-page-create";
+import { NativeNodexAgentPageMoveRuntime } from "./native-nodex-agent-page-move";
 import { NativeNodexAgentPageUpdateRuntime } from "./native-nodex-agent-page-update";
-
-type ToolError = ToolFailure["error"];
 
 export interface DesktopNodexAgentDynamicServiceInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
@@ -42,14 +39,6 @@ export interface DesktopNodexAgentDynamicServiceInput {
     readonly documentHub: NodexAgentV3DocumentHub;
   };
 }
-
-const nativeUnavailableError = (tool: string): ToolError => ({
-  code: "internal_error",
-  message: `Nodex Agent tool ${tool} is not yet available through native Core`,
-  retryable: false,
-  recovery: "none",
-  details: { domainCode: "native_agent_tool_unavailable" },
-});
 
 const nativeDuplicatePageFailure = (
   message: string,
@@ -68,6 +57,19 @@ const nativeCreatePagesFailure = (
   message: string,
   recovery: "get_block_again" | "none" = "none",
 ): ExecuteNodexAgentCreatePagesResult => ({
+  ok: false,
+  error: {
+    code: recovery === "get_block_again" ? "conflict" : "internal_error",
+    message,
+    retryable: false,
+    recovery,
+  },
+});
+
+const nativeMovePagesFailure = (
+  message: string,
+  recovery: "get_block_again" | "none" = "none",
+): ExecuteNodexAgentMovePagesResult => ({
   ok: false,
   error: {
     code: recovery === "get_block_again" ? "conflict" : "internal_error",
@@ -227,6 +229,7 @@ export function createDesktopNodexAgentV3DynamicService(
   let nativePageUpdates: NativeNodexAgentPageUpdateRuntime | null = null;
   let nativePageCopies: NativeNodexAgentPageCopyRuntime | null = null;
   let nativePageCreates: NativeNodexAgentPageCreateRuntime | null = null;
+  let nativePageMoves: NativeNodexAgentPageMoveRuntime | null = null;
   const pageUpdatesFor = (
     runtime: Extract<DesktopDataAuthorityRuntime, { readonly backend: "rust" }>,
   ): NativeNodexAgentPageUpdateRuntime => {
@@ -244,6 +247,12 @@ export function createDesktopNodexAgentV3DynamicService(
   ): NativeNodexAgentPageCreateRuntime => {
     nativePageCreates ??= new NativeNodexAgentPageCreateRuntime(runtime);
     return nativePageCreates;
+  };
+  const pageMovesFor = (
+    runtime: Extract<DesktopDataAuthorityRuntime, { readonly backend: "rust" }>,
+  ): NativeNodexAgentPageMoveRuntime => {
+    nativePageMoves ??= new NativeNodexAgentPageMoveRuntime(runtime);
+    return nativePageMoves;
   };
   const writer: NodexAgentV3Writer = {
     readNodexAgentV3Tool: async (request) => {
@@ -297,11 +306,7 @@ export function createDesktopNodexAgentV3DynamicService(
       if (runtime.backend === "typescript") {
         return await input.typescript.writer.prepareNodexAgentMovePages(request);
       }
-      const result: PrepareNodexAgentMovePagesResult = {
-        ok: false,
-        error: nativeUnavailableError("move_pages"),
-      };
-      return envelope(result, request.callId);
+      return await pageMovesFor(runtime).prepare(request);
     },
   };
 
@@ -353,11 +358,16 @@ export function createDesktopNodexAgentV3DynamicService(
       if (runtime.backend === "typescript") {
         return await input.typescript.documentHub.executeNodexAgentMovePages(...args);
       }
-      const result: ExecuteNodexAgentMovePagesResult = {
-        ok: false,
-        error: nativeUnavailableError("move_pages"),
-      };
-      return result;
+      const command = args[0];
+      return await input.documentSync.coordinateNodexAgentLeasedMutation({
+        projectId: command.projectId,
+        storeEpoch: command.storeEpoch,
+        leaseDocuments: command.leaseDocuments,
+        execute: async () => await pageMovesFor(runtime).execute(command),
+        failure: nativeMovePagesFailure,
+        operationLabel: "Agent Page movement",
+        conflictMessage: "A Page Document changed while preparing Page movement",
+      });
     },
   };
 

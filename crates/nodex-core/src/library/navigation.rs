@@ -253,6 +253,9 @@ pub(super) fn read(
         LibraryRead::PrepareAgentCreatePages { .. } => Err(invalid(
             "Agent Page creation preparation is assembled by the Library Module",
         )),
+        LibraryRead::PrepareAgentMovePages { .. } => Err(invalid(
+            "Agent Page movement preparation is assembled by the Library Module",
+        )),
         LibraryRead::PageLifecyclePreflight { .. } => Err(invalid(
             "Page lifecycle preflight is assembled by the Library Module",
         )),

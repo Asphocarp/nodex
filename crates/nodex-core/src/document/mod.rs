@@ -14,6 +14,7 @@ mod persistence;
 mod primary_canvas;
 mod realtime;
 mod recovery;
+mod rehome;
 mod retention;
 mod runtime;
 mod semantic;
@@ -67,5 +68,6 @@ pub(crate) use persistence::{
     persist_yjs_genesis, read_document_authority, read_store_epoch, sha256,
 };
 pub(crate) use primary_canvas::{PrimaryCanvasIdentity, create_primary_canvas};
+pub(crate) use rehome::rebuild_rehomed_document_projections;
 pub(crate) use runtime::reconstruct_yjs_engine;
 pub(crate) use semantic::{mint_document_semantic_etags, parse_inline_markdown_title};

@@ -571,7 +571,7 @@ fn persist_file(
     Ok(())
 }
 
-fn replace_canvas_projections(
+pub(super) fn replace_canvas_projections(
     connection: &Connection,
     authority: &DocumentAuthorityRow,
     scene: &CanvasScene,

@@ -250,6 +250,7 @@ pub(super) fn copy_page(
             block_property_mutation: None,
             agent_page_copy: None,
             agent_create_pages: None,
+            agent_move_pages: None,
             change_payload: None,
             committed_at: execution.committed_at,
         },
@@ -1608,15 +1609,15 @@ fn internal(message: impl Into<String>) -> StoreError {
 mod tests {
     use nodex_core_contracts::agent::{
         AgentExecutionAuthorization, AgentOperationPreparationState, AgentPreparedExecution,
-        AgentProjectResourceAccess, AgentResourceAccessOverlay, AgentResourceAccessOverlayKind,
-        AgentResourceAccessOverlayScope, AgentResourceGrantRoot, AgentResourceGrantSpec,
-        AgentTurnProvenance,
+        AgentProjectResourceAccess, AgentProjectResourceAction, AgentResourceAccessOverlay,
+        AgentResourceAccessOverlayKind, AgentResourceAccessOverlayScope, AgentResourceGrantRoot,
+        AgentResourceGrantSpec, AgentTurnProvenance,
     };
     use nodex_core_contracts::document::{DocumentOwnerCommand, OwnedDocumentIntent};
     use nodex_core_contracts::library::{
         LibraryAccess, LibraryAgentCreatePageDraft, LibraryAgentCreatePagesRequest,
-        LibraryAgentPageCopyRequest, LibraryAgentPageDestination, LibraryIntent,
-        LibraryNavigationNode, LibraryNavigationParent, LibraryPageCopyDestination,
+        LibraryAgentMovePagesRequest, LibraryAgentPageCopyRequest, LibraryAgentPageDestination,
+        LibraryIntent, LibraryNavigationNode, LibraryNavigationParent, LibraryPageCopyDestination,
         LibraryPageCopyValue, LibraryPageCopyViewPlacement, LibraryRead, LibraryReadValue,
         LibraryResourceTarget, LibraryWriteParent,
     };
@@ -1714,6 +1715,134 @@ mod tests {
                 },
             )
             .expect("create Page");
+    }
+
+    fn agent_move_authorization(
+        kernel: &SqliteStoreKernel,
+        granted_page_ids: &[&str],
+    ) -> AgentExecutionAuthorization {
+        let workspace = ProjectWorkspaceModule::new("profile-1", "library-1", kernel)
+            .expect("Workspace module");
+        workspace
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:create-agent-move-thread".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: ProjectWorkspaceIntent::UpsertThread {
+                        thread_id: "thread:agent-move".to_owned(),
+                        patch: Box::new(ProjectWorkspaceThreadPatch {
+                            project_id: Some(Some("project-1".to_owned())),
+                            thread_name: Some(Some("Agent move".to_owned())),
+                            created_at: Some(100),
+                            updated_at: Some(100),
+                            linked_at: Some(NOW.to_owned()),
+                            ..ProjectWorkspaceThreadPatch::default()
+                        }),
+                    },
+                },
+            )
+            .expect("persist Agent move Thread");
+        workspace
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:freeze-agent-move-turn".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: ProjectWorkspaceIntent::FreezeTurnAuthority {
+                        thread_id: "thread:agent-move".to_owned(),
+                        turn_id: "turn:agent-move".to_owned(),
+                        root_thread_id: "thread:agent-move".to_owned(),
+                        actor_project_id: "project-1".to_owned(),
+                        source: ProjectWorkspaceTurnAuthoritySource::ProjectTurn,
+                        inherited_from: None,
+                    },
+                },
+            )
+            .expect("freeze Agent move Turn");
+        let turn = ProjectWorkspaceTurnAuthority {
+            thread_id: "thread:agent-move".to_owned(),
+            turn_id: "turn:agent-move".to_owned(),
+            root_thread_id: "thread:agent-move".to_owned(),
+            actor_project_id: "project-1".to_owned(),
+            library_id: "library-1".to_owned(),
+            store_epoch: "epoch-1".to_owned(),
+            scope: ProjectWorkspaceTurnAuthorityScope::Project,
+            source: ProjectWorkspaceTurnAuthoritySource::ProjectTurn,
+        };
+        AgentExecutionAuthorization {
+            provenance: AgentTurnProvenance {
+                profile_id: "profile-1".to_owned(),
+                authority: turn.clone(),
+            },
+            call_id: "call:agent-move".to_owned(),
+            resource_access: Some(AgentResourceAccessOverlay {
+                kind: AgentResourceAccessOverlayKind::Consent,
+                scope: AgentResourceAccessOverlayScope::Call,
+                thread_id: Some(turn.thread_id.clone()),
+                turn_id: Some(turn.turn_id.clone()),
+                call_id: Some("call:agent-move".to_owned()),
+                root_thread_id: turn.root_thread_id,
+                actor_project_id: turn.actor_project_id,
+                library_id: turn.library_id,
+                store_epoch: turn.store_epoch,
+                grants: granted_page_ids
+                    .iter()
+                    .map(|page_id| AgentResourceGrantSpec {
+                        root: AgentResourceGrantRoot::Page {
+                            page_id: (*page_id).to_owned(),
+                        },
+                        access: AgentProjectResourceAccess::ReadWrite,
+                        library_actions: Vec::new(),
+                    })
+                    .collect(),
+                persist_resulting_page_grants: false,
+            }),
+        }
+    }
+
+    fn execute_agent_move(
+        module: &LibraryModule,
+        authorization: AgentExecutionAuthorization,
+        operation_id: &str,
+        request: LibraryAgentMovePagesRequest,
+    ) -> LibraryApplyOutcome {
+        let prepared = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PrepareAgentMovePages {
+                        operation_id: operation_id.to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        authorization: Box::new(authorization.clone()),
+                        request: Box::new(request.clone()),
+                    },
+                },
+            )
+            .expect("prepare Agent Page move");
+        let LibraryReadValue::AgentMovePagesPreparation { value } = prepared.value else {
+            panic!("Agent Page-move preparation");
+        };
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: operation_id.to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ExecutePreparedAgentMovePages {
+                        authorization: Box::new(AgentPreparedExecution {
+                            authorization,
+                            token: value.preparation.token,
+                        }),
+                        request: Box::new(request),
+                    },
+                },
+            )
+            .expect("execute Agent Page move")
     }
 
     fn copy_request(
@@ -2355,6 +2484,760 @@ mod tests {
         );
         assert!(value.preparation.token.is_none());
         assert!(value.committed.is_some());
+    }
+
+    #[test]
+    fn agent_page_batch_move_freezes_one_target_and_commits_in_input_order() {
+        let (_directory, kernel) = seeded_kernel();
+        let module = LibraryModule::new("profile-1", "library-1", &kernel);
+        for (operation, page, document, title) in [
+            (
+                "operation:create-agent-move-target",
+                "page:agent-move-target",
+                "document:agent-move-target",
+                "Move target",
+            ),
+            (
+                "operation:create-agent-move-first",
+                "page:agent-move-first",
+                "document:agent-move-first",
+                "First",
+            ),
+            (
+                "operation:create-agent-move-second",
+                "page:agent-move-second",
+                "document:agent-move-second",
+                "Second",
+            ),
+        ] {
+            create_page(
+                &module,
+                operation,
+                page,
+                document,
+                title,
+                LibraryWriteParent::Library { before: None },
+            );
+        }
+        let authorization = agent_move_authorization(
+            &kernel,
+            &[
+                "page:agent-move-target",
+                "page:agent-move-first",
+                "page:agent-move-second",
+            ],
+        );
+        let request = LibraryAgentMovePagesRequest {
+            page_ids: vec![
+                "page:agent-move-second".to_owned(),
+                "page:agent-move-first".to_owned(),
+            ],
+            destination: LibraryAgentPageDestination::Page {
+                page_id: "page:agent-move-target".to_owned(),
+                at: None,
+            },
+        };
+        let durable_before = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT head_seq FROM documents \
+                         WHERE id = 'document:agent-move-target'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("target head before prepare");
+        let prepare = || {
+            module
+                .read(
+                    &context(),
+                    ModuleReadRequest {
+                        version: CORE_CONTRACT_VERSION,
+                        read: LibraryRead::PrepareAgentMovePages {
+                            operation_id: "operation:agent-move-pages".to_owned(),
+                            store_epoch: "epoch-1".to_owned(),
+                            authorization: Box::new(authorization.clone()),
+                            request: Box::new(request.clone()),
+                        },
+                    },
+                )
+                .expect("prepare Agent Page move")
+        };
+        let first = prepare();
+        let refreshed = prepare();
+        let LibraryReadValue::AgentMovePagesPreparation { value: first } = first.value else {
+            panic!("first Agent Page-move preparation");
+        };
+        let LibraryReadValue::AgentMovePagesPreparation { value } = refreshed.value else {
+            panic!("Agent Page-move preparation");
+        };
+        assert_ne!(first.preparation.token, value.preparation.token);
+        assert_eq!(value.pages.len(), 2);
+        assert_eq!(value.document_heads.len(), 1);
+        assert_eq!(
+            value.document_heads[0].document_id,
+            "document:agent-move-target"
+        );
+        assert_eq!(
+            kernel
+                .readers()
+                .read_default(|connection| {
+                    connection
+                        .query_row(
+                            "SELECT head_seq FROM documents \
+                             WHERE id = 'document:agent-move-target'",
+                            [],
+                            |row| row.get::<_, i64>(0),
+                        )
+                        .map_err(StoreError::from)
+                })
+                .expect("target head after prepare"),
+            durable_before
+        );
+        let token = value.preparation.token.expect("move token");
+        let apply = ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: "operation:agent-move-pages".to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::ExecutePreparedAgentMovePages {
+                authorization: Box::new(AgentPreparedExecution {
+                    authorization: authorization.clone(),
+                    token: Some(token),
+                }),
+                request: Box::new(request.clone()),
+            },
+        };
+        let committed = module
+            .apply(&context(), apply.clone())
+            .expect("execute Agent Page move");
+        let replay = module
+            .apply(&context(), apply)
+            .expect("replay Agent Page move");
+        assert!(replay.committed.receipt.mutation.duplicate);
+        assert!(replay.event.is_none());
+        let result = committed
+            .committed
+            .value
+            .agent_move_pages
+            .expect("Agent Page-move result");
+        assert_eq!(result.pages.len(), 2);
+        assert_eq!(result.document_commits.len(), 2);
+        assert!(result.pages.iter().all(|page| matches!(
+            page.location,
+            nodex_core_contracts::library::LibraryAgentPageLocation::Page { ref page_id }
+                if page_id == "page:agent-move-target"
+        )));
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let order = connection
+                    .prepare(
+                        "SELECT block_id FROM document_block_index \
+                         WHERE document_id = 'document:agent-move-target' \
+                           AND block_id IN ('page:agent-move-first', 'page:agent-move-second') \
+                         ORDER BY ordinal, block_id",
+                    )?
+                    .query_map([], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                assert_eq!(
+                    order,
+                    vec![
+                        "page:agent-move-second".to_owned(),
+                        "page:agent-move-first".to_owned(),
+                    ]
+                );
+                let target_head = connection.query_row(
+                    "SELECT head_seq FROM documents \
+                     WHERE id = 'document:agent-move-target'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(target_head, durable_before + 2);
+                Ok(())
+            })
+            .expect("verify Agent Page move");
+        let replay_preparation = prepare();
+        let LibraryReadValue::AgentMovePagesPreparation { value } = replay_preparation.value else {
+            panic!("Agent Page-move replay preparation");
+        };
+        assert_eq!(
+            value.preparation.state,
+            AgentOperationPreparationState::CommittedReplay
+        );
+        assert!(value.committed.is_some());
+    }
+
+    #[test]
+    fn agent_page_move_rehomes_complete_ownership_closure_into_call_granted_page() {
+        let (_directory, kernel) = seeded_kernel();
+        let module = LibraryModule::new("profile-1", "library-1", &kernel);
+        create_page(
+            &module,
+            "operation:create-agent-rehome-source",
+            "page:agent-rehome-source",
+            "document:agent-rehome-source",
+            "Rehome source",
+            LibraryWriteParent::Library { before: None },
+        );
+        create_page(
+            &module,
+            "operation:create-agent-rehome-child",
+            "page:agent-rehome-child",
+            "document:agent-rehome-child",
+            "Rehome child",
+            LibraryWriteParent::Page {
+                page_id: "page:agent-rehome-source".to_owned(),
+                expected_document_generation: 1,
+                expected_document_head_seq: 1,
+                before: None,
+            },
+        );
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO projects(id, library_id, name, created, updated) \
+                     VALUES ('project-2', 'library-1', 'Move target', ?1, ?1)",
+                    [NOW],
+                )?;
+                Ok(())
+            })
+            .expect("seed move target Project");
+        module
+            .apply(
+                &context_for("project-2"),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:create-agent-rehome-target".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: "page:agent-rehome-target".to_owned(),
+                        document_id: "document:agent-rehome-target".to_owned(),
+                        title: "Rehome target".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("create cross-Project target Page");
+        let authorization = agent_move_authorization(
+            &kernel,
+            &["page:agent-rehome-source", "page:agent-rehome-target"],
+        );
+        let request = LibraryAgentMovePagesRequest {
+            page_ids: vec!["page:agent-rehome-source".to_owned()],
+            destination: LibraryAgentPageDestination::Page {
+                page_id: "page:agent-rehome-target".to_owned(),
+                at: None,
+            },
+        };
+        let prepared = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PrepareAgentMovePages {
+                        operation_id: "operation:agent-rehome-move".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        authorization: Box::new(authorization.clone()),
+                        request: Box::new(request.clone()),
+                    },
+                },
+            )
+            .expect("prepare cross-Project Agent Page move");
+        let LibraryReadValue::AgentMovePagesPreparation { value } = prepared.value else {
+            panic!("cross-Project Agent Page-move preparation");
+        };
+        assert_eq!(value.destination_project_id.as_deref(), Some("project-2"));
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:agent-rehome-move".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ExecutePreparedAgentMovePages {
+                        authorization: Box::new(AgentPreparedExecution {
+                            authorization,
+                            token: value.preparation.token,
+                        }),
+                        request: Box::new(request),
+                    },
+                },
+            )
+            .expect("execute cross-Project Agent Page move");
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence = connection.query_row(
+                    "SELECT root.project_id, root.containing_document_id, root_page.parent_id, \
+                            root_document.project_id, child.project_id, child_page.parent_id, \
+                            child_document.project_id, \
+                            (SELECT count(*) FROM library_content_relocations \
+                              WHERE operation_id = \
+                                'operation:agent-rehome-move:page:0:rehome'), \
+                            (SELECT count(*) FROM library_content_relocation_members \
+                              WHERE operation_id = \
+                                'operation:agent-rehome-move:page:0:rehome') \
+                     FROM blocks root JOIN pages root_page ON root_page.block_id = root.id \
+                     JOIN documents root_document ON root_document.id = root_page.document_id \
+                     JOIN blocks child ON child.id = 'page:agent-rehome-child' \
+                     JOIN pages child_page ON child_page.block_id = child.id \
+                     JOIN documents child_document ON child_document.id = child_page.document_id \
+                     WHERE root.id = 'page:agent-rehome-source'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, String>(4)?,
+                            row.get::<_, String>(5)?,
+                            row.get::<_, String>(6)?,
+                            row.get::<_, i64>(7)?,
+                            row.get::<_, i64>(8)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    evidence,
+                    (
+                        "project-2".to_owned(),
+                        "document:agent-rehome-target".to_owned(),
+                        "page:agent-rehome-target".to_owned(),
+                        "project-2".to_owned(),
+                        "project-2".to_owned(),
+                        "page:agent-rehome-source".to_owned(),
+                        "project-2".to_owned(),
+                        1,
+                        6,
+                    )
+                );
+                let wrong_search_owner = connection.query_row(
+                    "SELECT count(*) FROM block_search_units \
+                     WHERE owner_block_id IN \
+                       ('page:agent-rehome-source', 'page:agent-rehome-child') \
+                       AND project_id <> 'project-2'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(wrong_search_owner, 0);
+                let foreign_keys = connection
+                    .prepare("PRAGMA foreign_key_check")?
+                    .query_map([], |_| Ok(()))?
+                    .count();
+                assert_eq!(foreign_keys, 0);
+                Ok(())
+            })
+            .expect("verify cross-Project ownership rehome");
+    }
+
+    #[test]
+    fn agent_page_move_rehomes_across_data_source_and_library_storage() {
+        let (_directory, kernel) = seeded_kernel();
+        let module = LibraryModule::new("profile-1", "library-1", &kernel);
+        create_page(
+            &module,
+            "operation:create-agent-storage-source",
+            "page:agent-storage-source",
+            "document:agent-storage-source",
+            "Storage source",
+            LibraryWriteParent::Library { before: None },
+        );
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO projects(id, library_id, name, created, updated) \
+                     VALUES ('project-2', 'library-1', 'Database target', ?1, ?1)",
+                    [NOW],
+                )?;
+                Ok(())
+            })
+            .expect("seed Database target Project");
+        module
+            .apply(
+                &context_for("project-2"),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:create-agent-storage-database".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreateDatabase {
+                        database_id: "018f0000-0000-7000-8000-000000000501".to_owned(),
+                        data_source_id: "018f0000-0000-7000-8000-000000000502".to_owned(),
+                        view_id: "018f0000-0000-7000-8000-000000000503".to_owned(),
+                        name: "Agent storage target".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("create target Database");
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE projects SET database_block_id = \
+                       '018f0000-0000-7000-8000-000000000501' WHERE id = 'project-2'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("bind target Database");
+        let mut authorization = agent_move_authorization(&kernel, &["page:agent-storage-source"]);
+        authorization
+            .resource_access
+            .as_mut()
+            .expect("Agent storage overlay")
+            .grants
+            .push(AgentResourceGrantSpec {
+                root: AgentResourceGrantRoot::Database {
+                    database_id: "018f0000-0000-7000-8000-000000000501".to_owned(),
+                },
+                access: AgentProjectResourceAccess::ReadWrite,
+                library_actions: Vec::new(),
+            });
+        authorization
+            .resource_access
+            .as_mut()
+            .expect("Agent storage overlay")
+            .grants
+            .push(AgentResourceGrantSpec {
+                root: AgentResourceGrantRoot::Library {
+                    library_id: "library-1".to_owned(),
+                },
+                access: AgentProjectResourceAccess::ReadWrite,
+                library_actions: vec![AgentProjectResourceAction::CreateChild],
+            });
+        execute_agent_move(
+            &module,
+            authorization.clone(),
+            "operation:agent-move-to-foreign-data-source",
+            LibraryAgentMovePagesRequest {
+                page_ids: vec!["page:agent-storage-source".to_owned()],
+                destination: LibraryAgentPageDestination::DataSource {
+                    data_source_id: "018f0000-0000-7000-8000-000000000502".to_owned(),
+                    values: Vec::new(),
+                    view_id: Some("018f0000-0000-7000-8000-000000000503".to_owned()),
+                    group_key: None,
+                    at: None,
+                },
+            },
+        );
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let state = connection.query_row(
+                    "SELECT block.project_id, block.containing_database_id, page.parent_kind, \
+                            page.parent_id, document.project_id, model.project_id \
+                     FROM blocks block JOIN pages page ON page.block_id = block.id \
+                     JOIN documents document ON document.id = page.document_id \
+                     JOIN page_read_model model ON model.page_block_id = page.block_id \
+                     WHERE block.id = 'page:agent-storage-source'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, String>(4)?,
+                            row.get::<_, String>(5)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    state,
+                    (
+                        "project-2".to_owned(),
+                        "018f0000-0000-7000-8000-000000000501".to_owned(),
+                        "data_source".to_owned(),
+                        "018f0000-0000-7000-8000-000000000502".to_owned(),
+                        "project-2".to_owned(),
+                        "project-2".to_owned(),
+                    )
+                );
+                Ok(())
+            })
+            .expect("verify foreign Data Source storage");
+
+        authorization.call_id = "call:agent-move-library".to_owned();
+        authorization
+            .resource_access
+            .as_mut()
+            .expect("Agent Library overlay")
+            .call_id = Some("call:agent-move-library".to_owned());
+        execute_agent_move(
+            &module,
+            authorization,
+            "operation:agent-move-back-to-library",
+            LibraryAgentMovePagesRequest {
+                page_ids: vec!["page:agent-storage-source".to_owned()],
+                destination: LibraryAgentPageDestination::Library {
+                    at: Some(nodex_core_contracts::library::LibraryAgentSiblingAnchor::Start),
+                },
+            },
+        );
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let state = connection.query_row(
+                    "SELECT block.project_id, block.location_kind, page.parent_kind, \
+                            page.parent_id, document.project_id, placement.project_id, \
+                            model.project_id, model.top_level_rank_key \
+                     FROM blocks block JOIN pages page ON page.block_id = block.id \
+                     JOIN documents document ON document.id = page.document_id \
+                     JOIN top_level_block_placements placement ON placement.block_id = block.id \
+                     JOIN page_read_model model ON model.page_block_id = block.id \
+                     WHERE block.id = 'page:agent-storage-source'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, String>(4)?,
+                            row.get::<_, String>(5)?,
+                            row.get::<_, String>(6)?,
+                            row.get::<_, Option<String>>(7)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(state.0, "project-1");
+                assert_eq!(state.1, "space");
+                assert_eq!(state.2, "library");
+                assert_eq!(state.3, "library-1");
+                assert_eq!(state.4, "project-1");
+                assert_eq!(state.5, "project-1");
+                assert_eq!(state.6, "project-1");
+                assert!(state.7.is_some());
+                let relocations = connection.query_row(
+                    "SELECT count(*) FROM library_content_relocations \
+                     WHERE root_page_ids_json = '[\"page:agent-storage-source\"]'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(relocations, 2);
+                Ok(())
+            })
+            .expect("verify rehomed Library storage");
+    }
+
+    #[test]
+    fn agent_page_batch_move_finalizes_data_source_order_in_one_receipt() {
+        let (_directory, kernel) = seeded_kernel();
+        let module = LibraryModule::new("profile-1", "library-1", &kernel);
+        create_database(&module);
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE projects SET database_block_id = \
+                       '018f0000-0000-7000-8000-000000000101' WHERE id = 'project-1'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("bind Agent move target Database");
+        for (operation, page, document, title) in [
+            (
+                "operation:create-agent-database-move-first",
+                "page:agent-database-move-first",
+                "document:agent-database-move-first",
+                "First",
+            ),
+            (
+                "operation:create-agent-database-move-second",
+                "page:agent-database-move-second",
+                "document:agent-database-move-second",
+                "Second",
+            ),
+        ] {
+            create_page(
+                &module,
+                operation,
+                page,
+                document,
+                title,
+                LibraryWriteParent::Library { before: None },
+            );
+        }
+        let mut authorization = agent_move_authorization(
+            &kernel,
+            &[
+                "page:agent-database-move-first",
+                "page:agent-database-move-second",
+            ],
+        );
+        authorization
+            .resource_access
+            .as_mut()
+            .expect("move overlay")
+            .grants
+            .push(AgentResourceGrantSpec {
+                root: AgentResourceGrantRoot::Database {
+                    database_id: "018f0000-0000-7000-8000-000000000101".to_owned(),
+                },
+                access: AgentProjectResourceAccess::ReadWrite,
+                library_actions: Vec::new(),
+            });
+        let request = LibraryAgentMovePagesRequest {
+            page_ids: vec![
+                "page:agent-database-move-second".to_owned(),
+                "page:agent-database-move-first".to_owned(),
+            ],
+            destination: LibraryAgentPageDestination::DataSource {
+                data_source_id: "018f0000-0000-7000-8000-000000000102".to_owned(),
+                values: Vec::new(),
+                view_id: Some("018f0000-0000-7000-8000-000000000103".to_owned()),
+                group_key: None,
+                at: Some(nodex_core_contracts::library::LibraryAgentSiblingAnchor::Start),
+            },
+        };
+        let prepared = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PrepareAgentMovePages {
+                        operation_id: "operation:agent-database-move-pages".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        authorization: Box::new(authorization.clone()),
+                        request: Box::new(request.clone()),
+                    },
+                },
+            )
+            .expect("prepare Agent Data Source move");
+        let LibraryReadValue::AgentMovePagesPreparation { value } = prepared.value else {
+            panic!("Agent Data Source move preparation");
+        };
+        assert!(value.document_heads.is_empty());
+        let committed = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:agent-database-move-pages".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ExecutePreparedAgentMovePages {
+                        authorization: Box::new(AgentPreparedExecution {
+                            authorization: authorization.clone(),
+                            token: value.preparation.token,
+                        }),
+                        request: Box::new(request.clone()),
+                    },
+                },
+            )
+            .expect("execute Agent Data Source move");
+        let result = committed
+            .committed
+            .value
+            .agent_move_pages
+            .expect("Agent Data Source move result");
+        assert_eq!(
+            result.affected_database_ids,
+            vec!["018f0000-0000-7000-8000-000000000101".to_owned()]
+        );
+        assert!(result.document_commits.is_empty());
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let order = connection
+                    .prepare(
+                        "SELECT membership.page_block_id \
+                         FROM data_source_page_memberships membership \
+                         JOIN database_view_page_positions position \
+                           ON position.page_block_id = membership.page_block_id \
+                          AND position.view_id = '018f0000-0000-7000-8000-000000000103' \
+                         WHERE membership.data_source_id = \
+                           '018f0000-0000-7000-8000-000000000102' \
+                           AND membership.removed_at IS NULL \
+                         ORDER BY position.rank_key, membership.page_block_id",
+                    )?
+                    .query_map([], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                assert_eq!(
+                    order,
+                    vec![
+                        "page:agent-database-move-second".to_owned(),
+                        "page:agent-database-move-first".to_owned(),
+                    ]
+                );
+                Ok(())
+            })
+            .expect("verify Agent Data Source move order");
+
+        let same_source_request = LibraryAgentMovePagesRequest {
+            page_ids: vec![
+                "page:agent-database-move-first".to_owned(),
+                "page:agent-database-move-second".to_owned(),
+            ],
+            destination: request.destination,
+        };
+        let prepared = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PrepareAgentMovePages {
+                        operation_id: "operation:agent-same-database-move-pages".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        authorization: Box::new(authorization.clone()),
+                        request: Box::new(same_source_request.clone()),
+                    },
+                },
+            )
+            .expect("prepare same-Data-Source Agent move");
+        let LibraryReadValue::AgentMovePagesPreparation { value } = prepared.value else {
+            panic!("same-Data-Source Agent move preparation");
+        };
+        assert!(value.document_heads.is_empty());
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:agent-same-database-move-pages".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ExecutePreparedAgentMovePages {
+                        authorization: Box::new(AgentPreparedExecution {
+                            authorization,
+                            token: value.preparation.token,
+                        }),
+                        request: Box::new(same_source_request),
+                    },
+                },
+            )
+            .expect("execute same-Data-Source Agent move");
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let order = connection
+                    .prepare(
+                        "SELECT position.page_block_id \
+                         FROM database_view_page_positions position \
+                         WHERE position.view_id = \
+                           '018f0000-0000-7000-8000-000000000103' \
+                           AND position.page_block_id IN ( \
+                             'page:agent-database-move-first', \
+                             'page:agent-database-move-second' \
+                           ) ORDER BY position.rank_key, position.page_block_id",
+                    )?
+                    .query_map([], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                assert_eq!(
+                    order,
+                    vec![
+                        "page:agent-database-move-first".to_owned(),
+                        "page:agent-database-move-second".to_owned(),
+                    ]
+                );
+                Ok(())
+            })
+            .expect("verify same-Data-Source Agent move order");
     }
 
     #[test]

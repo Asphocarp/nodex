@@ -147,6 +147,12 @@ pub struct LibraryAgentCreatePagesRequest {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryAgentMovePagesRequest {
+    pub page_ids: Vec<String>,
+    pub destination: LibraryAgentPageDestination,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryAgentDocumentHead {
     pub document_id: String,
     pub generation: i64,
@@ -229,6 +235,48 @@ pub struct LibraryAgentCreatedPage {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryAgentCreatePagesResult {
     pub pages: Vec<LibraryAgentCreatedPage>,
+    pub document_commits: Vec<LibraryBlockTransferDocumentCommit>,
+    pub affected_database_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryAgentMovePagePreparation {
+    pub page_id: String,
+    pub source: LibraryBlockTransferSource,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_document_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_database_id: Option<String>,
+    pub source_project_id: String,
+    pub target_project_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct LibraryAgentMovePagesPreparation {
+    pub preparation: AgentOperationPreparation,
+    pub pages: Vec<LibraryAgentMovePagePreparation>,
+    pub document_heads: Vec<LibraryAgentDocumentHead>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination: Option<LibraryPageCopyDestination>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination_document: Option<LibraryAgentDocumentHead>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination_database_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination_project_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub committed: Option<Box<CommittedModuleValue<LibraryCommitValue, LibraryReceipt>>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryAgentMovedPage {
+    pub page_id: String,
+    pub location: LibraryAgentPageLocation,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryAgentMovePagesResult {
+    pub pages: Vec<LibraryAgentMovedPage>,
     pub document_commits: Vec<LibraryBlockTransferDocumentCommit>,
     pub affected_database_ids: Vec<String>,
 }
@@ -453,6 +501,12 @@ pub enum LibraryRead {
         store_epoch: String,
         authorization: Box<AgentExecutionAuthorization>,
         request: Box<LibraryAgentCreatePagesRequest>,
+    },
+    PrepareAgentMovePages {
+        operation_id: String,
+        store_epoch: String,
+        authorization: Box<AgentExecutionAuthorization>,
+        request: Box<LibraryAgentMovePagesRequest>,
     },
     PlanBlockTransfer {
         operation_id: String,
@@ -1375,6 +1429,9 @@ pub enum LibraryReadValue {
     AgentCreatePagesPreparation {
         value: Box<LibraryAgentCreatePagesPreparation>,
     },
+    AgentMovePagesPreparation {
+        value: Box<LibraryAgentMovePagesPreparation>,
+    },
     BlockTransferPlan {
         value: Box<LibraryBlockTransferPlan>,
     },
@@ -1441,6 +1498,10 @@ pub enum LibraryIntent {
         authorization: Box<AgentPreparedExecution>,
         request: Box<LibraryAgentCreatePagesRequest>,
     },
+    ExecutePreparedAgentMovePages {
+        authorization: Box<AgentPreparedExecution>,
+        request: Box<LibraryAgentMovePagesRequest>,
+    },
     TransferBlocks {
         intent: LibraryBlockTransferLogicalIntent,
         write_fence: Option<LibraryBlockTransferWriteFence>,
@@ -1479,6 +1540,7 @@ pub struct LibraryCommitValue {
     pub block_property_mutation: Option<LibraryBlockPropertyMutationReceipt>,
     pub agent_page_copy: Option<LibraryAgentPageCopyResult>,
     pub agent_create_pages: Option<LibraryAgentCreatePagesResult>,
+    pub agent_move_pages: Option<LibraryAgentMovePagesResult>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

@@ -463,6 +463,7 @@ fn apply_intent(
             effects,
             library_scope,
             false,
+            false,
         ),
     }
 }
@@ -995,16 +996,19 @@ struct PreferredViewPlacement {
     rank_key: Option<String>,
 }
 
+#[derive(Clone, Debug, Serialize)]
 pub(crate) struct PageCopyValueDraft {
     pub(crate) property_id: String,
     pub(crate) value: Value,
 }
 
+#[derive(Clone, Debug, Serialize)]
 pub(crate) struct PageCopyPositionAnchor {
     pub(crate) page_id: String,
     pub(crate) expected_position_revision: i64,
 }
 
+#[derive(Clone, Debug, Serialize)]
 pub(crate) struct PageCopyViewPlacement {
     pub(crate) view_id: String,
     pub(crate) expected_view_revision: i64,
@@ -1012,6 +1016,7 @@ pub(crate) struct PageCopyViewPlacement {
     pub(crate) before: Option<PageCopyPositionAnchor>,
 }
 
+#[derive(Clone, Debug, Serialize)]
 pub(crate) struct PageCopyDataSourceDestination {
     pub(crate) data_source_id: String,
     pub(crate) expected_data_source_revision: i64,
@@ -1066,6 +1071,12 @@ pub(crate) struct ExistingPageTransferPlacement {
     pub(crate) location_revision: i64,
     pub(crate) metadata_revision: i64,
     pub(crate) parent_revision: i64,
+}
+
+pub(crate) struct AgentMoveDataSourceFinalization {
+    pub(crate) affected_database_ids: Vec<String>,
+    pub(crate) affected_view_ids: Vec<String>,
+    pub(crate) committed_revisions: BTreeMap<String, i64>,
 }
 
 pub(crate) fn resolve_page_transfer_data_source_source(
@@ -1124,14 +1135,61 @@ pub(crate) fn resolve_page_transfer_data_source_destination(
     group_key: Option<&str>,
     before_page_id: Option<&str>,
 ) -> Result<ResolvedPageTransferDataSourceDestination, StoreError> {
-    let source = require_source(connection, library_id, data_source_id)?;
-    authorize_write(
+    resolve_page_transfer_data_source_destination_with_access(
         connection,
+        library_id,
         requesting_project_id,
-        &source.database_id,
-        DatabaseWriteAction::Write,
+        data_source_id,
+        view_id,
+        group_key,
+        before_page_id,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn resolve_page_transfer_data_source_destination_prevalidated(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: &str,
+    data_source_id: &str,
+    view_id: &str,
+    group_key: Option<&str>,
+    before_page_id: Option<&str>,
+) -> Result<ResolvedPageTransferDataSourceDestination, StoreError> {
+    resolve_page_transfer_data_source_destination_with_access(
+        connection,
+        library_id,
+        requesting_project_id,
+        data_source_id,
+        view_id,
+        group_key,
+        before_page_id,
         false,
-    )?;
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_page_transfer_data_source_destination_with_access(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: &str,
+    data_source_id: &str,
+    view_id: &str,
+    group_key: Option<&str>,
+    before_page_id: Option<&str>,
+    require_access: bool,
+) -> Result<ResolvedPageTransferDataSourceDestination, StoreError> {
+    let source = require_source(connection, library_id, data_source_id)?;
+    if require_access {
+        authorize_write(
+            connection,
+            requesting_project_id,
+            &source.database_id,
+            DatabaseWriteAction::Write,
+            false,
+        )?;
+    }
     let project_id = connection
         .query_row(
             "SELECT project_id FROM blocks WHERE id = ?1 AND type = 'database' \
@@ -1720,6 +1778,59 @@ pub(crate) fn transfer_existing_page_for_block_transfer(
     target: ExistingPageTransferTarget<'_>,
     now: &str,
 ) -> Result<ExistingPageTransferPlacement, StoreError> {
+    transfer_existing_page_for_structural_move(
+        connection,
+        library_id,
+        requesting_project_id,
+        page_id,
+        expected_parent_revision,
+        expected_active_membership_revision,
+        target,
+        now,
+        false,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn transfer_existing_page_for_agent_move_prevalidated(
+    connection: &Connection,
+    library_id: &str,
+    source_project_id: &str,
+    page_id: &str,
+    expected_parent_revision: i64,
+    expected_active_membership_revision: i64,
+    target: ExistingPageTransferTarget<'_>,
+    now: &str,
+    defer_projection_refresh: bool,
+) -> Result<ExistingPageTransferPlacement, StoreError> {
+    transfer_existing_page_for_structural_move(
+        connection,
+        library_id,
+        source_project_id,
+        page_id,
+        expected_parent_revision,
+        expected_active_membership_revision,
+        target,
+        now,
+        true,
+        defer_projection_refresh,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn transfer_existing_page_for_structural_move(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: &str,
+    page_id: &str,
+    expected_parent_revision: i64,
+    expected_active_membership_revision: i64,
+    target: ExistingPageTransferTarget<'_>,
+    now: &str,
+    preauthorized_library_scope: bool,
+    defer_projection_refresh: bool,
+) -> Result<ExistingPageTransferPlacement, StoreError> {
     let mut effects = MutationEffects::default();
     let database_target = match target {
         ExistingPageTransferTarget::Library => DatabaseTransferTarget::Library {
@@ -1742,8 +1853,9 @@ pub(crate) fn transfer_existing_page_for_block_transfer(
         &database_target,
         now,
         &mut effects,
-        false,
+        preauthorized_library_scope,
         true,
+        defer_projection_refresh,
     )?;
     if let ExistingPageTransferTarget::DataSource(destination) = target {
         for value in &destination.values {
@@ -1775,7 +1887,7 @@ pub(crate) fn transfer_existing_page_for_block_transfer(
                 },
                 now,
                 &mut effects,
-                false,
+                preauthorized_library_scope,
             )?;
         }
         if let Some(view) = &destination.view {
@@ -1792,7 +1904,7 @@ pub(crate) fn transfer_existing_page_for_block_transfer(
                 view.before.as_ref().map(|anchor| anchor.page_id.as_str()),
                 now,
                 &mut effects,
-                false,
+                preauthorized_library_scope,
             )?;
         }
     }
@@ -1848,6 +1960,154 @@ pub(crate) fn transfer_existing_page_for_block_transfer(
 }
 
 #[allow(clippy::too_many_arguments)]
+pub(crate) fn finalize_agent_moved_pages_in_data_source_prevalidated(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: &str,
+    page_ids: &[String],
+    destination: &PageCopyDataSourceDestination,
+    now: &str,
+) -> Result<AgentMoveDataSourceFinalization, StoreError> {
+    if page_ids.is_empty() || page_ids.len() > MAX_BULK_VALUES {
+        return Err(invalid(format!(
+            "Agent Page movement requires between 1 and {MAX_BULK_VALUES} Pages"
+        )));
+    }
+    let mut effects = MutationEffects::default();
+    for page_id in page_ids {
+        active_row_membership(connection, &destination.data_source_id, page_id)?;
+        for value in &destination.values {
+            let expected_value_revision = connection
+                .query_row(
+                    "SELECT property_value.revision \
+                     FROM data_source_property_values property_value \
+                     JOIN data_source_page_memberships membership \
+                       ON membership.id = property_value.membership_id \
+                     WHERE membership.page_block_id = ?1 \
+                       AND membership.data_source_id = ?2 \
+                       AND membership.removed_at IS NULL \
+                       AND property_value.property_id = ?3",
+                    params![page_id, destination.data_source_id, value.property_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()?
+                .unwrap_or(0);
+            set_value(
+                connection,
+                library_id,
+                requesting_project_id,
+                &DatabasePageValue {
+                    page_id: page_id.clone(),
+                    data_source_id: destination.data_source_id.clone(),
+                    property_id: value.property_id.clone(),
+                    expected_value_revision,
+                    value: value.value.clone(),
+                },
+                now,
+                &mut effects,
+                false,
+            )?;
+        }
+    }
+    if let Some(placement) = &destination.view {
+        let view = view_row(connection, &placement.view_id)?
+            .filter(|view| view.lifecycle == "active")
+            .ok_or_else(|| not_found("Agent Page-move target View is unavailable"))?;
+        if view.data_source_id != destination.data_source_id {
+            return Err(invalid(
+                "Agent Page-move target View belongs to another Data Source",
+            ));
+        }
+        let config = parse_json(&view.config_json, "Database View config")?;
+        if let Some(property_id) = view_group_property(&config) {
+            let property = active_property(connection, &destination.data_source_id, property_id)?;
+            let value =
+                database_group_value_from_key(&property.value_type, placement.group_key.as_deref());
+            for page_id in page_ids {
+                let expected_value_revision = connection
+                    .query_row(
+                        "SELECT property_value.revision \
+                         FROM data_source_property_values property_value \
+                         JOIN data_source_page_memberships membership \
+                           ON membership.id = property_value.membership_id \
+                         WHERE membership.page_block_id = ?1 \
+                           AND membership.data_source_id = ?2 \
+                           AND membership.removed_at IS NULL \
+                           AND property_value.property_id = ?3",
+                        params![page_id, destination.data_source_id, property_id],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .optional()?
+                    .unwrap_or(0);
+                set_value(
+                    connection,
+                    library_id,
+                    requesting_project_id,
+                    &DatabasePageValue {
+                        page_id: page_id.clone(),
+                        data_source_id: destination.data_source_id.clone(),
+                        property_id: property_id.to_owned(),
+                        expected_value_revision,
+                        value: value.clone(),
+                    },
+                    now,
+                    &mut effects,
+                    false,
+                )?;
+            }
+        }
+        let pages = page_ids
+            .iter()
+            .map(|page_id| {
+                let expected_position_revision = connection
+                    .query_row(
+                        "SELECT revision FROM database_view_page_positions \
+                         WHERE view_id = ?1 AND page_block_id = ?2",
+                        params![placement.view_id, page_id],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .optional()?
+                    .unwrap_or(0);
+                Ok(DatabasePagePosition {
+                    page_id: page_id.clone(),
+                    expected_position_revision,
+                })
+            })
+            .collect::<Result<Vec<_>, StoreError>>()?;
+        position_pages(
+            connection,
+            library_id,
+            requesting_project_id,
+            &placement.view_id,
+            &pages,
+            placement.group_key.as_deref(),
+            placement
+                .before
+                .as_ref()
+                .map(|anchor| anchor.page_id.as_str()),
+            now,
+            &mut effects,
+            false,
+        )?;
+    }
+    Ok(AgentMoveDataSourceFinalization {
+        affected_database_ids: effects.database_ids.into_iter().collect(),
+        affected_view_ids: effects.view_ids.into_iter().collect(),
+        committed_revisions: effects.revisions,
+    })
+}
+
+fn database_group_value_from_key(value_type: &str, group_key: Option<&str>) -> Value {
+    let Some(group_key) = group_key else {
+        return Value::Null;
+    };
+    if !matches!(value_type, "number" | "checkbox" | "multi_select") {
+        return Value::String(group_key.to_owned());
+    }
+    serde_json::from_str(group_key).unwrap_or_else(|_| Value::String(group_key.to_owned()))
+}
+
+#[allow(clippy::too_many_arguments)]
 fn transfer_page(
     connection: &Connection,
     library_id: &str,
@@ -1860,6 +2120,7 @@ fn transfer_page(
     effects: &mut MutationEffects,
     library_scope: bool,
     allow_page_parent_transition: bool,
+    defer_projection_refresh: bool,
 ) -> Result<(), StoreError> {
     validate_id(page_id, "page_id", MAX_ID_LENGTH)?;
     let page = connection
@@ -2113,7 +2374,7 @@ fn transfer_page(
                 )
                 .optional()?
                 .ok_or_else(|| not_found("Target Page is unavailable"))?;
-            if target_project_id != project_id {
+            if !library_scope && target_project_id != project_id {
                 return Err(unauthorized(
                     "A Page cannot transfer across Project ownership",
                 ));
@@ -2166,13 +2427,15 @@ fn transfer_page(
             true,
         ));
     };
-    refresh_transferred_page_projection(
-        connection,
-        page_id,
-        target_membership_id.as_deref(),
-        target_data_source_id.as_deref(),
-        now,
-    )?;
+    if !defer_projection_refresh {
+        refresh_transferred_page_projection(
+            connection,
+            page_id,
+            target_membership_id.as_deref(),
+            target_data_source_id.as_deref(),
+            now,
+        )?;
+    }
     if let Some(source) = previous_source {
         touch_source(effects, &source);
     }

@@ -361,6 +361,7 @@ pub(super) fn execute_create_pages(
                 block_property_mutation: None,
                 agent_page_copy: None,
                 agent_create_pages: Some(execution.result),
+                agent_move_pages: None,
                 change_payload: None,
                 committed_at: execution.committed_at,
             },

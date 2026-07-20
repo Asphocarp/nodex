@@ -11,12 +11,15 @@ use nodex_core_contracts::library::{
 };
 use nodex_core_contracts::{BoundModuleContext, CommittedModuleValue};
 use rusqlite::{Connection, OptionalExtension, params};
+use serde::Serialize;
 use serde_json::Value;
 
 use crate::database::{
     ExistingPageTransferTarget, PageCopyDataSourceDestination, StagedPagePlacementRevisions,
     place_staged_page_in_data_source, resolve_page_copy_data_source_source,
-    resolve_page_transfer_data_source_destination, resolve_page_transfer_data_source_source,
+    resolve_page_transfer_data_source_destination,
+    resolve_page_transfer_data_source_destination_prevalidated,
+    resolve_page_transfer_data_source_source, transfer_existing_page_for_agent_move_prevalidated,
     transfer_existing_page_for_block_transfer,
 };
 use crate::document::{
@@ -54,6 +57,14 @@ const MAX_ID_LENGTH: usize = 512;
 const MAX_TRANSFER_ROOTS: usize = 10_000;
 const MAX_ACTOR_BYTES: usize = 64 * 1024;
 const TRANSFER_CLIENT_SESSION_ID: &str = "rust:block-transfer";
+
+#[derive(Clone, Debug, Serialize)]
+pub(super) struct AgentPageMoveTransferAuthority {
+    pub(super) target_project_id: String,
+}
+
+type AgentPageMoveRehome<'a> =
+    dyn FnMut(&Connection, &[String], &str) -> Result<(), StoreError> + 'a;
 
 struct PreparedTransfer {
     source_authority: DocumentAuthorityRow,
@@ -183,12 +194,31 @@ pub(super) fn semantic_request_hash(
     store_epoch: &str,
     intent: &LibraryBlockTransferLogicalIntent,
 ) -> Result<String, StoreError> {
+    semantic_request_hash_with_authority(context, store_epoch, intent, None)
+}
+
+pub(super) fn semantic_agent_page_move_request_hash(
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    intent: &LibraryBlockTransferLogicalIntent,
+    authority: &AgentPageMoveTransferAuthority,
+) -> Result<String, StoreError> {
+    semantic_request_hash_with_authority(context, store_epoch, intent, Some(authority))
+}
+
+fn semantic_request_hash_with_authority(
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    intent: &LibraryBlockTransferLogicalIntent,
+    authority: Option<&AgentPageMoveTransferAuthority>,
+) -> Result<String, StoreError> {
     let fingerprint = serde_json::to_vec(&(
         &context.profile_id,
         &context.library_id,
         &context.project_id,
         store_epoch,
         intent,
+        authority,
     ))
     .map_err(|_| internal("Block transfer intent cannot be fingerprinted"))?;
     Ok(sha256(&fingerprint))
@@ -202,6 +232,47 @@ pub(super) fn plan(
     store_epoch: &str,
     intent: &LibraryBlockTransferLogicalIntent,
 ) -> Result<LibraryBlockTransferPlan, StoreError> {
+    plan_with_authority(
+        connection,
+        context,
+        library_id,
+        operation_id,
+        store_epoch,
+        intent,
+        None,
+    )
+}
+
+pub(super) fn plan_agent_page_move(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    library_id: &str,
+    operation_id: &str,
+    store_epoch: &str,
+    intent: &LibraryBlockTransferLogicalIntent,
+    authority: &AgentPageMoveTransferAuthority,
+) -> Result<LibraryBlockTransferPlan, StoreError> {
+    plan_with_authority(
+        connection,
+        context,
+        library_id,
+        operation_id,
+        store_epoch,
+        intent,
+        Some(authority),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn plan_with_authority(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    library_id: &str,
+    operation_id: &str,
+    store_epoch: &str,
+    intent: &LibraryBlockTransferLogicalIntent,
+    agent_authority: Option<&AgentPageMoveTransferAuthority>,
+) -> Result<LibraryBlockTransferPlan, StoreError> {
     validate_id(operation_id, "operation_id")?;
     validate_intent(library_id, intent)?;
     let current_epoch = crate::document::read_store_epoch(connection)?;
@@ -212,7 +283,8 @@ pub(super) fn plan(
             true,
         ));
     }
-    let request_hash = semantic_request_hash(context, store_epoch, intent)?;
+    let request_hash =
+        semantic_request_hash_with_authority(context, store_epoch, intent, agent_authority)?;
     if let Some(stored) = read_module_receipt(connection, MODULE_NAME, operation_id)? {
         if stored.request_hash != request_hash {
             return Err(StoreError::new(
@@ -236,8 +308,14 @@ pub(super) fn plan(
         });
     }
     if uses_page_ownership_parent_compiler(connection, intent)? {
-        let prepared =
-            prepare_page_ownership_transfer(connection, context, library_id, operation_id, intent)?;
+        let prepared = prepare_page_ownership_transfer(
+            connection,
+            context,
+            library_id,
+            operation_id,
+            intent,
+            agent_authority,
+        )?;
         return Ok(LibraryBlockTransferPlan::Prepared {
             preparation: page_ownership_preparation(&prepared),
         });
@@ -270,6 +348,64 @@ pub(super) fn apply(
     write_fence: Option<&LibraryBlockTransferWriteFence>,
     assets_root: &Path,
 ) -> Result<LibraryApplyOutcome, StoreError> {
+    apply_with_authority(
+        connection,
+        context,
+        library_id,
+        operation_id,
+        store_epoch,
+        request_hash,
+        intent,
+        write_fence,
+        assets_root,
+        None,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn apply_agent_page_move(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    library_id: &str,
+    operation_id: &str,
+    store_epoch: &str,
+    request_hash: &str,
+    intent: &LibraryBlockTransferLogicalIntent,
+    write_fence: Option<&LibraryBlockTransferWriteFence>,
+    assets_root: &Path,
+    authority: &AgentPageMoveTransferAuthority,
+    rehome: Option<&mut AgentPageMoveRehome<'_>>,
+) -> Result<LibraryApplyOutcome, StoreError> {
+    apply_with_authority(
+        connection,
+        context,
+        library_id,
+        operation_id,
+        store_epoch,
+        request_hash,
+        intent,
+        write_fence,
+        assets_root,
+        Some(authority),
+        rehome,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_with_authority(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    library_id: &str,
+    operation_id: &str,
+    store_epoch: &str,
+    request_hash: &str,
+    intent: &LibraryBlockTransferLogicalIntent,
+    write_fence: Option<&LibraryBlockTransferWriteFence>,
+    assets_root: &Path,
+    agent_authority: Option<&AgentPageMoveTransferAuthority>,
+    rehome: Option<&mut AgentPageMoveRehome<'_>>,
+) -> Result<LibraryApplyOutcome, StoreError> {
     validate_intent(library_id, intent)?;
     if uses_page_ownership_parent_compiler(connection, intent)? {
         return apply_page_ownership_transfer(
@@ -282,7 +418,14 @@ pub(super) fn apply(
             intent,
             write_fence,
             assets_root,
+            agent_authority,
+            rehome,
         );
+    }
+    if agent_authority.is_some() || rehome.is_some() {
+        return Err(invalid(
+            "Agent Page-move authority requires Page ownership roots",
+        ));
     }
     if matches!(
         intent.target,
@@ -435,6 +578,7 @@ pub(super) fn apply(
             block_property_mutation: None,
             agent_page_copy: None,
             agent_create_pages: None,
+            agent_move_pages: None,
             change_payload: None,
             committed_at: now.clone(),
         },
@@ -648,6 +792,41 @@ fn load_page_ownership_document(
     })
 }
 
+fn load_page_ownership_document_prevalidated(
+    connection: &Connection,
+    library_id: &str,
+    document_id: &str,
+) -> Result<PageOwnershipDocumentBase, StoreError> {
+    let authority = read_document_authority(connection, document_id)?
+        .ok_or_else(|| not_found("Page transfer Document is unavailable"))?;
+    if authority.page_library_id.as_deref() != Some(library_id)
+        || authority.owner_type != "page"
+        || !authority.head.is_live_yjs_authority()
+    {
+        return Err(invalid(
+            "Page ownership transfer requires a live Page Document parent",
+        ));
+    }
+    let schema = BlockDocumentSchema::from_identity(
+        &authority.head.schema_key,
+        authority.head.schema_version,
+    )
+    .filter(|schema| schema.has_title())
+    .ok_or_else(|| corrupt("Page parent has an unsupported Document schema"))?;
+    let engine = reconstruct_yjs_engine(connection, &authority.head)?;
+    let decoded = decode_block_document(engine.document(), schema)
+        .map_err(|error| corrupt(format!("Page parent schema is invalid: {error}")))?;
+    let base_materialization = materialize_decoded_document(&decoded)
+        .map_err(|error| corrupt(format!("Page parent cannot materialize: {error}")))?;
+    Ok(PageOwnershipDocumentBase {
+        page_id: authority.owner_block_id.clone(),
+        authority,
+        engine,
+        base_materialization,
+        schema,
+    })
+}
+
 fn prepare_page_ownership_document_update(
     base: PageOwnershipDocumentBase,
     operations: &[DocumentBlockOperation],
@@ -686,6 +865,7 @@ fn prepare_page_ownership_transfer(
     library_id: &str,
     operation_id: &str,
     intent: &LibraryBlockTransferLogicalIntent,
+    agent_authority: Option<&AgentPageMoveTransferAuthority>,
 ) -> Result<PreparedPageOwnershipTransfer, StoreError> {
     let requesting_project_id = bound_project_id(context)?;
     require_project_in_library(connection, requesting_project_id, library_id)?;
@@ -802,20 +982,39 @@ fn prepare_page_ownership_transfer(
             {
                 return Err(invalid("A moved Page cannot be its own placement anchor"));
             }
-            let resolved = resolve_page_transfer_data_source_destination(
-                connection,
-                library_id,
-                requesting_project_id,
-                data_source_id,
-                view_id,
-                group_key.as_deref(),
-                before_page_id.as_deref(),
-            )?;
-            if resolved.project_id != requesting_project_id {
-                return Err(unauthorized(
-                    "Existing Page transfer cannot cross Project ownership",
-                ));
-            }
+            let resolved = if let Some(authority) = agent_authority {
+                let resolved = resolve_page_transfer_data_source_destination_prevalidated(
+                    connection,
+                    library_id,
+                    &authority.target_project_id,
+                    data_source_id,
+                    view_id,
+                    group_key.as_deref(),
+                    before_page_id.as_deref(),
+                )?;
+                if resolved.project_id != authority.target_project_id {
+                    return Err(corrupt(
+                        "Agent Page-move target Project diverged from its Data Source authority",
+                    ));
+                }
+                resolved
+            } else {
+                let resolved = resolve_page_transfer_data_source_destination(
+                    connection,
+                    library_id,
+                    requesting_project_id,
+                    data_source_id,
+                    view_id,
+                    group_key.as_deref(),
+                    before_page_id.as_deref(),
+                )?;
+                if resolved.project_id != requesting_project_id {
+                    return Err(unauthorized(
+                        "Existing Page transfer cannot cross Project ownership",
+                    ));
+                }
+                resolved
+            };
             PreparedPageOwnershipTarget::DataSource {
                 database_id: resolved.database_id,
                 destination: resolved.destination,
@@ -827,15 +1026,26 @@ fn prepare_page_ownership_transfer(
             before_block_id,
         } => {
             let document_id = resolve_page_document(connection, library_id, page_id)?;
-            let base = load_page_ownership_document(
-                connection,
-                context,
-                library_id,
-                &document_id,
-                TransferDocumentAccess::Write,
-            )?;
+            let base = if agent_authority.is_some() {
+                load_page_ownership_document_prevalidated(connection, library_id, &document_id)?
+            } else {
+                load_page_ownership_document(
+                    connection,
+                    context,
+                    library_id,
+                    &document_id,
+                    TransferDocumentAccess::Write,
+                )?
+            };
             if base.page_id != *page_id {
                 return Err(corrupt("Target Page Document owner is inconsistent"));
+            }
+            if agent_authority.is_some_and(|authority| {
+                authority.target_project_id != base.authority.head.project_id
+            }) {
+                return Err(corrupt(
+                    "Agent Page-move target Project diverged from its Page authority",
+                ));
             }
             target_document_base = Some(base);
             PreparedPageOwnershipTarget::Document {
@@ -1310,9 +1520,17 @@ fn apply_page_ownership_transfer(
     intent: &LibraryBlockTransferLogicalIntent,
     write_fence: Option<&LibraryBlockTransferWriteFence>,
     assets_root: &Path,
+    agent_authority: Option<&AgentPageMoveTransferAuthority>,
+    mut rehome: Option<&mut AgentPageMoveRehome<'_>>,
 ) -> Result<LibraryApplyOutcome, StoreError> {
-    let mut prepared =
-        prepare_page_ownership_transfer(connection, context, library_id, operation_id, intent)?;
+    let mut prepared = prepare_page_ownership_transfer(
+        connection,
+        context,
+        library_id,
+        operation_id,
+        intent,
+        agent_authority,
+    )?;
     let expected_preparation = page_ownership_preparation(&prepared);
     if write_fence != Some(&expected_preparation.write_fence) {
         return Err(StoreError::new(
@@ -1344,8 +1562,21 @@ fn apply_page_ownership_transfer(
             .source_membership
             .as_ref()
             .map_or(0, |membership| membership.revision);
-        let placement = match &prepared.target {
-            PreparedPageOwnershipTarget::Library { .. } => {
+        let transfer_page = |target| {
+            if agent_authority.is_some() {
+                transfer_existing_page_for_agent_move_prevalidated(
+                    connection,
+                    library_id,
+                    requesting_project_id,
+                    &root.page_id,
+                    root.parent_revision,
+                    expected_membership_revision,
+                    target,
+                    &now,
+                    agent_authority
+                        .is_some_and(|authority| authority.target_project_id != root.project_id),
+                )
+            } else {
                 transfer_existing_page_for_block_transfer(
                     connection,
                     library_id,
@@ -1353,36 +1584,26 @@ fn apply_page_ownership_transfer(
                     &root.page_id,
                     root.parent_revision,
                     expected_membership_revision,
-                    ExistingPageTransferTarget::Library,
+                    target,
                     &now,
-                )?
-            }
-            PreparedPageOwnershipTarget::DataSource { destination, .. } => {
-                transfer_existing_page_for_block_transfer(
-                    connection,
-                    library_id,
-                    requesting_project_id,
-                    &root.page_id,
-                    root.parent_revision,
-                    expected_membership_revision,
-                    ExistingPageTransferTarget::DataSource(destination),
-                    &now,
-                )?
-            }
-            PreparedPageOwnershipTarget::Document { page_id, .. } => {
-                transfer_existing_page_for_block_transfer(
-                    connection,
-                    library_id,
-                    requesting_project_id,
-                    &root.page_id,
-                    root.parent_revision,
-                    expected_membership_revision,
-                    ExistingPageTransferTarget::Page { page_id },
-                    &now,
-                )?
+                )
             }
         };
-        if let PreparedPageOwnershipTarget::Library { before_block_id } = &prepared.target {
+        let placement = match &prepared.target {
+            PreparedPageOwnershipTarget::Library { .. } => {
+                transfer_page(ExistingPageTransferTarget::Library)?
+            }
+            PreparedPageOwnershipTarget::DataSource { destination, .. } => {
+                transfer_page(ExistingPageTransferTarget::DataSource(destination))?
+            }
+            PreparedPageOwnershipTarget::Document { page_id, .. } => {
+                transfer_page(ExistingPageTransferTarget::Page { page_id })?
+            }
+        };
+        if let PreparedPageOwnershipTarget::Library { before_block_id } = &prepared.target
+            && agent_authority
+                .is_none_or(|authority| authority.target_project_id == root.project_id)
+        {
             connection.execute(
                 "DELETE FROM top_level_block_placements WHERE block_id = ?1",
                 [&root.page_id],
@@ -1451,6 +1672,14 @@ fn apply_page_ownership_transfer(
             &update_id,
             store_epoch,
         )?);
+    }
+    if let Some(rehome) = rehome.as_mut() {
+        let root_page_ids = prepared
+            .roots
+            .iter()
+            .map(|root| root.page_id.clone())
+            .collect::<Vec<_>>();
+        rehome(connection, &root_page_ids, &now)?;
     }
     if let Some(mut document) = prepared.target_document.take() {
         let update_id = format!(
@@ -1562,6 +1791,7 @@ fn apply_page_ownership_transfer(
             block_property_mutation: None,
             agent_page_copy: None,
             agent_create_pages: None,
+            agent_move_pages: None,
             change_payload: None,
             committed_at: now.clone(),
         },
@@ -1731,6 +1961,7 @@ fn apply_page_ownership_copy(
             block_property_mutation: None,
             agent_page_copy: None,
             agent_create_pages: None,
+            agent_move_pages: None,
             change_payload: None,
             committed_at: now.clone(),
         },
@@ -2332,6 +2563,7 @@ fn apply_page_parent_transfer(
             block_property_mutation: None,
             agent_page_copy: None,
             agent_create_pages: None,
+            agent_move_pages: None,
             change_payload: None,
             committed_at: now.clone(),
         },
@@ -2748,7 +2980,7 @@ fn persist_page_parent_genesis(
     })
 }
 
-fn insert_top_level_placement(
+pub(super) fn insert_top_level_placement(
     connection: &Connection,
     project_id: &str,
     block_id: &str,
@@ -2800,7 +3032,7 @@ fn insert_top_level_placement(
     Ok(format!("{:020}", position + 1))
 }
 
-fn read_library_anchor(
+pub(super) fn read_library_anchor(
     connection: &Connection,
     library_id: &str,
     block_id: &str,

@@ -2162,6 +2162,16 @@
                   }
                 ]
               },
+              "agent_move_pages": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LibraryAgentMovePagesResult"
+                  }
+                ]
+              },
               "agent_page_copy": {
                 "oneOf": [
                   {
@@ -4583,6 +4593,169 @@
           "generation": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "LibraryAgentMovePagePreparation": {
+        "type": "object",
+        "required": [
+          "page_id",
+          "source",
+          "source_project_id",
+          "target_project_id"
+        ],
+        "properties": {
+          "page_id": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/LibraryBlockTransferSource"
+          },
+          "source_database_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_document_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_project_id": {
+            "type": "string"
+          },
+          "target_project_id": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryAgentMovePagesPreparation": {
+        "type": "object",
+        "required": [
+          "preparation",
+          "pages",
+          "document_heads"
+        ],
+        "properties": {
+          "committed": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CommittedModuleValue_LibraryCommitValue_LibraryReceipt"
+              }
+            ]
+          },
+          "destination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryPageCopyDestination"
+              }
+            ]
+          },
+          "destination_database_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "destination_document": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryAgentDocumentHead"
+              }
+            ]
+          },
+          "destination_project_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "document_heads": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryAgentDocumentHead"
+            }
+          },
+          "pages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryAgentMovePagePreparation"
+            }
+          },
+          "preparation": {
+            "$ref": "#/components/schemas/AgentOperationPreparation"
+          }
+        }
+      },
+      "LibraryAgentMovePagesRequest": {
+        "type": "object",
+        "required": [
+          "page_ids",
+          "destination"
+        ],
+        "properties": {
+          "destination": {
+            "$ref": "#/components/schemas/LibraryAgentPageDestination"
+          },
+          "page_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "LibraryAgentMovePagesResult": {
+        "type": "object",
+        "required": [
+          "pages",
+          "document_commits",
+          "affected_database_ids"
+        ],
+        "properties": {
+          "affected_database_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "document_commits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryBlockTransferDocumentCommit"
+            }
+          },
+          "pages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryAgentMovedPage"
+            }
+          }
+        }
+      },
+      "LibraryAgentMovedPage": {
+        "type": "object",
+        "required": [
+          "page_id",
+          "location"
+        ],
+        "properties": {
+          "location": {
+            "$ref": "#/components/schemas/LibraryAgentPageLocation"
+          },
+          "page_id": {
+            "type": "string"
           }
         }
       },
@@ -9970,6 +10143,28 @@
               {
                 "type": "object",
                 "required": [
+                  "authorization",
+                  "request",
+                  "kind"
+                ],
+                "properties": {
+                  "authorization": {
+                    "$ref": "#/components/schemas/AgentPreparedExecution"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "execute_prepared_agent_move_pages"
+                    ]
+                  },
+                  "request": {
+                    "$ref": "#/components/schemas/LibraryAgentMovePagesRequest"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "intent",
                   "kind"
                 ],
@@ -12685,6 +12880,36 @@
                   },
                   "request": {
                     "$ref": "#/components/schemas/LibraryAgentCreatePagesRequest"
+                  },
+                  "store_epoch": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "operation_id",
+                  "store_epoch",
+                  "authorization",
+                  "request",
+                  "kind"
+                ],
+                "properties": {
+                  "authorization": {
+                    "$ref": "#/components/schemas/AgentExecutionAuthorization"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "prepare_agent_move_pages"
+                    ]
+                  },
+                  "operation_id": {
+                    "type": "string"
+                  },
+                  "request": {
+                    "$ref": "#/components/schemas/LibraryAgentMovePagesRequest"
                   },
                   "store_epoch": {
                     "type": "string"
@@ -15793,6 +16018,16 @@
                           }
                         ]
                       },
+                      "agent_move_pages": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "$ref": "#/components/schemas/LibraryAgentMovePagesResult"
+                          }
+                        ]
+                      },
                       "agent_page_copy": {
                         "oneOf": [
                           {
@@ -17178,6 +17413,24 @@
                           },
                           "value": {
                             "$ref": "#/components/schemas/LibraryAgentCreatePagesPreparation"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "agent_move_pages_preparation"
+                            ]
+                          },
+                          "value": {
+                            "$ref": "#/components/schemas/LibraryAgentMovePagesPreparation"
                           }
                         }
                       },

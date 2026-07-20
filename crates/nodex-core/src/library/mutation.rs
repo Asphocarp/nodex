@@ -60,6 +60,7 @@ pub(super) struct MutationEffects {
     pub(super) agent_page_copy: Option<nodex_core_contracts::library::LibraryAgentPageCopyResult>,
     pub(super) agent_create_pages:
         Option<nodex_core_contracts::library::LibraryAgentCreatePagesResult>,
+    pub(super) agent_move_pages: Option<nodex_core_contracts::library::LibraryAgentMovePagesResult>,
     pub(super) change_payload: Option<serde_json::Value>,
     pub(super) committed_at: String,
 }
@@ -349,6 +350,9 @@ pub(super) fn apply(
                 )),
                 LibraryIntent::ExecutePreparedAgentCreatePages { .. } => Err(invalid(
                     "Prepared Agent Page creation is assembled by the Library Module",
+                )),
+                LibraryIntent::ExecutePreparedAgentMovePages { .. } => Err(invalid(
+                    "Prepared Agent Page movement is assembled by the Library Module",
                 )),
             }
         })
@@ -658,6 +662,7 @@ fn move_block(
             block_property_mutation: None,
             agent_page_copy: None,
             agent_create_pages: None,
+            agent_move_pages: None,
             change_payload: None,
             committed_at: now,
         },
@@ -853,6 +858,7 @@ fn change_resource_lifecycle(
             block_property_mutation: None,
             agent_page_copy: None,
             agent_create_pages: None,
+            agent_move_pages: None,
             change_payload: None,
             committed_at: now,
         },
@@ -1001,6 +1007,7 @@ fn grant_project_access(
             block_property_mutation: None,
             agent_page_copy: None,
             agent_create_pages: None,
+            agent_move_pages: None,
             change_payload: None,
             committed_at: now,
         },
@@ -1534,6 +1541,7 @@ fn create_database(
             block_property_mutation: None,
             agent_page_copy: None,
             agent_create_pages: None,
+            agent_move_pages: None,
             change_payload: None,
             committed_at: now,
         },
@@ -1776,6 +1784,7 @@ fn create_page(
             block_property_mutation: None,
             agent_page_copy: None,
             agent_create_pages: None,
+            agent_move_pages: None,
             change_payload: None,
             committed_at: now,
         },
@@ -1853,6 +1862,7 @@ pub(super) fn finish_mutation(
             block_property_mutation: effects.block_property_mutation,
             agent_page_copy: effects.agent_page_copy,
             agent_create_pages: effects.agent_create_pages,
+            agent_move_pages: effects.agent_move_pages,
         },
         receipt,
         event_sequence,
