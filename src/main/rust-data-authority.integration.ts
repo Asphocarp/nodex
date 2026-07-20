@@ -15,6 +15,7 @@ import {
 } from "./core-client/database-module-adapter";
 import { createDesktopDatabaseModuleBridge } from "./core-client/desktop-database-module-bridge";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
+import { createDesktopDocumentSyncBridge } from "./core-client/desktop-document-sync-bridge";
 import { createCoreBlockTransferAdapter } from "./core-client/block-transfer-adapter";
 import { createCoreProjectWorkspaceAdapter } from "./core-client/project-workspace-adapter";
 import {
@@ -38,6 +39,11 @@ import {
   type CanvasSceneRealtimeEvent,
 } from "../shared/block-documents";
 import { BLOCK_TRANSFER_INTENT_CONTRACT_VERSION } from "../shared/block-transfer";
+import {
+  DOCUMENT_HTTP_CONTENT_TYPE,
+  decodeDocumentSyncHttpResponse,
+  encodeDocumentSyncHttpRequest,
+} from "../shared/block-documents/http-contract";
 import {
   __resetHttpServerDependenciesForTests,
   __setHttpContentModuleDependenciesForTests,
@@ -450,6 +456,59 @@ describe("Electron native data authority", () => {
           },
         },
       });
+      const desktopDocuments = createDesktopDocumentSyncBridge({
+        authority: Promise.resolve(runtime),
+        typescript: {} as never,
+      });
+      __setHttpContentModuleDependenciesForTests({
+        documentSync: {
+          realtime: desktopDocuments,
+          getOwnedDocumentDescriptor: (targetProjectId, ownerBlockId) =>
+            desktopDocuments.getOwnedDocumentDescriptor(
+              targetProjectId,
+              ownerBlockId,
+            ),
+          prepareOwnedBlockDocument: (targetProjectId, ownerBlockId) =>
+            desktopDocuments.prepareOwnedBlockDocument(
+              targetProjectId,
+              ownerBlockId,
+            ),
+          prepareLibraryOwnedBlockDocument: (ownerBlockId) =>
+            desktopDocuments.prepareLibraryOwnedBlockDocument(ownerBlockId),
+        },
+      });
+      const documentEventsResponse = await getHttpServerOptions(51_284).fetch(
+        new Request(
+          `http://127.0.0.1:51284/api/projects/${projectId}/documents/${nativeSourceDocumentId}/events?clientSessionId=http-native-document`,
+        ),
+      );
+      expect(documentEventsResponse.status).toBe(200);
+      const documentEventReader = documentEventsResponse.body?.getReader();
+      if (!documentEventReader) throw new Error("Native HTTP SSE body is missing");
+      const documentSyncResponse = await getHttpServerOptions(51_284).fetch(
+        new Request(
+          `http://127.0.0.1:51284/api/projects/${projectId}/documents/${nativeSourceDocumentId}/sync`,
+          {
+            method: "POST",
+            headers: { "Content-Type": DOCUMENT_HTTP_CONTENT_TYPE },
+            body: encodeDocumentSyncHttpRequest({
+              documentId: nativeSourceDocumentId,
+              clientSessionId: "http-native-document",
+              stateVector: new Uint8Array(),
+            }).slice().buffer,
+          },
+        ),
+      );
+      expect(documentSyncResponse.status).toBe(200);
+      expect(decodeDocumentSyncHttpResponse(
+        new Uint8Array(await documentSyncResponse.arrayBuffer()),
+      )).toMatchObject({
+        documentId: nativeSourceDocumentId,
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+        generation: 1,
+        headSeq: 1,
+      });
+      await documentEventReader.cancel();
       await expect(projectDocuments.applyAdditionalDocumentCommand(
         createSyncedSource,
       )).resolves.toMatchObject({

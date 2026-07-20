@@ -24,9 +24,6 @@ import type {
 import {
   MAX_DOCUMENT_AWARENESS_UPDATE_BYTES,
   parseDocumentRelocationLeaseResponseRequest,
-  type DocumentAccessAck,
-  type DocumentAccessKind,
-  type LibraryDocumentAccessAck,
   type DocumentSyncCommandError,
   type DocumentSyncCommandResult,
   type DocumentSyncRealtimeEvent,
@@ -50,9 +47,11 @@ import type {
 } from "../shared/block-documents/canvas-scene-sync";
 import { MAX_CANVAS_SCENE_MUTATION_BYTES } from "../shared/block-documents/canvas-scene-sync";
 import {
-  DocumentSyncHub,
   type DocumentSyncClientTarget,
 } from "./document-sync-hub";
+import type {
+  DesktopDocumentSyncPort,
+} from "./core-client/desktop-document-sync-bridge";
 
 const SSE_PING_INTERVAL_MS = 30_000;
 const DOCUMENT_SYNC_EVENT_CHANNEL = "document-sync:event";
@@ -65,12 +64,17 @@ const MAX_AWARENESS_REQUEST_BYTES =
 const MAX_RELOCATION_LEASE_RESPONSE_BYTES = 8 * 1024;
 
 export interface DocumentSyncHttpDependencies {
-  readonly hub: DocumentSyncHub;
-  readonly authorizeDocumentAccess: (
-    projectId: string,
-    documentId: string,
-    access: DocumentAccessKind,
-  ) => Promise<DocumentSyncCommandResult<DocumentAccessAck>>;
+  readonly realtime: Pick<
+    DesktopDocumentSyncPort,
+    | "subscribe"
+    | "sync"
+    | "applyUpdate"
+    | "publishAwareness"
+    | "respondToRelocationLease"
+    | "subscribeCanvasScene"
+    | "syncCanvasScene"
+    | "applyCanvasSceneMutation"
+  >;
   readonly getOwnedDocumentDescriptor: (
     projectId: string,
     ownerBlockId: string,
@@ -79,10 +83,6 @@ export interface DocumentSyncHttpDependencies {
     projectId: string,
     ownerBlockId: string,
   ) => Promise<DocumentSyncCommandResult<OwnedDocumentDescriptor>>;
-  readonly authorizeLibraryDocumentAccess?: (
-    documentId: string,
-    access: DocumentAccessKind,
-  ) => Promise<DocumentSyncCommandResult<LibraryDocumentAccessAck>>;
   readonly prepareLibraryOwnedBlockDocument?: (
     ownerBlockId: string,
   ) => Promise<DocumentSyncCommandResult<LibraryOwnedDocumentDescriptor>>;
@@ -295,38 +295,6 @@ export class DocumentSyncHttpClients {
   }
 }
 
-const resolveProjectScope = async (
-  dependencies: DocumentSyncHttpDependencies,
-  projectId: string,
-  documentId: string,
-  access: DocumentAccessKind = "read",
-): Promise<DocumentSyncCommandError | null> => {
-  let result: DocumentSyncCommandResult<DocumentAccessAck>;
-  try {
-    result = await dependencies.authorizeDocumentAccess(
-      projectId,
-      documentId,
-      access,
-    );
-  } catch {
-    return commandError(
-      "transport_unavailable",
-      "The durable document writer is unavailable",
-      { retryable: true },
-    );
-  }
-  if (!result.ok) return result.error;
-  if (
-    result.value.authorized &&
-    result.value.projectId === projectId &&
-    result.value.documentId === documentId &&
-    result.value.access === access
-  ) {
-    return null;
-  }
-  return commandError("invalid_response", "Document access escaped its scope");
-};
-
 const requireBrowserClient = (
   clients: DocumentSyncHttpClients,
   projectId: string,
@@ -360,41 +328,6 @@ const requireAnyBrowserClient = (
 };
 
 const LOCAL_LIBRARY_HTTP_SCOPE = "local-user-library";
-
-const resolveLibraryScope = async (
-  dependencies: DocumentSyncHttpDependencies,
-  documentId: string,
-  access: DocumentAccessKind = "read",
-): Promise<DocumentSyncCommandError | null> => {
-  if (!dependencies.authorizeLibraryDocumentAccess) {
-    return commandError(
-      "transport_unavailable",
-      "Library Document access is unavailable",
-      { retryable: true },
-    );
-  }
-  try {
-    const result = await dependencies.authorizeLibraryDocumentAccess(
-      documentId,
-      access,
-    );
-    if (!result.ok) return result.error;
-    if (
-      result.value.authorized &&
-      result.value.documentId === documentId &&
-      result.value.access === access
-    ) {
-      return null;
-    }
-    return commandError("invalid_response", "Library Document access escaped its scope");
-  } catch {
-    return commandError(
-      "transport_unavailable",
-      "The durable document writer is unavailable",
-      { retryable: true },
-    );
-  }
-};
 
 /** Registers the Yjs transport under trusted local Library authority. */
 const registerLibraryDocumentSyncHttpRoutes = (
@@ -447,46 +380,52 @@ const registerLibraryDocumentSyncHttpRoutes = (
     if (!documentId || !clientSessionId) {
       return invalidRequest("Document and client session are required");
     }
-    const scopeError = await resolveLibraryScope(dependencies, documentId);
-    if (scopeError) return errorResponse(scopeError);
-
     const encoder = new TextEncoder();
-    let entry: BrowserClientEntry | null = null;
     let pingInterval: ReturnType<typeof setInterval> | null = null;
+    const streamState: {
+      controller: ReadableStreamDefaultController<Uint8Array> | null;
+    } = { controller: null };
+    const target = new BrowserDocumentSyncTarget((serializedEvent) => {
+      streamState.controller?.enqueue(
+        encoder.encode(`data: ${serializedEvent}\n\n`),
+      );
+    });
+    const entry: BrowserClientEntry = {
+      projectId: LOCAL_LIBRARY_HTTP_SCOPE,
+      engine: "yjs",
+      request: { documentId, clientSessionId },
+      target,
+    };
     const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        const target = new BrowserDocumentSyncTarget((serializedEvent) => {
-          controller.enqueue(encoder.encode(`data: ${serializedEvent}\n\n`));
-        });
-        entry = {
-          projectId: LOCAL_LIBRARY_HTTP_SCOPE,
-          engine: "yjs",
-          request: { documentId, clientSessionId },
-          target,
-        };
+      start(streamController) {
+        streamState.controller = streamController;
         clients.replace(entry);
-        const subscribed = dependencies.hub.subscribe(target, entry.request);
-        if (!subscribed.ok) {
-          clients.remove(entry);
-          controller.error(new Error(subscribed.error.message));
-          return;
-        }
-        pingInterval = setInterval(() => {
-          try {
-            controller.enqueue(encoder.encode(": ping\n\n"));
-          } catch {
-            if (pingInterval) clearInterval(pingInterval);
-          }
-        }, SSE_PING_INTERVAL_MS);
       },
       cancel() {
         if (pingInterval) clearInterval(pingInterval);
-        if (entry) clients.remove(entry);
+        clients.remove(entry);
       },
     });
+    const subscribed = await dependencies.realtime.subscribe(
+      { kind: "library" },
+      target,
+      entry.request,
+    );
+    if (!subscribed.ok) {
+      clients.remove(entry);
+      streamState.controller?.close();
+      return errorResponse(subscribed.error);
+    }
+    pingInterval = setInterval(() => {
+      try {
+        streamState.controller?.enqueue(encoder.encode(": ping\n\n"));
+      } catch {
+        if (pingInterval) clearInterval(pingInterval);
+      }
+    }, SSE_PING_INTERVAL_MS);
     context.req.raw.signal.addEventListener("abort", () => {
       if (pingInterval) clearInterval(pingInterval);
-      if (entry) clients.remove(entry);
+      clients.remove(entry);
     }, { once: true });
     return new Response(stream, {
       headers: {
@@ -504,11 +443,13 @@ const registerLibraryDocumentSyncHttpRoutes = (
         documentId,
         await readBinaryBody(context, MAX_SYNC_REQUEST_BYTES),
       );
-      const scopeError = await resolveLibraryScope(dependencies, documentId);
-      if (scopeError) return errorResponse(scopeError);
       const client = requireBrowserClient(clients, LOCAL_LIBRARY_HTTP_SCOPE, request);
       if (!client.ok) return errorResponse(client.error);
-      const result = await dependencies.hub.sync(client.value.target, request);
+      const result = await dependencies.realtime.sync(
+        { kind: "library" },
+        client.value.target,
+        request,
+      );
       return result.ok
         ? binaryResponse(encodeDocumentSyncHttpResponse(result.value))
         : errorResponse(result.error);
@@ -524,11 +465,13 @@ const registerLibraryDocumentSyncHttpRoutes = (
         documentId,
         await readBinaryBody(context, MAX_APPLY_REQUEST_BYTES),
       );
-      const scopeError = await resolveLibraryScope(dependencies, documentId, "write");
-      if (scopeError) return errorResponse(scopeError);
       const client = requireBrowserClient(clients, LOCAL_LIBRARY_HTTP_SCOPE, request);
       if (!client.ok) return errorResponse(client.error);
-      const result = await dependencies.hub.applyUpdate(client.value.target, request);
+      const result = await dependencies.realtime.applyUpdate(
+        { kind: "library" },
+        client.value.target,
+        request,
+      );
       return result.ok
         ? binaryResponse(encodeDocumentApplyHttpAck(result.value))
         : errorResponse(result.error);
@@ -544,11 +487,13 @@ const registerLibraryDocumentSyncHttpRoutes = (
         documentId,
         await readBinaryBody(context, MAX_AWARENESS_REQUEST_BYTES),
       );
-      const scopeError = await resolveLibraryScope(dependencies, documentId);
-      if (scopeError) return errorResponse(scopeError);
       const client = requireBrowserClient(clients, LOCAL_LIBRARY_HTTP_SCOPE, request);
       if (!client.ok) return errorResponse(client.error);
-      const result = dependencies.hub.publishAwareness(client.value.target, request);
+      const result = await dependencies.realtime.publishAwareness(
+        { kind: "library" },
+        client.value.target,
+        request,
+      );
       return result.ok ? context.json(result.value) : errorResponse(result.error);
     } catch (error) {
       return invalidRequest(
@@ -570,15 +515,14 @@ const registerLibraryDocumentSyncHttpRoutes = (
         if (request.documentId !== documentId || request.leaseId !== leaseId) {
           return invalidRequest("Relocation lease response does not match its route");
         }
-        const scopeError = await resolveLibraryScope(dependencies, documentId);
-        if (scopeError) return errorResponse(scopeError);
         const client = requireAnyBrowserClient(
           clients,
           LOCAL_LIBRARY_HTTP_SCOPE,
           request,
         );
         if (!client.ok) return errorResponse(client.error);
-        const result = dependencies.hub.respondToRelocationLease(
+        const result = await dependencies.realtime.respondToRelocationLease(
+          { kind: "library" },
           client.value.target,
           request,
         );
@@ -706,53 +650,54 @@ export const registerDocumentSyncHttpRoutes = (
           "Project, Document, and client session are required",
         );
       }
-      const scopeError = await resolveProjectScope(
-        dependencies,
-        projectId,
-        documentId,
-      );
-      if (scopeError) return errorResponse(scopeError);
-
       const encoder = new TextEncoder();
-      let entry: BrowserClientEntry | null = null;
       let pingInterval: ReturnType<typeof setInterval> | null = null;
+      const streamState: {
+        controller: ReadableStreamDefaultController<Uint8Array> | null;
+      } = { controller: null };
+      const target = new BrowserDocumentSyncTarget((serializedEvent) => {
+        streamState.controller?.enqueue(
+          encoder.encode(`data: ${serializedEvent}\n\n`),
+        );
+      });
+      const entry: BrowserClientEntry = {
+        projectId,
+        engine: "yjs",
+        request: { documentId, clientSessionId },
+        target,
+      };
       const stream = new ReadableStream<Uint8Array>({
-        start(controller) {
-          const send = (serializedEvent: string): void => {
-            controller.enqueue(encoder.encode(`data: ${serializedEvent}\n\n`));
-          };
-          const target = new BrowserDocumentSyncTarget(send);
-          entry = {
-            projectId,
-            engine: "yjs",
-            request: { documentId, clientSessionId },
-            target,
-          };
+        start(streamController) {
+          streamState.controller = streamController;
           clients.replace(entry);
-          const subscribed = dependencies.hub.subscribe(target, entry.request);
-          if (!subscribed.ok) {
-            clients.remove(entry);
-            controller.error(new Error(subscribed.error.message));
-            return;
-          }
-          pingInterval = setInterval(() => {
-            try {
-              controller.enqueue(encoder.encode(": ping\n\n"));
-            } catch {
-              if (pingInterval) clearInterval(pingInterval);
-            }
-          }, SSE_PING_INTERVAL_MS);
         },
         cancel() {
           if (pingInterval) clearInterval(pingInterval);
-          if (entry) clients.remove(entry);
+          clients.remove(entry);
         },
       });
+      const subscribed = await dependencies.realtime.subscribe(
+        { kind: "project", projectId },
+        target,
+        entry.request,
+      );
+      if (!subscribed.ok) {
+        clients.remove(entry);
+        streamState.controller?.close();
+        return errorResponse(subscribed.error);
+      }
+      pingInterval = setInterval(() => {
+        try {
+          streamState.controller?.enqueue(encoder.encode(": ping\n\n"));
+        } catch {
+          if (pingInterval) clearInterval(pingInterval);
+        }
+      }, SSE_PING_INTERVAL_MS);
       context.req.raw.signal.addEventListener(
         "abort",
         () => {
           if (pingInterval) clearInterval(pingInterval);
-          if (entry) clients.remove(entry);
+          clients.remove(entry);
         },
         { once: true },
       );
@@ -777,15 +722,10 @@ export const registerDocumentSyncHttpRoutes = (
           documentId,
           await readBinaryBody(context, MAX_SYNC_REQUEST_BYTES),
         );
-        const scopeError = await resolveProjectScope(
-          dependencies,
-          projectId,
-          documentId,
-        );
-        if (scopeError) return errorResponse(scopeError);
         const client = requireBrowserClient(clients, projectId, request);
         if (!client.ok) return errorResponse(client.error);
-        const result = await dependencies.hub.sync(
+        const result = await dependencies.realtime.sync(
+          { kind: "project", projectId },
           client.value.target,
           request,
         );
@@ -809,46 +749,63 @@ export const registerDocumentSyncHttpRoutes = (
       if (!projectId || !documentId || !clientSessionId) {
         return invalidRequest("Project, Document, and client session are required");
       }
-      const scopeError = await resolveProjectScope(dependencies, projectId, documentId);
-      if (scopeError) return errorResponse(scopeError);
       const encoder = new TextEncoder();
-      let entry: BrowserClientEntry | null = null;
       let pingInterval: ReturnType<typeof setInterval> | null = null;
+      const streamState: {
+        controller: ReadableStreamDefaultController<Uint8Array> | null;
+      } = { controller: null };
+      const target = new BrowserDocumentSyncTarget((serialized) => {
+        streamState.controller?.enqueue(encoder.encode(`data: ${serialized}\n\n`));
+      });
+      const request: CanvasSceneSubscribeRequest = {
+        version: 1,
+        projectId,
+        documentId,
+        clientSessionId,
+      };
+      const entry: BrowserClientEntry = {
+        projectId,
+        engine: "canvas_scene",
+        request,
+        target,
+      };
       const stream = new ReadableStream<Uint8Array>({
-        start(controller) {
-          const target = new BrowserDocumentSyncTarget((serialized) => {
-            controller.enqueue(encoder.encode(`data: ${serialized}\n\n`));
-          });
-          const request: CanvasSceneSubscribeRequest = {
-            version: 1,
-            projectId,
-            documentId,
-            clientSessionId,
-          };
-          entry = { projectId, engine: "canvas_scene", request, target };
+        start(streamController) {
+          streamState.controller = streamController;
           clients.replace(entry);
-          const result = dependencies.hub.subscribeCanvasScene(target, request);
-          if (!result.ok) {
-            clients.remove(entry);
-            controller.error(new Error(result.error.message));
-            return;
-          }
-          pingInterval = setInterval(() => {
-            try {
-              controller.enqueue(encoder.encode(": ping\n\n"));
-            } catch {
-              if (pingInterval) clearInterval(pingInterval);
-            }
-          }, SSE_PING_INTERVAL_MS);
         },
         cancel() {
           if (pingInterval) clearInterval(pingInterval);
-          if (entry) clients.remove(entry);
+          clients.remove(entry);
         },
       });
+      const subscribed = await dependencies.realtime.subscribeCanvasScene(
+        target,
+        request,
+      );
+      if (!subscribed.ok) {
+        clients.remove(entry);
+        streamState.controller?.close();
+        return errorResponse(commandError(
+          subscribed.error.code === "project_scope_mismatch"
+            ? "unauthorized"
+            : subscribed.error.code === "unknown"
+              ? "transport_unavailable"
+              : "invalid_document_update",
+          subscribed.error.message,
+          { retryable: subscribed.error.retryable },
+        ));
+      }
+      pingInterval = setInterval(() => {
+        try {
+          streamState.controller?.enqueue(encoder.encode(": ping\n\n"));
+        } catch {
+          if (pingInterval) clearInterval(pingInterval);
+        }
+      }, SSE_PING_INTERVAL_MS);
       context.req.raw.signal.addEventListener("abort", () => {
         if (pingInterval) clearInterval(pingInterval);
-        if (entry) clients.remove(entry);
+        clients.remove(entry);
       }, { once: true });
       return new Response(stream, {
         headers: {
@@ -875,7 +832,10 @@ export const registerDocumentSyncHttpRoutes = (
         );
         const client = clients.get(projectId, request, "canvas_scene");
         if (!client) return invalidRequest("Open the Canvas event stream before syncing");
-        const result = await dependencies.hub.syncCanvasScene(client.target, request);
+        const result = await dependencies.realtime.syncCanvasScene(
+          client.target,
+          request,
+        );
         return new Response(encodeCanvasSceneSyncResultHttp(result), {
           status: result.ok ? 200 : 409,
           headers: { "Content-Type": CANVAS_SCENE_HTTP_CONTENT_TYPE },
@@ -899,16 +859,12 @@ export const registerDocumentSyncHttpRoutes = (
         const request = decodeCanvasSceneMutationRequestHttp(
           await readCanvasJsonBody(context), projectId, documentId,
         );
-        const scopeError = await resolveProjectScope(
-          dependencies,
-          projectId,
-          documentId,
-          "write",
-        );
-        if (scopeError) return errorResponse(scopeError);
         const client = clients.get(projectId, request, "canvas_scene");
         if (!client) return invalidRequest("Open the Canvas event stream before mutating");
-        const result = await dependencies.hub.applyCanvasSceneMutation(client.target, request);
+        const result = await dependencies.realtime.applyCanvasSceneMutation(
+          client.target,
+          request,
+        );
         return new Response(encodeCanvasSceneMutationResultHttp(result), {
           status: result.ok ? 200 : 409,
           headers: { "Content-Type": CANVAS_SCENE_HTTP_CONTENT_TYPE },
@@ -929,16 +885,10 @@ export const registerDocumentSyncHttpRoutes = (
           documentId,
           await readBinaryBody(context, MAX_APPLY_REQUEST_BYTES),
         );
-        const scopeError = await resolveProjectScope(
-          dependencies,
-          projectId,
-          documentId,
-          "write",
-        );
-        if (scopeError) return errorResponse(scopeError);
         const client = requireBrowserClient(clients, projectId, request);
         if (!client.ok) return errorResponse(client.error);
-        const result = await dependencies.hub.applyUpdate(
+        const result = await dependencies.realtime.applyUpdate(
+          { kind: "project", projectId },
           client.value.target,
           request,
         );
@@ -963,15 +913,10 @@ export const registerDocumentSyncHttpRoutes = (
           documentId,
           await readBinaryBody(context, MAX_AWARENESS_REQUEST_BYTES),
         );
-        const scopeError = await resolveProjectScope(
-          dependencies,
-          projectId,
-          documentId,
-        );
-        if (scopeError) return errorResponse(scopeError);
         const client = requireBrowserClient(clients, projectId, request);
         if (!client.ok) return errorResponse(client.error);
-        const result = dependencies.hub.publishAwareness(
+        const result = await dependencies.realtime.publishAwareness(
+          { kind: "project", projectId },
           client.value.target,
           request,
         );
@@ -1004,15 +949,10 @@ export const registerDocumentSyncHttpRoutes = (
             "Relocation lease response does not match its route",
           );
         }
-        const scopeError = await resolveProjectScope(
-          dependencies,
-          projectId,
-          documentId,
-        );
-        if (scopeError) return errorResponse(scopeError);
         const client = requireAnyBrowserClient(clients, projectId, request);
         if (!client.ok) return errorResponse(client.error);
-        const result = dependencies.hub.respondToRelocationLease(
+        const result = await dependencies.realtime.respondToRelocationLease(
+          { kind: "project", projectId },
           client.value.target,
           request,
         );

@@ -26,6 +26,25 @@ const success = <T>(value: T): DocumentSyncCommandResult<T> => ({
   value,
 });
 
+const createScopedRealtimePort = (hub: DocumentSyncHub) => ({
+  subscribe: async (_scope: unknown, target: DocumentSyncClientTarget, request: Parameters<DocumentSyncHub["subscribe"]>[1]) =>
+    hub.subscribe(target, request),
+  sync: async (_scope: unknown, target: DocumentSyncClientTarget, request: Parameters<DocumentSyncHub["sync"]>[1]) =>
+    await hub.sync(target, request),
+  applyUpdate: async (_scope: unknown, target: DocumentSyncClientTarget, request: Parameters<DocumentSyncHub["applyUpdate"]>[1]) =>
+    await hub.applyUpdate(target, request),
+  publishAwareness: async (_scope: unknown, target: DocumentSyncClientTarget, request: Parameters<DocumentSyncHub["publishAwareness"]>[1]) =>
+    hub.publishAwareness(target, request),
+  respondToRelocationLease: async (_scope: unknown, target: DocumentSyncClientTarget, request: Parameters<DocumentSyncHub["respondToRelocationLease"]>[1]) =>
+    hub.respondToRelocationLease(target, request),
+  subscribeCanvasScene: async (...input: Parameters<DocumentSyncHub["subscribeCanvasScene"]>) =>
+    hub.subscribeCanvasScene(...input),
+  syncCanvasScene: async (...input: Parameters<DocumentSyncHub["syncCanvasScene"]>) =>
+    await hub.syncCanvasScene(...input),
+  applyCanvasSceneMutation: async (...input: Parameters<DocumentSyncHub["applyCanvasSceneMutation"]>) =>
+    await hub.applyCanvasSceneMutation(...input),
+});
+
 class MemoryDurableBackend implements DocumentSyncDurableBackend {
   readonly document = new Y.Doc({ guid: "document-1" });
   readonly committed = new Map<string, DocumentSyncApplyAck>();
@@ -274,7 +293,7 @@ describe("Document sync transport parity", () => {
     const hub = new DocumentSyncHub(backend);
     const app = new Hono();
     registerDocumentSyncHttpRoutes(app, {
-      hub,
+      realtime: createScopedRealtimePort(hub),
       getOwnedDocumentDescriptor: async (projectId: string, ownerBlockId: string) => ({
         projectId,
         ownerBlockId,
@@ -303,8 +322,6 @@ describe("Document sync transport parity", () => {
         readiness: "ready",
         sync: { kind: "yjs", stateVector: new Uint8Array() },
       }),
-      authorizeDocumentAccess: async (projectId, documentId, access) =>
-        success({ projectId, documentId, access, authorized: true }),
     });
     const adapters = [1, 2].map(() =>
       createHttpDocumentSyncAdapter({

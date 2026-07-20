@@ -976,6 +976,78 @@ describe("Desktop Document sync bridge", () => {
     }]);
   });
 
+  test("authorizes TypeScript Canvas subscription and sync before invoking the Hub", async () => {
+    const authorized = {
+      ok: true as const,
+      value: {
+        projectId: canvasSubscribeRequest.projectId,
+        documentId: canvasSubscribeRequest.documentId,
+        access: "read" as const,
+        authorized: true as const,
+      },
+    };
+    const denied = {
+      ok: false as const,
+      error: {
+        code: "unauthorized" as const,
+        message: "Canvas access was revoked",
+        retryable: false,
+        resetRequired: false,
+      },
+    };
+    const authorizeProject = vi.fn()
+      .mockResolvedValueOnce(authorized)
+      .mockResolvedValueOnce(denied);
+    const subscribeCanvasScene = vi.fn(() => ({
+      ok: true as const,
+      value: { subscribed: true as const },
+    }));
+    const syncCanvasScene = vi.fn(async () => {
+      throw new Error("Revoked Canvas sync must not reach the Hub");
+    });
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve({ backend: "typescript" } as never),
+      typescript: {
+        ...neverTypeScript(),
+        authorizeProject,
+        hub: {
+          ...neverTypeScript().hub,
+          subscribeCanvasScene,
+          syncCanvasScene,
+        },
+      },
+    });
+    const target = new FakeTarget(9);
+
+    await expect(bridge.subscribeCanvasScene(
+      target,
+      canvasSubscribeRequest,
+    )).resolves.toEqual({ ok: true, value: { subscribed: true } });
+    await expect(bridge.syncCanvasScene(
+      target,
+      canvasSubscribeRequest,
+    )).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "project_scope_mismatch",
+        message: "Canvas access was revoked",
+      },
+    });
+
+    expect(authorizeProject).toHaveBeenNthCalledWith(1, {
+      projectId: canvasSubscribeRequest.projectId,
+      documentId: canvasSubscribeRequest.documentId,
+      access: "read",
+    });
+    expect(authorizeProject).toHaveBeenNthCalledWith(2, {
+      projectId: canvasSubscribeRequest.projectId,
+      documentId: canvasSubscribeRequest.documentId,
+      access: "read",
+    });
+    expect(subscribeCanvasScene).toHaveBeenCalledOnce();
+    expect(syncCanvasScene).not.toHaveBeenCalled();
+  });
+
   test("does not open a late subscription for a destroyed startup target", async () => {
     let resolveAuthority: ((runtime: RustDataAuthorityRuntime) => void) | undefined;
     const authority = new Promise<RustDataAuthorityRuntime>((resolve) => {

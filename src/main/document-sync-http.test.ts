@@ -28,6 +28,7 @@ import {
 import { MAX_CANVAS_SCENE_MUTATION_BYTES } from "../shared/block-documents/canvas-scene-sync";
 import { DocumentSyncHub } from "./document-sync-hub";
 import { registerDocumentSyncHttpRoutes } from "./document-sync-http";
+import type { DesktopDocumentSyncScope } from "./core-client/desktop-document-sync-bridge";
 
 const success = <T>(value: T): DocumentSyncCommandResult<T> => ({
   ok: true,
@@ -111,9 +112,117 @@ const createApp = (options?: {
       throw new Error("Relocation is not configured in HTTP sync tests");
     },
   });
+  const authorizeProject = async (
+    projectId: string,
+    documentId: string,
+    access: "read" | "write",
+  ) =>
+    projectId === "project-1" &&
+      (documentId === "document-1" || documentId === "canvas-1")
+      ? success({ projectId, documentId, access, authorized: true as const })
+      : {
+          ok: false as const,
+          error: {
+            code: "document_not_found" as const,
+            message: "missing",
+            retryable: false,
+            resetRequired: false,
+          },
+        };
+  const authorizeLibrary = async (
+    documentId: string,
+    access: "read" | "write",
+  ) =>
+    documentId === "document-1"
+      ? success({ documentId, access, authorized: true as const })
+      : {
+          ok: false as const,
+          error: {
+            code: "document_not_found" as const,
+            message: "missing",
+            retryable: false,
+            resetRequired: false,
+          },
+        };
+  const authorizeScope = async (
+    scope: DesktopDocumentSyncScope,
+    documentId: string,
+    access: "read" | "write",
+  ): Promise<DocumentSyncCommandError | null> => {
+    const result = scope.kind === "project"
+      ? await authorizeProject(scope.projectId, documentId, access)
+      : await authorizeLibrary(documentId, access);
+    return result.ok ? null : result.error;
+  };
   const app = new Hono();
   registerDocumentSyncHttpRoutes(app, {
-    hub,
+    realtime: {
+      subscribe: async (scope, target, request) => {
+        const error = await authorizeScope(scope, request.documentId, "read");
+        return error ? { ok: false, error } : hub.subscribe(target, request);
+      },
+      sync: async (scope, target, request) => {
+        const error = await authorizeScope(scope, request.documentId, "read");
+        return error ? { ok: false, error } : await hub.sync(target, request);
+      },
+      applyUpdate: async (scope, target, request) => {
+        const error = await authorizeScope(scope, request.documentId, "write");
+        return error
+          ? { ok: false, error }
+          : await hub.applyUpdate(target, request);
+      },
+      publishAwareness: async (scope, target, request) => {
+        const error = await authorizeScope(scope, request.documentId, "read");
+        return error
+          ? { ok: false, error }
+          : hub.publishAwareness(target, request);
+      },
+      respondToRelocationLease: async (scope, target, request) => {
+        const error = await authorizeScope(scope, request.documentId, "read");
+        return error
+          ? { ok: false, error }
+          : hub.respondToRelocationLease(target, request);
+      },
+      subscribeCanvasScene: async (target, request) => {
+        const error = await authorizeScope(
+          { kind: "project", projectId: request.projectId },
+          request.documentId,
+          "read",
+        );
+        return error
+          ? {
+              ok: false,
+              error: {
+                code: "project_scope_mismatch",
+                message: error.message,
+                retryable: error.retryable,
+                resetRequired: error.resetRequired,
+              },
+            }
+          : hub.subscribeCanvasScene(target, request);
+      },
+      syncCanvasScene: async (target, request) =>
+        await hub.syncCanvasScene(target, request),
+      applyCanvasSceneMutation: async (target, request) => {
+        const error = await authorizeScope(
+          { kind: "project", projectId: request.projectId },
+          request.documentId,
+          "write",
+        );
+        return error
+          ? {
+              ok: false,
+              error: {
+                code: "project_scope_mismatch",
+                message: error.message,
+                retryable: error.retryable,
+                resetRequired: error.resetRequired,
+                mutationId: request.mutationId,
+              },
+            }
+          : await hub.applyCanvasSceneMutation(target, request);
+      },
+    },
     getOwnedDocumentDescriptor: async (projectId: string, ownerBlockId: string) => ({
       projectId,
       ownerBlockId,
@@ -145,31 +254,6 @@ const createApp = (options?: {
             readiness: "ready",
             sync: { kind: "yjs", stateVector: new Uint8Array([2]) },
           }),
-    authorizeDocumentAccess: async (projectId, documentId, access) =>
-      projectId === "project-1" &&
-      (documentId === "document-1" || documentId === "canvas-1")
-        ? success({ projectId, documentId, access, authorized: true as const })
-        : {
-            ok: false,
-            error: {
-              code: "document_not_found",
-              message: "missing",
-              retryable: false,
-              resetRequired: false,
-            },
-          },
-    authorizeLibraryDocumentAccess: async (documentId, access) =>
-      documentId === "document-1"
-        ? success({ documentId, access, authorized: true as const })
-        : {
-            ok: false,
-            error: {
-              code: "document_not_found",
-              message: "missing",
-              retryable: false,
-              resetRequired: false,
-            },
-          },
     prepareLibraryOwnedBlockDocument: async (ownerBlockId) => success({
       accessContext: { kind: "library" },
       ownerBlockId,

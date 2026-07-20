@@ -1827,6 +1827,15 @@ export async function runMainAppStartup(
       applyMutation: (request) =>
         libraryModule.applyPageLifecycleMutation(request),
     },
+    documentSync: {
+      realtime: documentSync,
+      getOwnedDocumentDescriptor: (projectId, ownerBlockId) =>
+        documentSync.getOwnedDocumentDescriptor(projectId, ownerBlockId),
+      prepareOwnedBlockDocument: (projectId, ownerBlockId) =>
+        documentSync.prepareOwnedBlockDocument(projectId, ownerBlockId),
+      prepareLibraryOwnedBlockDocument: (ownerBlockId) =>
+        documentSync.prepareLibraryOwnedBlockDocument(ownerBlockId),
+    },
     documentMutation: {
       applyMutation: (request) => documentSync.applyDocumentMutation(request),
     },

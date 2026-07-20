@@ -378,6 +378,17 @@ const canvasSceneTransportUnavailable = <Value>(
   { retryable: true, mutationId },
 );
 
+const canvasSceneAccessFailure = <Value>(
+  error: DocumentSyncCommandError,
+  mutationId?: string,
+): CanvasCommandResult<Value> => canvasSceneFailure(
+  error.code === "transport_unavailable" || error.code === "store_not_initialized"
+    ? "unknown"
+    : "project_scope_mismatch",
+  error.message,
+  { retryable: error.retryable, mutationId },
+);
+
 const hasCanvasSceneIdentity = (
   request: CanvasSceneSubscribeRequest,
 ): boolean => request.version === 1
@@ -1289,6 +1300,12 @@ export function createDesktopDocumentSyncBridge(
     subscribeCanvasScene: async (target, request) =>
       await withCanvasSceneRuntime(async (runtime) => {
         if (runtime.backend === "typescript") {
+          const blocked = await authorizeTypeScript(
+            { kind: "project", projectId: request.projectId },
+            request.documentId,
+            "read",
+          );
+          if (blocked) return canvasSceneAccessFailure(blocked);
           return input.typescript.hub.subscribeCanvasScene(target, request);
         }
         if (target.isDestroyed() || !hasCanvasSceneIdentity(request)) {
@@ -1363,6 +1380,12 @@ export function createDesktopDocumentSyncBridge(
     syncCanvasScene: async (target, request) =>
       await withCanvasSceneRuntime(async (runtime) => {
         if (runtime.backend === "typescript") {
+          const blocked = await authorizeTypeScript(
+            { kind: "project", projectId: request.projectId },
+            request.documentId,
+            "read",
+          );
+          if (blocked) return canvasSceneAccessFailure(blocked);
           return await input.typescript.hub.syncCanvasScene(target, request);
         }
         if (!hasNativeCanvasSceneSubscription(target, request)) {
@@ -1381,6 +1404,14 @@ export function createDesktopDocumentSyncBridge(
     applyCanvasSceneMutation: async (target, request) =>
       await withCanvasSceneRuntime(async (runtime) => {
         if (runtime.backend === "typescript") {
+          const blocked = await authorizeTypeScript(
+            { kind: "project", projectId: request.projectId },
+            request.documentId,
+            "write",
+          );
+          if (blocked) {
+            return canvasSceneAccessFailure(blocked, request.mutationId);
+          }
           return await input.typescript.hub.applyCanvasSceneMutation(
             target,
             request,

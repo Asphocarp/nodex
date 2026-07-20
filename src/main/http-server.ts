@@ -64,8 +64,18 @@ import {
   CodexSidebarThreadMoveInputSchema,
 } from "../shared/codex-sidebar-thread-move";
 import { renameProjectSessionChat } from "./project-session-rename-service";
-import { registerDocumentSyncHttpRoutes } from "./document-sync-http";
+import {
+  registerDocumentSyncHttpRoutes,
+  type DocumentSyncHttpDependencies,
+} from "./document-sync-http";
 import { documentSyncHub } from "./document-sync-runtime";
+import type {
+  DesktopDocumentSyncScope,
+} from "./core-client/desktop-document-sync-bridge";
+import type {
+  DocumentAccessKind,
+  DocumentSyncCommandError,
+} from "../shared/block-documents/document-sync";
 import {
   registerReferenceReadHttpRoutes,
   type ReferenceReadHttpDependencies,
@@ -201,12 +211,154 @@ export interface HttpContentModuleDependencies {
   libraryPageDetail: LibraryPageDetailHttpDependencies;
   pageLifecyclePreflight: PageLifecyclePreflightHttpDependencies;
   pageLifecycle: PageLifecycleHttpDependencies;
+  documentSync: DocumentSyncHttpDependencies;
   documentMutation: DocumentMutationHttpDependencies;
   additionalDocumentCommand: AdditionalDocumentCommandHttpDependencies;
   blockTransfer: BlockTransferHttpDependencies;
   documentHistory: DocumentHistoryHttpDependencies;
   pageHistory: PageHistoryHttpDependencies;
 }
+
+const authorizeDefaultDocumentSyncScope = async (
+  scope: DesktopDocumentSyncScope,
+  documentId: string,
+  access: DocumentAccessKind,
+): Promise<DocumentSyncCommandError | null> => {
+  if (scope.kind === "project") {
+    const result = await blockMutationWriter.authorizeDocumentAccess({
+      projectId: scope.projectId,
+      documentId,
+      access,
+    });
+    if (!result.ok) return result.error;
+    if (
+      result.value.authorized
+      && result.value.projectId === scope.projectId
+      && result.value.documentId === documentId
+      && result.value.access === access
+    ) {
+      return null;
+    }
+  } else {
+    const result = await blockMutationWriter.authorizeLibraryDocumentAccess({
+      documentId,
+      access,
+    });
+    if (!result.ok) return result.error;
+    if (
+      result.value.authorized
+      && result.value.documentId === documentId
+      && result.value.access === access
+    ) {
+      return null;
+    }
+  }
+  return {
+    code: "invalid_response",
+    message: "Document access escaped its requested scope",
+    retryable: false,
+    resetRequired: false,
+  };
+};
+
+const defaultDocumentSyncHttpDependencies: DocumentSyncHttpDependencies = {
+  realtime: {
+    subscribe: async (scope, target, request) => {
+      const error = await authorizeDefaultDocumentSyncScope(
+        scope,
+        request.documentId,
+        "read",
+      );
+      return error ? { ok: false, error } : documentSyncHub.subscribe(target, request);
+    },
+    sync: async (scope, target, request) => {
+      const error = await authorizeDefaultDocumentSyncScope(
+        scope,
+        request.documentId,
+        "read",
+      );
+      return error ? { ok: false, error } : await documentSyncHub.sync(target, request);
+    },
+    applyUpdate: async (scope, target, request) => {
+      const error = await authorizeDefaultDocumentSyncScope(
+        scope,
+        request.documentId,
+        "write",
+      );
+      return error
+        ? { ok: false, error }
+        : await documentSyncHub.applyUpdate(target, request);
+    },
+    publishAwareness: async (scope, target, request) => {
+      const error = await authorizeDefaultDocumentSyncScope(
+        scope,
+        request.documentId,
+        "read",
+      );
+      return error
+        ? { ok: false, error }
+        : documentSyncHub.publishAwareness(target, request);
+    },
+    respondToRelocationLease: async (scope, target, request) => {
+      const error = await authorizeDefaultDocumentSyncScope(
+        scope,
+        request.documentId,
+        "read",
+      );
+      return error
+        ? { ok: false, error }
+        : documentSyncHub.respondToRelocationLease(target, request);
+    },
+    subscribeCanvasScene: async (target, request) => {
+      const error = await authorizeDefaultDocumentSyncScope(
+        { kind: "project", projectId: request.projectId },
+        request.documentId,
+        "read",
+      );
+      return error
+        ? {
+            ok: false,
+            error: {
+              code: "project_scope_mismatch",
+              message: error.message,
+              retryable: error.retryable,
+              resetRequired: error.resetRequired,
+            },
+          }
+        : documentSyncHub.subscribeCanvasScene(target, request);
+    },
+    syncCanvasScene: async (target, request) =>
+      await documentSyncHub.syncCanvasScene(target, request),
+    applyCanvasSceneMutation: async (target, request) => {
+      const error = await authorizeDefaultDocumentSyncScope(
+        { kind: "project", projectId: request.projectId },
+        request.documentId,
+        "write",
+      );
+      return error
+        ? {
+            ok: false,
+            error: {
+              code: "project_scope_mismatch",
+              message: error.message,
+              retryable: error.retryable,
+              resetRequired: error.resetRequired,
+              mutationId: request.mutationId,
+            },
+          }
+        : await documentSyncHub.applyCanvasSceneMutation(target, request);
+    },
+  },
+  getOwnedDocumentDescriptor: async (projectId, ownerBlockId) =>
+    (await blockMutationWriter.getOwnedDocumentDescriptor(
+      projectId,
+      ownerBlockId,
+    )).result,
+  prepareOwnedBlockDocument: async (projectId, ownerBlockId) =>
+    await blockMutationWriter.prepareOwnedBlockDocument(projectId, ownerBlockId),
+  prepareLibraryOwnedBlockDocument: (ownerBlockId) =>
+    blockMutationWriter.prepareLibraryOwnedBlockDocument(ownerBlockId),
+};
 
 const defaultHttpServerDependencies: HttpServerDependencies = {
   browserRuntime: {
@@ -276,6 +428,7 @@ const defaultHttpServerDependencies: HttpServerDependencies = {
       applyMutation: async (request) =>
         (await blockMutationWriter.applyPageLifecycleMutation(request)).result,
     },
+    documentSync: defaultDocumentSyncHttpDependencies,
     documentMutation: {
       applyMutation: (request) => documentSyncHub.applyDocumentMutation(request),
     },
@@ -407,27 +560,62 @@ app.get("/api/app/feature-gates", (c) => {
 });
 
 registerDocumentSyncHttpRoutes(app, {
-  hub: documentSyncHub,
-  authorizeDocumentAccess: (projectId, documentId, access) =>
-    blockMutationWriter.authorizeDocumentAccess({
-      projectId,
-      documentId,
-      access,
-    }),
-  getOwnedDocumentDescriptor: async (projectId, ownerBlockId) =>
-    (await blockMutationWriter.getOwnedDocumentDescriptor(
-      projectId,
-      ownerBlockId,
-    )).result,
-  prepareOwnedBlockDocument: async (projectId, ownerBlockId) =>
-    await blockMutationWriter.prepareOwnedBlockDocument(
-      projectId,
-      ownerBlockId,
-    ),
-  authorizeLibraryDocumentAccess: (documentId, access) =>
-    blockMutationWriter.authorizeLibraryDocumentAccess({ documentId, access }),
+  realtime: {
+    subscribe: (scope, target, request) =>
+      httpServerDependencies.contentModules.documentSync.realtime.subscribe(
+        scope,
+        target,
+        request,
+      ),
+    sync: (scope, target, request) =>
+      httpServerDependencies.contentModules.documentSync.realtime.sync(
+        scope,
+        target,
+        request,
+      ),
+    applyUpdate: (scope, target, request) =>
+      httpServerDependencies.contentModules.documentSync.realtime.applyUpdate(
+        scope,
+        target,
+        request,
+      ),
+    publishAwareness: (scope, target, request) =>
+      httpServerDependencies.contentModules.documentSync.realtime.publishAwareness(
+        scope,
+        target,
+        request,
+      ),
+    respondToRelocationLease: (scope, target, request) =>
+      httpServerDependencies.contentModules.documentSync.realtime
+        .respondToRelocationLease(scope, target, request),
+    subscribeCanvasScene: (target, request) =>
+      httpServerDependencies.contentModules.documentSync.realtime
+        .subscribeCanvasScene(target, request),
+    syncCanvasScene: (target, request) =>
+      httpServerDependencies.contentModules.documentSync.realtime
+        .syncCanvasScene(target, request),
+    applyCanvasSceneMutation: (target, request) =>
+      httpServerDependencies.contentModules.documentSync.realtime
+        .applyCanvasSceneMutation(target, request),
+  },
+  getOwnedDocumentDescriptor: (projectId, ownerBlockId) =>
+    httpServerDependencies.contentModules.documentSync
+      .getOwnedDocumentDescriptor(projectId, ownerBlockId),
+  prepareOwnedBlockDocument: (projectId, ownerBlockId) =>
+    httpServerDependencies.contentModules.documentSync
+      .prepareOwnedBlockDocument(projectId, ownerBlockId),
   prepareLibraryOwnedBlockDocument: (ownerBlockId) =>
-    blockMutationWriter.prepareLibraryOwnedBlockDocument(ownerBlockId),
+    httpServerDependencies.contentModules.documentSync
+      .prepareLibraryOwnedBlockDocument?.(ownerBlockId)
+      ?? Promise.resolve({
+        ok: false,
+        error: {
+          code: "transport_unavailable",
+          message: "Library Document preparation is unavailable",
+          retryable: true,
+          resetRequired: false,
+        },
+      }),
 });
 
 registerReferenceReadHttpRoutes(app, {
