@@ -463,6 +463,8 @@ pub(super) fn delete_thread(
         thread_id,
         thread.project_id.as_deref(),
     )?;
+    let now = sqlite_now(connection)?;
+    sync_linked_sessions_archived(connection, &session_ids, true, &now)?;
     connection.execute(
         "DELETE FROM codex_threads WHERE thread_id = ?1",
         [thread_id],
@@ -480,6 +482,91 @@ pub(super) fn delete_thread(
         session_ids,
         vec![thread_id.to_owned()],
     )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn set_thread_archived(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    thread_id: &str,
+    archived: bool,
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    validate_id("thread_id", thread_id)?;
+    let thread = require_thread(connection, library_id, thread_id)?;
+    let session_ids = linked_session_ids(
+        connection,
+        library_id,
+        thread_id,
+        thread.project_id.as_deref(),
+    )?;
+    let now = sqlite_now(connection)?;
+    let changed = connection.execute(
+        "UPDATE codex_threads SET archived = ?1, updated_at = ?2 WHERE thread_id = ?3",
+        params![i64::from(archived), unix_time_millis()?, thread_id],
+    )?;
+    if changed != 1 {
+        return Err(corrupt("Codex Thread disappeared during lifecycle update"));
+    }
+    if archived {
+        connection.execute(
+            "DELETE FROM codex_pinned_threads WHERE thread_id = ?1",
+            [thread_id],
+        )?;
+        connection.execute(
+            "DELETE FROM codex_unread_threads WHERE thread_id = ?1",
+            [thread_id],
+        )?;
+    }
+    sync_linked_sessions_archived(connection, &session_ids, archived, &now)?;
+    finish_thread_mutation(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        if archived {
+            "archive_thread"
+        } else {
+            "restore_thread"
+        },
+        thread.project_id.into_iter().collect(),
+        session_ids,
+        vec![thread_id.to_owned()],
+    )
+}
+
+fn sync_linked_sessions_archived(
+    connection: &Connection,
+    session_ids: &[String],
+    archived: bool,
+    now: &str,
+) -> Result<(), StoreError> {
+    for session_id in session_ids {
+        let changed = if archived {
+            connection.execute(
+                "UPDATE project_sessions SET archived = 1, archived_at = ?1, pinned = 0, \
+                   pinned_order = NULL, unread = 0, updated_at = ?1 WHERE id = ?2",
+                params![now, session_id],
+            )?
+        } else {
+            connection.execute(
+                "UPDATE project_sessions SET archived = 0, archived_at = NULL, updated_at = ?1 \
+                 WHERE id = ?2",
+                params![now, session_id],
+            )?
+        };
+        if changed != 1 {
+            return Err(corrupt(
+                "Linked Project Session disappeared during Thread lifecycle update",
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2102,6 +2189,74 @@ mod tests {
                 ),
             )
             .expect("mark linked Thread read");
+        module
+            .apply(
+                &context(),
+                request(
+                    "thread-archive-b",
+                    ProjectWorkspaceIntent::SetThreadArchived {
+                        thread_id: "thread-b".to_owned(),
+                        archived: true,
+                    },
+                ),
+            )
+            .expect("archive linked Thread");
+        let ProjectWorkspaceReadValue::Thread {
+            thread: archived_thread,
+        } = read(
+            &module,
+            ProjectWorkspaceRead::Thread {
+                thread_id: "thread-b".to_owned(),
+            },
+        )
+        else {
+            panic!("archived Thread read");
+        };
+        assert!(archived_thread.archived);
+        assert_eq!(archived_thread.pinned_order, None);
+        assert!(!archived_thread.has_unread_turn);
+        let archived_session_id = session_id.clone();
+        let archived_session_state = kernel
+            .writer()
+            .call(move |connection| {
+                Ok(connection.query_row(
+                    "SELECT archived, pinned, unread FROM project_sessions WHERE id = ?1",
+                    [&archived_session_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                        ))
+                    },
+                )?)
+            })
+            .expect("archived linked Session state");
+        assert_eq!(archived_session_state, (1, 0, 0));
+        module
+            .apply(
+                &context(),
+                request(
+                    "thread-restore-b",
+                    ProjectWorkspaceIntent::SetThreadArchived {
+                        thread_id: "thread-b".to_owned(),
+                        archived: false,
+                    },
+                ),
+            )
+            .expect("restore linked Thread");
+        let ProjectWorkspaceReadValue::Thread {
+            thread: restored_thread,
+        } = read(
+            &module,
+            ProjectWorkspaceRead::Thread {
+                thread_id: "thread-b".to_owned(),
+            },
+        )
+        else {
+            panic!("restored Thread read");
+        };
+        assert!(!restored_thread.archived);
 
         let ProjectWorkspaceReadValue::ChildThreads { threads } = read(
             &module,
@@ -2167,6 +2322,32 @@ mod tests {
         };
         assert_eq!(project_roots.len(), 3);
 
+        module
+            .apply(
+                &context(),
+                request(
+                    "thread-repin-b-before-delete",
+                    ProjectWorkspaceIntent::SetThreadPinned {
+                        thread_id: "thread-b".to_owned(),
+                        pinned: true,
+                        placement: None,
+                    },
+                ),
+            )
+            .expect("re-pin Thread before delete");
+        module
+            .apply(
+                &context(),
+                request(
+                    "thread-unread-b-before-delete",
+                    ProjectWorkspaceIntent::SetThreadUnread {
+                        thread_id: "thread-b".to_owned(),
+                        unread: true,
+                    },
+                ),
+            )
+            .expect("mark Thread unread before delete");
+
         let delete = request(
             "thread-delete-b",
             ProjectWorkspaceIntent::DeleteThread {
@@ -2184,6 +2365,24 @@ mod tests {
             committed.committed.event_sequence
         );
         assert!(replay.committed.receipt.mutation.duplicate);
+        let deleted_session_id = session_id.clone();
+        let deleted_session_state = kernel
+            .writer()
+            .call(move |connection| {
+                Ok(connection.query_row(
+                    "SELECT archived, pinned, unread FROM project_sessions WHERE id = ?1",
+                    [&deleted_session_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                        ))
+                    },
+                )?)
+            })
+            .expect("deleted Thread Session shell");
+        assert_eq!(deleted_session_state, (1, 0, 0));
         let missing = module
             .read(
                 &context(),

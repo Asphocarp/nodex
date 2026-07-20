@@ -11,12 +11,15 @@ import {
   setCodexPinnedThreadOrder,
   setCodexThreadHasUnreadTurn,
   setCodexThreadPinned,
+  unlinkCodexThread,
+  updateCodexThreadArchived,
 } from "./codex/codex-link-repository";
 import {
   getCodexProjectPermissionModeSelection,
   putCodexProjectPermissionModeSelection,
 } from "./local-store/codex-project-permission-modes";
 import {
+  deleteCodexThreadWritableRoots,
   getCodexThreadWritableRoots,
   mergeCodexThreadWritableRoots,
   replaceCodexThreadWritableRoots,
@@ -212,6 +215,48 @@ export const createTypeScriptProjectWorkspacePort = (
       );
     }
     return readTypeScriptThread(threadId);
+  },
+  setThreadArchived: async (threadId, archived) => {
+    if (!getCodexThread(threadId)) return readTypeScriptSidebar(false);
+    updateCodexThreadArchived(threadId, archived);
+    if (archived) {
+      setCodexThreadPinned(threadId, false);
+      setCodexThreadHasUnreadTurn(threadId, false);
+    }
+    const owners = projectSessionService.listProjectSessionThreadOwners(threadId);
+    for (const owner of owners) {
+      const session = archived
+        ? projectSessionService.archiveProjectSession(owner.sessionId)
+        : projectSessionService.unarchiveProjectSession(owner.sessionId);
+      if (!session) continue;
+      dbNotifier.notifyProjectSessionsChanged(
+        session.projectId,
+        archived ? "archive" : "unarchive",
+        session.id,
+      );
+    }
+    return readTypeScriptSidebar(false);
+  },
+  deleteThread: async (threadId) => {
+    if (!getCodexThread(threadId)) {
+      return { deleted: false, sidebar: readTypeScriptSidebar(false) };
+    }
+    const owners = projectSessionService.listProjectSessionThreadOwners(threadId);
+    for (const owner of owners) {
+      const session = projectSessionService.archiveProjectSession(owner.sessionId);
+      projectSessionService.detachProjectSessionThread(owner.sessionId);
+      if (!session) continue;
+      dbNotifier.notifyProjectSessionsChanged(
+        session.projectId,
+        "archive",
+        session.id,
+      );
+    }
+    setCodexThreadPinned(threadId, false);
+    setCodexThreadHasUnreadTurn(threadId, false);
+    const deleted = unlinkCodexThread(threadId);
+    deleteCodexThreadWritableRoots(threadId);
+    return { deleted, sidebar: readTypeScriptSidebar(false) };
   },
   readThreadExecutionContext: async (threadId) => {
     const thread = getCodexThread(threadId);

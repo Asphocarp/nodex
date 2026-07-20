@@ -118,6 +118,10 @@ export function createDesktopProjectWorkspaceBridge(
       await (await resolve()).getThread(threadId),
     setThreadUnread: async (threadId, unread) =>
       await (await resolve()).setThreadUnread(threadId, unread),
+    setThreadArchived: async (threadId, archived) =>
+      await (await resolve()).setThreadArchived(threadId, archived),
+    deleteThread: async (threadId) =>
+      await (await resolve()).deleteThread(threadId),
     readThreadExecutionContext: async (threadId) =>
       await (await resolve()).readThreadExecutionContext(threadId),
     replaceThreadDynamicToolCatalogs: async (threadId, catalogs) =>

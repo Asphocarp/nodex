@@ -454,6 +454,80 @@ describe("Core Project Workspace adapter", () => {
     ]);
   });
 
+  test("maps Thread archive and delete lifecycle intents with committed sidebars", async () => {
+    const client = new FakeCoreClient();
+    const enqueueApply = (operationId: string, eventSequence: number) => {
+      client.enqueueWorkspaceApply({
+        value: {
+          affected_project_ids: ["project:one"],
+          affected_session_ids: ["session:one"],
+          affected_thread_ids: ["thread:one"],
+        },
+        receipt: {
+          operation_id: operationId,
+          duplicate: false,
+          affected_project_ids: ["project:one"],
+          affected_session_ids: ["session:one"],
+        },
+        event_sequence: eventSequence,
+        store_epoch: "epoch:test",
+      });
+    };
+    const enqueueEmptySidebar = (eventHead: number) => {
+      client.enqueueWorkspaceRead({
+        version: 1,
+        event_head: eventHead,
+        store_epoch: "epoch:test",
+        value: {
+          kind: "sidebar",
+          sidebar: {
+            threads: [],
+            project_thread_orders: {},
+            projectless_thread_order: null,
+          },
+        },
+      });
+    };
+    enqueueApply("operation:archive-thread", 15);
+    enqueueEmptySidebar(15);
+    client.enqueueWorkspaceRead({
+      version: 1,
+      event_head: 15,
+      store_epoch: "epoch:test",
+      value: { kind: "thread", thread: { ...thread, archived: true } },
+    });
+    enqueueApply("operation:delete-thread", 16);
+    enqueueEmptySidebar(16);
+    const adapter = createCoreProjectWorkspaceAdapter(client);
+
+    await expect(
+      adapter.setThreadArchived("thread:one", true),
+    ).resolves.toMatchObject({ threads: [] });
+    await expect(adapter.deleteThread("thread:one")).resolves.toMatchObject({
+      deleted: true,
+      sidebar: { threads: [] },
+    });
+    expect(client.workspaceReads).toEqual([
+      { kind: "sidebar", include_archived: false },
+      { kind: "thread", thread_id: "thread:one" },
+      { kind: "sidebar", include_archived: false },
+    ]);
+    expect(client.workspaceApplies).toEqual([
+      {
+        operationId: expect.any(String),
+        intent: {
+          kind: "set_thread_archived",
+          thread_id: "thread:one",
+          archived: true,
+        },
+      },
+      {
+        operationId: expect.any(String),
+        intent: { kind: "delete_thread", thread_id: "thread:one" },
+      },
+    ]);
+  });
+
   test("maps and upserts background processes through the Workspace aggregate", async () => {
     const client = new FakeCoreClient();
     const process = {

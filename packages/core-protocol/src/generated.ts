@@ -2334,6 +2334,11 @@ export interface components {
                 readonly kind: "delete_thread";
                 readonly thread_id: string;
             } | {
+                readonly archived: boolean;
+                /** @enum {string} */
+                readonly kind: "set_thread_archived";
+                readonly thread_id: string;
+            } | {
                 /** @enum {string} */
                 readonly kind: "set_thread_pinned";
                 readonly pinned: boolean;

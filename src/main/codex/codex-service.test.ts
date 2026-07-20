@@ -815,6 +815,33 @@ function makeConversationSnapshot(input: {
   };
 }
 
+function makeDesktopWorkspaceThread(
+  overrides: Partial<DesktopProjectWorkspaceThread> = {},
+): DesktopProjectWorkspaceThread {
+  return {
+    threadId: "thread-workspace",
+    projectId: "project-workspace",
+    sessionId: "session-workspace",
+    parentThreadId: null,
+    threadName: "Workspace Thread",
+    threadPreview: "Workspace Thread",
+    modelProvider: "openai",
+    cwd: "/tmp/nodex",
+    managedWorktreePath: null,
+    projectlessOutputDirectory: null,
+    projectlessWorkspaceBrowserRoot: null,
+    statusType: "idle",
+    statusActiveFlags: [],
+    archived: false,
+    pinnedOrder: null,
+    hasUnreadTurn: false,
+    createdAt: 1,
+    updatedAt: 2,
+    linkedAt: "2026-07-20T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
 const DEFAULT_TEST_THREAD_GOAL_ATTACHMENTS_ROOT = fs.mkdtempSync(
   path.join(os.tmpdir(), "nodex-codex-service-goal-attachments-"),
 );
@@ -26719,27 +26746,13 @@ describe("codex-service approval fallback", () => {
   test("routes conversation unread commits through the selected Workspace authority", async () => {
     const service = createService();
     const calls: string[] = [];
-    const thread: DesktopProjectWorkspaceThread = {
+    const thread = makeDesktopWorkspaceThread({
       threadId: "thread-authority-unread",
       projectId: "project-authority",
       sessionId: "session-authority",
-      parentThreadId: null,
       threadName: "Authority unread",
       threadPreview: "Authority unread",
-      modelProvider: "openai",
-      cwd: "/tmp/nodex",
-      managedWorktreePath: null,
-      projectlessOutputDirectory: null,
-      projectlessWorkspaceBrowserRoot: null,
-      statusType: "idle",
-      statusActiveFlags: [],
-      archived: false,
-      pinnedOrder: null,
-      hasUnreadTurn: false,
-      createdAt: 1,
-      updatedAt: 2,
-      linkedAt: "2026-07-20T00:00:00.000Z",
-    };
+    });
     let persisted = thread;
     const typescriptWorkspace = createTypeScriptProjectWorkspacePort();
     service.setProjectWorkspacePort({
@@ -26782,6 +26795,99 @@ describe("codex-service approval fallback", () => {
       expect(hostMessages.filter(
         (message) => message.type === "threadReadStateChanged",
       )).toHaveLength(1);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("routes Thread archive, restore, and delete through the selected Workspace authority", async () => {
+    const service = createService();
+    const calls: string[] = [];
+    let persisted: DesktopProjectWorkspaceThread | null =
+      makeDesktopWorkspaceThread({
+        threadId: "thread-authority-lifecycle",
+        projectId: "project-authority",
+        sessionId: null,
+        threadName: "Authority lifecycle",
+      });
+    const emptySidebar: DesktopProjectWorkspaceSidebar = {
+      threads: [],
+      projectThreadOrders: {},
+      projectlessThreadOrder: null,
+    };
+    const typescriptWorkspace = createTypeScriptProjectWorkspacePort();
+    service.setProjectWorkspacePort({
+      ...typescriptWorkspace,
+      getThread: async (threadId) => {
+        calls.push(`read:${threadId}`);
+        return persisted?.threadId === threadId ? persisted : null;
+      },
+      setThreadArchived: async (threadId, archived) => {
+        calls.push(`archive:${threadId}:${String(archived)}`);
+        if (persisted?.threadId === threadId) {
+          persisted = {
+            ...persisted,
+            archived,
+            ...(archived
+              ? { pinnedOrder: null, hasUnreadTurn: false }
+              : {}),
+          };
+        }
+        return persisted && !persisted.archived
+          ? { ...emptySidebar, threads: [persisted] }
+          : emptySidebar;
+      },
+      deleteThread: async (threadId) => {
+        calls.push(`delete:${threadId}`);
+        const deleted = persisted?.threadId === threadId;
+        if (deleted) persisted = null;
+        return { deleted, sidebar: emptySidebar };
+      },
+    });
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params?: unknown) => Promise<unknown>;
+    };
+    client.start = async () => undefined;
+    client.request = async (method) => {
+      if (method === "thread/archive") return {};
+      if (method === "thread/unarchive") return { thread: {} };
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+    const serviceInternals = service as unknown as {
+      archiveThread: (threadId: string) => Promise<boolean>;
+      unarchiveThread: (threadId: string) => Promise<CodexThreadSummary | null>;
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
+    };
+    const hostMessages: CodexHostMessage[] = [];
+    service.on("hostMessage", (message) => hostMessages.push(message));
+
+    try {
+      await expect(serviceInternals.archiveThread(
+        "thread-authority-lifecycle",
+      )).resolves.toBe(true);
+      await expect(serviceInternals.unarchiveThread(
+        "thread-authority-lifecycle",
+      )).resolves.toMatchObject({
+        threadId: "thread-authority-lifecycle",
+        archived: false,
+      });
+      await serviceInternals.handleNotification({
+        method: "thread/deleted",
+        params: { threadId: "thread-authority-lifecycle" },
+      });
+
+      expect(calls).toEqual([
+        "read:thread-authority-lifecycle",
+        "archive:thread-authority-lifecycle:true",
+        "read:thread-authority-lifecycle",
+        "archive:thread-authority-lifecycle:false",
+        "read:thread-authority-lifecycle",
+        "delete:thread-authority-lifecycle",
+      ]);
+      expect(hostMessages.filter(
+        (message) => message.type === "sidebarSyncUpdated",
+      )).toHaveLength(3);
     } finally {
       await service.shutdown();
     }

@@ -9100,6 +9100,28 @@
                 "type": "object",
                 "required": [
                   "thread_id",
+                  "archived",
+                  "kind"
+                ],
+                "properties": {
+                  "archived": {
+                    "type": "boolean"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "set_thread_archived"
+                    ]
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "thread_id",
                   "pinned",
                   "kind"
                 ],

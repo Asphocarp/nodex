@@ -338,6 +338,19 @@ pub(super) fn apply(
                     &request_hash,
                     thread_id,
                 ),
+                ProjectWorkspaceIntent::SetThreadArchived {
+                    thread_id,
+                    archived,
+                } => thread::set_thread_archived(
+                    transaction,
+                    &library_id,
+                    &context,
+                    &store_epoch,
+                    &request.operation_id,
+                    &request_hash,
+                    thread_id,
+                    *archived,
+                ),
                 ProjectWorkspaceIntent::SetThreadPinned {
                     thread_id,
                     pinned,

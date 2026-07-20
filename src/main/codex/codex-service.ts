@@ -460,9 +460,6 @@ import {
   getNodexHome,
 } from "../local-store/config";
 import {
-  deleteCodexThreadWritableRoots,
-} from "../local-store/codex-thread-writable-roots";
-import {
   listCodexProjectThreadOrders,
   moveCodexProjectThread,
 } from "../local-store/codex-project-thread-move";
@@ -5743,6 +5740,32 @@ export class CodexService extends EventEmitter {
     }
   }
 
+  private applyCommittedConversationUnreadState(
+    threadId: string,
+    hasUnreadTurn: boolean,
+    options: { readonly broadcast: boolean },
+  ): void {
+    const record = this.getMaybeConversationRecord(threadId);
+    if (record && record.hasUnreadTurn !== hasUnreadTurn) {
+      record.hasUnreadTurn = hasUnreadTurn;
+      if (!hasUnreadTurn) record.unreadMessageCount = 0;
+    }
+    const acceptedConversation = this.acceptedConversationDocumentById.get(threadId);
+    if (acceptedConversation && acceptedConversation.hasUnreadTurn !== hasUnreadTurn) {
+      this.mutateAcceptedConversationDocumentSilently(threadId, (draft) => {
+        draft.hasUnreadTurn = hasUnreadTurn;
+        if (!hasUnreadTurn) draft.unreadMessageCount = 0;
+      });
+    }
+    if (!options.broadcast) return;
+    this.emitHostMessage({
+      type: "threadReadStateChanged",
+      hostId: DEFAULT_CODEX_HOST_ID,
+      conversationId: threadId,
+      hasUnreadTurn,
+    });
+  }
+
   async setConversationUnreadState(
     threadId: string,
     hasUnreadTurn: boolean,
@@ -5765,22 +5788,8 @@ export class CodexService extends EventEmitter {
     );
     if (!committed) return false;
 
-    if (record && recordChanged) {
-      record.hasUnreadTurn = hasUnreadTurn;
-      if (!hasUnreadTurn) record.unreadMessageCount = 0;
-    }
-    const acceptedConversation = this.acceptedConversationDocumentById.get(normalizedThreadId);
-    if (acceptedConversation && acceptedConversation.hasUnreadTurn !== hasUnreadTurn) {
-      this.mutateAcceptedConversationDocumentSilently(normalizedThreadId, (draft) => {
-        draft.hasUnreadTurn = hasUnreadTurn;
-        if (!hasUnreadTurn) draft.unreadMessageCount = 0;
-      });
-    }
-    this.emitHostMessage({
-      type: "threadReadStateChanged",
-      hostId: DEFAULT_CODEX_HOST_ID,
-      conversationId: normalizedThreadId,
-      hasUnreadTurn,
+    this.applyCommittedConversationUnreadState(normalizedThreadId, hasUnreadTurn, {
+      broadcast: true,
     });
     return true;
   }
@@ -8696,6 +8705,43 @@ export class CodexService extends EventEmitter {
       snapshot,
     });
     return snapshot;
+  }
+
+  private buildWorkspaceThreadSummary(
+    thread: DesktopProjectWorkspaceThread,
+    overrides: {
+      readonly archived?: boolean;
+      readonly hasUnreadTurn?: boolean;
+      readonly pinnedOrder?: number | null;
+    } = {},
+  ): CodexThreadSummary {
+    const pinnedOrder = overrides.pinnedOrder === undefined
+      ? thread.pinnedOrder
+      : overrides.pinnedOrder;
+    return {
+      threadId: thread.threadId,
+      projectId: thread.projectId,
+      source: thread.parentThreadId
+        ? { parentThreadId: thread.parentThreadId }
+        : null,
+      ephemeral: false,
+      threadSource: null,
+      threadName: thread.threadName,
+      threadPreview: thread.threadPreview,
+      modelProvider: thread.modelProvider,
+      cwd: thread.cwd,
+      managedWorktreePath: thread.managedWorktreePath,
+      projectlessOutputDirectory: thread.projectlessOutputDirectory,
+      projectlessWorkspaceBrowserRoot: thread.projectlessWorkspaceBrowserRoot,
+      statusType: thread.statusType,
+      statusActiveFlags: [...thread.statusActiveFlags],
+      archived: overrides.archived ?? thread.archived,
+      pinned: pinnedOrder !== null,
+      hasUnreadTurn: overrides.hasUnreadTurn ?? thread.hasUnreadTurn,
+      createdAt: thread.createdAt,
+      updatedAt: thread.updatedAt,
+      linkedAt: thread.linkedAt,
+    };
   }
 
   private async emitWorkspaceSidebarSyncUpdatedFromMetadata(
@@ -16423,12 +16469,25 @@ export class CodexService extends EventEmitter {
       }
     }
     await this.deleteHeartbeatAutomationForArchivedThread(threadId);
-    await this.setConversationUnreadState(threadId, false);
-    updateCodexThreadArchived(threadId, true);
-    setCodexThreadPinned(threadId, false);
+    const previous = await this.projectWorkspace.getThread(threadId);
+    const hadUnreadState = Boolean(
+      previous?.hasUnreadTurn
+      || this.getMaybeConversationRecord(threadId)?.hasUnreadTurn
+      || this.acceptedConversationDocumentById.get(threadId)?.hasUnreadTurn,
+    );
+    const sidebar = await this.projectWorkspace.setThreadArchived(threadId, true);
+    this.applyCommittedConversationUnreadState(threadId, false, {
+      broadcast: hadUnreadState,
+    });
     this.emitEvent({ type: "threadArchivedState", threadId, archived: true });
     this.forgetThreadLocalState(threadId);
-    this.emitSidebarCatalogChangedForThread(threadId, "host-message");
+    const metadata = createSidebarThreadSyncMetadata();
+    if (previous) markSidebarSyncScopeChanged(metadata, previous.projectId);
+    await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
+      sidebar,
+      metadata,
+      "host-message",
+    );
     return true;
   }
 
@@ -16521,16 +16580,27 @@ export class CodexService extends EventEmitter {
 
   async unarchiveThread(threadId: string): Promise<CodexThreadSummary | null> {
     await this.ensureClientReady();
-    const result = await this.client.request<"thread/unarchive", ThreadUnarchiveResponse>("thread/unarchive", { threadId });
+    await this.client.request<"thread/unarchive", ThreadUnarchiveResponse>("thread/unarchive", { threadId });
 
-    this.upsertLinkFromThread(result.thread);
-    const summary = updateCodexThreadArchived(threadId, false);
+    const previous = await this.projectWorkspace.getThread(threadId);
+    const sidebar = await this.projectWorkspace.setThreadArchived(threadId, false);
+    const summary = previous
+      ? this.buildWorkspaceThreadSummary(previous, { archived: false })
+      : null;
     if (summary) {
       this.emitEvent({ type: "threadSummary", thread: summary });
       this.emitEvent({ type: "threadArchivedState", threadId, archived: false });
     }
+    const record = this.getMaybeConversationRecord(threadId);
+    if (record?.detail) record.detail.archived = false;
     this.syncAcceptedConversationSummary(threadId, { syncCapabilityFlags: true });
-    this.emitSidebarCatalogChangedForThread(threadId, "host-message");
+    const metadata = createSidebarThreadSyncMetadata();
+    if (previous) markSidebarSyncScopeChanged(metadata, previous.projectId);
+    await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
+      sidebar,
+      metadata,
+      "host-message",
+    );
 
     return summary;
   }
@@ -22446,29 +22516,35 @@ export class CodexService extends EventEmitter {
         threadId: payload.threadId,
         archived,
       });
-      if (archived) {
-        await this.setConversationUnreadState(payload.threadId, false);
-      }
-      const updated = updateCodexThreadArchived(payload.threadId, archived);
-      if (!updated) {
+      const previous = await this.projectWorkspace.getThread(payload.threadId);
+      const hadUnreadState = Boolean(
+        previous?.hasUnreadTurn
+        || this.getMaybeConversationRecord(payload.threadId)?.hasUnreadTurn
+        || this.acceptedConversationDocumentById.get(payload.threadId)?.hasUnreadTurn,
+      );
+      const sidebar = await this.projectWorkspace.setThreadArchived(
+        payload.threadId,
+        archived,
+      );
+      const updated = previous
+        ? this.buildWorkspaceThreadSummary(previous, {
+            archived,
+            ...(archived
+              ? { hasUnreadTurn: false, pinnedOrder: null }
+              : {}),
+          })
+        : null;
+      if (!previous) {
         if (!archived) this.scheduleSidebarThreadListRepair(method, payload.threadId);
       }
       const metadata = createSidebarThreadSyncMetadata();
-      if (updated) markSidebarSyncScopeChanged(metadata, updated.projectId);
+      if (previous) markSidebarSyncScopeChanged(metadata, previous.projectId);
       if (archived) {
+        this.applyCommittedConversationUnreadState(payload.threadId, false, {
+          broadcast: hadUnreadState,
+        });
         await this.deleteHeartbeatAutomationForArchivedThread(payload.threadId);
         this.commandPaletteThreadSearchService.removeThread(payload.threadId);
-        setCodexThreadPinned(payload.threadId, false);
-        const owners = projectSessionService.listProjectSessionThreadOwners(payload.threadId);
-        for (const owner of owners) {
-          markSidebarSyncScopeChanged(metadata, owner.projectId);
-          const session = projectSessionService.getProjectSession(owner.sessionId);
-          if (!session || session.archived) continue;
-          const archivedSession = projectSessionService.archiveProjectSession(session.id);
-          if (archivedSession) {
-            dbNotifier.notifyProjectSessionsChanged(archivedSession.projectId, "archive", archivedSession.id);
-          }
-        }
       }
       if (updated) {
         this.emitEvent({ type: "threadSummary", thread: updated });
@@ -22482,9 +22558,15 @@ export class CodexService extends EventEmitter {
       if (archived) {
         this.forgetThreadLocalState(payload.threadId);
       } else {
+        const record = this.getMaybeConversationRecord(payload.threadId);
+        if (record?.detail) record.detail.archived = false;
         this.syncAcceptedConversationSummary(payload.threadId, { syncCapabilityFlags: true });
       }
-      this.emitSidebarSyncUpdatedFromMetadata(metadata, "host-message");
+      await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
+        sidebar,
+        metadata,
+        "host-message",
+      );
       return;
     }
 
@@ -22497,37 +22579,32 @@ export class CodexService extends EventEmitter {
       this.logger.info("Received Codex thread deleted notification", {
         threadId: payload.threadId,
       });
-      const owners = projectSessionService.listProjectSessionThreadOwners(payload.threadId);
       const metadata = createSidebarThreadSyncMetadata();
-      const existingThread = getCodexThread(payload.threadId);
+      const existingThread = await this.projectWorkspace.getThread(payload.threadId);
       if (existingThread) markSidebarSyncScopeChanged(metadata, existingThread.projectId);
-      setCodexThreadPinned(payload.threadId, false);
+      const hadUnreadState = Boolean(
+        existingThread?.hasUnreadTurn
+        || this.getMaybeConversationRecord(payload.threadId)?.hasUnreadTurn
+        || this.acceptedConversationDocumentById.get(payload.threadId)?.hasUnreadTurn,
+      );
+      const deleted = await this.projectWorkspace.deleteThread(payload.threadId);
+      this.applyCommittedConversationUnreadState(payload.threadId, false, {
+        broadcast: hadUnreadState,
+      });
       this.commandPaletteThreadSearchService.removeThread(payload.threadId);
-      for (const owner of owners) {
-        markSidebarSyncScopeChanged(metadata, owner.projectId);
-        const session = projectSessionService.getProjectSession(owner.sessionId);
-        if (session && !session.archived) {
-          const archivedSession = projectSessionService.archiveProjectSession(session.id);
-          if (archivedSession) {
-            dbNotifier.notifyProjectSessionsChanged(archivedSession.projectId, "archive", archivedSession.id);
-          }
-        }
-        projectSessionService.detachProjectSessionThread(owner.sessionId);
-      }
-      unlinkCodexThread(payload.threadId);
-      deleteCodexThreadWritableRoots(payload.threadId);
       this.forgetThreadLocalState(payload.threadId);
       this.deletedThreadIds.add(payload.threadId);
-      if (existingThread?.source?.parentThreadId) {
-        this.syncParentChildMembershipMetadata(existingThread.source.parentThreadId, {
+      if (existingThread?.parentThreadId) {
+        this.syncParentChildMembershipMetadata(existingThread.parentThreadId, {
           repairMissing: false,
         });
       }
       this.emitEvent({ type: "threadDeleted", threadId: payload.threadId });
-      for (const owner of owners) {
-        dbNotifier.notifyProjectSessionsChanged(owner.projectId, "link", owner.sessionId);
-      }
-      this.emitSidebarSyncUpdatedFromMetadata(metadata, "host-message");
+      await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
+        deleted.sidebar,
+        metadata,
+        "host-message",
+      );
       return;
     }
 

@@ -487,16 +487,19 @@ lineage, display/service/agent identity, working-directory/worktree and
 projectless coordinates, protocol-derived status, archive state, and immutable
 creation/link timestamps. Separate semantic intents own root-only global pin
 order, unread state, dynamic-tool catalog selection, Project permission-mode
-selection, and Thread deletion. A Thread unread mutation commits its attached
-Session mirror in the same transaction. Codex Host waits for that receipt
-before changing its in-memory read marker or
-broadcasting `threadReadStateChanged`. An execution-context read combines the
-exact Thread, its Project binding, current permission mode, sorted tool
-catalogs, and writable roots from one snapshot. Invalid protocol status,
-oversized metadata, cross-Library Projects, duplicate Session ownership, and a
-Thread/Session Project mismatch
-fail closed. Electron still hosts codex-app-server and supplies accepted runtime
-observations; reading or persisting this context never starts a process. Thread
+selection, Thread lifecycle, and deletion. A Thread unread mutation commits its
+attached Session mirror in the same transaction. Codex Host waits for that
+receipt before changing its in-memory read marker or broadcasting
+`threadReadStateChanged`. Archive clears pin/unread and archives the attached
+Session shell; restore reactivates both identities without restoring ephemeral
+pin/read state; delete first preserves an archived detached Session shell, then
+removes the Thread and its dependent continuity/search rows. An
+execution-context read combines the exact Thread, its Project binding, current
+permission mode, sorted tool catalogs, and writable roots from one snapshot.
+Invalid protocol status, oversized metadata, cross-Library Projects, duplicate
+Session ownership, and a Thread/Session Project mismatch fail closed. Electron
+still hosts codex-app-server and supplies accepted runtime observations;
+reading or persisting this context never starts a process. Thread
 launches and dynamic creates persist their exact namespace/revision catalog
 through the backend-selected Workspace port before execution continues. A fork
 reads the source execution-context snapshot and replaces the target catalog

@@ -1931,6 +1931,52 @@ describe("Electron native data authority", () => {
       await expect(
         workspace.getProjectSession(createdSession.id),
       ).resolves.toMatchObject({ unread: false });
+      await expect(workspace.setThreadArchived(
+        "thread:electron-projectless-order",
+        true,
+      )).resolves.toMatchObject({
+        threads: expect.not.arrayContaining([
+          expect.objectContaining({
+            threadId: "thread:electron-projectless-order",
+          }),
+        ]),
+      });
+      await expect(
+        workspace.getProjectSession(projectlessSession.id),
+      ).resolves.toMatchObject({
+        archived: true,
+        pinned: false,
+        unread: false,
+      });
+      await expect(workspace.setThreadArchived(
+        "thread:electron-projectless-order",
+        false,
+      )).resolves.toMatchObject({
+        threads: expect.arrayContaining([
+          expect.objectContaining({
+            threadId: "thread:electron-projectless-order",
+            archived: false,
+          }),
+        ]),
+      });
+      await expect(
+        workspace.getProjectSession(projectlessSession.id),
+      ).resolves.toMatchObject({ archived: false });
+      await expect(workspace.deleteThread(
+        "thread:electron-projectless-order",
+      )).resolves.toMatchObject({
+        deleted: true,
+        sidebar: {
+          threads: expect.not.arrayContaining([
+            expect.objectContaining({
+              threadId: "thread:electron-projectless-order",
+            }),
+          ]),
+        },
+      });
+      await expect(
+        workspace.getProjectSession(projectlessSession.id),
+      ).resolves.toMatchObject({ archived: true, thread: null });
       const backgroundProcess = {
         id: "thread:electron-session:item:dev-server",
         threadId: "thread:electron-session",

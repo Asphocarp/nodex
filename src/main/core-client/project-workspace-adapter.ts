@@ -251,6 +251,14 @@ export interface DesktopProjectWorkspacePort {
     threadId: string,
     unread: boolean,
   ): Promise<DesktopProjectWorkspaceThread | null>;
+  setThreadArchived(
+    threadId: string,
+    archived: boolean,
+  ): Promise<DesktopProjectWorkspaceSidebar>;
+  deleteThread(threadId: string): Promise<{
+    readonly deleted: boolean;
+    readonly sidebar: DesktopProjectWorkspaceSidebar;
+  }>;
   readThreadExecutionContext(
     threadId: string,
   ): Promise<DesktopProjectWorkspaceExecutionContext | null>;
@@ -1398,6 +1406,26 @@ export function createCoreProjectWorkspaceAdapter(
         return null;
       }
       return await getThread(threadId);
+    },
+    setThreadArchived: async (threadId, archived) => {
+      try {
+        await apply({
+          kind: "set_thread_archived",
+          thread_id: threadId,
+          archived,
+        });
+      } catch (error) {
+        if (!isNotFound(error)) throw error;
+      }
+      return await readSidebar(false);
+    },
+    deleteThread: async (threadId) => {
+      const existing = await readCoreThread(threadId);
+      if (!existing) {
+        return { deleted: false, sidebar: await readSidebar(false) };
+      }
+      await apply({ kind: "delete_thread", thread_id: threadId });
+      return { deleted: true, sidebar: await readSidebar(false) };
     },
     readThreadExecutionContext,
     replaceThreadDynamicToolCatalogs: async (threadId, catalogs) => {

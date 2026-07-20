@@ -622,6 +622,10 @@ pub enum ProjectWorkspaceIntent {
     DeleteThread {
         thread_id: String,
     },
+    SetThreadArchived {
+        thread_id: String,
+        archived: bool,
+    },
     SetThreadPinned {
         thread_id: String,
         pinned: bool,
