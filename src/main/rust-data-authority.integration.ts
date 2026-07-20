@@ -17,6 +17,7 @@ import { createDesktopDatabaseModuleBridge } from "./core-client/desktop-databas
 import { createDesktopProjectWorkspaceBridge } from "./core-client/desktop-project-workspace-bridge";
 import { createDesktopNodexAgentAuthorityPort } from "./core-client/desktop-nodex-agent-authority";
 import { createDesktopNodexAgentResourceAuthorityPort } from "./core-client/desktop-nodex-agent-resource-authority";
+import { createDesktopNodexAgentV3DynamicService } from "./core-client/desktop-nodex-agent-dynamic-service";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
 import { createDesktopDocumentSyncBridge } from "./core-client/desktop-document-sync-bridge";
 import { createCoreBlockTransferAdapter } from "./core-client/block-transfer-adapter";
@@ -36,6 +37,10 @@ import { LIBRARY_MODULE_CONTRACT_VERSION } from "../shared/library-module";
 import { PAGE_HISTORY_CONTRACT_VERSION } from "../shared/page-history";
 import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../shared/database-module-v2";
 import { parseDataSourcePropertyId } from "../shared/database-identities";
+import {
+  NODEX_APP_TOOL_NAMESPACE,
+  NODEX_APP_V5_TOOLSET_REVISION,
+} from "../shared/nodex-agent-tools";
 import {
   CANVAS_SCENE_SYNC_VERSION,
   primaryCanvasDocumentId,
@@ -1029,6 +1034,56 @@ describe("Electron native data authority", () => {
           getDatabaseRowsDetails: unavailableDatabaseFallback,
           getDatabaseRowPage: unavailableDatabaseFallback,
           resolveDatabaseViewReference: unavailableDatabaseFallback,
+        },
+      });
+      const nativeAgentService = createDesktopNodexAgentV3DynamicService({
+        authority: Promise.resolve(runtime),
+        projectWorkspace: desktopWorkspace,
+        databaseModule: desktopDatabase,
+        typescript: {
+          writer: {} as never,
+          documentHub: {} as never,
+        },
+      });
+      const nativeAgentContext = await nativeAgentService.registry.execute({
+        namespace: NODEX_APP_TOOL_NAMESPACE,
+        toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+        tool: "get_context",
+      }, {
+        include: { databases: true },
+      }, {
+        threadId: "thread-native-context",
+        callId: "call-native-context",
+        authority: {
+          threadId: "thread-native-context",
+          turnId: "turn-native-context",
+          rootThreadId: "thread-native-context",
+          actorProjectId: projectId,
+          libraryId: runtime.rootClient.handshake.library_id,
+          storeEpoch: runtime.rootClient.handshake.store_epoch,
+          scope: "project",
+          source: "project_turn",
+        },
+        access: {
+          read: "allowed",
+          write: "consent_required",
+          domains: ["document", "placement", "database"],
+        },
+        resolveResourceAccess: async () => ({ kind: "authorized" }),
+        authorize: async () => "deny",
+      });
+      expect(nativeAgentContext.output).toMatchObject({
+        data: {
+          project: {
+            projectId,
+            libraryId: runtime.rootClient.handshake.library_id,
+          },
+          databases: expect.arrayContaining([
+            expect.objectContaining({
+              databaseId: primaryDatabase.database.databaseId,
+              isBound: true,
+            }),
+          ]),
         },
       });
       const nativeBoard = await desktopDatabase.getBoardSummary(projectId);

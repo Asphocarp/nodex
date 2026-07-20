@@ -168,6 +168,8 @@ import {
 } from "./core-client";
 import { createTypeScriptAutomationModulePort } from "./typescript-automation-module-port";
 import { createTypeScriptStoreAdministrationPort } from "./typescript-store-administration-port";
+import { createDesktopNodexAgentV3DynamicService } from "./core-client/desktop-nodex-agent-dynamic-service";
+import { configureNodexAgentV3DynamicService } from "./codex/nodex-agent-dynamic-tool-runtime";
 import { createTypeScriptProjectWorkspacePort } from "./typescript-project-workspace-port";
 import { createDesktopNodexAgentAuthorityPort } from "./core-client/desktop-nodex-agent-authority";
 import { createDesktopNodexAgentResourceAuthorityPort } from "./core-client/desktop-nodex-agent-resource-authority";
@@ -1820,6 +1822,17 @@ export async function runMainAppStartup(
     typescript: createTypeScriptProjectWorkspacePort(),
   });
   codexService.setProjectWorkspacePort(projectWorkspace);
+  configureNodexAgentV3DynamicService(
+    createDesktopNodexAgentV3DynamicService({
+      authority: dataAuthority,
+      projectWorkspace,
+      databaseModule,
+      typescript: {
+        writer: blockMutationWriter,
+        documentHub: documentSyncHub,
+      },
+    }),
+  );
   configureHttpContentModuleAuthorities({
     referenceReads: {
       resolvePageOwnershipPath: (input) =>

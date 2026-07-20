@@ -1,0 +1,315 @@
+import { NESTED_MARKDOWN_AGENT_GUIDE } from "../../shared/nfm/agent-guide";
+import type {
+  CompleteNodexAgentPageUpdateResult,
+  ExecuteNodexAgentCreatePagesResult,
+  ExecuteNodexAgentDuplicatePageResult,
+  ExecuteNodexAgentMovePagesResult,
+  NodexAgentV3ReadCommandResult,
+  NodexAgentV3ReadRequest,
+  PrepareNodexAgentCreatePagesResult,
+  PrepareNodexAgentDuplicatePageResult,
+  PrepareNodexAgentMovePagesResult,
+  PrepareNodexAgentPageUpdateResult,
+  ToolFailure,
+} from "../../shared/nodex-agent-tools";
+import { GetContextV3OutputSchema } from "../../shared/nodex-agent-tools/v3-read-schemas";
+import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../shared/database-module-v2";
+import type { BlockMutationEnvelope } from "../block-mutation-writer";
+import {
+  NodexAgentV3DynamicService,
+  type NodexAgentV3DocumentHub,
+  type NodexAgentV3Writer,
+} from "../agent-tools/dynamic-service-v3";
+import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
+import type { DesktopDatabaseModuleBridge } from "./desktop-database-module-bridge";
+import type { DesktopProjectWorkspacePort } from "./project-workspace-adapter";
+
+type ToolError = ToolFailure["error"];
+
+export interface DesktopNodexAgentDynamicServiceInput {
+  readonly authority: Promise<DesktopDataAuthorityRuntime>;
+  readonly projectWorkspace: DesktopProjectWorkspacePort;
+  readonly databaseModule: DesktopDatabaseModuleBridge;
+  readonly typescript: {
+    readonly writer: NodexAgentV3Writer;
+    readonly documentHub: NodexAgentV3DocumentHub;
+  };
+}
+
+const nativeUnavailableError = (tool: string): ToolError => ({
+  code: "internal_error",
+  message: `Nodex Agent tool ${tool} is not yet available through native Core`,
+  retryable: false,
+  recovery: "none",
+  details: { domainCode: "native_agent_tool_unavailable" },
+});
+
+const nativeReadFailure = (tool: string): NodexAgentV3ReadCommandResult => ({
+  ok: false,
+  error: nativeUnavailableError(tool),
+});
+
+const envelope = <Result>(
+  result: Result,
+  mutationId: string,
+): BlockMutationEnvelope<Result> => ({
+  result,
+  events: [],
+  metrics: {
+    mutationId,
+    queueWaitMs: 0,
+    workerDurationMs: 0,
+    transactionMs: 0,
+    eventCount: 0,
+  },
+});
+
+async function readNativeContext(
+  request: Extract<NodexAgentV3ReadRequest, { readonly tool: "get_context" }>,
+  projectWorkspace: DesktopProjectWorkspacePort,
+  databaseModule: DesktopDatabaseModuleBridge,
+): Promise<NodexAgentV3ReadCommandResult> {
+  if (!request.projectId) {
+    return {
+      ok: true,
+      tool: request.tool,
+      output: GetContextV3OutputSchema.parse({
+        data: {
+          project: null,
+          access: {
+            read: request.access.read,
+            write: request.access.write,
+            domains: request.access.read === "allowed" ? ["page", "database"] : [],
+          },
+          ...(request.input.include?.markdownGuide
+            ? { markdownGuide: NESTED_MARKDOWN_AGENT_GUIDE }
+            : {}),
+        },
+      }),
+    };
+  }
+
+  const project = await projectWorkspace.getProject(request.projectId);
+  if (!project) {
+    return {
+      ok: false,
+      error: {
+        code: "not_found",
+        message: `Project ${request.projectId} was not found`,
+        retryable: false,
+        recovery: "start_new_task",
+      },
+    };
+  }
+
+  const catalog = request.input.include?.databases
+    ? await databaseModule.read({
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        projectId: request.projectId,
+        read: { target: { kind: "project_default" }, mode: "catalog" },
+      })
+    : null;
+  if (catalog && !catalog.ok) {
+    return {
+      ok: false,
+      error: {
+        code: catalog.error.code === "authorization_denied"
+          ? "authorization_denied"
+          : catalog.error.code === "resource_not_found"
+            ? "not_found"
+            : "internal_error",
+        message: catalog.error.message,
+        retryable: catalog.error.retryable,
+        recovery: "none",
+        details: { domainCode: catalog.error.code },
+      },
+    };
+  }
+  if (catalog?.ok && catalog.value.value.kind !== "catalog") {
+    return {
+      ok: false,
+      error: {
+        code: "internal_error",
+        message: "Database Core returned an incompatible Agent context snapshot",
+        retryable: false,
+        recovery: "none",
+        details: { domainCode: "database_catalog_variant_mismatch" },
+      },
+    };
+  }
+
+  const databaseCatalog = catalog?.ok && catalog.value.value.kind === "catalog"
+    ? catalog.value.value
+    : null;
+  const databases = databaseCatalog
+    ? databaseCatalog.databases.map((descriptor) => ({
+        databaseId: descriptor.database.databaseId,
+        name: descriptor.database.name,
+        isBound: descriptor.database.databaseId === project.databaseId,
+        dataSources: descriptor.dataSources
+          .filter((source) => source.lifecycle === "active")
+          .map((source) => ({
+            dataSourceId: source.dataSourceId,
+            name: source.name,
+            schemaRevision: source.schemaRevision,
+          })),
+        views: descriptor.views
+          .filter((view) => view.lifecycle === "active")
+          .map((view) => ({
+            viewId: view.viewId,
+            dataSourceId: view.dataSourceId,
+            name: view.name,
+            kind: view.kind,
+            isDefault: view.isDefault,
+          })),
+      }))
+    : undefined;
+
+  return {
+    ok: true,
+    tool: request.tool,
+    output: GetContextV3OutputSchema.parse({
+      data: {
+        project: {
+          projectId: project.id,
+          name: project.name,
+          lifecycle: project.lifecycle,
+          libraryId: project.libraryId,
+          boundDatabaseId: project.databaseId,
+        },
+        access: {
+          read: request.access.read,
+          write: project.lifecycle === "active"
+            ? request.access.write
+            : "unavailable",
+          domains: request.access.read === "allowed" ? ["page", "database"] : [],
+        },
+        ...(databases ? { databases } : {}),
+        ...(request.input.include?.markdownGuide
+          ? { markdownGuide: NESTED_MARKDOWN_AGENT_GUIDE }
+          : {}),
+      },
+    }),
+  };
+}
+
+export function createDesktopNodexAgentV3DynamicService(
+  input: DesktopNodexAgentDynamicServiceInput,
+): NodexAgentV3DynamicService {
+  const writer: NodexAgentV3Writer = {
+    readNodexAgentV3Tool: async (request) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.writer.readNodexAgentV3Tool(request);
+      }
+      const result = request.tool === "get_context"
+        ? await readNativeContext(
+            request,
+            input.projectWorkspace,
+            input.databaseModule,
+          )
+        : nativeReadFailure(request.tool);
+      return envelope(result, request.callId ?? `nodex-agent:${request.tool}`);
+    },
+    prepareNodexAgentPageUpdate: async (request) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.writer.prepareNodexAgentPageUpdate(request);
+      }
+      const result: PrepareNodexAgentPageUpdateResult = {
+        ok: false,
+        error: nativeUnavailableError(request.tool),
+      };
+      return envelope(result, request.callId);
+    },
+    completeNodexAgentPageUpdate: async (request) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.writer.completeNodexAgentPageUpdate(request);
+      }
+      const result: CompleteNodexAgentPageUpdateResult = {
+        ok: false,
+        error: nativeUnavailableError(request.tool),
+      };
+      return envelope(result, request.callId);
+    },
+    prepareNodexAgentCreatePages: async (request) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.writer.prepareNodexAgentCreatePages(request);
+      }
+      const result: PrepareNodexAgentCreatePagesResult = {
+        ok: false,
+        error: nativeUnavailableError("create_pages"),
+      };
+      return envelope(result, request.callId);
+    },
+    prepareNodexAgentDuplicatePage: async (request) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.writer.prepareNodexAgentDuplicatePage(request);
+      }
+      const result: PrepareNodexAgentDuplicatePageResult = {
+        ok: false,
+        error: nativeUnavailableError("duplicate_page"),
+      };
+      return envelope(result, request.callId);
+    },
+    prepareNodexAgentMovePages: async (request) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.writer.prepareNodexAgentMovePages(request);
+      }
+      const result: PrepareNodexAgentMovePagesResult = {
+        ok: false,
+        error: nativeUnavailableError("move_pages"),
+      };
+      return envelope(result, request.callId);
+    },
+  };
+
+  const documentHub: NodexAgentV3DocumentHub = {
+    applyDocumentMutation: async (...args) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.documentHub.applyDocumentMutation(...args);
+      }
+      throw new Error("Native Agent Page updates must execute through Core preparation");
+    },
+    executeNodexAgentCreatePages: async (...args) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.documentHub.executeNodexAgentCreatePages(...args);
+      }
+      const result: ExecuteNodexAgentCreatePagesResult = {
+        ok: false,
+        error: nativeUnavailableError("create_pages"),
+      };
+      return result;
+    },
+    executeNodexAgentDuplicatePage: async (...args) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.documentHub.executeNodexAgentDuplicatePage(...args);
+      }
+      const result: ExecuteNodexAgentDuplicatePageResult = {
+        ok: false,
+        error: nativeUnavailableError("duplicate_page"),
+      };
+      return result;
+    },
+    executeNodexAgentMovePages: async (...args) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.documentHub.executeNodexAgentMovePages(...args);
+      }
+      const result: ExecuteNodexAgentMovePagesResult = {
+        ok: false,
+        error: nativeUnavailableError("move_pages"),
+      };
+      return result;
+    },
+  };
+
+  return new NodexAgentV3DynamicService({ writer, documentHub });
+}
