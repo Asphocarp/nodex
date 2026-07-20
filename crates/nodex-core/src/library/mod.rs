@@ -1134,6 +1134,385 @@ mod tests {
             })
             .expect("copied root projection"));
     }
+
+    #[test]
+    fn granted_pages_authorize_cross_storage_block_transfers_and_rehome_registry_rows() {
+        const NOW: &str = "2026-07-20T00:10:00.000Z";
+        const LOCAL_SOURCE_PAGE: &str = "018f0000-0000-7000-8000-000000000201";
+        const FOREIGN_SOURCE_PAGE: &str = "018f0000-0000-7000-8000-000000000202";
+        const FOREIGN_TARGET_PAGE: &str = "018f0000-0000-7000-8000-000000000203";
+        const LOCAL_SOURCE_DOCUMENT: &str = "document:transfer-local-source";
+        const FOREIGN_SOURCE_DOCUMENT: &str = "document:transfer-foreign-source";
+        const FOREIGN_TARGET_DOCUMENT: &str = "document:transfer-foreign-target";
+        let context_for = |project_id: &str| BoundModuleContext {
+            profile_id: ProfileId("profile-1".to_owned()),
+            library_id: LibraryId("library-1".to_owned()),
+            project_id: Some(ProjectId(project_id.to_owned())),
+            connection_id: format!("connection:{project_id}:block-transfer"),
+            adapter: AdapterKind::Test,
+        };
+        let local_context = context_for("project-1");
+        let foreign_context = context_for("project-2");
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO profiles(id, created_at, updated_at) VALUES ('profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                         VALUES ('library-1', 'profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    for (project_id, name) in
+                        [("project-1", "Requester"), ("project-2", "Storage")]
+                    {
+                        transaction.execute(
+                            "INSERT INTO projects(id, library_id, name, created, updated) \
+                             VALUES (?1, 'library-1', ?2, ?3, ?3)",
+                            params![project_id, name, NOW],
+                        )?;
+                    }
+                    transaction.execute(
+                        "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
+                         VALUES (1, 'epoch-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed authority");
+        let module = LibraryModule::new("profile-1", "library-1", &kernel);
+        for (context, operation_id, page_id, document_id, title) in [
+            (
+                &local_context,
+                "create-local-transfer-source",
+                LOCAL_SOURCE_PAGE,
+                LOCAL_SOURCE_DOCUMENT,
+                "Local source",
+            ),
+            (
+                &foreign_context,
+                "create-foreign-transfer-source",
+                FOREIGN_SOURCE_PAGE,
+                FOREIGN_SOURCE_DOCUMENT,
+                "Foreign source",
+            ),
+            (
+                &foreign_context,
+                "create-foreign-transfer-target",
+                FOREIGN_TARGET_PAGE,
+                FOREIGN_TARGET_DOCUMENT,
+                "Foreign target",
+            ),
+        ] {
+            module
+                .apply(
+                    context,
+                    ModuleApplyRequest {
+                        version: CORE_CONTRACT_VERSION,
+                        operation_id: operation_id.to_owned(),
+                        store_epoch: StoreEpoch("epoch-1".to_owned()),
+                        intent: LibraryIntent::CreatePage {
+                            page_id: page_id.to_owned(),
+                            document_id: document_id.to_owned(),
+                            title: title.to_owned(),
+                            parent: LibraryWriteParent::Library { before: None },
+                        },
+                    },
+                )
+                .expect("create transfer Page");
+        }
+        let roots = kernel
+            .readers()
+            .read_default(|connection| {
+                let read_root = |document_id: &str| {
+                    connection.query_row(
+                        "SELECT block_id FROM document_block_index \
+                         WHERE document_id = ?1 ORDER BY ordinal LIMIT 1",
+                        [document_id],
+                        |row| row.get::<_, String>(0),
+                    )
+                };
+                Ok((
+                    read_root(LOCAL_SOURCE_DOCUMENT)?,
+                    read_root(FOREIGN_SOURCE_DOCUMENT)?,
+                ))
+            })
+            .expect("source roots");
+        let copy_from_foreign = LibraryBlockTransferLogicalIntent {
+            actor: serde_json::json!({ "kind": "test" }),
+            mode: LibraryBlockTransferMode::Copy,
+            root_block_ids: vec![roots.1.clone()],
+            source: LibraryBlockTransferSource::Page {
+                page_id: FOREIGN_SOURCE_PAGE.to_owned(),
+            },
+            target: LibraryBlockTransferTarget::Document {
+                document_id: LOCAL_SOURCE_DOCUMENT.to_owned(),
+                parent_block_id: None,
+                before_block_id: None,
+            },
+        };
+        let denied = module
+            .read(
+                &local_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PlanBlockTransfer {
+                        operation_id: "copy-without-source-grant".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        intent: copy_from_foreign.clone(),
+                    },
+                },
+            )
+            .expect_err("foreign source requires a grant");
+        assert_eq!(denied.code, CoreErrorCode::NotFound);
+
+        let grant = |operation_id: &str, page_id: &str, access: LibraryAccess| {
+            module.apply(
+                &foreign_context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: operation_id.to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::GrantProjectAccess {
+                        project_id: "project-1".to_owned(),
+                        target: LibraryResourceTarget::Page {
+                            page_id: page_id.to_owned(),
+                        },
+                        access,
+                    },
+                },
+            )
+        };
+        grant(
+            "grant-foreign-source-read",
+            FOREIGN_SOURCE_PAGE,
+            LibraryAccess::Read,
+        )
+        .expect("grant source read access");
+        grant(
+            "grant-foreign-target-write",
+            FOREIGN_TARGET_PAGE,
+            LibraryAccess::ReadWrite,
+        )
+        .expect("grant target write access");
+
+        let copy_plan = module
+            .read(
+                &local_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PlanBlockTransfer {
+                        operation_id: "copy-from-granted-source".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        intent: copy_from_foreign.clone(),
+                    },
+                },
+            )
+            .expect("read grant authorizes Copy source");
+        let LibraryReadValue::BlockTransferPlan { value } = copy_plan.value else {
+            panic!("copy plan");
+        };
+        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
+            panic!("prepared copy");
+        };
+        let copied = module
+            .apply(
+                &local_context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "copy-from-granted-source".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: copy_from_foreign,
+                        write_fence: Some(preparation.lease_documents),
+                    },
+                },
+            )
+            .expect("copy from granted source");
+        let copied_root = copied
+            .committed
+            .value
+            .block_transfer
+            .as_ref()
+            .expect("copy")
+            .copied_block_ids[&roots.1]
+            .clone();
+
+        let move_foreign = LibraryBlockTransferLogicalIntent {
+            actor: serde_json::json!({ "kind": "test" }),
+            mode: LibraryBlockTransferMode::Move,
+            root_block_ids: vec![roots.1.clone()],
+            source: LibraryBlockTransferSource::Document {
+                document_id: FOREIGN_SOURCE_DOCUMENT.to_owned(),
+            },
+            target: LibraryBlockTransferTarget::Page {
+                page_id: FOREIGN_TARGET_PAGE.to_owned(),
+                parent_block_id: None,
+                before_block_id: None,
+            },
+        };
+        let denied = module
+            .read(
+                &local_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PlanBlockTransfer {
+                        operation_id: "move-with-read-source-grant".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        intent: move_foreign.clone(),
+                    },
+                },
+            )
+            .expect_err("Move requires source write access");
+        assert_eq!(denied.code, CoreErrorCode::NotFound);
+        grant(
+            "grant-foreign-source-write",
+            FOREIGN_SOURCE_PAGE,
+            LibraryAccess::ReadWrite,
+        )
+        .expect("upgrade source write access");
+        let move_plan = module
+            .read(
+                &local_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PlanBlockTransfer {
+                        operation_id: "move-between-granted-pages".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        intent: move_foreign.clone(),
+                    },
+                },
+            )
+            .expect("write grants authorize Move");
+        let LibraryReadValue::BlockTransferPlan { value } = move_plan.value else {
+            panic!("move plan");
+        };
+        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
+            panic!("prepared move");
+        };
+        module
+            .apply(
+                &local_context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "move-between-granted-pages".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: move_foreign,
+                        write_fence: Some(preparation.lease_documents),
+                    },
+                },
+            )
+            .expect("move between granted Pages");
+
+        let move_across_storage = LibraryBlockTransferLogicalIntent {
+            actor: serde_json::json!({ "kind": "test" }),
+            mode: LibraryBlockTransferMode::Move,
+            root_block_ids: vec![roots.0.clone()],
+            source: LibraryBlockTransferSource::Page {
+                page_id: LOCAL_SOURCE_PAGE.to_owned(),
+            },
+            target: LibraryBlockTransferTarget::Document {
+                document_id: FOREIGN_TARGET_DOCUMENT.to_owned(),
+                parent_block_id: None,
+                before_block_id: None,
+            },
+        };
+        let cross_plan = module
+            .read(
+                &local_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PlanBlockTransfer {
+                        operation_id: "move-into-granted-storage".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        intent: move_across_storage.clone(),
+                    },
+                },
+            )
+            .expect("plan cross-storage Move");
+        let LibraryReadValue::BlockTransferPlan { value } = cross_plan.value else {
+            panic!("cross-storage plan");
+        };
+        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
+            panic!("prepared cross-storage move");
+        };
+        module
+            .apply(
+                &local_context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "move-into-granted-storage".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: move_across_storage,
+                        write_fence: Some(preparation.lease_documents),
+                    },
+                },
+            )
+            .expect("move into granted storage");
+
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let copied_project = connection.query_row(
+                    "SELECT project_id FROM blocks WHERE id = ?1",
+                    [&copied_root],
+                    |row| row.get::<_, String>(0),
+                )?;
+                assert_eq!(copied_project, "project-1");
+                let moved = connection.query_row(
+                    "SELECT project_id, containing_document_id, lifecycle \
+                     FROM blocks WHERE id = ?1",
+                    [&roots.0],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    moved,
+                    (
+                        "project-2".to_owned(),
+                        FOREIGN_TARGET_DOCUMENT.to_owned(),
+                        "active".to_owned(),
+                    )
+                );
+                let same_storage_ledger = connection.query_row(
+                    "SELECT project_id, target_project_id FROM block_relocations WHERE id = ?1",
+                    ["move-between-granted-pages"],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )?;
+                assert_eq!(
+                    same_storage_ledger,
+                    ("project-2".to_owned(), "project-2".to_owned())
+                );
+                let cross_storage_ledger = connection.query_row(
+                    "SELECT project_id FROM block_mutations WHERE mutation_id = ?1",
+                    ["move-into-granted-storage"],
+                    |row| row.get::<_, String>(0),
+                )?;
+                assert_eq!(cross_storage_ledger, "project-2");
+                let relocation_count = connection.query_row(
+                    "SELECT count(*) FROM block_relocations WHERE id = ?1",
+                    ["move-into-granted-storage"],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(relocation_count, 0);
+                Ok(())
+            })
+            .expect("cross-storage transfer evidence");
+    }
 }
 mod block_transfer;
 mod content;

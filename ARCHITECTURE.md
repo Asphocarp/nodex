@@ -153,17 +153,23 @@ attributed `operation` checkpoint and receipt with the update/event in the same
 transaction. Mutation identity excludes the renewable connection, actor, and
 fence proof so reconnect replay returns the original audit/effect rather than
 executing again.
-Public ordinary-Block move/copy between exact-Project Page-owned or directly
-addressed Yjs Documents also uses this native boundary. The Library Module first returns the
-exact sorted Document lease closure and root location revisions without
-mutating, then exact-compares the refreshed host write fence before applying
-portable Yrs subtree updates, relocating or renewing registry identities, and
-committing Document updates, structural evidence, operation checkpoints, the
-Library event, and one reconnect-safe transfer receipt atomically. Same-Document
-move remains a stable-ID Document operation. Page ownership transformations and
-Data Source placement remain on the TypeScript oracle until their Library and
-Database semantic branches are mapped; the native Adapter rejects those shapes
-instead of partially emulating them.
+Public ordinary-Block move/copy between Page-owned or directly addressed Yjs
+Documents also uses this native boundary. Exact physical ownership is sufficient;
+otherwise Core authorizes Page-owned Documents through the requesting Project's
+canonical recursive Page/Database grant. Copy requires source read and target
+write authority, while Move requires write authority on both sides. The Library
+Module first returns the exact sorted Document lease closure and root location
+revisions without mutating, then exact-compares the refreshed host write fence
+before applying portable Yrs subtree updates, relocating or renewing registry
+identities, and committing Document updates, structural evidence, operation
+checkpoints, the Library event, and one reconnect-safe transfer receipt atomically.
+A cross-storage Move rehomes the complete ordinary-Block registry closure to the
+target Document's compatibility Project and records general mutation evidence;
+same-storage movement retains the stricter relocation ledger. Same-Document move
+remains a stable-ID Document operation. Page ownership transformations and Data
+Source placement remain on the TypeScript oracle until their Library and Database
+semantic branches are mapped; the native Adapter rejects those shapes instead of
+partially emulating them.
 Project-scoped Page History reads also use the Library Module Adapter: the
 renderer request selects the exact Project client, Core evaluates recursive
 resource access in one read snapshot, and the Adapter maps the typed native

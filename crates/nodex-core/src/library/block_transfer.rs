@@ -48,6 +48,12 @@ struct PersistedTransferCommit {
     materialization: DocumentMaterialization,
 }
 
+#[derive(Clone, Copy)]
+enum TransferDocumentAccess {
+    Read,
+    Write,
+}
+
 type FinalBlockLocations = (
     BTreeMap<String, LibraryBlockLocation>,
     BTreeMap<String, i64>,
@@ -146,9 +152,9 @@ pub(super) fn apply(
         assert_fresh_copy_identities(connection, &inserted_ids)?;
     }
 
-    if intent.mode == LibraryBlockTransferMode::Move
-        && prepared.source_authority.head.id != prepared.target_authority.head.id
-    {
+    let moves_between_documents = intent.mode == LibraryBlockTransferMode::Move
+        && prepared.source_authority.head.id != prepared.target_authority.head.id;
+    if moves_between_documents {
         relocate_registry_blocks(connection, &prepared, &prepared.target_authority.head.id)?;
     }
 
@@ -168,9 +174,7 @@ pub(super) fn apply(
         )?;
         document_commits.push(commit);
     }
-    let target_update_id = if intent.mode == LibraryBlockTransferMode::Move
-        && prepared.source_authority.head.id != prepared.target_authority.head.id
-    {
+    let target_update_id = if moves_between_documents {
         format!("relocation:{request_hash}:target")
     } else {
         format!("block-transfer:{request_hash}:target")
@@ -219,9 +223,9 @@ pub(super) fn apply(
     };
     let now = sqlite_now(connection)?;
     let affected_page_ids = affected_page_ids(&prepared);
-    let change_kind = if intent.mode == LibraryBlockTransferMode::Move
-        && prepared.source_authority.head.id != prepared.target_authority.head.id
-    {
+    let is_same_storage_relocation = moves_between_documents
+        && prepared.source_authority.head.project_id == prepared.target_authority.head.project_id;
+    let change_kind = if is_same_storage_relocation {
         "block_relocation"
     } else {
         "block_mutation"
@@ -243,7 +247,7 @@ pub(super) fn apply(
         operation_id,
         request_hash,
         MutationEffects {
-            project_id: bound_project_id(context)?.to_owned(),
+            project_id: prepared.target_authority.head.project_id.clone(),
             operation_kind: "transfer_blocks",
             change_kind,
             did_mutate: true,
@@ -265,11 +269,11 @@ pub(super) fn apply(
         },
     )?;
 
-    if change_kind == "block_relocation" {
+    if is_same_storage_relocation {
         persist_relocation_ledger(
             connection,
             operation_id,
-            bound_project_id(context)?,
+            &prepared.source_authority.head.project_id,
             store_epoch,
             request_hash,
             intent,
@@ -286,7 +290,7 @@ pub(super) fn apply(
         persist_mutation_ledger(
             connection,
             operation_id,
-            bound_project_id(context)?,
+            &prepared.target_authority.head.project_id,
             store_epoch,
             request_hash,
             intent,
@@ -315,6 +319,14 @@ fn prepare_transfer(
     intent: &LibraryBlockTransferLogicalIntent,
 ) -> Result<PreparedTransfer, StoreError> {
     let project_id = bound_project_id(context)?;
+    let source_page_id = match &intent.source {
+        LibraryBlockTransferSource::Page { page_id } => Some(page_id.as_str()),
+        _ => None,
+    };
+    let target_page_id = match &intent.target {
+        LibraryBlockTransferTarget::Page { page_id, .. } => Some(page_id.as_str()),
+        _ => None,
+    };
     let source_document_id = resolve_source_document(connection, library_id, &intent.source)?;
     let (target_document_id, insertion) =
         resolve_target_document(connection, library_id, &intent.target)?;
@@ -323,8 +335,25 @@ fn prepare_transfer(
             "Move within one Document uses a stable-ID Document operation",
         ));
     }
-    let source_authority = require_transfer_authority(connection, project_id, &source_document_id)?;
-    let target_authority = require_transfer_authority(connection, project_id, &target_document_id)?;
+    let source_authority = require_transfer_authority(
+        connection,
+        library_id,
+        project_id,
+        &source_document_id,
+        source_page_id,
+        match intent.mode {
+            LibraryBlockTransferMode::Move => TransferDocumentAccess::Write,
+            LibraryBlockTransferMode::Copy => TransferDocumentAccess::Read,
+        },
+    )?;
+    let target_authority = require_transfer_authority(
+        connection,
+        library_id,
+        project_id,
+        &target_document_id,
+        target_page_id,
+        TransferDocumentAccess::Write,
+    )?;
     let source_schema = require_schema(&source_authority)?;
     let target_schema = require_schema(&target_authority)?;
     let source_engine = reconstruct_yjs_engine(connection, &source_authority.head)?;
@@ -339,7 +368,7 @@ fn prepare_transfer(
         .map_err(|error| corrupt(error.to_string()))?;
     let expected_location_revisions = validate_source_roots(
         connection,
-        project_id,
+        &source_authority.head.project_id,
         &source_document_id,
         &intent.root_block_ids,
     )?;
@@ -476,16 +505,32 @@ fn relocate_registry_blocks(
     prepared: &PreparedTransfer,
     target_document_id: &str,
 ) -> Result<(), StoreError> {
+    if prepared.source_authority.head.project_id != prepared.target_authority.head.project_id {
+        // These projections share one Project coordinate for both the content Block and
+        // its owning Page. Remove the source copy before the registry rehome; the two
+        // authoritative Document commits rebuild both sides in this transaction.
+        connection.execute(
+            "DELETE FROM block_asset_refs WHERE document_id = ?1",
+            [&prepared.source_authority.head.id],
+        )?;
+        connection.execute(
+            "DELETE FROM block_search_units WHERE document_id = ?1 AND source_revision IS NULL",
+            [&prepared.source_authority.head.id],
+        )?;
+    }
     let now = sqlite_now(connection)?;
     for block_id in &prepared.prepared.source_forest.block_ids {
         let changed = connection.execute(
-            "UPDATE blocks SET containing_document_id = ?1, location_revision = location_revision + 1, \
-               updated_at = ?2 WHERE id = ?3 AND location_kind = 'document' \
-               AND containing_document_id = ?4 AND lifecycle = 'active'",
+            "UPDATE blocks SET project_id = ?1, containing_document_id = ?2, \
+               location_revision = location_revision + 1, updated_at = ?3 \
+             WHERE id = ?4 AND project_id = ?5 AND location_kind = 'document' \
+               AND containing_document_id = ?6 AND lifecycle = 'active'",
             params![
+                prepared.target_authority.head.project_id,
                 target_document_id,
                 now,
                 block_id,
+                prepared.source_authority.head.project_id,
                 prepared.source_authority.head.id
             ],
         )?;
@@ -608,18 +653,46 @@ fn resolve_page_document(
 
 fn require_transfer_authority(
     connection: &Connection,
+    library_id: &str,
     project_id: &str,
     document_id: &str,
+    declared_page_id: Option<&str>,
+    access: TransferDocumentAccess,
 ) -> Result<DocumentAuthorityRow, StoreError> {
     let authority = read_document_authority(connection, document_id)?
         .ok_or_else(|| not_found(format!("Document does not exist: {document_id}")))?;
-    if authority.head.project_id != project_id {
-        return Err(unauthorized("Document belongs to another Project"));
-    }
     if authority.owner_lifecycle != "active" || !authority.head.is_live_yjs_authority() {
         return Err(invalid("Document is not writable live Yjs authority"));
     }
     require_schema(&authority)?;
+    if let Some(page_id) = declared_page_id
+        && (authority.owner_type != "page" || authority.owner_block_id != page_id)
+    {
+        return Err(corrupt("Page alias does not own its resolved Document"));
+    }
+    if authority.head.project_id == project_id {
+        return Ok(authority);
+    }
+    if authority.owner_type != "page"
+        || authority.page_library_id.as_deref() != Some(library_id)
+        || authority.page_lifecycle.as_deref() != Some("active")
+    {
+        return Err(not_found("Document is not available to the bound Project"));
+    }
+    match access {
+        TransferDocumentAccess::Read => super::require_page_read_access(
+            connection,
+            library_id,
+            project_id,
+            &authority.owner_block_id,
+        )?,
+        TransferDocumentAccess::Write => super::require_page_write_access(
+            connection,
+            library_id,
+            project_id,
+            &authority.owner_block_id,
+        )?,
+    }
     Ok(authority)
 }
 
