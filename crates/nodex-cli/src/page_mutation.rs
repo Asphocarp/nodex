@@ -3,7 +3,9 @@ use std::io::{self, IsTerminal, Read};
 use std::path::Path;
 
 use nodex_core_contracts::document::{
-    DocumentCommitOutcome, DocumentSemanticCommand, OwnedDocumentContract, OwnedDocumentIntent,
+    DocumentBlockUpdatePatch, DocumentCommitOutcome, DocumentSemanticAnchor,
+    DocumentSemanticBlockDraft, DocumentSemanticCommand, OwnedDocumentContract,
+    OwnedDocumentIntent,
 };
 use nodex_core_contracts::library::{
     LibraryPageFileKind, LibraryPageFileProjection, LibraryRead, LibraryReadValue,
@@ -13,9 +15,13 @@ use nodex_core_contracts::{
 };
 use nodex_core_protocol::ResponseEnvelope;
 use nodex_core_protocol::client::CoreClient;
+use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
 
-use crate::cli::{PageReplaceArgs, PageTitleSetArgs, PatchArgs};
+use crate::cli::{
+    BlockDeleteArgs, BlockInsertArgs, BlockMoveArgs, BlockUpdateArgs, PageInsertArgs,
+    PageReplaceArgs, PageTitleSetArgs, PatchArgs,
+};
 use crate::error::{CliError, CliErrorCode};
 use crate::patch::PatchDocument;
 use crate::runtime::{
@@ -24,6 +30,7 @@ use crate::runtime::{
 };
 
 const MAX_BODY_INPUT_BYTES: usize = 8 * 1024 * 1024;
+const MAX_BLOCK_JSON_BYTES: usize = 1024 * 1024;
 const MAX_TITLE_INPUT_BYTES: usize = 64 * 1024;
 const MAX_HEAD_REBASE_ATTEMPTS: usize = 3;
 
@@ -41,14 +48,14 @@ pub(crate) fn patch_page(
         "patch",
     )?;
     let patch = crate::patch::parse(input.as_bytes())?;
-    let project = selected_project(client, explicit_project, cwd)?;
-    let page_id = resolve_page_selector(client, &project.id, &patch.page_id)?;
-    let operation_id = operation_id(arguments.idempotency_key.as_deref(), json_output)?;
-    apply_semantic_write(
+    let page_selector = patch.page_id.clone();
+    apply_selected_semantic_write(
         client,
-        &project.id,
-        page_id,
-        operation_id,
+        explicit_project,
+        cwd,
+        &page_selector,
+        arguments.idempotency_key.as_deref(),
+        json_output,
         SemanticWrite::Patch(patch),
         &arguments.r#return,
     )
@@ -63,18 +70,49 @@ pub(crate) fn replace_page(
 ) -> Result<CommandOutput, CliError> {
     validate_return_fields(&arguments.mutation.r#return)?;
     let body = read_content_input(arguments.file.as_deref(), MAX_BODY_INPUT_BYTES, "Page body")?;
-    let project = selected_project(client, explicit_project, cwd)?;
-    let page_id = resolve_page_selector(client, &project.id, &arguments.page)?;
-    let operation_id = operation_id(arguments.mutation.idempotency_key.as_deref(), json_output)?;
-    apply_semantic_write(
+    apply_selected_semantic_write(
         client,
-        &project.id,
-        page_id,
-        operation_id,
+        explicit_project,
+        cwd,
+        &arguments.page,
+        arguments.mutation.idempotency_key.as_deref(),
+        json_output,
         SemanticWrite::Replace {
             body,
             expected_etag: arguments.if_match,
         },
+        &arguments.mutation.r#return,
+    )
+}
+
+pub(crate) fn insert_page_content(
+    client: &CoreClient,
+    explicit_project: Option<&str>,
+    cwd: &Path,
+    arguments: PageInsertArgs,
+    json_output: bool,
+) -> Result<CommandOutput, CliError> {
+    validate_return_fields(&arguments.mutation.r#return)?;
+    let fragment = read_content_input(
+        arguments.file.as_deref(),
+        MAX_BODY_INPUT_BYTES,
+        "Page insertion",
+    )?;
+    if fragment.is_empty() {
+        return Err(CliError::new(
+            CliErrorCode::InvalidInput,
+            "Page insertion must contain Nested Markdown",
+        ));
+    }
+    let anchor = parse_anchor(&arguments.at)?;
+    apply_selected_semantic_write(
+        client,
+        explicit_project,
+        cwd,
+        &arguments.page,
+        arguments.mutation.idempotency_key.as_deref(),
+        json_output,
+        SemanticWrite::Insert { fragment, anchor },
         &arguments.mutation.r#return,
     )
 }
@@ -101,14 +139,13 @@ pub(crate) fn set_page_title(
             ));
         }
     };
-    let project = selected_project(client, explicit_project, cwd)?;
-    let page_id = resolve_page_selector(client, &project.id, &arguments.page)?;
-    let operation_id = operation_id(arguments.mutation.idempotency_key.as_deref(), json_output)?;
-    apply_semantic_write(
+    apply_selected_semantic_write(
         client,
-        &project.id,
-        page_id,
-        operation_id,
+        explicit_project,
+        cwd,
+        &arguments.page,
+        arguments.mutation.idempotency_key.as_deref(),
+        json_output,
         SemanticWrite::Title {
             title,
             expected_etag: arguments.if_match,
@@ -117,8 +154,106 @@ pub(crate) fn set_page_title(
     )
 }
 
+pub(crate) fn insert_block(
+    client: &CoreClient,
+    explicit_project: Option<&str>,
+    cwd: &Path,
+    arguments: BlockInsertArgs,
+    json_output: bool,
+) -> Result<CommandOutput, CliError> {
+    validate_return_fields(&arguments.mutation.r#return)?;
+    let anchor = parse_anchor(&arguments.at)?;
+    let block = read_json_file(&arguments.block_json, "Block draft")?;
+    apply_selected_semantic_write(
+        client,
+        explicit_project,
+        cwd,
+        &arguments.page,
+        arguments.mutation.idempotency_key.as_deref(),
+        json_output,
+        SemanticWrite::BlockInsert { anchor, block },
+        &arguments.mutation.r#return,
+    )
+}
+
+pub(crate) fn update_block(
+    client: &CoreClient,
+    explicit_project: Option<&str>,
+    cwd: &Path,
+    arguments: BlockUpdateArgs,
+    json_output: bool,
+) -> Result<CommandOutput, CliError> {
+    validate_return_fields(&arguments.mutation.r#return)?;
+    let block_id = validate_block_id(arguments.block)?;
+    let patch = read_json_file(&arguments.patch_json, "Block update patch")?;
+    apply_selected_semantic_write(
+        client,
+        explicit_project,
+        cwd,
+        &arguments.page,
+        arguments.mutation.idempotency_key.as_deref(),
+        json_output,
+        SemanticWrite::BlockUpdate {
+            block_id,
+            expected_etag: arguments.if_match,
+            patch,
+        },
+        &arguments.mutation.r#return,
+    )
+}
+
+pub(crate) fn move_block(
+    client: &CoreClient,
+    explicit_project: Option<&str>,
+    cwd: &Path,
+    arguments: BlockMoveArgs,
+    json_output: bool,
+) -> Result<CommandOutput, CliError> {
+    validate_return_fields(&arguments.mutation.r#return)?;
+    let block_id = validate_block_id(arguments.block)?;
+    let anchor = parse_anchor(&arguments.at)?;
+    apply_selected_semantic_write(
+        client,
+        explicit_project,
+        cwd,
+        &arguments.page,
+        arguments.mutation.idempotency_key.as_deref(),
+        json_output,
+        SemanticWrite::BlockMove { block_id, anchor },
+        &arguments.mutation.r#return,
+    )
+}
+
+pub(crate) fn delete_block(
+    client: &CoreClient,
+    explicit_project: Option<&str>,
+    cwd: &Path,
+    arguments: BlockDeleteArgs,
+    json_output: bool,
+) -> Result<CommandOutput, CliError> {
+    validate_return_fields(&arguments.mutation.r#return)?;
+    let block_id = validate_block_id(arguments.block)?;
+    apply_selected_semantic_write(
+        client,
+        explicit_project,
+        cwd,
+        &arguments.page,
+        arguments.mutation.idempotency_key.as_deref(),
+        json_output,
+        SemanticWrite::BlockDelete {
+            block_id,
+            expected_etag: arguments.if_match,
+        },
+        &arguments.mutation.r#return,
+    )
+}
+
 enum SemanticWrite {
     Patch(PatchDocument),
+    Insert {
+        fragment: String,
+        anchor: DocumentSemanticAnchor,
+    },
     Replace {
         body: String,
         expected_etag: String,
@@ -127,13 +262,36 @@ enum SemanticWrite {
         title: String,
         expected_etag: String,
     },
+    BlockInsert {
+        anchor: DocumentSemanticAnchor,
+        block: DocumentSemanticBlockDraft,
+    },
+    BlockUpdate {
+        block_id: String,
+        expected_etag: String,
+        patch: DocumentBlockUpdatePatch,
+    },
+    BlockMove {
+        block_id: String,
+        anchor: DocumentSemanticAnchor,
+    },
+    BlockDelete {
+        block_id: String,
+        expected_etag: String,
+    },
 }
 
 impl SemanticWrite {
     fn file_kind(&self) -> LibraryPageFileKind {
         match self {
             Self::Title { .. } => LibraryPageFileKind::MetaYaml,
-            Self::Patch(_) | Self::Replace { .. } => LibraryPageFileKind::BodyNestedMarkdown,
+            Self::Patch(_)
+            | Self::Insert { .. }
+            | Self::Replace { .. }
+            | Self::BlockInsert { .. }
+            | Self::BlockUpdate { .. }
+            | Self::BlockMove { .. }
+            | Self::BlockDelete { .. } => LibraryPageFileKind::BodyNestedMarkdown,
         }
     }
 
@@ -148,6 +306,10 @@ impl SemanticWrite {
                     expected_matches: None,
                 })
                 .collect(),
+            Self::Insert { fragment, anchor } => vec![DocumentSemanticCommand::InsertBody {
+                anchor: anchor.clone(),
+                nested_markdown: fragment.clone(),
+            }],
             Self::Replace {
                 body,
                 expected_etag,
@@ -160,6 +322,30 @@ impl SemanticWrite {
                 expected_etag,
             } => vec![DocumentSemanticCommand::SetTitle {
                 inline_markdown: title.clone(),
+                expected_etag: expected_etag.clone(),
+            }],
+            Self::BlockInsert { anchor, block } => vec![DocumentSemanticCommand::InsertBlock {
+                anchor: anchor.clone(),
+                block: block.clone(),
+            }],
+            Self::BlockUpdate {
+                block_id,
+                expected_etag,
+                patch,
+            } => vec![DocumentSemanticCommand::UpdateBlock {
+                block_id: block_id.clone(),
+                expected_etag: expected_etag.clone(),
+                patch: patch.clone(),
+            }],
+            Self::BlockMove { block_id, anchor } => vec![DocumentSemanticCommand::MoveBlock {
+                block_id: block_id.clone(),
+                anchor: anchor.clone(),
+            }],
+            Self::BlockDelete {
+                block_id,
+                expected_etag,
+            } => vec![DocumentSemanticCommand::DeleteBlock {
+                block_id: block_id.clone(),
                 expected_etag: expected_etag.clone(),
             }],
         }
@@ -200,6 +386,92 @@ impl SemanticWrite {
         error.hunk = Some(hunk.index);
         error
     }
+}
+
+fn parse_anchor(value: &str) -> Result<DocumentSemanticAnchor, CliError> {
+    match value {
+        "start" => {
+            return Ok(DocumentSemanticAnchor::Start {
+                parent_block_id: None,
+            });
+        }
+        "end" => {
+            return Ok(DocumentSemanticAnchor::End {
+                parent_block_id: None,
+            });
+        }
+        _ => {}
+    }
+    let (kind, block_id) = value.split_once(':').ok_or_else(|| invalid_anchor(value))?;
+    if block_id.is_empty()
+        || block_id.len() > 512
+        || block_id.trim() != block_id
+        || block_id.contains(['/', '\\'])
+    {
+        return Err(invalid_anchor(value));
+    }
+    match kind {
+        "before" => Ok(DocumentSemanticAnchor::Before {
+            block_id: block_id.to_owned(),
+        }),
+        "after" => Ok(DocumentSemanticAnchor::After {
+            block_id: block_id.to_owned(),
+        }),
+        "inside-start" => Ok(DocumentSemanticAnchor::Start {
+            parent_block_id: Some(block_id.to_owned()),
+        }),
+        "inside-end" => Ok(DocumentSemanticAnchor::End {
+            parent_block_id: Some(block_id.to_owned()),
+        }),
+        _ => Err(invalid_anchor(value)),
+    }
+}
+
+fn invalid_anchor(value: &str) -> CliError {
+    CliError::new(
+        CliErrorCode::InvalidInput,
+        format!(
+            "unsupported anchor '{value}'; use start, end, before:<block-id>, after:<block-id>, inside-start:<block-id>, or inside-end:<block-id>"
+        ),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_selected_semantic_write(
+    client: &CoreClient,
+    explicit_project: Option<&str>,
+    cwd: &Path,
+    page_selector: &str,
+    idempotency_key: Option<&str>,
+    json_output: bool,
+    write: SemanticWrite,
+    return_fields: &[String],
+) -> Result<CommandOutput, CliError> {
+    let project = selected_project(client, explicit_project, cwd)?;
+    let page_id = resolve_page_selector(client, &project.id, page_selector)?;
+    let operation_id = operation_id(idempotency_key, json_output)?;
+    apply_semantic_write(
+        client,
+        &project.id,
+        page_id,
+        operation_id,
+        write,
+        return_fields,
+    )
+}
+
+fn validate_block_id(value: String) -> Result<String, CliError> {
+    if !value.is_empty()
+        && value.len() <= 512
+        && value.trim() == value
+        && !value.contains(['/', '\\'])
+    {
+        return Ok(value);
+    }
+    Err(CliError::new(
+        CliErrorCode::InvalidInput,
+        "Block identity must be a non-empty stable ID of at most 512 bytes",
+    ))
 }
 
 fn apply_semantic_write(
@@ -284,6 +556,16 @@ fn mutation_output(
         committed.value.semantic_etags.as_ref().ok_or_else(|| {
             internal("Core native CLI semantic receipt omitted post-commit ETags")
         })?;
+    let mut etag_result = Map::from_iter([
+        ("title".to_owned(), Value::String(etags.title.clone())),
+        ("body".to_owned(), Value::String(etags.body.clone())),
+    ]);
+    if let Some(blocks) = committed.value.semantic_block_etags.as_ref() {
+        etag_result.insert(
+            "blocks".to_owned(),
+            serde_json::to_value(blocks).map_err(internal)?,
+        );
+    }
     let mut result = Map::from_iter([
         (
             "operation_id".to_owned(),
@@ -321,10 +603,7 @@ fn mutation_output(
                 "title_changed": effect.is_some_and(|value| value.title_changed),
             }),
         ),
-        (
-            "etags".to_owned(),
-            serde_json::to_value(etags).map_err(internal)?,
-        ),
+        ("etags".to_owned(), Value::Object(etag_result)),
     ]);
     if return_fields.iter().any(|field| field == "commit") {
         result.insert(
@@ -384,6 +663,20 @@ fn read_content_input(path: Option<&Path>, limit: usize, label: &str) -> Result<
         ));
     }
     Ok(value)
+}
+
+fn read_json_file<T: DeserializeOwned>(path: &Path, label: &str) -> Result<T, CliError> {
+    let mut file = File::open(path).map_err(|error| input_error(path, error))?;
+    let bytes = read_bounded(&mut file, MAX_BLOCK_JSON_BYTES, label)
+        .map_err(|error| error.at_path(path.display().to_string()))?;
+    serde_json::from_slice(&bytes).map_err(|error| {
+        CliError::new(
+            CliErrorCode::InvalidInput,
+            format!("{label} must match the native semantic JSON contract: {error}"),
+        )
+        .at_path(path.display().to_string())
+        .at_line(error.line())
+    })
 }
 
 fn read_bounded(reader: &mut impl Read, limit: usize, label: &str) -> Result<Vec<u8>, CliError> {
@@ -470,5 +763,69 @@ mod tests {
         ));
         assert_eq!(error.hunk, Some(2));
         assert_eq!(error.line, Some(7));
+    }
+
+    #[test]
+    fn semantic_anchors_cover_only_the_documented_stable_forms() {
+        assert_eq!(
+            parse_anchor("start").unwrap(),
+            DocumentSemanticAnchor::Start {
+                parent_block_id: None
+            }
+        );
+        assert_eq!(
+            parse_anchor("inside-end:block-1").unwrap(),
+            DocumentSemanticAnchor::End {
+                parent_block_id: Some("block-1".to_owned())
+            }
+        );
+        assert!(parse_anchor("line:12").is_err());
+        assert!(parse_anchor("before:").is_err());
+    }
+
+    #[test]
+    fn block_json_uses_the_closed_core_semantic_contract() {
+        let directory = tempfile::tempdir().unwrap();
+        let draft_path = directory.path().join("block.json");
+        std::fs::write(
+            &draft_path,
+            br#"{
+                "local_id":"local-root",
+                "block_type":"paragraph",
+                "props":{},
+                "content":{"kind":"absent"},
+                "children":[]
+            }"#,
+        )
+        .unwrap();
+        let draft = read_json_file::<DocumentSemanticBlockDraft>(&draft_path, "Block draft")
+            .expect("valid semantic Block draft");
+        assert_eq!(draft.local_id, "local-root");
+
+        let invalid_path = directory.path().join("invalid.json");
+        std::fs::write(
+            &invalid_path,
+            br#"{
+                "local_id":"local-root",
+                "block_type":"paragraph",
+                "props":{},
+                "content":{"kind":"absent"},
+                "children":[],
+                "caller_owned_id":"block-1"
+            }"#,
+        )
+        .unwrap();
+        let error = read_json_file::<DocumentSemanticBlockDraft>(&invalid_path, "Block draft")
+            .expect_err("unknown Block draft field");
+        assert_eq!(error.code, CliErrorCode::InvalidInput);
+        assert_eq!(error.path.as_deref(), Some(invalid_path.to_str().unwrap()));
+    }
+
+    #[test]
+    fn stable_block_ids_reject_paths_and_unbounded_values() {
+        assert_eq!(validate_block_id("block-1".to_owned()).unwrap(), "block-1");
+        assert!(validate_block_id("parent/block".to_owned()).is_err());
+        assert!(validate_block_id(" block".to_owned()).is_err());
+        assert!(validate_block_id("x".repeat(513)).is_err());
     }
 }

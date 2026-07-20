@@ -281,6 +281,7 @@ pub enum DocumentSemanticCommand {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DocumentSemanticBlockDraft {
     pub local_id: String,
     pub block_type: String,
@@ -291,13 +292,14 @@ pub struct DocumentSemanticBlockDraft {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DocumentOptionalValue {
     Absent,
     Value { value: Value },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DocumentBlockUpdatePatch {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub block_type: Option<String>,
@@ -443,6 +445,8 @@ pub struct OwnedDocumentCommitValue {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub semantic_etags: Option<DocumentSemanticEtags>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub semantic_block_etags: Option<BTreeMap<String, DocumentSemanticBlockEtags>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub semantic_local_block_ids: Option<BTreeMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub semantic_deleted_owner_block_ids: Option<Vec<String>>,
@@ -452,6 +456,12 @@ pub struct OwnedDocumentCommitValue {
 pub struct DocumentSemanticEtags {
     pub title: String,
     pub body: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DocumentSemanticBlockEtags {
+    pub update: String,
+    pub delete: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

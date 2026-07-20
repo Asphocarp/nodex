@@ -689,6 +689,9 @@ export interface components {
                 readonly mutation_effect?: null | components["schemas"]["DocumentMutationEffect"];
                 readonly outcome: components["schemas"]["DocumentCommitOutcome"];
                 readonly owner_effect?: null | components["schemas"]["DocumentOwnerEffect"];
+                readonly semantic_block_etags?: {
+                    readonly [key: string]: components["schemas"]["DocumentSemanticBlockEtags"];
+                } | null;
                 readonly semantic_deleted_owner_block_ids?: readonly string[] | null;
                 readonly semantic_etags?: null | components["schemas"]["DocumentSemanticEtags"];
                 readonly semantic_local_block_ids?: {
@@ -1057,6 +1060,10 @@ export interface components {
             readonly props: {
                 readonly [key: string]: unknown;
             };
+        };
+        readonly DocumentSemanticBlockEtags: {
+            readonly delete: string;
+            readonly update: string;
         };
         readonly DocumentSemanticCommand: {
             readonly expected_etag: string;
@@ -4002,6 +4009,9 @@ export interface components {
                     readonly mutation_effect?: null | components["schemas"]["DocumentMutationEffect"];
                     readonly outcome: components["schemas"]["DocumentCommitOutcome"];
                     readonly owner_effect?: null | components["schemas"]["DocumentOwnerEffect"];
+                    readonly semantic_block_etags?: {
+                        readonly [key: string]: components["schemas"]["DocumentSemanticBlockEtags"];
+                    } | null;
                     readonly semantic_deleted_owner_block_ids?: readonly string[] | null;
                     readonly semantic_etags?: null | components["schemas"]["DocumentSemanticEtags"];
                     readonly semantic_local_block_ids?: {

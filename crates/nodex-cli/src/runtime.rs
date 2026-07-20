@@ -31,8 +31,8 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::cli::{
-    BackupCommand, Cli, Command, HistoryArgs, PageArgs, PageCommand, PageTitleArgs,
-    PageTitleCommand, PrepareKind, ReadArgs, SedArgs,
+    BackupCommand, BlockArgs, BlockCommand, Cli, Command, HistoryArgs, PageArgs, PageCommand,
+    PageTitleArgs, PageTitleCommand, PrepareKind, ReadArgs, SedArgs,
 };
 use crate::error::{CliError, CliErrorCode};
 
@@ -115,6 +115,15 @@ pub fn execute(cli: Cli) -> Result<CommandOutput, CliError> {
             cli.json,
         ),
         Command::Page(PageArgs {
+            command: PageCommand::Insert(arguments),
+        }) => crate::page_mutation::insert_page_content(
+            &client,
+            cli.project.as_deref(),
+            &cwd,
+            arguments,
+            cli.json,
+        ),
+        Command::Page(PageArgs {
             command: PageCommand::Replace(arguments),
         }) => crate::page_mutation::replace_page(
             &client,
@@ -129,6 +138,42 @@ pub fn execute(cli: Cli) -> Result<CommandOutput, CliError> {
                     command: PageTitleCommand::Set(arguments),
                 }),
         }) => crate::page_mutation::set_page_title(
+            &client,
+            cli.project.as_deref(),
+            &cwd,
+            arguments,
+            cli.json,
+        ),
+        Command::Block(BlockArgs {
+            command: BlockCommand::Insert(arguments),
+        }) => crate::page_mutation::insert_block(
+            &client,
+            cli.project.as_deref(),
+            &cwd,
+            arguments,
+            cli.json,
+        ),
+        Command::Block(BlockArgs {
+            command: BlockCommand::Update(arguments),
+        }) => crate::page_mutation::update_block(
+            &client,
+            cli.project.as_deref(),
+            &cwd,
+            arguments,
+            cli.json,
+        ),
+        Command::Block(BlockArgs {
+            command: BlockCommand::Move(arguments),
+        }) => crate::page_mutation::move_block(
+            &client,
+            cli.project.as_deref(),
+            &cwd,
+            arguments,
+            cli.json,
+        ),
+        Command::Block(BlockArgs {
+            command: BlockCommand::Delete(arguments),
+        }) => crate::page_mutation::delete_block(
             &client,
             cli.project.as_deref(),
             &cwd,

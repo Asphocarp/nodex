@@ -382,7 +382,7 @@ fn resolve_semantic_anchor(
     }
 }
 
-fn find_block<'a>(
+pub(crate) fn find_block<'a>(
     blocks: &'a [MaterializedBlockNode],
     block_id: &str,
 ) -> Option<&'a MaterializedBlockNode> {

@@ -15,9 +15,9 @@ use nodex_core_contracts::document::{
     DocumentBlockOperation as ContractDocumentBlockOperation, DocumentCheckpointEffect,
     DocumentCommitOutcome, DocumentInvalidationReason, DocumentMutationCoordination,
     DocumentMutationEffect, DocumentOptionalValue, DocumentOwnerCommand, DocumentRevisionKind,
-    DocumentSemanticAnchor, DocumentSemanticCommand, DocumentSemanticEtags,
-    OwnedDocumentCommitValue, OwnedDocumentEvent, OwnedDocumentIntent, OwnedDocumentRead,
-    OwnedDocumentReadValue, OwnedDocumentReceipt,
+    DocumentSemanticAnchor, DocumentSemanticBlockEtags, DocumentSemanticCommand,
+    DocumentSemanticEtags, OwnedDocumentCommitValue, OwnedDocumentEvent, OwnedDocumentIntent,
+    OwnedDocumentRead, OwnedDocumentReadValue, OwnedDocumentReceipt,
 };
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent,
@@ -76,7 +76,7 @@ use super::recovery::{StaleYjsUpdate, persist_recovery_if_barrier_crossed};
 use super::runtime::{DocumentRuntimeCache, reconstruction_duration_metrics};
 use super::semantic::{
     AgentDocumentCursorCoordinate, SemanticMutationContext, SemanticMutationError,
-    decode_agent_document_cursor, mint_agent_document_cursor, mint_document_block_etag,
+    decode_agent_document_cursor, find_block, mint_agent_document_cursor, mint_document_block_etag,
     mint_document_semantic_etags, mint_document_subtree_etag, prepare_semantic_mutation,
 };
 use super::{
@@ -97,6 +97,8 @@ struct DocumentUpdateJob {
     request_hash: String,
     publication: UpdatePublication,
     prepared_agent: Option<PreparedAgentExecutionJob>,
+    semantic_block_etag_ids: Vec<String>,
+    include_local_block_etags: bool,
 }
 
 struct PreparedAgentExecutionJob {
@@ -1197,6 +1199,7 @@ impl OwnedDocumentModule {
                         checkpoint_effect: None,
                         mutation_effect: None,
                         semantic_etags: None,
+                        semantic_block_etags: None,
                         semantic_local_block_ids: None,
                         semantic_deleted_owner_block_ids: None,
                     },
@@ -1793,6 +1796,8 @@ impl OwnedDocumentModule {
                 request_hash,
                 publication: UpdatePublication::Updated,
                 prepared_agent: None,
+                semantic_block_etag_ids: Vec::new(),
+                include_local_block_etags: false,
             },
             move |connection, authority, engine, materialization, store_epoch| {
                 if base_head_seq > authority.head.head_seq {
@@ -1942,6 +1947,17 @@ impl OwnedDocumentModule {
         } else {
             context.clone()
         };
+        let semantic_block_etag_ids = commands
+            .iter()
+            .filter_map(|command| match command {
+                DocumentSemanticCommand::UpdateBlock { block_id, .. }
+                | DocumentSemanticCommand::MoveBlock { block_id, .. } => Some(block_id.clone()),
+                _ => None,
+            })
+            .collect();
+        let include_local_block_etags = commands
+            .iter()
+            .any(|command| matches!(command, DocumentSemanticCommand::InsertBlock { .. }));
         self.apply_document_update(
             DocumentUpdateJob {
                 context: mutation_context,
@@ -1956,6 +1972,8 @@ impl OwnedDocumentModule {
                     authorization,
                     mutation,
                 }),
+                semantic_block_etag_ids,
+                include_local_block_etags,
             },
             move |connection, authority, engine, materialization, store_epoch| {
                 prepare_semantic_update(
@@ -2017,6 +2035,8 @@ impl OwnedDocumentModule {
                 request_hash: sha256(&fingerprint),
                 publication: UpdatePublication::Updated,
                 prepared_agent: None,
+                semantic_block_etag_ids: Vec::new(),
+                include_local_block_etags: false,
             },
             move |connection, authority, engine, materialization, _store_epoch| {
                 assert_document_head(authority, generation, expected_head_seq)?;
@@ -2112,6 +2132,8 @@ impl OwnedDocumentModule {
                 request_hash: sha256(&fingerprint),
                 publication: UpdatePublication::Updated,
                 prepared_agent: None,
+                semantic_block_etag_ids: Vec::new(),
+                include_local_block_etags: false,
             },
             move |connection, authority, engine, materialization, _store_epoch| {
                 assert_document_head(authority, generation, expected_head_seq)?;
@@ -2424,6 +2446,8 @@ impl OwnedDocumentModule {
                 request_hash: sha256(&fingerprint),
                 publication: UpdatePublication::Invalidated(DocumentInvalidationReason::Restored),
                 prepared_agent: None,
+                semantic_block_etag_ids: Vec::new(),
+                include_local_block_etags: false,
             },
             move |connection, authority, engine, materialization, _store_epoch| {
                 assert_document_head(authority, generation, expected_head_seq)?;
@@ -3505,6 +3529,7 @@ fn committed_value(
             checkpoint_effect: None,
             mutation_effect: None,
             semantic_etags: None,
+            semantic_block_etags: None,
             semantic_local_block_ids: None,
             semantic_deleted_owner_block_ids: None,
         },
@@ -3555,6 +3580,51 @@ fn attach_semantic_etags(
     )
     .map_err(semantic_error)?;
     committed.value.semantic_etags = Some(DocumentSemanticEtags { title, body });
+    let mut block_ids = job
+        .semantic_block_etag_ids
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    if job.include_local_block_etags {
+        block_ids.extend(
+            committed
+                .value
+                .semantic_local_block_ids
+                .as_ref()
+                .into_iter()
+                .flat_map(|local_ids| local_ids.values().cloned()),
+        );
+    }
+    let block_etags = block_ids
+        .into_iter()
+        .map(|block_id| {
+            let block = find_block(&materialization.block_tree, &block_id).ok_or_else(|| {
+                StoreError::new(
+                    StoreErrorCode::Internal,
+                    format!("Committed semantic Block {block_id} is absent from materialization"),
+                    false,
+                )
+            })?;
+            let update = mint_document_block_etag(
+                connection,
+                project_id,
+                store_epoch,
+                &authority.head.id,
+                block,
+            )
+            .map_err(semantic_error)?;
+            let delete = mint_document_subtree_etag(
+                connection,
+                project_id,
+                store_epoch,
+                &authority.head.id,
+                block,
+            )
+            .map_err(semantic_error)?;
+            Ok((block_id, DocumentSemanticBlockEtags { update, delete }))
+        })
+        .collect::<Result<BTreeMap<_, _>, StoreError>>()?;
+    committed.value.semantic_block_etags = (!block_etags.is_empty()).then_some(block_etags);
     Ok(())
 }
 
@@ -8167,6 +8237,21 @@ mod tests {
             .get("child")
             .expect("child identity")
             .clone();
+        let block_etags = committed
+            .committed
+            .value
+            .semantic_block_etags
+            .clone()
+            .expect("stable Block insertion returns post-commit guards");
+        assert_eq!(
+            block_etags.keys().cloned().collect::<BTreeSet<_>>(),
+            BTreeSet::from([root_id.clone(), child_id.clone()])
+        );
+        assert!(
+            block_etags
+                .values()
+                .all(|etags| etags.update.starts_with("nxe1.") && etags.delete.starts_with("nxe1."))
+        );
         assert_eq!(
             committed
                 .committed
@@ -8200,6 +8285,10 @@ mod tests {
         assert_eq!(
             replay.committed.value.semantic_local_block_ids,
             Some(local_block_ids)
+        );
+        assert_eq!(
+            replay.committed.value.semantic_block_etags,
+            Some(block_etags)
         );
 
         let read_snapshot = |guard_kind: Option<AgentDocumentBlockGuardKind>,

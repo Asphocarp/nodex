@@ -2330,6 +2330,18 @@
                   }
                 ]
               },
+              "semantic_block_etags": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/DocumentSemanticBlockEtags"
+                },
+                "propertyNames": {
+                  "type": "string"
+                }
+              },
               "semantic_deleted_owner_block_ids": {
                 "type": [
                   "array",
@@ -3284,7 +3296,8 @@
           "unset_content": {
             "type": "boolean"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "DocumentCheckpointEffect": {
         "type": "object",
@@ -3889,6 +3902,22 @@
             "propertyNames": {
               "type": "string"
             }
+          }
+        },
+        "additionalProperties": false
+      },
+      "DocumentSemanticBlockEtags": {
+        "type": "object",
+        "required": [
+          "update",
+          "delete"
+        ],
+        "properties": {
+          "delete": {
+            "type": "string"
+          },
+          "update": {
+            "type": "string"
           }
         }
       },
@@ -16622,6 +16651,18 @@
                             "$ref": "#/components/schemas/DocumentOwnerEffect"
                           }
                         ]
+                      },
+                      "semantic_block_etags": {
+                        "type": [
+                          "object",
+                          "null"
+                        ],
+                        "additionalProperties": {
+                          "$ref": "#/components/schemas/DocumentSemanticBlockEtags"
+                        },
+                        "propertyNames": {
+                          "type": "string"
+                        }
                       },
                       "semantic_deleted_owner_block_ids": {
                         "type": [
