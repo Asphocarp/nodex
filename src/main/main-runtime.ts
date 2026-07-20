@@ -38,6 +38,7 @@ import {
   resolveProjectScopedPageTarget,
 } from "./local-store/reference-reads";
 import { getDb, initializeDatabase } from "./local-store/database";
+import * as sqlInspection from "./local-store/sql-inspection";
 import * as projectSessionService from "./local-store/project-sessions";
 import { dbNotifier } from "./local-store/notifier";
 import { getAssetsPathPrefix } from "./local-store/assets";
@@ -1848,6 +1849,19 @@ export async function runMainAppStartup(
       port: storeAdministration,
       onBackupSettingsChanged: configureRuntimeBackupScheduler,
       onStoreRestored,
+    },
+    sqlInspection: {
+      getSchema: async () =>
+        (await dataAuthority).backend === "rust"
+          ? null
+          : sqlInspection.getSchema(),
+      executeReadOnlyQuery: async (sql, params) =>
+        (await dataAuthority).backend === "rust"
+          ? null
+          : sqlInspection.executeReadOnlyQuery(
+              sql,
+              params as (string | number | null)[] | undefined,
+            ),
     },
     documentSync: {
       realtime: documentSync,

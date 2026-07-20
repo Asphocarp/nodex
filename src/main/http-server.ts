@@ -132,7 +132,6 @@ import {
   resolveProjectScopedPageOwnershipPath,
   resolveProjectScopedPageTarget,
 } from "./local-store/reference-reads";
-import { authorizeProjectResource } from "./local-store/project-resource-grants";
 import {
   deleteProjectSessionTabWithBrowserCleanupUsing,
   deleteProjectSessionWithBrowserCleanupUsing,
@@ -213,6 +212,20 @@ interface HttpStoreAdministrationDependencies {
   readonly onStoreRestored?: () => void;
 }
 
+interface HttpSqlInspectionDependencies {
+  readonly getSchema: () =>
+    | ReturnType<typeof sqlInspection.getSchema>
+    | null
+    | Promise<ReturnType<typeof sqlInspection.getSchema> | null>;
+  readonly executeReadOnlyQuery: (
+    sql: string,
+    params?: unknown[],
+  ) =>
+    | ReturnType<typeof sqlInspection.executeReadOnlyQuery>
+    | null
+    | Promise<ReturnType<typeof sqlInspection.executeReadOnlyQuery> | null>;
+}
+
 export interface HttpContentModuleDependencies {
   referenceReads: ReferenceReadHttpDependencies;
   propertyMutations: {
@@ -243,6 +256,7 @@ export interface HttpContentModuleDependencies {
     | "updatePageOccurrence"
   >;
   storeAdministration: HttpStoreAdministrationDependencies;
+  sqlInspection: HttpSqlInspectionDependencies;
   documentSync: DocumentSyncHttpDependencies;
   documentMutation: DocumentMutationHttpDependencies;
   additionalDocumentCommand: AdditionalDocumentCommandHttpDependencies;
@@ -472,6 +486,14 @@ const defaultHttpServerDependencies: HttpServerDependencies = {
     storeAdministration: {
       port: createTypeScriptStoreAdministrationPort(),
       onBackupSettingsChanged: configureTypeScriptAutoBackupScheduler,
+    },
+    sqlInspection: {
+      getSchema: sqlInspection.getSchema,
+      executeReadOnlyQuery: (sql, params) =>
+        sqlInspection.executeReadOnlyQuery(
+          sql,
+          params as (string | number | null)[] | undefined,
+        ),
     },
     documentSync: defaultDocumentSyncHttpDependencies,
     documentMutation: {
@@ -1060,6 +1082,25 @@ function normalizePageBody(body: Record<string, unknown>): Record<string, unknow
 
 const projectWorkspaceAuthority = (): DesktopProjectWorkspacePort =>
   httpServerDependencies.contentModules.projectWorkspace;
+
+export const canPublishProjectPageTargetEvent = async (
+  referenceReads: Pick<ReferenceReadHttpDependencies, "resolvePageTarget">,
+  projectId: string,
+  event: { readonly libraryId: string; readonly targetPageId: string },
+): Promise<boolean> => {
+  const target = await referenceReads.resolvePageTarget({
+    requestingProjectId: projectId,
+    targetPageId: event.targetPageId,
+  });
+  if (!target) return false;
+  if (target.status === "available") {
+    return target.page.libraryId === event.libraryId;
+  }
+  if (target.status === "deleted") {
+    return target.libraryId === event.libraryId;
+  }
+  return false;
+};
 
 // === Project routes ===
 
@@ -2107,13 +2148,20 @@ app.get("/api/projects/:projectId/events", async (c) => {
         }
       };
       const pageTargetHandler = (event: { libraryId: string; targetPageId: string }) => {
-        const authorization = authorizeProjectResource({
+        void canPublishProjectPageTargetEvent(
+          httpServerDependencies.contentModules.referenceReads,
           projectId,
-          resource: { kind: "page", pageId: event.targetPageId },
-          action: "read",
+          event,
+        ).then((allowed) => {
+          if (!allowed) return;
+          send(JSON.stringify({ event: "page-target-changed", ...event }));
+        }).catch((error) => {
+          logger.warn("Failed to authorize Project Page target event", {
+            projectId,
+            targetPageId: event.targetPageId,
+            error: error instanceof Error ? error.message : String(error),
+          });
         });
-        if (!authorization.allowed || authorization.libraryId !== event.libraryId) return;
-        send(JSON.stringify({ event: "page-target-changed", ...event }));
       };
       const pageOwnershipPathsHandler = (event: {
         libraryId: string;
@@ -2176,15 +2224,23 @@ app.get("/api/projects/:projectId/events", async (c) => {
 
 // === Schema/Query routes ===
 
-app.get("/api/projects/:projectId/schema", () => {
-  const schema = sqlInspection.getSchema();
+app.get("/api/projects/:projectId/schema", async (c) => {
+  const schema = await httpServerDependencies.contentModules.sqlInspection
+    .getSchema();
+  if (!schema) {
+    return c.json({ error: "SQL inspection is unavailable for this backend" }, 404);
+  }
   return Response.json(schema);
 });
 
 app.post("/api/projects/:projectId/query", async (c) => {
   const body = await c.req.json();
   try {
-    const result = sqlInspection.executeReadOnlyQuery(body.sql, body.params);
+    const result = await httpServerDependencies.contentModules.sqlInspection
+      .executeReadOnlyQuery(body.sql, body.params);
+    if (!result) {
+      return c.json({ error: "SQL inspection is unavailable for this backend" }, 404);
+    }
     return c.json(result);
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);

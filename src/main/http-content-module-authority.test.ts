@@ -9,6 +9,7 @@ import type { LibraryModuleApplyResult } from "../shared/library-module";
 import {
   __resetHttpServerDependenciesForTests,
   __setHttpContentModuleDependenciesForTests,
+  canPublishProjectPageTargetEvent,
   getHttpServerOptions,
 } from "./http-server";
 
@@ -136,6 +137,47 @@ describe("HTTP content Module authority", () => {
     expect(response.status).toBe(200);
     expect(listBackups).toHaveBeenCalledOnce();
     await expect(response.json()).resolves.toEqual({ backups: [] });
+  });
+
+  test("authorizes Project Page events through the configured reference read", async () => {
+    const resolvePageTarget = vi.fn(async () => ({
+      status: "deleted" as const,
+      targetPageId: "page-native",
+      libraryId: "library-native",
+    }));
+
+    await expect(canPublishProjectPageTargetEvent(
+      { resolvePageTarget },
+      "project-native",
+      { libraryId: "library-native", targetPageId: "page-native" },
+    )).resolves.toBe(true);
+    await expect(canPublishProjectPageTargetEvent(
+      { resolvePageTarget },
+      "project-native",
+      { libraryId: "library-other", targetPageId: "page-native" },
+    )).resolves.toBe(false);
+    expect(resolvePageTarget).toHaveBeenNthCalledWith(1, {
+      requestingProjectId: "project-native",
+      targetPageId: "page-native",
+    });
+  });
+
+  test("hides arbitrary SQL inspection when the selected backend disables it", async () => {
+    __setHttpContentModuleDependenciesForTests({
+      sqlInspection: {
+        getSchema: async () => null,
+        executeReadOnlyQuery: async () => null,
+      },
+    });
+
+    const response = await getHttpServerOptions(PORT).fetch(new Request(
+      `http://127.0.0.1:${PORT}/api/projects/project-native/schema`,
+    ));
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      error: "SQL inspection is unavailable for this backend",
+    });
   });
 
   test("binds Block Transfer transport identity before the configured authority", async () => {

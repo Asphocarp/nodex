@@ -189,6 +189,19 @@ describe("Electron native data authority", () => {
           expect.objectContaining({ id: projectId }),
         ]),
       });
+      __setHttpContentModuleDependenciesForTests({
+        sqlInspection: {
+          getSchema: async () => null,
+          executeReadOnlyQuery: async () => null,
+        },
+      });
+      const sqlHttpResponse = await getHttpServerOptions(51_284).fetch(
+        new Request(
+          `http://127.0.0.1:51284/api/projects/${projectId}/schema`,
+        ),
+      );
+      expect(sqlHttpResponse.status).toBe(404);
+      expect(listCurrentProcessFiles()).not.toContain(databasePath);
       const database = createCoreDatabaseModuleAdapter({
         client: runtime.clientForProject(projectId),
         projectId,
