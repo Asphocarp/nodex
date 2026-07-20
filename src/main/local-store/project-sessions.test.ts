@@ -1107,6 +1107,11 @@ describe("project session service", () => {
         threadId: "thread-1",
         forkedFromId: "fork-root-1",
         parentThreadId: "parent-1",
+        threadSource: "user",
+        serviceName: "service-one",
+        agentNickname: "Scout",
+        agentRole: "researcher",
+        agentPath: "agents/scout",
         threadName: "Thread One",
         threadPreview: "Working on the redesign",
         modelProvider: "openai",
@@ -1130,6 +1135,13 @@ describe("project session service", () => {
       expect(attached.projectlessWorkspaceBrowserRoot ?? null).toBe("workspace");
       expect(JSON.stringify(attached.statusActiveFlags)).toBe(JSON.stringify(["waitingOnApproval"]));
       expect(getProjectSession(session.id)?.displayTitle).toBe("Thread One");
+      expect(getCodexThread("thread-1")).toMatchObject({
+        threadSource: "user",
+        serviceName: "service-one",
+        agentNickname: "Scout",
+        agentRole: "researcher",
+        agentPath: "agents/scout",
+      });
 
       const updated = upsertProjectSessionThreadLink({
         sessionId: session.id,

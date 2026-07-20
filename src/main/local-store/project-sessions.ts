@@ -1800,6 +1800,11 @@ export function upsertProjectSessionThreadLink(input: ProjectSessionThreadLinkIn
     const linkedAt = new Date().toISOString();
     const existing = getCodexThread(parsed.threadId);
     const hasForkedFromIdInput = Object.prototype.hasOwnProperty.call(parsed, "forkedFromId");
+    const hasThreadSourceInput = Object.prototype.hasOwnProperty.call(parsed, "threadSource");
+    const hasServiceNameInput = Object.prototype.hasOwnProperty.call(parsed, "serviceName");
+    const hasAgentNicknameInput = Object.prototype.hasOwnProperty.call(parsed, "agentNickname");
+    const hasAgentRoleInput = Object.prototype.hasOwnProperty.call(parsed, "agentRole");
+    const hasAgentPathInput = Object.prototype.hasOwnProperty.call(parsed, "agentPath");
     const hasManagedWorktreePathInput = Object.prototype.hasOwnProperty.call(parsed, "managedWorktreePath");
     upsertCodexThread({
       projectId,
@@ -1810,6 +1815,21 @@ export function upsertProjectSessionThreadLink(input: ProjectSessionThreadLinkIn
       source: parsed.parentThreadId
         ? { parentThreadId: parsed.parentThreadId }
         : existing?.source ?? null,
+      threadSource: hasThreadSourceInput
+        ? (parsed.threadSource ?? null)
+        : (existing?.threadSource ?? null),
+      serviceName: hasServiceNameInput
+        ? (parsed.serviceName ?? null)
+        : (existing?.serviceName ?? null),
+      agentNickname: hasAgentNicknameInput
+        ? (parsed.agentNickname ?? null)
+        : (existing?.agentNickname ?? null),
+      agentRole: hasAgentRoleInput
+        ? (parsed.agentRole ?? null)
+        : (existing?.agentRole ?? null),
+      agentPath: hasAgentPathInput
+        ? (parsed.agentPath ?? null)
+        : (existing?.agentPath ?? null),
       threadName: parsed.threadName ?? existing?.threadName ?? null,
       threadPreview: parsed.threadPreview ?? existing?.threadPreview ?? "",
       modelProvider: parsed.modelProvider ?? existing?.modelProvider ?? "",

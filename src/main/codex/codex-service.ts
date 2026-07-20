@@ -13145,6 +13145,65 @@ export class CodexService extends EventEmitter {
           }
         : null);
 
+    const materialization = this.buildWorkspaceThreadMaterialization({
+      candidate,
+      existing,
+      ref,
+      fallbackCwd,
+    });
+    const {
+      parsedStatus,
+      patch: upsertInput,
+      projectId,
+      resolvedCwd,
+      managedWorktreePath,
+      projectlessOutputDirectory,
+      projectlessWorkspaceBrowserRoot,
+    } = materialization;
+    if (existingThread) {
+      await this.prepareWorkspaceThreadProjectAssignment({
+        thread: existingThread,
+        targetProjectId: projectId,
+        metadata: {
+          ...(resolvedCwd === null ? {} : { cwd: resolvedCwd }),
+          managedWorktreePath,
+          projectlessOutputDirectory,
+          projectlessWorkspaceBrowserRoot,
+        },
+      });
+    }
+
+    const persisted = await this.projectWorkspace.upsertThread(
+      candidate.id,
+      upsertInput,
+    );
+    const summary = this.buildWorkspaceThreadSummary(persisted);
+
+    const summaryWithAgentMetadata = applyThreadAgentMetadata({
+      ...summary,
+      threadRuntimeStatus: parsedStatus.threadRuntimeStatus,
+    }, candidate);
+    if (hasSidebarThreadSummaryChanged(existing, summaryWithAgentMetadata)) {
+      this.invalidateSidebarSnapshotCache();
+    }
+    return summaryWithAgentMetadata;
+  }
+
+  private buildWorkspaceThreadMaterialization(input: {
+    readonly candidate: Record<string, unknown>;
+    readonly existing: CodexThreadSummary | null;
+    readonly ref: ThreadRef | null;
+    readonly fallbackCwd?: string | null;
+  }): {
+    readonly parsedStatus: ReturnType<typeof parseThreadStatus>;
+    readonly patch: DesktopProjectWorkspaceThreadPatch;
+    readonly projectId: string | null;
+    readonly resolvedCwd: string | null;
+    readonly managedWorktreePath: string | null;
+    readonly projectlessOutputDirectory: string | null;
+    readonly projectlessWorkspaceBrowserRoot: string | null;
+  } {
+    const { candidate, existing, ref, fallbackCwd } = input;
     const parsedStatus = parseThreadStatus(candidate.status);
     const candidateProjectlessOutputDirectory =
       readStringField(candidate, "projectlessOutputDirectory")
@@ -13175,19 +13234,7 @@ export class CodexService extends EventEmitter {
       ?? ref?.projectlessWorkspaceBrowserRoot
       ?? null;
     const projectId = ref ? ref.projectId : existing?.projectId ?? null;
-    if (existingThread) {
-      await this.prepareWorkspaceThreadProjectAssignment({
-        thread: existingThread,
-        targetProjectId: projectId,
-        metadata: {
-          ...(resolvedCwd === null ? {} : { cwd: resolvedCwd }),
-          managedWorktreePath,
-          projectlessOutputDirectory,
-          projectlessWorkspaceBrowserRoot,
-        },
-      });
-    }
-    const upsertInput: DesktopProjectWorkspaceThreadPatch = {
+    const patch: DesktopProjectWorkspaceThreadPatch = {
       projectId,
       ...(parentThreadId ? { parentThreadId } : {}),
       threadSource: parseThreadSourceValue(candidate.threadSource),
@@ -13223,21 +13270,15 @@ export class CodexService extends EventEmitter {
         ? { serviceName: candidate.serviceName }
         : {}),
     };
-
-    const persisted = await this.projectWorkspace.upsertThread(
-      candidate.id,
-      upsertInput,
-    );
-    const summary = this.buildWorkspaceThreadSummary(persisted);
-
-    const summaryWithAgentMetadata = applyThreadAgentMetadata({
-      ...summary,
-      threadRuntimeStatus: parsedStatus.threadRuntimeStatus,
-    }, candidate);
-    if (hasSidebarThreadSummaryChanged(existing, summaryWithAgentMetadata)) {
-      this.invalidateSidebarSnapshotCache();
-    }
-    return summaryWithAgentMetadata;
+    return {
+      parsedStatus,
+      patch,
+      projectId,
+      resolvedCwd,
+      managedWorktreePath,
+      projectlessOutputDirectory,
+      projectlessWorkspaceBrowserRoot,
+    };
   }
 
   private async upsertBackgroundSubagentThreadFromAppServerThread(
@@ -13271,7 +13312,7 @@ export class CodexService extends EventEmitter {
     return summary;
   }
 
-  private upsertSessionLinkFromThread(
+  private async upsertWorkspaceSessionLinkFromThread(
     thread: unknown,
     input: { sessionId: string; projectId: string | null },
     options: {
@@ -13280,52 +13321,78 @@ export class CodexService extends EventEmitter {
       projectlessOutputDirectory?: string | null;
       projectlessWorkspaceBrowserRoot?: string | null;
     } = {},
-  ): CodexThreadSummary | null {
+  ): Promise<CodexThreadSummary | null> {
     if (typeof thread !== "object" || thread === null) return null;
     const candidate = thread as Record<string, unknown>;
     if (typeof candidate.id !== "string") return null;
 
-    const existing = projectSessionService.getProjectSessionThreadLink(candidate.id);
-    const parsedStatus = parseThreadStatus(candidate.status);
-    const parentThreadId = parseThreadParentThreadId(candidate);
-    const link = projectSessionService.upsertProjectSessionThreadLink({
+    const fallbackCwd = options.fallbackCwd?.trim() || null;
+    const existingThread = await this.projectWorkspace.getThread(candidate.id);
+    const existing = existingThread
+      ? this.buildWorkspaceThreadSummary(existingThread)
+      : null;
+    const materialization = this.buildWorkspaceThreadMaterialization({
+      candidate,
+      existing,
+      ref: {
+        projectId: input.projectId,
+        cwd: fallbackCwd,
+        managedWorktreePath: options.managedWorktreePath ?? null,
+        projectlessOutputDirectory: options.projectlessOutputDirectory ?? null,
+        projectlessWorkspaceBrowserRoot:
+          options.projectlessWorkspaceBrowserRoot ?? null,
+      },
+      fallbackCwd,
+    });
+    const { patch, parsedStatus } = materialization;
+
+    await this.projectWorkspace.upsertProjectSessionThreadLink({
       sessionId: input.sessionId,
       projectId: input.projectId,
       threadId: candidate.id,
-      parentThreadId: parentThreadId ?? existing?.parentThreadId ?? null,
-      threadName: typeof candidate.name === "string" ? candidate.name : (existing?.threadName ?? null),
-      threadPreview: typeof candidate.preview === "string" ? candidate.preview : (existing?.threadPreview ?? ""),
-      modelProvider: typeof candidate.modelProvider === "string" ? candidate.modelProvider : (existing?.modelProvider ?? ""),
-      cwd: typeof candidate.cwd === "string"
-        ? candidate.cwd
-        : (existing?.cwd ?? (options.fallbackCwd?.trim() || null)),
-      managedWorktreePath: options.managedWorktreePath ?? existing?.managedWorktreePath ?? null,
-      projectlessOutputDirectory:
-        readStringField(candidate, "projectlessOutputDirectory")
-        ?? readStringField(candidate, "projectless_output_directory")
-        ?? existing?.projectlessOutputDirectory
-        ?? options.projectlessOutputDirectory
-        ?? null,
+      forkedFromId: existing?.forkedFromId ?? null,
+      parentThreadId: patch.parentThreadId ?? existing?.source?.parentThreadId ?? null,
+      threadSource: patch.threadSource ?? null,
+      ...(Object.prototype.hasOwnProperty.call(patch, "serviceName")
+        ? { serviceName: patch.serviceName ?? null }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(patch, "agentNickname")
+        ? { agentNickname: patch.agentNickname ?? null }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(patch, "agentRole")
+        ? { agentRole: patch.agentRole ?? null }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(patch, "agentPath")
+        ? { agentPath: patch.agentPath ?? null }
+        : {}),
+      threadName: patch.threadName ?? existing?.threadName ?? null,
+      threadPreview: patch.threadPreview ?? existing?.threadPreview ?? "",
+      modelProvider: patch.modelProvider ?? existing?.modelProvider ?? "",
+      cwd: materialization.resolvedCwd,
+      managedWorktreePath: materialization.managedWorktreePath,
+      projectlessOutputDirectory: materialization.projectlessOutputDirectory,
       projectlessWorkspaceBrowserRoot:
-        readStringField(candidate, "projectlessWorkspaceBrowserRoot")
-        ?? readStringField(candidate, "projectless_workspace_browser_root")
-        ?? readStringField(candidate, "projectlessWorkspaceRoot")
-        ?? readStringField(candidate, "projectless_workspace_root")
-        ?? existing?.projectlessWorkspaceBrowserRoot
-        ?? options.projectlessWorkspaceBrowserRoot
-        ?? null,
+        materialization.projectlessWorkspaceBrowserRoot,
       statusType: parsedStatus.statusType,
       statusActiveFlags: parsedStatus.statusActiveFlags,
       archived: existing?.archived ?? false,
-      createdAt: normalizeTimestamp(candidate.createdAt),
+      ...(!existing
+        ? { createdAt: normalizeTimestamp(candidate.createdAt) }
+        : {}),
       updatedAt: normalizeTimestamp(candidate.updatedAt),
     });
+    const persisted = await this.projectWorkspace.getThread(candidate.id);
+    if (!persisted) {
+      throw new Error("Unable to read attached project session thread");
+    }
 
-    dbNotifier.notifyProjectSessionsChanged(input.projectId, "link", input.sessionId);
     const summary = applyThreadAgentMetadata({
-      ...sessionThreadLinkToSummary(link),
+      ...this.buildWorkspaceThreadSummary(persisted),
       threadRuntimeStatus: parsedStatus.threadRuntimeStatus,
     }, candidate);
+    if (hasSidebarThreadSummaryChanged(existing, summary)) {
+      this.invalidateSidebarSnapshotCache();
+    }
     return summary;
   }
 
@@ -14108,7 +14175,9 @@ export class CodexService extends EventEmitter {
 
     try {
       await this.ensureClientReady();
-      const session = projectSessionService.getProjectSession(input.sessionId);
+      const session = await this.projectWorkspace.getProjectSession(
+        input.sessionId,
+      );
       if (!session) {
         throw new Error(`Project session not found: ${input.sessionId}`);
       }
@@ -14277,7 +14346,7 @@ export class CodexService extends EventEmitter {
           fallbackCwd: runLocation.cwd,
         }) ?? runLocation.cwd;
         const projectedThread = { ...threadStart.thread, cwd: effectiveCwd };
-        link = this.upsertSessionLinkFromThread(projectedThread, {
+        link = await this.upsertWorkspaceSessionLinkFromThread(projectedThread, {
           projectId: input.projectId,
           sessionId: input.sessionId,
         }, {
@@ -14544,7 +14613,7 @@ export class CodexService extends EventEmitter {
     await this.ensureClientReady();
 
     const parsed = ProjectSessionForkInputSchema.parse(input);
-    const sourceSession = projectSessionService.getProjectSession(sessionId);
+    const sourceSession = await this.projectWorkspace.getProjectSession(sessionId);
     if (!sourceSession) {
       throw new Error(`Project session not found: ${sessionId}`);
     }
@@ -14637,21 +14706,24 @@ export class CodexService extends EventEmitter {
     }
     let threadStartDeferralOpen = shouldDeferThreadStarted;
     const nextSessionBox: {
-      value: ReturnType<typeof projectSessionService.createProjectSession> | null;
+      value: ProjectSession | null;
     } = { value: null };
+    let createdSessionId: string | null = null;
     let summary: CodexThreadSummary;
     let detail: CodexThreadDetail;
     let worktreeOwnershipTransferred = false;
-    const materializeSessionFork = (
+    const materializeSessionFork = async (
       projectedThread: Thread,
       resolvedCwd: string | null,
-    ): CodexPersistentForkMaterialization => {
-      const nextSession = nextSessionBox.value ?? projectSessionService.createProjectSession({
-        projectId: sourceProjectId,
-        noThreadFallbackTitle: sourceSession.displayTitle,
-      });
+    ): Promise<CodexPersistentForkMaterialization> => {
+      const nextSession = nextSessionBox.value
+        ?? await this.projectWorkspace.createProjectSession({
+          projectId: sourceProjectId,
+          noThreadFallbackTitle: sourceSession.displayTitle,
+        });
+      if (nextSessionBox.value === null) createdSessionId = nextSession.id;
       nextSessionBox.value = nextSession;
-      const attachedSummary = this.upsertSessionLinkFromThread(
+      const attachedSummary = await this.upsertWorkspaceSessionLinkFromThread(
         projectedThread,
         {
           projectId: sourceProjectId,
@@ -14733,6 +14805,11 @@ export class CodexService extends EventEmitter {
       );
       this.syncDormantConversationFromRecord(forkedThreadId, "owner-unavailable");
     } catch (error) {
+      if (createdSessionId && !worktreeOwnershipTransferred) {
+        await this.projectWorkspace.deleteProjectSession(createdSessionId)
+          .catch(() => undefined);
+        nextSessionBox.value = null;
+      }
       if (runLocation.managedWorktreePath && !worktreeOwnershipTransferred) {
         await removeManagedWorktree(runLocation.managedWorktreePath).catch(() => undefined);
       }
@@ -14755,7 +14832,7 @@ export class CodexService extends EventEmitter {
     if (!nextSession) {
       throw new Error("Forked project session was not created");
     }
-    const session = projectSessionService.getProjectSession(nextSession.id);
+    const session = await this.projectWorkspace.getProjectSession(nextSession.id);
     if (!session) {
       throw new Error("Forked project session could not be loaded");
     }
@@ -20253,7 +20330,9 @@ export class CodexService extends EventEmitter {
       },
     });
     if (input.projectSessionId) {
-      const session = projectSessionService.getProjectSession(input.projectSessionId);
+      const session = await this.projectWorkspace.getProjectSession(
+        input.projectSessionId,
+      );
       if (!session) {
         throw new Error(`Project session not found: ${input.projectSessionId}`);
       }
@@ -20544,7 +20623,7 @@ export class CodexService extends EventEmitter {
       if (!projectedThread) {
         throw new Error("Pending thread did not retain its start payload");
       }
-      const attachedSummary = this.upsertSessionLinkFromThread(
+      const attachedSummary = await this.upsertWorkspaceSessionLinkFromThread(
         projectedThread,
         {
           projectId: input.target.projectId,

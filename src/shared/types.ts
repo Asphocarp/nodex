@@ -936,6 +936,11 @@ export interface ProjectSessionThreadLinkInput {
   threadId: string;
   forkedFromId?: string | null;
   parentThreadId?: string | null;
+  threadSource?: CodexAppServerThreadSource | null;
+  serviceName?: string | null;
+  agentNickname?: string | null;
+  agentRole?: string | null;
+  agentPath?: string | null;
   threadName?: string | null;
   threadPreview?: string;
   modelProvider?: string;

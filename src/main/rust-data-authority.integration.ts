@@ -1755,6 +1755,11 @@ describe("Electron native data authority", () => {
         sessionId: createdSession.id,
         projectId: createdProject.id,
         threadId: "thread:electron-session",
+        threadSource: "user",
+        serviceName: "electron-session",
+        agentNickname: "@Session",
+        agentRole: "launcher",
+        agentPath: "agents/session-launcher",
         threadName: "Electron linked Thread",
         threadPreview: "Native Session attach",
         modelProvider: "openai",
@@ -1768,6 +1773,15 @@ describe("Electron native data authority", () => {
         projectId: createdProject.id,
         threadId: "thread:electron-session",
         threadName: "Electron linked Thread",
+      });
+      await expect(
+        workspace.getThread("thread:electron-session"),
+      ).resolves.toMatchObject({
+        threadSource: "user",
+        serviceName: "electron-session",
+        agentNickname: "@Session",
+        agentRole: "launcher",
+        agentPath: "agents/session-launcher",
       });
       await expect(workspace.replaceThreadDynamicToolCatalogs(
         "thread:electron-session",

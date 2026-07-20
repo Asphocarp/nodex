@@ -1499,6 +1499,26 @@ export function createCoreProjectWorkspaceAdapter(
         input,
         "forkedFromId",
       );
+      const hasThreadSource = Object.prototype.hasOwnProperty.call(
+        input,
+        "threadSource",
+      );
+      const hasServiceName = Object.prototype.hasOwnProperty.call(
+        input,
+        "serviceName",
+      );
+      const hasAgentNickname = Object.prototype.hasOwnProperty.call(
+        input,
+        "agentNickname",
+      );
+      const hasAgentRole = Object.prototype.hasOwnProperty.call(
+        input,
+        "agentRole",
+      );
+      const hasAgentPath = Object.prototype.hasOwnProperty.call(
+        input,
+        "agentPath",
+      );
       const hasManagedWorktreePath = Object.prototype.hasOwnProperty.call(
         input,
         "managedWorktreePath",
@@ -1517,6 +1537,21 @@ export function createCoreProjectWorkspaceAdapter(
               : {}),
             ...(parsed.parentThreadId
               ? { parent_thread_id: parsed.parentThreadId }
+              : {}),
+            ...(hasThreadSource
+              ? { thread_source: parsed.threadSource ?? null }
+              : {}),
+            ...(hasServiceName
+              ? { service_name: parsed.serviceName ?? null }
+              : {}),
+            ...(hasAgentNickname
+              ? { agent_nickname: parsed.agentNickname ?? null }
+              : {}),
+            ...(hasAgentRole
+              ? { agent_role: parsed.agentRole ?? null }
+              : {}),
+            ...(hasAgentPath
+              ? { agent_path: parsed.agentPath ?? null }
               : {}),
             ...(parsed.threadName != null
               ? { thread_name: parsed.threadName }

@@ -516,6 +516,11 @@ reads the source execution-context snapshot and replaces the target catalog
 through the same authority, while every `nodex_app` call resolves its expected
 toolset revision from that snapshot. The Rust branch therefore never opens
 SQLite in Electron for catalog launch, inheritance, or stale-catalog checks.
+Project Session Thread starts, pending dynamic creates, and persistent Session
+forks also read, atomically materialize-and-attach, create, and reread their
+Session/Thread aggregate through that same Workspace port. External Codex
+process execution remains Host-owned, but a successful launch cannot publish
+its in-memory result before native Session ownership commits.
 Project permission settings use a separate Project-scoped snapshot because a
 new Project may not own a Thread yet. Codex verifies the selected preset against
 the live app-server config before treating built-in Full access as Library

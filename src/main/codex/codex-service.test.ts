@@ -26907,6 +26907,124 @@ describe("codex-service approval fallback", () => {
     }
   });
 
+  test("atomically materializes session Threads through the selected Workspace authority", async () => {
+    const service = createService();
+    const calls: string[] = [];
+    const persisted = makeDesktopWorkspaceThread({
+      threadId: "thread-authority-session-link",
+      projectId: "project-authority",
+      sessionId: null,
+      threadSource: "user",
+      serviceName: "authority-service",
+      threadName: "Authority session link",
+      threadPreview: "Committed preview",
+      cwd: "/tmp/authority-session",
+      managedWorktreePath: "/tmp/authority-session-worktree",
+      statusType: "active",
+      statusActiveFlags: ["waitingOnApproval"],
+      createdAt: 10,
+      updatedAt: 20,
+    });
+    let attached = false;
+    const typescriptWorkspace = createTypeScriptProjectWorkspacePort();
+    service.setProjectWorkspacePort({
+      ...typescriptWorkspace,
+      getThread: async (threadId) => {
+        calls.push(`read:${threadId}`);
+        return attached ? persisted : null;
+      },
+      upsertProjectSessionThreadLink: async (input) => {
+        calls.push(`attach:${input.sessionId}:${input.threadId}`);
+        expect(input).toMatchObject({
+          sessionId: "session-authority",
+          projectId: "project-authority",
+          threadId: persisted.threadId,
+          threadSource: persisted.threadSource,
+          serviceName: persisted.serviceName,
+          threadName: persisted.threadName,
+          threadPreview: persisted.threadPreview,
+          cwd: persisted.cwd,
+          managedWorktreePath: persisted.managedWorktreePath,
+          statusType: persisted.statusType,
+          statusActiveFlags: persisted.statusActiveFlags,
+        });
+        attached = true;
+        return {
+          sessionId: input.sessionId,
+          projectId: input.projectId,
+          threadId: input.threadId,
+          forkedFromId: input.forkedFromId ?? null,
+          threadName: input.threadName ?? undefined,
+          threadPreview: input.threadPreview ?? "",
+          modelProvider: input.modelProvider ?? "",
+          cwd: input.cwd ?? undefined,
+          managedWorktreePath: input.managedWorktreePath ?? null,
+          projectlessOutputDirectory: input.projectlessOutputDirectory ?? null,
+          projectlessWorkspaceBrowserRoot:
+            input.projectlessWorkspaceBrowserRoot ?? null,
+          statusType: input.statusType ?? "notLoaded",
+          statusActiveFlags: input.statusActiveFlags ?? [],
+          archived: input.archived ?? false,
+          createdAt: input.createdAt ?? 0,
+          updatedAt: input.updatedAt ?? 0,
+          linkedAt: "2026-07-20T00:00:00.000Z",
+        };
+      },
+    });
+    const serviceInternals = service as unknown as {
+      upsertWorkspaceSessionLinkFromThread: (
+        thread: unknown,
+        input: { sessionId: string; projectId: string | null },
+        options: {
+          fallbackCwd?: string | null;
+          managedWorktreePath?: string | null;
+        },
+      ) => Promise<CodexThreadSummary | null>;
+    };
+
+    try {
+      const summary = await serviceInternals.upsertWorkspaceSessionLinkFromThread(
+        {
+          id: persisted.threadId,
+          threadSource: "user",
+          serviceName: persisted.serviceName,
+          name: persisted.threadName,
+          preview: persisted.threadPreview,
+          modelProvider: persisted.modelProvider,
+          cwd: persisted.cwd,
+          status: {
+            type: "active",
+            activeFlags: ["waitingOnApproval"],
+          },
+          createdAt: persisted.createdAt,
+          updatedAt: persisted.updatedAt,
+        },
+        {
+          sessionId: "session-authority",
+          projectId: "project-authority",
+        },
+        {
+          fallbackCwd: persisted.cwd,
+          managedWorktreePath: persisted.managedWorktreePath,
+        },
+      );
+
+      expect(summary).toMatchObject({
+        threadId: persisted.threadId,
+        projectId: persisted.projectId,
+        threadName: persisted.threadName,
+        statusType: persisted.statusType,
+      });
+      expect(calls).toEqual([
+        `read:${persisted.threadId}`,
+        `attach:session-authority:${persisted.threadId}`,
+        `read:${persisted.threadId}`,
+      ]);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
   test("routes Thread archive, restore, and delete through the selected Workspace authority", async () => {
     const service = createService();
     const calls: string[] = [];
