@@ -3219,6 +3219,68 @@
       "LibraryApplyResponse": {
         "$ref": "#/components/schemas/ResponseEnvelope_CommittedModuleValue_LibraryCommitValue_LibraryReceipt"
       },
+      "LibraryBlockLocation": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "library_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              },
+              "library_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "document_id",
+              "kind"
+            ],
+            "properties": {
+              "document_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "document"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "database_id",
+              "data_source_id",
+              "kind"
+            ],
+            "properties": {
+              "data_source_id": {
+                "type": "string"
+              },
+              "database_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "data_source"
+                ]
+              }
+            }
+          }
+        ]
+      },
       "LibraryBlockRelocationDirection": {
         "type": "string",
         "enum": [
@@ -3226,6 +3288,465 @@
           "out_of_page",
           "within_page",
           "unknown"
+        ]
+      },
+      "LibraryBlockTransferDocumentCommit": {
+        "type": "object",
+        "required": [
+          "document_id",
+          "generation",
+          "base_head_seq",
+          "head_seq",
+          "update_id",
+          "update",
+          "state_vector"
+        ],
+        "properties": {
+          "base_head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "state_vector": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "update": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "update_id": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryBlockTransferDocumentHead": {
+        "type": "object",
+        "required": [
+          "document_id",
+          "generation",
+          "expected_head_seq"
+        ],
+        "properties": {
+          "document_id": {
+            "type": "string"
+          },
+          "expected_head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "generation": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "LibraryBlockTransferLogicalIntent": {
+        "type": "object",
+        "required": [
+          "actor",
+          "mode",
+          "root_block_ids",
+          "source",
+          "target"
+        ],
+        "properties": {
+          "actor": {},
+          "mode": {
+            "$ref": "#/components/schemas/LibraryBlockTransferMode"
+          },
+          "root_block_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/LibraryBlockTransferSource"
+          },
+          "target": {
+            "$ref": "#/components/schemas/LibraryBlockTransferTarget"
+          }
+        }
+      },
+      "LibraryBlockTransferMode": {
+        "type": "string",
+        "enum": [
+          "move",
+          "copy"
+        ]
+      },
+      "LibraryBlockTransferPlan": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "preparation",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "prepared"
+                ]
+              },
+              "preparation": {
+                "$ref": "#/components/schemas/LibraryBlockTransferPreparation"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "result",
+              "change_log_seq",
+              "committed_at",
+              "kind"
+            ],
+            "properties": {
+              "change_log_seq": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "committed_at": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "committed"
+                ]
+              },
+              "result": {
+                "$ref": "#/components/schemas/LibraryBlockTransferResult"
+              }
+            }
+          }
+        ]
+      },
+      "LibraryBlockTransferPreparation": {
+        "type": "object",
+        "required": [
+          "lease_documents",
+          "expected_location_revisions",
+          "source_document_id",
+          "target_document_id"
+        ],
+        "properties": {
+          "expected_location_revisions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "lease_documents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryBlockTransferDocumentHead"
+            }
+          },
+          "source_document_id": {
+            "type": "string"
+          },
+          "target_document_id": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryBlockTransferResult": {
+        "type": "object",
+        "required": [
+          "mode",
+          "source_root_block_ids",
+          "result_root_block_ids",
+          "copied_block_ids",
+          "transformation_evidence",
+          "final_locations",
+          "final_location_revisions",
+          "document_commits",
+          "affected_database_ids"
+        ],
+        "properties": {
+          "affected_database_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "copied_block_ids": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "document_commits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryBlockTransferDocumentCommit"
+            }
+          },
+          "final_location_revisions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "final_locations": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/LibraryBlockLocation"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "mode": {
+            "$ref": "#/components/schemas/LibraryBlockTransferMode"
+          },
+          "result_root_block_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source_root_block_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "transformation_evidence": {
+            "type": "array",
+            "items": {}
+          }
+        }
+      },
+      "LibraryBlockTransferSource": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "library_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              },
+              "library_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "document_id",
+              "kind"
+            ],
+            "properties": {
+              "document_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "document"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data_source_id",
+              "kind"
+            ],
+            "properties": {
+              "data_source_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "data_source"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "LibraryBlockTransferTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "library_id",
+              "kind"
+            ],
+            "properties": {
+              "before_block_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              },
+              "library_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "kind"
+            ],
+            "properties": {
+              "before_block_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              },
+              "parent_block_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "document_id",
+              "kind"
+            ],
+            "properties": {
+              "before_block_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "document_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "document"
+                ]
+              },
+              "parent_block_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data_source_id",
+              "view_id",
+              "kind"
+            ],
+            "properties": {
+              "before_page_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "data_source_id": {
+                "type": "string"
+              },
+              "group_key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "data_source"
+                ]
+              },
+              "view_id": {
+                "type": "string"
+              }
+            }
+          }
         ]
       },
       "LibraryCatalogEntry": {
@@ -5882,6 +6403,33 @@
                     "$ref": "#/components/schemas/LibraryResourceTarget"
                   }
                 }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "intent",
+                  "kind"
+                ],
+                "properties": {
+                  "intent": {
+                    "$ref": "#/components/schemas/LibraryBlockTransferLogicalIntent"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "transfer_blocks"
+                    ]
+                  },
+                  "write_fence": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "$ref": "#/components/schemas/LibraryBlockTransferDocumentHead"
+                    }
+                  }
+                }
               }
             ]
           },
@@ -8271,6 +8819,32 @@
                     "minimum": 0
                   },
                   "page_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "operation_id",
+                  "store_epoch",
+                  "intent",
+                  "kind"
+                ],
+                "properties": {
+                  "intent": {
+                    "$ref": "#/components/schemas/LibraryBlockTransferLogicalIntent"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "plan_block_transfer"
+                    ]
+                  },
+                  "operation_id": {
+                    "type": "string"
+                  },
+                  "store_epoch": {
                     "type": "string"
                   }
                 }
@@ -11244,6 +11818,16 @@
                           "type": "string"
                         }
                       },
+                      "block_transfer": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "$ref": "#/components/schemas/LibraryBlockTransferResult"
+                          }
+                        ]
+                      },
                       "page_copy": {
                         "oneOf": [
                           {
@@ -12333,6 +12917,24 @@
                           },
                           "value": {
                             "$ref": "#/components/schemas/LibraryPageHistoryPage"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "block_transfer_plan"
+                            ]
+                          },
+                          "value": {
+                            "$ref": "#/components/schemas/LibraryBlockTransferPlan"
                           }
                         }
                       }

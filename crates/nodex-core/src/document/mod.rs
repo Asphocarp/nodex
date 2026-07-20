@@ -58,6 +58,7 @@ pub use yrs_engine::{
 
 pub(crate) use canvas::{clone_canvas_genesis, load_canvas_scene};
 pub(crate) use genesis::{prepare_page_yjs_genesis, prepare_yjs_clone_genesis};
+pub(crate) use history::{NewDocumentCheckpoint, insert_document_checkpoint};
 pub(crate) use persistence::{
     DocumentAuthorityRow, PersistYjsCommit, PersistYjsGenesis, persist_yjs_commit,
     persist_yjs_genesis, read_document_authority, read_store_epoch, sha256,

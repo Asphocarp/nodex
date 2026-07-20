@@ -14,6 +14,7 @@ import {
   createCoreLibraryDatabaseModuleAdapter,
 } from "./core-client/database-module-adapter";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
+import { createCoreBlockTransferAdapter } from "./core-client/block-transfer-adapter";
 import { createCoreProjectWorkspaceAdapter } from "./core-client/project-workspace-adapter";
 import {
   createDesktopAutomationModuleBridge,
@@ -35,6 +36,7 @@ import {
   primaryCanvasDocumentId,
   type CanvasSceneRealtimeEvent,
 } from "../shared/block-documents";
+import { BLOCK_TRANSFER_INTENT_CONTRACT_VERSION } from "../shared/block-transfer";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 const temporaryDirectories: string[] = [];
@@ -623,6 +625,127 @@ describe("Electron native data authority", () => {
           },
         },
       });
+      const nativeTargetSourceBlockId = "01981e00-0000-7000-8000-000000000005";
+      const nativeTargetDocumentId = "01981e00-0000-7000-8000-000000000006";
+      const nativeTargetAnchorBlockId = "01981e00-0000-7000-8000-000000000007";
+      const createdTransferTarget = await projectDocuments
+        .applyAdditionalDocumentCommand({
+          version: 1,
+          operationId: "electron-block-transfer-create-target",
+          projectId,
+          storeEpoch: runtime.rootClient.handshake.store_epoch,
+          clientSessionId: "renderer:electron-block-transfer",
+          actor: {
+            kind: "electron_renderer",
+            clientId: "renderer:electron-block-transfer",
+          },
+          coordination: { kind: "fifo_only" },
+          operation: {
+            kind: "create_synced_source",
+            sourceBlockId: nativeTargetSourceBlockId,
+            documentId: nativeTargetDocumentId,
+            initialBlocks: [{
+              id: nativeTargetAnchorBlockId,
+              type: "paragraph",
+              props: {},
+              content: [],
+              children: [],
+            }],
+            placement: { kind: "space" },
+          },
+        });
+      if (!createdTransferTarget.ok) {
+        throw new Error(
+          `Core Block transfer target creation failed: ${createdTransferTarget.error.message}`,
+        );
+      }
+      const transferAdapter = createCoreBlockTransferAdapter({
+        client: runtime.clientForProject(projectId),
+        libraryId: runtime.rootClient.handshake.library_id,
+        projectId,
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+      });
+      const transferIntent = {
+        version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
+        operationId: "electron-native-block-transfer",
+        projectId,
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+        clientSessionId: "renderer:electron-block-transfer",
+        actor: {
+          kind: "electron_renderer",
+          clientId: "renderer:electron-block-transfer",
+        },
+        mode: "move" as const,
+        rootBlockIds: [nativeContentBlockId],
+        source: {
+          kind: "document" as const,
+          documentId: nativeSourceDocumentId,
+        },
+        target: {
+          kind: "document" as const,
+          documentId: nativeTargetDocumentId,
+          beforeBlockId: nativeTargetAnchorBlockId,
+        },
+      };
+      const preparedTransfer = await transferAdapter.prepare(transferIntent);
+      if (!preparedTransfer.ok) {
+        throw new Error(
+          `Core Block transfer preparation failed: ${preparedTransfer.error.code}: ${preparedTransfer.error.message}`,
+        );
+      }
+      expect(preparedTransfer.value.leaseDocuments).toEqual([
+        {
+          documentId: nativeSourceDocumentId,
+          generation: 1,
+          expectedHeadSeq: 3,
+        },
+        {
+          documentId: nativeTargetDocumentId,
+          generation: 1,
+          expectedHeadSeq: 1,
+        },
+      ].sort((left, right) => left.documentId.localeCompare(right.documentId)));
+      const transferred = await transferAdapter.apply(
+        preparedTransfer.value.request,
+      );
+      if (!transferred.ok) {
+        throw new Error(
+          `Core Block transfer failed: ${transferred.error.code}: ${transferred.error.message}`,
+        );
+      }
+      expect(transferred.value).toMatchObject({
+        operationId: transferIntent.operationId,
+        duplicate: false,
+        resultRootBlockIds: [nativeContentBlockId],
+        finalLocations: {
+          [nativeContentBlockId]: {
+            kind: "document",
+            documentId: nativeTargetDocumentId,
+          },
+        },
+        finalLocationRevisions: { [nativeContentBlockId]: 2 },
+        documentCommits: expect.arrayContaining([
+          expect.objectContaining({
+            documentId: nativeSourceDocumentId,
+            baseHeadSeq: 3,
+            headSeq: 4,
+          }),
+          expect.objectContaining({
+            documentId: nativeTargetDocumentId,
+            baseHeadSeq: 1,
+            headSeq: 2,
+          }),
+        ]),
+      });
+      await expect(transferAdapter.lookupCommitted(transferIntent)).resolves
+        .toMatchObject({
+          ok: true,
+          value: {
+            operationId: transferIntent.operationId,
+            duplicate: true,
+            finalLocationRevisions: { [nativeContentBlockId]: 2 },
+          },
+        });
       databaseEventSubscription.close();
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
       const workspace = createCoreProjectWorkspaceAdapter(runtime.rootClient);

@@ -1620,7 +1620,9 @@ export function registerIpcHandlers(
         actor: { kind: "electron_renderer", clientId },
       };
     },
-    transfer: (intent) => documentSyncHub.transferBlocks(intent),
+    transfer: (intent) => options.documentSync
+      ? options.documentSync.transferBlocks(intent)
+      : documentSyncHub.transferBlocks(intent),
   });
 
   registerDocumentHistoryIpcHandlers({

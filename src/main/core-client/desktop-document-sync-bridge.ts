@@ -20,6 +20,12 @@ import type {
   DocumentMutationRequest,
   DocumentOperationCommandResult,
 } from "../../shared/block-documents/document-operations";
+import type {
+  BlockTransferCommandResult,
+  BlockTransferDocumentHead,
+  BlockTransferIntent,
+  BlockTransferReceipt,
+} from "../../shared/block-transfer";
 import { documentMutationFailure } from "../../shared/block-documents/document-operation-transport";
 import type {
   CanvasSceneMutationCommandResult,
@@ -58,6 +64,7 @@ import {
   DocumentRelocationLeaseCoordinator,
   type DocumentRelocationLeaseEvent,
 } from "../document-relocation-lease-coordinator";
+import { coordinateBlockTransfer } from "../block-transfer-coordinator";
 import { documentSyncUnauthorized } from "../document-sync-hub";
 import type {
   DocumentSyncClientTarget,
@@ -69,6 +76,10 @@ import {
   createCoreCanvasSceneAdapter,
   type CoreCanvasSceneAdapter,
 } from "./core-canvas-scene-adapter";
+import {
+  createCoreBlockTransferAdapter,
+  type CoreBlockTransferAdapter,
+} from "./block-transfer-adapter";
 import { createCoreDocumentSyncAdapter } from "./document-sync-adapter";
 import type { CoreDocumentSyncAdapter } from "./document-sync-adapter";
 
@@ -154,6 +165,9 @@ export interface DesktopDocumentSyncPort {
   applyDocumentMutation(
     request: DocumentMutationRequest,
   ): Promise<DocumentOperationCommandResult>;
+  transferBlocks(
+    intent: BlockTransferIntent,
+  ): Promise<BlockTransferCommandResult>;
 }
 
 export interface DesktopDocumentSyncBridgeInput {
@@ -172,6 +186,7 @@ export interface DesktopDocumentSyncBridgeInput {
       | "syncCanvasScene"
       | "applyCanvasSceneMutation"
       | "applyAdditionalDocumentCommand"
+      | "transferBlocks"
     >;
     authorizeProject(input: {
       readonly projectId: string;
@@ -222,13 +237,17 @@ interface NativeSubscription {
   headSeq?: number;
 }
 
-interface NativeDocumentMutationLeaseBoundary {
-  readonly leaseId: string;
-  readonly projectId: string;
+interface NativeWriteLeaseDocumentBoundary {
   readonly documentId: string;
   readonly storeEpoch: string;
   readonly generation: number;
   headSeq: number;
+}
+
+interface NativeWriteLeaseBoundary {
+  readonly leaseId: string;
+  readonly projectId: string;
+  readonly documents: Map<string, NativeWriteLeaseDocumentBoundary>;
 }
 
 const scopeKey = (scope: DesktopDocumentSyncScope): string =>
@@ -371,60 +390,69 @@ export function createDesktopDocumentSyncBridge(
 ): DesktopDocumentSyncPort {
   const adapters = new Map<string, CoreDocumentSyncAdapter>();
   const canvasSceneAdapters = new Map<string, CoreCanvasSceneAdapter>();
+  const blockTransferAdapters = new Map<string, CoreBlockTransferAdapter>();
   const subscriptions = new Map<string, NativeSubscription>();
   const bindings = new Map<string, string>();
   const boundTargets = new Set<number>();
-  const documentMutationLeaseBoundaries = new Map<
+  const nativeWriteLeaseBoundaries = new Map<
     string,
-    NativeDocumentMutationLeaseBoundary
+    NativeWriteLeaseBoundary
   >();
   let documentMutationLeaseSequence = 0;
+  let blockTransferLeaseSequence = 0;
 
   const publishDocumentMutationLeaseEvent = (
     event: DocumentRelocationLeaseEvent,
   ): void => {
-    const boundary = documentMutationLeaseBoundaries.get(event.leaseId);
+    const boundary = nativeWriteLeaseBoundaries.get(event.leaseId);
     if (!boundary) return;
-    const subscription = [...subscriptions.values()].find(
-      (candidate) =>
-        candidate.participantSessionKey === event.participantSessionKey
-        && candidate.documentId === boundary.documentId,
-    );
-    if (!subscription) return;
-    const realtimeEvent = event.kind === "prepare"
-      ? {
-          kind: "relocation-lease-prepare" as const,
-          leaseId: event.leaseId,
-          documentId: boundary.documentId,
-          clientSessionId: subscription.clientSessionId,
-          storeEpoch: boundary.storeEpoch,
-          generation: boundary.generation,
-          expectedHeadSeq: boundary.headSeq,
-          deadlineAt: event.deadlineAt,
-        }
-      : event.kind === "release"
+    const documentIds = event.kind === "prepare"
+      ? event.documents.map((document) => document.documentId)
+      : event.documentIds;
+    for (const documentId of documentIds) {
+      const document = boundary.documents.get(documentId);
+      if (!document) continue;
+      const subscription = [...subscriptions.values()].find(
+        (candidate) =>
+          candidate.participantSessionKey === event.participantSessionKey
+          && candidate.documentId === documentId,
+      );
+      if (!subscription) continue;
+      const realtimeEvent = event.kind === "prepare"
         ? {
-            kind: "relocation-lease-release" as const,
+            kind: "relocation-lease-prepare" as const,
             leaseId: event.leaseId,
-            documentId: boundary.documentId,
+            documentId,
             clientSessionId: subscription.clientSessionId,
-            storeEpoch: boundary.storeEpoch,
-            generation: boundary.generation,
-            headSeq: boundary.headSeq,
+            storeEpoch: document.storeEpoch,
+            generation: document.generation,
+            expectedHeadSeq: document.headSeq,
+            deadlineAt: event.deadlineAt,
           }
-        : {
-            kind: "relocation-lease-cancel" as const,
-            leaseId: event.leaseId,
-            documentId: boundary.documentId,
-            clientSessionId: subscription.clientSessionId,
-            storeEpoch: boundary.storeEpoch,
-            generation: boundary.generation,
-            headSeq: boundary.headSeq,
-            reason: event.reason,
-          };
-    safeSendToWebContents(subscription.target, DOCUMENT_SYNC_EVENT_CHANNEL, [
-      realtimeEvent,
-    ]);
+        : event.kind === "release"
+          ? {
+              kind: "relocation-lease-release" as const,
+              leaseId: event.leaseId,
+              documentId,
+              clientSessionId: subscription.clientSessionId,
+              storeEpoch: document.storeEpoch,
+              generation: document.generation,
+              headSeq: document.headSeq,
+            }
+          : {
+              kind: "relocation-lease-cancel" as const,
+              leaseId: event.leaseId,
+              documentId,
+              clientSessionId: subscription.clientSessionId,
+              storeEpoch: document.storeEpoch,
+              generation: document.generation,
+              headSeq: document.headSeq,
+              reason: event.reason,
+            };
+      safeSendToWebContents(subscription.target, DOCUMENT_SYNC_EVENT_CHANNEL, [
+        realtimeEvent,
+      ]);
+    }
   };
   const relocationLeaseCoordinator = new DocumentRelocationLeaseCoordinator({
     publishEvent: publishDocumentMutationLeaseEvent,
@@ -454,6 +482,22 @@ export function createDesktopDocumentSyncBridge(
     if (adapter) return adapter;
     adapter = createCoreCanvasSceneAdapter(runtime.clientForProject(projectId));
     canvasSceneAdapters.set(projectId, adapter);
+    return adapter;
+  };
+
+  const blockTransferAdapterFor = (
+    runtime: Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>,
+    projectId: string,
+  ): CoreBlockTransferAdapter => {
+    let adapter = blockTransferAdapters.get(projectId);
+    if (adapter) return adapter;
+    adapter = createCoreBlockTransferAdapter({
+      client: runtime.clientForProject(projectId),
+      libraryId: runtime.rootClient.handshake.library_id,
+      projectId,
+      storeEpoch: runtime.rootClient.handshake.store_epoch,
+    });
+    blockTransferAdapters.set(projectId, adapter);
     return adapter;
   };
 
@@ -629,15 +673,18 @@ export function createDesktopDocumentSyncBridge(
       .update(request.mutationId)
       .digest("hex")
       .slice(0, 16)}`;
-    const boundary: NativeDocumentMutationLeaseBoundary = {
-      leaseId,
-      projectId: request.projectId,
+    const documentBoundary: NativeWriteLeaseDocumentBoundary = {
       documentId: request.documentId,
       storeEpoch: request.storeEpoch,
       generation: request.generation,
       headSeq: request.expectedHeadSeq,
     };
-    documentMutationLeaseBoundaries.set(leaseId, boundary);
+    const boundary: NativeWriteLeaseBoundary = {
+      leaseId,
+      projectId: request.projectId,
+      documents: new Map([[request.documentId, documentBoundary]]),
+    };
+    nativeWriteLeaseBoundaries.set(leaseId, boundary);
     let prepared;
     try {
       prepared = await relocationLeaseCoordinator.prepare({
@@ -650,7 +697,7 @@ export function createDesktopDocumentSyncBridge(
       });
     } catch (error) {
       relocationLeaseCoordinator.cancel(leaseId);
-      documentMutationLeaseBoundaries.delete(leaseId);
+      nativeWriteLeaseBoundaries.delete(leaseId);
       return {
         ok: false,
         error: documentMutationFailure(
@@ -661,7 +708,7 @@ export function createDesktopDocumentSyncBridge(
       };
     }
     if (!prepared.ok) {
-      documentMutationLeaseBoundaries.delete(leaseId);
+      nativeWriteLeaseBoundaries.delete(leaseId);
       return {
         ok: false,
         error: documentMutationFailure(
@@ -676,7 +723,7 @@ export function createDesktopDocumentSyncBridge(
     );
     if (!resolved) {
       relocationLeaseCoordinator.cancel(leaseId);
-      documentMutationLeaseBoundaries.delete(leaseId);
+      nativeWriteLeaseBoundaries.delete(leaseId);
       return {
         ok: false,
         error: documentMutationFailure(
@@ -688,7 +735,7 @@ export function createDesktopDocumentSyncBridge(
     }
     if (resolved.headSeq !== request.expectedHeadSeq) {
       relocationLeaseCoordinator.cancel(leaseId);
-      documentMutationLeaseBoundaries.delete(leaseId);
+      nativeWriteLeaseBoundaries.delete(leaseId);
       return {
         ok: false,
         error: documentMutationFailure(
@@ -706,10 +753,10 @@ export function createDesktopDocumentSyncBridge(
     const committed = await adapter.applyDocumentMutation(request, true);
     if (!committed.ok) {
       relocationLeaseCoordinator.cancel(leaseId);
-      documentMutationLeaseBoundaries.delete(leaseId);
+      nativeWriteLeaseBoundaries.delete(leaseId);
       return committed;
     }
-    boundary.headSeq = committed.value.headSeq;
+    documentBoundary.headSeq = committed.value.headSeq;
     for (const [key, subscription] of subscriptions) {
       if (
         subscription.scope.kind !== "project"
@@ -749,8 +796,202 @@ export function createDesktopDocumentSyncBridge(
         );
       }
     }
-    documentMutationLeaseBoundaries.delete(leaseId);
+    nativeWriteLeaseBoundaries.delete(leaseId);
     return committed;
+  };
+
+  const setBlockTransferLeaseBoundary = (
+    leaseId: string,
+    projectId: string,
+    storeEpoch: string,
+    heads: readonly BlockTransferDocumentHead[],
+  ): void => {
+    nativeWriteLeaseBoundaries.set(leaseId, {
+      leaseId,
+      projectId,
+      documents: new Map(heads.map((head) => [head.documentId, {
+        documentId: head.documentId,
+        storeEpoch,
+        generation: head.generation,
+        headSeq: head.expectedHeadSeq,
+      }])),
+    });
+  };
+
+  const setBlockTransferResultBoundary = (
+    leaseId: string,
+    projectId: string,
+    storeEpoch: string,
+    leasedHeads: readonly BlockTransferDocumentHead[],
+    receipt: BlockTransferReceipt,
+  ): void => {
+    const committedById = new Map(
+      receipt.documentCommits.map((commit) => [commit.documentId, commit]),
+    );
+    setBlockTransferLeaseBoundary(
+      leaseId,
+      projectId,
+      storeEpoch,
+      leasedHeads.map((leased) => {
+        const committed = committedById.get(leased.documentId);
+        return committed
+          ? {
+              documentId: committed.documentId,
+              generation: committed.generation,
+              expectedHeadSeq: committed.headSeq,
+            }
+          : leased;
+      }),
+    );
+  };
+
+  const fanoutBlockTransfer = (
+    projectId: string,
+    receipt: BlockTransferReceipt,
+    resyncOnly: boolean,
+  ): void => {
+    for (const commit of receipt.documentCommits) {
+      const targets = new Map<number, DocumentSyncClientTarget>();
+      for (const [key, subscription] of subscriptions) {
+        if (
+          subscription.scope.kind !== "project"
+          || subscription.scope.projectId !== projectId
+          || subscription.documentId !== commit.documentId
+        ) {
+          continue;
+        }
+        adoptSubscriptionBoundary(key, {
+          storeEpoch: receipt.storeEpoch,
+          generation: commit.generation,
+          headSeq: commit.headSeq,
+        });
+        targets.set(subscription.targetId, subscription.target);
+      }
+      const event = resyncOnly || commit.update === null
+        ? {
+            kind: "resync-required" as const,
+            documentId: commit.documentId,
+            storeEpoch: receipt.storeEpoch,
+            generation: commit.generation,
+            headSeq: commit.headSeq,
+            reason: commit.update === null
+              ? "history-compacted" as const
+              : "event-gap" as const,
+          }
+        : {
+            kind: "document-update" as const,
+            documentId: commit.documentId,
+            storeEpoch: receipt.storeEpoch,
+            generation: commit.generation,
+            headSeq: commit.headSeq,
+            updateId: commit.updateId,
+            clientSessionId: "rust:block-transfer",
+            update: commit.update.slice(),
+          };
+      for (const target of targets.values()) {
+        safeSendToWebContents(target, DOCUMENT_SYNC_EVENT_CHANNEL, [event]);
+      }
+    }
+  };
+
+  const publishBlockTransferReleaseFallback = (
+    leaseId: string,
+    projectId: string,
+    storeEpoch: string,
+    leasedHeads: readonly BlockTransferDocumentHead[],
+    receipt: BlockTransferReceipt,
+  ): void => {
+    const committedById = new Map(
+      receipt.documentCommits.map((commit) => [commit.documentId, commit]),
+    );
+    for (const leased of leasedHeads) {
+      const committed = committedById.get(leased.documentId);
+      const generation = committed?.generation ?? leased.generation;
+      const headSeq = committed?.headSeq ?? leased.expectedHeadSeq;
+      for (const subscription of subscriptions.values()) {
+        if (
+          subscription.scope.kind !== "project"
+          || subscription.scope.projectId !== projectId
+          || subscription.documentId !== leased.documentId
+        ) {
+          continue;
+        }
+        safeSendToWebContents(subscription.target, DOCUMENT_SYNC_EVENT_CHANNEL, [{
+          kind: "relocation-lease-release",
+          leaseId,
+          documentId: leased.documentId,
+          clientSessionId: subscription.clientSessionId,
+          storeEpoch,
+          generation,
+          headSeq,
+        }]);
+      }
+    }
+  };
+
+  const transferBlocks = async (
+    intent: BlockTransferIntent,
+  ): Promise<BlockTransferCommandResult> => {
+    let runtime: DesktopDataAuthorityRuntime;
+    try {
+      runtime = await input.authority;
+    } catch (error) {
+      return {
+        ok: false,
+        error: {
+          code: "unknown",
+          message: error instanceof Error ? error.message : String(error),
+          retryable: true,
+          reloadRequired: false,
+          operationId: intent.operationId,
+        },
+      };
+    }
+    if (runtime.backend === "typescript") {
+      return await input.typescript.hub.transferBlocks(intent);
+    }
+    const adapter = blockTransferAdapterFor(runtime, intent.projectId);
+    return await coordinateBlockTransfer(intent, {
+      backend: {
+        lookupCommittedBlockTransfer: adapter.lookupCommitted,
+        prepareBlockTransfer: adapter.prepare,
+        applyBlockTransfer: adapter.apply,
+      },
+      leaseCoordinator: relocationLeaseCoordinator,
+      createLeaseId: () => {
+        blockTransferLeaseSequence += 1;
+        return `native-block-transfer:${blockTransferLeaseSequence.toString(36)}`;
+      },
+      setLeaseBoundary: (leaseId, storeEpoch, heads) =>
+        setBlockTransferLeaseBoundary(
+          leaseId,
+          intent.projectId,
+          storeEpoch,
+          heads,
+        ),
+      setResultBoundary: (leaseId, storeEpoch, heads, receipt) =>
+        setBlockTransferResultBoundary(
+          leaseId,
+          intent.projectId,
+          storeEpoch,
+          heads,
+          receipt,
+        ),
+      clearLeaseBoundary: (leaseId) =>
+        nativeWriteLeaseBoundaries.delete(leaseId),
+      fanoutResult: (receipt) =>
+        fanoutBlockTransfer(intent.projectId, receipt, false),
+      fanoutResync: (receipt) =>
+        fanoutBlockTransfer(intent.projectId, receipt, true),
+      publishReleaseFallback: (leaseId, storeEpoch, heads, receipt) =>
+        publishBlockTransferReleaseFallback(
+          leaseId,
+          intent.projectId,
+          storeEpoch,
+          heads,
+          receipt,
+        ),
+    });
   };
 
   return {
@@ -964,16 +1205,16 @@ export function createDesktopDocumentSyncBridge(
       }
       const subscription = nativeLeaseSubscription(target, scope, parsed);
       if (!subscription) return documentSyncUnauthorized();
-      const boundary = documentMutationLeaseBoundaries.get(parsed.leaseId);
+      const leaseBoundary = nativeWriteLeaseBoundaries.get(parsed.leaseId);
+      const boundary = leaseBoundary?.documents.get(parsed.documentId);
       if (
         !boundary
         || scope.kind !== "project"
-        || boundary.projectId !== scope.projectId
-        || boundary.documentId !== parsed.documentId
+        || leaseBoundary?.projectId !== scope.projectId
       ) {
         return nativeDocumentSyncFailure(
           "request_cancelled",
-          "Document restore write lease is no longer active",
+          "Document write lease is no longer active",
         );
       }
       if (
@@ -997,7 +1238,7 @@ export function createDesktopDocumentSyncBridge(
                   && subscription.generation !== parsed.generation)
               ? "document_generation_mismatch"
               : "invalid_response",
-          "Document restore write-lease response crossed its subscription boundary",
+          "Document write-lease response crossed its subscription boundary",
           { resetRequired: true },
         );
       }
@@ -1199,6 +1440,7 @@ export function createDesktopDocumentSyncBridge(
       }).getVersion(request);
     },
     applyDocumentMutation,
+    transferBlocks,
     restoreVersion: async (request) => await applyDocumentMutation(request),
   };
 }

@@ -2,8 +2,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use nodex_core_contracts::library::{
-    LibraryAccess, LibraryCommitValue, LibraryEvent, LibraryEventKind, LibraryIntent,
-    LibraryPageCopyResult, LibraryReceipt, LibraryResourceTarget, LibraryWriteParent,
+    LibraryAccess, LibraryBlockTransferResult, LibraryCommitValue, LibraryEvent, LibraryEventKind,
+    LibraryIntent, LibraryPageCopyResult, LibraryReceipt, LibraryResourceTarget,
+    LibraryWriteParent,
 };
 use nodex_core_contracts::{
     BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue,
@@ -38,15 +39,18 @@ const MAX_PAGE_TITLE_LENGTH: usize = 10_000;
 pub(super) struct MutationEffects {
     pub(super) project_id: String,
     pub(super) operation_kind: &'static str,
+    pub(super) change_kind: &'static str,
     pub(super) did_mutate: bool,
     pub(super) created_target: Option<LibraryResourceTarget>,
     pub(super) affected_parent_keys: Vec<String>,
+    pub(super) affected_block_ids: Vec<String>,
     pub(super) affected_page_ids: Vec<String>,
     pub(super) affected_database_ids: Vec<String>,
     pub(super) affected_view_ids: Vec<String>,
     pub(super) affected_document_ids: Vec<String>,
     pub(super) committed_revisions: BTreeMap<String, i64>,
     pub(super) page_copy: Option<LibraryPageCopyResult>,
+    pub(super) block_transfer: Option<LibraryBlockTransferResult>,
     pub(super) committed_at: String,
 }
 
@@ -100,14 +104,21 @@ pub(super) fn apply(
                     true,
                 ));
             }
-            let fingerprint = serde_json::to_vec(&(
-                &context,
-                request.version,
-                &request.store_epoch,
-                &request.intent,
-            ))
-            .map_err(|_| internal("Library mutation cannot be fingerprinted"))?;
-            let request_hash = sha256(&fingerprint);
+            let request_hash = match &request.intent {
+                LibraryIntent::TransferBlocks { intent, .. } => {
+                    super::block_transfer::semantic_request_hash(&context, &store_epoch, intent)?
+                }
+                _ => {
+                    let fingerprint = serde_json::to_vec(&(
+                        &context,
+                        request.version,
+                        &request.store_epoch,
+                        &request.intent,
+                    ))
+                    .map_err(|_| internal("Library mutation cannot be fingerprinted"))?;
+                    sha256(&fingerprint)
+                }
+            };
             if let Some(stored) =
                 read_module_receipt(transaction, MODULE_NAME, &request.operation_id)?
             {
@@ -247,6 +258,19 @@ pub(super) fn apply(
                     target,
                     *expected_location_revision,
                     parent,
+                ),
+                LibraryIntent::TransferBlocks {
+                    intent,
+                    write_fence,
+                } => super::block_transfer::apply(
+                    transaction,
+                    &context,
+                    &library_id,
+                    &request.operation_id,
+                    &store_epoch,
+                    &request_hash,
+                    intent,
+                    write_fence.as_deref(),
                 ),
             }
         })
@@ -537,9 +561,11 @@ fn move_block(
         MutationEffects {
             project_id: authority.project_id,
             operation_kind: "move_block",
+            change_kind: "library.changed",
             did_mutate: true,
             created_target: None,
             affected_parent_keys,
+            affected_block_ids: Vec::new(),
             affected_page_ids,
             affected_database_ids: (authority.resource_kind == "database")
                 .then(|| authority.id.clone())
@@ -549,6 +575,7 @@ fn move_block(
             affected_document_ids,
             committed_revisions,
             page_copy: None,
+            block_transfer: None,
             committed_at: now,
         },
     )
@@ -709,9 +736,11 @@ fn change_resource_lifecycle(
         MutationEffects {
             project_id: authority.project_id,
             operation_kind,
+            change_kind: "library.changed",
             did_mutate: true,
             created_target: None,
             affected_parent_keys: vec![parent_key],
+            affected_block_ids: Vec::new(),
             affected_page_ids: (authority.resource_kind == "page")
                 .then(|| authority.id.clone())
                 .into_iter()
@@ -736,6 +765,7 @@ fn change_resource_lifecycle(
                 })),
             ),
             page_copy: None,
+            block_transfer: None,
             committed_at: now,
         },
     )
@@ -858,9 +888,11 @@ fn grant_project_access(
         MutationEffects {
             project_id: project_id.to_owned(),
             operation_kind: "grant_project_access",
+            change_kind: "library.changed",
             did_mutate,
             created_target: None,
             affected_parent_keys: Vec::new(),
+            affected_block_ids: Vec::new(),
             affected_page_ids: (authority.resource_kind == "page")
                 .then(|| authority.id.clone())
                 .into_iter()
@@ -876,6 +908,7 @@ fn grant_project_access(
                 .into_iter()
                 .collect(),
             page_copy: None,
+            block_transfer: None,
             committed_at: now,
         },
     )
@@ -1320,11 +1353,13 @@ fn create_database(
         MutationEffects {
             project_id,
             operation_kind: "create_database",
+            change_kind: "library.changed",
             did_mutate: true,
             created_target: Some(LibraryResourceTarget::Database {
                 database_id: database_id.to_owned(),
             }),
             affected_parent_keys: vec![resolved_parent.parent_key.clone()],
+            affected_block_ids: Vec::new(),
             affected_page_ids: resolved_parent.page_id.clone().into_iter().collect(),
             affected_database_ids: vec![database_id.to_owned()],
             affected_view_ids: vec![view_id.to_owned()],
@@ -1353,6 +1388,7 @@ fn create_database(
                 )),
             ),
             page_copy: None,
+            block_transfer: None,
             committed_at: now,
         },
     )
@@ -1550,11 +1586,13 @@ fn create_page(
         MutationEffects {
             project_id,
             operation_kind: "create_page",
+            change_kind: "library.changed",
             did_mutate: true,
             created_target: Some(LibraryResourceTarget::Page {
                 page_id: page_id.to_owned(),
             }),
             affected_parent_keys: vec![resolved_parent.parent_key.clone()],
+            affected_block_ids: Vec::new(),
             affected_page_ids: std::iter::once(page_id.to_owned())
                 .chain(resolved_parent.page_id.clone())
                 .collect(),
@@ -1585,6 +1623,7 @@ fn create_page(
                 )),
             ),
             page_copy: None,
+            block_transfer: None,
             committed_at: now,
         },
     )
@@ -1599,8 +1638,9 @@ pub(super) fn finish_mutation(
     effects: MutationEffects,
 ) -> Result<LibraryApplyOutcome, StoreError> {
     let block_ids = effects
-        .affected_page_ids
+        .affected_block_ids
         .iter()
+        .chain(effects.affected_page_ids.iter())
         .chain(&effects.affected_database_ids)
         .cloned()
         .collect::<Vec<_>>();
@@ -1617,10 +1657,11 @@ pub(super) fn finish_mutation(
         "INSERT INTO change_log(\
            project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
            database_block_ids_json, payload_json, committed_at\
-         ) VALUES (?1, ?2, 'library.changed', ?3, ?4, ?5, ?6, ?7, ?8)",
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             effects.project_id,
             store_epoch,
+            effects.change_kind,
             operation_id,
             serde_json::to_string(&block_ids).map_err(|_| internal("Library Block IDs"))?,
             serde_json::to_string(&effects.affected_document_ids)
@@ -1652,6 +1693,7 @@ pub(super) fn finish_mutation(
         value: LibraryCommitValue {
             affected_resource_ids: block_ids,
             page_copy: effects.page_copy,
+            block_transfer: effects.block_transfer,
         },
         receipt,
         event_sequence,

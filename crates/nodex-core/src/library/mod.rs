@@ -100,6 +100,7 @@ impl LibraryModule {
                 .as_ref()
                 .map(|project_id| project_id.0.clone());
             let adapter = context.adapter.clone();
+            let context = context.clone();
             return readers
                 .read_default(move |connection| {
                     let store_epoch = connection
@@ -122,6 +123,20 @@ impl LibraryModule {
                             profile_id,
                             library_id,
                             change_log_seq: event_head,
+                        },
+                        LibraryRead::PlanBlockTransfer {
+                            operation_id,
+                            store_epoch,
+                            intent,
+                        } => LibraryReadValue::BlockTransferPlan {
+                            value: Box::new(block_transfer::plan(
+                                connection,
+                                &context,
+                                &library_id,
+                                &operation_id,
+                                &store_epoch,
+                                &intent,
+                            )?),
                         },
                         read => navigation::read(
                             connection,
@@ -280,6 +295,7 @@ impl LibraryModule {
             value: LibraryCommitValue {
                 affected_resource_ids: vec![resource_id],
                 page_copy: None,
+                block_transfer: None,
             },
             receipt,
             event_sequence,
@@ -398,7 +414,9 @@ fn unix_timestamp_millis() -> String {
 mod tests {
     use nodex_core_contracts::document::OwnedDocumentIntent;
     use nodex_core_contracts::library::{
-        LibraryAccess, LibraryNavigationParent, LibraryPageWorkflowStatus,
+        LibraryAccess, LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode,
+        LibraryBlockTransferPlan, LibraryBlockTransferSource, LibraryBlockTransferTarget,
+        LibraryNavigationParent, LibraryPageWorkflowStatus, LibraryWriteParent,
     };
     use nodex_core_contracts::{AdapterKind, LibraryId, ProfileId, ProjectId};
     use rusqlite::params;
@@ -862,7 +880,262 @@ mod tests {
             .expect_err("stale cursor");
         assert_eq!(error.code, CoreErrorCode::RevisionConflict);
     }
+
+    #[test]
+    fn native_block_transfer_moves_copies_fences_and_replays_document_subtrees() {
+        const NOW: &str = "2026-07-19T23:30:00.000Z";
+        const SOURCE_PAGE: &str = "018f0000-0000-7000-8000-000000000101";
+        const TARGET_PAGE: &str = "018f0000-0000-7000-8000-000000000102";
+        const SOURCE_DOCUMENT: &str = "document:transfer-source";
+        const TARGET_DOCUMENT: &str = "document:transfer-target";
+        let persistent_context = BoundModuleContext {
+            profile_id: ProfileId("profile-1".to_owned()),
+            library_id: LibraryId("library-1".to_owned()),
+            project_id: Some(ProjectId("project-1".to_owned())),
+            connection_id: "connection:block-transfer".to_owned(),
+            adapter: AdapterKind::Test,
+        };
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO profiles(id, created_at, updated_at) VALUES ('profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                         VALUES ('library-1', 'profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated) \
+                         VALUES ('project-1', 'library-1', 'Transfer', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
+                         VALUES (1, 'epoch-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed authority");
+        let module = LibraryModule::new("profile-1", "library-1", &kernel);
+        for (operation_id, page_id, document_id, title) in [
+            (
+                "create-transfer-source",
+                SOURCE_PAGE,
+                SOURCE_DOCUMENT,
+                "Source",
+            ),
+            (
+                "create-transfer-target",
+                TARGET_PAGE,
+                TARGET_DOCUMENT,
+                "Target",
+            ),
+        ] {
+            module
+                .apply(
+                    &persistent_context,
+                    ModuleApplyRequest {
+                        version: CORE_CONTRACT_VERSION,
+                        operation_id: operation_id.to_owned(),
+                        store_epoch: StoreEpoch("epoch-1".to_owned()),
+                        intent: LibraryIntent::CreatePage {
+                            page_id: page_id.to_owned(),
+                            document_id: document_id.to_owned(),
+                            title: title.to_owned(),
+                            parent: LibraryWriteParent::Library { before: None },
+                        },
+                    },
+                )
+                .expect("create transfer Page");
+        }
+        let source_root = kernel
+            .readers()
+            .read_default(|connection| {
+                connection.query_row(
+                    "SELECT block_id FROM document_block_index WHERE document_id = ?1 ORDER BY ordinal LIMIT 1",
+                    [SOURCE_DOCUMENT],
+                    |row| row.get::<_, String>(0),
+                ).map_err(Into::into)
+            })
+            .expect("source root");
+        let move_intent = LibraryBlockTransferLogicalIntent {
+            actor: serde_json::json!({ "kind": "test" }),
+            mode: LibraryBlockTransferMode::Move,
+            root_block_ids: vec![source_root.clone()],
+            source: LibraryBlockTransferSource::Page {
+                page_id: SOURCE_PAGE.to_owned(),
+            },
+            target: LibraryBlockTransferTarget::Page {
+                page_id: TARGET_PAGE.to_owned(),
+                parent_block_id: None,
+                before_block_id: None,
+            },
+        };
+        let plan = module
+            .read(
+                &persistent_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PlanBlockTransfer {
+                        operation_id: "move-transfer-root".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        intent: move_intent.clone(),
+                    },
+                },
+            )
+            .expect("plan move");
+        serde_json::to_value(&plan).expect("Block transfer plan serializes for transport");
+        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
+            panic!("Block transfer plan");
+        };
+        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
+            panic!("prepared transfer");
+        };
+        assert_eq!(preparation.lease_documents.len(), 2);
+        let moved = module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "move-transfer-root".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: move_intent.clone(),
+                        write_fence: Some(preparation.lease_documents.clone()),
+                    },
+                },
+            )
+            .expect("move subtree");
+        let moved_result = moved
+            .committed
+            .value
+            .block_transfer
+            .as_ref()
+            .expect("transfer result");
+        assert_eq!(moved_result.document_commits.len(), 2);
+        assert_eq!(moved_result.final_location_revisions[&source_root], 2);
+        assert_eq!(
+            moved.committed.receipt.affected_page_ids,
+            vec![SOURCE_PAGE.to_owned(), TARGET_PAGE.to_owned()]
+        );
+        let transfer_document_event_kinds = kernel
+            .readers()
+            .read_default(|connection| {
+                let mut statement = connection.prepare(
+                    "SELECT kind FROM change_log \
+                     WHERE kind LIKE 'owned_document.%' AND operation_id LIKE 'relocation:%' \
+                     ORDER BY seq",
+                )?;
+                statement
+                    .query_map([], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(Into::into)
+            })
+            .expect("transfer Document events");
+        assert_eq!(
+            transfer_document_event_kinds,
+            vec![
+                "owned_document.document_updated".to_owned(),
+                "owned_document.document_updated".to_owned(),
+            ]
+        );
+        let mut reconnected = persistent_context.clone();
+        reconnected.connection_id = "connection:reconnected".to_owned();
+        let replay = module
+            .read(
+                &reconnected,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PlanBlockTransfer {
+                        operation_id: "move-transfer-root".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        intent: move_intent,
+                    },
+                },
+            )
+            .expect("receipt-first replay");
+        assert!(matches!(
+            replay.value,
+            LibraryReadValue::BlockTransferPlan { value }
+                if matches!(*value, LibraryBlockTransferPlan::Committed { .. })
+        ));
+
+        let copy_intent = LibraryBlockTransferLogicalIntent {
+            actor: serde_json::json!({ "kind": "test" }),
+            mode: LibraryBlockTransferMode::Copy,
+            root_block_ids: vec![source_root.clone()],
+            source: LibraryBlockTransferSource::Document {
+                document_id: TARGET_DOCUMENT.to_owned(),
+            },
+            target: LibraryBlockTransferTarget::Document {
+                document_id: SOURCE_DOCUMENT.to_owned(),
+                parent_block_id: None,
+                before_block_id: None,
+            },
+        };
+        let copy_plan = module
+            .read(
+                &persistent_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PlanBlockTransfer {
+                        operation_id: "copy-transfer-root".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        intent: copy_intent.clone(),
+                    },
+                },
+            )
+            .expect("plan copy");
+        let LibraryReadValue::BlockTransferPlan { value } = copy_plan.value else {
+            panic!("copy plan");
+        };
+        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
+            panic!("prepared copy");
+        };
+        let copied = module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "copy-transfer-root".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: copy_intent,
+                        write_fence: Some(preparation.lease_documents),
+                    },
+                },
+            )
+            .expect("copy subtree");
+        let copied_result = copied.committed.value.block_transfer.expect("copy result");
+        let copied_root = copied_result.copied_block_ids[&source_root].clone();
+        assert_ne!(copied_root, source_root);
+        assert_eq!(copied_result.document_commits.len(), 1);
+        assert!(kernel
+            .readers()
+            .read_default(move |connection| {
+                connection
+                    .query_row(
+                        "SELECT 1 FROM document_block_index WHERE document_id = ?1 AND block_id = ?2",
+                        params![SOURCE_DOCUMENT, copied_root],
+                        |_| Ok(()),
+                    )
+                    .optional()
+                    .map(|row| row.is_some())
+                    .map_err(Into::into)
+            })
+            .expect("copied root projection"));
+    }
 }
+mod block_transfer;
 mod content;
 mod cursor;
 mod history;

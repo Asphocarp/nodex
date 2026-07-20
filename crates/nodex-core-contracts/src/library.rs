@@ -90,6 +90,123 @@ pub struct LibraryPageCopyPositionAnchor {
     pub expected_position_revision: i64,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryBlockTransferMode {
+    Move,
+    Copy,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryBlockTransferSource {
+    Library { library_id: String },
+    Page { page_id: String },
+    Document { document_id: String },
+    DataSource { data_source_id: String },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryBlockTransferTarget {
+    Library {
+        library_id: String,
+        before_block_id: Option<String>,
+    },
+    Page {
+        page_id: String,
+        parent_block_id: Option<String>,
+        before_block_id: Option<String>,
+    },
+    Document {
+        document_id: String,
+        parent_block_id: Option<String>,
+        before_block_id: Option<String>,
+    },
+    DataSource {
+        data_source_id: String,
+        view_id: String,
+        group_key: Option<String>,
+        before_page_id: Option<String>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryBlockTransferLogicalIntent {
+    pub actor: Value,
+    pub mode: LibraryBlockTransferMode,
+    pub root_block_ids: Vec<String>,
+    pub source: LibraryBlockTransferSource,
+    pub target: LibraryBlockTransferTarget,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryBlockTransferDocumentHead {
+    pub document_id: String,
+    pub generation: i64,
+    pub expected_head_seq: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryBlockTransferPreparation {
+    pub lease_documents: Vec<LibraryBlockTransferDocumentHead>,
+    pub expected_location_revisions: std::collections::BTreeMap<String, i64>,
+    pub source_document_id: String,
+    pub target_document_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryBlockLocation {
+    Library {
+        library_id: String,
+    },
+    Document {
+        document_id: String,
+    },
+    DataSource {
+        database_id: String,
+        data_source_id: String,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryBlockTransferDocumentCommit {
+    pub document_id: String,
+    pub generation: i64,
+    pub base_head_seq: i64,
+    pub head_seq: i64,
+    pub update_id: String,
+    pub update: Vec<u8>,
+    pub state_vector: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryBlockTransferResult {
+    pub mode: LibraryBlockTransferMode,
+    pub source_root_block_ids: Vec<String>,
+    pub result_root_block_ids: Vec<String>,
+    pub copied_block_ids: std::collections::BTreeMap<String, String>,
+    pub transformation_evidence: Vec<Value>,
+    pub final_locations: std::collections::BTreeMap<String, LibraryBlockLocation>,
+    pub final_location_revisions: std::collections::BTreeMap<String, i64>,
+    pub document_commits: Vec<LibraryBlockTransferDocumentCommit>,
+    pub affected_database_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryBlockTransferPlan {
+    Prepared {
+        preparation: LibraryBlockTransferPreparation,
+    },
+    Committed {
+        result: LibraryBlockTransferResult,
+        change_log_seq: i64,
+        committed_at: String,
+    },
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LibraryRead {
@@ -133,6 +250,11 @@ pub enum LibraryRead {
         page_id: String,
         before: Option<LibraryPageHistoryCursor>,
         limit: Option<u32>,
+    },
+    PlanBlockTransfer {
+        operation_id: String,
+        store_epoch: String,
+        intent: LibraryBlockTransferLogicalIntent,
     },
 }
 
@@ -568,6 +690,9 @@ pub enum LibraryReadValue {
     PageHistory {
         value: Box<LibraryPageHistoryPage>,
     },
+    BlockTransferPlan {
+        value: Box<LibraryBlockTransferPlan>,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -613,6 +738,10 @@ pub enum LibraryIntent {
         target: LibraryResourceTarget,
         access: LibraryAccess,
     },
+    TransferBlocks {
+        intent: LibraryBlockTransferLogicalIntent,
+        write_fence: Option<Vec<LibraryBlockTransferDocumentHead>>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -642,6 +771,7 @@ pub struct LibraryReceipt {
 pub struct LibraryCommitValue {
     pub affected_resource_ids: Vec<String>,
     pub page_copy: Option<LibraryPageCopyResult>,
+    pub block_transfer: Option<LibraryBlockTransferResult>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

@@ -934,8 +934,129 @@ export interface components {
         readonly LibraryAccess: "read" | "read_write";
         readonly LibraryApplyRequest: components["schemas"]["ModuleApplyRequest_LibraryIntent"];
         readonly LibraryApplyResponse: components["schemas"]["ResponseEnvelope_CommittedModuleValue_LibraryCommitValue_LibraryReceipt"];
+        readonly LibraryBlockLocation: {
+            /** @enum {string} */
+            readonly kind: "library";
+            readonly library_id: string;
+        } | {
+            readonly document_id: string;
+            /** @enum {string} */
+            readonly kind: "document";
+        } | {
+            readonly data_source_id: string;
+            readonly database_id: string;
+            /** @enum {string} */
+            readonly kind: "data_source";
+        };
         /** @enum {string} */
         readonly LibraryBlockRelocationDirection: "into_page" | "out_of_page" | "within_page" | "unknown";
+        readonly LibraryBlockTransferDocumentCommit: {
+            /** Format: int64 */
+            readonly base_head_seq: number;
+            readonly document_id: string;
+            /** Format: int64 */
+            readonly generation: number;
+            /** Format: int64 */
+            readonly head_seq: number;
+            readonly state_vector: readonly number[];
+            readonly update: readonly number[];
+            readonly update_id: string;
+        };
+        readonly LibraryBlockTransferDocumentHead: {
+            readonly document_id: string;
+            /** Format: int64 */
+            readonly expected_head_seq: number;
+            /** Format: int64 */
+            readonly generation: number;
+        };
+        readonly LibraryBlockTransferLogicalIntent: {
+            readonly actor: unknown;
+            readonly mode: components["schemas"]["LibraryBlockTransferMode"];
+            readonly root_block_ids: readonly string[];
+            readonly source: components["schemas"]["LibraryBlockTransferSource"];
+            readonly target: components["schemas"]["LibraryBlockTransferTarget"];
+        };
+        /** @enum {string} */
+        readonly LibraryBlockTransferMode: "move" | "copy";
+        readonly LibraryBlockTransferPlan: {
+            /** @enum {string} */
+            readonly kind: "prepared";
+            readonly preparation: components["schemas"]["LibraryBlockTransferPreparation"];
+        } | {
+            /** Format: int64 */
+            readonly change_log_seq: number;
+            readonly committed_at: string;
+            /** @enum {string} */
+            readonly kind: "committed";
+            readonly result: components["schemas"]["LibraryBlockTransferResult"];
+        };
+        readonly LibraryBlockTransferPreparation: {
+            readonly expected_location_revisions: {
+                readonly [key: string]: number;
+            };
+            readonly lease_documents: readonly components["schemas"]["LibraryBlockTransferDocumentHead"][];
+            readonly source_document_id: string;
+            readonly target_document_id: string;
+        };
+        readonly LibraryBlockTransferResult: {
+            readonly affected_database_ids: readonly string[];
+            readonly copied_block_ids: {
+                readonly [key: string]: string;
+            };
+            readonly document_commits: readonly components["schemas"]["LibraryBlockTransferDocumentCommit"][];
+            readonly final_location_revisions: {
+                readonly [key: string]: number;
+            };
+            readonly final_locations: {
+                readonly [key: string]: components["schemas"]["LibraryBlockLocation"];
+            };
+            readonly mode: components["schemas"]["LibraryBlockTransferMode"];
+            readonly result_root_block_ids: readonly string[];
+            readonly source_root_block_ids: readonly string[];
+            readonly transformation_evidence: readonly unknown[];
+        };
+        readonly LibraryBlockTransferSource: {
+            /** @enum {string} */
+            readonly kind: "library";
+            readonly library_id: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "page";
+            readonly page_id: string;
+        } | {
+            readonly document_id: string;
+            /** @enum {string} */
+            readonly kind: "document";
+        } | {
+            readonly data_source_id: string;
+            /** @enum {string} */
+            readonly kind: "data_source";
+        };
+        readonly LibraryBlockTransferTarget: {
+            readonly before_block_id?: string | null;
+            /** @enum {string} */
+            readonly kind: "library";
+            readonly library_id: string;
+        } | {
+            readonly before_block_id?: string | null;
+            /** @enum {string} */
+            readonly kind: "page";
+            readonly page_id: string;
+            readonly parent_block_id?: string | null;
+        } | {
+            readonly before_block_id?: string | null;
+            readonly document_id: string;
+            /** @enum {string} */
+            readonly kind: "document";
+            readonly parent_block_id?: string | null;
+        } | {
+            readonly before_page_id?: string | null;
+            readonly data_source_id: string;
+            readonly group_key?: string | null;
+            /** @enum {string} */
+            readonly kind: "data_source";
+            readonly view_id: string;
+        };
         readonly LibraryCatalogEntry: {
             readonly kind: components["schemas"]["LibraryCatalogKind"];
             readonly lifecycle: components["schemas"]["LibraryLifecycle"];
@@ -1588,6 +1709,11 @@ export interface components {
                 readonly kind: "grant_project_access";
                 readonly project_id: string;
                 readonly target: components["schemas"]["LibraryResourceTarget"];
+            } | {
+                readonly intent: components["schemas"]["LibraryBlockTransferLogicalIntent"];
+                /** @enum {string} */
+                readonly kind: "transfer_blocks";
+                readonly write_fence?: readonly components["schemas"]["LibraryBlockTransferDocumentHead"][] | null;
             };
             readonly operation_id: string;
             readonly store_epoch: components["schemas"]["StoreEpoch"];
@@ -2133,6 +2259,12 @@ export interface components {
                 /** Format: int32 */
                 readonly limit?: number | null;
                 readonly page_id: string;
+            } | {
+                readonly intent: components["schemas"]["LibraryBlockTransferLogicalIntent"];
+                /** @enum {string} */
+                readonly kind: "plan_block_transfer";
+                readonly operation_id: string;
+                readonly store_epoch: string;
             };
             /** Format: int32 */
             readonly version: number;
@@ -2807,6 +2939,7 @@ export interface components {
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly value: {
                     readonly affected_resource_ids: readonly string[];
+                    readonly block_transfer?: null | components["schemas"]["LibraryBlockTransferResult"];
                     readonly page_copy?: null | components["schemas"]["LibraryPageCopyResult"];
                 };
             };
@@ -3043,6 +3176,10 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "page_history";
                     readonly value: components["schemas"]["LibraryPageHistoryPage"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "block_transfer_plan";
+                    readonly value: components["schemas"]["LibraryBlockTransferPlan"];
                 };
                 /** Format: int32 */
                 readonly version: number;

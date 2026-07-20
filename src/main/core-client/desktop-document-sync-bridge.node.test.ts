@@ -6,6 +6,10 @@ import {
   CANVAS_SCENE_SYNC_VERSION,
   materializePortableCanvasScene,
 } from "../../shared/block-documents";
+import {
+  BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
+  type BlockTransferIntent,
+} from "../../shared/block-transfer";
 import type { DocumentSyncClientTarget } from "../document-sync-hub";
 import { CoreModuleResponseError } from "./core-client";
 import {
@@ -55,6 +59,9 @@ const neverTypeScript = (): DesktopDocumentSyncBridgeInput["typescript"] => ({
     applyAdditionalDocumentCommand: async () => {
       throw new Error("TypeScript Hub must not run");
     },
+    transferBlocks: async () => {
+      throw new Error("TypeScript Hub must not run");
+    },
   },
   authorizeProject: async () => {
     throw new Error("TypeScript authorization must not run");
@@ -91,6 +98,8 @@ const rustRuntime = (
 ): RustDataAuthorityRuntime => {
   Object.assign(rootClient, {
     handshake: {
+      library_id: "library:test",
+      profile_id: "profile:test",
       store_epoch: "epoch:test",
       connection_binding: "binding:test",
     },
@@ -699,6 +708,206 @@ describe("Desktop Document sync bridge", () => {
       kind: "apply_operation_batch",
       write_fence_prepared: false,
     });
+  });
+
+  test("coordinates a native Block transfer across every leased Document", async () => {
+    const rootClient = new FakeCoreClient();
+    const projectClient = new FakeCoreClient();
+    const transferIntent: BlockTransferIntent = {
+      version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
+      operationId: "transfer:native",
+      projectId: "project:one",
+      storeEpoch: "epoch:test",
+      clientSessionId: "renderer:source",
+      actor: { kind: "electron_renderer", clientId: "renderer:source" },
+      mode: "move",
+      rootBlockIds: ["block:root"],
+      source: { kind: "page", pageId: "page:source" },
+      target: { kind: "page", pageId: "page:target" },
+    };
+    const preparation = {
+      source_document_id: "document:source",
+      target_document_id: "document:target",
+      lease_documents: [{
+        document_id: "document:source",
+        generation: 1,
+        expected_head_seq: 2,
+      }, {
+        document_id: "document:target",
+        generation: 1,
+        expected_head_seq: 5,
+      }],
+      expected_location_revisions: { "block:root": 1 },
+    } as const;
+    const preparedSnapshot = {
+      version: 1 as const,
+      store_epoch: "epoch:test",
+      event_head: 8,
+      value: {
+        kind: "block_transfer_plan" as const,
+        value: { kind: "prepared" as const, preparation },
+      },
+    };
+    projectClient.enqueueRead(preparedSnapshot);
+    projectClient.enqueueRead(preparedSnapshot);
+    projectClient.enqueueRead(preparedSnapshot);
+    const transferResult = {
+      mode: "move" as const,
+      source_root_block_ids: ["block:root"],
+      result_root_block_ids: ["block:root"],
+      copied_block_ids: {},
+      transformation_evidence: [],
+      final_locations: {
+        "block:root": {
+          kind: "document" as const,
+          document_id: "document:target",
+        },
+      },
+      final_location_revisions: { "block:root": 2 },
+      document_commits: [{
+        document_id: "document:source",
+        generation: 1,
+        base_head_seq: 2,
+        head_seq: 3,
+        update_id: "update:source",
+        update: [1, 2],
+        state_vector: [3],
+      }, {
+        document_id: "document:target",
+        generation: 1,
+        base_head_seq: 5,
+        head_seq: 6,
+        update_id: "update:target",
+        update: [4, 5],
+        state_vector: [6],
+      }],
+      affected_database_ids: [],
+    };
+    projectClient.enqueueApply({
+      store_epoch: "epoch:test",
+      event_sequence: 9,
+      value: {
+        affected_resource_ids: ["block:root"],
+        page_copy: null,
+        block_transfer: transferResult,
+      },
+      receipt: {
+        operation_id: transferIntent.operationId,
+        duplicate: false,
+        operation_kind: "transfer_blocks",
+        did_mutate: true,
+        created_target: null,
+        affected_parent_keys: [],
+        affected_page_ids: [],
+        affected_database_ids: [],
+        affected_view_ids: [],
+        committed_revisions: { "block:root": 2 },
+        change_log_seq: 9,
+        committed_at: "2026-07-19T22:00:00.000Z",
+      },
+    });
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
+      typescript: neverTypeScript(),
+    });
+    const sourceTarget = new FakeTarget(11);
+    const targetTarget = new FakeTarget(12);
+    const scope = { kind: "project", projectId: "project:one" } as const;
+    await bridge.subscribe(scope, sourceTarget, {
+      documentId: "document:source",
+      clientSessionId: "renderer:source",
+    });
+    await bridge.subscribe(scope, targetTarget, {
+      documentId: "document:target",
+      clientSessionId: "renderer:target",
+    });
+
+    const pending = bridge.transferBlocks(transferIntent);
+    await vi.waitFor(() => {
+      expect(sourceTarget.sent.some((delivery) =>
+        typeof delivery.payload === "object"
+        && delivery.payload !== null
+        && "kind" in delivery.payload
+        && delivery.payload.kind === "relocation-lease-prepare"
+      )).toBe(true);
+      expect(targetTarget.sent.some((delivery) =>
+        typeof delivery.payload === "object"
+        && delivery.payload !== null
+        && "kind" in delivery.payload
+        && delivery.payload.kind === "relocation-lease-prepare"
+      )).toBe(true);
+    });
+    const acknowledge = async (target: FakeTarget): Promise<void> => {
+      const event = target.sent
+        .map((delivery) => delivery.payload)
+        .find((payload) =>
+          typeof payload === "object"
+          && payload !== null
+          && "kind" in payload
+          && payload.kind === "relocation-lease-prepare"
+        );
+      if (
+        typeof event !== "object"
+        || event === null
+        || !("leaseId" in event)
+        || !("documentId" in event)
+        || !("clientSessionId" in event)
+        || !("storeEpoch" in event)
+        || !("generation" in event)
+        || !("expectedHeadSeq" in event)
+      ) {
+        throw new Error("Expected native Block transfer lease preparation");
+      }
+      await expect(bridge.respondToRelocationLease(scope, target, {
+        response: "ack",
+        leaseId: String(event.leaseId),
+        documentId: String(event.documentId),
+        clientSessionId: String(event.clientSessionId),
+        storeEpoch: String(event.storeEpoch),
+        generation: Number(event.generation),
+        headSeq: Number(event.expectedHeadSeq),
+      })).resolves.toMatchObject({ ok: true, value: { status: "frozen" } });
+    };
+    await acknowledge(sourceTarget);
+    await acknowledge(targetTarget);
+
+    const result = await pending;
+    if (!result.ok) throw new Error(JSON.stringify(result.error));
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        operationId: transferIntent.operationId,
+        finalLocationRevisions: { "block:root": 2 },
+      },
+    });
+    expect(projectClient.reads).toHaveLength(3);
+    expect(projectClient.applies[0]).toMatchObject({
+      operationId: transferIntent.operationId,
+      intent: {
+        kind: "transfer_blocks",
+        write_fence: [{
+          document_id: "document:source",
+          expected_head_seq: 2,
+        }, {
+          document_id: "document:target",
+          expected_head_seq: 5,
+        }],
+      },
+    });
+    for (const target of [sourceTarget, targetTarget]) {
+      expect(target.sent.some((delivery) =>
+        typeof delivery.payload === "object"
+        && delivery.payload !== null
+        && "kind" in delivery.payload
+        && delivery.payload.kind === "document-update"
+      )).toBe(true);
+      expect(target.sent.some((delivery) =>
+        typeof delivery.payload === "object"
+        && delivery.payload !== null
+        && "kind" in delivery.payload
+        && delivery.payload.kind === "relocation-lease-release"
+      )).toBe(true);
+    }
   });
 
   test("binds Canvas sync to its Project client, engine, and exact target", async () => {

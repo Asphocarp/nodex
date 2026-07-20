@@ -399,11 +399,13 @@ pub(super) fn copy_page(
         MutationEffects {
             project_id: resolved_parent.project_id,
             operation_kind: "copy_page",
+            change_kind: "library.changed",
             did_mutate: true,
             created_target: Some(LibraryResourceTarget::Page {
                 page_id: target_page_id.clone(),
             }),
             affected_parent_keys: vec![resolved_parent.parent_key],
+            affected_block_ids: Vec::new(),
             affected_page_ids,
             affected_database_ids: data_source_placement
                 .as_ref()
@@ -422,6 +424,7 @@ pub(super) fn copy_page(
                 block_ids: plan.block_ids,
                 document_ids: plan.document_ids,
             }),
+            block_transfer: None,
             committed_at: now,
         },
     )

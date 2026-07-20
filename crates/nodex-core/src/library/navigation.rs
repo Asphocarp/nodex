@@ -131,6 +131,9 @@ pub(super) fn read(
                 limit,
             )?),
         }),
+        LibraryRead::PlanBlockTransfer { .. } => Err(invalid(
+            "Block transfer planning is assembled by the Library Module",
+        )),
     }
 }
 

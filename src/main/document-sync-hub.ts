@@ -61,10 +61,6 @@ import {
   type AdditionalDocumentHeadRevision,
 } from "../shared/additional-document-commands";
 import {
-  blockTransferIntentFromRequest,
-  canonicalizeBlockTransferLogicalIntent,
-  parseBlockTransferIntent,
-  type BlockTransferCommandError,
   type BlockTransferCommandResult,
   type BlockTransferDocumentHead,
   type BlockTransferIntent,
@@ -82,6 +78,7 @@ import type {
   NodexAgentLeaseDocument,
 } from "../shared/nodex-agent-tools";
 import { safeSendToWebContents } from "./ipc-safe-send";
+import { coordinateBlockTransfer } from "./block-transfer-coordinator";
 import {
   DocumentRelocationLeaseCoordinator,
   type DocumentRelocationLeaseCoordinatorOptions,
@@ -480,50 +477,6 @@ const preparedCommandMatchesIntent = (
     intent.rootBlockIds.includes(blockId),
   );
 };
-
-const blockTransferFailure = <Value>(
-  intent: Pick<BlockTransferIntent, "operationId"> | null,
-  code: BlockTransferCommandError["code"],
-  message: string,
-  options: {
-    readonly retryable?: boolean;
-    readonly reloadRequired?: boolean;
-  } = {},
-): BlockTransferCommandResult<Value> => ({
-  ok: false,
-  error: {
-    code,
-    message,
-    retryable: options.retryable ?? false,
-    reloadRequired: options.reloadRequired ?? false,
-    ...(intent ? { operationId: intent.operationId } : {}),
-  },
-});
-
-const blockTransferPreparationMatchesIntent = (
-  intent: BlockTransferIntent,
-  preparation: BlockTransferPreparation,
-): boolean => {
-  try {
-    return (
-      canonicalizeBlockTransferLogicalIntent(intent) ===
-      canonicalizeBlockTransferLogicalIntent(
-        blockTransferIntentFromRequest(preparation.request),
-      )
-    );
-  } catch {
-    return false;
-  }
-};
-
-const sameBlockTransferDocumentClosure = (
-  left: readonly BlockTransferDocumentHead[],
-  right: readonly BlockTransferDocumentHead[],
-): boolean =>
-  left.length === right.length &&
-  left.every(
-    (head, index) => head.documentId === right[index]?.documentId,
-  );
 
 const nodexAgentCreatePagesFailure = (
   message: string,
@@ -1294,219 +1247,31 @@ export class DocumentSyncHub {
 
   transferBlocks = async (
     rawIntent: BlockTransferIntent,
-  ): Promise<BlockTransferCommandResult> => {
-    let intent: BlockTransferIntent;
-    try {
-      intent = parseBlockTransferIntent(rawIntent);
-    } catch (error) {
-      return blockTransferFailure(
-        null,
-        "invalid_transfer_request",
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-    const lookup = this.backend.lookupCommittedBlockTransfer;
-    const prepare = this.backend.prepareBlockTransfer;
-    const apply = this.backend.applyBlockTransfer;
-    if (!lookup || !prepare || !apply) {
-      return blockTransferFailure(
-        intent,
-        "unknown",
-        "The durable Block transfer writer is unavailable",
-        { retryable: true },
-      );
-    }
-
-    let committed;
-    try {
-      committed = await lookup(intent);
-    } catch {
-      return blockTransferFailure(
-        intent,
-        "unknown",
-        "Block transfer receipt lookup failed",
-        { retryable: true },
-      );
-    }
-    if (!committed.ok) return committed;
-    if (committed.value) {
-      this.fanoutBlockTransferResync(committed.value);
-      return { ok: true, value: committed.value };
-    }
-
-    let initial;
-    try {
-      initial = await prepare(intent);
-    } catch {
-      return blockTransferFailure(
-        intent,
-        "unknown",
-        "Block transfer preparation failed",
-        { retryable: true },
-      );
-    }
-    if (!initial.ok) return initial;
-    if (!blockTransferPreparationMatchesIntent(intent, initial.value)) {
-      return blockTransferFailure(
-        intent,
-        "invalid_transfer_request",
-        "The durable writer prepared a different Block transfer intent",
-      );
-    }
-
-    if (initial.value.leaseDocuments.length === 0) {
-      let directResult: BlockTransferCommandResult;
-      try {
-        directResult = await apply(initial.value.request);
-      } catch {
-        return blockTransferFailure(
-          intent,
-          "unknown",
-          "Block transfer commit failed",
-          { retryable: true },
-        );
-      }
-      if (!directResult.ok) return directResult;
-      this.fanoutBlockTransferResult(directResult.value);
-      return directResult;
-    }
-
-    const leaseId = this.createBlockTransferLeaseId();
-    this.setBlockTransferLeaseBoundary(
-      leaseId,
-      intent.storeEpoch,
-      initial.value.leaseDocuments,
-    );
-    let preparedLease;
-    try {
-      preparedLease = await this.relocationLeaseCoordinator.prepare({
+  ): Promise<BlockTransferCommandResult> => coordinateBlockTransfer(rawIntent, {
+    backend: this.backend,
+    leaseCoordinator: this.relocationLeaseCoordinator,
+    createLeaseId: () => this.createBlockTransferLeaseId(),
+    setLeaseBoundary: (leaseId, storeEpoch, heads) =>
+      this.setBlockTransferLeaseBoundary(leaseId, storeEpoch, heads),
+    setResultBoundary: (leaseId, storeEpoch, heads, receipt) =>
+      this.setBlockTransferResultBoundary(
         leaseId,
-        documents: initial.value.leaseDocuments,
-      });
-    } catch {
-      this.cancelRelocationLease(leaseId);
-      return blockTransferFailure(
-        intent,
-        "transfer_lease_timeout",
-        "Block transfer write lease preparation failed",
-        { retryable: true },
-      );
-    }
-    if (!preparedLease.ok) {
-      this.relocationLeaseBoundaries.delete(leaseId);
-      return blockTransferFailure(
-        intent,
-        preparedLease.error.code === "invalid_request" ||
-          preparedLease.error.code === "lease_id_collision"
-          ? "invalid_transfer_request"
-          : "transfer_lease_timeout",
-        preparedLease.error.message,
-        {
-          retryable:
-            preparedLease.error.code !== "invalid_request" &&
-            preparedLease.error.code !== "lease_id_collision",
-        },
-      );
-    }
-
-    let flushed;
-    try {
-      flushed = await prepare(intent);
-    } catch {
-      this.cancelRelocationLease(leaseId);
-      return blockTransferFailure(
-        intent,
-        "unknown",
-        "Block transfer flush verification failed",
-        { retryable: true },
-      );
-    }
-    if (!flushed.ok) {
-      this.cancelRelocationLease(leaseId);
-      return flushed;
-    }
-    if (!blockTransferPreparationMatchesIntent(intent, flushed.value)) {
-      this.cancelRelocationLease(leaseId);
-      return blockTransferFailure(
-        intent,
-        "invalid_transfer_request",
-        "The flushed preparation changed Block transfer intent",
-      );
-    }
-    const resolvedHeads = new Map(
-      preparedLease.value.resolvedHeads.map((head) => [head.documentId, head]),
-    );
-    const observedEveryHead = flushed.value.leaseDocuments.every((document) => {
-      const resolved = resolvedHeads.get(document.documentId);
-      return (
-        resolved !== undefined &&
-        resolved.generation === document.generation &&
-        document.expectedHeadSeq >= resolved.headSeq
-      );
-    });
-    if (
-      !sameBlockTransferDocumentClosure(
-        initial.value.leaseDocuments,
-        flushed.value.leaseDocuments,
-      ) ||
-      resolvedHeads.size !== flushed.value.leaseDocuments.length ||
-      !observedEveryHead
-    ) {
-      this.cancelRelocationLease(leaseId);
-      return blockTransferFailure(
-        intent,
-        "source_head_mismatch",
-        "The writer did not observe every leased Document head in the final Block transfer closure",
-        { retryable: true, reloadRequired: true },
-      );
-    }
-    this.setBlockTransferLeaseBoundary(
-      leaseId,
-      intent.storeEpoch,
-      flushed.value.leaseDocuments,
-    );
-
-    let result: BlockTransferCommandResult;
-    try {
-      result = await apply(flushed.value.request);
-    } catch {
-      this.cancelRelocationLease(leaseId);
-      return blockTransferFailure(
-        intent,
-        "unknown",
-        "Block transfer commit failed",
-        { retryable: true },
-      );
-    }
-    if (!result.ok) {
-      this.cancelRelocationLease(leaseId);
-      return result;
-    }
-
-    this.setBlockTransferResultBoundary(
-      leaseId,
-      intent.storeEpoch,
-      flushed.value.leaseDocuments,
-      result.value,
-    );
-    try {
-      this.fanoutBlockTransferResult(result.value);
-    } catch {
-      this.fanoutBlockTransferResync(result.value);
-    }
-    const released = this.relocationLeaseCoordinator.release(leaseId);
-    if (!released.ok) {
+        storeEpoch,
+        heads,
+        receipt,
+      ),
+    clearLeaseBoundary: (leaseId) =>
+      this.relocationLeaseBoundaries.delete(leaseId),
+    fanoutResult: (receipt) => this.fanoutBlockTransferResult(receipt),
+    fanoutResync: (receipt) => this.fanoutBlockTransferResync(receipt),
+    publishReleaseFallback: (leaseId, storeEpoch, heads, receipt) =>
       this.publishBlockTransferReleaseFallback(
         leaseId,
-        intent.storeEpoch,
-        flushed.value.leaseDocuments,
-        result.value,
-      );
-      this.fanoutBlockTransferResync(result.value);
-    }
-    this.relocationLeaseBoundaries.delete(leaseId);
-    return result;
-  };
+        storeEpoch,
+        heads,
+        receipt,
+      ),
+  });
 
   private executeNodexAgentLeasedMutation = async <
     Result extends NodexAgentLeasedMutationResult,

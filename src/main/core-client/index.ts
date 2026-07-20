@@ -1,5 +1,10 @@
 export { CoreClient, CoreModuleResponseError } from "./core-client";
 export {
+  createCoreBlockTransferAdapter,
+  type CoreBlockTransferAdapter,
+  type CoreBlockTransferAdapterInput,
+} from "./block-transfer-adapter";
+export {
   createCoreDocumentSyncAdapter,
   type CoreDocumentSyncAdapter,
 } from "./document-sync-adapter";

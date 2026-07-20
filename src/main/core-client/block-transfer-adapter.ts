@@ -1,0 +1,441 @@
+import {
+  BLOCK_TRANSFER_CONTRACT_VERSION,
+  blockTransferIntentFromRequest,
+  parseBlockTransferIntent,
+  parseBlockTransferRequest,
+  type BlockTransferCommandError,
+  type BlockTransferCommandResult,
+  type BlockTransferDocumentHead,
+  type BlockTransferIntent,
+  type BlockTransferPreparation,
+  type BlockTransferReceipt,
+  type BlockTransferRequest,
+} from "../../shared/block-transfer";
+import { blockTransferFailure } from "../../shared/block-transfer-transport";
+import type { BlockLocation } from "../../shared/block-documents/contracts";
+import { CoreModuleResponseError } from "./core-client";
+import type {
+  CoreClientPort,
+  LibraryIntent,
+  LibraryRead,
+  LibraryReadSnapshot,
+} from "./types";
+
+export interface CoreBlockTransferAdapterInput {
+  readonly client: CoreClientPort;
+  readonly libraryId: string;
+  readonly projectId: string;
+  readonly storeEpoch: string;
+}
+
+export interface CoreBlockTransferAdapter {
+  lookupCommitted(
+    intent: BlockTransferIntent,
+  ): Promise<BlockTransferCommandResult<BlockTransferReceipt | null>>;
+  prepare(
+    intent: BlockTransferIntent,
+  ): Promise<BlockTransferCommandResult<BlockTransferPreparation>>;
+  apply(request: BlockTransferRequest): Promise<BlockTransferCommandResult>;
+}
+
+type CoreTransferPlan = Extract<
+  LibraryReadSnapshot["value"],
+  { kind: "block_transfer_plan" }
+>["value"];
+type CoreTransferResult = Extract<CoreTransferPlan, { kind: "committed" }>["result"];
+type CoreTransferIntent = Extract<LibraryIntent, { kind: "transfer_blocks" }>["intent"];
+
+const toCoreIntent = (intent: BlockTransferIntent): CoreTransferIntent => ({
+  actor: intent.actor,
+  mode: intent.mode,
+  root_block_ids: intent.rootBlockIds,
+  source: (() => {
+    switch (intent.source.kind) {
+      case "library":
+        return { kind: "library" as const, library_id: intent.source.libraryId };
+      case "page":
+        return { kind: "page" as const, page_id: intent.source.pageId };
+      case "document":
+        return { kind: "document" as const, document_id: intent.source.documentId };
+      case "data_source":
+        return { kind: "data_source" as const, data_source_id: intent.source.dataSourceId };
+    }
+  })(),
+  target: (() => {
+    switch (intent.target.kind) {
+      case "library":
+        return {
+          kind: "library" as const,
+          library_id: intent.target.libraryId,
+          before_block_id: intent.target.beforeBlockId ?? null,
+        };
+      case "page":
+        return {
+          kind: "page" as const,
+          page_id: intent.target.pageId,
+          parent_block_id: intent.target.parentBlockId ?? null,
+          before_block_id: intent.target.beforeBlockId ?? null,
+        };
+      case "document":
+        return {
+          kind: "document" as const,
+          document_id: intent.target.documentId,
+          parent_block_id: intent.target.parentBlockId ?? null,
+          before_block_id: intent.target.beforeBlockId ?? null,
+        };
+      case "data_source":
+        return {
+          kind: "data_source" as const,
+          data_source_id: intent.target.dataSourceId,
+          view_id: intent.target.viewId,
+          group_key: intent.target.groupKey,
+          before_page_id: intent.target.beforePageId ?? null,
+        };
+    }
+  })(),
+});
+
+const corePlanRead = (intent: BlockTransferIntent): LibraryRead => ({
+  kind: "plan_block_transfer",
+  operation_id: intent.operationId,
+  store_epoch: intent.storeEpoch,
+  intent: toCoreIntent(intent),
+});
+
+const readPlan = async (
+  client: CoreClientPort,
+  intent: BlockTransferIntent,
+): Promise<CoreTransferPlan> => {
+  const snapshot = await client.libraryRead(corePlanRead(intent));
+  if (snapshot.store_epoch !== intent.storeEpoch) {
+    throw new Error("Core returned a Block transfer plan from another store epoch");
+  }
+  if (snapshot.value.kind !== "block_transfer_plan") {
+    throw new Error("Core returned the wrong Library read projection for Block transfer");
+  }
+  return snapshot.value.value;
+};
+
+const assertIntentScope = (
+  input: CoreBlockTransferAdapterInput,
+  intent: BlockTransferIntent,
+): BlockTransferCommandError | null => {
+  if (intent.projectId !== input.projectId) {
+    return blockTransferFailure(
+      "invalid_transfer_request",
+      "Block transfer belongs to another Project",
+      { operationId: intent.operationId },
+    );
+  }
+  if (intent.storeEpoch !== input.storeEpoch) {
+    return blockTransferFailure(
+      "store_epoch_mismatch",
+      "Block transfer belongs to another store epoch",
+      { operationId: intent.operationId, reloadRequired: true },
+    );
+  }
+  const referencedLibraryIds = [intent.source, intent.target]
+    .filter((location) => location.kind === "library")
+    .map((location) => location.libraryId);
+  if (referencedLibraryIds.some((libraryId) => libraryId !== input.libraryId)) {
+    return blockTransferFailure(
+      "invalid_transfer_request",
+      "Block transfer belongs to another Library",
+      { operationId: intent.operationId },
+    );
+  }
+  return null;
+};
+
+const toDocumentHead = (
+  head: {
+    readonly document_id: string;
+    readonly generation: number;
+    readonly expected_head_seq: number;
+  },
+): BlockTransferDocumentHead => ({
+  documentId: head.document_id,
+  generation: head.generation,
+  expectedHeadSeq: head.expected_head_seq,
+});
+
+const requireHead = (
+  heads: readonly BlockTransferDocumentHead[],
+  documentId: string,
+): BlockTransferDocumentHead => {
+  const head = heads.find((candidate) => candidate.documentId === documentId);
+  if (!head) throw new Error(`Core omitted Block transfer Document head ${documentId}`);
+  return head;
+};
+
+const toPreparedRequest = (
+  intent: BlockTransferIntent,
+  plan: Extract<CoreTransferPlan, { kind: "prepared" }>["preparation"],
+): BlockTransferPreparation => {
+  const leaseDocuments = plan.lease_documents.map(toDocumentHead);
+  const sourceHead = requireHead(leaseDocuments, plan.source_document_id);
+  const targetHead = requireHead(leaseDocuments, plan.target_document_id);
+  const request: BlockTransferRequest = {
+    version: BLOCK_TRANSFER_CONTRACT_VERSION,
+    operationId: intent.operationId,
+    projectId: intent.projectId,
+    storeEpoch: intent.storeEpoch,
+    ...(intent.clientSessionId ? { clientSessionId: intent.clientSessionId } : {}),
+    actor: intent.actor,
+    mode: intent.mode,
+    rootBlockIds: intent.rootBlockIds,
+    expectedLocationRevisions: plan.expected_location_revisions,
+    source: {
+      kind: "document",
+      documentId: plan.source_document_id,
+      ...(intent.source.kind === "page" ? { pageId: intent.source.pageId } : {}),
+      generation: sourceHead.generation,
+      expectedHeadSeq: sourceHead.expectedHeadSeq,
+    },
+    target: {
+      kind: "document",
+      documentId: plan.target_document_id,
+      ...(intent.target.kind === "page" ? { pageId: intent.target.pageId } : {}),
+      generation: targetHead.generation,
+      expectedHeadSeq: targetHead.expectedHeadSeq,
+      ...((intent.target.kind === "page" || intent.target.kind === "document") &&
+      intent.target.parentBlockId
+        ? { parentBlockId: intent.target.parentBlockId }
+        : {}),
+      ...((intent.target.kind === "page" || intent.target.kind === "document") &&
+      intent.target.beforeBlockId
+        ? { beforeBlockId: intent.target.beforeBlockId }
+        : {}),
+    },
+  };
+  return { request: parseBlockTransferRequest(request), leaseDocuments };
+};
+
+const fromCoreLocation = (
+  location: CoreTransferResult["final_locations"][string],
+): BlockLocation => {
+  switch (location.kind) {
+    case "library":
+      throw new Error(
+        "Core returned a Library Block location before the public placement contract was implemented",
+      );
+    case "document":
+      return { kind: "document", documentId: location.document_id };
+    case "data_source":
+      return { kind: "database", databaseBlockId: location.database_id };
+  }
+};
+
+const fromCoreResult = (
+  intent: BlockTransferIntent,
+  result: CoreTransferResult,
+  duplicate: boolean,
+  changeLogSeq: number,
+  committedAt: string,
+): BlockTransferReceipt => {
+  if (
+    result.transformation_evidence.length > 0
+    || result.affected_database_ids.length > 0
+  ) {
+    throw new Error(
+      "Core returned Page/Data Source transfer evidence before the public native mapping was implemented",
+    );
+  }
+  return {
+    version: BLOCK_TRANSFER_CONTRACT_VERSION,
+    operationId: intent.operationId,
+    projectId: intent.projectId,
+    storeEpoch: intent.storeEpoch,
+    mode: result.mode,
+    duplicate,
+    sourceRootBlockIds: result.source_root_block_ids,
+    resultRootBlockIds: result.result_root_block_ids,
+    copiedBlockIds: result.copied_block_ids,
+    transformationEvidence: [],
+    finalLocations: Object.fromEntries(
+      Object.entries(result.final_locations).map(([blockId, location]) => [
+        blockId,
+        fromCoreLocation(location),
+      ]),
+    ),
+    finalLocationRevisions: result.final_location_revisions,
+    documentCommits: result.document_commits.map((commit) => ({
+      documentId: commit.document_id,
+      generation: commit.generation,
+      baseHeadSeq: commit.base_head_seq,
+      headSeq: commit.head_seq,
+      updateId: commit.update_id,
+      update: Uint8Array.from(commit.update),
+      stateVector: Uint8Array.from(commit.state_vector),
+    })),
+    affectedDatabaseBlockIds: [],
+    changeLogSeq,
+    committedAt,
+  };
+};
+
+const coreFailure = (
+  intent: Pick<BlockTransferIntent, "operationId">,
+  error: unknown,
+): BlockTransferCommandError => {
+  if (!(error instanceof CoreModuleResponseError)) {
+    return blockTransferFailure(
+      "unknown",
+      error instanceof Error ? error.message : String(error),
+      { operationId: intent.operationId, retryable: true },
+    );
+  }
+  const options = {
+    operationId: intent.operationId,
+    retryable: error.coreError.retryable,
+  };
+  switch (error.coreError.code) {
+    case "invalid_input":
+      return blockTransferFailure("unsupported_transfer", error.message, options);
+    case "unauthorized":
+      return blockTransferFailure("invalid_transfer_request", error.message, options);
+    case "not_found":
+      return blockTransferFailure("block_not_found", error.message, options);
+    case "stale_store_epoch":
+      return blockTransferFailure("store_epoch_mismatch", error.message, {
+        ...options,
+        reloadRequired: true,
+      });
+    case "idempotency_key_reused":
+      return blockTransferFailure("operation_id_collision", error.message, options);
+    case "revision_conflict":
+    case "head_conflict":
+    case "generation_conflict":
+      return blockTransferFailure("source_head_mismatch", error.message, {
+        ...options,
+        reloadRequired: true,
+      });
+    case "store_corrupt":
+      return blockTransferFailure("recovery_required", error.message, {
+        ...options,
+        reloadRequired: true,
+      });
+    default:
+      return blockTransferFailure("unknown", error.message, options);
+  }
+};
+
+const exactWriteFence = (request: BlockTransferRequest) => {
+  const heads: BlockTransferDocumentHead[] = [];
+  if (request.source.kind === "document") {
+    heads.push({
+      documentId: request.source.documentId,
+      generation: request.source.generation,
+      expectedHeadSeq: request.source.expectedHeadSeq,
+    });
+  }
+  if (request.target.kind === "document") {
+    heads.push({
+      documentId: request.target.documentId,
+      generation: request.target.generation,
+      expectedHeadSeq: request.target.expectedHeadSeq,
+    });
+  }
+  return [...new Map(heads.map((head) => [head.documentId, head])).values()]
+    .sort((left, right) => left.documentId.localeCompare(right.documentId))
+    .map((head) => ({
+      document_id: head.documentId,
+      generation: head.generation,
+      expected_head_seq: head.expectedHeadSeq,
+    }));
+};
+
+export const createCoreBlockTransferAdapter = (
+  input: CoreBlockTransferAdapterInput,
+): CoreBlockTransferAdapter => ({
+  lookupCommitted: async (rawIntent) => {
+    let intent: BlockTransferIntent;
+    try {
+      intent = parseBlockTransferIntent(rawIntent);
+    } catch (error) {
+      return { ok: false, error: coreFailure(rawIntent, error) };
+    }
+    const scopeError = assertIntentScope(input, intent);
+    if (scopeError) return { ok: false, error: scopeError };
+    try {
+      const plan = await readPlan(input.client, intent);
+      if (plan.kind === "prepared") return { ok: true, value: null };
+      return {
+        ok: true,
+        value: fromCoreResult(
+          intent,
+          plan.result,
+          true,
+          plan.change_log_seq,
+          plan.committed_at,
+        ),
+      };
+    } catch (error) {
+      return { ok: false, error: coreFailure(intent, error) };
+    }
+  },
+  prepare: async (rawIntent) => {
+    let intent: BlockTransferIntent;
+    try {
+      intent = parseBlockTransferIntent(rawIntent);
+    } catch (error) {
+      return { ok: false, error: coreFailure(rawIntent, error) };
+    }
+    const scopeError = assertIntentScope(input, intent);
+    if (scopeError) return { ok: false, error: scopeError };
+    try {
+      const plan = await readPlan(input.client, intent);
+      if (plan.kind === "committed") {
+        return {
+          ok: false,
+          error: blockTransferFailure(
+            "unknown",
+            "Block transfer committed while its lease plan was being refreshed; retry recovers the receipt",
+            { operationId: intent.operationId, retryable: true },
+          ),
+        };
+      }
+      return { ok: true, value: toPreparedRequest(intent, plan.preparation) };
+    } catch (error) {
+      return { ok: false, error: coreFailure(intent, error) };
+    }
+  },
+  apply: async (rawRequest) => {
+    let request: BlockTransferRequest;
+    let intent: BlockTransferIntent;
+    try {
+      request = parseBlockTransferRequest(rawRequest);
+      intent = blockTransferIntentFromRequest(request);
+    } catch (error) {
+      return { ok: false, error: coreFailure(rawRequest, error) };
+    }
+    const scopeError = assertIntentScope(input, intent);
+    if (scopeError) return { ok: false, error: scopeError };
+    try {
+      const committed = await input.client.libraryApply({
+        operationId: request.operationId,
+        intent: {
+          kind: "transfer_blocks",
+          intent: toCoreIntent(intent),
+          write_fence: exactWriteFence(request),
+        },
+      });
+      const result = committed.value.block_transfer;
+      if (!result || committed.receipt.operation_kind !== "transfer_blocks") {
+        throw new Error("Core returned the wrong Library commit for Block transfer");
+      }
+      return {
+        ok: true,
+        value: fromCoreResult(
+          intent,
+          result,
+          committed.receipt.duplicate,
+          committed.receipt.change_log_seq,
+          committed.receipt.committed_at,
+        ),
+      };
+    } catch (error) {
+      return { ok: false, error: coreFailure(intent, error) };
+    }
+  },
+});
