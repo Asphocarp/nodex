@@ -232,6 +232,55 @@ describe("CoreClient over a Unix socket", () => {
           inherited_from: null,
         },
       });
+      const agentProvenance = {
+        profile_id: client.handshake.profile_id,
+        authority: {
+          thread_id: "thread:node-integration",
+          turn_id: "turn:node-integration",
+          root_thread_id: "thread:node-integration",
+          actor_project_id: "project:default",
+          library_id: client.handshake.library_id,
+          store_epoch: client.handshake.store_epoch,
+          scope: "project" as const,
+          source: "project_turn" as const,
+        },
+      };
+      await client.libraryApply({
+        operationId: "node-agent-search-grant-1",
+        intent: {
+          kind: "persist_agent_project_resource_grants",
+          provenance: agentProvenance,
+          grants: [{
+            root: { kind: "page", page_id: "page:node-integration" },
+            access: "read",
+            library_actions: [],
+          }],
+        },
+      });
+      const agentSearch = await client.libraryRead({
+        kind: "agent_search",
+        authorization: {
+          provenance: agentProvenance,
+          call_id: "call:node-agent-search",
+        },
+        query: "integraton",
+        target: "pages",
+        scope: { kind: "library" },
+        block_types: null,
+        include_archived: false,
+        cursor: null,
+        limit: 1,
+      });
+      expect(agentSearch.value).toMatchObject({
+        kind: "agent_search",
+        has_more: false,
+        next_cursor: null,
+        items: [{
+          kind: "page",
+          id: "page:node-integration",
+          matches: [{ source: "title", quality: "fuzzy" }],
+        }],
+      });
       const databaseCatalog = await client.databaseRead({
         target: { kind: "project_default" },
         mode: "catalog",
@@ -252,19 +301,7 @@ describe("CoreClient over a Unix socket", () => {
           data_source_id: dataSourceId,
           query: {
             authorization: {
-              provenance: {
-                profile_id: client.handshake.profile_id,
-                authority: {
-                  thread_id: "thread:node-integration",
-                  turn_id: "turn:node-integration",
-                  root_thread_id: "thread:node-integration",
-                  actor_project_id: "project:default",
-                  library_id: client.handshake.library_id,
-                  store_epoch: client.handshake.store_epoch,
-                  scope: "project",
-                  source: "project_turn",
-                },
-              },
+              provenance: agentProvenance,
               call_id: "call:node-database-query",
             },
             cursor: null,

@@ -257,6 +257,16 @@ pub enum LibraryRead {
         block_id: String,
         authorization: Box<AgentExecutionAuthorization>,
     },
+    AgentSearch {
+        authorization: Box<AgentExecutionAuthorization>,
+        query: String,
+        target: LibraryAgentSearchTarget,
+        scope: LibraryAgentSearchScope,
+        block_types: Option<Vec<String>>,
+        include_archived: bool,
+        cursor: Option<String>,
+        limit: Option<u32>,
+    },
     PageTarget {
         page_id: String,
     },
@@ -878,6 +888,82 @@ pub enum LibrarySearchSourceKind {
     DocumentBlock,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryAgentSearchTarget {
+    Pages,
+    Blocks,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryAgentSearchScope {
+    Library,
+    Database { database_id: String },
+    DataSource { data_source_id: String },
+    Page { page_id: String },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryAgentSearchMatchQuality {
+    Exact,
+    Prefix,
+    Fuzzy,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryAgentPageLocation {
+    Library { library_id: String },
+    Page { page_id: String },
+    DataSource { data_source_id: String },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "source", rename_all = "snake_case")]
+pub enum LibraryAgentPageSearchMatch {
+    Identity {
+        quality: LibraryAgentSearchMatchQuality,
+        excerpt: String,
+    },
+    Title {
+        quality: LibraryAgentSearchMatchQuality,
+        excerpt: String,
+    },
+    Property {
+        quality: LibraryAgentSearchMatchQuality,
+        property_id: String,
+        property_name: String,
+        excerpt: String,
+    },
+    Body {
+        quality: LibraryAgentSearchMatchQuality,
+        block_id: String,
+        block_type: String,
+        excerpt: String,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryAgentSearchResult {
+    Page {
+        id: String,
+        title: String,
+        location: LibraryAgentPageLocation,
+        matches: Vec<LibraryAgentPageSearchMatch>,
+    },
+    Block {
+        id: String,
+        block_type: String,
+        owner_page_id: String,
+        source: LibrarySearchSourceKind,
+        quality: LibraryAgentSearchMatchQuality,
+        excerpt: String,
+    },
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 pub struct LibrarySearchHit {
     pub project_id: String,
@@ -1100,6 +1186,11 @@ pub enum LibraryReadValue {
     },
     AgentBlockTarget {
         value: Option<LibraryAgentBlockTarget>,
+    },
+    AgentSearch {
+        items: Vec<LibraryAgentSearchResult>,
+        next_cursor: Option<String>,
+        has_more: bool,
     },
     PageTarget {
         value: Option<Box<LibraryPageTarget>>,

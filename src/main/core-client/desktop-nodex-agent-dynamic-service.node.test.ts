@@ -149,7 +149,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
     expect(unavailable).not.toHaveBeenCalled();
   });
 
-  test("fails closed for an unported native tool instead of invoking TypeScript", async () => {
+  test("fails closed for an unported native write instead of invoking TypeScript", async () => {
     const service = createDesktopNodexAgentV3DynamicService({
       authority: Promise.resolve({ backend: "rust" } as DesktopDataAuthorityRuntime),
       projectWorkspace: {} as DesktopProjectWorkspacePort,
@@ -160,8 +160,11 @@ describe("native desktop Nodex Agent dynamic service", () => {
     await expect(service.registry.execute({
       namespace: NODEX_APP_TOOL_NAMESPACE,
       toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
-      tool: "search",
-    }, { query: "native" }, context)).rejects.toMatchObject({
+      tool: "create_pages",
+    }, {
+      destination: { kind: "library" },
+      pages: [{ title: "Native" }],
+    }, context)).rejects.toMatchObject({
       failure: {
         error: {
           code: "internal_error",
@@ -170,6 +173,90 @@ describe("native desktop Nodex Agent dynamic service", () => {
         },
       },
     });
+    expect(unavailable).not.toHaveBeenCalled();
+  });
+
+  test("searches native Library resources with Core authority and pagination", async () => {
+    const libraryRead = vi.fn(async () => ({
+      value: {
+        kind: "agent_search" as const,
+        items: [{
+          kind: "page" as const,
+          id: "page-native-search",
+          title: "Native Search",
+          location: {
+            kind: "data_source" as const,
+            data_source_id: "data-source-native-agent",
+          },
+          matches: [{
+            source: "property" as const,
+            quality: "fuzzy" as const,
+            property_id: "p_Abcd1234",
+            property_name: "Status",
+            excerpt: "In progress",
+          }],
+        }],
+        has_more: true,
+        next_cursor: "nxl1.search.signature",
+      },
+    }));
+    const runtime = {
+      backend: "rust" as const,
+      rootClient: {
+        handshake: { profile_id: "profile-native-agent" },
+      },
+      clientForProject: () => ({ libraryRead }),
+    } as unknown as Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>;
+    const service = createDesktopNodexAgentV3DynamicService({
+      authority: Promise.resolve(runtime),
+      projectWorkspace: {} as DesktopProjectWorkspacePort,
+      databaseModule: {} as DesktopDatabaseModuleBridge,
+      typescript,
+    });
+
+    const result = await service.registry.execute({
+      namespace: NODEX_APP_TOOL_NAMESPACE,
+      toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+      tool: "search",
+    }, {
+      query: "nativ serch",
+      scope: { kind: "data_source", dataSourceId: "data-source-native-agent" },
+      page: { cursor: "nxl1.previous.signature", limit: 1 },
+    }, context);
+
+    expect(result.output).toEqual({
+      data: {
+        results: [{
+          kind: "page",
+          id: "page-native-search",
+          title: "Native Search",
+          location: {
+            kind: "data_source",
+            dataSourceId: "data-source-native-agent",
+          },
+          matches: [{
+            source: "property",
+            quality: "fuzzy",
+            propertyId: "p_Abcd1234",
+            propertyName: "Status",
+            excerpt: "In progress",
+          }],
+        }],
+      },
+      page: { hasMore: true, nextCursor: "nxl1.search.signature" },
+    });
+    expect(libraryRead).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "agent_search",
+      query: "nativ serch",
+      target: "pages",
+      scope: {
+        kind: "data_source",
+        data_source_id: "data-source-native-agent",
+      },
+      cursor: "nxl1.previous.signature",
+      limit: 1,
+      authorization: expect.objectContaining({ call_id: "call-native-agent" }),
+    }));
     expect(unavailable).not.toHaveBeenCalled();
   });
 

@@ -23,6 +23,7 @@ import type { DesktopDatabaseModuleBridge } from "./desktop-database-module-brid
 import type { DesktopProjectWorkspacePort } from "./project-workspace-adapter";
 import { readNativeFetch } from "./native-nodex-agent-fetch";
 import { readNativeDatabaseQuery } from "./native-nodex-agent-query";
+import { readNativeSearch } from "./native-nodex-agent-search";
 import { NativeNodexAgentPageUpdateRuntime } from "./native-nodex-agent-page-update";
 
 type ToolError = ToolFailure["error"];
@@ -43,11 +44,6 @@ const nativeUnavailableError = (tool: string): ToolError => ({
   retryable: false,
   recovery: "none",
   details: { domainCode: "native_agent_tool_unavailable" },
-});
-
-const nativeReadFailure = (tool: string): NodexAgentV3ReadCommandResult => ({
-  ok: false,
-  error: nativeUnavailableError(tool),
 });
 
 const envelope = <Result>(
@@ -218,10 +214,9 @@ export function createDesktopNodexAgentV3DynamicService(
           )
         : request.tool === "fetch"
           ? await readNativeFetch(request, runtime)
-          : request.tool === "query_database_view"
-              || request.tool === "query_data_source"
-            ? await readNativeDatabaseQuery(request, runtime)
-          : nativeReadFailure(request.tool);
+        : request.tool === "search"
+          ? await readNativeSearch(request, runtime)
+          : await readNativeDatabaseQuery(request, runtime);
       return envelope(result, request.callId ?? `nodex-agent:${request.tool}`);
     },
     prepareNodexAgentPageUpdate: async (request) => {

@@ -137,6 +137,29 @@ pub(super) fn read(
                 agent_block_target(connection, library_id, store_epoch, event_head, &block_id)?;
             Ok(LibraryReadValue::AgentBlockTarget { value })
         }
+        LibraryRead::AgentSearch {
+            authorization,
+            query,
+            target,
+            scope,
+            block_types,
+            include_archived,
+            cursor,
+            limit,
+        } => super::agent_search::read(
+            connection,
+            context,
+            library_id,
+            event_head,
+            &authorization,
+            &query,
+            target,
+            scope,
+            block_types,
+            include_archived,
+            cursor.as_deref(),
+            limit,
+        ),
         LibraryRead::PageTarget { page_id } => Ok(LibraryReadValue::PageTarget {
             value: page_target(connection, library_id, requesting_project_id, &page_id)?
                 .map(Box::new),

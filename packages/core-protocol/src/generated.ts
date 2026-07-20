@@ -1157,6 +1157,81 @@ export interface components {
             readonly owner_page: components["schemas"]["LibraryPageDetail"];
             readonly owner_page_id: string;
         };
+        readonly LibraryAgentPageLocation: {
+            /** @enum {string} */
+            readonly kind: "library";
+            readonly library_id: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "page";
+            readonly page_id: string;
+        } | {
+            readonly data_source_id: string;
+            /** @enum {string} */
+            readonly kind: "data_source";
+        };
+        readonly LibraryAgentPageSearchMatch: {
+            readonly excerpt: string;
+            readonly quality: components["schemas"]["LibraryAgentSearchMatchQuality"];
+            /** @enum {string} */
+            readonly source: "identity";
+        } | {
+            readonly excerpt: string;
+            readonly quality: components["schemas"]["LibraryAgentSearchMatchQuality"];
+            /** @enum {string} */
+            readonly source: "title";
+        } | {
+            readonly excerpt: string;
+            readonly property_id: string;
+            readonly property_name: string;
+            readonly quality: components["schemas"]["LibraryAgentSearchMatchQuality"];
+            /** @enum {string} */
+            readonly source: "property";
+        } | {
+            readonly block_id: string;
+            readonly block_type: string;
+            readonly excerpt: string;
+            readonly quality: components["schemas"]["LibraryAgentSearchMatchQuality"];
+            /** @enum {string} */
+            readonly source: "body";
+        };
+        /** @enum {string} */
+        readonly LibraryAgentSearchMatchQuality: "exact" | "prefix" | "fuzzy";
+        readonly LibraryAgentSearchResult: {
+            readonly id: string;
+            /** @enum {string} */
+            readonly kind: "page";
+            readonly location: components["schemas"]["LibraryAgentPageLocation"];
+            readonly matches: readonly components["schemas"]["LibraryAgentPageSearchMatch"][];
+            readonly title: string;
+        } | {
+            readonly block_type: string;
+            readonly excerpt: string;
+            readonly id: string;
+            /** @enum {string} */
+            readonly kind: "block";
+            readonly owner_page_id: string;
+            readonly quality: components["schemas"]["LibraryAgentSearchMatchQuality"];
+            readonly source: components["schemas"]["LibrarySearchSourceKind"];
+        };
+        readonly LibraryAgentSearchScope: {
+            /** @enum {string} */
+            readonly kind: "library";
+        } | {
+            readonly database_id: string;
+            /** @enum {string} */
+            readonly kind: "database";
+        } | {
+            readonly data_source_id: string;
+            /** @enum {string} */
+            readonly kind: "data_source";
+        } | {
+            /** @enum {string} */
+            readonly kind: "page";
+            readonly page_id: string;
+        };
+        /** @enum {string} */
+        readonly LibraryAgentSearchTarget: "pages" | "blocks";
         readonly LibraryApplyRequest: components["schemas"]["ModuleApplyRequest_LibraryIntent"];
         readonly LibraryApplyResponse: components["schemas"]["ResponseEnvelope_CommittedModuleValue_LibraryCommitValue_LibraryReceipt"];
         readonly LibraryBlockLocation: {
@@ -2824,6 +2899,18 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "agent_block_target";
             } | {
+                readonly authorization: components["schemas"]["AgentExecutionAuthorization"];
+                readonly block_types?: readonly string[] | null;
+                readonly cursor?: string | null;
+                readonly include_archived: boolean;
+                /** @enum {string} */
+                readonly kind: "agent_search";
+                /** Format: int32 */
+                readonly limit?: number | null;
+                readonly query: string;
+                readonly scope: components["schemas"]["LibraryAgentSearchScope"];
+                readonly target: components["schemas"]["LibraryAgentSearchTarget"];
+            } | {
                 /** @enum {string} */
                 readonly kind: "page_target";
                 readonly page_id: string;
@@ -3811,6 +3898,12 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "agent_block_target";
                     readonly value?: null | components["schemas"]["LibraryAgentBlockTarget"];
+                } | {
+                    readonly has_more: boolean;
+                    readonly items: readonly components["schemas"]["LibraryAgentSearchResult"][];
+                    /** @enum {string} */
+                    readonly kind: "agent_search";
+                    readonly next_cursor?: string | null;
                 } | {
                     /** @enum {string} */
                     readonly kind: "page_target";

@@ -4186,6 +4186,334 @@
           }
         }
       },
+      "LibraryAgentPageLocation": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "library_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              },
+              "library_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data_source_id",
+              "kind"
+            ],
+            "properties": {
+              "data_source_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "data_source"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "LibraryAgentPageSearchMatch": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "quality",
+              "excerpt",
+              "source"
+            ],
+            "properties": {
+              "excerpt": {
+                "type": "string"
+              },
+              "quality": {
+                "$ref": "#/components/schemas/LibraryAgentSearchMatchQuality"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "identity"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "quality",
+              "excerpt",
+              "source"
+            ],
+            "properties": {
+              "excerpt": {
+                "type": "string"
+              },
+              "quality": {
+                "$ref": "#/components/schemas/LibraryAgentSearchMatchQuality"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "title"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "quality",
+              "property_id",
+              "property_name",
+              "excerpt",
+              "source"
+            ],
+            "properties": {
+              "excerpt": {
+                "type": "string"
+              },
+              "property_id": {
+                "type": "string"
+              },
+              "property_name": {
+                "type": "string"
+              },
+              "quality": {
+                "$ref": "#/components/schemas/LibraryAgentSearchMatchQuality"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "property"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "quality",
+              "block_id",
+              "block_type",
+              "excerpt",
+              "source"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "block_type": {
+                "type": "string"
+              },
+              "excerpt": {
+                "type": "string"
+              },
+              "quality": {
+                "$ref": "#/components/schemas/LibraryAgentSearchMatchQuality"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "body"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "LibraryAgentSearchMatchQuality": {
+        "type": "string",
+        "enum": [
+          "exact",
+          "prefix",
+          "fuzzy"
+        ]
+      },
+      "LibraryAgentSearchResult": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "location",
+              "matches",
+              "kind"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "location": {
+                "$ref": "#/components/schemas/LibraryAgentPageLocation"
+              },
+              "matches": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LibraryAgentPageSearchMatch"
+                }
+              },
+              "title": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "block_type",
+              "owner_page_id",
+              "source",
+              "quality",
+              "excerpt",
+              "kind"
+            ],
+            "properties": {
+              "block_type": {
+                "type": "string"
+              },
+              "excerpt": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "block"
+                ]
+              },
+              "owner_page_id": {
+                "type": "string"
+              },
+              "quality": {
+                "$ref": "#/components/schemas/LibraryAgentSearchMatchQuality"
+              },
+              "source": {
+                "$ref": "#/components/schemas/LibrarySearchSourceKind"
+              }
+            }
+          }
+        ]
+      },
+      "LibraryAgentSearchScope": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "database_id",
+              "kind"
+            ],
+            "properties": {
+              "database_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "database"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data_source_id",
+              "kind"
+            ],
+            "properties": {
+              "data_source_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "data_source"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "LibraryAgentSearchTarget": {
+        "type": "string",
+        "enum": [
+          "pages",
+          "blocks"
+        ]
+      },
       "LibraryApplyRequest": {
         "$ref": "#/components/schemas/ModuleApplyRequest_LibraryIntent"
       },
@@ -11231,6 +11559,63 @@
               {
                 "type": "object",
                 "required": [
+                  "authorization",
+                  "query",
+                  "target",
+                  "scope",
+                  "include_archived",
+                  "kind"
+                ],
+                "properties": {
+                  "authorization": {
+                    "$ref": "#/components/schemas/AgentExecutionAuthorization"
+                  },
+                  "block_types": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "cursor": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "include_archived": {
+                    "type": "boolean"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "agent_search"
+                    ]
+                  },
+                  "limit": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "query": {
+                    "type": "string"
+                  },
+                  "scope": {
+                    "$ref": "#/components/schemas/LibraryAgentSearchScope"
+                  },
+                  "target": {
+                    "$ref": "#/components/schemas/LibraryAgentSearchTarget"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "page_id",
                   "kind"
                 ],
@@ -15683,6 +16068,37 @@
                               {
                                 "$ref": "#/components/schemas/LibraryAgentBlockTarget"
                               }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "items",
+                          "has_more",
+                          "kind"
+                        ],
+                        "properties": {
+                          "has_more": {
+                            "type": "boolean"
+                          },
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/LibraryAgentSearchResult"
+                            }
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "agent_search"
+                            ]
+                          },
+                          "next_cursor": {
+                            "type": [
+                              "string",
+                              "null"
                             ]
                           }
                         }

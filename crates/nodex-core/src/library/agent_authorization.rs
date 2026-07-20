@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use nodex_core_contracts::agent::{
     AgentAuthorizationTarget, AgentProjectResourceAccess, AgentProjectResourceAction,
@@ -11,7 +11,7 @@ use nodex_core_contracts::workspace::{
     ProjectWorkspaceTurnAuthority, ProjectWorkspaceTurnAuthorityScope,
 };
 use nodex_core_contracts::{AdapterKind, BoundModuleContext};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value as SqlValue};
 
 use crate::document::sha256;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
@@ -46,6 +46,18 @@ enum CoordinateResolution {
 
 struct GrantMatch {
     access: AgentProjectResourceAccess,
+}
+
+struct ProjectGrant {
+    root_kind: String,
+    root_id: String,
+    access: AgentProjectResourceAccess,
+}
+
+#[derive(Default)]
+struct PageCoordinateBuilder {
+    ancestor_ids: Vec<String>,
+    terminal: Option<(String, String, Option<String>)>,
 }
 
 pub(super) fn plan(
@@ -280,6 +292,55 @@ pub(crate) fn authorize_execution(
         AgentResourceAuthorizationReason::AuthorityStale => "Agent Turn authority is stale",
         AgentResourceAuthorizationReason::Allowed => unreachable!("allowed returned above"),
     }))
+}
+
+pub(crate) fn authorized_page_ids(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    library_id: &str,
+    authorization: &nodex_core_contracts::agent::AgentExecutionAuthorization,
+    page_ids: &[String],
+) -> Result<HashSet<String>, StoreError> {
+    validate_execution_transport_context(context, &authorization.provenance)?;
+    validate_id("call_id", &authorization.call_id)?;
+    validate_persisted_turn_authority(connection, library_id, &authorization.provenance)?;
+    if let Some(overlay) = authorization.resource_access.as_ref() {
+        validate_overlay_shape(overlay)?;
+    }
+    let authority = &authorization.provenance.authority;
+    let project = read_project(connection, library_id, &authority.actor_project_id)?
+        .ok_or_else(|| unauthorized("Agent Turn Project is unavailable"))?;
+    let grants = read_project_grants(connection, &authority.actor_project_id)?;
+    let coordinates = page_coordinates_batch(connection, library_id, page_ids)?;
+    let mut authorized = HashSet::new();
+    for page_id in page_ids {
+        let Some(coordinates) = coordinates.get(page_id) else {
+            continue;
+        };
+        let direct = authorize_resource_with_grants(
+            authority.scope,
+            &project,
+            coordinates,
+            AgentProjectResourceAction::Read,
+            &grants,
+        );
+        let overlay_allowed = authorization
+            .resource_access
+            .as_ref()
+            .is_some_and(|overlay| {
+                overlay_covers_resource(
+                    authority,
+                    overlay,
+                    coordinates,
+                    AgentProjectResourceAction::Read,
+                    &authorization.call_id,
+                )
+            });
+        if direct == AgentResourceAuthorizationReason::Allowed || overlay_allowed {
+            authorized.insert(page_id.clone());
+        }
+    }
+    Ok(authorized)
 }
 
 pub(super) fn validate_transport_context(
@@ -814,8 +875,25 @@ fn authorize_resource(
     coordinates: &ResourceCoordinates,
     action: AgentProjectResourceAction,
 ) -> Result<AgentResourceAuthorizationReason, StoreError> {
+    let grants = read_project_grants(connection, project_id)?;
+    Ok(authorize_resource_with_grants(
+        scope,
+        project,
+        coordinates,
+        action,
+        &grants,
+    ))
+}
+
+fn authorize_resource_with_grants(
+    scope: ProjectWorkspaceTurnAuthorityScope,
+    project: &ProjectAuthority,
+    coordinates: &ResourceCoordinates,
+    action: AgentProjectResourceAction,
+    grants: &[ProjectGrant],
+) -> AgentResourceAuthorizationReason {
     if scope == ProjectWorkspaceTurnAuthorityScope::Library {
-        return Ok(AgentResourceAuthorizationReason::Allowed);
+        return AgentResourceAuthorizationReason::Allowed;
     }
     let implicit = project
         .primary_database_id
@@ -824,16 +902,16 @@ fn authorize_resource(
     let grant = if implicit {
         None
     } else {
-        read_grant_match(connection, project_id, coordinates)?
+        grant_match(grants, coordinates)
     };
     if !implicit && grant.is_none() {
-        return Ok(AgentResourceAuthorizationReason::GrantMissing);
+        return AgentResourceAuthorizationReason::GrantMissing;
     }
     if action == AgentProjectResourceAction::Read {
-        return Ok(AgentResourceAuthorizationReason::Allowed);
+        return AgentResourceAuthorizationReason::Allowed;
     }
     if project.lifecycle != "active" {
-        return Ok(AgentResourceAuthorizationReason::ProjectReadOnly);
+        return AgentResourceAuthorizationReason::ProjectReadOnly;
     }
     if matches!(
         action,
@@ -842,20 +920,19 @@ fn authorize_resource(
             | AgentProjectResourceAction::ManageDatabase
     ) && !implicit
     {
-        return Ok(AgentResourceAuthorizationReason::StructuralCapabilityRequired);
+        return AgentResourceAuthorizationReason::StructuralCapabilityRequired;
     }
     if !implicit && grant.is_some_and(|grant| grant.access != AgentProjectResourceAccess::ReadWrite)
     {
-        return Ok(AgentResourceAuthorizationReason::GrantReadOnly);
+        return AgentResourceAuthorizationReason::GrantReadOnly;
     }
-    Ok(AgentResourceAuthorizationReason::Allowed)
+    AgentResourceAuthorizationReason::Allowed
 }
 
-fn read_grant_match(
+fn read_project_grants(
     connection: &Connection,
     project_id: &str,
-    coordinates: &ResourceCoordinates,
-) -> Result<Option<GrantMatch>, StoreError> {
+) -> Result<Vec<ProjectGrant>, StoreError> {
     let rows = connection
         .prepare(
             "SELECT root_kind, root_id, access FROM project_resource_grants \
@@ -871,23 +948,124 @@ fn read_grant_match(
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    for (kind, id, access) in rows {
-        let matches = match kind.as_str() {
-            "page" => coordinates.page_ancestor_ids.contains(&id),
-            "database" => coordinates.owning_database_ids.contains(&id),
+    rows.into_iter()
+        .map(|(root_kind, root_id, access)| {
+            let access = match access.as_str() {
+                "read" => AgentProjectResourceAccess::Read,
+                "read_write" => AgentProjectResourceAccess::ReadWrite,
+                _ => return Err(corrupt("Project resource grant access is invalid")),
+            };
+            Ok(ProjectGrant {
+                root_kind,
+                root_id,
+                access,
+            })
+        })
+        .collect()
+}
+
+fn grant_match(grants: &[ProjectGrant], coordinates: &ResourceCoordinates) -> Option<GrantMatch> {
+    grants.iter().find_map(|grant| {
+        let matches = match grant.root_kind.as_str() {
+            "page" => coordinates.page_ancestor_ids.contains(&grant.root_id),
+            "database" => coordinates.owning_database_ids.contains(&grant.root_id),
             _ => false,
         };
-        if !matches {
+        matches.then_some(GrantMatch {
+            access: grant.access,
+        })
+    })
+}
+
+fn page_coordinates_batch(
+    connection: &Connection,
+    library_id: &str,
+    page_ids: &[String],
+) -> Result<HashMap<String, ResourceCoordinates>, StoreError> {
+    const SQLITE_ID_BATCH: usize = 400;
+    let mut builders = HashMap::<String, PageCoordinateBuilder>::new();
+    for page_ids in page_ids.chunks(SQLITE_ID_BATCH) {
+        if page_ids.is_empty() {
             continue;
         }
-        let access = match access.as_str() {
-            "read" => AgentProjectResourceAccess::Read,
-            "read_write" => AgentProjectResourceAccess::ReadWrite,
-            _ => return Err(corrupt("Project resource grant access is invalid")),
-        };
-        return Ok(Some(GrantMatch { access }));
+        let placeholders = std::iter::repeat_n("?", page_ids.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "WITH RECURSIVE ancestors(root_page_id, page_id, parent_kind, parent_id, path) AS ( \
+               SELECT page.block_id, page.block_id, page.parent_kind, page.parent_id, \
+                 '|' || page.block_id || '|' \
+               FROM pages page JOIN blocks block ON block.id = page.block_id \
+               WHERE page.library_id = ?1 AND page.lifecycle <> 'deleted' \
+                 AND block.lifecycle <> 'deleted' AND page.block_id IN ({placeholders}) \
+               UNION ALL \
+               SELECT ancestors.root_page_id, parent.block_id, parent.parent_kind, \
+                 parent.parent_id, ancestors.path || parent.block_id || '|' \
+               FROM ancestors JOIN pages parent \
+                 ON ancestors.parent_kind = 'page' AND parent.block_id = ancestors.parent_id \
+               WHERE parent.library_id = ?1 \
+                 AND instr(ancestors.path, '|' || parent.block_id || '|') = 0 \
+             ) \
+             SELECT ancestors.root_page_id, ancestors.page_id, ancestors.parent_kind, \
+               ancestors.parent_id, source.home_database_block_id \
+             FROM ancestors LEFT JOIN data_sources source \
+               ON ancestors.parent_kind = 'data_source' AND source.id = ancestors.parent_id \
+                 AND source.library_id = ?1"
+        );
+        let parameters = std::iter::once(SqlValue::Text(library_id.to_owned()))
+            .chain(page_ids.iter().cloned().map(SqlValue::Text))
+            .collect::<Vec<_>>();
+        let rows = connection
+            .prepare(&sql)?
+            .query_map(params_from_iter(parameters.iter()), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for (root_page_id, page_id, parent_kind, parent_id, database_id) in rows {
+            let builder = builders.entry(root_page_id).or_default();
+            builder.ancestor_ids.push(page_id);
+            if parent_kind != "page" {
+                if builder.terminal.is_some() {
+                    return Err(corrupt("Agent Page hierarchy has multiple roots"));
+                }
+                builder.terminal = Some((parent_kind, parent_id, database_id));
+            }
+        }
     }
-    Ok(None)
+
+    builders
+        .into_iter()
+        .map(|(page_id, builder)| {
+            let Some((terminal_kind, terminal_id, database_id)) = builder.terminal else {
+                return Err(corrupt("Agent Page hierarchy has no Library root"));
+            };
+            let owning_database_ids = match terminal_kind.as_str() {
+                "library" if terminal_id == library_id => Vec::new(),
+                "data_source" => vec![
+                    database_id
+                        .ok_or_else(|| corrupt("Agent Page data source hierarchy is incomplete"))?,
+                ],
+                _ => return Err(corrupt("Agent Page hierarchy has an invalid root")),
+            };
+            Ok((
+                page_id.clone(),
+                ResourceCoordinates {
+                    target: AgentAuthorizationTarget::Page {
+                        page_id: page_id.clone(),
+                    },
+                    owning_database_ids,
+                    page_ancestor_ids: builder.ancestor_ids,
+                    preferred_grant_root: AgentResourceGrantRoot::Page { page_id },
+                },
+            ))
+        })
+        .collect()
 }
 
 fn overlay_covers_resource(

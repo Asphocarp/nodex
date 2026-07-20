@@ -438,22 +438,22 @@ fn unix_timestamp_millis() -> String {
 #[cfg(test)]
 mod tests {
     use nodex_core_contracts::agent::{
-        AgentAuthorizationTarget, AgentProjectResourceAccess, AgentProjectResourceAction,
-        AgentResourceAccessPlan, AgentResourceGrantRoot, AgentResourceGrantSpec,
-        AgentResourceIntent, AgentTurnProvenance,
+        AgentAuthorizationTarget, AgentExecutionAuthorization, AgentProjectResourceAccess,
+        AgentProjectResourceAction, AgentResourceAccessPlan, AgentResourceGrantRoot,
+        AgentResourceGrantSpec, AgentResourceIntent, AgentTurnProvenance,
     };
     use nodex_core_contracts::document::{
         DocumentBlockOperation as ContractDocumentBlockOperation, DocumentBlockUpdatePatch,
         DocumentOptionalValue, OwnedDocumentIntent,
     };
     use nodex_core_contracts::library::{
-        LibraryAccess, LibraryBlockLocation, LibraryBlockPropertyFieldMutation,
-        LibraryBlockPropertyMutation, LibraryBlockPropertyMutationErrorCode,
-        LibraryBlockPropertyMutationOutcome, LibraryBlockTransferLogicalIntent,
-        LibraryBlockTransferMode, LibraryBlockTransferPlan, LibraryBlockTransferSource,
-        LibraryBlockTransferTarget, LibraryNavigationParent, LibraryPageLifecycleMutation,
-        LibraryPageLifecycleState, LibraryPageLifecycleTagOption, LibraryPageWorkflowStatus,
-        LibraryWriteParent,
+        LibraryAccess, LibraryAgentSearchResult, LibraryAgentSearchScope, LibraryAgentSearchTarget,
+        LibraryBlockLocation, LibraryBlockPropertyFieldMutation, LibraryBlockPropertyMutation,
+        LibraryBlockPropertyMutationErrorCode, LibraryBlockPropertyMutationOutcome,
+        LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode, LibraryBlockTransferPlan,
+        LibraryBlockTransferSource, LibraryBlockTransferTarget, LibraryNavigationParent,
+        LibraryPageLifecycleMutation, LibraryPageLifecycleState, LibraryPageLifecycleTagOption,
+        LibraryPageWorkflowStatus, LibraryWriteParent,
     };
     use nodex_core_contracts::workspace::{
         ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch, ProjectWorkspaceTurnAuthority,
@@ -685,7 +685,7 @@ mod tests {
             operation_id: "agent-persist-grant".to_owned(),
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent: LibraryIntent::PersistAgentProjectResourceGrants {
-                provenance: Box::new(provenance),
+                provenance: Box::new(provenance.clone()),
                 grants: requirements
                     .into_iter()
                     .map(|requirement| requirement.grant)
@@ -712,6 +712,188 @@ mod tests {
             panic!("Agent resource plan");
         };
         assert!(matches!(*value, AgentResourceAccessPlan::Authorized { .. }));
+
+        module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "agent-target-child".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: "page:agent-target-child".to_owned(),
+                        document_id: "document:agent-target-child".to_owned(),
+                        title: "Target child".to_owned(),
+                        parent: LibraryWriteParent::Page {
+                            page_id: "page:agent-target".to_owned(),
+                            expected_document_generation: 1,
+                            expected_document_head_seq: 1,
+                            before: None,
+                        },
+                    },
+                },
+            )
+            .expect("create recursively granted child Page");
+        module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "agent-foreign-target".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: "page:foreign-target".to_owned(),
+                        document_id: "document:foreign-target".to_owned(),
+                        title: "Foreign target".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("create ungranted search decoy");
+        let authorization = AgentExecutionAuthorization {
+            provenance: provenance.clone(),
+            call_id: "call:search-first".to_owned(),
+            resource_access: None,
+        };
+        let search = |authorization: AgentExecutionAuthorization, cursor: Option<String>| {
+            module.read(
+                &context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::AgentSearch {
+                        authorization: Box::new(authorization),
+                        query: "target".to_owned(),
+                        target: LibraryAgentSearchTarget::Pages,
+                        scope: LibraryAgentSearchScope::Library,
+                        block_types: None,
+                        include_archived: false,
+                        cursor,
+                        limit: Some(1),
+                    },
+                },
+            )
+        };
+        let first = search(authorization.clone(), None).expect("first Agent search page");
+        let LibraryReadValue::AgentSearch {
+            items: first_items,
+            next_cursor: Some(search_cursor),
+            has_more: true,
+        } = first.value
+        else {
+            panic!("first Agent search page");
+        };
+        assert_eq!(first_items.len(), 1);
+        assert!(matches!(
+            &first_items[0],
+            LibraryAgentSearchResult::Page { id, .. }
+                if id == "page:agent-target"
+        ));
+
+        let second = search(
+            AgentExecutionAuthorization {
+                call_id: "call:search-next".to_owned(),
+                ..authorization.clone()
+            },
+            Some(search_cursor.clone()),
+        )
+        .expect("continue Agent search with a new tool call");
+        let LibraryReadValue::AgentSearch {
+            items: second_items,
+            next_cursor: None,
+            has_more: false,
+        } = second.value
+        else {
+            panic!("second Agent search page");
+        };
+        assert!(matches!(
+            &second_items[0],
+            LibraryAgentSearchResult::Page { id, .. }
+                if id == "page:agent-target-child"
+        ));
+
+        let fuzzy = module
+            .read(
+                &context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::AgentSearch {
+                        authorization: Box::new(authorization.clone()),
+                        query: "targat".to_owned(),
+                        target: LibraryAgentSearchTarget::Pages,
+                        scope: LibraryAgentSearchScope::Page {
+                            page_id: "page:agent-target".to_owned(),
+                        },
+                        block_types: None,
+                        include_archived: false,
+                        cursor: None,
+                        limit: Some(10),
+                    },
+                },
+            )
+            .expect("fuzzy Agent Page search");
+        let LibraryReadValue::AgentSearch { items, .. } = fuzzy.value else {
+            panic!("fuzzy Agent Page search");
+        };
+        assert!(matches!(
+            &items[..],
+            [LibraryAgentSearchResult::Page { id, matches, .. }]
+                if id == "page:agent-target"
+                    && matches.iter().any(|evidence| matches!(
+                        evidence,
+                        nodex_core_contracts::library::LibraryAgentPageSearchMatch::Title {
+                            quality: nodex_core_contracts::library::LibraryAgentSearchMatchQuality::Fuzzy,
+                            ..
+                        }
+                    ))
+        ));
+
+        let blocks = module
+            .read(
+                &context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::AgentSearch {
+                        authorization: Box::new(authorization.clone()),
+                        query: "target".to_owned(),
+                        target: LibraryAgentSearchTarget::Blocks,
+                        scope: LibraryAgentSearchScope::Library,
+                        block_types: None,
+                        include_archived: false,
+                        cursor: None,
+                        limit: Some(10),
+                    },
+                },
+            )
+            .expect("Agent Block search");
+        let LibraryReadValue::AgentSearch { items, .. } = blocks.value else {
+            panic!("Agent Block search");
+        };
+        assert_eq!(items.len(), 2);
+        assert!(items.iter().all(|item| matches!(
+            item,
+            LibraryAgentSearchResult::Block { owner_page_id, .. }
+                if owner_page_id != "page:foreign-target"
+        )));
+
+        module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "agent-search-stale-event".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: "page:search-event".to_owned(),
+                        document_id: "document:search-event".to_owned(),
+                        title: "Search event".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("advance Library event head");
+        let stale = search(authorization, Some(search_cursor))
+            .expect_err("stale Agent search cursor must fail");
+        assert_eq!(stale.code, CoreErrorCode::RevisionConflict);
     }
 
     #[test]
@@ -4246,6 +4428,7 @@ mod tests {
     }
 }
 pub(crate) mod agent_authorization;
+mod agent_search;
 mod block_transfer;
 mod content;
 pub(crate) mod cursor;
