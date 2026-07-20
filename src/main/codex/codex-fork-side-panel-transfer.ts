@@ -22,16 +22,16 @@ export interface CodexForkSidePanelTargetConsumeInput {
 }
 
 export interface CodexForkSidePanelTransferLifecycle {
-  stageDirect(input: CodexForkSidePanelDirectStageInput): void;
-  capturePending(input: CodexForkSidePanelPendingCaptureInput): void;
-  promotePending(input: CodexForkSidePanelPendingPromotionInput): boolean;
+  stageDirect(input: CodexForkSidePanelDirectStageInput): Promise<void>;
+  capturePending(input: CodexForkSidePanelPendingCaptureInput): Promise<void>;
+  promotePending(input: CodexForkSidePanelPendingPromotionInput): Promise<boolean>;
   discardPending(pendingWorktreeId: string): void;
-  consumeTarget(input: CodexForkSidePanelTargetConsumeInput): boolean;
+  consumeTarget(input: CodexForkSidePanelTargetConsumeInput): Promise<boolean>;
   clear(): void;
 }
 
 export interface CodexForkSidePanelSnapshotAdapter<Snapshot> {
-  capture(sourceConversationId: string): Snapshot;
+  capture(sourceConversationId: string): Promise<Snapshot>;
   rebase(
     snapshot: Snapshot,
     input: {
@@ -39,14 +39,14 @@ export interface CodexForkSidePanelSnapshotAdapter<Snapshot> {
       readonly sourceWorkspaceRoot?: string;
       readonly targetWorkspaceRoot?: string;
     },
-  ): Snapshot;
+  ): Promise<Snapshot>;
   apply(
     snapshot: Snapshot,
     input: {
       readonly targetConversationId: string;
       readonly targetProjectSessionId: string;
     },
-  ): unknown;
+  ): Promise<void>;
 }
 
 interface PendingForkSidePanelSnapshot<Snapshot> {
@@ -69,27 +69,27 @@ export class CodexForkSidePanelTransferManager<Snapshot>
 
   constructor(private readonly adapter: CodexForkSidePanelSnapshotAdapter<Snapshot>) {}
 
-  stageDirect(input: CodexForkSidePanelDirectStageInput): void {
-    const captured = this.adapter.capture(input.sourceConversationId);
-    const rebased = this.adapter.rebase(captured, {
+  async stageDirect(input: CodexForkSidePanelDirectStageInput): Promise<void> {
+    const captured = await this.adapter.capture(input.sourceConversationId);
+    const rebased = await this.adapter.rebase(captured, {
       targetConversationId: input.targetConversationId,
     });
     this.targetByConversationId.set(input.targetConversationId, rebased);
   }
 
-  capturePending(input: CodexForkSidePanelPendingCaptureInput): void {
-    const captured = this.adapter.capture(input.sourceConversationId);
+  async capturePending(input: CodexForkSidePanelPendingCaptureInput): Promise<void> {
+    const captured = await this.adapter.capture(input.sourceConversationId);
     this.pendingByWorktreeId.set(input.pendingWorktreeId, {
       sourceWorkspaceRoot: input.sourceWorkspaceRoot,
       snapshot: captured,
     });
   }
 
-  promotePending(input: CodexForkSidePanelPendingPromotionInput): boolean {
+  async promotePending(input: CodexForkSidePanelPendingPromotionInput): Promise<boolean> {
     const pending = this.pendingByWorktreeId.get(input.pendingWorktreeId);
     if (!pending) return false;
 
-    const rebased = this.adapter.rebase(pending.snapshot, {
+    const rebased = await this.adapter.rebase(pending.snapshot, {
       targetConversationId: input.targetConversationId,
       sourceWorkspaceRoot: pending.sourceWorkspaceRoot,
       targetWorkspaceRoot: input.targetWorkspaceRoot,
@@ -103,14 +103,14 @@ export class CodexForkSidePanelTransferManager<Snapshot>
     this.pendingByWorktreeId.delete(pendingWorktreeId);
   }
 
-  consumeTarget(input: CodexForkSidePanelTargetConsumeInput): boolean {
+  async consumeTarget(input: CodexForkSidePanelTargetConsumeInput): Promise<boolean> {
     if (input.routeKind !== "local-thread") {
       throw new Error("Expected local conversation route");
     }
     if (!this.targetByConversationId.has(input.targetConversationId)) return false;
 
     const snapshot = this.targetByConversationId.get(input.targetConversationId) as Snapshot;
-    this.adapter.apply(snapshot, {
+    await this.adapter.apply(snapshot, {
       targetConversationId: input.targetConversationId,
       targetProjectSessionId: input.targetProjectSessionId,
     });

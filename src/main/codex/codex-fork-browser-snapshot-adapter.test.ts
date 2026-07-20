@@ -208,7 +208,7 @@ function makeHarness(options: HarnessOptions = {}) {
   if (targetSession) sessions.set(targetSession.id, targetSession);
 
   const dependencies: CodexForkBrowserSnapshotAdapterDependencies = {
-    createTargetBrowserPanelTab(input) {
+    async createTargetBrowserPanelTab(input) {
       events.push(`create:${input.browserTabId}:${input.panel}`);
       createdInputs.push(input);
       return makeTab({
@@ -220,15 +220,15 @@ function makeHarness(options: HarnessOptions = {}) {
         browserTabId: input.browserTabId,
       });
     },
-    getProjectSession(projectSessionId) {
+    async getProjectSession(projectSessionId) {
       return sessions.get(projectSessionId) ?? null;
     },
-    resolveBrowserConversationId(conversationId) {
+    async resolveBrowserConversationId(conversationId) {
       if (conversationId === "thread-source") return "session-source";
       if (conversationId === "thread-target") return "session-target";
       return conversationId;
     },
-    resolveProjectSession(conversationId) {
+    async resolveProjectSession(conversationId) {
       if (conversationId !== "thread-source") return null;
       return sourceSession;
     },
@@ -270,7 +270,7 @@ function makeHarness(options: HarnessOptions = {}) {
 }
 
 describe("Codex fork browser snapshot adapter", () => {
-  test("captures mounted right then bottom order, repairs unsupported active tabs, and appends runtime-only tabs after right", () => {
+  test("captures mounted right then bottom order, repairs unsupported active tabs, and appends runtime-only tabs after right", async () => {
     const sourceSession = makeSession({
       id: "session-source",
       tabs: [
@@ -294,7 +294,7 @@ describe("Codex fork browser snapshot adapter", () => {
     };
     const { adapter } = makeHarness({ sourceSession, browserUseState });
 
-    const captured = adapter.capture("thread-source");
+    const captured = await adapter.capture("thread-source");
     expect(JSON.stringify(captured.tabs.map((tab) => ({
       active: tab.active,
       browserTabId: tab.browserTabId,
@@ -333,7 +333,7 @@ describe("Codex fork browser snapshot adapter", () => {
     ]));
   });
 
-  test("captures a runtime-only conversation without a mounted project session", () => {
+  test("captures a runtime-only conversation without a mounted project session", async () => {
     const browserState: BrowserSidebarStateSnapshot = {
       tabs: [
         makeBrowserSnapshot({
@@ -360,7 +360,7 @@ describe("Codex fork browser snapshot adapter", () => {
       fallbackBrowserTabIds: ["runtime-a", "runtime-b"],
     });
 
-    const captured = adapter.capture("runtime-source");
+    const captured = await adapter.capture("runtime-source");
     expect(JSON.stringify(captured.tabs.map((tab) => ({
       active: tab.active,
       browserTabId: tab.browserTabId,
@@ -385,7 +385,7 @@ describe("Codex fork browser snapshot adapter", () => {
     ]));
   });
 
-  test("rebases only the legacy default browser identity and remaps insertion references", () => {
+  test("rebases only the legacy default browser identity and remaps insertion references", async () => {
     const sourceDefault = makeDefaultBrowserSidebarTabId("session-source");
     const targetDefault = makeDefaultBrowserSidebarTabId("session-target");
     const sourceSession = makeSession({
@@ -407,8 +407,8 @@ describe("Codex fork browser snapshot adapter", () => {
     });
     const { adapter } = makeHarness({ sourceSession });
 
-    const captured = adapter.capture("thread-source");
-    const rebased = adapter.rebase(captured, { targetConversationId: "thread-target" });
+    const captured = await adapter.capture("thread-source");
+    const rebased = await adapter.rebase(captured, { targetConversationId: "thread-target" });
     expect(JSON.stringify(rebased.tabs.map((tab) => ({
       browserTabId: tab.browserTabId,
       insertAfterTabId: tab.insertAfterTabId,
@@ -431,7 +431,7 @@ describe("Codex fork browser snapshot adapter", () => {
     expect(rebased.targetBrowserConversationId).toBe("session-target");
   });
 
-  test("freezes the URL and complete device state, clones into a projectless target, and leaves source state untouched", () => {
+  test("freezes the URL and complete device state, clones into a projectless target, and leaves source state untouched", async () => {
     const deviceState = makeDeviceState(27);
     const sourceSnapshot = makeBrowserSnapshot({
       browserConversationId: "session-source",
@@ -459,7 +459,7 @@ describe("Codex fork browser snapshot adapter", () => {
       browserState,
       openResult: null,
     });
-    const captured = adapter.capture("thread-source");
+    const captured = await adapter.capture("thread-source");
     browserState.tabs[0] = makeBrowserSnapshot({
       browserConversationId: "session-source",
       browserTabId: "stable-browser",
@@ -468,8 +468,8 @@ describe("Codex fork browser snapshot adapter", () => {
       projectId: null,
     });
     const sourceAfterReplacement = JSON.stringify(browserState);
-    const rebased = adapter.rebase(captured, { targetConversationId: "thread-target" });
-    adapter.apply(rebased, {
+    const rebased = await adapter.rebase(captured, { targetConversationId: "thread-target" });
+    await adapter.apply(rebased, {
       targetConversationId: "thread-target",
       targetProjectSessionId: "session-target",
     });
@@ -482,7 +482,7 @@ describe("Codex fork browser snapshot adapter", () => {
     expect(JSON.stringify(browserState)).toBe(sourceAfterReplacement);
   });
 
-  test("applies every descriptor sequentially, ignores null open results, and attempts duplicates", () => {
+  test("applies every descriptor sequentially, ignores null open results, and attempts duplicates", async () => {
     const { adapter, events } = makeHarness({ openResult: null });
     const deviceState = makeDeviceState(42);
     const targetDefault = makeDefaultBrowserSidebarTabId("session-target");
@@ -527,7 +527,7 @@ describe("Codex fork browser snapshot adapter", () => {
       ],
     };
 
-    adapter.apply(snapshot, {
+    await adapter.apply(snapshot, {
       targetConversationId: "thread-target",
       targetProjectSessionId: "session-target",
     });
@@ -546,7 +546,7 @@ describe("Codex fork browser snapshot adapter", () => {
     ].join(","));
   });
 
-  test("retains a target snapshot after a partial apply failure and retries the prefix", () => {
+  test("retains a target snapshot after a partial apply failure and retries the prefix", async () => {
     const sourceSession = makeSession({
       id: "session-source",
       tabs: [makeTab({
@@ -558,14 +558,14 @@ describe("Codex fork browser snapshot adapter", () => {
     });
     const { adapter, events } = makeHarness({ sourceSession, failDeviceWrites: 1 });
     const manager = new CodexForkSidePanelTransferManager(adapter);
-    manager.stageDirect({
+    await manager.stageDirect({
       sourceConversationId: "thread-source",
       targetConversationId: "thread-target",
     });
 
     let failureMessage = "";
     try {
-      manager.consumeTarget({
+      await manager.consumeTarget({
         routeKind: "local-thread",
         targetConversationId: "thread-target",
         targetProjectSessionId: "session-target",
@@ -576,7 +576,7 @@ describe("Codex fork browser snapshot adapter", () => {
     expect(failureMessage).toBe("device write failed");
     expect(manager.getTargetSnapshot("thread-target") !== null).toBe(true);
 
-    expect(manager.consumeTarget({
+    expect(await manager.consumeTarget({
       routeKind: "local-thread",
       targetConversationId: "thread-target",
       targetProjectSessionId: "session-target",

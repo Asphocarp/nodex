@@ -41,7 +41,7 @@ export interface CodexPendingWorktreeRuntimeDependencies {
     readonly pendingWorktreeId: string;
     readonly threadId: string;
     readonly workspaceRoot: string;
-  }) => void;
+  }) => Promise<void> | void;
   readonly onChanged?: (entries: readonly CodexPendingWorktreeEntry[]) => void;
   readonly onError?: (
     phase: "create" | "launch" | "remove" | "cleanup-goal-sources" | "add-workspace-root",
@@ -347,6 +347,7 @@ export class CodexPendingWorktreeRuntime {
     }
 
     let mappedThreadId: string | null = null;
+    let threadMappedNotification: Promise<void> | null = null;
     const onThreadCreated = (threadId: string): void => {
       if (mappedThreadId !== null || !threadId) return;
       const state = this.store.getState();
@@ -360,12 +361,14 @@ export class CodexPendingWorktreeRuntime {
       }
       mappedThreadId = threadId;
       if (includeWorktreeInit) {
-        this.dependencies.onConversationThreadMapped?.({
-          entry,
-          pendingWorktreeId,
-          threadId,
-          workspaceRoot,
-        });
+        threadMappedNotification = Promise.resolve(
+          this.dependencies.onConversationThreadMapped?.({
+            entry,
+            pendingWorktreeId,
+            threadId,
+            workspaceRoot,
+          }),
+        );
       }
     };
 
@@ -375,6 +378,7 @@ export class CodexPendingWorktreeRuntime {
         includeWorktreeInit,
       });
       onThreadCreated(result.threadId);
+      await threadMappedNotification;
       if (includeWorktreeInit) {
         this.dispatch({
           type: "conversationStartSucceeded",
@@ -384,7 +388,14 @@ export class CodexPendingWorktreeRuntime {
         this.resolveLocalLaunch(pendingWorktreeId, result.threadId);
       }
     } catch (error) {
-      this.dependencies.onError?.("launch", error, pendingWorktreeId);
+      const mappingNotification = threadMappedNotification as Promise<void> | null;
+      const mappingError = mappingNotification === null
+        ? null
+        : await mappingNotification.then(
+            () => null,
+            (notificationError: unknown) => notificationError,
+          );
+      this.dependencies.onError?.("launch", mappingError ?? error, pendingWorktreeId);
       if (mappedThreadId !== null) {
         if (includeWorktreeInit) {
           this.dispatch({

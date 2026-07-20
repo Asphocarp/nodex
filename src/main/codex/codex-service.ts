@@ -3030,13 +3030,6 @@ export class CodexService extends EventEmitter {
         await removeManagedWorktree(worktreeGitRoot);
       },
       cleanupGoalSources: async (entry) => await this.cleanupPendingGoalSources(entry),
-      onConversationThreadMapped: ({ pendingWorktreeId, threadId, workspaceRoot }) => {
-        this.forkSidePanelTransferLifecycle?.promotePending({
-          pendingWorktreeId,
-          targetConversationId: threadId,
-          targetWorkspaceRoot: workspaceRoot,
-        });
-      },
       addWorkspaceRoot: (workspaceRoot, label) => {
         createProject({ name: label, sources: [workspaceRoot] });
       },
@@ -6962,30 +6955,25 @@ export class CodexService extends EventEmitter {
     this.pendingWorktreeRuntime.clearAttention(pendingWorktreeId);
   }
 
-  private resolveForkBrowserProjectSession(
+  private async resolveForkBrowserProjectSession(
     conversationId: string,
-  ): ProjectSession | null {
-    const directSession = projectSessionService.getProjectSession(conversationId);
+  ): Promise<ProjectSession | null> {
+    const directSession = await this.projectWorkspace.getProjectSession(conversationId);
     if (directSession) return directSession;
 
     const resolvedThreadId = resolveCodexThreadIdForClientThreadId(
       CODEX_APP_LOCAL_HOST_ID,
       conversationId,
     ) ?? conversationId;
-    const owners = projectSessionService.listProjectSessionThreadOwners(
-      resolvedThreadId,
-    );
-    if (owners.length > 1) {
-      throw new Error("Browser conversation has multiple project-session owners");
-    }
-    const owner = owners[0];
-    return owner
-      ? projectSessionService.getProjectSession(owner.sessionId)
-      : null;
+    const thread = await this.projectWorkspace.getThread(resolvedThreadId);
+    if (!thread?.sessionId) return null;
+    return await this.projectWorkspace.getProjectSession(thread.sessionId);
   }
 
-  private resolveForkBrowserConversationId(conversationId: string): string {
-    return this.resolveForkBrowserProjectSession(conversationId)?.id
+  private async resolveForkBrowserConversationId(
+    conversationId: string,
+  ): Promise<string> {
+    return (await this.resolveForkBrowserProjectSession(conversationId))?.id
       ?? getCodexClientThreadId(CODEX_APP_LOCAL_HOST_ID, conversationId)
       ?? conversationId;
   }
@@ -7002,14 +6990,14 @@ export class CodexService extends EventEmitter {
       .browserSidebarService as CodexForkBrowserRuntime;
     this.browserTransferStateReader ??= runtime;
     const adapter = createCodexForkBrowserSnapshotAdapter({
-      createTargetBrowserPanelTab: ({
+      createTargetBrowserPanelTab: async ({
         browserTabId,
         durableTabId,
         initialUrl,
         panel,
         targetProjectSession,
       }) => {
-        const currentSession = projectSessionService.getProjectSession(
+        const currentSession = await this.projectWorkspace.getProjectSession(
           targetProjectSession.id,
         );
         const existing = currentSession?.tabs.find(
@@ -7024,7 +7012,7 @@ export class CodexService extends EventEmitter {
           }
           return existing;
         }
-        return projectSessionService.createProjectSessionTab({
+        return await this.projectWorkspace.createProjectSessionTab({
           browserTabId,
           clientTabId: durableTabId,
           config: {
@@ -7038,7 +7026,8 @@ export class CodexService extends EventEmitter {
           title: "Browser",
         });
       },
-      getProjectSession: projectSessionService.getProjectSession,
+      getProjectSession: (projectSessionId) =>
+        this.projectWorkspace.getProjectSession(projectSessionId),
       resolveBrowserConversationId: (conversationId) =>
         this.resolveForkBrowserConversationId(conversationId),
       resolveProjectSession: (conversationId) =>
@@ -7054,16 +7043,18 @@ export class CodexService extends EventEmitter {
     this.forkSidePanelTransferLifecycle?.discardPending(pendingWorktreeId);
   }
 
-  consumeForkSidePanelTransfer(input: {
+  async consumeForkSidePanelTransfer(input: {
     readonly routeKind: "local-thread";
     readonly targetConversationId: string;
     readonly targetProjectSessionId: string;
-  }): boolean {
-    const session = projectSessionService.getProjectSession(input.targetProjectSessionId);
+  }): Promise<boolean> {
+    const session = await this.projectWorkspace.getProjectSession(
+      input.targetProjectSessionId,
+    );
     if (!session || session.thread?.threadId !== input.targetConversationId) {
       throw new Error("Target project session does not own the conversation");
     }
-    return this.forkSidePanelTransferLifecycle?.consumeTarget(input) ?? false;
+    return await this.forkSidePanelTransferLifecycle?.consumeTarget(input) ?? false;
   }
 
   private assertLocalPendingWorktreeHost(hostId: string): void {
@@ -14857,7 +14848,7 @@ export class CodexService extends EventEmitter {
         targetTurnId: parsed.turnId ?? null,
         threadSource: "user",
       });
-      (await this.ensureForkSidePanelTransferLifecycle())?.capturePending({
+      await (await this.ensureForkSidePanelTransferLifecycle())?.capturePending({
         pendingWorktreeId: created.pendingWorktreeId,
         sourceConversationId: sourceThreadId,
         sourceWorkspaceRoot: sourceThread.cwd,
@@ -15000,7 +14991,7 @@ export class CodexService extends EventEmitter {
     if (forkThreadTitle) {
       await this.setThreadName(detail.threadId, forkThreadTitle);
     }
-    (await this.ensureForkSidePanelTransferLifecycle())?.stageDirect({
+    await (await this.ensureForkSidePanelTransferLifecycle())?.stageDirect({
       sourceConversationId: sourceThreadId,
       targetConversationId: detail.threadId,
     });
@@ -16586,7 +16577,7 @@ export class CodexService extends EventEmitter {
         syncDormantConversationUpdates: options.syncDormantConversationUpdates,
       });
     }
-    (await this.ensureForkSidePanelTransferLifecycle())?.stageDirect({
+    await (await this.ensureForkSidePanelTransferLifecycle())?.stageDirect({
       sourceConversationId: threadId,
       targetConversationId: detail.threadId,
     });
@@ -19949,7 +19940,7 @@ export class CodexService extends EventEmitter {
           context.includeWorktreeInit,
         );
     if (!context.includeWorktreeInit) {
-      this.forkSidePanelTransferLifecycle?.promotePending({
+      await this.forkSidePanelTransferLifecycle?.promotePending({
         pendingWorktreeId: entry.id,
         targetConversationId: result.threadId,
         targetWorkspaceRoot: workspaceRoot,
@@ -19959,6 +19950,11 @@ export class CodexService extends EventEmitter {
       return result;
     }
     this.persistClientThreadIdentity(result.threadId, entry.clientThreadId);
+    await this.forkSidePanelTransferLifecycle?.promotePending({
+      pendingWorktreeId: entry.id,
+      targetConversationId: result.threadId,
+      targetWorkspaceRoot: workspaceRoot,
+    });
     context.onThreadCreated(result.threadId);
     await Promise.all([
       this.applyPendingWorktreeConversationMetadata({
@@ -21198,7 +21194,7 @@ export class CodexService extends EventEmitter {
             targetTurnId: null,
             threadSource: "subagent",
           });
-          (await this.ensureForkSidePanelTransferLifecycle())?.capturePending({
+          await (await this.ensureForkSidePanelTransferLifecycle())?.capturePending({
             pendingWorktreeId: created.pendingWorktreeId,
             sourceConversationId: sourceThreadId,
             sourceWorkspaceRoot: sourceDetail.cwd,
@@ -21253,7 +21249,7 @@ export class CodexService extends EventEmitter {
           }
         }
         if (summary) this.emitEvent({ type: "threadSummary", thread: summary });
-        (await this.ensureForkSidePanelTransferLifecycle())?.stageDirect({
+        await (await this.ensureForkSidePanelTransferLifecycle())?.stageDirect({
           sourceConversationId: sourceThreadId,
           targetConversationId: detail.threadId,
         });

@@ -65,10 +65,10 @@ export interface CodexForkBrowserSnapshotAdapterDependencies {
     initialUrl?: string;
     panel: PanelId;
     targetProjectSession: ProjectSession;
-  }): ProjectSessionTab;
-  getProjectSession(projectSessionId: string): ProjectSession | null;
-  resolveBrowserConversationId(conversationId: string): string;
-  resolveProjectSession(conversationId: string): ProjectSession | null;
+  }): Promise<ProjectSessionTab>;
+  getProjectSession(projectSessionId: string): Promise<ProjectSession | null>;
+  resolveBrowserConversationId(conversationId: string): Promise<string>;
+  resolveProjectSession(conversationId: string): Promise<ProjectSession | null>;
   runtime: CodexForkBrowserRuntime;
 }
 
@@ -382,24 +382,24 @@ export function createCodexForkBrowserSnapshotAdapter(
   dependencies: CodexForkBrowserSnapshotAdapterDependencies,
 ): CodexForkSidePanelSnapshotAdapter<CodexForkBrowserSidePanelSnapshot> {
   return {
-    capture(sourceConversationId) {
-      const session = dependencies.resolveProjectSession(sourceConversationId);
+    async capture(sourceConversationId) {
+      const session = await dependencies.resolveProjectSession(sourceConversationId);
       const browserConversationId = session?.id
-        ?? dependencies.resolveBrowserConversationId(sourceConversationId);
+        ?? await dependencies.resolveBrowserConversationId(sourceConversationId);
       return session
         ? captureMountedSnapshot(session, browserConversationId, dependencies.runtime)
         : captureFallbackSnapshot(browserConversationId, dependencies.runtime);
     },
 
-    rebase(snapshot, input) {
+    async rebase(snapshot, input) {
       return rebaseSnapshot(
         snapshot,
-        dependencies.resolveBrowserConversationId(input.targetConversationId),
+        await dependencies.resolveBrowserConversationId(input.targetConversationId),
       );
     },
 
-    apply(snapshot, input) {
-      const targetProjectSession = dependencies.getProjectSession(
+    async apply(snapshot, input) {
+      const targetProjectSession = await dependencies.getProjectSession(
         input.targetProjectSessionId,
       );
       if (!targetProjectSession) {
@@ -409,7 +409,7 @@ export function createCodexForkBrowserSnapshotAdapter(
         throw new Error("Target browser conversation identity is not stable");
       }
 
-      snapshot.tabs.forEach((descriptor, index) => {
+      for (const [index, descriptor] of snapshot.tabs.entries()) {
         if (
           descriptor.browserTabId
           !== makeDefaultBrowserSidebarTabId(snapshot.targetBrowserConversationId)
@@ -420,7 +420,7 @@ export function createCodexForkBrowserSnapshotAdapter(
           );
         }
         const initialUrl = descriptor.initialUrl ?? undefined;
-        dependencies.createTargetBrowserPanelTab({
+        await dependencies.createTargetBrowserPanelTab({
           browserTabId: descriptor.browserTabId,
           durableTabId: makeDurableTargetTabId(
             input.targetProjectSessionId,
@@ -444,7 +444,7 @@ export function createCodexForkBrowserSnapshotAdapter(
           },
           descriptor.deviceToolbarState,
         );
-      });
+      }
     },
   };
 }

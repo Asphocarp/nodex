@@ -874,7 +874,7 @@ export function registerIpcHandlers(
     },
   );
   registerHandle("codex:fork-side-panel-transfer:consume", async (_, input) => {
-    const consumed = codexService.consumeForkSidePanelTransfer(input);
+    const consumed = await codexService.consumeForkSidePanelTransfer(input);
     if (!consumed) return false;
     const session = await projectWorkspace.getProjectSession(
       input.targetProjectSessionId,

@@ -14,11 +14,11 @@ function makeHarness() {
   let applyFailure: Error | null = null;
   let rebaseFailure: Error | null = null;
   const adapter: CodexForkSidePanelSnapshotAdapter<TestSnapshot> = {
-    capture: (sourceConversationId) => {
+    capture: async (sourceConversationId) => {
       events.push(`capture:${sourceConversationId}`);
       return { value: sourceConversationId };
     },
-    rebase: (snapshot, input) => {
+    rebase: async (snapshot, input) => {
       events.push([
         "rebase",
         snapshot.value,
@@ -29,7 +29,7 @@ function makeHarness() {
       if (rebaseFailure) throw rebaseFailure;
       return { value: `${snapshot.value}->${input.targetConversationId}` };
     },
-    apply: (snapshot, input) => {
+    apply: async (snapshot, input) => {
       events.push(`apply-prefix:${snapshot.value}:${input.targetProjectSessionId}`);
       if (applyFailure) throw applyFailure;
       events.push(`apply-complete:${input.targetConversationId}`);
@@ -48,18 +48,18 @@ function makeHarness() {
 }
 
 describe("CodexForkSidePanelTransferManager", () => {
-  test("keeps pending and target namespaces independent and last-write-wins", () => {
+  test("keeps pending and target namespaces independent and last-write-wins", async () => {
     const { manager } = makeHarness();
-    manager.capturePending({
+    await manager.capturePending({
       pendingWorktreeId: "shared",
       sourceConversationId: "source-a",
       sourceWorkspaceRoot: "/source-a",
     });
-    manager.stageDirect({
+    await manager.stageDirect({
       sourceConversationId: "source-direct",
       targetConversationId: "shared",
     });
-    manager.capturePending({
+    await manager.capturePending({
       pendingWorktreeId: "shared",
       sourceConversationId: "source-b",
       sourceWorkspaceRoot: "/source-b",
@@ -69,15 +69,15 @@ describe("CodexForkSidePanelTransferManager", () => {
     expect(manager.getTargetSnapshot("shared")?.value).toBe("source-direct->shared");
   });
 
-  test("does not touch an existing target when pending promotion is missing", () => {
+  test("does not touch an existing target when pending promotion is missing", async () => {
     const { events, manager } = makeHarness();
-    manager.stageDirect({
+    await manager.stageDirect({
       sourceConversationId: "source",
       targetConversationId: "target",
     });
     events.length = 0;
 
-    expect(manager.promotePending({
+    expect(await manager.promotePending({
       pendingWorktreeId: "missing",
       targetConversationId: "target",
       targetWorkspaceRoot: "/target",
@@ -86,15 +86,15 @@ describe("CodexForkSidePanelTransferManager", () => {
     expect(manager.getTargetSnapshot("target")?.value).toBe("source->target");
   });
 
-  test("promotes with frozen source root then consumes the pending slot once", () => {
+  test("promotes with frozen source root then consumes the pending slot once", async () => {
     const { events, manager } = makeHarness();
-    manager.capturePending({
+    await manager.capturePending({
       pendingWorktreeId: "pending",
       sourceConversationId: "source",
       sourceWorkspaceRoot: "/source",
     });
 
-    expect(manager.promotePending({
+    expect(await manager.promotePending({
       pendingWorktreeId: "pending",
       targetConversationId: "target",
       targetWorkspaceRoot: "/target",
@@ -102,20 +102,20 @@ describe("CodexForkSidePanelTransferManager", () => {
     expect(events.at(-1)).toBe("rebase:source:target:/source:/target");
     expect(manager.getPendingSnapshot("pending")).toBe(null);
     expect(manager.getTargetSnapshot("target")?.value).toBe("source->target");
-    expect(manager.promotePending({
+    expect(await manager.promotePending({
       pendingWorktreeId: "pending",
       targetConversationId: "other",
       targetWorkspaceRoot: "/other",
     })).toBe(false);
   });
 
-  test("retains pending and the previous target when rebase throws", () => {
+  test("retains pending and the previous target when rebase throws", async () => {
     const { manager, setRebaseFailure } = makeHarness();
-    manager.stageDirect({
+    await manager.stageDirect({
       sourceConversationId: "old-source",
       targetConversationId: "target",
     });
-    manager.capturePending({
+    await manager.capturePending({
       pendingWorktreeId: "pending",
       sourceConversationId: "new-source",
       sourceWorkspaceRoot: "/source",
@@ -124,7 +124,7 @@ describe("CodexForkSidePanelTransferManager", () => {
 
     let message = "";
     try {
-      manager.promotePending({
+      await manager.promotePending({
         pendingWorktreeId: "pending",
         targetConversationId: "target",
         targetWorkspaceRoot: "/target",
@@ -137,14 +137,14 @@ describe("CodexForkSidePanelTransferManager", () => {
     expect(manager.getTargetSnapshot("target")?.value).toBe("old-source->target");
   });
 
-  test("explicit pending discard is idempotent and cannot clear a target", () => {
+  test("explicit pending discard is idempotent and cannot clear a target", async () => {
     const { manager } = makeHarness();
-    manager.capturePending({
+    await manager.capturePending({
       pendingWorktreeId: "pending",
       sourceConversationId: "source",
       sourceWorkspaceRoot: "/source",
     });
-    manager.stageDirect({
+    await manager.stageDirect({
       sourceConversationId: "source",
       targetConversationId: "target",
     });
@@ -155,14 +155,14 @@ describe("CodexForkSidePanelTransferManager", () => {
     expect(manager.getTargetSnapshot("target")?.value).toBe("source->target");
   });
 
-  test("clears target only after the complete apply callback succeeds", () => {
+  test("clears target only after the complete apply callback succeeds", async () => {
     const { events, manager } = makeHarness();
-    manager.stageDirect({
+    await manager.stageDirect({
       sourceConversationId: "source",
       targetConversationId: "target",
     });
 
-    expect(manager.consumeTarget({
+    expect(await manager.consumeTarget({
       routeKind: "local-thread",
       targetConversationId: "target",
       targetProjectSessionId: "session-target",
@@ -171,16 +171,16 @@ describe("CodexForkSidePanelTransferManager", () => {
       "apply-prefix:source->target:session-target,apply-complete:target",
     );
     expect(manager.getTargetSnapshot("target")).toBe(null);
-    expect(manager.consumeTarget({
+    expect(await manager.consumeTarget({
       routeKind: "local-thread",
       targetConversationId: "target",
       targetProjectSessionId: "session-target",
     })).toBe(false);
   });
 
-  test("retains target and replays an applied prefix after an apply throw", () => {
+  test("retains target and replays an applied prefix after an apply throw", async () => {
     const { events, manager, setApplyFailure } = makeHarness();
-    manager.stageDirect({
+    await manager.stageDirect({
       sourceConversationId: "source",
       targetConversationId: "target",
     });
@@ -188,7 +188,7 @@ describe("CodexForkSidePanelTransferManager", () => {
 
     let message = "";
     try {
-      manager.consumeTarget({
+      await manager.consumeTarget({
         routeKind: "local-thread",
         targetConversationId: "target",
         targetProjectSessionId: "session-target",
@@ -200,7 +200,7 @@ describe("CodexForkSidePanelTransferManager", () => {
     expect(manager.getTargetSnapshot("target")?.value).toBe("source->target");
 
     setApplyFailure(null);
-    expect(manager.consumeTarget({
+    expect(await manager.consumeTarget({
       routeKind: "local-thread",
       targetConversationId: "target",
       targetProjectSessionId: "session-target",
@@ -208,9 +208,9 @@ describe("CodexForkSidePanelTransferManager", () => {
     expect(events.filter((event) => event.startsWith("apply-prefix:")).length).toBe(2);
   });
 
-  test("wrong-route guard runs before lookup or apply and retains target", () => {
+  test("wrong-route guard runs before lookup or apply and retains target", async () => {
     const { events, manager } = makeHarness();
-    manager.stageDirect({
+    await manager.stageDirect({
       sourceConversationId: "source",
       targetConversationId: "target",
     });
@@ -218,7 +218,7 @@ describe("CodexForkSidePanelTransferManager", () => {
 
     let message = "";
     try {
-      manager.consumeTarget({
+      await manager.consumeTarget({
         routeKind: "pending-thread",
         targetConversationId: "target",
         targetProjectSessionId: "session-target",
@@ -231,14 +231,14 @@ describe("CodexForkSidePanelTransferManager", () => {
     expect(manager.getTargetSnapshot("target")?.value).toBe("source->target");
   });
 
-  test("clear and fresh manager instances have no restart recovery state", () => {
+  test("clear and fresh manager instances have no restart recovery state", async () => {
     const first = makeHarness();
-    first.manager.capturePending({
+    await first.manager.capturePending({
       pendingWorktreeId: "pending",
       sourceConversationId: "source",
       sourceWorkspaceRoot: "/source",
     });
-    first.manager.stageDirect({
+    await first.manager.stageDirect({
       sourceConversationId: "source",
       targetConversationId: "target",
     });

@@ -1244,22 +1244,22 @@ function makeRecordingForkSidePanelTransferLifecycle(
   events: string[],
 ): CodexForkSidePanelTransferLifecycle {
   return {
-    stageDirect: ({ sourceConversationId, targetConversationId }) => {
+    stageDirect: async ({ sourceConversationId, targetConversationId }) => {
       events.push(`direct:${sourceConversationId}:${targetConversationId}`);
     },
-    capturePending: ({ pendingWorktreeId, sourceConversationId, sourceWorkspaceRoot }) => {
+    capturePending: async ({ pendingWorktreeId, sourceConversationId, sourceWorkspaceRoot }) => {
       events.push(
         `capture:${pendingWorktreeId}:${sourceConversationId}:${sourceWorkspaceRoot}`,
       );
     },
-    promotePending: ({ pendingWorktreeId, targetConversationId, targetWorkspaceRoot }) => {
+    promotePending: async ({ pendingWorktreeId, targetConversationId, targetWorkspaceRoot }) => {
       events.push(`promote:${pendingWorktreeId}:${targetConversationId}:${targetWorkspaceRoot}`);
       return true;
     },
     discardPending: (pendingWorktreeId) => {
       events.push(`discard:${pendingWorktreeId}`);
     },
-    consumeTarget: ({ targetConversationId, targetProjectSessionId }) => {
+    consumeTarget: async ({ targetConversationId, targetProjectSessionId }) => {
       events.push(`consume:${targetConversationId}:${targetProjectSessionId}`);
       return true;
     },
@@ -24095,18 +24095,27 @@ describe("codex-service approval fallback", () => {
         forkSidePanelTransferLifecycle:
           makeRecordingForkSidePanelTransferLifecycle(events),
       });
+      const authorityReads: string[] = [];
+      const typescriptWorkspace = createTypeScriptProjectWorkspacePort();
+      service.setProjectWorkspacePort({
+        ...typescriptWorkspace,
+        getProjectSession: async (sessionId) => {
+          authorityReads.push(sessionId);
+          return await typescriptWorkspace.getProjectSession(sessionId);
+        },
+      });
       const lifecycle = service as unknown as {
         consumeForkSidePanelTransfer: (input: {
           readonly routeKind: "local-thread";
           readonly targetConversationId: string;
           readonly targetProjectSessionId: string;
-        }) => boolean;
+        }) => Promise<boolean>;
       };
 
       try {
         let message = "";
         try {
-          lifecycle.consumeForkSidePanelTransfer({
+          await lifecycle.consumeForkSidePanelTransfer({
             routeKind: "local-thread",
             targetConversationId: "thread-other",
             targetProjectSessionId: session.id,
@@ -24116,7 +24125,7 @@ describe("codex-service approval fallback", () => {
         }
         expect(message).toBe("Target project session does not own the conversation");
         expect(events.length).toBe(0);
-        expect(lifecycle.consumeForkSidePanelTransfer({
+        expect(await lifecycle.consumeForkSidePanelTransfer({
           routeKind: "local-thread",
           targetConversationId: "thread-fork-transfer-target",
           targetProjectSessionId: session.id,
@@ -24124,6 +24133,7 @@ describe("codex-service approval fallback", () => {
         expect(events.join(",")).toBe(
           `consume:thread-fork-transfer-target:${session.id}`,
         );
+        expect(authorityReads).toEqual([session.id, session.id]);
       } finally {
         await service.shutdown();
       }

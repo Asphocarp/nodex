@@ -608,6 +608,13 @@ only for an empty or browser-only Session and atomically rewrites the Session,
 every browser tab's owner/config, and any linked Codex Thread before publishing
 one Workspace receipt/event. Deletion cascades the panel/tab and Thread-link
 aggregate without deleting the independently owned Codex Thread.
+Codex fork side-panel transfer is a Host-owned, process-local snapshot lifecycle,
+but every durable source/target Session resolution and cloned browser-tab write
+uses this selected asynchronous Workspace boundary. Capture, rebase, pending
+promotion, and target consumption are awaited so navigation cannot overtake the
+durable target tabs; a failed apply retains the snapshot for retry. The
+canonical-to-client Thread identity aliases used during resolution remain in the
+Host-owned persisted-atoms file and are not a second SQLite authority.
 
 The native Automation Module now owns Scheduled Automation definitions and due
 work leases in SQLite. v83 adds an optimistic definition revision, imports the

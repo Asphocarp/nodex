@@ -340,6 +340,45 @@ describe("Codex pending worktree runtime", () => {
     }
   });
 
+  test("waits for asynchronous mapped-thread work before completing the launch", async () => {
+    const promotion = deferred<void>();
+    const events: string[] = [];
+    const runtime = new CodexPendingWorktreeRuntime({
+      ...TEST_RUNTIME_DEFAULTS,
+      createWorktree: async () => ({
+        worktreeGitRoot: "/worktree",
+        worktreeWorkspaceRoot: "/worktree",
+      }),
+      launchConversation: async (_entry, _workspaceRoot, context) => {
+        context.onThreadCreated("thread-async-promotion");
+        events.push("launched");
+        return { threadId: "thread-async-promotion" };
+      },
+      onConversationThreadMapped: async () => {
+        events.push("promoting");
+        await promotion.promise;
+        events.push("promoted");
+      },
+      removeWorktree: async () => {},
+    });
+
+    try {
+      runtime.create(request(), 42);
+      await flushAsyncWork();
+
+      expect(events.join(",")).toBe("promoting,launched");
+      expect(runtime.resolveThread("client-new-thread:one")?.state).toBe("waiting");
+
+      promotion.resolve(undefined);
+      await flushAsyncWork();
+
+      expect(events.join(",")).toBe("promoting,launched,promoted");
+      expect(runtime.resolveThread("client-new-thread:one")).toBe(null);
+    } finally {
+      runtime.shutdown();
+    }
+  });
+
   test("keeps a mapped thread successful when snapshot promotion throws", async () => {
     const runtime = new CodexPendingWorktreeRuntime({
       ...TEST_RUNTIME_DEFAULTS,
