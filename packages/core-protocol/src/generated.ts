@@ -612,6 +612,7 @@ export interface components {
                 readonly mutation_effect?: null | components["schemas"]["DocumentMutationEffect"];
                 readonly outcome: components["schemas"]["DocumentCommitOutcome"];
                 readonly owner_effect?: null | components["schemas"]["DocumentOwnerEffect"];
+                readonly semantic_etags?: null | components["schemas"]["DocumentSemanticEtags"];
             };
         };
         readonly CoreError: {
@@ -961,6 +962,10 @@ export interface components {
             /** @enum {string} */
             readonly kind: "move_block";
             readonly parent_block_id?: string | null;
+        };
+        readonly DocumentSemanticEtags: {
+            readonly body: string;
+            readonly title: string;
         };
         readonly DocumentSpaceAnchor: {
             readonly block_id: string;
@@ -3462,6 +3467,7 @@ export interface components {
                     readonly mutation_effect?: null | components["schemas"]["DocumentMutationEffect"];
                     readonly outcome: components["schemas"]["DocumentCommitOutcome"];
                     readonly owner_effect?: null | components["schemas"]["DocumentOwnerEffect"];
+                    readonly semantic_etags?: null | components["schemas"]["DocumentSemanticEtags"];
                 };
             };
             /** @enum {string} */

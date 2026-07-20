@@ -204,7 +204,13 @@ describe("Rust Core renderer Document adapter", () => {
         },
       });
       expect(committed).toMatchObject({
-        value: { head_seq: 3 },
+        value: {
+          head_seq: 3,
+          semantic_etags: {
+            title: expect.stringMatching(/^nxe1\./u),
+            body: expect.stringMatching(/^nxe1\./u),
+          },
+        },
         receipt: { duplicate: false },
       });
       const replay = await host.documentApply({
@@ -217,7 +223,10 @@ describe("Rust Core renderer Document adapter", () => {
         },
       });
       expect(replay).toMatchObject({
-        value: { head_seq: 3 },
+        value: {
+          head_seq: 3,
+          semantic_etags: committed.value.semantic_etags,
+        },
         receipt: { duplicate: true },
       });
       const replayPreflight = await host.documentRead("agent:prepared", {

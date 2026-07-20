@@ -1956,6 +1956,16 @@
                     "$ref": "#/components/schemas/DocumentOwnerEffect"
                   }
                 ]
+              },
+              "semantic_etags": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DocumentSemanticEtags"
+                  }
+                ]
               }
             }
           }
@@ -3426,6 +3436,21 @@
             }
           }
         ]
+      },
+      "DocumentSemanticEtags": {
+        "type": "object",
+        "required": [
+          "title",
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
       },
       "DocumentSpaceAnchor": {
         "type": "object",
@@ -14119,6 +14144,16 @@
                           },
                           {
                             "$ref": "#/components/schemas/DocumentOwnerEffect"
+                          }
+                        ]
+                      },
+                      "semantic_etags": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "$ref": "#/components/schemas/DocumentSemanticEtags"
                           }
                         ]
                       }

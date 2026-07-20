@@ -217,11 +217,6 @@ const mutationCommands = (
       "advanced_update_page will be enabled after native stable-Block ETag operations land",
     );
   }
-  if (request.input.return?.includes("etags")) {
-    return unsupported(
-      "Native update_page ETag return projection is not available yet",
-    );
-  }
   if (request.input.body?.kind === "insert") {
     return unsupported(
       "Native update_page insertion will be enabled with stable Block insertion",
@@ -511,6 +506,11 @@ export class NativeNodexAgentPageUpdateRuntime {
     const effect = effectFromCommit(committed);
     const wantsMarkdown = request.input.return?.includes("markdown") ?? false;
     const wantsBlockIds = request.input.return?.includes("block_ids") ?? false;
+    const wantsEtags = request.input.return?.includes("etags") ?? false;
+    const semanticEtags = committed.value.semantic_etags;
+    if (wantsEtags && !semanticEtags) {
+      throw new Error("Core Agent Page update omitted its semantic ETags");
+    }
     const contentSnapshot = wantsMarkdown
       ? await this.runtime.rootClient.libraryRead({
           kind: "page_content",
@@ -547,6 +547,14 @@ export class NativeNodexAgentPageUpdateRuntime {
               }
             : {}),
         },
+        ...(wantsEtags && semanticEtags
+          ? {
+              etags: {
+                title: semanticEtags.title,
+                body: semanticEtags.body,
+              },
+            }
+          : {}),
         ...(content
           ? {
               body: {

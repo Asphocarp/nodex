@@ -13,16 +13,16 @@ use nodex_core_contracts::document::{
     AgentDocumentSemanticMutation, DocumentBlockOperation as ContractDocumentBlockOperation,
     DocumentCheckpointEffect, DocumentCommitOutcome, DocumentInvalidationReason,
     DocumentMutationCoordination, DocumentMutationEffect, DocumentOptionalValue,
-    DocumentOwnerCommand, DocumentRevisionKind, DocumentSemanticCommand, OwnedDocumentCommitValue,
-    OwnedDocumentEvent, OwnedDocumentIntent, OwnedDocumentRead, OwnedDocumentReadValue,
-    OwnedDocumentReceipt,
+    DocumentOwnerCommand, DocumentRevisionKind, DocumentSemanticCommand, DocumentSemanticEtags,
+    OwnedDocumentCommitValue, OwnedDocumentEvent, OwnedDocumentIntent, OwnedDocumentRead,
+    OwnedDocumentReadValue, OwnedDocumentReceipt,
 };
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent,
     CommittedModuleValue, CoreError, CoreErrorCode, CoreErrorRecovery, CoreModuleEventPayload,
     ModuleApplyRequest, ModuleMutationReceipt, ModuleReadRequest, ModuleReadSnapshot, StoreEpoch,
 };
-use rusqlite::{OptionalExtension, TransactionBehavior};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 use serde::Serialize;
 use serde_json::{Value, json};
 use yrs::updates::encoder::Encode;
@@ -72,7 +72,10 @@ use super::persistence::{
 };
 use super::recovery::{StaleYjsUpdate, persist_recovery_if_barrier_crossed};
 use super::runtime::{DocumentRuntimeCache, reconstruction_duration_metrics};
-use super::semantic::{SemanticMutationContext, SemanticMutationError, prepare_semantic_mutation};
+use super::semantic::{
+    SemanticMutationContext, SemanticMutationError, mint_document_semantic_etags,
+    prepare_semantic_mutation,
+};
 use super::{
     BlockDocumentSchema, DocumentMaterialization, YrsEngineError, decode_block_document,
     materialize_decoded_document,
@@ -894,6 +897,7 @@ impl OwnedDocumentModule {
                         owner_effect: Some(executed.effect),
                         checkpoint_effect: None,
                         mutation_effect: None,
+                        semantic_etags: None,
                     },
                     receipt: OwnedDocumentReceipt {
                         mutation: ModuleMutationReceipt {
@@ -2511,7 +2515,7 @@ impl OwnedDocumentModule {
                 } = prepared
                 else {
                     let event_head = read_event_head(&transaction)?;
-                    let committed = committed_value(
+                    let mut committed = committed_value(
                         &job.operation_id,
                         &store_epoch,
                         &authority,
@@ -2519,6 +2523,14 @@ impl OwnedDocumentModule {
                         DocumentCommitOutcome::NoChange,
                         event_head,
                     );
+                    attach_agent_semantic_etags(
+                        &transaction,
+                        &job,
+                        &store_epoch,
+                        &authority,
+                        &base_materialization,
+                        &mut committed,
+                    )?;
                     insert_typed_receipt(
                         &transaction,
                         &job.context,
@@ -2546,7 +2558,7 @@ impl OwnedDocumentModule {
                 let did_change = candidate.did_change();
                 let event_head = read_event_head(&transaction)?;
                 if !did_change {
-                    let committed = committed_value(
+                    let mut committed = committed_value(
                         &job.operation_id,
                         &store_epoch,
                         &authority,
@@ -2554,6 +2566,14 @@ impl OwnedDocumentModule {
                         DocumentCommitOutcome::NoChange,
                         event_head,
                     );
+                    attach_agent_semantic_etags(
+                        &transaction,
+                        &job,
+                        &store_epoch,
+                        &authority,
+                        &base_materialization,
+                        &mut committed,
+                    )?;
                     insert_typed_receipt(
                         &transaction,
                         &job.context,
@@ -2669,6 +2689,14 @@ impl OwnedDocumentModule {
                 );
                 committed.value.committed_at = Some(persisted.committed_at.clone());
                 committed.value.mutation_effect = mutation_effect.map(|effect| *effect);
+                attach_agent_semantic_etags(
+                    &transaction,
+                    &job,
+                    &store_epoch,
+                    &authority,
+                    &materialization,
+                    &mut committed,
+                )?;
                 insert_typed_receipt(
                     &transaction,
                     &job.context,
@@ -3101,6 +3129,7 @@ fn committed_value(
             owner_effect: None,
             checkpoint_effect: None,
             mutation_effect: None,
+            semantic_etags: None,
         },
         receipt: OwnedDocumentReceipt {
             mutation: ModuleMutationReceipt {
@@ -3114,6 +3143,33 @@ fn committed_value(
         event_sequence,
         store_epoch: StoreEpoch(store_epoch.to_owned()),
     }
+}
+
+fn attach_agent_semantic_etags(
+    connection: &Connection,
+    job: &DocumentUpdateJob,
+    store_epoch: &str,
+    authority: &DocumentAuthorityRow,
+    materialization: &DocumentMaterialization,
+    committed: &mut CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
+) -> Result<(), StoreError> {
+    let Some(prepared_agent) = job.prepared_agent.as_ref() else {
+        return Ok(());
+    };
+    let (title, body) = mint_document_semantic_etags(
+        connection,
+        &prepared_agent
+            .authorization
+            .provenance
+            .authority
+            .actor_project_id,
+        store_epoch,
+        &authority.head.id,
+        materialization,
+    )
+    .map_err(semantic_error)?;
+    committed.value.semantic_etags = Some(DocumentSemanticEtags { title, body });
+    Ok(())
 }
 
 fn owner_command_kind(command: &DocumentOwnerCommand) -> &'static str {
@@ -7300,11 +7356,23 @@ mod tests {
             .expect("execute exact prepared operation");
         assert_eq!(committed.committed.value.head_seq, 2);
         assert!(!committed.committed.receipt.mutation.duplicate);
+        let semantic_etags = committed
+            .committed
+            .value
+            .semantic_etags
+            .clone()
+            .expect("prepared Agent commit returns semantic ETags");
+        assert!(semantic_etags.title.starts_with("nxe1."));
+        assert!(semantic_etags.body.starts_with("nxe1."));
         let duplicate = seeded
             .module
             .apply(&context_for(connection_id), execute(None))
             .expect("durable receipt replay needs no fresh token");
         assert!(duplicate.committed.receipt.mutation.duplicate);
+        assert_eq!(
+            duplicate.committed.value.semantic_etags,
+            Some(semantic_etags)
+        );
         assert!(duplicate.events.is_empty());
 
         let replay = seeded

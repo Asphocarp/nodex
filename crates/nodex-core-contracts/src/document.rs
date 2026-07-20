@@ -342,6 +342,14 @@ pub struct OwnedDocumentCommitValue {
     pub checkpoint_effect: Option<DocumentCheckpointEffect>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mutation_effect: Option<DocumentMutationEffect>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub semantic_etags: Option<DocumentSemanticEtags>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DocumentSemanticEtags {
+    pub title: String,
+    pub body: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

@@ -262,6 +262,10 @@ describe("native desktop Nodex Agent dynamic service", () => {
             title_changed: false,
             coordination: "merge_friendly" as const,
           },
+          semantic_etags: {
+            title: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            body: "nxe1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+          },
         },
       };
     });
@@ -298,7 +302,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
           expectedMatches: 2,
         }],
       },
-      return: ["markdown", "block_ids"],
+      return: ["markdown", "block_ids", "etags"],
     }, context);
 
     expect(result).toMatchObject({
@@ -312,6 +316,10 @@ describe("native desktop Nodex Agent dynamic service", () => {
             moved: 0,
             deleted: 0,
             blockIds: { updated: ["block-updated"] },
+          },
+          etags: {
+            title: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            body: "nxe1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
           },
           body: { format: "markdown", markdown: "New New" },
         },

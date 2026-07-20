@@ -62,21 +62,12 @@ pub(crate) fn prepare_semantic_mutation(
             "semantic command batch must contain 1 to {MAX_SEMANTIC_COMMANDS} commands"
         )));
     }
-    let title_etag = mint_etag(
+    let (title_etag, body_etag) = mint_document_semantic_etags(
         connection,
-        "title",
         context.project_id,
         context.store_epoch,
-        &[context.document_id],
-        json!({ "richTitle": context.materialization.rich_title }),
-    )?;
-    let body_etag = mint_etag(
-        connection,
-        "document_body",
-        context.project_id,
-        context.store_epoch,
-        &[context.document_id],
-        json!({ "nfm": context.materialization.nfm }),
+        context.document_id,
+        context.materialization,
     )?;
     let mut title = None::<Vec<RichTextItem>>;
     let mut replacement = None::<String>;
@@ -321,6 +312,32 @@ pub(crate) fn mint_etag(
         .map_err(|error| SemanticMutationError::EtagAuthority(error.to_string()))?;
     let digest = hmac_sha256(&key, &bytes);
     Ok(format!("{ETAG_PREFIX}.{}", base64_url_no_pad(&digest)))
+}
+
+pub(crate) fn mint_document_semantic_etags(
+    connection: &Connection,
+    project_id: &str,
+    store_epoch: &str,
+    document_id: &str,
+    materialization: &DocumentMaterialization,
+) -> Result<(String, String), SemanticMutationError> {
+    let title = mint_etag(
+        connection,
+        "title",
+        project_id,
+        store_epoch,
+        &[document_id],
+        json!({ "richTitle": materialization.rich_title }),
+    )?;
+    let body = mint_etag(
+        connection,
+        "document_body",
+        project_id,
+        store_epoch,
+        &[document_id],
+        json!({ "nfm": materialization.nfm }),
+    )?;
+    Ok((title, body))
 }
 
 fn canonical_json(value: Value) -> Value {
