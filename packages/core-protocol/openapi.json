@@ -5233,6 +5233,326 @@
           }
         }
       },
+      "LibraryPageLifecycleAuthority": {
+        "type": "object",
+        "required": [
+          "page_id",
+          "lifecycle",
+          "parent",
+          "metadata_revision",
+          "parent_revision",
+          "document"
+        ],
+        "properties": {
+          "document": {
+            "$ref": "#/components/schemas/LibraryPageLifecycleDocument"
+          },
+          "library_rank_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lifecycle": {
+            "type": "string"
+          },
+          "membership": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryPageLifecycleMembership"
+              }
+            ]
+          },
+          "metadata_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "parent": {
+            "$ref": "#/components/schemas/LibraryPageLifecycleParent"
+          },
+          "parent_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "restore_evidence": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryPageLifecycleRestoreEvidence"
+              }
+            ]
+          }
+        }
+      },
+      "LibraryPageLifecycleDocument": {
+        "type": "object",
+        "required": [
+          "document_id",
+          "generation",
+          "head_seq",
+          "readiness",
+          "authority",
+          "schema_key",
+          "schema_version"
+        ],
+        "properties": {
+          "authority": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "readiness": {
+            "type": "string"
+          },
+          "schema_key": {
+            "type": "string"
+          },
+          "schema_version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "LibraryPageLifecycleMembership": {
+        "type": "object",
+        "required": [
+          "membership_id",
+          "database_id",
+          "data_source_id",
+          "membership_revision",
+          "view_id",
+          "view_revision",
+          "status_property_id",
+          "status_value_revision",
+          "status"
+        ],
+        "properties": {
+          "data_source_id": {
+            "type": "string"
+          },
+          "database_id": {
+            "type": "string"
+          },
+          "membership_id": {
+            "type": "string"
+          },
+          "membership_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "position": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryPageLifecyclePosition"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/LibraryPageWorkflowStatus"
+          },
+          "status_property_id": {
+            "type": "string"
+          },
+          "status_value_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "view_id": {
+            "type": "string"
+          },
+          "view_revision": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "LibraryPageLifecycleParent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "library_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              },
+              "library_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data_source_id",
+              "kind"
+            ],
+            "properties": {
+              "data_source_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "data_source"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "LibraryPageLifecyclePosition": {
+        "type": "object",
+        "required": [
+          "rank_key",
+          "revision"
+        ],
+        "properties": {
+          "group_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rank_key": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "LibraryPageLifecyclePreflight": {
+        "type": "object",
+        "required": [
+          "version",
+          "default_view",
+          "tags_property"
+        ],
+        "properties": {
+          "default_view": {},
+          "page": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryPageLifecycleAuthority"
+              }
+            ]
+          },
+          "reserved_block_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tags_property": {},
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "LibraryPageLifecycleRestoreEvidence": {
+        "type": "object",
+        "required": [
+          "delete_operation_id",
+          "previous_lifecycle"
+        ],
+        "properties": {
+          "delete_operation_id": {
+            "type": "string"
+          },
+          "membership": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryPageLifecycleRestoreMembership"
+              }
+            ]
+          },
+          "previous_lifecycle": {
+            "$ref": "#/components/schemas/LibraryLifecycle"
+          }
+        }
+      },
+      "LibraryPageLifecycleRestoreMembership": {
+        "type": "object",
+        "required": [
+          "membership_id",
+          "database_id",
+          "data_source_id",
+          "status"
+        ],
+        "properties": {
+          "data_source_id": {
+            "type": "string"
+          },
+          "database_id": {
+            "type": "string"
+          },
+          "membership_id": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/LibraryPageWorkflowStatus"
+          },
+          "view_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "LibraryPageLocation": {
         "type": "object",
         "required": [
@@ -8998,6 +9318,24 @@
                     "type": "string",
                     "enum": [
                       "page_location"
+                    ]
+                  },
+                  "page_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "page_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "page_lifecycle_preflight"
                     ]
                   },
                   "page_id": {
@@ -13224,6 +13562,24 @@
                                 "$ref": "#/components/schemas/LibraryPageLocation"
                               }
                             ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "page_lifecycle_preflight"
+                            ]
+                          },
+                          "value": {
+                            "$ref": "#/components/schemas/LibraryPageLifecyclePreflight"
                           }
                         }
                       },

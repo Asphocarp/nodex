@@ -258,6 +258,9 @@ pub enum LibraryRead {
     PageLocation {
         page_id: String,
     },
+    PageLifecyclePreflight {
+        page_id: String,
+    },
     Search {
         query: String,
         include_archived: bool,
@@ -393,6 +396,84 @@ pub enum LibraryPageOwnershipPath {
 pub struct LibraryPageLocation {
     pub page_id: String,
     pub project_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryPageLifecycleParent {
+    Library { library_id: String },
+    Page { page_id: String },
+    DataSource { data_source_id: String },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageLifecycleDocument {
+    pub document_id: String,
+    pub generation: i64,
+    pub head_seq: i64,
+    pub readiness: String,
+    pub authority: String,
+    pub schema_key: String,
+    pub schema_version: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageLifecyclePosition {
+    pub group_key: Option<String>,
+    pub rank_key: String,
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageLifecycleMembership {
+    pub membership_id: String,
+    pub database_id: String,
+    pub data_source_id: String,
+    pub membership_revision: i64,
+    pub view_id: String,
+    pub view_revision: i64,
+    pub status_property_id: String,
+    pub status_value_revision: i64,
+    pub status: LibraryPageWorkflowStatus,
+    pub position: Option<LibraryPageLifecyclePosition>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageLifecycleRestoreMembership {
+    pub membership_id: String,
+    pub database_id: String,
+    pub data_source_id: String,
+    pub status: LibraryPageWorkflowStatus,
+    pub view_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageLifecycleRestoreEvidence {
+    pub delete_operation_id: String,
+    pub previous_lifecycle: LibraryLifecycle,
+    pub membership: Option<LibraryPageLifecycleRestoreMembership>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageLifecycleAuthority {
+    pub page_id: String,
+    pub lifecycle: String,
+    pub parent: LibraryPageLifecycleParent,
+    pub library_rank_key: Option<String>,
+    pub metadata_revision: i64,
+    pub parent_revision: i64,
+    pub document: LibraryPageLifecycleDocument,
+    pub membership: Option<LibraryPageLifecycleMembership>,
+    pub restore_evidence: Option<LibraryPageLifecycleRestoreEvidence>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageLifecyclePreflight {
+    pub version: u32,
+    pub default_view: Value,
+    pub tags_property: Value,
+    pub reserved_block_type: Option<String>,
+    pub page: Option<LibraryPageLifecycleAuthority>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
@@ -758,6 +839,9 @@ pub enum LibraryReadValue {
     },
     PageLocation {
         value: Option<LibraryPageLocation>,
+    },
+    PageLifecyclePreflight {
+        value: Box<LibraryPageLifecyclePreflight>,
     },
     Search {
         items: Vec<LibrarySearchHit>,

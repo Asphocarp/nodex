@@ -863,15 +863,7 @@ fn set_value(
         now,
         effects,
     )?;
-    let metadata_revision = connection
-        .query_row(
-            "UPDATE blocks SET metadata_revision = metadata_revision + 1, updated_at = ?1 \
-             WHERE id = ?2 AND type = 'page' RETURNING metadata_revision",
-            params![now, input.page_id],
-            |row| row.get::<_, i64>(0),
-        )
-        .optional()?
-        .ok_or_else(|| corrupt("Database row Page disappeared during value commit"))?;
+    let metadata_revision = bump_page_metadata_revision(connection, &input.page_id, now)?;
     refresh_value_projection(
         connection,
         &input.page_id,
@@ -2883,15 +2875,7 @@ fn position_pages(
             .insert(format!("position:{view_id}:{}", page.page_id), revision);
     }
     for page in pages {
-        let metadata_revision = connection
-            .query_row(
-                "UPDATE blocks SET metadata_revision = metadata_revision + 1, updated_at = ?1 \
-                 WHERE id = ?2 AND type = 'page' RETURNING metadata_revision",
-                params![now, page.page_id],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()?
-            .ok_or_else(|| corrupt("Positioned Page disappeared"))?;
+        let metadata_revision = bump_page_metadata_revision(connection, &page.page_id, now)?;
         connection.execute(
             "UPDATE page_read_model SET metadata_revision = ?1, \
                projection_version = projection_version + 1, updated_at = ?2 \
@@ -3775,17 +3759,13 @@ fn refresh_tag_projections(
             continue;
         }
         values.insert("tags".to_owned(), Value::Array(projected));
-        let metadata_revision = connection.query_row(
-            "UPDATE blocks SET metadata_revision = metadata_revision + 1, updated_at = ?1 \
-             WHERE id = ?2 AND type = 'page' RETURNING metadata_revision",
-            params![now, page_id],
-            |row| row.get::<_, i64>(0),
-        )?;
+        let metadata_revision = bump_page_metadata_revision(connection, &page_id, now)?;
         connection.execute(
-            "UPDATE page_read_model SET metadata_revision = metadata_revision + 1, \
-               database_values_json = ?1, projection_version = projection_version + 1, \
-               updated_at = ?2 WHERE page_block_id = ?3",
+            "UPDATE page_read_model SET metadata_revision = ?1, \
+               database_values_json = ?2, projection_version = projection_version + 1, \
+               updated_at = ?3 WHERE page_block_id = ?4",
             params![
+                metadata_revision,
                 serde_json::to_string(&values).map_err(|_| internal("Page Database values"))?,
                 now,
                 page_id,
@@ -3797,6 +3777,32 @@ fn refresh_tag_projections(
             .insert(format!("page:{page_id}:metadata"), metadata_revision);
     }
     Ok(())
+}
+
+fn bump_page_metadata_revision(
+    connection: &Connection,
+    page_id: &str,
+    now: &str,
+) -> Result<i64, StoreError> {
+    let metadata_revision = connection
+        .query_row(
+            "UPDATE blocks SET metadata_revision = metadata_revision + 1, updated_at = ?1 \
+             WHERE id = ?2 AND type = 'page' RETURNING metadata_revision",
+            params![now, page_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?
+        .ok_or_else(|| corrupt("Database row Page disappeared during metadata commit"))?;
+    let changed = connection.execute(
+        "UPDATE pages SET metadata_revision = ?1, updated_at = ?2 WHERE block_id = ?3",
+        params![metadata_revision, now, page_id],
+    )?;
+    if changed == 1 {
+        return Ok(metadata_revision);
+    }
+    Err(corrupt(
+        "Database row Page metadata authority disappeared during commit",
+    ))
 }
 
 fn tag_compatibility_value(property: &PropertyRow, value: &Value) -> Result<Value, StoreError> {

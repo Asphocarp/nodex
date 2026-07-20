@@ -932,6 +932,43 @@ describe("Electron native data authority", () => {
         status: "ship",
         order: 0,
       });
+      const lifecycleLibrary = createCoreLibraryModuleAdapter({
+        client: runtime.clientForProject(projectId),
+        libraryId: runtime.rootClient.handshake.library_id,
+        profileId: runtime.rootClient.handshake.profile_id,
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+      });
+      const lifecyclePreflight = await lifecycleLibrary.readPageLifecyclePreflight(
+        projectId,
+        copiedDataSourcePageId,
+      );
+      if (!lifecyclePreflight.ok) {
+        throw new Error(
+          `Core Page lifecycle preflight failed: ${lifecyclePreflight.error.code}: ${lifecyclePreflight.error.message}`,
+        );
+      }
+      expect(lifecyclePreflight).toMatchObject({
+        ok: true,
+        value: {
+          projectId,
+          value: {
+            tagsProperty: { propertyId: "tags" },
+            page: {
+              pageId: copiedDataSourcePageId,
+              lifecycle: "active",
+              parent: {
+                kind: "data_source",
+                dataSourceId: primaryDataSource.dataSourceId,
+              },
+              membership: {
+                status: "ship",
+                viewId: primaryView.viewId,
+                position: { groupKey: "ship" },
+              },
+            },
+          },
+        },
+      });
       await expect(desktopDatabase.resolveDatabaseViewReference({
         requestingProjectId: projectId,
         databaseViewId: primaryView.viewId,

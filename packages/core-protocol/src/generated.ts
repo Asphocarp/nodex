@@ -1419,6 +1419,85 @@ export interface components {
             readonly value: unknown;
             readonly value_type: string;
         };
+        readonly LibraryPageLifecycleAuthority: {
+            readonly document: components["schemas"]["LibraryPageLifecycleDocument"];
+            readonly library_rank_key?: string | null;
+            readonly lifecycle: string;
+            readonly membership?: null | components["schemas"]["LibraryPageLifecycleMembership"];
+            /** Format: int64 */
+            readonly metadata_revision: number;
+            readonly page_id: string;
+            readonly parent: components["schemas"]["LibraryPageLifecycleParent"];
+            /** Format: int64 */
+            readonly parent_revision: number;
+            readonly restore_evidence?: null | components["schemas"]["LibraryPageLifecycleRestoreEvidence"];
+        };
+        readonly LibraryPageLifecycleDocument: {
+            readonly authority: string;
+            readonly document_id: string;
+            /** Format: int64 */
+            readonly generation: number;
+            /** Format: int64 */
+            readonly head_seq: number;
+            readonly readiness: string;
+            readonly schema_key: string;
+            /** Format: int64 */
+            readonly schema_version: number;
+        };
+        readonly LibraryPageLifecycleMembership: {
+            readonly data_source_id: string;
+            readonly database_id: string;
+            readonly membership_id: string;
+            /** Format: int64 */
+            readonly membership_revision: number;
+            readonly position?: null | components["schemas"]["LibraryPageLifecyclePosition"];
+            readonly status: components["schemas"]["LibraryPageWorkflowStatus"];
+            readonly status_property_id: string;
+            /** Format: int64 */
+            readonly status_value_revision: number;
+            readonly view_id: string;
+            /** Format: int64 */
+            readonly view_revision: number;
+        };
+        readonly LibraryPageLifecycleParent: {
+            /** @enum {string} */
+            readonly kind: "library";
+            readonly library_id: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "page";
+            readonly page_id: string;
+        } | {
+            readonly data_source_id: string;
+            /** @enum {string} */
+            readonly kind: "data_source";
+        };
+        readonly LibraryPageLifecyclePosition: {
+            readonly group_key?: string | null;
+            readonly rank_key: string;
+            /** Format: int64 */
+            readonly revision: number;
+        };
+        readonly LibraryPageLifecyclePreflight: {
+            readonly default_view: unknown;
+            readonly page?: null | components["schemas"]["LibraryPageLifecycleAuthority"];
+            readonly reserved_block_type?: string | null;
+            readonly tags_property: unknown;
+            /** Format: int32 */
+            readonly version: number;
+        };
+        readonly LibraryPageLifecycleRestoreEvidence: {
+            readonly delete_operation_id: string;
+            readonly membership?: null | components["schemas"]["LibraryPageLifecycleRestoreMembership"];
+            readonly previous_lifecycle: components["schemas"]["LibraryLifecycle"];
+        };
+        readonly LibraryPageLifecycleRestoreMembership: {
+            readonly data_source_id: string;
+            readonly database_id: string;
+            readonly membership_id: string;
+            readonly status: components["schemas"]["LibraryPageWorkflowStatus"];
+            readonly view_id?: string | null;
+        };
         readonly LibraryPageLocation: {
             readonly page_id: string;
             readonly project_id: string;
@@ -2305,6 +2384,10 @@ export interface components {
             } | {
                 /** @enum {string} */
                 readonly kind: "page_location";
+                readonly page_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "page_lifecycle_preflight";
                 readonly page_id: string;
             } | {
                 readonly block_types?: readonly string[] | null;
@@ -3245,6 +3328,10 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "page_location";
                     readonly value?: null | components["schemas"]["LibraryPageLocation"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "page_lifecycle_preflight";
+                    readonly value: components["schemas"]["LibraryPageLifecyclePreflight"];
                 } | {
                     readonly has_more: boolean;
                     readonly items: readonly components["schemas"]["LibrarySearchHit"][];

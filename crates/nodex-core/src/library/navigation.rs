@@ -198,6 +198,9 @@ pub(super) fn read(
         LibraryRead::PlanBlockTransfer { .. } => Err(invalid(
             "Block transfer planning is assembled by the Library Module",
         )),
+        LibraryRead::PageLifecyclePreflight { .. } => Err(invalid(
+            "Page lifecycle preflight is assembled by the Library Module",
+        )),
     }
 }
 

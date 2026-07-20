@@ -78,7 +78,7 @@ pub(crate) fn page_data_source_projection(
     })
 }
 
-pub(super) fn read(
+pub(crate) fn read(
     connection: &Connection,
     library_id: &str,
     context: &BoundModuleContext,

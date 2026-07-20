@@ -584,6 +584,7 @@ interface RegisterIpcHandlersOptions {
     | "searchPages"
     | "resolvePageTarget"
     | "resolvePageOwnershipPath"
+    | "readPageLifecyclePreflight"
   >;
   databaseModule?: Pick<
     DesktopDatabaseModuleBridge,
@@ -1541,9 +1542,14 @@ export function registerIpcHandlers(
         listener(event, projectId, pageId),
       );
     },
-    readPreflight: async (projectId, pageId) =>
-      (await blockMutationWriter.readPageLifecyclePreflight(projectId, pageId))
-        .result,
+    readPreflight: options.libraryModule?.readPageLifecyclePreflight ??
+      (async (projectId, pageId) =>
+        (
+          await blockMutationWriter.readPageLifecyclePreflight(
+            projectId,
+            pageId,
+          )
+        ).result),
   });
 
   registerPageLifecycleIpcHandler({

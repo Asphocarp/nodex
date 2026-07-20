@@ -33,6 +33,8 @@ import {
 } from "../../shared/page-history-transport";
 import type { PageSearchInput, PageSearchResult } from "../../shared/types";
 import { parsePage } from "../../shared/page";
+import type { PageLifecyclePreflightResultV2 } from "../../shared/page-lifecycle-v2-runtime";
+import { parsePageLifecyclePreflightResultV2 } from "../../shared/page-lifecycle-v2-transport";
 import type {
   PageTargetReadModel,
   ResolvePageTargetInput,
@@ -79,6 +81,10 @@ export interface CoreLibraryModuleAdapter {
   findPageLocation(
     pageId: string,
   ): Promise<{ readonly pageId: string; readonly projectId: string } | null>;
+  readPageLifecyclePreflight(
+    projectId: string,
+    pageId: string,
+  ): Promise<PageLifecyclePreflightResultV2>;
 }
 
 const toCoreRouteTarget = (target: LibraryRouteTarget) => {
@@ -219,6 +225,10 @@ type CorePageOwnershipPath = NonNullable<Extract<
   LibraryReadSnapshot["value"],
   { kind: "page_ownership_path" }
 >["value"]>;
+type CorePageLifecyclePreflight = Extract<
+  LibraryReadSnapshot["value"],
+  { kind: "page_lifecycle_preflight" }
+>["value"];
 
 const fromCoreRouteTarget = (
   target: CoreRouteTarget,
@@ -526,6 +536,183 @@ const mapPageOwnershipPath = (
       title: ancestor.title,
       lifecycle: ancestor.lifecycle,
     })),
+  };
+};
+
+const coreRecord = (
+  value: unknown,
+  label: string,
+): Readonly<Record<string, unknown>> => {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return value as Readonly<Record<string, unknown>>;
+  }
+  throw new Error(`Core ${label} is not an object`);
+};
+
+const mapLifecycleTagsProperty = (value: unknown) => {
+  const property = coreRecord(value, "Page lifecycle tags Property");
+  return {
+    propertyId: property.propertyId,
+    dataSourceId: property.dataSourceId,
+    valueType: property.valueType,
+    lifecycle: property.lifecycle,
+    revision: property.revision,
+    config: property.config,
+  };
+};
+
+const mapLifecycleParent = (
+  parent: CorePageLifecyclePreflight["page"] extends infer Page
+    ? NonNullable<Page> extends { parent: infer Parent }
+      ? Parent
+      : never
+    : never,
+) => {
+  if (parent.kind === "library") {
+    return { kind: parent.kind, libraryId: parent.library_id } as const;
+  }
+  if (parent.kind === "page") {
+    return { kind: parent.kind, pageId: parent.page_id } as const;
+  }
+  return {
+    kind: parent.kind,
+    dataSourceId: parseDataSourceId(parent.data_source_id),
+  } as const;
+};
+
+const mapLifecyclePage = (
+  page: NonNullable<CorePageLifecyclePreflight["page"]>,
+) => {
+  if (![
+    "active",
+    "archived",
+    "deleted",
+  ].includes(page.lifecycle)) {
+    throw new Error("Core Page lifecycle preflight returned invalid lifecycle");
+  }
+  if (
+    page.document.readiness !== "ready"
+    || page.document.authority !== "ydoc_primary"
+    || !isWorkflowStatus(page.membership?.status ?? "triage")
+  ) {
+    throw new Error("Core Page lifecycle preflight returned invalid authority");
+  }
+  const membership = page.membership
+    ? {
+        membershipId: page.membership.membership_id,
+        databaseId: parseDatabaseId(page.membership.database_id),
+        dataSourceId: parseDataSourceId(page.membership.data_source_id),
+        membershipRevision: page.membership.membership_revision,
+        viewId: parseDatabaseViewId(page.membership.view_id),
+        viewRevision: page.membership.view_revision,
+        statusPropertyId: page.membership.status_property_id,
+        statusValueRevision: page.membership.status_value_revision,
+        status: page.membership.status,
+        position: page.membership.position
+          ? {
+              groupKey: page.membership.position.group_key ?? null,
+              rankKey: page.membership.position.rank_key,
+              revision: page.membership.position.revision,
+            }
+          : null,
+      }
+    : null;
+  const restoreEvidence = page.restore_evidence
+    ? {
+        deleteOperationId: page.restore_evidence.delete_operation_id,
+        previousLifecycle: page.restore_evidence.previous_lifecycle,
+        membership: page.restore_evidence.membership
+          ? {
+              membershipId: page.restore_evidence.membership.membership_id,
+              databaseId: parseDatabaseId(
+                page.restore_evidence.membership.database_id,
+              ),
+              dataSourceId: parseDataSourceId(
+                page.restore_evidence.membership.data_source_id,
+              ),
+              status: page.restore_evidence.membership.status,
+              position: page.restore_evidence.membership.view_id
+                ? {
+                    viewId: parseDatabaseViewId(
+                      page.restore_evidence.membership.view_id,
+                    ),
+                  }
+                : null,
+            }
+          : null,
+      }
+    : null;
+  return {
+    pageId: page.page_id,
+    lifecycle: page.lifecycle as "active" | "archived" | "deleted",
+    parent: mapLifecycleParent(page.parent),
+    libraryRankKey: page.library_rank_key ?? null,
+    metadataRevision: page.metadata_revision,
+    parentRevision: page.parent_revision,
+    document: {
+      documentId: page.document.document_id,
+      generation: page.document.generation,
+      headSeq: page.document.head_seq,
+      readiness: page.document.readiness as "ready",
+      authority: page.document.authority as "ydoc_primary",
+      schemaKey: page.document.schema_key,
+      schemaVersion: page.document.schema_version,
+    },
+    membership,
+    restoreEvidence,
+  };
+};
+
+const mapPageLifecyclePreflight = (
+  input: CorePageLifecyclePreflight,
+) => ({
+  version: input.version,
+  defaultView: input.default_view,
+  tagsProperty: mapLifecycleTagsProperty(input.tags_property),
+  reservedBlockType: input.reserved_block_type ?? null,
+  page: input.page ? mapLifecyclePage(input.page) : null,
+});
+
+const pageLifecyclePreflightFailure = (
+  error: unknown,
+): PageLifecyclePreflightResultV2 => {
+  if (error instanceof CoreModuleResponseError) {
+    const code = (() => {
+      switch (error.coreError.code) {
+        case "invalid_input":
+          return "invalid_request";
+        case "stale_store_epoch":
+          return "store_not_initialized";
+        case "not_found":
+          return "page_not_found";
+        case "unauthorized":
+          return "authorization_denied";
+        case "store_corrupt":
+        case "invalid_document_schema":
+          return "state_corrupt";
+        default:
+          return "unknown";
+      }
+    })() satisfies Extract<
+      PageLifecyclePreflightResultV2,
+      { readonly ok: false }
+    >["error"]["code"];
+    return {
+      ok: false,
+      error: {
+        code,
+        message: error.message,
+        retryable: error.coreError.retryable,
+      },
+    };
+  }
+  return {
+    ok: false,
+    error: {
+      code: "unknown",
+      message: error instanceof Error ? error.message : String(error),
+      retryable: true,
+    },
   };
 };
 
@@ -859,6 +1046,35 @@ export const createCoreLibraryModuleAdapter = (
         throw new Error("Core Page location escaped its requested identity");
       }
       return { pageId: value.page_id, projectId: value.project_id };
+    },
+    readPageLifecyclePreflight: async (projectId, pageId) => {
+      try {
+        const snapshot = await input.client.libraryRead({
+          kind: "page_lifecycle_preflight",
+          page_id: pageId,
+        });
+        if (
+          snapshot.value.kind !== "page_lifecycle_preflight"
+          || snapshot.store_epoch !== input.storeEpoch
+        ) {
+          throw new Error(
+            "Core Page lifecycle preflight escaped its snapshot boundary",
+          );
+        }
+        return parsePageLifecyclePreflightResultV2({
+          ok: true,
+          value: {
+            version: 2,
+            projectId,
+            libraryId: input.libraryId,
+            storeEpoch: snapshot.store_epoch,
+            changeLogSeq: snapshot.event_head,
+            value: mapPageLifecyclePreflight(snapshot.value.value),
+          },
+        });
+      } catch (error) {
+        return pageLifecyclePreflightFailure(error);
+      }
     },
   };
 };

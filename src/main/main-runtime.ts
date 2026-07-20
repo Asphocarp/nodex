@@ -1700,6 +1700,13 @@ export async function runMainAppStartup(
         const location = findPageLocationById(pageId);
         return location ? { pageId, projectId: location.projectId } : null;
       },
+      readPageLifecyclePreflight: async (projectId, pageId) =>
+        (
+          await blockMutationWriter.readPageLifecyclePreflight(
+            projectId,
+            pageId,
+          )
+        ).result,
     },
   });
   desktopLibraryModule = libraryModule;

@@ -170,6 +170,121 @@ const pageLocationSnapshot = () => ({
   },
 });
 
+const lifecycleTagsProperty = () => ({
+  propertyId: "tags",
+  dataSourceId: "source:test",
+  name: "Tags",
+  valueType: "multi_select",
+  config: { options: [] },
+  rankKey: "b",
+  lifecycle: "active",
+  revision: 1,
+  createdAt: "2026-07-19T18:00:00.000Z",
+  updatedAt: "2026-07-19T18:00:00.000Z",
+});
+
+const lifecycleDefaultView = () => ({
+  database: {
+    databaseId: "database:test",
+    libraryId: identity.libraryId,
+    name: "Tasks",
+    lifecycle: "active",
+    defaultViewId: "view:test",
+    accessRevision: 1,
+    metadataRevision: 1,
+    createdAt: "2026-07-19T18:00:00.000Z",
+    updatedAt: "2026-07-19T18:00:00.000Z",
+  },
+  dataSource: {
+    dataSourceId: "source:test",
+    libraryId: identity.libraryId,
+    homeDatabaseId: "database:test",
+    name: "Tasks",
+    schemaKey: "nodex.database",
+    schemaRevision: 1,
+    lifecycle: "active",
+    rankKey: "a",
+    createdAt: "2026-07-19T18:00:00.000Z",
+    updatedAt: "2026-07-19T18:00:00.000Z",
+  },
+  view: {
+    viewId: "view:test",
+    databaseId: "database:test",
+    dataSourceId: "source:test",
+    name: "All",
+    kind: "list",
+    config: {
+      schemaKey: "nodex.database-view",
+      schemaVersion: 2,
+      filter: { kind: "group", operator: "and", children: [] },
+      sort: [{
+        field: { kind: "manual" },
+        direction: "asc",
+        nulls: "last",
+      }],
+      group: null,
+      display: { propertyIds: ["tags"], showTitle: true },
+    },
+    isDefault: true,
+    revision: 1,
+    rankKey: "a",
+    lifecycle: "active",
+    createdAt: "2026-07-19T18:00:00.000Z",
+    updatedAt: "2026-07-19T18:00:00.000Z",
+  },
+  properties: [lifecycleTagsProperty()],
+  rows: [],
+});
+
+const pageLifecyclePreflightSnapshot = () => ({
+  version: 1 as const,
+  store_epoch: identity.storeEpoch,
+  event_head: 15,
+  value: {
+    kind: "page_lifecycle_preflight" as const,
+    value: {
+      version: 2,
+      default_view: lifecycleDefaultView(),
+      tags_property: lifecycleTagsProperty(),
+      reserved_block_type: null,
+      page: {
+        page_id: "page:one",
+        lifecycle: "active",
+        parent: { kind: "data_source" as const, data_source_id: "source:test" },
+        library_rank_key: null,
+        metadata_revision: 3,
+        parent_revision: 2,
+        document: {
+          document_id: "document:one",
+          generation: 1,
+          head_seq: 4,
+          readiness: "ready",
+          authority: "ydoc_primary",
+          schema_key: "nodex.page",
+          schema_version: 2,
+        },
+        membership: {
+          membership_id: "membership:one",
+          database_id: "database:test",
+          data_source_id: "source:test",
+          membership_revision: 1,
+          view_id: "view:test",
+          view_revision: 2,
+          status_property_id: "status",
+          status_value_revision: 1,
+          status: "build" as const,
+          position: {
+            group_key: "build",
+            rank_key: "a",
+            revision: 1,
+          },
+        },
+        restore_evidence: null,
+      },
+    },
+  },
+});
+
 const neverTypeScript = (): DesktopLibraryModuleBridgeInput["typescript"] => ({
   read: async () => {
     throw new Error("TypeScript read must not run");
@@ -197,6 +312,9 @@ const neverTypeScript = (): DesktopLibraryModuleBridgeInput["typescript"] => ({
   },
   findPageLocation: async () => {
     throw new Error("TypeScript Page location read must not run");
+  },
+  readPageLifecyclePreflight: async () => {
+    throw new Error("TypeScript lifecycle preflight must not run");
   },
 });
 
@@ -403,11 +521,55 @@ describe("Core Library Module Adapter", () => {
     ]);
   });
 
+  test("maps one native Page lifecycle compiler snapshot", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueRead(pageLifecyclePreflightSnapshot());
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(adapter.readPageLifecyclePreflight(
+      "project:test",
+      "page:one",
+    )).resolves.toMatchObject({
+      ok: true,
+      value: {
+        projectId: "project:test",
+        libraryId: identity.libraryId,
+        storeEpoch: identity.storeEpoch,
+        changeLogSeq: 15,
+        value: {
+          tagsProperty: {
+            propertyId: "tags",
+            dataSourceId: "source:test",
+            revision: 1,
+          },
+          reservedBlockType: null,
+          page: {
+            pageId: "page:one",
+            lifecycle: "active",
+            parent: { kind: "data_source", dataSourceId: "source:test" },
+            metadataRevision: 3,
+            parentRevision: 2,
+            membership: {
+              membershipId: "membership:one",
+              status: "build",
+              position: { groupKey: "build", rankKey: "a", revision: 1 },
+            },
+          },
+        },
+      },
+    });
+    expect(client.reads).toEqual([{
+      kind: "page_lifecycle_preflight",
+      page_id: "page:one",
+    }]);
+  });
+
   test("binds reference reads to their Project and locations to the trusted root", async () => {
     const rootClient = new FakeCoreClient();
     const projectClient = new FakeCoreClient();
     projectClient.enqueueRead(pageTargetSnapshot());
     projectClient.enqueueRead(pageOwnershipPathSnapshot());
+    projectClient.enqueueRead(pageLifecyclePreflightSnapshot());
     rootClient.enqueueRead(pageLocationSnapshot());
     const requestedProjects: string[] = [];
     const runtime = {
@@ -438,10 +600,14 @@ describe("Core Library Module Adapter", () => {
       requestingProjectId: "project:test",
       targetPageId: "page:one",
     });
+    await expect(bridge.readPageLifecyclePreflight(
+      "project:test",
+      "page:one",
+    )).resolves.toMatchObject({ ok: true });
     await bridge.findPageLocation("page:one");
 
     expect(requestedProjects).toEqual(["project:test"]);
-    expect(projectClient.reads).toHaveLength(2);
+    expect(projectClient.reads).toHaveLength(3);
     expect(rootClient.reads).toEqual([{
       kind: "page_location",
       page_id: "page:one",

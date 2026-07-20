@@ -255,6 +255,17 @@ serves the legacy single-row compatibility read for active or archived Pages,
 including default-View group order; it authorizes through the owning Database
 and remains behind the desktop port rather than expanding the public
 TypeScript Database v2 request union.
+Page lifecycle compilation uses one Project-bound Library Core read rather
+than assembling mutable coordinates in Electron. In the same snapshot Core
+returns the default Database/View query, exact tags Property revision, reserved
+Block identity, Page/Document authority, parent and Library placement,
+Data Source membership/status/View position, and lifecycle revisions. The
+strict Adapter maps that native snapshot into the established lifecycle-v2
+compiler contract, and Electron IPC selects it through the authority bridge.
+Database value and position mutations advance `blocks`, `pages`, and the Page
+read model to the same metadata revision; lifecycle CAS therefore observes the
+same Page authority after any Database edit instead of failing on projection
+drift.
 Trusted Library Database access uses a distinct root-client capability accepted
 only from local Electron-host, native-CLI, and test adapters. Core resolves the
 concrete Library Database/Data Source/View itself and keeps the non-null legacy

@@ -593,6 +593,28 @@ mod tests {
         );
         let event = applied.event.as_ref().expect("committed Database event");
         assert_eq!(applied.committed.receipt.committed_at, event.committed_at);
+        kernel
+            .writer()
+            .call(|connection| {
+                let revisions = connection.query_row(
+                    "SELECT block.metadata_revision, page.metadata_revision, \
+                       projection.metadata_revision FROM blocks block \
+                     JOIN pages page ON page.block_id = block.id \
+                     JOIN page_read_model projection ON projection.page_block_id = block.id \
+                     WHERE block.id = 'page:database-row'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(revisions, (2, 2, 2));
+                Ok(())
+            })
+            .expect("Page metadata projections stay synchronized after value writes");
 
         let replayed = module
             .apply(&context(), request.clone())
@@ -803,6 +825,29 @@ mod tests {
         assert_eq!(grouped["view"]["revision"], 2);
         assert_eq!(grouped["rows"][0]["position"]["groupKey"], "high");
         assert_eq!(grouped["rows"][0]["position"]["revision"], 1);
+        kernel
+            .writer()
+            .call(|connection| {
+                let revisions = connection.query_row(
+                    "SELECT block.metadata_revision, page.metadata_revision, \
+                       projection.metadata_revision FROM blocks block \
+                     JOIN pages page ON page.block_id = block.id \
+                     JOIN page_read_model projection ON projection.page_block_id = block.id \
+                     WHERE block.id = 'page:database-row'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(revisions.0, revisions.1);
+                assert_eq!(revisions.0, revisions.2);
+                Ok(())
+            })
+            .expect("Page metadata projections stay synchronized after positioning");
 
         module
             .apply(

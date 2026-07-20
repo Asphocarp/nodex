@@ -138,6 +138,16 @@ impl LibraryModule {
                                 &intent,
                             )?),
                         },
+                        LibraryRead::PageLifecyclePreflight { page_id } => {
+                            LibraryReadValue::PageLifecyclePreflight {
+                                value: Box::new(page_lifecycle::read_preflight(
+                                    connection,
+                                    &library_id,
+                                    &context,
+                                    &page_id,
+                                )?),
+                            }
+                        }
                         read => navigation::read(
                             connection,
                             &library_id,
@@ -594,6 +604,14 @@ mod tests {
                         params![SOURCE, NOW],
                     )?;
                     transaction.execute(
+                        "INSERT INTO data_source_properties( \
+                           data_source_id, id, name, value_type, config_json, rank_key, \
+                           lifecycle, schema_revision, created_at, updated_at \
+                         ) VALUES (?1, 'tags', 'Tags', 'multi_select', \
+                           '{\"options\":[]}', 'b', 'active', 1, ?2, ?2)",
+                        params![SOURCE, NOW],
+                    )?;
+                    transaction.execute(
                         "INSERT INTO database_views( \
                            id, database_block_id, data_source_id, name, kind, config_json, \
                            rank_key, created_at, updated_at \
@@ -878,6 +896,34 @@ mod tests {
             panic!("Page location");
         };
         assert_eq!(value.expect("active Page location").project_id, "project-1");
+        let LibraryReadValue::PageLifecyclePreflight { value } = module
+            .read(
+                &persistent_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PageLifecyclePreflight {
+                        page_id: ROW_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect("native Page lifecycle preflight")
+            .value
+        else {
+            panic!("Page lifecycle preflight");
+        };
+        assert_eq!(value.version, 2);
+        assert_eq!(value.tags_property["propertyId"], "tags");
+        let page = value.page.expect("Page lifecycle authority");
+        assert_eq!(page.page_id, ROW_PAGE);
+        assert_eq!(page.metadata_revision, 1);
+        assert_eq!(page.parent_revision, 1);
+        assert_eq!(page.document.generation, 1);
+        assert_eq!(page.document.head_seq, 1);
+        let membership = page.membership.expect("Data Source membership");
+        assert_eq!(membership.membership_id, "membership:row");
+        assert_eq!(membership.status, LibraryPageWorkflowStatus::Triage);
+        assert_eq!(membership.view_id, VIEW);
+        assert!(membership.position.is_none());
         let location_error = module
             .read(
                 &persistent_context,
@@ -3070,3 +3116,4 @@ pub(crate) use page_copy::{OccurrencePageCloneInput, clone_page_for_occurrence};
 mod mutation;
 mod navigation;
 mod page_copy;
+mod page_lifecycle;
