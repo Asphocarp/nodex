@@ -1,0 +1,8 @@
+*** Begin Patch
+*** Update Page: @01JABC_PAGE
+@@
+ ## Runtime
+-Core starts when the UI opens.
++Core starts on demand, with or without a window.
+ It remains the only SQLite owner.
+*** End Patch

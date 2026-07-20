@@ -1,0 +1,8 @@
+start: begin_patch update_page end_patch
+begin_patch: "*** Begin Patch" LF
+end_patch: "*** End Patch" LF?
+update_page: "*** Update Page: " page_id LF hunk+
+page_id: /@[A-Za-z0-9_-]+/
+hunk: "@@" LF change_line+
+change_line: ("+" | "-" | " ") /(.*)/ LF
+%import common.LF

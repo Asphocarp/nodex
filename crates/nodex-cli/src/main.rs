@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
 
 fn main() {
-    eprintln!("native nodex CLI scaffold: Core protocol is not enabled yet");
+    std::process::exit(nodex_cli::run(std::env::args_os()));
 }

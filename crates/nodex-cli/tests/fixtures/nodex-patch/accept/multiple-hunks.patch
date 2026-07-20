@@ -1,0 +1,10 @@
+*** Begin Patch
+*** Update Page: @page_two
+@@
+-Alpha
++First
+@@
+ Context
+-Omega
++Last
+*** End Patch
