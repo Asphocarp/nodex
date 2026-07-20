@@ -1,11 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
 use nodex_core_contracts::library::{
     LibraryBlockLocation, LibraryBlockTransferDocumentCommit, LibraryBlockTransferDocumentHead,
     LibraryBlockTransferLogicalIntent, LibraryBlockTransferMembership, LibraryBlockTransferMode,
     LibraryBlockTransferPlan, LibraryBlockTransferPreparation, LibraryBlockTransferResult,
     LibraryBlockTransferSource, LibraryBlockTransferTarget, LibraryBlockTransferWriteFence,
-    LibraryCommitValue, LibraryPlacementAnchor, LibraryReceipt,
+    LibraryCommitValue, LibraryPageCopyDestination, LibraryPageCopyPositionAnchor,
+    LibraryPageCopyValue, LibraryPageCopyViewPlacement, LibraryPlacementAnchor, LibraryReceipt,
 };
 use nodex_core_contracts::{BoundModuleContext, CommittedModuleValue};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -13,8 +15,9 @@ use serde_json::Value;
 
 use crate::database::{
     ExistingPageTransferTarget, PageCopyDataSourceDestination, StagedPagePlacementRevisions,
-    place_staged_page_in_data_source, resolve_page_transfer_data_source_destination,
-    resolve_page_transfer_data_source_source, transfer_existing_page_for_block_transfer,
+    place_staged_page_in_data_source, resolve_page_copy_data_source_source,
+    resolve_page_transfer_data_source_destination, resolve_page_transfer_data_source_source,
+    transfer_existing_page_for_block_transfer,
 };
 use crate::document::{
     BlockDocumentSchema, DocumentAuthorityRow, DocumentBlockOperation, DocumentMaterialization,
@@ -39,6 +42,7 @@ use super::mutation::{
     MutationEffects, append_rank, finish_mutation, insert_library_placement,
     insert_page_read_model, require_project_in_library, sqlite_now,
 };
+use super::page_copy::{execute_page_copy, page_copy_closure_document_heads};
 
 const MODULE_NAME: &str = "library";
 const MAX_ID_LENGTH: usize = 512;
@@ -99,6 +103,8 @@ struct PreparedPageOwnershipTransfer {
     target: PreparedPageOwnershipTarget,
     source_document: Option<PreparedPageOwnershipDocument>,
     target_document: Option<PreparedPageOwnershipDocument>,
+    copy_document_heads: Vec<LibraryBlockTransferDocumentHead>,
+    copy_destination: Option<LibraryPageCopyDestination>,
 }
 
 struct PreparedPageOwnershipRoot {
@@ -108,6 +114,9 @@ struct PreparedPageOwnershipRoot {
     parent_revision: i64,
     source_membership: Option<LibraryBlockTransferMembership>,
     shell: MaterializedBlockNode,
+    owned_document_id: String,
+    owned_document_generation: i64,
+    owned_document_head_seq: i64,
 }
 
 struct PreparedPageOwnershipDocument {
@@ -222,7 +231,8 @@ pub(super) fn plan(
         });
     }
     if uses_page_ownership_parent_compiler(connection, intent)? {
-        let prepared = prepare_page_ownership_transfer(connection, context, library_id, intent)?;
+        let prepared =
+            prepare_page_ownership_transfer(connection, context, library_id, operation_id, intent)?;
         return Ok(LibraryBlockTransferPlan::Prepared {
             preparation: page_ownership_preparation(&prepared),
         });
@@ -253,6 +263,7 @@ pub(super) fn apply(
     request_hash: &str,
     intent: &LibraryBlockTransferLogicalIntent,
     write_fence: Option<&LibraryBlockTransferWriteFence>,
+    assets_root: &Path,
 ) -> Result<LibraryApplyOutcome, StoreError> {
     validate_intent(library_id, intent)?;
     if uses_page_ownership_parent_compiler(connection, intent)? {
@@ -265,6 +276,7 @@ pub(super) fn apply(
             request_hash,
             intent,
             write_fence,
+            assets_root,
         );
     }
     if matches!(
@@ -662,13 +674,9 @@ fn prepare_page_ownership_transfer(
     connection: &Connection,
     context: &BoundModuleContext,
     library_id: &str,
+    operation_id: &str,
     intent: &LibraryBlockTransferLogicalIntent,
 ) -> Result<PreparedPageOwnershipTransfer, StoreError> {
-    if intent.mode != LibraryBlockTransferMode::Move {
-        return Err(invalid(
-            "Page ownership copy requires the recursive Page copy compiler",
-        ));
-    }
     let requesting_project_id = bound_project_id(context)?;
     require_project_in_library(connection, requesting_project_id, library_id)?;
     let mut source_document_base = None;
@@ -684,13 +692,19 @@ fn prepare_page_ownership_transfer(
             PreparedPageOwnershipSource::Library
         }
         LibraryBlockTransferSource::DataSource { data_source_id } => {
-            let resolved = resolve_page_transfer_data_source_source(
-                connection,
-                library_id,
-                requesting_project_id,
-                data_source_id,
-            )?;
-            if resolved.project_id != requesting_project_id {
+            let resolved = if intent.mode == LibraryBlockTransferMode::Copy {
+                resolve_page_copy_data_source_source(connection, library_id, data_source_id)?
+            } else {
+                resolve_page_transfer_data_source_source(
+                    connection,
+                    library_id,
+                    requesting_project_id,
+                    data_source_id,
+                )?
+            };
+            if intent.mode == LibraryBlockTransferMode::Move
+                && resolved.project_id != requesting_project_id
+            {
                 return Err(unauthorized(
                     "Block transfer source Data Source belongs to another Project",
                 ));
@@ -707,7 +721,11 @@ fn prepare_page_ownership_transfer(
                 context,
                 library_id,
                 &document_id,
-                TransferDocumentAccess::Write,
+                if intent.mode == LibraryBlockTransferMode::Copy {
+                    TransferDocumentAccess::Read
+                } else {
+                    TransferDocumentAccess::Write
+                },
             )?;
             if base.page_id != *page_id {
                 return Err(corrupt("Source Page Document owner is inconsistent"));
@@ -724,7 +742,11 @@ fn prepare_page_ownership_transfer(
                 context,
                 library_id,
                 document_id,
-                TransferDocumentAccess::Write,
+                if intent.mode == LibraryBlockTransferMode::Copy {
+                    TransferDocumentAccess::Read
+                } else {
+                    TransferDocumentAccess::Write
+                },
             )?;
             let page_id = base.page_id.clone();
             source_document_base = Some(base);
@@ -835,31 +857,34 @@ fn prepare_page_ownership_transfer(
             }
         }
     };
-    if matches!(
-        (&source, &target),
-        (
-            PreparedPageOwnershipSource::Library,
-            PreparedPageOwnershipTarget::Library { .. }
-        )
-    ) || matches!(
-        (&source, &target),
-        (
-            PreparedPageOwnershipSource::DataSource { data_source_id: source, .. },
-            PreparedPageOwnershipTarget::DataSource { destination, .. }
-        ) if source == &destination.data_source_id
-    ) || matches!(
-        (&source, &target),
-        (
-            PreparedPageOwnershipSource::Document { document_id: source, .. },
-            PreparedPageOwnershipTarget::Document { document_id: target, .. }
-        ) if source == target
-    ) {
+    if intent.mode == LibraryBlockTransferMode::Move
+        && (matches!(
+            (&source, &target),
+            (
+                PreparedPageOwnershipSource::Library,
+                PreparedPageOwnershipTarget::Library { .. }
+            )
+        ) || matches!(
+            (&source, &target),
+            (
+                PreparedPageOwnershipSource::DataSource { data_source_id: source, .. },
+                PreparedPageOwnershipTarget::DataSource { destination, .. }
+            ) if source == &destination.data_source_id
+        ) || matches!(
+            (&source, &target),
+            (
+                PreparedPageOwnershipSource::Document { document_id: source, .. },
+                PreparedPageOwnershipTarget::Document { document_id: target, .. }
+            ) if source == target
+        ))
+    {
         return Err(invalid("Page already belongs to the requested parent"));
     }
-    if let PreparedPageOwnershipTarget::Document {
-        page_id: target_page_id,
-        ..
-    } = &target
+    if intent.mode == LibraryBlockTransferMode::Move
+        && let PreparedPageOwnershipTarget::Document {
+            page_id: target_page_id,
+            ..
+        } = &target
     {
         for root_page_id in &intent.root_block_ids {
             let cycle = connection
@@ -922,7 +947,14 @@ fn prepare_page_ownership_transfer(
             parent_revision,
             page_lifecycle,
         ) = row;
-        if project_id != requesting_project_id {
+        if intent.mode == LibraryBlockTransferMode::Copy {
+            super::require_page_read_access(
+                connection,
+                library_id,
+                requesting_project_id,
+                page_id,
+            )?;
+        } else if project_id != requesting_project_id {
             return Err(unauthorized("Transferred Page belongs to another Project"));
         }
         if block_type != "page"
@@ -1015,6 +1047,24 @@ fn prepare_page_ownership_transfer(
         if shell.block_type != "page" || !shell.children.is_empty() {
             return Err(corrupt("Embedded Page shell is not canonical"));
         }
+        let (owned_document_id, owned_document_generation, owned_document_head_seq, readiness) =
+            connection.query_row(
+                "SELECT document.id, document.generation, document.head_seq, document.readiness \
+                     FROM pages page JOIN documents document ON document.id = page.document_id \
+                     WHERE page.block_id = ?1 AND page.library_id = ?2",
+                params![page_id, library_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )?;
+        if readiness != "ready" {
+            return Err(invalid("Page copy source Document is not ready"));
+        }
         roots.push(PreparedPageOwnershipRoot {
             page_id: page_id.clone(),
             project_id,
@@ -1022,46 +1072,163 @@ fn prepare_page_ownership_transfer(
             parent_revision,
             source_membership,
             shell,
+            owned_document_id,
+            owned_document_generation,
+            owned_document_head_seq,
         });
     }
-    let source_document = source_document_base
-        .map(|base| {
-            let operations = roots
-                .iter()
-                .map(|root| DocumentBlockOperation::DeleteBlock {
-                    block_id: root.page_id.clone(),
-                })
-                .collect::<Vec<_>>();
-            prepare_page_ownership_document_update(base, &operations)
-        })
-        .transpose()?;
-    let target_document = target_document_base
-        .map(|base| {
-            let PreparedPageOwnershipTarget::Document {
+    let mut copy_document_heads = Vec::new();
+    let mut copy_destination = None;
+    let (source_document, target_document) = if intent.mode == LibraryBlockTransferMode::Move {
+        let source_document = source_document_base
+            .map(|base| {
+                let operations = roots
+                    .iter()
+                    .map(|root| DocumentBlockOperation::DeleteBlock {
+                        block_id: root.page_id.clone(),
+                    })
+                    .collect::<Vec<_>>();
+                prepare_page_ownership_document_update(base, &operations)
+            })
+            .transpose()?;
+        let target_document = target_document_base
+            .map(|base| {
+                let PreparedPageOwnershipTarget::Document {
+                    parent_block_id,
+                    before_block_id,
+                    ..
+                } = &target
+                else {
+                    return Err(corrupt("Target Document preparation lost its target"));
+                };
+                let operations = roots
+                    .iter()
+                    .map(|root| DocumentBlockOperation::InsertBlock {
+                        block: root.shell.clone(),
+                        parent_block_id: parent_block_id.clone(),
+                        before_block_id: before_block_id.clone(),
+                    })
+                    .collect::<Vec<_>>();
+                prepare_page_ownership_document_update(base, &operations)
+            })
+            .transpose()?;
+        (source_document, target_document)
+    } else {
+        if let Some(document) = &source_document_base {
+            copy_document_heads.push(LibraryBlockTransferDocumentHead {
+                document_id: document.authority.head.id.clone(),
+                generation: document.authority.head.generation,
+                expected_head_seq: document.authority.head.head_seq,
+            });
+        }
+        if let Some(document) = &target_document_base {
+            copy_document_heads.push(LibraryBlockTransferDocumentHead {
+                document_id: document.authority.head.id.clone(),
+                generation: document.authority.head.generation,
+                expected_head_seq: document.authority.head.head_seq,
+            });
+        }
+        for root in &roots {
+            copy_document_heads.extend(page_copy_closure_document_heads(
+                connection,
+                operation_id,
+                &root.project_id,
+                &root.page_id,
+                &root.owned_document_id,
+            )?);
+        }
+        copy_document_heads.sort_by(|left, right| left.document_id.cmp(&right.document_id));
+        copy_document_heads.dedup_by(|left, right| left.document_id == right.document_id);
+        copy_destination = Some(match &target {
+            PreparedPageOwnershipTarget::Library { before_block_id } => {
+                LibraryPageCopyDestination::Library {
+                    before: before_block_id
+                        .as_deref()
+                        .map(|block_id| read_library_anchor(connection, library_id, block_id))
+                        .transpose()?,
+                }
+            }
+            PreparedPageOwnershipTarget::DataSource { destination, .. } => {
+                LibraryPageCopyDestination::DataSource {
+                    data_source_id: destination.data_source_id.clone(),
+                    expected_data_source_revision: destination.expected_data_source_revision,
+                    values: destination
+                        .values
+                        .iter()
+                        .map(|value| LibraryPageCopyValue {
+                            property_id: value.property_id.clone(),
+                            value: value.value.clone(),
+                        })
+                        .collect(),
+                    view: destination
+                        .view
+                        .as_ref()
+                        .map(|view| LibraryPageCopyViewPlacement {
+                            view_id: view.view_id.clone(),
+                            expected_view_revision: view.expected_view_revision,
+                            group_key: view.group_key.clone(),
+                            before: view.before.as_ref().map(|anchor| {
+                                LibraryPageCopyPositionAnchor {
+                                    page_id: anchor.page_id.clone(),
+                                    expected_position_revision: anchor.expected_position_revision,
+                                }
+                            }),
+                        }),
+                }
+            }
+            PreparedPageOwnershipTarget::Document {
+                page_id,
                 parent_block_id,
                 before_block_id,
                 ..
-            } = &target
-            else {
-                return Err(corrupt("Target Document preparation lost its target"));
-            };
-            let operations = roots
-                .iter()
-                .map(|root| DocumentBlockOperation::InsertBlock {
-                    block: root.shell.clone(),
-                    parent_block_id: parent_block_id.clone(),
-                    before_block_id: before_block_id.clone(),
-                })
-                .collect::<Vec<_>>();
-            prepare_page_ownership_document_update(base, &operations)
-        })
-        .transpose()?;
+            } => {
+                if parent_block_id.is_some() || roots.len() != 1 {
+                    return Err(invalid(
+                        "Recursive Page copy into a nested or multi-root Document target is not available",
+                    ));
+                }
+                let document = target_document_base
+                    .as_ref()
+                    .ok_or_else(|| corrupt("Page copy target Document disappeared"))?;
+                let before = before_block_id
+                    .as_deref()
+                    .map(|block_id| {
+                        let expected_location_revision = connection
+                            .query_row(
+                                "SELECT block.location_revision \
+                                 FROM document_block_index indexed \
+                                 JOIN blocks block ON block.id = indexed.block_id \
+                                 WHERE indexed.document_id = ?1 AND indexed.block_id = ?2 \
+                                   AND indexed.parent_block_id IS NULL AND block.lifecycle = 'active'",
+                                params![document.authority.head.id, block_id],
+                                |row| row.get::<_, i64>(0),
+                            )
+                            .optional()?
+                            .ok_or_else(|| invalid("Page copy target anchor is unavailable"))?;
+                        Ok::<_, StoreError>(LibraryPlacementAnchor {
+                            block_id: block_id.to_owned(),
+                            expected_location_revision,
+                        })
+                    })
+                    .transpose()?;
+                LibraryPageCopyDestination::Page {
+                    page_id: page_id.clone(),
+                    expected_document_generation: document.authority.head.generation,
+                    expected_document_head_seq: document.authority.head.head_seq,
+                    before,
+                }
+            }
+        });
+        (None, None)
+    };
     Ok(PreparedPageOwnershipTransfer {
         roots,
         source,
         target,
         source_document,
         target_document,
+        copy_document_heads,
+        copy_destination,
     })
 }
 
@@ -1078,6 +1245,7 @@ fn page_ownership_preparation(
             expected_head_seq: document.authority.head.head_seq,
         })
         .collect::<Vec<_>>();
+    documents.extend(prepared.copy_document_heads.clone());
     documents.sort_by(|left, right| left.document_id.cmp(&right.document_id));
     documents.dedup_by(|left, right| left.document_id == right.document_id);
     let location_revisions = prepared
@@ -1137,8 +1305,10 @@ fn apply_page_ownership_transfer(
     request_hash: &str,
     intent: &LibraryBlockTransferLogicalIntent,
     write_fence: Option<&LibraryBlockTransferWriteFence>,
+    assets_root: &Path,
 ) -> Result<LibraryApplyOutcome, StoreError> {
-    let mut prepared = prepare_page_ownership_transfer(connection, context, library_id, intent)?;
+    let mut prepared =
+        prepare_page_ownership_transfer(connection, context, library_id, operation_id, intent)?;
     let expected_preparation = page_ownership_preparation(&prepared);
     if write_fence != Some(&expected_preparation.write_fence) {
         return Err(StoreError::new(
@@ -1146,6 +1316,19 @@ fn apply_page_ownership_transfer(
             "Block transfer requires a trusted exact-closure write fence",
             true,
         ));
+    }
+    if intent.mode == LibraryBlockTransferMode::Copy {
+        return apply_page_ownership_copy(
+            connection,
+            context,
+            library_id,
+            operation_id,
+            store_epoch,
+            request_hash,
+            intent,
+            prepared,
+            assets_root,
+        );
     }
     let requesting_project_id = bound_project_id(context)?;
     let now = sqlite_now(connection)?;
@@ -1391,6 +1574,130 @@ fn apply_page_ownership_transfer(
         operation_id,
         &intent.actor,
         &document_commits,
+        outcome.committed.event_sequence,
+        &now,
+    )?;
+    Ok(outcome)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_page_ownership_copy(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    library_id: &str,
+    operation_id: &str,
+    store_epoch: &str,
+    request_hash: &str,
+    intent: &LibraryBlockTransferLogicalIntent,
+    prepared: PreparedPageOwnershipTransfer,
+    assets_root: &Path,
+) -> Result<LibraryApplyOutcome, StoreError> {
+    let destination = prepared
+        .copy_destination
+        .as_ref()
+        .ok_or_else(|| corrupt("Page copy preparation omitted its destination"))?;
+    let mut copied_block_ids = BTreeMap::new();
+    let mut result_root_block_ids = Vec::with_capacity(prepared.roots.len());
+    let mut affected_page_ids = BTreeSet::new();
+    let mut affected_database_ids = BTreeSet::new();
+    let mut affected_view_ids = BTreeSet::new();
+    let mut affected_document_ids = BTreeSet::new();
+    let mut committed_revisions = BTreeMap::new();
+    let mut document_commits = Vec::new();
+    let mut target_project_id = None;
+    let mut affected_parent_keys = BTreeSet::new();
+    for root in &prepared.roots {
+        let execution = execute_page_copy(
+            connection,
+            context,
+            store_epoch,
+            library_id,
+            operation_id,
+            &root.page_id,
+            root.location_revision,
+            root.parent_revision,
+            root.source_membership
+                .as_ref()
+                .map_or(0, |membership| membership.revision),
+            root.owned_document_generation,
+            root.owned_document_head_seq,
+            destination,
+            assets_root,
+        )?;
+        if target_project_id
+            .as_ref()
+            .is_some_and(|project_id| project_id != &execution.project_id)
+        {
+            return Err(corrupt(
+                "Page copy roots resolved to different target Projects",
+            ));
+        }
+        target_project_id = Some(execution.project_id.clone());
+        affected_parent_keys.insert(execution.parent_key);
+        affected_page_ids.extend(execution.affected_page_ids);
+        affected_database_ids.extend(execution.affected_database_ids);
+        affected_view_ids.extend(execution.affected_view_ids);
+        affected_document_ids.extend(execution.affected_document_ids);
+        committed_revisions.extend(execution.committed_revisions);
+        document_commits.extend(execution.document_commits);
+        result_root_block_ids.push(execution.result.page_id.clone());
+        copied_block_ids.extend(execution.result.block_ids);
+    }
+    let (final_locations, final_location_revisions) =
+        read_final_locations(connection, &result_root_block_ids)?;
+    committed_revisions.extend(
+        final_location_revisions
+            .iter()
+            .map(|(block_id, revision)| (format!("blockLocation:{block_id}"), *revision)),
+    );
+    let affected_database_ids = affected_database_ids.into_iter().collect::<Vec<_>>();
+    let result = LibraryBlockTransferResult {
+        mode: LibraryBlockTransferMode::Copy,
+        source_root_block_ids: intent.root_block_ids.clone(),
+        result_root_block_ids: result_root_block_ids.clone(),
+        copied_block_ids: copied_block_ids.clone(),
+        transformation_evidence: Vec::new(),
+        final_locations,
+        final_location_revisions: final_location_revisions.clone(),
+        document_commits: document_commits.clone(),
+        affected_database_ids: affected_database_ids.clone(),
+    };
+    let target_project_id = target_project_id
+        .ok_or_else(|| corrupt("Page copy produced no target Project authority"))?;
+    let now = sqlite_now(connection)?;
+    let affected_block_ids = copied_block_ids.values().cloned().collect::<Vec<_>>();
+    let outcome = finish_mutation(
+        connection,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        MutationEffects {
+            project_id: target_project_id.clone(),
+            operation_kind: "transfer_blocks",
+            change_kind: "block_mutation",
+            did_mutate: true,
+            created_target: None,
+            affected_parent_keys: affected_parent_keys.into_iter().collect(),
+            affected_block_ids,
+            affected_page_ids: affected_page_ids.into_iter().collect(),
+            affected_database_ids,
+            affected_view_ids: affected_view_ids.into_iter().collect(),
+            affected_document_ids: affected_document_ids.into_iter().collect(),
+            committed_revisions,
+            page_copy: None,
+            block_transfer: Some(result.clone()),
+            committed_at: now.clone(),
+        },
+    )?;
+    persist_mutation_ledger(
+        connection,
+        operation_id,
+        &target_project_id,
+        store_epoch,
+        request_hash,
+        intent,
+        &result,
         outcome.committed.event_sequence,
         &now,
     )?;

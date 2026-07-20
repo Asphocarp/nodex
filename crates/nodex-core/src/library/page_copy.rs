@@ -3,6 +3,7 @@ use std::path::Path;
 
 use nodex_core_contracts::BoundModuleContext;
 use nodex_core_contracts::library::{
+    LibraryBlockTransferDocumentCommit, LibraryBlockTransferDocumentHead,
     LibraryPageCopyDestination, LibraryPageCopyResult, LibraryResourceTarget, LibraryWriteParent,
 };
 use rusqlite::{Connection, OptionalExtension, params};
@@ -47,6 +48,8 @@ struct CopyDocument {
     source_containing_document_id: Option<String>,
     schema_key: String,
     schema_version: i64,
+    source_generation: i64,
+    source_head_seq: i64,
     body: CopyDocumentBody,
 }
 
@@ -65,6 +68,24 @@ struct CopyPlan {
     block_ids: BTreeMap<String, String>,
     document_ids: BTreeMap<String, String>,
     documents: Vec<CopyDocument>,
+}
+
+pub(super) struct PageCopyExecution {
+    pub(super) project_id: String,
+    pub(super) parent_key: String,
+    pub(super) affected_page_ids: Vec<String>,
+    pub(super) affected_database_ids: Vec<String>,
+    pub(super) affected_view_ids: Vec<String>,
+    pub(super) affected_document_ids: Vec<String>,
+    pub(super) committed_revisions: BTreeMap<String, i64>,
+    pub(super) result: LibraryPageCopyResult,
+    pub(super) document_commits: Vec<LibraryBlockTransferDocumentCommit>,
+    pub(super) committed_at: String,
+}
+
+struct PersistedCopyDocuments {
+    heads: BTreeMap<String, i64>,
+    commits: Vec<LibraryBlockTransferDocumentCommit>,
 }
 
 struct ExplicitRootIdentity<'a> {
@@ -169,6 +190,65 @@ pub(super) fn copy_page(
     destination: &LibraryPageCopyDestination,
     assets_root: &Path,
 ) -> Result<LibraryApplyOutcome, StoreError> {
+    let execution = execute_page_copy(
+        connection,
+        context,
+        store_epoch,
+        library_id,
+        operation_id,
+        source_page_id,
+        expected_location_revision,
+        expected_parent_revision,
+        expected_active_membership_revision,
+        expected_document_generation,
+        expected_document_head_seq,
+        destination,
+        assets_root,
+    )?;
+    finish_mutation(
+        connection,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        MutationEffects {
+            project_id: execution.project_id,
+            operation_kind: "copy_page",
+            change_kind: "library.changed",
+            did_mutate: true,
+            created_target: Some(LibraryResourceTarget::Page {
+                page_id: execution.result.page_id.clone(),
+            }),
+            affected_parent_keys: vec![execution.parent_key],
+            affected_block_ids: Vec::new(),
+            affected_page_ids: execution.affected_page_ids,
+            affected_database_ids: execution.affected_database_ids,
+            affected_view_ids: execution.affected_view_ids,
+            affected_document_ids: execution.affected_document_ids,
+            committed_revisions: execution.committed_revisions,
+            page_copy: Some(execution.result),
+            block_transfer: None,
+            committed_at: execution.committed_at,
+        },
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn execute_page_copy(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    library_id: &str,
+    operation_id: &str,
+    source_page_id: &str,
+    expected_location_revision: i64,
+    expected_parent_revision: i64,
+    expected_active_membership_revision: i64,
+    expected_document_generation: i64,
+    expected_document_head_seq: i64,
+    destination: &LibraryPageCopyDestination,
+    assets_root: &Path,
+) -> Result<PageCopyExecution, StoreError> {
     let requesting_project_id = context
         .project_id
         .as_ref()
@@ -266,7 +346,7 @@ pub(super) fn copy_page(
         &now,
     )?;
 
-    let document_heads = persist_copy_documents(
+    let mut persisted_documents = persist_copy_documents(
         connection,
         &plan,
         source_page_id,
@@ -294,7 +374,7 @@ pub(super) fn copy_page(
     if data_source_placement.is_none() {
         advance_copied_root_revisions(connection, &target_page_id, &now)?;
     }
-    let parent_head_seq = resolved_parent
+    let parent_commit = resolved_parent
         .document
         .as_ref()
         .map(|parent_document| {
@@ -321,7 +401,11 @@ pub(super) fn copy_page(
         .collect::<Vec<_>>();
     affected_page_ids.sort();
     affected_page_ids.dedup();
-    let mut affected_document_ids = document_heads.keys().cloned().collect::<Vec<_>>();
+    let mut affected_document_ids = persisted_documents
+        .heads
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>();
     if let Some(parent_document) = resolved_parent.document.as_ref() {
         affected_document_ids.push(parent_document.authority.head.id.clone());
     }
@@ -334,15 +418,15 @@ pub(super) fn copy_page(
         committed_revisions.insert(format!("blockMetadata:{page_id}"), revision);
         committed_revisions.insert(format!("pageParent:{page_id}"), revision);
     }
-    for (document_id, head_seq) in &document_heads {
+    for (document_id, head_seq) in &persisted_documents.heads {
         committed_revisions.insert(format!("documentHead:{document_id}"), *head_seq);
     }
-    if let (Some(head_seq), Some(parent_document)) =
-        (parent_head_seq, resolved_parent.document.as_ref())
+    if let (Some(commit), Some(parent_document)) =
+        (parent_commit.as_ref(), resolved_parent.document.as_ref())
     {
         committed_revisions.insert(
             format!("documentHead:{}", parent_document.authority.head.id),
-            head_seq,
+            commit.head_seq,
         );
     }
     if let Some(placement) = &data_source_placement {
@@ -390,44 +474,31 @@ pub(super) fn copy_page(
             );
         }
     }
-    finish_mutation(
-        connection,
-        context,
-        store_epoch,
-        operation_id,
-        request_hash,
-        MutationEffects {
-            project_id: resolved_parent.project_id,
-            operation_kind: "copy_page",
-            change_kind: "library.changed",
-            did_mutate: true,
-            created_target: Some(LibraryResourceTarget::Page {
-                page_id: target_page_id.clone(),
-            }),
-            affected_parent_keys: vec![resolved_parent.parent_key],
-            affected_block_ids: Vec::new(),
-            affected_page_ids,
-            affected_database_ids: data_source_placement
-                .as_ref()
-                .map(|placement| vec![placement.database_id.clone()])
-                .unwrap_or_default(),
-            affected_view_ids: data_source_placement
-                .as_ref()
-                .map(|placement| placement.affected_view_ids.clone())
-                .unwrap_or_default(),
-            affected_document_ids,
-            committed_revisions,
-            page_copy: Some(LibraryPageCopyResult {
-                source_page_id: source_page_id.to_owned(),
-                page_id: target_page_id,
-                document_id: target_document_id,
-                block_ids: plan.block_ids,
-                document_ids: plan.document_ids,
-            }),
-            block_transfer: None,
-            committed_at: now,
+    persisted_documents.commits.extend(parent_commit);
+    Ok(PageCopyExecution {
+        project_id: resolved_parent.project_id,
+        parent_key: resolved_parent.parent_key,
+        affected_page_ids,
+        affected_database_ids: data_source_placement
+            .as_ref()
+            .map(|placement| vec![placement.database_id.clone()])
+            .unwrap_or_default(),
+        affected_view_ids: data_source_placement
+            .as_ref()
+            .map(|placement| placement.affected_view_ids.clone())
+            .unwrap_or_default(),
+        affected_document_ids,
+        committed_revisions,
+        result: LibraryPageCopyResult {
+            source_page_id: source_page_id.to_owned(),
+            page_id: target_page_id,
+            document_id: target_document_id,
+            block_ids: plan.block_ids,
+            document_ids: plan.document_ids,
         },
-    )
+        document_commits: std::mem::take(&mut persisted_documents.commits),
+        committed_at: now,
+    })
 }
 
 pub(crate) fn clone_page_for_occurrence(
@@ -710,7 +781,7 @@ pub(crate) fn clone_page_for_occurrence(
     Ok(OccurrencePageCloneResult {
         page_id: input.new_page_id.to_owned(),
         database_id: source.9,
-        affected_document_ids: document_heads.into_keys().collect(),
+        affected_document_ids: document_heads.heads.into_keys().collect(),
     })
 }
 
@@ -724,8 +795,9 @@ fn persist_copy_documents(
     operation_id: &str,
     now: &str,
     assets_root: &Path,
-) -> Result<BTreeMap<String, i64>, StoreError> {
+) -> Result<PersistedCopyDocuments, StoreError> {
     let mut document_heads = BTreeMap::new();
+    let mut document_commits = Vec::new();
     for document in &plan.documents {
         let target_authority =
             read_document_authority(connection, &document.target_document_id)?
@@ -778,6 +850,15 @@ fn persist_copy_documents(
             },
         )?;
         document_heads.insert(document.target_document_id.clone(), persisted.head_seq);
+        document_commits.push(LibraryBlockTransferDocumentCommit {
+            document_id: document.target_document_id.clone(),
+            generation: target_authority.head.generation,
+            base_head_seq: 0,
+            head_seq: persisted.head_seq,
+            update_id,
+            update: prepared.update_v1.clone(),
+            state_vector: persisted.state_vector.clone(),
+        });
         if document.owner_type != "page" {
             continue;
         }
@@ -828,7 +909,10 @@ fn persist_copy_documents(
             now,
         )?;
     }
-    Ok(document_heads)
+    Ok(PersistedCopyDocuments {
+        heads: document_heads,
+        commits: document_commits,
+    })
 }
 
 fn build_copy_plan(
@@ -868,6 +952,8 @@ fn build_copy_plan(
                 source_containing_document_id,
                 authority.head.schema_key,
                 authority.head.schema_version,
+                authority.head.generation,
+                authority.head.head_seq,
                 CopyDocumentBody::Canvas,
             ));
             continue;
@@ -948,6 +1034,8 @@ fn build_copy_plan(
             source_containing_document_id,
             authority.head.schema_key,
             authority.head.schema_version,
+            authority.head.generation,
+            authority.head.head_seq,
             CopyDocumentBody::Yjs {
                 schema,
                 title: decoded.title,
@@ -1003,6 +1091,8 @@ fn build_copy_plan(
                 source_containing_document_id,
                 schema_key,
                 schema_version,
+                source_generation,
+                source_head_seq,
                 body,
             )| {
                 Ok(CopyDocument {
@@ -1020,6 +1110,8 @@ fn build_copy_plan(
                     source_containing_document_id,
                     schema_key,
                     schema_version,
+                    source_generation,
+                    source_head_seq,
                     body,
                 })
             },
@@ -1032,6 +1124,35 @@ fn build_copy_plan(
         document_ids,
         documents,
     })
+}
+
+pub(super) fn page_copy_closure_document_heads(
+    connection: &Connection,
+    operation_id: &str,
+    source_project_id: &str,
+    source_page_id: &str,
+    source_root_document_id: &str,
+) -> Result<Vec<LibraryBlockTransferDocumentHead>, StoreError> {
+    let plan = build_copy_plan(
+        connection,
+        operation_id,
+        source_project_id,
+        source_page_id,
+        source_root_document_id,
+        None,
+    )?;
+    let mut heads = plan
+        .documents
+        .iter()
+        .map(|document| LibraryBlockTransferDocumentHead {
+            document_id: document.source_document_id.clone(),
+            generation: document.source_generation,
+            expected_head_seq: document.source_head_seq,
+        })
+        .collect::<Vec<_>>();
+    heads.sort_by(|left, right| left.document_id.cmp(&right.document_id));
+    heads.dedup_by(|left, right| left.document_id == right.document_id);
+    Ok(heads)
 }
 
 #[allow(clippy::too_many_arguments)]

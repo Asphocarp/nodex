@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use nodex_core_contracts::library::{
-    LibraryAccess, LibraryBlockTransferResult, LibraryCommitValue, LibraryEvent, LibraryEventKind,
-    LibraryIntent, LibraryPageCopyResult, LibraryReceipt, LibraryResourceTarget,
-    LibraryWriteParent,
+    LibraryAccess, LibraryBlockTransferDocumentCommit, LibraryBlockTransferResult,
+    LibraryCommitValue, LibraryEvent, LibraryEventKind, LibraryIntent, LibraryPageCopyResult,
+    LibraryReceipt, LibraryResourceTarget, LibraryWriteParent,
 };
 use nodex_core_contracts::{
     BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue,
@@ -271,6 +271,7 @@ pub(super) fn apply(
                     &request_hash,
                     intent,
                     write_fence.as_ref(),
+                    &assets_root,
                 ),
             }
         })
@@ -1166,8 +1167,8 @@ pub(super) fn persist_parent_insert(
     parent: &ResolvedParentDocument,
     block: MaterializedBlockNode,
     before_block_id: Option<String>,
-) -> Result<i64, StoreError> {
-    persist_parent_operations(
+) -> Result<LibraryBlockTransferDocumentCommit, StoreError> {
+    persist_parent_operations_detailed(
         connection,
         store_epoch,
         operation_id,
@@ -1189,6 +1190,25 @@ fn persist_parent_operations(
     parent: &ResolvedParentDocument,
     operations: &[DocumentBlockOperation],
 ) -> Result<i64, StoreError> {
+    persist_parent_operations_detailed(
+        connection,
+        store_epoch,
+        operation_id,
+        phase,
+        parent,
+        operations,
+    )
+    .map(|commit| commit.head_seq)
+}
+
+fn persist_parent_operations_detailed(
+    connection: &Connection,
+    store_epoch: &str,
+    operation_id: &str,
+    phase: &str,
+    parent: &ResolvedParentDocument,
+    operations: &[DocumentBlockOperation],
+) -> Result<LibraryBlockTransferDocumentCommit, StoreError> {
     let full_state = parent.engine.full_state_v1();
     let prepared = prepare_document_operation_update(
         &parent.authority.head.id,
@@ -1234,7 +1254,15 @@ fn persist_parent_operations(
             title_write_fence_required: prepared.title_write_fence_required,
         },
     )?;
-    Ok(persisted.head_seq)
+    Ok(LibraryBlockTransferDocumentCommit {
+        document_id: parent.authority.head.id.clone(),
+        generation: parent.authority.head.generation,
+        base_head_seq: parent.authority.head.head_seq,
+        head_seq: persisted.head_seq,
+        update_id,
+        update: prepared.update_v1,
+        state_vector: persisted.state_vector,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1379,10 +1407,10 @@ fn create_database(
                 ]
                 .into_iter()
                 .chain(parent_head_seq.zip(resolved_parent.document.as_ref()).map(
-                    |(head_seq, parent)| {
+                    |(commit, parent)| {
                         (
                             format!("documentHead:{}", parent.authority.head.id),
-                            head_seq,
+                            commit.head_seq,
                         )
                     },
                 )),
@@ -1614,10 +1642,10 @@ fn create_page(
                 ]
                 .into_iter()
                 .chain(parent_head_seq.zip(resolved_parent.document.as_ref()).map(
-                    |(head_seq, parent)| {
+                    |(commit, parent)| {
                         (
                             format!("documentHead:{}", parent.authority.head.id),
-                            head_seq,
+                            commit.head_seq,
                         )
                     },
                 )),

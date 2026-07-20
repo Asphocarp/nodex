@@ -504,6 +504,7 @@ describe("Core Block Transfer Adapter", () => {
     const dataSourceIntent: BlockTransferIntent = {
       ...intent,
       operationId: "transfer:from-data-source",
+      mode: "copy",
       source: { kind: "data_source", dataSourceId: "source:origin" },
       target: { kind: "library", libraryId: identity.libraryId },
     };
@@ -519,7 +520,11 @@ describe("Core Block Transfer Adapter", () => {
             target_document_id: null,
             target_database_id: null,
             write_fence: {
-              documents: [],
+              documents: [{
+                document_id: "document:owned-page",
+                generation: 2,
+                expected_head_seq: 9,
+              }],
               location_revisions: { "block:root": 4 },
               source_memberships: {
                 "block:root": {
@@ -537,7 +542,11 @@ describe("Core Block Transfer Adapter", () => {
     expect(prepared).toMatchObject({
       ok: true,
       value: {
-        leaseDocuments: [],
+        leaseDocuments: [{
+          documentId: "document:owned-page",
+          generation: 2,
+          expectedHeadSeq: 9,
+        }],
         request: {
           source: {
             kind: "database",
@@ -564,7 +573,11 @@ describe("Core Block Transfer Adapter", () => {
     expect(client.applies[0]).toMatchObject({
       intent: {
         write_fence: {
-          documents: [],
+          documents: [{
+            document_id: "document:owned-page",
+            generation: 2,
+            expected_head_seq: 9,
+          }],
           location_revisions: { "block:root": 4 },
           source_memberships: {
             "block:root": { membership_id: "membership:root", revision: 6 },

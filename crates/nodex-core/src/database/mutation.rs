@@ -1090,6 +1090,22 @@ pub(crate) fn resolve_page_transfer_data_source_source(
         DatabaseWriteAction::Write,
         false,
     )?;
+    resolve_page_transfer_data_source_source_authority(connection, source)
+}
+
+pub(crate) fn resolve_page_copy_data_source_source(
+    connection: &Connection,
+    library_id: &str,
+    data_source_id: &str,
+) -> Result<ResolvedPageTransferDataSourceSource, StoreError> {
+    let source = require_source(connection, library_id, data_source_id)?;
+    resolve_page_transfer_data_source_source_authority(connection, source)
+}
+
+fn resolve_page_transfer_data_source_source_authority(
+    connection: &Connection,
+    source: SourceRow,
+) -> Result<ResolvedPageTransferDataSourceSource, StoreError> {
     let project_id = connection
         .query_row(
             "SELECT project_id FROM blocks WHERE id = ?1 AND type = 'database' \

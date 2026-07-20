@@ -1055,6 +1055,55 @@ describe("Electron native data authority", () => {
         finalLocationRevisions: { [copiedDataSourcePageId]: 5 },
         documentCommits: [{ documentId: expect.any(String) }],
       });
+      const copyRecursivePageIntent = {
+        ...moveDataSourcePageIntoPageIntent,
+        operationId: "electron-native-recursive-page-copy-to-library",
+        mode: "copy" as const,
+        rootBlockIds: [nativeContentBlockId],
+        source: {
+          kind: "library" as const,
+          libraryId: runtime.rootClient.handshake.library_id,
+        },
+        target: {
+          kind: "library" as const,
+          libraryId: runtime.rootClient.handshake.library_id,
+        },
+      };
+      const preparedRecursivePageCopy = await transferAdapter.prepare(
+        copyRecursivePageIntent,
+      );
+      if (!preparedRecursivePageCopy.ok) {
+        throw new Error(
+          `Core recursive Page copy preparation failed: ${preparedRecursivePageCopy.error.code}: ${preparedRecursivePageCopy.error.message}`,
+        );
+      }
+      expect(preparedRecursivePageCopy.value.leaseDocuments.length).toBeGreaterThanOrEqual(2);
+      const copiedRecursivePage = await transferAdapter.apply(
+        preparedRecursivePageCopy.value.request,
+      );
+      if (!copiedRecursivePage.ok) {
+        throw new Error(
+          `Core recursive Page copy failed: ${copiedRecursivePage.error.code}: ${copiedRecursivePage.error.message}`,
+        );
+      }
+      const copiedRecursiveRootId =
+        copiedRecursivePage.value.copiedBlockIds[nativeContentBlockId];
+      const copiedRecursiveChildId =
+        copiedRecursivePage.value.copiedBlockIds[copiedDataSourcePageId];
+      if (!copiedRecursiveRootId || !copiedRecursiveChildId) {
+        throw new Error("Core recursive Page copy omitted ownership mappings");
+      }
+      expect(copiedRecursivePage.value).toMatchObject({
+        resultRootBlockIds: [copiedRecursiveRootId],
+        finalLocations: {
+          [copiedRecursiveRootId]: { kind: "space", projectId },
+        },
+        copiedBlockIds: {
+          [nativeContentBlockId]: copiedRecursiveRootId,
+          [copiedDataSourcePageId]: copiedRecursiveChildId,
+        },
+      });
+      expect(copiedRecursivePage.value.documentCommits.length).toBeGreaterThanOrEqual(2);
       const moveNestedPageToLibraryIntent = {
         ...moveDataSourcePageIntoPageIntent,
         operationId: "electron-native-nested-page-transfer-to-library",

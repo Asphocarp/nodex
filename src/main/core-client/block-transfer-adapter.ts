@@ -45,6 +45,9 @@ type CoreTransferPlan = Extract<
 >["value"];
 type CoreTransferResult = Extract<CoreTransferPlan, { kind: "committed" }>["result"];
 type CoreTransferIntent = Extract<LibraryIntent, { kind: "transfer_blocks" }>["intent"];
+type CoreTransferWriteFence = NonNullable<
+  Extract<LibraryIntent, { kind: "transfer_blocks" }>["write_fence"]
+>;
 
 const toCoreIntent = (intent: BlockTransferIntent): CoreTransferIntent => ({
   actor: intent.actor,
@@ -492,9 +495,32 @@ const exactWriteFence = (request: BlockTransferRequest) => {
   };
 };
 
+const canUsePreparedWriteFence = (
+  prepared: CoreTransferWriteFence,
+  declared: CoreTransferWriteFence,
+): boolean => {
+  const preparedDocuments = new Map(
+    prepared.documents.map((head) => [head.document_id, head]),
+  );
+  return declared.documents.every((head) => {
+    const planned = preparedDocuments.get(head.document_id);
+    return planned?.generation === head.generation
+      && planned.expected_head_seq === head.expected_head_seq;
+  })
+    && JSON.stringify(prepared.location_revisions)
+      === JSON.stringify(declared.location_revisions)
+    && JSON.stringify(prepared.source_memberships)
+      === JSON.stringify(declared.source_memberships);
+};
+
 export const createCoreBlockTransferAdapter = (
   input: CoreBlockTransferAdapterInput,
-): CoreBlockTransferAdapter => ({
+): CoreBlockTransferAdapter => {
+  const preparedWriteFences = new Map<string, {
+    readonly intent: CoreTransferIntent;
+    readonly writeFence: CoreTransferWriteFence;
+  }>();
+  return {
   lookupCommitted: async (rawIntent) => {
     let intent: BlockTransferIntent;
     try {
@@ -542,7 +568,12 @@ export const createCoreBlockTransferAdapter = (
           ),
         };
       }
-      return { ok: true, value: toPreparedRequest(intent, plan.preparation) };
+      const preparation = toPreparedRequest(intent, plan.preparation);
+      preparedWriteFences.set(intent.operationId, {
+        intent: toCoreIntent(intent),
+        writeFence: plan.preparation.write_fence,
+      });
+      return { ok: true, value: preparation };
     } catch (error) {
       return { ok: false, error: coreFailure(intent, error) };
     }
@@ -559,18 +590,27 @@ export const createCoreBlockTransferAdapter = (
     const scopeError = assertIntentScope(input, intent);
     if (scopeError) return { ok: false, error: scopeError };
     try {
+      const declaredWriteFence = exactWriteFence(request);
+      const prepared = preparedWriteFences.get(request.operationId);
+      const coreIntent = toCoreIntent(intent);
+      const writeFence = prepared
+        && JSON.stringify(prepared.intent) === JSON.stringify(coreIntent)
+        && canUsePreparedWriteFence(prepared.writeFence, declaredWriteFence)
+        ? prepared.writeFence
+        : declaredWriteFence;
       const committed = await input.client.libraryApply({
         operationId: request.operationId,
         intent: {
           kind: "transfer_blocks",
-          intent: toCoreIntent(intent),
-          write_fence: exactWriteFence(request),
+          intent: coreIntent,
+          write_fence: writeFence,
         },
       });
       const result = committed.value.block_transfer;
       if (!result || committed.receipt.operation_kind !== "transfer_blocks") {
         throw new Error("Core returned the wrong Library commit for Block transfer");
       }
+      preparedWriteFences.delete(request.operationId);
       return {
         ok: true,
         value: fromCoreResult(
@@ -584,5 +624,6 @@ export const createCoreBlockTransferAdapter = (
     } catch (error) {
       return { ok: false, error: coreFailure(intent, error) };
     }
-  },
-});
+    },
+  };
+};

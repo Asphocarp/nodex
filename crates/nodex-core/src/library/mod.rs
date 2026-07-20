@@ -1295,6 +1295,32 @@ mod tests {
             )
             .expect_err("foreign source requires a grant");
         assert_eq!(denied.code, CoreErrorCode::NotFound);
+        let copy_foreign_page = LibraryBlockTransferLogicalIntent {
+            actor: serde_json::json!({ "kind": "test" }),
+            mode: LibraryBlockTransferMode::Copy,
+            root_block_ids: vec![FOREIGN_SOURCE_PAGE.to_owned()],
+            source: LibraryBlockTransferSource::Library {
+                library_id: "library-1".to_owned(),
+            },
+            target: LibraryBlockTransferTarget::Library {
+                library_id: "library-1".to_owned(),
+                before_block_id: None,
+            },
+        };
+        let denied = module
+            .read(
+                &local_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PlanBlockTransfer {
+                        operation_id: "copy-page-without-source-grant".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        intent: copy_foreign_page.clone(),
+                    },
+                },
+            )
+            .expect_err("foreign Page copy requires a read grant");
+        assert_eq!(denied.code, CoreErrorCode::NotFound);
 
         let grant = |operation_id: &str, page_id: &str, access: LibraryAccess| {
             module.apply(
@@ -1325,6 +1351,48 @@ mod tests {
             LibraryAccess::ReadWrite,
         )
         .expect("grant target write access");
+
+        let page_copy_plan = module
+            .read(
+                &local_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PlanBlockTransfer {
+                        operation_id: "copy-granted-page-to-library".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        intent: copy_foreign_page.clone(),
+                    },
+                },
+            )
+            .expect("read grant authorizes recursive Page Copy");
+        let LibraryReadValue::BlockTransferPlan { value } = page_copy_plan.value else {
+            panic!("Page copy plan");
+        };
+        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
+            panic!("prepared Page copy");
+        };
+        let copied_page = module
+            .apply(
+                &local_context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "copy-granted-page-to-library".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: copy_foreign_page,
+                        write_fence: Some(preparation.write_fence),
+                    },
+                },
+            )
+            .expect("copy granted Page into the requesting Project");
+        let copied_page_id = copied_page
+            .committed
+            .value
+            .block_transfer
+            .as_ref()
+            .expect("Page copy result")
+            .copied_block_ids[FOREIGN_SOURCE_PAGE]
+            .clone();
 
         let copy_plan = module
             .read(
@@ -1491,6 +1559,12 @@ mod tests {
                     |row| row.get::<_, String>(0),
                 )?;
                 assert_eq!(copied_project, "project-1");
+                let copied_page_project = connection.query_row(
+                    "SELECT project_id FROM blocks WHERE id = ?1",
+                    [&copied_page_id],
+                    |row| row.get::<_, String>(0),
+                )?;
+                assert_eq!(copied_page_project, "project-1");
                 let moved = connection.query_row(
                     "SELECT project_id, containing_document_id, lifecycle \
                      FROM blocks WHERE id = ?1",
@@ -2536,7 +2610,7 @@ mod tests {
                 library_id: "library-1".to_owned(),
             },
             target: LibraryBlockTransferTarget::Page {
-                page_id: data_source_page_id,
+                page_id: data_source_page_id.clone(),
                 parent_block_id: None,
                 before_block_id: None,
             },
@@ -2555,6 +2629,82 @@ mod tests {
             )
             .expect_err("Page ownership cycle must fail");
         assert_eq!(cycle.code, CoreErrorCode::InvalidInput);
+
+        let recursive_copy = LibraryBlockTransferLogicalIntent {
+            actor: serde_json::json!({ "kind": "test" }),
+            mode: LibraryBlockTransferMode::Copy,
+            root_block_ids: vec![ANCHOR_PAGE.to_owned()],
+            source: LibraryBlockTransferSource::Library {
+                library_id: "library-1".to_owned(),
+            },
+            target: LibraryBlockTransferTarget::Library {
+                library_id: "library-1".to_owned(),
+                before_block_id: None,
+            },
+        };
+        let plan = library
+            .read(
+                &context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PlanBlockTransfer {
+                        operation_id: "copy-recursive-page-ownership".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        intent: recursive_copy.clone(),
+                    },
+                },
+            )
+            .expect("plan recursive Page copy");
+        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
+            panic!("recursive Page copy plan");
+        };
+        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
+            panic!("prepared recursive Page copy");
+        };
+        assert!(preparation.write_fence.documents.len() >= 2);
+        let copied = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "copy-recursive-page-ownership".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: recursive_copy,
+                        write_fence: Some(preparation.write_fence),
+                    },
+                },
+            )
+            .expect("copy recursive Page ownership");
+        let copied_result = copied
+            .committed
+            .value
+            .block_transfer
+            .as_ref()
+            .expect("recursive Page copy result");
+        assert!(copied_result.document_commits.len() >= 2);
+        let copied_anchor = copied_result.copied_block_ids[ANCHOR_PAGE].clone();
+        let copied_child = copied_result.copied_block_ids[&data_source_page_id].clone();
+        assert_eq!(
+            copied_result.result_root_block_ids,
+            vec![copied_anchor.clone()]
+        );
+        assert!(matches!(
+            &copied_result.final_locations[&copied_anchor],
+            LibraryBlockLocation::Library { .. }
+        ));
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let copied_parent = connection.query_row(
+                    "SELECT parent_kind, parent_id FROM pages WHERE block_id = ?1",
+                    [&copied_child],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )?;
+                assert_eq!(copied_parent, ("page".to_owned(), copied_anchor));
+                Ok(())
+            })
+            .expect("recursive Page copy ownership evidence");
     }
 }
 mod block_transfer;
