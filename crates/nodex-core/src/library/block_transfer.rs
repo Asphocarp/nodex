@@ -25,14 +25,16 @@ use crate::document::{
     PortableSubtreeTransferKind, PortableSubtreeTransferRequest, PreparedDocumentOperationUpdate,
     YrsDocumentEngine, decode_block_document, insert_document_checkpoint,
     materialize_decoded_document, persist_yjs_commit, persist_yjs_genesis,
-    prepare_document_operation_update, prepare_portable_subtree_transfer_updates,
-    prepare_yjs_clone_genesis, read_document_authority, reconstruct_yjs_engine, sha256,
+    prepare_document_operation_update, prepare_page_yjs_genesis_with_content,
+    prepare_portable_subtree_transfer_updates, prepare_yjs_clone_genesis, read_document_authority,
+    reconstruct_yjs_engine, sha256,
 };
 use crate::domain::block_materialization::MaterializedBlockNode;
 use crate::domain::block_to_page::{
     BlockToPageTransformation, PageWrapperReason, plan_block_to_page_transformation,
 };
 use crate::domain::identity::stable_uuid_v7;
+use crate::domain::rich_text::RichTextItem;
 use crate::domain::subtree::BlockSubtreeInsertionTarget;
 use crate::infrastructure::module_receipts::read_module_receipt;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
@@ -432,6 +434,7 @@ pub(super) fn apply(
             page_lifecycle: None,
             block_property_mutation: None,
             agent_page_copy: None,
+            agent_create_pages: None,
             change_payload: None,
             committed_at: now.clone(),
         },
@@ -1558,6 +1561,7 @@ fn apply_page_ownership_transfer(
             page_lifecycle: None,
             block_property_mutation: None,
             agent_page_copy: None,
+            agent_create_pages: None,
             change_payload: None,
             committed_at: now.clone(),
         },
@@ -1726,6 +1730,7 @@ fn apply_page_ownership_copy(
             page_lifecycle: None,
             block_property_mutation: None,
             agent_page_copy: None,
+            agent_create_pages: None,
             change_payload: None,
             committed_at: now.clone(),
         },
@@ -2326,6 +2331,7 @@ fn apply_page_parent_transfer(
             page_lifecycle: None,
             block_property_mutation: None,
             agent_page_copy: None,
+            agent_create_pages: None,
             change_payload: None,
             committed_at: now.clone(),
         },
@@ -2361,6 +2367,152 @@ struct StagedPageParentGenesis {
     metadata_revision: i64,
     parent_revision: i64,
     prepared: crate::document::PreparedYjsGenesis,
+}
+
+pub(super) struct StagedFreshAgentPage {
+    pub(super) document_id: String,
+    pub(super) document_head_seq: i64,
+    pub(super) body_block_ids: Vec<String>,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn stage_fresh_agent_page_in_library(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    operation_id: &str,
+    store_epoch: &str,
+    page_id: &str,
+    rich_title: &[RichTextItem],
+    nfm: &str,
+    before_block_id: Option<&str>,
+    now: &str,
+) -> Result<StagedFreshAgentPage, StoreError> {
+    let document_id = format!("document:{page_id}");
+    let mut block_ordinal = 0usize;
+    let mut allocate_block_id = || {
+        let block_id = stable_uuid_v7(
+            operation_id,
+            "agent_create_body",
+            &block_ordinal.to_string(),
+        );
+        block_ordinal += 1;
+        block_id
+    };
+    let prepared = prepare_page_yjs_genesis_with_content(
+        &document_id,
+        rich_title,
+        nfm,
+        &mut allocate_block_id,
+    )?;
+    let mut body_block_ids = Vec::new();
+    collect_materialized_block_ids(&prepared.materialization.block_tree, &mut body_block_ids);
+    if prepared
+        .materialization
+        .block_tree
+        .iter()
+        .any(contains_owning_page)
+    {
+        return Err(invalid(
+            "Page creation Nested Markdown cannot create an owning nested Page; use create_pages",
+        ));
+    }
+    let mut fresh_block_ids = vec![page_id.to_owned()];
+    fresh_block_ids.extend(body_block_ids.iter().cloned());
+    assert_fresh_copy_identities(connection, &fresh_block_ids)?;
+    if read_document_authority(connection, &document_id)?.is_some() {
+        return Err(StoreError::new(
+            StoreErrorCode::AlreadyOwned,
+            "Created Page Document identity is already owned",
+            false,
+        ));
+    }
+
+    connection.execute(
+        "INSERT INTO blocks( \
+           id, project_id, type, lifecycle, location_kind, containing_document_id, \
+           containing_database_id, location_revision, metadata_revision, created_at, updated_at \
+         ) VALUES (?1, ?2, 'page', 'active', 'space', NULL, NULL, 1, 1, ?3, ?3)",
+        params![page_id, project_id, now],
+    )?;
+    connection.execute(
+        "INSERT INTO documents( \
+           id, project_id, generation, head_seq, schema_key, schema_version, state_vector, \
+           state_hash, readiness, authority, genesis_source_revision, created_at, updated_at, \
+           sync_engine \
+         ) VALUES (?1, ?2, 1, 0, 'nodex.page', 2, X'', '', 'pending_genesis', \
+           'legacy_shadow', NULL, ?3, ?3, 'yjs')",
+        params![document_id, project_id, now],
+    )?;
+    connection.execute(
+        "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+         VALUES (?1, ?2, ?3, ?4)",
+        params![page_id, document_id, project_id, now],
+    )?;
+    connection.execute(
+        "INSERT INTO pages( \
+           block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
+           parent_revision, metadata_revision, created_at, updated_at \
+         ) VALUES (?1, ?2, ?3, 'library', ?2, 'active', 1, 1, ?4, ?4)",
+        params![page_id, library_id, document_id, now],
+    )?;
+    let top_level_rank =
+        insert_top_level_placement(connection, project_id, page_id, before_block_id, now)?;
+    let anchor = before_block_id
+        .map(|block_id| read_library_anchor(connection, library_id, block_id))
+        .transpose()?;
+    insert_library_placement(connection, library_id, page_id, anchor.as_ref(), now)?;
+
+    let authority = read_document_authority(connection, &document_id)?
+        .ok_or_else(|| corrupt("Created Page has no Document authority"))?;
+    let update_id = format!(
+        "agent-create-page-genesis:{}",
+        sha256(operation_id.as_bytes())
+    );
+    let full_state = prepared.engine.full_state_v1();
+    let persisted = persist_yjs_genesis(
+        connection,
+        PersistYjsGenesis {
+            authority: &authority,
+            materialization: &prepared.materialization,
+            update_id: &update_id,
+            client_session_id: "rust:nodex-agent-create",
+            update: &prepared.update_v1,
+            state_vector: &prepared.state_vector_v1,
+            full_state: &full_state,
+            store_epoch,
+            operation_id: &update_id,
+            emit_event: false,
+        },
+    )?;
+    insert_page_read_model(
+        connection,
+        page_id,
+        project_id,
+        &document_id,
+        "space",
+        None,
+        Some(&top_level_rank),
+        &prepared.materialization,
+        persisted.head_seq,
+        now,
+    )?;
+    ensure_default_page_intrinsic_properties(connection, page_id, project_id, now)?;
+    refresh_page_intrinsic_projection(connection, page_id, project_id, now)?;
+    connection.execute(
+        "UPDATE page_read_model SET location_revision = 1, metadata_revision = 1 \
+         WHERE page_block_id = ?1",
+        [page_id],
+    )?;
+    Ok(StagedFreshAgentPage {
+        document_id,
+        document_head_seq: persisted.head_seq,
+        body_block_ids,
+    })
+}
+
+fn contains_owning_page(block: &MaterializedBlockNode) -> bool {
+    block.block_type == "page" || block.children.iter().any(contains_owning_page)
 }
 
 fn stage_page_parent_root(

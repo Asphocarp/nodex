@@ -410,7 +410,9 @@ fn find_block_coordinate<'a>(
     None
 }
 
-fn parse_inline_markdown_title(markdown: &str) -> Result<Vec<RichTextItem>, SemanticMutationError> {
+pub(crate) fn parse_inline_markdown_title(
+    markdown: &str,
+) -> Result<Vec<RichTextItem>, SemanticMutationError> {
     if markdown.contains(['\n', '\r', '\t']) {
         return Err(SemanticMutationError::Invalid(
             "title Markdown must be one line and cannot contain tabs".to_owned(),

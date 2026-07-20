@@ -2270,6 +2270,69 @@ describe("Electron native data authority", () => {
         }),
         authorize: async () => "deny" as const,
       };
+      const nativeCreateContext = {
+        ...nativeDuplicateContext,
+        callId: "call:electron-native-create-pages",
+        resolveResourceAccess: async (
+          intents: Parameters<typeof agentResources.plan>[0]["intents"],
+        ) => await agentResources.plan({
+          authority: frozenAuthority,
+          callId: "call:electron-native-create-pages",
+          intents,
+        }),
+      };
+      const nativeCreateInput = {
+        destination: {
+          kind: "page" as const,
+          pageId: copiedDataSourcePageId,
+          at: { kind: "end" as const },
+        },
+        pages: [{
+          title: "**Native first**",
+          markdown: "First native body",
+        }, {
+          title: "Native second",
+          markdown: "Second native body",
+        }],
+        return: ["block_ids" as const, "etags" as const],
+      };
+      const nativeCreated = await nativeAgentService.registry.execute({
+        namespace: NODEX_APP_TOOL_NAMESPACE,
+        toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+        tool: "create_pages",
+      }, nativeCreateInput, nativeCreateContext);
+      expect(nativeCreated).toMatchObject({
+        effect: "write",
+        output: {
+          data: {
+            created: 2,
+            pages: [{
+              pageId: expect.any(String),
+              location: { kind: "page", pageId: copiedDataSourcePageId },
+              bodyBlocksCreated: 1,
+              blockIds: [expect.any(String)],
+              etags: {
+                title: expect.stringMatching(/^nxe1\./u),
+                body: expect.stringMatching(/^nxe1\./u),
+              },
+            }, {
+              pageId: expect.any(String),
+              location: { kind: "page", pageId: copiedDataSourcePageId },
+              bodyBlocksCreated: 1,
+              blockIds: [expect.any(String)],
+              etags: {
+                title: expect.stringMatching(/^nxe1\./u),
+                body: expect.stringMatching(/^nxe1\./u),
+              },
+            }],
+          },
+        },
+      });
+      await expect(nativeAgentService.registry.execute({
+        namespace: NODEX_APP_TOOL_NAMESPACE,
+        toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+        tool: "create_pages",
+      }, nativeCreateInput, nativeCreateContext)).resolves.toEqual(nativeCreated);
       const nativeDuplicateInput = {
         pageId: copiedDataSourcePageId,
         destination: {

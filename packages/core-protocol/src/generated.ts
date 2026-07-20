@@ -657,6 +657,7 @@ export interface components {
             readonly store_epoch: components["schemas"]["StoreEpoch"];
             readonly value: {
                 readonly affected_resource_ids: readonly string[];
+                readonly agent_create_pages?: null | components["schemas"]["LibraryAgentCreatePagesResult"];
                 readonly agent_page_copy?: null | components["schemas"]["LibraryAgentPageCopyResult"];
                 readonly block_property_mutation?: null | components["schemas"]["LibraryBlockPropertyMutationReceipt"];
                 readonly block_transfer?: null | components["schemas"]["LibraryBlockTransferResult"];
@@ -1184,6 +1185,46 @@ export interface components {
             readonly lifecycle: string;
             readonly owner_page: components["schemas"]["LibraryPageDetail"];
             readonly owner_page_id: string;
+        };
+        readonly LibraryAgentCreatedPage: {
+            readonly block_ids: readonly string[];
+            /** Format: int32 */
+            readonly body_blocks_created: number;
+            readonly etags?: null | components["schemas"]["LibraryAgentPageEtags"];
+            readonly location: components["schemas"]["LibraryAgentPageLocation"];
+            readonly page_id: string;
+        };
+        readonly LibraryAgentCreatePageDraft: {
+            readonly nfm: string;
+            readonly title_markdown: string;
+            readonly values: readonly components["schemas"]["LibraryPageCopyValue"][];
+        };
+        readonly LibraryAgentCreatePagePreparation: {
+            readonly body_block_ids: readonly string[];
+            readonly page_id: string;
+            readonly primary_membership_id: string;
+            readonly target_membership_id: string;
+        };
+        readonly LibraryAgentCreatePagesPreparation: {
+            readonly committed?: null | components["schemas"]["CommittedModuleValue_LibraryCommitValue_LibraryReceipt"];
+            readonly destination?: null | components["schemas"]["LibraryPageCopyDestination"];
+            readonly destination_database_id?: string | null;
+            readonly destination_document?: null | components["schemas"]["LibraryAgentDocumentHead"];
+            readonly destination_project_id?: string | null;
+            readonly document_heads: readonly components["schemas"]["LibraryAgentDocumentHead"][];
+            readonly pages: readonly components["schemas"]["LibraryAgentCreatePagePreparation"][];
+            readonly preparation: components["schemas"]["AgentOperationPreparation"];
+        };
+        readonly LibraryAgentCreatePagesRequest: {
+            readonly destination: components["schemas"]["LibraryAgentPageDestination"];
+            readonly include_block_ids: boolean;
+            readonly include_etags: boolean;
+            readonly pages: readonly components["schemas"]["LibraryAgentCreatePageDraft"][];
+        };
+        readonly LibraryAgentCreatePagesResult: {
+            readonly affected_database_ids: readonly string[];
+            readonly document_commits: readonly components["schemas"]["LibraryBlockTransferDocumentCommit"][];
+            readonly pages: readonly components["schemas"]["LibraryAgentCreatedPage"][];
         };
         readonly LibraryAgentDocumentHead: {
             readonly document_id: string;
@@ -2465,6 +2506,11 @@ export interface components {
                 readonly kind: "execute_prepared_agent_page_copy";
                 readonly request: components["schemas"]["LibraryAgentPageCopyRequest"];
             } | {
+                readonly authorization: components["schemas"]["AgentPreparedExecution"];
+                /** @enum {string} */
+                readonly kind: "execute_prepared_agent_create_pages";
+                readonly request: components["schemas"]["LibraryAgentCreatePagesRequest"];
+            } | {
                 readonly intent: components["schemas"]["LibraryBlockTransferLogicalIntent"];
                 /** @enum {string} */
                 readonly kind: "transfer_blocks";
@@ -3071,6 +3117,13 @@ export interface components {
                 readonly kind: "prepare_agent_page_copy";
                 readonly operation_id: string;
                 readonly request: components["schemas"]["LibraryAgentPageCopyRequest"];
+                readonly store_epoch: string;
+            } | {
+                readonly authorization: components["schemas"]["AgentExecutionAuthorization"];
+                /** @enum {string} */
+                readonly kind: "prepare_agent_create_pages";
+                readonly operation_id: string;
+                readonly request: components["schemas"]["LibraryAgentCreatePagesRequest"];
                 readonly store_epoch: string;
             } | {
                 readonly intent: components["schemas"]["LibraryBlockTransferLogicalIntent"];
@@ -3773,6 +3826,7 @@ export interface components {
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly value: {
                     readonly affected_resource_ids: readonly string[];
+                    readonly agent_create_pages?: null | components["schemas"]["LibraryAgentCreatePagesResult"];
                     readonly agent_page_copy?: null | components["schemas"]["LibraryAgentPageCopyResult"];
                     readonly block_property_mutation?: null | components["schemas"]["LibraryBlockPropertyMutationReceipt"];
                     readonly block_transfer?: null | components["schemas"]["LibraryBlockTransferResult"];
@@ -4058,6 +4112,10 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "agent_page_copy_preparation";
                     readonly value: components["schemas"]["LibraryAgentPageCopyPreparation"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "agent_create_pages_preparation";
+                    readonly value: components["schemas"]["LibraryAgentCreatePagesPreparation"];
                 } | {
                     /** @enum {string} */
                     readonly kind: "block_transfer_plan";

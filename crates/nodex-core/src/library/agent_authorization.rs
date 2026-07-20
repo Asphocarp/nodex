@@ -619,6 +619,7 @@ pub(super) fn persist_project_grants(
             page_lifecycle: None,
             block_property_mutation: None,
             agent_page_copy: None,
+            agent_create_pages: None,
             change_payload: None,
             committed_at: now,
         },

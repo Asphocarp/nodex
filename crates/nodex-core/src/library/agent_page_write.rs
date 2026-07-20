@@ -61,12 +61,12 @@ struct CopyPreflight {
     footprint: AgentOperationFootprint,
 }
 
-struct ResolvedDestination {
-    destination: LibraryPageCopyDestination,
-    authorization_fingerprint: String,
-    document_heads: Vec<LibraryAgentDocumentHead>,
-    database_id: Option<String>,
-    project_id: String,
+pub(super) struct ResolvedDestination {
+    pub(super) destination: LibraryPageCopyDestination,
+    pub(super) authorization_fingerprint: String,
+    pub(super) document_heads: Vec<LibraryAgentDocumentHead>,
+    pub(super) database_id: Option<String>,
+    pub(super) project_id: String,
 }
 
 pub(super) struct PreparePageCopyInput {
@@ -384,6 +384,7 @@ pub(super) fn execute_page_copy(
                 page_lifecycle: None,
                 block_property_mutation: None,
                 agent_page_copy: Some(result),
+                agent_create_pages: None,
                 change_payload: None,
                 committed_at: execution.committed_at,
             },
@@ -565,7 +566,7 @@ fn read_source(
         })
 }
 
-fn resolve_destination(
+pub(super) fn resolve_destination(
     connection: &Connection,
     context: &BoundModuleContext,
     library_id: &str,
@@ -955,7 +956,7 @@ fn committed_footprint(
     })
 }
 
-fn destination_footprint_target(
+pub(super) fn destination_footprint_target(
     library_id: &str,
     destination: &LibraryAgentPageDestination,
 ) -> AgentResourceTarget {
@@ -994,7 +995,7 @@ fn committed_destination_footprint_target(
     }
 }
 
-fn destination_before_id(destination: &LibraryPageCopyDestination) -> Option<String> {
+pub(super) fn destination_before_id(destination: &LibraryPageCopyDestination) -> Option<String> {
     match destination {
         LibraryPageCopyDestination::Library { before }
         | LibraryPageCopyDestination::Page { before, .. } => {

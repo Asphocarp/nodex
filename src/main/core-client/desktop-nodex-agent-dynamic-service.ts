@@ -5,7 +5,6 @@ import type {
   ExecuteNodexAgentMovePagesResult,
   NodexAgentV3ReadCommandResult,
   NodexAgentV3ReadRequest,
-  PrepareNodexAgentCreatePagesResult,
   PrepareNodexAgentMovePagesResult,
   ToolFailure,
 } from "../../shared/nodex-agent-tools";
@@ -25,6 +24,7 @@ import { readNativeFetch } from "./native-nodex-agent-fetch";
 import { readNativeDatabaseQuery } from "./native-nodex-agent-query";
 import { readNativeSearch } from "./native-nodex-agent-search";
 import { NativeNodexAgentPageCopyRuntime } from "./native-nodex-agent-page-copy";
+import { NativeNodexAgentPageCreateRuntime } from "./native-nodex-agent-page-create";
 import { NativeNodexAgentPageUpdateRuntime } from "./native-nodex-agent-page-update";
 
 type ToolError = ToolFailure["error"];
@@ -55,6 +55,19 @@ const nativeDuplicatePageFailure = (
   message: string,
   recovery: "get_block_again" | "none" = "none",
 ): ExecuteNodexAgentDuplicatePageResult => ({
+  ok: false,
+  error: {
+    code: recovery === "get_block_again" ? "conflict" : "internal_error",
+    message,
+    retryable: false,
+    recovery,
+  },
+});
+
+const nativeCreatePagesFailure = (
+  message: string,
+  recovery: "get_block_again" | "none" = "none",
+): ExecuteNodexAgentCreatePagesResult => ({
   ok: false,
   error: {
     code: recovery === "get_block_again" ? "conflict" : "internal_error",
@@ -213,6 +226,7 @@ export function createDesktopNodexAgentV3DynamicService(
 ): NodexAgentV3DynamicService {
   let nativePageUpdates: NativeNodexAgentPageUpdateRuntime | null = null;
   let nativePageCopies: NativeNodexAgentPageCopyRuntime | null = null;
+  let nativePageCreates: NativeNodexAgentPageCreateRuntime | null = null;
   const pageUpdatesFor = (
     runtime: Extract<DesktopDataAuthorityRuntime, { readonly backend: "rust" }>,
   ): NativeNodexAgentPageUpdateRuntime => {
@@ -224,6 +238,12 @@ export function createDesktopNodexAgentV3DynamicService(
   ): NativeNodexAgentPageCopyRuntime => {
     nativePageCopies ??= new NativeNodexAgentPageCopyRuntime(runtime);
     return nativePageCopies;
+  };
+  const pageCreatesFor = (
+    runtime: Extract<DesktopDataAuthorityRuntime, { readonly backend: "rust" }>,
+  ): NativeNodexAgentPageCreateRuntime => {
+    nativePageCreates ??= new NativeNodexAgentPageCreateRuntime(runtime);
+    return nativePageCreates;
   };
   const writer: NodexAgentV3Writer = {
     readNodexAgentV3Tool: async (request) => {
@@ -263,11 +283,7 @@ export function createDesktopNodexAgentV3DynamicService(
       if (runtime.backend === "typescript") {
         return await input.typescript.writer.prepareNodexAgentCreatePages(request);
       }
-      const result: PrepareNodexAgentCreatePagesResult = {
-        ok: false,
-        error: nativeUnavailableError("create_pages"),
-      };
-      return envelope(result, request.callId);
+      return await pageCreatesFor(runtime).prepare(request);
     },
     prepareNodexAgentDuplicatePage: async (request) => {
       const runtime = await input.authority;
@@ -302,11 +318,19 @@ export function createDesktopNodexAgentV3DynamicService(
       if (runtime.backend === "typescript") {
         return await input.typescript.documentHub.executeNodexAgentCreatePages(...args);
       }
-      const result: ExecuteNodexAgentCreatePagesResult = {
-        ok: false,
-        error: nativeUnavailableError("create_pages"),
-      };
-      return result;
+      const [command, leaseDocuments] = args;
+      return await input.documentSync.coordinateNodexAgentLeasedMutation({
+        projectId: command.projectId,
+        storeEpoch: command.storeEpoch,
+        leaseDocuments,
+        execute: async () => await pageCreatesFor(runtime).execute(
+          command,
+          leaseDocuments,
+        ),
+        failure: nativeCreatePagesFailure,
+        operationLabel: "Agent Page creation",
+        conflictMessage: "A target Page Document changed while preparing Page creation",
+      });
     },
     executeNodexAgentDuplicatePage: async (...args) => {
       const runtime = await input.authority;

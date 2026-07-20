@@ -58,6 +58,8 @@ pub(super) struct MutationEffects {
     pub(super) page_lifecycle: Option<LibraryPageLifecycleMutationReceipt>,
     pub(super) block_property_mutation: Option<LibraryBlockPropertyMutationReceipt>,
     pub(super) agent_page_copy: Option<nodex_core_contracts::library::LibraryAgentPageCopyResult>,
+    pub(super) agent_create_pages:
+        Option<nodex_core_contracts::library::LibraryAgentCreatePagesResult>,
     pub(super) change_payload: Option<serde_json::Value>,
     pub(super) committed_at: String,
 }
@@ -344,6 +346,9 @@ pub(super) fn apply(
                 ),
                 LibraryIntent::ExecutePreparedAgentPageCopy { .. } => Err(invalid(
                     "Prepared Agent Page copy is assembled by the Library Module",
+                )),
+                LibraryIntent::ExecutePreparedAgentCreatePages { .. } => Err(invalid(
+                    "Prepared Agent Page creation is assembled by the Library Module",
                 )),
             }
         })
@@ -652,6 +657,7 @@ fn move_block(
             page_lifecycle: None,
             block_property_mutation: None,
             agent_page_copy: None,
+            agent_create_pages: None,
             change_payload: None,
             committed_at: now,
         },
@@ -846,6 +852,7 @@ fn change_resource_lifecycle(
             page_lifecycle: None,
             block_property_mutation: None,
             agent_page_copy: None,
+            agent_create_pages: None,
             change_payload: None,
             committed_at: now,
         },
@@ -993,6 +1000,7 @@ fn grant_project_access(
             page_lifecycle: None,
             block_property_mutation: None,
             agent_page_copy: None,
+            agent_create_pages: None,
             change_payload: None,
             committed_at: now,
         },
@@ -1525,6 +1533,7 @@ fn create_database(
             page_lifecycle: None,
             block_property_mutation: None,
             agent_page_copy: None,
+            agent_create_pages: None,
             change_payload: None,
             committed_at: now,
         },
@@ -1766,6 +1775,7 @@ fn create_page(
             page_lifecycle: None,
             block_property_mutation: None,
             agent_page_copy: None,
+            agent_create_pages: None,
             change_payload: None,
             committed_at: now,
         },
@@ -1842,6 +1852,7 @@ pub(super) fn finish_mutation(
             page_lifecycle: effects.page_lifecycle,
             block_property_mutation: effects.block_property_mutation,
             agent_page_copy: effects.agent_page_copy,
+            agent_create_pages: effects.agent_create_pages,
         },
         receipt,
         event_sequence,

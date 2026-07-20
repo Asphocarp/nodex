@@ -2152,6 +2152,16 @@
                   "type": "string"
                 }
               },
+              "agent_create_pages": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LibraryAgentCreatePagesResult"
+                  }
+                ]
+              },
               "agent_page_copy": {
                 "oneOf": [
                   {
@@ -4344,6 +4354,213 @@
             "$ref": "#/components/schemas/LibraryPageDetail"
           },
           "owner_page_id": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryAgentCreatePageDraft": {
+        "type": "object",
+        "required": [
+          "title_markdown",
+          "nfm",
+          "values"
+        ],
+        "properties": {
+          "nfm": {
+            "type": "string"
+          },
+          "title_markdown": {
+            "type": "string"
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryPageCopyValue"
+            }
+          }
+        }
+      },
+      "LibraryAgentCreatePagePreparation": {
+        "type": "object",
+        "required": [
+          "page_id",
+          "body_block_ids",
+          "primary_membership_id",
+          "target_membership_id"
+        ],
+        "properties": {
+          "body_block_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "primary_membership_id": {
+            "type": "string"
+          },
+          "target_membership_id": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryAgentCreatePagesPreparation": {
+        "type": "object",
+        "required": [
+          "preparation",
+          "pages",
+          "document_heads"
+        ],
+        "properties": {
+          "committed": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CommittedModuleValue_LibraryCommitValue_LibraryReceipt"
+              }
+            ]
+          },
+          "destination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryPageCopyDestination"
+              }
+            ]
+          },
+          "destination_database_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "destination_document": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryAgentDocumentHead"
+              }
+            ]
+          },
+          "destination_project_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "document_heads": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryAgentDocumentHead"
+            }
+          },
+          "pages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryAgentCreatePagePreparation"
+            }
+          },
+          "preparation": {
+            "$ref": "#/components/schemas/AgentOperationPreparation"
+          }
+        }
+      },
+      "LibraryAgentCreatePagesRequest": {
+        "type": "object",
+        "required": [
+          "destination",
+          "pages",
+          "include_block_ids",
+          "include_etags"
+        ],
+        "properties": {
+          "destination": {
+            "$ref": "#/components/schemas/LibraryAgentPageDestination"
+          },
+          "include_block_ids": {
+            "type": "boolean"
+          },
+          "include_etags": {
+            "type": "boolean"
+          },
+          "pages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryAgentCreatePageDraft"
+            }
+          }
+        }
+      },
+      "LibraryAgentCreatePagesResult": {
+        "type": "object",
+        "required": [
+          "pages",
+          "document_commits",
+          "affected_database_ids"
+        ],
+        "properties": {
+          "affected_database_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "document_commits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryBlockTransferDocumentCommit"
+            }
+          },
+          "pages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryAgentCreatedPage"
+            }
+          }
+        }
+      },
+      "LibraryAgentCreatedPage": {
+        "type": "object",
+        "required": [
+          "page_id",
+          "location",
+          "body_blocks_created",
+          "block_ids"
+        ],
+        "properties": {
+          "block_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "body_blocks_created": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "etags": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryAgentPageEtags"
+              }
+            ]
+          },
+          "location": {
+            "$ref": "#/components/schemas/LibraryAgentPageLocation"
+          },
+          "page_id": {
             "type": "string"
           }
         }
@@ -9731,6 +9948,28 @@
               {
                 "type": "object",
                 "required": [
+                  "authorization",
+                  "request",
+                  "kind"
+                ],
+                "properties": {
+                  "authorization": {
+                    "$ref": "#/components/schemas/AgentPreparedExecution"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "execute_prepared_agent_create_pages"
+                    ]
+                  },
+                  "request": {
+                    "$ref": "#/components/schemas/LibraryAgentCreatePagesRequest"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "intent",
                   "kind"
                 ],
@@ -12416,6 +12655,36 @@
                   },
                   "request": {
                     "$ref": "#/components/schemas/LibraryAgentPageCopyRequest"
+                  },
+                  "store_epoch": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "operation_id",
+                  "store_epoch",
+                  "authorization",
+                  "request",
+                  "kind"
+                ],
+                "properties": {
+                  "authorization": {
+                    "$ref": "#/components/schemas/AgentExecutionAuthorization"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "prepare_agent_create_pages"
+                    ]
+                  },
+                  "operation_id": {
+                    "type": "string"
+                  },
+                  "request": {
+                    "$ref": "#/components/schemas/LibraryAgentCreatePagesRequest"
                   },
                   "store_epoch": {
                     "type": "string"
@@ -15514,6 +15783,16 @@
                           "type": "string"
                         }
                       },
+                      "agent_create_pages": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "$ref": "#/components/schemas/LibraryAgentCreatePagesResult"
+                          }
+                        ]
+                      },
                       "agent_page_copy": {
                         "oneOf": [
                           {
@@ -16881,6 +17160,24 @@
                           },
                           "value": {
                             "$ref": "#/components/schemas/LibraryAgentPageCopyPreparation"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "agent_create_pages_preparation"
+                            ]
+                          },
+                          "value": {
+                            "$ref": "#/components/schemas/LibraryAgentCreatePagesPreparation"
                           }
                         }
                       },

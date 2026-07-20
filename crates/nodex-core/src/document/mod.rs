@@ -68,4 +68,4 @@ pub(crate) use persistence::{
 };
 pub(crate) use primary_canvas::{PrimaryCanvasIdentity, create_primary_canvas};
 pub(crate) use runtime::reconstruct_yjs_engine;
-pub(crate) use semantic::mint_document_semantic_etags;
+pub(crate) use semantic::{mint_document_semantic_etags, parse_inline_markdown_title};

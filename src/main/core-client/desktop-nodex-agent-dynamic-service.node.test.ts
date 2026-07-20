@@ -169,10 +169,10 @@ describe("native desktop Nodex Agent dynamic service", () => {
     await expect(service.registry.execute({
       namespace: NODEX_APP_TOOL_NAMESPACE,
       toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
-      tool: "create_pages",
+      tool: "move_pages",
     }, {
       destination: { kind: "library" },
-      pages: [{ title: "Native" }],
+      pageIds: ["page-native-move"],
     }, context)).rejects.toMatchObject({
       failure: {
         error: {
@@ -182,6 +182,214 @@ describe("native desktop Nodex Agent dynamic service", () => {
         },
       },
     });
+    expect(unavailable).not.toHaveBeenCalled();
+  });
+
+  test("creates a Page batch through Core under the exact target Document lease", async () => {
+    let preparationCount = 0;
+    const libraryRead = vi.fn(async (read: Record<string, unknown>) => {
+      expect(read).toMatchObject({
+        kind: "prepare_agent_create_pages",
+        store_epoch: "store-native-agent",
+        request: {
+          destination: {
+            kind: "page",
+            page_id: "page-create-target",
+            at: { kind: "end" },
+          },
+          pages: [{
+            title_markdown: "**First**",
+            nfm: "Body one",
+            values: [],
+          }, {
+            title_markdown: "Second",
+            nfm: "Body two",
+            values: [],
+          }],
+          include_block_ids: true,
+          include_etags: true,
+        },
+      });
+      preparationCount += 1;
+      return {
+        store_epoch: "store-native-agent",
+        event_sequence: 30,
+        value: {
+          kind: "agent_create_pages_preparation" as const,
+          value: {
+            preparation: {
+              state: "prepared" as const,
+              consent: "none" as const,
+              token: `create-token-${preparationCount}`,
+              expires_at_unix_ms: Date.now() + 30_000,
+              footprint: {
+                effect_class: "write" as const,
+                targets: [],
+                created_roots: ["page-created-1", "page-created-2"],
+                updated_roots: [],
+                deleted_roots: [],
+                deleted_owner_roots: [],
+                ownership_transformations: [],
+              },
+            },
+            pages: [{
+              page_id: "page-created-1",
+              body_block_ids: ["body-created-1"],
+              primary_membership_id: "membership-primary-1",
+              target_membership_id: "membership-target-1",
+            }, {
+              page_id: "page-created-2",
+              body_block_ids: ["body-created-2"],
+              primary_membership_id: "membership-primary-2",
+              target_membership_id: "membership-target-2",
+            }],
+            document_heads: [{
+              document_id: "document-create-target",
+              generation: 2,
+              expected_head_seq: 4,
+            }],
+            destination: {
+              kind: "page" as const,
+              page_id: "page-create-target",
+              expected_document_generation: 2,
+              expected_document_head_seq: 4,
+              before: null,
+            },
+            destination_document: {
+              document_id: "document-create-target",
+              generation: 2,
+              expected_head_seq: 4,
+            },
+            destination_database_id: null,
+            destination_project_id: "project-native-agent",
+            committed: null,
+          },
+        },
+      };
+    });
+    const libraryApply = vi.fn(async (request: {
+      readonly operationId: string;
+      readonly intent: {
+        readonly authorization: { readonly token?: string | null };
+      };
+    }) => {
+      expect(request.operationId).toMatch(/^nodex-agent-create-pages:/u);
+      expect(request.intent.authorization.token).toBe("create-token-2");
+      return {
+        event_sequence: 33,
+        receipt: {
+          operation_id: request.operationId,
+          duplicate: false,
+        },
+        value: {
+          agent_create_pages: {
+            pages: [{
+              page_id: "page-created-1",
+              location: { kind: "page" as const, page_id: "page-create-target" },
+              body_blocks_created: 1,
+              block_ids: ["body-created-1"],
+              etags: {
+                title: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                body: "nxe1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+              },
+            }, {
+              page_id: "page-created-2",
+              location: { kind: "page" as const, page_id: "page-create-target" },
+              body_blocks_created: 1,
+              block_ids: ["body-created-2"],
+              etags: {
+                title: "nxe1.CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+                body: "nxe1.DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+              },
+            }],
+            document_commits: [{
+              document_id: "document-create-target",
+              generation: 2,
+              base_head_seq: 4,
+              head_seq: 5,
+              update_id: "create-target-1",
+              update: [1],
+              state_vector: [2],
+            }, {
+              document_id: "document-create-target",
+              generation: 2,
+              base_head_seq: 5,
+              head_seq: 6,
+              update_id: "create-target-2",
+              update: [3],
+              state_vector: [4],
+            }],
+            affected_database_ids: [],
+          },
+        },
+      };
+    });
+    const coordinate = vi.fn(async (options: {
+      readonly leaseDocuments: readonly unknown[];
+      readonly execute: () => Promise<unknown>;
+    }) => {
+      expect(options.leaseDocuments).toEqual([{
+        documentId: "document-create-target",
+        generation: 2,
+        expectedHeadSeq: 4,
+      }]);
+      return await options.execute();
+    });
+    const runtime = {
+      backend: "rust" as const,
+      rootClient: {
+        handshake: {
+          profile_id: "profile-native-agent",
+          library_id: "library-native-agent",
+          store_epoch: "store-native-agent",
+        },
+      },
+      clientForProject: () => ({ libraryRead, libraryApply }),
+    } as unknown as Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>;
+    const service = createDesktopNodexAgentV3DynamicService({
+      authority: Promise.resolve(runtime),
+      projectWorkspace: {} as DesktopProjectWorkspacePort,
+      databaseModule: {} as DesktopDatabaseModuleBridge,
+      documentSync: {
+        coordinateNodexAgentLeasedMutation: coordinate,
+      } as unknown as Pick<DesktopDocumentSyncPort, "coordinateNodexAgentLeasedMutation">,
+      typescript,
+    });
+
+    const result = await service.registry.execute({
+      namespace: NODEX_APP_TOOL_NAMESPACE,
+      toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+      tool: "create_pages",
+    }, {
+      destination: {
+        kind: "page",
+        pageId: "page-create-target",
+        at: { kind: "end" },
+      },
+      pages: [{ title: "**First**", markdown: "Body one" }, {
+        title: "Second",
+        markdown: "Body two",
+      }],
+      return: ["block_ids", "etags"],
+    }, context);
+
+    expect(result.output).toMatchObject({
+      data: {
+        created: 2,
+        pages: [{
+          pageId: "page-created-1",
+          location: { kind: "page", pageId: "page-create-target" },
+          blockIds: ["body-created-1"],
+        }, {
+          pageId: "page-created-2",
+          location: { kind: "page", pageId: "page-create-target" },
+          blockIds: ["body-created-2"],
+        }],
+      },
+    });
+    expect(libraryRead).toHaveBeenCalledTimes(2);
+    expect(coordinate).toHaveBeenCalledOnce();
+    expect(libraryApply).toHaveBeenCalledOnce();
     expect(unavailable).not.toHaveBeenCalled();
   });
 

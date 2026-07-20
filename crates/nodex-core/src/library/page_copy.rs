@@ -249,6 +249,7 @@ pub(super) fn copy_page(
             page_lifecycle: None,
             block_property_mutation: None,
             agent_page_copy: None,
+            agent_create_pages: None,
             change_payload: None,
             committed_at: execution.committed_at,
         },
@@ -1613,7 +1614,8 @@ mod tests {
     };
     use nodex_core_contracts::document::{DocumentOwnerCommand, OwnedDocumentIntent};
     use nodex_core_contracts::library::{
-        LibraryAccess, LibraryAgentPageCopyRequest, LibraryAgentPageDestination, LibraryIntent,
+        LibraryAccess, LibraryAgentCreatePageDraft, LibraryAgentCreatePagesRequest,
+        LibraryAgentPageCopyRequest, LibraryAgentPageDestination, LibraryIntent,
         LibraryNavigationNode, LibraryNavigationParent, LibraryPageCopyDestination,
         LibraryPageCopyValue, LibraryPageCopyViewPlacement, LibraryRead, LibraryReadValue,
         LibraryResourceTarget, LibraryWriteParent,
@@ -2068,6 +2070,284 @@ mod tests {
             .expect("prepare committed replay");
         let LibraryReadValue::AgentPageCopyPreparation { value } = replay_preparation.value else {
             panic!("Agent Page copy replay preparation");
+        };
+        assert_eq!(
+            value.preparation.state,
+            AgentOperationPreparationState::CommittedReplay
+        );
+        assert!(value.preparation.token.is_none());
+        assert!(value.committed.is_some());
+    }
+
+    #[test]
+    fn agent_page_batch_creation_previews_without_writes_and_commits_exactly_once() {
+        let (_directory, kernel) = seeded_kernel();
+        let module = LibraryModule::new("profile-1", "library-1", &kernel);
+        create_page(
+            &module,
+            "operation:create-agent-create-target",
+            "page:agent-create-target",
+            "document:agent-create-target",
+            "Create target",
+            LibraryWriteParent::Library { before: None },
+        );
+        let workspace = ProjectWorkspaceModule::new("profile-1", "library-1", &kernel)
+            .expect("Workspace module");
+        workspace
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:create-agent-create-thread".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: ProjectWorkspaceIntent::UpsertThread {
+                        thread_id: "thread:agent-create".to_owned(),
+                        patch: Box::new(ProjectWorkspaceThreadPatch {
+                            project_id: Some(Some("project-1".to_owned())),
+                            thread_name: Some(Some("Agent create".to_owned())),
+                            created_at: Some(100),
+                            updated_at: Some(100),
+                            linked_at: Some(NOW.to_owned()),
+                            ..ProjectWorkspaceThreadPatch::default()
+                        }),
+                    },
+                },
+            )
+            .expect("persist Agent Thread");
+        workspace
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:freeze-agent-create-turn".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: ProjectWorkspaceIntent::FreezeTurnAuthority {
+                        thread_id: "thread:agent-create".to_owned(),
+                        turn_id: "turn:agent-create".to_owned(),
+                        root_thread_id: "thread:agent-create".to_owned(),
+                        actor_project_id: "project-1".to_owned(),
+                        source: ProjectWorkspaceTurnAuthoritySource::ProjectTurn,
+                        inherited_from: None,
+                    },
+                },
+            )
+            .expect("freeze Agent create Turn");
+        let turn = ProjectWorkspaceTurnAuthority {
+            thread_id: "thread:agent-create".to_owned(),
+            turn_id: "turn:agent-create".to_owned(),
+            root_thread_id: "thread:agent-create".to_owned(),
+            actor_project_id: "project-1".to_owned(),
+            library_id: "library-1".to_owned(),
+            store_epoch: "epoch-1".to_owned(),
+            scope: ProjectWorkspaceTurnAuthorityScope::Project,
+            source: ProjectWorkspaceTurnAuthoritySource::ProjectTurn,
+        };
+        let authorization = AgentExecutionAuthorization {
+            provenance: AgentTurnProvenance {
+                profile_id: "profile-1".to_owned(),
+                authority: turn.clone(),
+            },
+            call_id: "call:agent-create".to_owned(),
+            resource_access: Some(AgentResourceAccessOverlay {
+                kind: AgentResourceAccessOverlayKind::Consent,
+                scope: AgentResourceAccessOverlayScope::Call,
+                thread_id: Some(turn.thread_id.clone()),
+                turn_id: Some(turn.turn_id.clone()),
+                call_id: Some("call:agent-create".to_owned()),
+                root_thread_id: turn.root_thread_id.clone(),
+                actor_project_id: turn.actor_project_id.clone(),
+                library_id: turn.library_id.clone(),
+                store_epoch: turn.store_epoch.clone(),
+                grants: vec![AgentResourceGrantSpec {
+                    root: AgentResourceGrantRoot::Page {
+                        page_id: "page:agent-create-target".to_owned(),
+                    },
+                    access: AgentProjectResourceAccess::ReadWrite,
+                    library_actions: Vec::new(),
+                }],
+                persist_resulting_page_grants: false,
+            }),
+        };
+        let create = LibraryAgentCreatePagesRequest {
+            destination: LibraryAgentPageDestination::Page {
+                page_id: "page:agent-create-target".to_owned(),
+                at: None,
+            },
+            pages: vec![
+                LibraryAgentCreatePageDraft {
+                    title_markdown: "**First**".to_owned(),
+                    nfm: "First body".to_owned(),
+                    values: Vec::new(),
+                },
+                LibraryAgentCreatePageDraft {
+                    title_markdown: "Second".to_owned(),
+                    nfm: "Second body".to_owned(),
+                    values: Vec::new(),
+                },
+            ],
+            include_block_ids: true,
+            include_etags: true,
+        };
+        let durable_before = kernel
+            .readers()
+            .read_default(|connection| {
+                Ok((
+                    connection.query_row("SELECT count(*) FROM blocks", [], |row| {
+                        row.get::<_, i64>(0)
+                    })?,
+                    connection.query_row(
+                        "SELECT count(*) FROM core_module_receipts",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                ))
+            })
+            .expect("read before create preparation");
+        let prepare = || {
+            module
+                .read(
+                    &context(),
+                    ModuleReadRequest {
+                        version: CORE_CONTRACT_VERSION,
+                        read: LibraryRead::PrepareAgentCreatePages {
+                            operation_id: "operation:agent-create-pages".to_owned(),
+                            store_epoch: "epoch-1".to_owned(),
+                            authorization: Box::new(authorization.clone()),
+                            request: Box::new(create.clone()),
+                        },
+                    },
+                )
+                .expect("prepare Agent Page batch")
+        };
+        let first_preparation = prepare();
+        let prepared = prepare();
+        let durable_after = kernel
+            .readers()
+            .read_default(|connection| {
+                Ok((
+                    connection.query_row("SELECT count(*) FROM blocks", [], |row| {
+                        row.get::<_, i64>(0)
+                    })?,
+                    connection.query_row(
+                        "SELECT count(*) FROM core_module_receipts",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                ))
+            })
+            .expect("read after create preparation");
+        assert_eq!(durable_before, durable_after);
+        assert_eq!(
+            module
+                .prepared_agent_operation_count()
+                .expect("one refreshed preparation"),
+            1
+        );
+        let LibraryReadValue::AgentCreatePagesPreparation { value: first } =
+            first_preparation.value
+        else {
+            panic!("first Agent Page-create preparation");
+        };
+        let LibraryReadValue::AgentCreatePagesPreparation { value } = prepared.value else {
+            panic!("Agent Page-create preparation");
+        };
+        assert_eq!(value.pages.len(), 2);
+        assert_eq!(value.document_heads.len(), 1);
+        assert_eq!(
+            value.document_heads[0].document_id,
+            "document:agent-create-target"
+        );
+        assert_ne!(first.preparation.token, value.preparation.token);
+        assert!(
+            value
+                .pages
+                .iter()
+                .all(|page| page.body_block_ids.len() == 1)
+        );
+        let token = value.preparation.token.expect("create token");
+        let execute = ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: "operation:agent-create-pages".to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::ExecutePreparedAgentCreatePages {
+                authorization: Box::new(AgentPreparedExecution {
+                    authorization: authorization.clone(),
+                    token: Some(token),
+                }),
+                request: Box::new(create.clone()),
+            },
+        };
+        let committed = module
+            .apply(&context(), execute.clone())
+            .expect("execute Agent Page batch");
+        let replay = module
+            .apply(&context(), execute)
+            .expect("replay Agent Page batch");
+        assert!(replay.committed.receipt.mutation.duplicate);
+        assert!(replay.event.is_none());
+        assert_eq!(
+            module
+                .prepared_agent_operation_count()
+                .expect("consumed create token"),
+            0
+        );
+        let result = committed
+            .committed
+            .value
+            .agent_create_pages
+            .as_ref()
+            .expect("Agent create result");
+        assert_eq!(result.pages.len(), 2);
+        assert_eq!(result.document_commits.len(), 2);
+        assert!(result.pages.iter().all(|page| page.etags.is_some()));
+        assert!(result.pages.iter().all(|page| matches!(
+            page.location,
+            nodex_core_contracts::library::LibraryAgentPageLocation::Page { ref page_id }
+                if page_id == "page:agent-create-target"
+        )));
+        kernel
+            .readers()
+            .read_default(|connection| {
+                for (page, expected_title) in result.pages.iter().zip(["First", "Second"]) {
+                    let authority = connection.query_row(
+                        "SELECT page.parent_kind, page.parent_id, block.location_kind, \
+                           model.title, document.head_seq \
+                         FROM pages page JOIN blocks block ON block.id = page.block_id \
+                         JOIN page_read_model model ON model.page_block_id = page.block_id \
+                         JOIN documents document ON document.id = page.document_id \
+                         WHERE page.block_id = ?1",
+                        [&page.page_id],
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, String>(2)?,
+                                row.get::<_, String>(3)?,
+                                row.get::<_, i64>(4)?,
+                            ))
+                        },
+                    )?;
+                    assert_eq!(authority.0, "page");
+                    assert_eq!(authority.1, "page:agent-create-target");
+                    assert_eq!(authority.2, "document");
+                    assert_eq!(authority.3, expected_title);
+                    assert_eq!(authority.4, 1);
+                    assert_eq!(page.block_ids.len(), 1);
+                }
+                let target_head = connection.query_row(
+                    "SELECT head_seq FROM documents WHERE id = 'document:agent-create-target'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(target_head, 3);
+                Ok(())
+            })
+            .expect("verify created Page authority");
+
+        let replay_preparation = prepare();
+        let LibraryReadValue::AgentCreatePagesPreparation { value } = replay_preparation.value
+        else {
+            panic!("Agent Page-create replay preparation");
         };
         assert_eq!(
             value.preparation.state,

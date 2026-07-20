@@ -132,6 +132,21 @@ pub struct LibraryAgentPageCopyRequest {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryAgentCreatePageDraft {
+    pub title_markdown: String,
+    pub nfm: String,
+    pub values: Vec<LibraryPageCopyValue>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryAgentCreatePagesRequest {
+    pub destination: LibraryAgentPageDestination,
+    pub pages: Vec<LibraryAgentCreatePageDraft>,
+    pub include_block_ids: bool,
+    pub include_etags: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryAgentDocumentHead {
     pub document_id: String,
     pub generation: i64,
@@ -172,6 +187,48 @@ pub struct LibraryAgentPageCopyResult {
     pub block_map: Option<std::collections::BTreeMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub etags: Option<LibraryAgentPageEtags>,
+    pub document_commits: Vec<LibraryBlockTransferDocumentCommit>,
+    pub affected_database_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryAgentCreatePagePreparation {
+    pub page_id: String,
+    pub body_block_ids: Vec<String>,
+    pub primary_membership_id: String,
+    pub target_membership_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct LibraryAgentCreatePagesPreparation {
+    pub preparation: AgentOperationPreparation,
+    pub pages: Vec<LibraryAgentCreatePagePreparation>,
+    pub document_heads: Vec<LibraryAgentDocumentHead>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination: Option<LibraryPageCopyDestination>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination_document: Option<LibraryAgentDocumentHead>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination_database_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination_project_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub committed: Option<Box<CommittedModuleValue<LibraryCommitValue, LibraryReceipt>>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryAgentCreatedPage {
+    pub page_id: String,
+    pub location: LibraryAgentPageLocation,
+    pub body_blocks_created: u32,
+    pub block_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub etags: Option<LibraryAgentPageEtags>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryAgentCreatePagesResult {
+    pub pages: Vec<LibraryAgentCreatedPage>,
     pub document_commits: Vec<LibraryBlockTransferDocumentCommit>,
     pub affected_database_ids: Vec<String>,
 }
@@ -390,6 +447,12 @@ pub enum LibraryRead {
         store_epoch: String,
         authorization: Box<AgentExecutionAuthorization>,
         request: Box<LibraryAgentPageCopyRequest>,
+    },
+    PrepareAgentCreatePages {
+        operation_id: String,
+        store_epoch: String,
+        authorization: Box<AgentExecutionAuthorization>,
+        request: Box<LibraryAgentCreatePagesRequest>,
     },
     PlanBlockTransfer {
         operation_id: String,
@@ -1309,6 +1372,9 @@ pub enum LibraryReadValue {
     AgentPageCopyPreparation {
         value: Box<LibraryAgentPageCopyPreparation>,
     },
+    AgentCreatePagesPreparation {
+        value: Box<LibraryAgentCreatePagesPreparation>,
+    },
     BlockTransferPlan {
         value: Box<LibraryBlockTransferPlan>,
     },
@@ -1371,6 +1437,10 @@ pub enum LibraryIntent {
         authorization: Box<AgentPreparedExecution>,
         request: Box<LibraryAgentPageCopyRequest>,
     },
+    ExecutePreparedAgentCreatePages {
+        authorization: Box<AgentPreparedExecution>,
+        request: Box<LibraryAgentCreatePagesRequest>,
+    },
     TransferBlocks {
         intent: LibraryBlockTransferLogicalIntent,
         write_fence: Option<LibraryBlockTransferWriteFence>,
@@ -1408,6 +1478,7 @@ pub struct LibraryCommitValue {
     pub page_lifecycle: Option<LibraryPageLifecycleMutationReceipt>,
     pub block_property_mutation: Option<LibraryBlockPropertyMutationReceipt>,
     pub agent_page_copy: Option<LibraryAgentPageCopyResult>,
+    pub agent_create_pages: Option<LibraryAgentCreatePagesResult>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

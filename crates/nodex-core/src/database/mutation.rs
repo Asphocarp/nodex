@@ -1345,6 +1345,29 @@ pub(crate) fn place_staged_page_in_data_source(
 }
 
 #[allow(clippy::too_many_arguments)]
+pub(crate) fn place_staged_page_in_data_source_prevalidated(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: &str,
+    staged_page_id: &str,
+    destination: &PageCopyDataSourceDestination,
+    expected: StagedPagePlacementRevisions,
+    now: &str,
+) -> Result<PageCopyDataSourcePlacement, StoreError> {
+    place_staged_page_in_data_source_with_access(
+        connection,
+        library_id,
+        requesting_project_id,
+        None,
+        staged_page_id,
+        destination,
+        expected,
+        now,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
 fn place_staged_page_in_data_source_with_access(
     connection: &Connection,
     library_id: &str,

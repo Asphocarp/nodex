@@ -122,6 +122,32 @@ impl LibraryModule {
             .map_err(core_error);
         }
 
+        if let LibraryRead::PrepareAgentCreatePages {
+            operation_id,
+            store_epoch,
+            authorization,
+            request: create_request,
+        } = &request.read
+        {
+            let readers = self
+                .readers
+                .as_ref()
+                .ok_or_else(|| invalid_input("the Library tracer cannot prepare Agent writes"))?;
+            return agent_page_create::prepare_create_pages(
+                readers,
+                &self.prepared_agent_operations,
+                context,
+                &self.library_id,
+                agent_page_create::PrepareCreatePagesInput {
+                    operation_id: operation_id.clone(),
+                    expected_store_epoch: store_epoch.clone(),
+                    authorization: (**authorization).clone(),
+                    request: (**create_request).clone(),
+                },
+            )
+            .map_err(core_error);
+        }
+
         if let Some(readers) = &self.readers {
             let profile_id = self.profile_id.clone();
             let library_id = self.library_id.clone();
@@ -265,6 +291,30 @@ impl LibraryModule {
             )
             .map_err(core_error);
         }
+        if let LibraryIntent::ExecutePreparedAgentCreatePages {
+            authorization,
+            request: create_request,
+        } = request.intent.clone()
+        {
+            let writer = self
+                .writer
+                .as_ref()
+                .ok_or_else(|| invalid_input("the Library tracer cannot execute Agent writes"))?;
+            return agent_page_create::execute_create_pages(
+                writer,
+                &self.prepared_agent_operations,
+                &self.profile_id,
+                &self.library_id,
+                context,
+                request,
+                *authorization,
+                *create_request,
+                self.assets_root
+                    .as_ref()
+                    .expect("persistent Library has an assets root"),
+            )
+            .map_err(core_error);
+        }
         if let Some(writer) = &self.writer {
             return mutation::apply(
                 writer,
@@ -375,6 +425,7 @@ impl LibraryModule {
                 page_lifecycle: None,
                 block_property_mutation: None,
                 agent_page_copy: None,
+                agent_create_pages: None,
             },
             receipt,
             event_sequence,
@@ -4499,6 +4550,7 @@ mod tests {
     }
 }
 pub(crate) mod agent_authorization;
+mod agent_page_create;
 mod agent_page_write;
 mod agent_search;
 mod block_transfer;
