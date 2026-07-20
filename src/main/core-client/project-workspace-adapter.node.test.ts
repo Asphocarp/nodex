@@ -190,6 +190,96 @@ describe("Core Project Workspace adapter", () => {
     ]);
   });
 
+  test("reads and replaces one Thread dynamic-tool catalog through its execution context", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueWorkspaceRead({
+      version: 1,
+      event_head: 10,
+      store_epoch: "epoch:test",
+      value: {
+        kind: "execution_context",
+        context: {
+          thread: {
+            ...thread,
+            dynamic_tool_catalogs: [{
+              namespace: "nodex_app",
+              toolset_revision: 1,
+            }],
+            writable_roots: ["/workspace/one", "/workspace/shared"],
+          },
+          project: project(),
+          permission_mode: "auto",
+        },
+      },
+    });
+    client.enqueueWorkspaceApply({
+      value: {
+        affected_project_ids: [],
+        affected_session_ids: [],
+        affected_thread_ids: ["thread:one"],
+      },
+      receipt: {
+        operation_id: "operation:replace-catalogs",
+        duplicate: false,
+        affected_project_ids: [],
+        affected_session_ids: [],
+      },
+      event_sequence: 11,
+      store_epoch: "epoch:test",
+    });
+    client.enqueueWorkspaceRead({
+      version: 1,
+      event_head: 11,
+      store_epoch: "epoch:test",
+      value: {
+        kind: "execution_context",
+        context: {
+          thread: {
+            ...thread,
+            dynamic_tool_catalogs: [
+              { namespace: "codex_app", toolset_revision: 2 },
+              { namespace: "nodex_app", toolset_revision: 1 },
+            ],
+          },
+          project: project(),
+          permission_mode: "auto",
+        },
+      },
+    });
+    const adapter = createCoreProjectWorkspaceAdapter(client);
+
+    await expect(
+      adapter.readThreadExecutionContext("thread:one"),
+    ).resolves.toEqual({
+      threadId: "thread:one",
+      projectId: "project:one",
+      permissionMode: "auto",
+      dynamicToolCatalogs: [{
+        namespace: "nodex_app",
+        toolsetRevision: 1,
+      }],
+      writableRoots: ["/workspace/one", "/workspace/shared"],
+    });
+    await expect(adapter.replaceThreadDynamicToolCatalogs("thread:one", [
+      { namespace: "codex_app", toolsetRevision: 2 },
+      { namespace: "nodex_app", toolsetRevision: 1 },
+    ])).resolves.toEqual([
+      { namespace: "codex_app", toolsetRevision: 2 },
+      { namespace: "nodex_app", toolsetRevision: 1 },
+    ]);
+    expect(client.workspaceApplies).toEqual([{
+      operationId: expect.any(String),
+      intent: {
+        kind: "replace_thread_dynamic_tool_catalogs",
+        thread_id: "thread:one",
+        catalogs: [
+          { namespace: "codex_app", toolset_revision: 2 },
+          { namespace: "nodex_app", toolset_revision: 1 },
+        ],
+      },
+    }]);
+  });
+
   test("hydrates one complete Session without leaking Core wire casing", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({

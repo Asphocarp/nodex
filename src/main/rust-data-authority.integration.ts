@@ -1769,6 +1769,27 @@ describe("Electron native data authority", () => {
         threadId: "thread:electron-session",
         threadName: "Electron linked Thread",
       });
+      await expect(workspace.replaceThreadDynamicToolCatalogs(
+        "thread:electron-session",
+        [
+          { namespace: "codex_app", toolsetRevision: 2 },
+          { namespace: "nodex_app", toolsetRevision: 1 },
+        ],
+      )).resolves.toEqual([
+        { namespace: "codex_app", toolsetRevision: 2 },
+        { namespace: "nodex_app", toolsetRevision: 1 },
+      ]);
+      await expect(
+        workspace.readThreadExecutionContext("thread:electron-session"),
+      ).resolves.toMatchObject({
+        threadId: "thread:electron-session",
+        projectId: createdProject.id,
+        dynamicToolCatalogs: [
+          { namespace: "codex_app", toolsetRevision: 2 },
+          { namespace: "nodex_app", toolsetRevision: 1 },
+        ],
+      });
+      expect(listCurrentProcessFiles()).not.toContain(databasePath);
       await expect(
         workspace.detachProjectSessionThread(createdSession.id),
       ).resolves.toBe(true);

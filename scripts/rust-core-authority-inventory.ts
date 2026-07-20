@@ -176,7 +176,7 @@ const capabilityRules: readonly CapabilityRule[] = [
     callerNeed: "trusted maintenance callers need whole-store lifecycle operations with one exclusive authority",
   },
   {
-    pattern: /(?:authoritative-operation-receipts|nodex-agent-(?:cursor-codec|etag|signing-key))/,
+    pattern: /(?:authoritative-operation-receipts|nodex-agent-(?:cursor-codec|etag|resource-authority|signing-key))/,
     module: "Library",
     intent: "bind Library operations to durable receipts, scoped guards, cursors, and signing authority",
     callerNeed: "semantic tools need idempotent replay and scope-safe pagination/concurrency guards",

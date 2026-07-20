@@ -569,11 +569,6 @@ import {
   type NodexAgentAccess,
 } from "../../shared/nodex-agent-tools";
 import { resolveDynamicToolCatalogBindings } from "./codex-dynamic-tool-catalog-bindings";
-import {
-  copyCodexThreadDynamicToolCatalogs,
-  getCodexThreadDynamicToolRevision,
-  replaceCodexThreadDynamicToolCatalogs,
-} from "./codex-dynamic-tool-catalog-repository";
 import type {
   NodexAgentAuthorizationBroker,
   NodexAgentAuthorizationPresentationTarget,
@@ -633,6 +628,8 @@ import {
 import { computeCodexScheduledAutomationIntervalMs } from "../local-store/codex-scheduled-automation-schedule";
 import type { DesktopAutomationModulePort } from "../core-client/desktop-automation-module-bridge";
 import { createTypeScriptAutomationModulePort } from "../typescript-automation-module-port";
+import type { DesktopProjectWorkspacePort } from "../core-client/project-workspace-adapter";
+import { createTypeScriptProjectWorkspacePort } from "../typescript-project-workspace-port";
 import { CodexScheduledAutomationRetryError } from "../codex-scheduled-automation-scheduler";
 import {
   buildCodexNewConversationParams,
@@ -2851,6 +2848,8 @@ export class CodexService extends EventEmitter {
   private nodexAgentAuthorizationBroker: NodexAgentAuthorizationBroker | null = null;
   private automationModule: DesktopAutomationModulePort =
     createTypeScriptAutomationModulePort();
+  private projectWorkspace: DesktopProjectWorkspacePort =
+    createTypeScriptProjectWorkspacePort();
   private readonly automationIdByRunThreadId = new Map<string, string>();
   private readonly activeHeartbeatAutomationIdByThreadId =
     new Map<string, string>();
@@ -4059,6 +4058,10 @@ export class CodexService extends EventEmitter {
     this.automationModule = module;
     this.automationIdByRunThreadId.clear();
     this.activeHeartbeatAutomationIdByThreadId.clear();
+  }
+
+  setProjectWorkspacePort(port: DesktopProjectWorkspacePort): void {
+    this.projectWorkspace = port;
   }
 
   async synchronizeAutomationRuntime(): Promise<void> {
@@ -9615,7 +9618,7 @@ export class CodexService extends EventEmitter {
         if (!link) {
           throw new Error("Codex thread/start returned an invalid thread payload");
         }
-        this.persistDynamicToolCatalogsForLaunch(
+        await this.persistDynamicToolCatalogsForLaunch(
           link.threadId,
           threadStartParams.dynamicTools,
         );
@@ -9981,11 +9984,11 @@ export class CodexService extends EventEmitter {
     });
   }
 
-  private persistDynamicToolCatalogsForLaunch(
+  private async persistDynamicToolCatalogsForLaunch(
     threadId: string,
     specs: ThreadStartParams["dynamicTools"],
-  ): void {
-    replaceCodexThreadDynamicToolCatalogs(
+  ): Promise<void> {
+    await this.projectWorkspace.replaceThreadDynamicToolCatalogs(
       threadId,
       resolveDynamicToolCatalogBindings(specs),
     );
@@ -13953,7 +13956,7 @@ export class CodexService extends EventEmitter {
         if (!link) {
           throw new Error("Codex thread/start returned an invalid thread payload");
         }
-        this.persistDynamicToolCatalogsForLaunch(
+        await this.persistDynamicToolCatalogsForLaunch(
           link.threadId,
           threadStartParams.dynamicTools,
         );
@@ -15537,7 +15540,14 @@ export class CodexService extends EventEmitter {
       ? forkResponse.thread
       : { ...forkResponse.thread, cwd: resolvedCwd };
     const materialized = input.materialize(projectedThread, resolvedCwd, forkResponse);
-    copyCodexThreadDynamicToolCatalogs(input.sourceThreadId, threadId);
+    const sourceExecutionContext =
+      await this.projectWorkspace.readThreadExecutionContext(
+        input.sourceThreadId,
+      );
+    await this.projectWorkspace.replaceThreadDynamicToolCatalogs(
+      threadId,
+      sourceExecutionContext?.dynamicToolCatalogs ?? [],
+    );
     this.setConversationRecordDetail(materialized.detail);
     const forkPermissions = {
       activePermissionProfile: forkResponse.activePermissionProfile,
@@ -19941,7 +19951,7 @@ export class CodexService extends EventEmitter {
         fallbackRef,
         effectiveCwd,
       ));
-      this.persistDynamicToolCatalogsForLaunch(
+      await this.persistDynamicToolCatalogsForLaunch(
         detail.threadId,
         threadStartParams.dynamicTools,
       );
@@ -20295,10 +20305,11 @@ export class CodexService extends EventEmitter {
       write: writeAccess,
       domains: ["document", "placement", "database"],
     };
-    const toolsetRevision = getCodexThreadDynamicToolRevision(
-      params.threadId,
-      NODEX_APP_TOOL_NAMESPACE,
-    );
+    const executionContext =
+      await this.projectWorkspace.readThreadExecutionContext(params.threadId);
+    const toolsetRevision = executionContext?.dynamicToolCatalogs.find(
+      (catalog) => catalog.namespace === NODEX_APP_TOOL_NAMESPACE,
+    )?.toolsetRevision ?? null;
     const taskResourceAccess = authority && broker
       ? broker.getTaskAccess(authority)
       : undefined;

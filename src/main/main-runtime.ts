@@ -1818,6 +1818,7 @@ export async function runMainAppStartup(
     authority: dataAuthority,
     typescript: createTypeScriptProjectWorkspacePort(),
   });
+  codexService.setProjectWorkspacePort(projectWorkspace);
   configureHttpContentModuleAuthorities({
     referenceReads: {
       resolvePageOwnershipPath: (input) =>

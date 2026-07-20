@@ -1,5 +1,12 @@
 import * as projectSessionService from "./local-store/project-sessions";
 import * as projectsStore from "./local-store/projects";
+import {
+  getCodexThreadDynamicToolCatalogs,
+  replaceCodexThreadDynamicToolCatalogs,
+} from "./codex/codex-dynamic-tool-catalog-repository";
+import { getCodexThread } from "./codex/codex-link-repository";
+import { getCodexProjectPermissionModeSelection } from "./local-store/codex-project-permission-modes";
+import { getCodexThreadWritableRoots } from "./local-store/codex-thread-writable-roots";
 import { projectDeletionRuntime } from "./project-deletion-runtime";
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
 
@@ -81,4 +88,21 @@ export const createTypeScriptProjectWorkspacePort = (
     projectSessionService.upsertProjectSessionThreadLink(input),
   detachProjectSessionThread: async (sessionId) =>
     projectSessionService.detachProjectSessionThread(sessionId),
+  readThreadExecutionContext: async (threadId) => {
+    const thread = getCodexThread(threadId);
+    if (!thread) return null;
+    return {
+      threadId: thread.threadId,
+      projectId: thread.projectId,
+      permissionMode: thread.projectId
+        ? getCodexProjectPermissionModeSelection(thread.projectId)
+        : null,
+      dynamicToolCatalogs: getCodexThreadDynamicToolCatalogs(threadId),
+      writableRoots: getCodexThreadWritableRoots(threadId),
+    };
+  },
+  replaceThreadDynamicToolCatalogs: async (threadId, catalogs) => {
+    replaceCodexThreadDynamicToolCatalogs(threadId, catalogs);
+    return getCodexThreadDynamicToolCatalogs(threadId);
+  },
 });

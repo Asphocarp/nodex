@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type {
+  CodexPermissionMode,
   PanelId,
   Project,
   ProjectCreateInput,
@@ -34,6 +35,7 @@ import type {
   ProjectSessionUpdateInput,
   ProjectUpdateInput,
 } from "../../shared/types";
+import type { DynamicToolCatalogSelection } from "../codex/dynamic-tool-registry";
 import {
   ProjectSessionPanelActivateInputSchema,
   ProjectSessionPanelEnsureRightLeafInputSchema,
@@ -92,6 +94,14 @@ type CoreThread = Extract<
   ProjectWorkspaceReadSnapshot["value"],
   { kind: "thread" }
 >["thread"];
+
+export interface DesktopProjectWorkspaceExecutionContext {
+  readonly threadId: string;
+  readonly projectId: string | null;
+  readonly permissionMode: CodexPermissionMode | null;
+  readonly dynamicToolCatalogs: readonly DynamicToolCatalogSelection[];
+  readonly writableRoots: readonly string[];
+}
 
 export interface DesktopProjectWorkspacePort {
   listProjects(): Promise<Project[]>;
@@ -194,6 +204,13 @@ export interface DesktopProjectWorkspacePort {
     input: ProjectSessionThreadLinkInput,
   ): Promise<ProjectSessionThreadLink>;
   detachProjectSessionThread(sessionId: string): Promise<boolean>;
+  readThreadExecutionContext(
+    threadId: string,
+  ): Promise<DesktopProjectWorkspaceExecutionContext | null>;
+  replaceThreadDynamicToolCatalogs(
+    threadId: string,
+    catalogs: readonly DynamicToolCatalogSelection[],
+  ): Promise<readonly DynamicToolCatalogSelection[]>;
 }
 
 const isNotFound = (error: unknown): boolean =>
@@ -320,6 +337,37 @@ export function createCoreProjectWorkspaceAdapter(
       throw new Error("Core returned the wrong Project Workspace read variant");
     }
     return snapshot.value.thread;
+  };
+
+  const readThreadExecutionContext = async (
+    threadId: string,
+  ): Promise<DesktopProjectWorkspaceExecutionContext | null> => {
+    let snapshot: ProjectWorkspaceReadSnapshot;
+    try {
+      snapshot = await client.workspaceRead({
+        kind: "execution_context",
+        thread_id: threadId,
+      });
+    } catch (error) {
+      if (isNotFound(error)) return null;
+      throw error;
+    }
+    if (snapshot.value.kind !== "execution_context") {
+      throw new Error("Core returned the wrong Project Workspace read variant");
+    }
+    const { context } = snapshot.value;
+    return {
+      threadId: context.thread.thread_id,
+      projectId: context.thread.project_id ?? null,
+      permissionMode: context.permission_mode ?? null,
+      dynamicToolCatalogs: context.thread.dynamic_tool_catalogs.map(
+        (catalog) => ({
+          namespace: catalog.namespace,
+          toolsetRevision: catalog.toolset_revision,
+        }),
+      ),
+      writableRoots: [...context.thread.writable_roots],
+    };
   };
 
   const readThread = async (
@@ -1133,6 +1181,22 @@ export function createCoreProjectWorkspaceAdapter(
         },
       });
       return true;
+    },
+    readThreadExecutionContext,
+    replaceThreadDynamicToolCatalogs: async (threadId, catalogs) => {
+      await apply({
+        kind: "replace_thread_dynamic_tool_catalogs",
+        thread_id: threadId,
+        catalogs: catalogs.map((catalog) => ({
+          namespace: catalog.namespace,
+          toolset_revision: catalog.toolsetRevision,
+        })),
+      });
+      const context = await readThreadExecutionContext(threadId);
+      if (!context) {
+        throw new Error(`Updated Core Thread not found: ${threadId}`);
+      }
+      return context.dynamicToolCatalogs;
     },
   };
 }

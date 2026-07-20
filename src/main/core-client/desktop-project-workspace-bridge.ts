@@ -110,6 +110,13 @@ export function createDesktopProjectWorkspaceBridge(
       await (await resolve()).upsertProjectSessionThreadLink(threadInput),
     detachProjectSessionThread: async (sessionId) =>
       await (await resolve()).detachProjectSessionThread(sessionId),
+    readThreadExecutionContext: async (threadId) =>
+      await (await resolve()).readThreadExecutionContext(threadId),
+    replaceThreadDynamicToolCatalogs: async (threadId, catalogs) =>
+      await (await resolve()).replaceThreadDynamicToolCatalogs(
+        threadId,
+        catalogs,
+      ),
   };
 }
 

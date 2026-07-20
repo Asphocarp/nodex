@@ -492,7 +492,13 @@ Thread, its Project binding, current permission mode, and sorted tool catalogs
 from one snapshot. Invalid protocol status, oversized metadata, cross-Library
 Projects, duplicate Session ownership, and a Thread/Session Project mismatch
 fail closed. Electron still hosts codex-app-server and supplies accepted runtime
-observations; reading or persisting this context never starts a process.
+observations; reading or persisting this context never starts a process. Thread
+launches and dynamic creates persist their exact namespace/revision catalog
+through the backend-selected Workspace port before execution continues. A fork
+reads the source execution-context snapshot and replaces the target catalog
+through the same authority, while every `nodex_app` call resolves its expected
+toolset revision from that snapshot. The Rust branch therefore never opens
+SQLite in Electron for catalog launch, inheritance, or stale-catalog checks.
 
 The same Thread aggregate owns host-observed execution continuity without
 moving process execution into Core. Only a trusted Electron Host Adapter may
