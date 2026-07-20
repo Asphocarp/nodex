@@ -1248,6 +1248,7 @@ async function initializeDesktopApp(
   databaseReady = true;
   await resolvePendingPageDeepLink();
   await resolvePendingSessionDeepLink();
+  startHttpServer(serverPort);
   configureRuntimeBackupScheduler(getBackupSettings());
   startRuntimeStoreMaintenanceScheduler();
   startRuntimeReminderDelivery();
