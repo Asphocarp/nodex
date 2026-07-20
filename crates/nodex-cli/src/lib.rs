@@ -6,6 +6,7 @@ use clap::Parser;
 
 pub mod cli;
 pub mod error;
+pub mod meta_yaml;
 pub mod patch;
 pub mod sed;
 

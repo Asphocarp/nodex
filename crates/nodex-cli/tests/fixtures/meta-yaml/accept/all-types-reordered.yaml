@@ -1,0 +1,16 @@
+# Comments, mapping order, plain strings, and flow mappings are non-semantic.
+schedule: { timezone: Asia/Shanghai, all_day: false, end: "2026-07-20T10:00:00+08:00", start: "2026-07-20T09:00:00+08:00" }
+properties:
+  person: { value: { name: Local User, id: person_local }, type: person, name: Owner }
+  datetime: { type: datetime, name: Moment, value: "2026-07-20T09:30:00+08:00" }
+  date: { value: "2026-07-20", name: Day, type: date }
+  multi:
+    value: [{ name: Core, id: o_core }, { id: o_cli, name: CLI }]
+    name: Tags
+    type: multi_select
+  select: { name: Status, value: { name: Ready, id: o_ready }, type: select }
+  checkbox: { value: true, type: checkbox, name: Ready }
+  number: { name: Estimate, value: 1.25, type: number }
+  text: { value: Ship Core, name: Summary, type: text }
+title: Launch **plan**
+id: page_all_types

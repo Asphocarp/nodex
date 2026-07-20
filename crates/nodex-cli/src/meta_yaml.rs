@@ -1,0 +1,1007 @@
+use std::collections::{BTreeMap, BTreeSet};
+
+use chrono::{DateTime, NaiveDate};
+use serde::Serialize;
+use serde_json::Number;
+use yaml_rust2::parser::{Event, MarkedEventReceiver, Parser};
+use yaml_rust2::scanner::{Marker, TScalarStyle};
+
+use crate::error::{CliError, CliErrorCode};
+
+pub const MAX_META_YAML_BYTES: usize = 1024 * 1024;
+pub const MAX_META_YAML_SCALAR_BYTES: usize = 64 * 1024;
+pub const MAX_META_YAML_NODES: usize = 20_000;
+pub const MAX_META_YAML_DEPTH: usize = 32;
+pub const MAX_META_YAML_PROPERTIES: usize = 256;
+pub const MAX_META_YAML_SEQUENCE: usize = 256;
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct PageMetaV1 {
+    pub id: String,
+    pub title: String,
+    pub properties: BTreeMap<String, ProjectedPropertyV1>,
+    pub schedule: Option<ProjectedScheduleV1>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ProjectedPropertyV1 {
+    pub name: String,
+    pub value_type: ProjectedPropertyTypeV1,
+    pub value: ProjectedPropertyValueV1,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectedPropertyTypeV1 {
+    Text,
+    Number,
+    Checkbox,
+    Select,
+    MultiSelect,
+    Date,
+    Datetime,
+    Person,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum ProjectedPropertyValueV1 {
+    Null,
+    Text(String),
+    Number(Number),
+    Checkbox(bool),
+    Identity(ProjectedIdentityV1),
+    Identities(Vec<ProjectedIdentityV1>),
+    Date(String),
+    Datetime(String),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ProjectedIdentityV1 {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ProjectedScheduleV1 {
+    pub start: String,
+    pub end: String,
+    pub timezone: Option<String>,
+    pub all_day: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DraftMetadataChange {
+    pub title: Option<String>,
+}
+
+pub fn parse(input: &[u8]) -> Result<PageMetaV1, CliError> {
+    if input.len() > MAX_META_YAML_BYTES {
+        return Err(invalid(format!(
+            "meta.yaml exceeds the {MAX_META_YAML_BYTES}-byte limit"
+        )));
+    }
+    let input = std::str::from_utf8(input).map_err(|_| {
+        CliError::new(
+            CliErrorCode::MetaYamlSyntax,
+            "meta.yaml must be valid UTF-8",
+        )
+    })?;
+    reject_directives(input)?;
+
+    let mut receiver = ProfileReceiver::default();
+    let mut parser = Parser::new_from_str(input);
+    parser.load(&mut receiver, true).map_err(|error| {
+        CliError::new(CliErrorCode::MetaYamlSyntax, error.info())
+            .at_line(error.marker().line())
+            .at_column(error.marker().col())
+    })?;
+    let root = receiver.finish()?;
+    validate_page(root)
+}
+
+pub fn compare_draft_metadata(
+    base: &PageMetaV1,
+    work: &PageMetaV1,
+) -> Result<DraftMetadataChange, CliError> {
+    if base.id != work.id {
+        return Err(CliError::new(
+            CliErrorCode::PageIdMismatch,
+            "work meta.yaml must retain the draft Page ID",
+        )
+        .at_path("id"));
+    }
+
+    let mut read_only_paths = Vec::new();
+    if base.properties != work.properties {
+        let property_ids = base
+            .properties
+            .keys()
+            .chain(work.properties.keys())
+            .collect::<BTreeSet<_>>();
+        for property_id in property_ids {
+            if base.properties.get(property_id) != work.properties.get(property_id) {
+                read_only_paths.push(format!("properties.{property_id}"));
+                if read_only_paths.len() == 16 {
+                    break;
+                }
+            }
+        }
+    }
+    if base.schedule != work.schedule && read_only_paths.len() < 16 {
+        read_only_paths.push("schedule".to_owned());
+    }
+    if !read_only_paths.is_empty() {
+        return Err(CliError::new(
+            CliErrorCode::DraftReadOnlyFieldChanged,
+            format!(
+                "draft changed read-only metadata: {}",
+                read_only_paths.join(", ")
+            ),
+        )
+        .at_path(read_only_paths[0].clone()));
+    }
+
+    Ok(DraftMetadataChange {
+        title: (base.title != work.title).then(|| work.title.clone()),
+    })
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Span {
+    line: usize,
+    column: usize,
+}
+
+impl From<Marker> for Span {
+    fn from(marker: Marker) -> Self {
+        Self {
+            line: marker.line(),
+            column: marker.col(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct SpannedValue {
+    value: Value,
+    span: Span,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum Value {
+    Null,
+    Bool(bool),
+    Number(Number),
+    String(String),
+    Sequence(Vec<SpannedValue>),
+    Mapping(BTreeMap<String, SpannedValue>),
+}
+
+#[derive(Debug)]
+enum Frame {
+    Sequence {
+        span: Span,
+        values: Vec<SpannedValue>,
+    },
+    Mapping {
+        span: Span,
+        values: BTreeMap<String, SpannedValue>,
+        pending_key: Option<(String, Span)>,
+    },
+}
+
+#[derive(Default)]
+struct ProfileReceiver {
+    documents: usize,
+    nodes: usize,
+    frames: Vec<Frame>,
+    root: Option<SpannedValue>,
+    error: Option<CliError>,
+}
+
+impl ProfileReceiver {
+    fn finish(self) -> Result<SpannedValue, CliError> {
+        if let Some(error) = self.error {
+            return Err(error);
+        }
+        if self.documents != 1 {
+            return Err(invalid("meta.yaml must contain exactly one document"));
+        }
+        if !self.frames.is_empty() {
+            return Err(invalid("meta.yaml contains an incomplete collection"));
+        }
+        self.root
+            .ok_or_else(|| invalid("meta.yaml must contain one root mapping"))
+    }
+
+    fn receive(&mut self, event: Event, marker: Marker) -> Result<(), CliError> {
+        if self.error.is_some() {
+            return Ok(());
+        }
+        let span = Span::from(marker);
+        match event {
+            Event::Nothing | Event::StreamStart | Event::StreamEnd | Event::DocumentEnd => Ok(()),
+            Event::DocumentStart => {
+                self.documents += 1;
+                if self.documents > 1 {
+                    return Err(at_span(
+                        invalid("meta.yaml must contain exactly one document"),
+                        span,
+                    ));
+                }
+                Ok(())
+            }
+            Event::Alias(_) => Err(at_span(
+                invalid("YAML aliases are not allowed in meta.yaml"),
+                span,
+            )),
+            Event::Scalar(raw, style, anchor, tag) => {
+                reject_anchor_or_tag(anchor, tag.is_some(), span)?;
+                if raw.len() > MAX_META_YAML_SCALAR_BYTES {
+                    return Err(at_span(
+                        invalid(format!(
+                            "YAML scalar exceeds the {MAX_META_YAML_SCALAR_BYTES}-byte limit"
+                        )),
+                        span,
+                    ));
+                }
+                self.add_node(SpannedValue {
+                    value: parse_scalar(&raw, style, span)?,
+                    span,
+                })
+            }
+            Event::SequenceStart(anchor, tag) => {
+                reject_anchor_or_tag(anchor, tag.is_some(), span)?;
+                self.begin_frame(Frame::Sequence {
+                    span,
+                    values: Vec::new(),
+                })
+            }
+            Event::MappingStart(anchor, tag) => {
+                reject_anchor_or_tag(anchor, tag.is_some(), span)?;
+                self.begin_frame(Frame::Mapping {
+                    span,
+                    values: BTreeMap::new(),
+                    pending_key: None,
+                })
+            }
+            Event::SequenceEnd => {
+                let Some(Frame::Sequence { span, values }) = self.frames.pop() else {
+                    return Err(at_span(invalid("unexpected YAML sequence end"), span));
+                };
+                self.add_node(SpannedValue {
+                    value: Value::Sequence(values),
+                    span,
+                })
+            }
+            Event::MappingEnd => {
+                let Some(Frame::Mapping {
+                    span,
+                    values,
+                    pending_key,
+                }) = self.frames.pop()
+                else {
+                    return Err(at_span(invalid("unexpected YAML mapping end"), span));
+                };
+                if pending_key.is_some() {
+                    return Err(at_span(invalid("YAML mapping key has no value"), span));
+                }
+                self.add_node(SpannedValue {
+                    value: Value::Mapping(values),
+                    span,
+                })
+            }
+        }
+    }
+
+    fn begin_frame(&mut self, frame: Frame) -> Result<(), CliError> {
+        self.nodes += 1;
+        if self.nodes > MAX_META_YAML_NODES {
+            return Err(invalid(format!(
+                "meta.yaml exceeds the {MAX_META_YAML_NODES}-node limit"
+            )));
+        }
+        if self.frames.len() >= MAX_META_YAML_DEPTH {
+            return Err(invalid(format!(
+                "meta.yaml exceeds the {MAX_META_YAML_DEPTH}-level depth limit"
+            )));
+        }
+        self.frames.push(frame);
+        Ok(())
+    }
+
+    fn add_node(&mut self, node: SpannedValue) -> Result<(), CliError> {
+        self.nodes += 1;
+        if self.nodes > MAX_META_YAML_NODES {
+            return Err(at_span(
+                invalid(format!(
+                    "meta.yaml exceeds the {MAX_META_YAML_NODES}-node limit"
+                )),
+                node.span,
+            ));
+        }
+        let Some(frame) = self.frames.last_mut() else {
+            if self.root.replace(node).is_some() {
+                return Err(invalid("meta.yaml must contain one root value"));
+            }
+            return Ok(());
+        };
+        match frame {
+            Frame::Sequence { values, .. } => {
+                if values.len() == MAX_META_YAML_SEQUENCE {
+                    return Err(at_span(
+                        invalid(format!(
+                            "YAML sequence exceeds the {MAX_META_YAML_SEQUENCE}-item limit"
+                        )),
+                        node.span,
+                    ));
+                }
+                values.push(node);
+                Ok(())
+            }
+            Frame::Mapping {
+                values,
+                pending_key,
+                ..
+            } => {
+                if let Some((key, key_span)) = pending_key.take() {
+                    if key == "<<" {
+                        return Err(at_span(
+                            invalid("YAML merge keys are not allowed in meta.yaml"),
+                            key_span,
+                        ));
+                    }
+                    if values.insert(key.clone(), node).is_some() {
+                        return Err(at_span(
+                            invalid(format!("duplicate YAML mapping key '{key}'")),
+                            key_span,
+                        ));
+                    }
+                    return Ok(());
+                }
+                let Value::String(key) = node.value else {
+                    return Err(at_span(
+                        invalid("YAML mapping keys must be strings"),
+                        node.span,
+                    ));
+                };
+                *pending_key = Some((key, node.span));
+                Ok(())
+            }
+        }
+    }
+}
+
+impl MarkedEventReceiver for ProfileReceiver {
+    fn on_event(&mut self, event: Event, marker: Marker) {
+        if let Err(error) = self.receive(event, marker) {
+            self.error = Some(error);
+        }
+    }
+}
+
+fn reject_directives(input: &str) -> Result<(), CliError> {
+    for (index, line) in input.lines().enumerate() {
+        if line.trim_start().starts_with('%') {
+            return Err(CliError::new(
+                CliErrorCode::MetaYamlInvalid,
+                "YAML directives are not allowed in meta.yaml",
+            )
+            .at_line(index + 1)
+            .at_column(line.len() - line.trim_start().len() + 1));
+        }
+    }
+    Ok(())
+}
+
+fn reject_anchor_or_tag(anchor: usize, tagged: bool, span: Span) -> Result<(), CliError> {
+    if anchor != 0 {
+        return Err(at_span(
+            invalid("YAML anchors are not allowed in meta.yaml"),
+            span,
+        ));
+    }
+    if tagged {
+        return Err(at_span(
+            invalid("explicit YAML tags are not allowed in meta.yaml"),
+            span,
+        ));
+    }
+    Ok(())
+}
+
+fn parse_scalar(raw: &str, style: TScalarStyle, span: Span) -> Result<Value, CliError> {
+    if style != TScalarStyle::Plain {
+        return Ok(Value::String(raw.to_owned()));
+    }
+    match raw {
+        "null" | "" => return Ok(Value::Null),
+        "true" => return Ok(Value::Bool(true)),
+        "false" => return Ok(Value::Bool(false)),
+        _ => {}
+    }
+    if valid_json_number(raw) {
+        let number = raw
+            .parse::<Number>()
+            .map_err(|_| at_span(invalid("number is outside the supported JSON range"), span))?;
+        return Ok(Value::Number(number));
+    }
+    if resembles_non_json_number(raw) {
+        return Err(at_span(
+            invalid(format!("non-JSON numeric scalar '{raw}' is not allowed")),
+            span,
+        ));
+    }
+    Ok(Value::String(raw.to_owned()))
+}
+
+fn valid_json_number(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.is_empty() {
+        return false;
+    }
+    let mut index = usize::from(bytes[0] == b'-');
+    if index == bytes.len() {
+        return false;
+    }
+    if bytes[index] == b'0' {
+        index += 1;
+        if index < bytes.len() && bytes[index].is_ascii_digit() {
+            return false;
+        }
+    } else if bytes[index].is_ascii_digit() && bytes[index] != b'0' {
+        while index < bytes.len() && bytes[index].is_ascii_digit() {
+            index += 1;
+        }
+    } else {
+        return false;
+    }
+    if index < bytes.len() && bytes[index] == b'.' {
+        index += 1;
+        let start = index;
+        while index < bytes.len() && bytes[index].is_ascii_digit() {
+            index += 1;
+        }
+        if index == start {
+            return false;
+        }
+    }
+    if index < bytes.len() && matches!(bytes[index], b'e' | b'E') {
+        index += 1;
+        if index < bytes.len() && matches!(bytes[index], b'+' | b'-') {
+            index += 1;
+        }
+        let start = index;
+        while index < bytes.len() && bytes[index].is_ascii_digit() {
+            index += 1;
+        }
+        if index == start {
+            return false;
+        }
+    }
+    index == bytes.len()
+}
+
+fn resembles_non_json_number(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    matches!(
+        lower.as_str(),
+        ".inf" | "+.inf" | "-.inf" | ".nan" | "~" | "null"
+    ) || value.starts_with('+')
+        || value
+            .contains('_')
+            .then(|| value.replace('_', ""))
+            .is_some_and(|compact| valid_json_number(&compact))
+        || lower.starts_with("0x")
+        || lower.starts_with("0o")
+        || lower.starts_with("0b")
+        || is_leading_zero_integer(value)
+        || is_sexagesimal(value)
+}
+
+fn is_leading_zero_integer(value: &str) -> bool {
+    let unsigned = value.strip_prefix('-').unwrap_or(value);
+    unsigned.len() > 1
+        && unsigned.starts_with('0')
+        && unsigned.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn is_sexagesimal(value: &str) -> bool {
+    value.contains(':')
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || byte == b':' || byte == b'-')
+}
+
+fn validate_page(root: SpannedValue) -> Result<PageMetaV1, CliError> {
+    let root_span = root.span;
+    let mut root = expect_mapping(root, "", "top-level meta.yaml value")?;
+    expect_exact_keys(
+        &root,
+        &["id", "title", "properties", "schedule"],
+        root_span,
+        "",
+    )?;
+    let id = expect_bounded_string(take(&mut root, "id", "")?, "id", 512)?;
+    if id.is_empty() {
+        return Err(invalid("Page id must not be empty").at_path("id"));
+    }
+    let title = expect_bounded_string(take(&mut root, "title", "")?, "title", 4_096)?;
+    if title.contains(['\n', '\r']) {
+        return Err(invalid("Page title must be one inline-Markdown line").at_path("title"));
+    }
+    let properties_node = take(&mut root, "properties", "")?;
+    let properties_span = properties_node.span;
+    let property_nodes = expect_mapping(properties_node, "properties", "properties")?;
+    if property_nodes.len() > MAX_META_YAML_PROPERTIES {
+        return Err(at_span(
+            invalid(format!(
+                "properties exceeds the {MAX_META_YAML_PROPERTIES}-property limit"
+            ))
+            .at_path("properties"),
+            properties_span,
+        ));
+    }
+    let mut properties = BTreeMap::new();
+    for (property_id, property) in property_nodes {
+        if property_id.is_empty() || property_id.len() > 512 {
+            return Err(at_span(
+                invalid("Property ID is empty or oversized")
+                    .at_path(format!("properties.{property_id}")),
+                property.span,
+            ));
+        }
+        properties.insert(
+            property_id.clone(),
+            validate_property(property, &property_id)?,
+        );
+    }
+    let schedule_node = take(&mut root, "schedule", "")?;
+    let schedule = match schedule_node.value {
+        Value::Null => None,
+        _ => Some(validate_schedule(schedule_node)?),
+    };
+    Ok(PageMetaV1 {
+        id,
+        title,
+        properties,
+        schedule,
+    })
+}
+
+fn validate_property(
+    property: SpannedValue,
+    property_id: &str,
+) -> Result<ProjectedPropertyV1, CliError> {
+    let path = format!("properties.{property_id}");
+    let span = property.span;
+    let mut property = expect_mapping(property, &path, "Property value")?;
+    expect_exact_keys(&property, &["name", "type", "value"], span, &path)?;
+    let name = expect_bounded_string(
+        take(&mut property, "name", &path)?,
+        &format!("{path}.name"),
+        4_096,
+    )?;
+    let type_path = format!("{path}.type");
+    let value_type = match expect_bounded_string(
+        take(&mut property, "type", &path)?,
+        &type_path,
+        32,
+    )?
+    .as_str()
+    {
+        "text" => ProjectedPropertyTypeV1::Text,
+        "number" => ProjectedPropertyTypeV1::Number,
+        "checkbox" => ProjectedPropertyTypeV1::Checkbox,
+        "select" => ProjectedPropertyTypeV1::Select,
+        "multi_select" => ProjectedPropertyTypeV1::MultiSelect,
+        "date" => ProjectedPropertyTypeV1::Date,
+        "datetime" => ProjectedPropertyTypeV1::Datetime,
+        "person" => ProjectedPropertyTypeV1::Person,
+        _ => return Err(invalid("unsupported Property type").at_path(type_path)),
+    };
+    let value_path = format!("{path}.value");
+    let value = validate_property_value(
+        take(&mut property, "value", &path)?,
+        value_type,
+        &value_path,
+    )?;
+    Ok(ProjectedPropertyV1 {
+        name,
+        value_type,
+        value,
+    })
+}
+
+fn validate_property_value(
+    value: SpannedValue,
+    value_type: ProjectedPropertyTypeV1,
+    path: &str,
+) -> Result<ProjectedPropertyValueV1, CliError> {
+    let span = value.span;
+    if matches!(value.value, Value::Null) {
+        return Ok(ProjectedPropertyValueV1::Null);
+    }
+    match (value_type, value.value) {
+        (ProjectedPropertyTypeV1::Text, Value::String(value)) => {
+            bounded_string(value, span, path, MAX_META_YAML_SCALAR_BYTES)
+                .map(ProjectedPropertyValueV1::Text)
+        }
+        (ProjectedPropertyTypeV1::Number, Value::Number(value)) => {
+            Ok(ProjectedPropertyValueV1::Number(value))
+        }
+        (ProjectedPropertyTypeV1::Checkbox, Value::Bool(value)) => {
+            Ok(ProjectedPropertyValueV1::Checkbox(value))
+        }
+        (
+            ProjectedPropertyTypeV1::Select | ProjectedPropertyTypeV1::Person,
+            Value::Mapping(map),
+        ) => validate_identity(map, span, path).map(ProjectedPropertyValueV1::Identity),
+        (ProjectedPropertyTypeV1::MultiSelect, Value::Sequence(values)) => {
+            if values.len() > MAX_META_YAML_SEQUENCE {
+                return Err(at_span(
+                    invalid("multi_select value exceeds the sequence limit").at_path(path),
+                    span,
+                ));
+            }
+            values
+                .into_iter()
+                .enumerate()
+                .map(|(index, value)| {
+                    let item_span = value.span;
+                    let map =
+                        expect_mapping(value, &format!("{path}[{index}]"), "multi_select item")?;
+                    validate_identity(map, item_span, &format!("{path}[{index}]"))
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map(ProjectedPropertyValueV1::Identities)
+        }
+        (ProjectedPropertyTypeV1::Date, Value::String(value)) => {
+            NaiveDate::parse_from_str(&value, "%Y-%m-%d")
+                .map_err(|_| invalid("date value must use YYYY-MM-DD").at_path(path))?;
+            Ok(ProjectedPropertyValueV1::Date(value))
+        }
+        (ProjectedPropertyTypeV1::Datetime, Value::String(value)) => {
+            validate_rfc3339(&value, path)?;
+            Ok(ProjectedPropertyValueV1::Datetime(value))
+        }
+        _ => Err(at_span(
+            invalid("Property value does not match its declared type").at_path(path),
+            span,
+        )),
+    }
+}
+
+fn validate_identity(
+    mut map: BTreeMap<String, SpannedValue>,
+    span: Span,
+    path: &str,
+) -> Result<ProjectedIdentityV1, CliError> {
+    expect_exact_keys(&map, &["id", "name"], span, path)?;
+    let id = expect_bounded_string(take(&mut map, "id", path)?, &format!("{path}.id"), 512)?;
+    let name = expect_bounded_string(
+        take(&mut map, "name", path)?,
+        &format!("{path}.name"),
+        4_096,
+    )?;
+    if id.is_empty() {
+        return Err(invalid("identity id must not be empty").at_path(format!("{path}.id")));
+    }
+    Ok(ProjectedIdentityV1 { id, name })
+}
+
+fn validate_schedule(value: SpannedValue) -> Result<ProjectedScheduleV1, CliError> {
+    let span = value.span;
+    let mut schedule = expect_mapping(value, "schedule", "schedule")?;
+    expect_exact_keys(
+        &schedule,
+        &["start", "end", "timezone", "all_day"],
+        span,
+        "schedule",
+    )?;
+    let start = expect_bounded_string(
+        take(&mut schedule, "start", "schedule")?,
+        "schedule.start",
+        128,
+    )?;
+    let end = expect_bounded_string(take(&mut schedule, "end", "schedule")?, "schedule.end", 128)?;
+    let start_date = validate_rfc3339(&start, "schedule.start")?;
+    let end_date = validate_rfc3339(&end, "schedule.end")?;
+    if end_date <= start_date {
+        return Err(invalid("schedule end must be later than start").at_path("schedule.end"));
+    }
+    let timezone = match take(&mut schedule, "timezone", "schedule")? {
+        SpannedValue {
+            value: Value::Null, ..
+        } => None,
+        value => {
+            let timezone = expect_bounded_string(value, "schedule.timezone", 128)?;
+            timezone.parse::<chrono_tz::Tz>().map_err(|_| {
+                invalid("schedule timezone must be an IANA name").at_path("schedule.timezone")
+            })?;
+            Some(timezone)
+        }
+    };
+    let all_day_node = take(&mut schedule, "all_day", "schedule")?;
+    let all_day = match all_day_node.value {
+        Value::Bool(value) => value,
+        _ => {
+            return Err(at_span(
+                invalid("schedule all_day must be boolean").at_path("schedule.all_day"),
+                all_day_node.span,
+            ));
+        }
+    };
+    Ok(ProjectedScheduleV1 {
+        start,
+        end,
+        timezone,
+        all_day,
+    })
+}
+
+fn validate_rfc3339(value: &str, path: &str) -> Result<DateTime<chrono::FixedOffset>, CliError> {
+    if !has_explicit_offset(value) {
+        return Err(invalid("datetime must include an explicit RFC 3339 offset").at_path(path));
+    }
+    DateTime::parse_from_rfc3339(value)
+        .map_err(|_| invalid("datetime must be valid RFC 3339").at_path(path))
+}
+
+fn has_explicit_offset(value: &str) -> bool {
+    value.ends_with('Z')
+        || value.get(10..).is_some_and(|tail| {
+            tail.contains('+') || tail.rfind('-').is_some_and(|index| index > 0)
+        })
+}
+
+fn expect_mapping(
+    value: SpannedValue,
+    path: &str,
+    label: &str,
+) -> Result<BTreeMap<String, SpannedValue>, CliError> {
+    match value.value {
+        Value::Mapping(values) => Ok(values),
+        _ => Err(at_span(
+            invalid(format!("{label} must be a mapping")).at_path(path),
+            value.span,
+        )),
+    }
+}
+
+fn expect_exact_keys(
+    values: &BTreeMap<String, SpannedValue>,
+    expected: &[&str],
+    span: Span,
+    path: &str,
+) -> Result<(), CliError> {
+    let expected = expected.iter().copied().collect::<BTreeSet<_>>();
+    if let Some(unknown) = values.keys().find(|key| !expected.contains(key.as_str())) {
+        return Err(at_span(
+            invalid(format!("unknown field '{unknown}'")).at_path(join_path(path, unknown)),
+            values[unknown].span,
+        ));
+    }
+    if let Some(missing) = expected.iter().find(|key| !values.contains_key(**key)) {
+        return Err(at_span(
+            invalid(format!("missing required field '{missing}'"))
+                .at_path(join_path(path, missing)),
+            span,
+        ));
+    }
+    Ok(())
+}
+
+fn take(
+    values: &mut BTreeMap<String, SpannedValue>,
+    key: &str,
+    path: &str,
+) -> Result<SpannedValue, CliError> {
+    values.remove(key).ok_or_else(|| {
+        invalid(format!("missing required field '{key}'")).at_path(join_path(path, key))
+    })
+}
+
+fn expect_bounded_string(
+    value: SpannedValue,
+    path: &str,
+    maximum: usize,
+) -> Result<String, CliError> {
+    let span = value.span;
+    let Value::String(value) = value.value else {
+        return Err(at_span(
+            invalid("value must be a string").at_path(path),
+            span,
+        ));
+    };
+    bounded_string(value, span, path, maximum)
+}
+
+fn bounded_string(
+    value: String,
+    span: Span,
+    path: &str,
+    maximum: usize,
+) -> Result<String, CliError> {
+    if value.len() > maximum {
+        return Err(at_span(
+            invalid(format!("string exceeds the {maximum}-byte limit")).at_path(path),
+            span,
+        ));
+    }
+    Ok(value)
+}
+
+fn join_path(parent: &str, child: &str) -> String {
+    if parent.is_empty() {
+        child.to_owned()
+    } else {
+        format!("{parent}.{child}")
+    }
+}
+
+fn invalid(message: impl Into<String>) -> CliError {
+    CliError::new(CliErrorCode::MetaYamlInvalid, message)
+}
+
+fn at_span(mut error: CliError, span: Span) -> CliError {
+    error.line = Some(span.line);
+    error.column = Some(span.column);
+    error
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const META: &str = r#"id: "page_1"
+title: "Launch **plan**"
+properties:
+  "status":
+    name: "Status"
+    type: "select"
+    value:
+      id: "o_triage"
+      name: "Triage"
+  "score":
+    name: "Score"
+    type: "number"
+    value: 1.25
+schedule:
+  start: "2026-07-20T09:00:00+08:00"
+  end: "2026-07-20T10:00:00+08:00"
+  timezone: "Asia/Shanghai"
+  all_day: false
+"#;
+
+    #[test]
+    fn parses_typed_metadata_and_accepts_reordered_commented_input() {
+        let first = parse(META.as_bytes()).expect("canonical-shaped metadata");
+        let reordered = parse(
+            br#"# formatting is not semantic
+schedule:
+  all_day: false
+  timezone: "Asia/Shanghai"
+  end: "2026-07-20T10:00:00+08:00"
+  start: "2026-07-20T09:00:00+08:00"
+properties:
+  score: { value: 1.25, type: number, name: Score }
+  status:
+    value: { name: Triage, id: o_triage }
+    type: select
+    name: Status
+title: "Launch **plan**"
+id: page_1
+"#,
+        )
+        .expect("reordered metadata");
+
+        assert_eq!(first, reordered);
+        assert_eq!(
+            first.properties["status"].value,
+            ProjectedPropertyValueV1::Identity(ProjectedIdentityV1 {
+                id: "o_triage".to_owned(),
+                name: "Triage".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_keys_aliases_tags_directives_and_documents() {
+        let cases = [
+            "id: page\nid: duplicate\ntitle: title\nproperties: {}\nschedule: null\n",
+            "id: &page page\ntitle: *page\nproperties: {}\nschedule: null\n",
+            "id: !thing page\ntitle: title\nproperties: {}\nschedule: null\n",
+            "%YAML 1.2\n---\nid: page\ntitle: title\nproperties: {}\nschedule: null\n",
+            "id: page\ntitle: title\nproperties: {}\nschedule: null\n---\nid: two\ntitle: title\nproperties: {}\nschedule: null\n",
+        ];
+        for input in cases {
+            assert!(parse(input.as_bytes()).is_err(), "input must fail: {input}");
+        }
+    }
+
+    #[test]
+    fn rejects_alternate_numbers_and_type_mismatches() {
+        for number in [".nan", ".inf", "0x10", "0o10", "01", "1_000", "+1"] {
+            let input = META.replace("value: 1.25", &format!("value: {number}"));
+            let error = parse(input.as_bytes()).expect_err("alternate number must fail");
+            assert_eq!(error.code, CliErrorCode::MetaYamlInvalid);
+        }
+
+        let mismatch = META.replace("value: 1.25", "value: true");
+        let error = parse(mismatch.as_bytes()).expect_err("number property must reject bool");
+        assert_eq!(error.path.as_deref(), Some("properties.score.value"));
+    }
+
+    #[test]
+    fn draft_comparison_ignores_formatting_but_rejects_read_only_changes() {
+        let base = parse(META.as_bytes()).expect("base");
+        let mut title = base.clone();
+        title.title = "Changed".to_owned();
+        assert_eq!(
+            compare_draft_metadata(&base, &title)
+                .unwrap()
+                .title
+                .as_deref(),
+            Some("Changed")
+        );
+
+        let mut property = base.clone();
+        property
+            .properties
+            .get_mut("score")
+            .expect("score property")
+            .value = ProjectedPropertyValueV1::Number(Number::from(2));
+        let error = compare_draft_metadata(&base, &property)
+            .expect_err("read-only property change must fail");
+        assert_eq!(error.code, CliErrorCode::DraftReadOnlyFieldChanged);
+        assert_eq!(error.path.as_deref(), Some("properties.score"));
+    }
+
+    #[test]
+    fn enforces_byte_scalar_node_depth_property_and_sequence_bounds() {
+        let oversized_document = vec![b' '; MAX_META_YAML_BYTES + 1];
+        assert!(parse(&oversized_document).is_err());
+
+        let oversized_scalar = format!(
+            "id: page\ntitle: \"{}\"\nproperties: {{}}\nschedule: null\n",
+            "x".repeat(MAX_META_YAML_SCALAR_BYTES + 1)
+        );
+        assert!(parse(oversized_scalar.as_bytes()).is_err());
+
+        let mut deep = "id: page\ntitle: title\nproperties:\n  value:\n    name: value\n    type: multi_select\n    value:".to_owned();
+        for _ in 0..=MAX_META_YAML_DEPTH {
+            deep.push_str(" [");
+        }
+        for _ in 0..=MAX_META_YAML_DEPTH {
+            deep.push(']');
+        }
+        deep.push_str("\nschedule: null\n");
+        assert!(parse(deep.as_bytes()).is_err());
+
+        let mut properties = "id: page\ntitle: title\nproperties:\n".to_owned();
+        for index in 0..=MAX_META_YAML_PROPERTIES {
+            properties.push_str(&format!(
+                "  p{index}: {{ name: p, type: text, value: null }}\n"
+            ));
+        }
+        properties.push_str("schedule: null\n");
+        assert!(parse(properties.as_bytes()).is_err());
+
+        let mut sequence = "id: page\ntitle: title\nproperties:\n  p:\n    name: p\n    type: multi_select\n    value:\n".to_owned();
+        for index in 0..=MAX_META_YAML_SEQUENCE {
+            sequence.push_str(&format!("      - {{ id: i{index}, name: n }}\n"));
+        }
+        sequence.push_str("schedule: null\n");
+        assert!(parse(sequence.as_bytes()).is_err());
+
+        let mut nodes = "id: page\ntitle: title\nproperties:\n".to_owned();
+        for index in 0..MAX_META_YAML_NODES {
+            nodes.push_str(&format!("  n{index}: {{}}\n"));
+        }
+        nodes.push_str("schedule: null\n");
+        assert!(nodes.len() < MAX_META_YAML_BYTES);
+        assert!(parse(nodes.as_bytes()).is_err());
+    }
+}

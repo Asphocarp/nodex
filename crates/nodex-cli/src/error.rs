@@ -77,7 +77,9 @@ pub struct CliError {
     pub code: CliErrorCode,
     pub message: String,
     pub line: Option<usize>,
+    pub column: Option<usize>,
     pub hunk: Option<usize>,
+    pub path: Option<String>,
 }
 
 impl CliError {
@@ -86,7 +88,9 @@ impl CliError {
             code,
             message: message.into(),
             line: None,
+            column: None,
             hunk: None,
+            path: None,
         }
     }
 
@@ -97,6 +101,16 @@ impl CliError {
 
     pub fn in_hunk(mut self, hunk: usize) -> Self {
         self.hunk = Some(hunk);
+        self
+    }
+
+    pub fn at_column(mut self, column: usize) -> Self {
+        self.column = Some(column);
+        self
+    }
+
+    pub fn at_path(mut self, path: impl Into<String>) -> Self {
+        self.path = Some(path.into());
         self
     }
 }
@@ -115,7 +129,11 @@ pub struct ErrorBody<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub column: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub hunk: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<&'a str>,
 }
 
 impl<'a> ErrorEnvelope<'a> {
@@ -127,7 +145,9 @@ impl<'a> ErrorEnvelope<'a> {
                 code: error.code.as_str(),
                 message: &error.message,
                 line: error.line,
+                column: error.column,
                 hunk: error.hunk,
+                path: error.path.as_deref(),
             },
         }
     }
