@@ -1051,6 +1051,59 @@ pub(crate) struct ResolvedPageTransferDataSourceDestination {
     pub(crate) destination: PageCopyDataSourceDestination,
 }
 
+pub(crate) struct ResolvedPageTransferDataSourceSource {
+    pub(crate) project_id: String,
+    pub(crate) database_id: String,
+    pub(crate) data_source_id: String,
+}
+
+pub(crate) enum ExistingPageTransferTarget<'a> {
+    Library,
+    DataSource(&'a PageCopyDataSourceDestination),
+}
+
+pub(crate) struct ExistingPageTransferPlacement {
+    pub(crate) database_id: Option<String>,
+    pub(crate) data_source_id: Option<String>,
+    pub(crate) membership_id: Option<String>,
+    pub(crate) affected_database_ids: Vec<String>,
+    pub(crate) affected_view_ids: Vec<String>,
+    pub(crate) committed_revisions: BTreeMap<String, i64>,
+    pub(crate) location_revision: i64,
+    pub(crate) metadata_revision: i64,
+    pub(crate) parent_revision: i64,
+}
+
+pub(crate) fn resolve_page_transfer_data_source_source(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: &str,
+    data_source_id: &str,
+) -> Result<ResolvedPageTransferDataSourceSource, StoreError> {
+    let source = require_source(connection, library_id, data_source_id)?;
+    authorize_write(
+        connection,
+        requesting_project_id,
+        &source.database_id,
+        DatabaseWriteAction::Write,
+        false,
+    )?;
+    let project_id = connection
+        .query_row(
+            "SELECT project_id FROM blocks WHERE id = ?1 AND type = 'database' \
+             AND lifecycle = 'active'",
+            [&source.database_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .ok_or_else(|| corrupt("Source Data Source has no active Database authority"))?;
+    Ok(ResolvedPageTransferDataSourceSource {
+        project_id,
+        database_id: source.database_id,
+        data_source_id: source.id,
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn resolve_page_transfer_data_source_destination(
     connection: &Connection,
@@ -1528,6 +1581,140 @@ pub(crate) fn place_staged_page_in_data_source(
         parent_revision,
         value_revisions,
         position_revision,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn transfer_existing_page_for_block_transfer(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: &str,
+    page_id: &str,
+    expected_parent_revision: i64,
+    expected_active_membership_revision: i64,
+    target: ExistingPageTransferTarget<'_>,
+    now: &str,
+) -> Result<ExistingPageTransferPlacement, StoreError> {
+    let mut effects = MutationEffects::default();
+    let database_target = match target {
+        ExistingPageTransferTarget::Library => DatabaseTransferTarget::Library {
+            library_id: library_id.to_owned(),
+        },
+        ExistingPageTransferTarget::DataSource(destination) => DatabaseTransferTarget::DataSource {
+            data_source_id: destination.data_source_id.clone(),
+        },
+    };
+    transfer_page(
+        connection,
+        library_id,
+        requesting_project_id,
+        page_id,
+        expected_parent_revision,
+        expected_active_membership_revision,
+        &database_target,
+        now,
+        &mut effects,
+        false,
+    )?;
+    if let ExistingPageTransferTarget::DataSource(destination) = target {
+        for value in &destination.values {
+            let expected_value_revision = connection
+                .query_row(
+                    "SELECT property_value.revision \
+                     FROM data_source_property_values property_value \
+                     JOIN data_source_page_memberships membership \
+                       ON membership.id = property_value.membership_id \
+                     WHERE membership.page_block_id = ?1 \
+                       AND membership.data_source_id = ?2 \
+                       AND membership.removed_at IS NULL \
+                       AND property_value.property_id = ?3",
+                    params![page_id, destination.data_source_id, value.property_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()?
+                .unwrap_or(0);
+            set_value(
+                connection,
+                library_id,
+                requesting_project_id,
+                &DatabasePageValue {
+                    page_id: page_id.to_owned(),
+                    data_source_id: destination.data_source_id.clone(),
+                    property_id: value.property_id.clone(),
+                    expected_value_revision,
+                    value: value.value.clone(),
+                },
+                now,
+                &mut effects,
+                false,
+            )?;
+        }
+        if let Some(view) = &destination.view {
+            position_pages(
+                connection,
+                library_id,
+                requesting_project_id,
+                &view.view_id,
+                &[DatabasePagePosition {
+                    page_id: page_id.to_owned(),
+                    expected_position_revision: 0,
+                }],
+                view.group_key.as_deref(),
+                view.before.as_ref().map(|anchor| anchor.page_id.as_str()),
+                now,
+                &mut effects,
+                false,
+            )?;
+        }
+    }
+    let (location_revision, metadata_revision, parent_revision, database_id) = connection
+        .query_row(
+            "SELECT block.location_revision, block.metadata_revision, page.parent_revision, \
+               block.containing_database_id \
+             FROM blocks block JOIN pages page ON page.block_id = block.id \
+             WHERE block.id = ?1",
+            [page_id],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            },
+        )?;
+    let membership = connection
+        .query_row(
+            "SELECT id, data_source_id, revision FROM data_source_page_memberships \
+             WHERE page_block_id = ?1 AND removed_at IS NULL",
+            [page_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
+        )
+        .optional()?;
+    effects
+        .revisions
+        .insert(format!("blockLocation:{page_id}"), location_revision);
+    effects
+        .revisions
+        .insert(format!("blockMetadata:{page_id}"), metadata_revision);
+    Ok(ExistingPageTransferPlacement {
+        database_id,
+        data_source_id: membership
+            .as_ref()
+            .map(|(_, data_source_id, _)| data_source_id.clone()),
+        membership_id: membership.as_ref().map(|(id, _, _)| id.clone()),
+        affected_database_ids: effects.database_ids.into_iter().collect(),
+        affected_view_ids: effects.view_ids.into_iter().collect(),
+        committed_revisions: effects.revisions,
+        location_revision,
+        metadata_revision,
+        parent_revision,
     })
 }
 

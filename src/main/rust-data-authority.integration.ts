@@ -887,6 +887,121 @@ describe("Electron native data authority", () => {
         finalLocationRevisions: { [copiedDataSourcePageId]: 2 },
         affectedDatabaseBlockIds: [primaryDatabase.database.databaseId],
       });
+      const moveDataSourcePageToLibraryIntent = {
+        ...transferIntent,
+        operationId: "electron-native-page-transfer-to-library",
+        mode: "move" as const,
+        rootBlockIds: [copiedDataSourcePageId],
+        source: {
+          kind: "data_source" as const,
+          dataSourceId: primaryDataSource.dataSourceId,
+        },
+        target: {
+          kind: "library" as const,
+          libraryId: runtime.rootClient.handshake.library_id,
+        },
+      };
+      const preparedPageMove = await transferAdapter.prepare(
+        moveDataSourcePageToLibraryIntent,
+      );
+      if (!preparedPageMove.ok) {
+        throw new Error(
+          `Core Data Source Page move preparation failed: ${preparedPageMove.error.code}: ${preparedPageMove.error.message}`,
+        );
+      }
+      expect(preparedPageMove.value).toMatchObject({
+        leaseDocuments: [],
+        request: {
+          source: {
+            kind: "database",
+            databaseBlockId: primaryDatabase.database.databaseId,
+            dataSourceId: primaryDataSource.dataSourceId,
+            memberships: {
+              [copiedDataSourcePageId]: {
+                membershipId: expect.any(String),
+                revision: 1,
+              },
+            },
+          },
+          target: {
+            kind: "space",
+            libraryId: runtime.rootClient.handshake.library_id,
+          },
+        },
+      });
+      const movedPageToLibrary = await transferAdapter.apply(
+        preparedPageMove.value.request,
+      );
+      if (!movedPageToLibrary.ok) {
+        throw new Error(
+          `Core Data Source Page move failed: ${movedPageToLibrary.error.code}: ${movedPageToLibrary.error.message}`,
+        );
+      }
+      expect(movedPageToLibrary.value).toMatchObject({
+        resultRootBlockIds: [copiedDataSourcePageId],
+        finalLocations: {
+          [copiedDataSourcePageId]: {
+            kind: "space",
+            projectId,
+          },
+        },
+        finalLocationRevisions: { [copiedDataSourcePageId]: 3 },
+        documentCommits: [],
+        affectedDatabaseBlockIds: [primaryDatabase.database.databaseId],
+      });
+      const moveLibraryPageToDataSourceIntent = {
+        ...moveDataSourcePageToLibraryIntent,
+        operationId: "electron-native-page-transfer-to-data-source",
+        source: {
+          kind: "library" as const,
+          libraryId: runtime.rootClient.handshake.library_id,
+        },
+        target: {
+          kind: "data_source" as const,
+          dataSourceId: primaryDataSource.dataSourceId,
+          viewId: primaryView.viewId,
+          groupKey: "ship",
+        },
+      };
+      const preparedPageReturn = await transferAdapter.prepare(
+        moveLibraryPageToDataSourceIntent,
+      );
+      if (!preparedPageReturn.ok) {
+        throw new Error(
+          `Core Library Page move preparation failed: ${preparedPageReturn.error.code}: ${preparedPageReturn.error.message}`,
+        );
+      }
+      expect(preparedPageReturn.value).toMatchObject({
+        leaseDocuments: [],
+        request: {
+          source: {
+            kind: "space",
+            libraryId: runtime.rootClient.handshake.library_id,
+          },
+          target: {
+            kind: "database",
+            databaseBlockId: primaryDatabase.database.databaseId,
+          },
+        },
+      });
+      const returnedPageToDataSource = await transferAdapter.apply(
+        preparedPageReturn.value.request,
+      );
+      if (!returnedPageToDataSource.ok) {
+        throw new Error(
+          `Core Library Page move failed: ${returnedPageToDataSource.error.code}: ${returnedPageToDataSource.error.message}`,
+        );
+      }
+      expect(returnedPageToDataSource.value).toMatchObject({
+        finalLocations: {
+          [copiedDataSourcePageId]: {
+            kind: "database",
+            databaseBlockId: primaryDatabase.database.databaseId,
+          },
+        },
+        finalLocationRevisions: { [copiedDataSourcePageId]: 4 },
+        documentCommits: [],
+      });
       databaseEventSubscription.close();
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
       const workspace = createCoreProjectWorkspaceAdapter(runtime.rootClient);

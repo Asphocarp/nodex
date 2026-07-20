@@ -2085,6 +2085,179 @@ mod tests {
                 Ok(())
             })
             .expect("transformation evidence");
+
+        let return_to_library = LibraryBlockTransferLogicalIntent {
+            actor: serde_json::json!({ "kind": "test" }),
+            mode: LibraryBlockTransferMode::Move,
+            root_block_ids: vec![data_source_page_id.clone()],
+            source: LibraryBlockTransferSource::DataSource {
+                data_source_id: DATA_SOURCE.to_owned(),
+            },
+            target: LibraryBlockTransferTarget::Library {
+                library_id: "library-1".to_owned(),
+                before_block_id: Some(ANCHOR_PAGE.to_owned()),
+            },
+        };
+        let plan = library
+            .read(
+                &context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PlanBlockTransfer {
+                        operation_id: "return-page-to-library".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        intent: return_to_library.clone(),
+                    },
+                },
+            )
+            .expect("plan Data Source Page return");
+        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
+            panic!("Data Source Page return plan");
+        };
+        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
+            panic!("prepared Data Source Page return");
+        };
+        assert!(preparation.write_fence.documents.is_empty());
+        assert_eq!(preparation.source_database_id.as_deref(), Some(DATABASE));
+        assert_eq!(
+            preparation.write_fence.source_memberships[&data_source_page_id].revision,
+            1
+        );
+        let mut stale_fence = preparation.write_fence.clone();
+        stale_fence
+            .source_memberships
+            .get_mut(&data_source_page_id)
+            .expect("membership fence")
+            .revision = 0;
+        let stale = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "return-page-to-library".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: return_to_library.clone(),
+                        write_fence: Some(stale_fence),
+                    },
+                },
+            )
+            .expect_err("stale membership fence must fail");
+        assert_eq!(stale.code, CoreErrorCode::RevisionConflict);
+        let returned = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "return-page-to-library".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: return_to_library,
+                        write_fence: Some(preparation.write_fence),
+                    },
+                },
+            )
+            .expect("return Data Source Page to Library");
+        let returned_result = returned
+            .committed
+            .value
+            .block_transfer
+            .as_ref()
+            .expect("return result");
+        assert_eq!(returned_result.document_commits, vec![]);
+        assert!(matches!(
+            &returned_result.final_locations[&data_source_page_id],
+            LibraryBlockLocation::Library {
+                library_id,
+                project_id,
+                rank_key,
+            } if library_id == "library-1" && project_id == "project-1" && !rank_key.is_empty()
+        ));
+        assert_eq!(
+            returned_result.final_location_revisions[&data_source_page_id],
+            3
+        );
+
+        let return_to_data_source = LibraryBlockTransferLogicalIntent {
+            actor: serde_json::json!({ "kind": "test" }),
+            mode: LibraryBlockTransferMode::Move,
+            root_block_ids: vec![data_source_page_id.clone()],
+            source: LibraryBlockTransferSource::Library {
+                library_id: "library-1".to_owned(),
+            },
+            target: LibraryBlockTransferTarget::DataSource {
+                data_source_id: DATA_SOURCE.to_owned(),
+                view_id: VIEW.to_owned(),
+                group_key: Some("ship".to_owned()),
+                before_page_id: None,
+            },
+        };
+        let plan = library
+            .read(
+                &context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PlanBlockTransfer {
+                        operation_id: "return-page-to-data-source".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        intent: return_to_data_source.clone(),
+                    },
+                },
+            )
+            .expect("plan Library Page Data Source placement");
+        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
+            panic!("Library Page Data Source plan");
+        };
+        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
+            panic!("prepared Library Page Data Source placement");
+        };
+        assert!(preparation.write_fence.documents.is_empty());
+        assert!(preparation.write_fence.source_memberships.is_empty());
+        assert_eq!(preparation.target_database_id.as_deref(), Some(DATABASE));
+        let returned = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "return-page-to-data-source".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: return_to_data_source,
+                        write_fence: Some(preparation.write_fence),
+                    },
+                },
+            )
+            .expect("return Library Page to Data Source");
+        let returned_result = returned
+            .committed
+            .value
+            .block_transfer
+            .as_ref()
+            .expect("Data Source return result");
+        assert_eq!(
+            returned_result.final_locations[&data_source_page_id],
+            LibraryBlockLocation::DataSource {
+                database_id: DATABASE.to_owned(),
+                data_source_id: DATA_SOURCE.to_owned(),
+            }
+        );
+        assert_eq!(
+            returned_result.final_location_revisions[&data_source_page_id],
+            4
+        );
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let membership = connection.query_row(
+                    "SELECT revision, removed_at FROM data_source_page_memberships \
+                     WHERE page_block_id = ?1 AND data_source_id = ?2",
+                    params![data_source_page_id, DATA_SOURCE],
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)),
+                )?;
+                assert_eq!(membership, (3, None));
+                Ok(())
+            })
+            .expect("reactivated membership evidence");
     }
 }
 mod block_transfer;

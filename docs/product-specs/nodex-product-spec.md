@@ -782,7 +782,7 @@ nodex/
 | POST | `/api/projects/[projectId]/database-rows/details` | Batch-read compatibility wide projections for selected active Database rows |
 | POST | `/api/projects/[projectId]/page-lifecycle-mutations` | Create, archive/restore, tombstone, or reparent a Page and its owned Document closure through one idempotent, grant-aware lifecycle command |
 | GET | `/api/projects/[projectId]/page-lifecycle-preflight` | Read exact Page parent, ownership, Data Source membership, default View, and authorization evidence needed to compile a lifecycle command (`?pageId=<id>`) |
-| POST | `/api/projects/[projectId]/block-transfers` | Atomically Move/Copy stable ordinary Blocks between document surfaces; Page ownership changes use Page lifecycle or Database Module operations |
+| POST | `/api/projects/[projectId]/block-transfers` | Atomically Move/Copy stable ordinary Blocks and Page ownership closures across Document, Library, and Data Source parents |
 | POST | `/api/pages/search` | Search fresh Page Documents in the selected Projects' Library scope, filter candidates through effective grants, and return bounded excerpts |
 | GET | `/api/projects/[projectId]/calendar/occurrences` | List calendar occurrences in a time window (`?start=ISO&end=ISO&search=...`) |
 | POST | `/api/projects/[projectId]/page-occurrence/complete` | Complete one occurrence (body: `{operationId, createdPageId, pageId, occurrenceStart, source, sessionId?}`) |
