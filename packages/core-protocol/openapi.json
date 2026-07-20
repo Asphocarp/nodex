@@ -785,6 +785,31 @@
           "destructive"
         ]
       },
+      "AgentExecutionAuthorization": {
+        "type": "object",
+        "required": [
+          "provenance",
+          "call_id"
+        ],
+        "properties": {
+          "call_id": {
+            "type": "string"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/AgentTurnProvenance"
+          },
+          "resource_access": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentResourceAccessOverlay"
+              }
+            ]
+          }
+        }
+      },
       "AgentOperationFootprint": {
         "type": "object",
         "description": "Stable, user-visible mutation scope. Incidental ranks and internal Document\nheads deliberately remain outside this value.",
@@ -910,11 +935,11 @@
       "AgentPreparedExecution": {
         "type": "object",
         "required": [
-          "provenance"
+          "authorization"
         ],
         "properties": {
-          "provenance": {
-            "$ref": "#/components/schemas/AgentTurnProvenance"
+          "authorization": {
+            "$ref": "#/components/schemas/AgentExecutionAuthorization"
           },
           "token": {
             "type": [
@@ -4060,7 +4085,8 @@
           "owner_page_id",
           "document_id",
           "document_generation",
-          "document_head_seq"
+          "document_head_seq",
+          "owner_page"
         ],
         "properties": {
           "block_id": {
@@ -4082,6 +4108,9 @@
           },
           "lifecycle": {
             "type": "string"
+          },
+          "owner_page": {
+            "$ref": "#/components/schemas/LibraryPageDetail"
           },
           "owner_page_id": {
             "type": "string"
@@ -11112,9 +11141,13 @@
                 "type": "object",
                 "required": [
                   "block_id",
+                  "authorization",
                   "kind"
                 ],
                 "properties": {
+                  "authorization": {
+                    "$ref": "#/components/schemas/AgentExecutionAuthorization"
+                  },
                   "block_id": {
                     "type": "string"
                   },
@@ -11530,11 +11563,14 @@
                 "required": [
                   "operation_id",
                   "store_epoch",
-                  "provenance",
+                  "authorization",
                   "mutation",
                   "kind"
                 ],
                 "properties": {
+                  "authorization": {
+                    "$ref": "#/components/schemas/AgentExecutionAuthorization"
+                  },
                   "kind": {
                     "type": "string",
                     "enum": [
@@ -11547,9 +11583,6 @@
                   "operation_id": {
                     "type": "string"
                   },
-                  "provenance": {
-                    "$ref": "#/components/schemas/AgentTurnProvenance"
-                  },
                   "store_epoch": {
                     "$ref": "#/components/schemas/StoreEpoch"
                   }
@@ -11559,7 +11592,7 @@
                 "type": "object",
                 "required": [
                   "store_epoch",
-                  "provenance",
+                  "authorization",
                   "document_id",
                   "target_block_id",
                   "prepare_title",
@@ -11568,6 +11601,9 @@
                   "kind"
                 ],
                 "properties": {
+                  "authorization": {
+                    "$ref": "#/components/schemas/AgentExecutionAuthorization"
+                  },
                   "block_guards": {
                     "type": "array",
                     "items": {
@@ -11610,9 +11646,6 @@
                   },
                   "prepare_title": {
                     "type": "boolean"
-                  },
-                  "provenance": {
-                    "$ref": "#/components/schemas/AgentTurnProvenance"
                   },
                   "store_epoch": {
                     "$ref": "#/components/schemas/StoreEpoch"

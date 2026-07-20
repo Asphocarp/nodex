@@ -340,6 +340,11 @@ export interface components {
         };
         /** @enum {string} */
         readonly AgentEffectClass: "write" | "destructive";
+        readonly AgentExecutionAuthorization: {
+            readonly call_id: string;
+            readonly provenance: components["schemas"]["AgentTurnProvenance"];
+            readonly resource_access?: null | components["schemas"]["AgentResourceAccessOverlay"];
+        };
         /**
          * @description Stable, user-visible mutation scope. Incidental ranks and internal Document
          *     heads deliberately remain outside this value.
@@ -370,7 +375,7 @@ export interface components {
             readonly resource_id: string;
         };
         readonly AgentPreparedExecution: {
-            readonly provenance: components["schemas"]["AgentTurnProvenance"];
+            readonly authorization: components["schemas"]["AgentExecutionAuthorization"];
             /** @description Exact receipt replay may omit a token. A new mutation cannot. */
             readonly token?: string | null;
         };
@@ -1133,6 +1138,7 @@ export interface components {
             readonly document_head_seq: number;
             readonly document_id: string;
             readonly lifecycle: string;
+            readonly owner_page: components["schemas"]["LibraryPageDetail"];
             readonly owner_page_id: string;
         };
         readonly LibraryApplyRequest: components["schemas"]["ModuleApplyRequest_LibraryIntent"];
@@ -2797,6 +2803,7 @@ export interface components {
                 readonly kind: "page_content";
                 readonly page_id: string;
             } | {
+                readonly authorization: components["schemas"]["AgentExecutionAuthorization"];
                 readonly block_id: string;
                 /** @enum {string} */
                 readonly kind: "agent_block_target";
@@ -2884,13 +2891,14 @@ export interface components {
                 readonly kind: "get_version";
                 readonly version_id: string;
             } | {
+                readonly authorization: components["schemas"]["AgentExecutionAuthorization"];
                 /** @enum {string} */
                 readonly kind: "prepare_agent_semantic_mutation";
                 readonly mutation: components["schemas"]["AgentDocumentSemanticMutation"];
                 readonly operation_id: string;
-                readonly provenance: components["schemas"]["AgentTurnProvenance"];
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
             } | {
+                readonly authorization: components["schemas"]["AgentExecutionAuthorization"];
                 readonly block_guards: readonly components["schemas"]["AgentDocumentBlockGuard"][];
                 readonly cursor?: string | null;
                 readonly document_id: string;
@@ -2902,7 +2910,6 @@ export interface components {
                 readonly max_depth?: number | null;
                 readonly prepare_body: boolean;
                 readonly prepare_title: boolean;
-                readonly provenance: components["schemas"]["AgentTurnProvenance"];
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly target_block_id: string;
             };

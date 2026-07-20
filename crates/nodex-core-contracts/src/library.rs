@@ -4,8 +4,8 @@ use utoipa::ToSchema;
 use serde_json::Value;
 
 use crate::agent::{
-    AgentResourceAccessOverlay, AgentResourceAccessPlan, AgentResourceGrantSpec,
-    AgentResourceIntent, AgentTurnProvenance,
+    AgentExecutionAuthorization, AgentResourceAccessOverlay, AgentResourceAccessPlan,
+    AgentResourceGrantSpec, AgentResourceIntent, AgentTurnProvenance,
 };
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
@@ -255,6 +255,7 @@ pub enum LibraryRead {
     },
     AgentBlockTarget {
         block_id: String,
+        authorization: Box<AgentExecutionAuthorization>,
     },
     PageTarget {
         page_id: String,
@@ -801,7 +802,7 @@ pub struct LibraryPageContent {
     pub access_context: LibraryPageAccessContext,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 pub struct LibraryAgentBlockTarget {
     pub block_id: String,
     pub block_type: String,
@@ -810,6 +811,7 @@ pub struct LibraryAgentBlockTarget {
     pub document_id: String,
     pub document_generation: i64,
     pub document_head_seq: i64,
+    pub owner_page: Box<LibraryPageDetail>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

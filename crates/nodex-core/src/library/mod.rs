@@ -95,11 +95,6 @@ impl LibraryModule {
         if let Some(readers) = &self.readers {
             let profile_id = self.profile_id.clone();
             let library_id = self.library_id.clone();
-            let project_id = context
-                .project_id
-                .as_ref()
-                .map(|project_id| project_id.0.clone());
-            let adapter = context.adapter.clone();
             let context = context.clone();
             return readers
                 .read_default(move |connection| {
@@ -169,8 +164,7 @@ impl LibraryModule {
                             &library_id,
                             &store_epoch,
                             event_head,
-                            project_id.as_deref(),
-                            &adapter,
+                            &context,
                             read,
                         )?,
                     };
@@ -4249,7 +4243,7 @@ mod tests {
             .expect("Property authority evidence");
     }
 }
-mod agent_authorization;
+pub(crate) mod agent_authorization;
 mod block_transfer;
 mod content;
 mod cursor;

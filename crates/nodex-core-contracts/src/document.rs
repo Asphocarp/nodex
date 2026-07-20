@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
 
-use crate::agent::{AgentOperationPreparation, AgentPreparedExecution, AgentTurnProvenance};
+use crate::agent::{
+    AgentExecutionAuthorization, AgentOperationPreparation, AgentPreparedExecution,
+};
 use crate::{
     CommittedModuleValue, ModuleMutationReceipt, ModuleName, StoreEpoch, VersionedModuleContract,
 };
@@ -52,12 +54,12 @@ pub enum OwnedDocumentRead {
     PrepareAgentSemanticMutation {
         operation_id: String,
         store_epoch: StoreEpoch,
-        provenance: Box<AgentTurnProvenance>,
+        authorization: Box<AgentExecutionAuthorization>,
         mutation: Box<AgentDocumentSemanticMutation>,
     },
     AgentSemanticSnapshot {
         store_epoch: StoreEpoch,
-        provenance: Box<AgentTurnProvenance>,
+        authorization: Box<AgentExecutionAuthorization>,
         document_id: String,
         target_block_id: String,
         prepare_title: bool,

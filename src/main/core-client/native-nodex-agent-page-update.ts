@@ -22,7 +22,7 @@ import {
 import type { BlockMutationEnvelope } from "../block-mutation-writer";
 import { CoreModuleResponseError } from "./core-client";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
-import { toCoreAgentTurnProvenance } from "./desktop-nodex-agent-resource-authority";
+import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 
 type CoreAgentMutation = components["schemas"]["AgentDocumentSemanticMutation"];
 type CoreAgentPreparation = components["schemas"]["AgentOperationPreparation"];
@@ -388,16 +388,19 @@ export class NativeNodexAgentPageUpdateRuntime {
           request.input.safety?.allowDeletingOwnedBlocks === true,
         commands,
       };
+      const authorization = toCoreAgentExecutionAuthorization(
+        this.runtime.rootClient.handshake.profile_id,
+        request.authority,
+        request.callId,
+        request.resourceAccess,
+      );
       const clientSessionId = `nodex-agent:${request.threadId}`.slice(0, 512);
       const client = this.runtime.clientForProject(request.projectId);
       const snapshot = await client.documentRead(clientSessionId, {
         kind: "prepare_agent_semantic_mutation",
         operation_id: operationId,
         store_epoch: request.authority.storeEpoch,
-        provenance: toCoreAgentTurnProvenance(
-          this.runtime.rootClient.handshake.profile_id,
-          request.authority,
-        ),
+        authorization,
         mutation,
       });
       if (snapshot.value.kind !== "agent_semantic_mutation_preparation") {
@@ -508,9 +511,11 @@ export class NativeNodexAgentPageUpdateRuntime {
           intent: {
             kind: "execute_prepared_agent_semantic_mutation",
             authorization: {
-              provenance: toCoreAgentTurnProvenance(
+              authorization: toCoreAgentExecutionAuthorization(
                 this.runtime.rootClient.handshake.profile_id,
                 authority,
+                pending.request.callId,
+                pending.request.resourceAccess,
               ),
               token: pending.token,
             },

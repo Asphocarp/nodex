@@ -204,6 +204,84 @@ pub(super) fn plan(
     })
 }
 
+pub(crate) fn authorize_execution(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    library_id: &str,
+    authorization: &nodex_core_contracts::agent::AgentExecutionAuthorization,
+    target: &AgentAuthorizationTarget,
+    action: AgentProjectResourceAction,
+) -> Result<String, StoreError> {
+    validate_execution_transport_context(context, &authorization.provenance)?;
+    validate_id("call_id", &authorization.call_id)?;
+    let authority_fingerprint =
+        validate_persisted_turn_authority(connection, library_id, &authorization.provenance)?;
+    if let Some(overlay) = authorization.resource_access.as_ref() {
+        validate_overlay_shape(overlay)?;
+    }
+    let authority = &authorization.provenance.authority;
+    let project = read_project(connection, library_id, &authority.actor_project_id)?
+        .ok_or_else(|| unauthorized("Agent Turn Project is unavailable"))?;
+    let coordinates = match resolve_coordinates(connection, library_id, target)? {
+        CoordinateResolution::Found(coordinates) => coordinates,
+        CoordinateResolution::Missing => {
+            return Err(StoreError::new(
+                StoreErrorCode::NotFound,
+                "Agent target resource was not found",
+                false,
+            ));
+        }
+        CoordinateResolution::Corrupt => {
+            return Err(corrupt("Agent target resource hierarchy is corrupt"));
+        }
+    };
+    let direct = authorize_resource(
+        connection,
+        authority.scope,
+        &authority.actor_project_id,
+        &project,
+        &coordinates,
+        action,
+    )?;
+    let overlay_allowed = authorization
+        .resource_access
+        .as_ref()
+        .is_some_and(|overlay| {
+            overlay_covers_resource(
+                authority,
+                overlay,
+                &coordinates,
+                action,
+                &authorization.call_id,
+            )
+        });
+    if direct == AgentResourceAuthorizationReason::Allowed || overlay_allowed {
+        return Ok(authority_fingerprint);
+    }
+    Err(unauthorized(match direct {
+        AgentResourceAuthorizationReason::GrantMissing => {
+            "Agent target requires Project resource consent"
+        }
+        AgentResourceAuthorizationReason::GrantReadOnly => {
+            "Agent target requires write-capable Project resource consent"
+        }
+        AgentResourceAuthorizationReason::ProjectReadOnly => "Agent Turn Project is read-only",
+        AgentResourceAuthorizationReason::StructuralCapabilityRequired => {
+            "Agent target requires a structural Project capability"
+        }
+        AgentResourceAuthorizationReason::LibraryMismatch => {
+            "Agent target belongs to another Library"
+        }
+        AgentResourceAuthorizationReason::ResourceNotFound => "Agent target resource was not found",
+        AgentResourceAuthorizationReason::ResourceHierarchyCorrupt => {
+            "Agent target resource hierarchy is corrupt"
+        }
+        AgentResourceAuthorizationReason::ProjectNotFound => "Agent Turn Project is unavailable",
+        AgentResourceAuthorizationReason::AuthorityStale => "Agent Turn authority is stale",
+        AgentResourceAuthorizationReason::Allowed => unreachable!("allowed returned above"),
+    }))
+}
+
 pub(super) fn validate_transport_context(
     context: &BoundModuleContext,
     provenance: &AgentTurnProvenance,
@@ -226,6 +304,31 @@ pub(super) fn validate_transport_context(
     }
     Err(unauthorized(
         "Agent resource authorization is not bound to its trusted Electron context",
+    ))
+}
+
+fn validate_execution_transport_context(
+    context: &BoundModuleContext,
+    provenance: &AgentTurnProvenance,
+) -> Result<(), StoreError> {
+    if context.adapter != AdapterKind::Agent {
+        return validate_transport_context(context, provenance);
+    }
+    let authority = &provenance.authority;
+    let valid = context.profile_id.0 == provenance.profile_id
+        && context.library_id.0 == authority.library_id
+        && context
+            .project_id
+            .as_ref()
+            .map(|project| project.0.as_str())
+            == Some(authority.actor_project_id.as_str())
+        && !context.connection_id.is_empty()
+        && context.connection_id.len() <= MAX_ID_BYTES;
+    if valid {
+        return Ok(());
+    }
+    Err(unauthorized(
+        "Agent execution is not bound to its trusted Electron context",
     ))
 }
 

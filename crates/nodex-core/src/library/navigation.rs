@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use nodex_core_contracts::AdapterKind;
+use nodex_core_contracts::agent::{AgentAuthorizationTarget, AgentProjectResourceAction};
 use nodex_core_contracts::library::{
     LibraryAgentBlockTarget, LibraryCatalogEntry, LibraryCatalogKind, LibraryLifecycle,
     LibraryNavigationNode, LibraryNavigationParent, LibraryPageAccessContext,
@@ -9,6 +9,7 @@ use nodex_core_contracts::library::{
     LibraryPageOwnershipPath, LibraryPageOwnershipPathAncestor, LibraryPageTarget, LibraryRead,
     LibraryReadValue, LibraryResourceTarget, LibraryRouteTarget,
 };
+use nodex_core_contracts::{AdapterKind, BoundModuleContext};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
 
@@ -25,10 +26,14 @@ pub(super) fn read(
     library_id: &str,
     store_epoch: &str,
     event_head: i64,
-    requesting_project_id: Option<&str>,
-    requesting_adapter: &AdapterKind,
+    context: &BoundModuleContext,
     request: LibraryRead,
 ) -> Result<LibraryReadValue, StoreError> {
+    let requesting_project_id = context
+        .project_id
+        .as_ref()
+        .map(|project| project.0.as_str());
+    let requesting_adapter = &context.adapter;
     match request {
         LibraryRead::Metadata => Err(invalid("Metadata is assembled by the Library Module")),
         LibraryRead::Children {
@@ -114,17 +119,22 @@ pub(super) fn read(
                 )?),
             })
         }
-        LibraryRead::AgentBlockTarget { block_id } => {
-            let value = agent_block_target(connection, library_id, &block_id)?;
-            if let Some(target) = &value {
-                require_bound_page_read_access(
-                    connection,
-                    library_id,
-                    requesting_project_id,
-                    requesting_adapter,
-                    &target.owner_page_id,
-                )?;
-            }
+        LibraryRead::AgentBlockTarget {
+            block_id,
+            authorization,
+        } => {
+            super::agent_authorization::authorize_execution(
+                connection,
+                context,
+                library_id,
+                &authorization,
+                &AgentAuthorizationTarget::PageOrBlock {
+                    id: block_id.clone(),
+                },
+                AgentProjectResourceAction::Read,
+            )?;
+            let value =
+                agent_block_target(connection, library_id, store_epoch, event_head, &block_id)?;
             Ok(LibraryReadValue::AgentBlockTarget { value })
         }
         LibraryRead::PageTarget { page_id } => Ok(LibraryReadValue::PageTarget {
@@ -248,10 +258,12 @@ fn trusted_root_adapter(adapter: &AdapterKind) -> bool {
 fn agent_block_target(
     connection: &Connection,
     library_id: &str,
+    store_epoch: &str,
+    event_head: i64,
     block_id: &str,
 ) -> Result<Option<LibraryAgentBlockTarget>, StoreError> {
     validate_page_identity(block_id, "Agent Block target")?;
-    connection
+    let row = connection
         .query_row(
             "SELECT block.id, block.type, block.lifecycle, \
                CASE WHEN page.block_id IS NOT NULL THEN page.block_id ELSE owner_page.block_id END, \
@@ -272,19 +284,47 @@ fn agent_block_target(
              LIMIT 1",
             params![block_id, library_id],
             |row| {
-                Ok(LibraryAgentBlockTarget {
-                    block_id: row.get(0)?,
-                    block_type: row.get(1)?,
-                    lifecycle: row.get(2)?,
-                    owner_page_id: row.get(3)?,
-                    document_id: row.get(4)?,
-                    document_generation: row.get(5)?,
-                    document_head_seq: row.get(6)?,
-                })
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                ))
             },
         )
-        .optional()
-        .map_err(StoreError::from)
+        .optional()?;
+    let Some((
+        block_id,
+        block_type,
+        lifecycle,
+        owner_page_id,
+        document_id,
+        document_generation,
+        document_head_seq,
+    )) = row
+    else {
+        return Ok(None);
+    };
+    let owner_page = page_detail(
+        connection,
+        library_id,
+        store_epoch,
+        event_head,
+        &owner_page_id,
+    )?;
+    Ok(Some(LibraryAgentBlockTarget {
+        block_id,
+        block_type,
+        lifecycle,
+        owner_page_id,
+        document_id,
+        document_generation,
+        document_head_seq,
+        owner_page: Box::new(owner_page),
+    }))
 }
 
 fn page_target(

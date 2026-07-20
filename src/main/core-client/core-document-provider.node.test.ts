@@ -146,6 +146,26 @@ describe("Rust Core renderer Document adapter", () => {
           source: "project_turn" as const,
         },
       };
+      const callId = "call:agent-prepared-node";
+      const authorization = {
+        provenance,
+        call_id: callId,
+        resource_access: {
+          kind: "consent" as const,
+          scope: "call" as const,
+          thread_id: threadId,
+          turn_id: turnId,
+          call_id: callId,
+          root_thread_id: threadId,
+          actor_project_id: PROJECT_ID,
+          library_id: host.handshake.library_id,
+          store_epoch: host.handshake.store_epoch,
+          grants: [{
+            root: { kind: "page" as const, page_id: PAGE_ID },
+            access: "read_write" as const,
+          }],
+        },
+      };
       const operationId = "agent-prepared-body";
       const mutation = {
         document_id: DOCUMENT_ID,
@@ -163,7 +183,7 @@ describe("Rust Core renderer Document adapter", () => {
         kind: "prepare_agent_semantic_mutation",
         operation_id: operationId,
         store_epoch: host.handshake.store_epoch,
-        provenance,
+        authorization,
         mutation,
       });
       expect(preflight.value).toMatchObject({
@@ -191,7 +211,7 @@ describe("Rust Core renderer Document adapter", () => {
           clientSessionId: "agent:prepared",
           intent: {
             kind: "execute_prepared_agent_semantic_mutation",
-            authorization: { provenance, token },
+            authorization: { authorization, token },
             mutation,
           },
         }),
@@ -204,7 +224,7 @@ describe("Rust Core renderer Document adapter", () => {
         clientSessionId: "agent:prepared",
         intent: {
           kind: "execute_prepared_agent_semantic_mutation",
-          authorization: { provenance, token },
+          authorization: { authorization, token },
           mutation,
         },
       });
@@ -227,7 +247,7 @@ describe("Rust Core renderer Document adapter", () => {
         clientSessionId: "agent:prepared",
         intent: {
           kind: "execute_prepared_agent_semantic_mutation",
-          authorization: { provenance, token: null },
+          authorization: { authorization, token: null },
           mutation,
         },
       });
@@ -242,7 +262,7 @@ describe("Rust Core renderer Document adapter", () => {
         kind: "prepare_agent_semantic_mutation",
         operation_id: operationId,
         store_epoch: host.handshake.store_epoch,
-        provenance,
+        authorization,
         mutation,
       });
       expect(replayPreflight.value).toMatchObject({
@@ -271,7 +291,7 @@ describe("Rust Core renderer Document adapter", () => {
         kind: "prepare_agent_semantic_mutation",
         operation_id: insertOperationId,
         store_epoch: host.handshake.store_epoch,
-        provenance,
+        authorization,
         mutation: insertMutation,
       });
       if (insertPreflight.value.kind !== "agent_semantic_mutation_preparation") {
@@ -293,7 +313,7 @@ describe("Rust Core renderer Document adapter", () => {
         intent: {
           kind: "execute_prepared_agent_semantic_mutation",
           authorization: {
-            provenance,
+            authorization,
             token: insertPreflight.value.preparation.token,
           },
           mutation: insertMutation,
@@ -310,6 +330,7 @@ describe("Rust Core renderer Document adapter", () => {
       const resolved = await host.libraryRead({
         kind: "agent_block_target",
         block_id: PAGE_ID,
+        authorization,
       });
       expect(resolved.value).toMatchObject({
         kind: "agent_block_target",
@@ -346,7 +367,7 @@ describe("Rust Core renderer Document adapter", () => {
         kind: "prepare_agent_semantic_mutation",
         operation_id: stableOperationId,
         store_epoch: host.handshake.store_epoch,
-        provenance,
+        authorization,
         mutation: stableMutation,
       });
       if (stablePreflight.value.kind !== "agent_semantic_mutation_preparation") {
@@ -358,7 +379,7 @@ describe("Rust Core renderer Document adapter", () => {
         intent: {
           kind: "execute_prepared_agent_semantic_mutation",
           authorization: {
-            provenance,
+            authorization,
             token: stablePreflight.value.preparation.token,
           },
           mutation: stableMutation,
@@ -369,7 +390,7 @@ describe("Rust Core renderer Document adapter", () => {
       const stableSnapshot = await host.documentRead("agent:prepared", {
         kind: "agent_semantic_snapshot",
         store_epoch: host.handshake.store_epoch,
-        provenance,
+        authorization,
         document_id: DOCUMENT_ID,
         target_block_id: PAGE_ID,
         prepare_title: true,
@@ -420,7 +441,7 @@ describe("Rust Core renderer Document adapter", () => {
         kind: "prepare_agent_semantic_mutation",
         operation_id: "agent-prepared-stable-update",
         store_epoch: host.handshake.store_epoch,
-        provenance,
+        authorization,
         mutation: stableUpdateMutation,
       });
       if (stableUpdatePreflight.value.kind !== "agent_semantic_mutation_preparation") {
@@ -432,7 +453,7 @@ describe("Rust Core renderer Document adapter", () => {
         intent: {
           kind: "execute_prepared_agent_semantic_mutation",
           authorization: {
-            provenance,
+            authorization,
             token: stableUpdatePreflight.value.preparation.token,
           },
           mutation: stableUpdateMutation,

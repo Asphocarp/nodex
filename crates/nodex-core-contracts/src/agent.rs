@@ -211,8 +211,16 @@ pub struct AgentOperationPreparation {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-pub struct AgentPreparedExecution {
+pub struct AgentExecutionAuthorization {
     pub provenance: AgentTurnProvenance,
+    pub call_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resource_access: Option<AgentResourceAccessOverlay>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct AgentPreparedExecution {
+    pub authorization: AgentExecutionAuthorization,
     /// Exact receipt replay may omit a token. A new mutation cannot.
     pub token: Option<String>,
 }

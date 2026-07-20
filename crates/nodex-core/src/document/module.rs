@@ -4,9 +4,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use nodex_core_contracts::agent::{
-    AgentConsentRequirement, AgentEffectClass, AgentOperationFootprint, AgentOperationPreparation,
+    AgentAuthorizationTarget, AgentConsentRequirement, AgentEffectClass,
+    AgentExecutionAuthorization, AgentOperationFootprint, AgentOperationPreparation,
     AgentOperationPreparationState, AgentOwnershipTransformation, AgentPreparedExecution,
-    AgentResourceKind, AgentResourceTarget, AgentTurnProvenance,
+    AgentProjectResourceAction, AgentResourceKind, AgentResourceTarget, AgentTurnProvenance,
 };
 use nodex_core_contracts::document::{
     AgentDocumentBlockGuard, AgentDocumentBlockGuardKind, AgentDocumentSemanticBlock,
@@ -45,7 +46,6 @@ use crate::infrastructure::module_receipts::{
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
-use crate::workspace::validate_persisted_turn_authority;
 
 use super::canvas::{
     ensure_canvas_scene, load_canvas_scene, persist_canvas_mutation, validate_canvas_authority,
@@ -355,18 +355,18 @@ impl OwnedDocumentModule {
             OwnedDocumentRead::PrepareAgentSemanticMutation {
                 operation_id,
                 store_epoch,
-                provenance,
+                authorization,
                 mutation,
             } => self.prepare_agent_semantic_mutation(
                 context,
                 operation_id,
                 store_epoch,
-                *provenance,
+                *authorization,
                 *mutation,
             ),
             OwnedDocumentRead::AgentSemanticSnapshot {
                 store_epoch,
-                provenance,
+                authorization,
                 document_id,
                 target_block_id,
                 prepare_title,
@@ -378,7 +378,7 @@ impl OwnedDocumentModule {
             } => self.agent_semantic_snapshot(
                 context,
                 store_epoch,
-                *provenance,
+                *authorization,
                 document_id,
                 target_block_id,
                 prepare_title,
@@ -437,6 +437,7 @@ impl OwnedDocumentModule {
                 document_id,
                 generation,
                 expected_head_seq,
+                false,
                 commands,
                 None,
             ),
@@ -488,6 +489,7 @@ impl OwnedDocumentModule {
                 mutation.document_id,
                 mutation.generation,
                 mutation.expected_head_seq,
+                mutation.allow_deleting_owned_blocks,
                 mutation.commands,
                 Some(*authorization),
             ),
@@ -634,7 +636,7 @@ impl OwnedDocumentModule {
         &self,
         context: &BoundModuleContext,
         expected_store_epoch: StoreEpoch,
-        provenance: AgentTurnProvenance,
+        authorization: AgentExecutionAuthorization,
         document_id: String,
         target_block_id: String,
         prepare_title: bool,
@@ -644,7 +646,7 @@ impl OwnedDocumentModule {
         cursor: Option<String>,
         limit: Option<u32>,
     ) -> Result<ModuleReadSnapshot<OwnedDocumentReadValue>, CoreError> {
-        validate_agent_transport_context(context, &provenance)?;
+        validate_agent_transport_context(context, &authorization.provenance)?;
         if block_guards.len() > 512 {
             return Err(invalid(
                 "Agent Document read requests too many Block guards",
@@ -670,14 +672,15 @@ impl OwnedDocumentModule {
                         true,
                     ));
                 }
-                validate_persisted_turn_authority(
-                    &transaction,
-                    &context.library_id.0,
-                    &provenance,
-                )?;
                 let authority = read_document_authority(&transaction, &document_id)?
                     .ok_or_else(|| not_found("Owned Document was not found"))?;
-                authorize_agent_page_document(&transaction, &provenance, &authority)?;
+                authorize_agent_page_document(
+                    &transaction,
+                    &context,
+                    &authorization,
+                    &authority,
+                    AgentProjectResourceAction::Read,
+                )?;
                 let engine = cache
                     .lock()
                     .map_err(|_| internal("Document cache lock failed"))?
@@ -729,7 +732,7 @@ impl OwnedDocumentModule {
                     );
                 }
                 let cursor_coordinate = AgentDocumentCursorCoordinate {
-                    project_id: &provenance.authority.actor_project_id,
+                    project_id: &authorization.provenance.authority.actor_project_id,
                     store_epoch: &store_epoch,
                     document_id: &authority.head.id,
                     target_block_id: &target_block_id,
@@ -777,14 +780,14 @@ impl OwnedDocumentModule {
                             .map(|kind| match kind {
                                 AgentDocumentBlockGuardKind::Update => mint_document_block_etag(
                                     &transaction,
-                                    &provenance.authority.actor_project_id,
+                                    &authorization.provenance.authority.actor_project_id,
                                     &store_epoch,
                                     &authority.head.id,
                                     coordinate.block,
                                 ),
                                 AgentDocumentBlockGuardKind::Delete => mint_document_subtree_etag(
                                     &transaction,
-                                    &provenance.authority.actor_project_id,
+                                    &authorization.provenance.authority.actor_project_id,
                                     &store_epoch,
                                     &authority.head.id,
                                     coordinate.block,
@@ -807,7 +810,7 @@ impl OwnedDocumentModule {
                 let (title_etag, body_etag) = if prepare_title || prepare_body {
                     let (title, body) = mint_document_semantic_etags(
                         &transaction,
-                        &provenance.authority.actor_project_id,
+                        &authorization.provenance.authority.actor_project_id,
                         &store_epoch,
                         &authority.head.id,
                         &materialization,
@@ -860,14 +863,14 @@ impl OwnedDocumentModule {
         context: &BoundModuleContext,
         operation_id: String,
         expected_store_epoch: StoreEpoch,
-        provenance: AgentTurnProvenance,
+        authorization: AgentExecutionAuthorization,
         mutation: AgentDocumentSemanticMutation,
     ) -> Result<ModuleReadSnapshot<OwnedDocumentReadValue>, CoreError> {
-        validate_agent_transport_context(context, &provenance)?;
+        validate_agent_transport_context(context, &authorization.provenance)?;
         let request_hash = sha256(&agent_semantic_request_fingerprint(
             &operation_id,
             &expected_store_epoch,
-            &provenance,
+            &authorization,
             &mutation,
         )?);
         let cache = Arc::clone(&self.cache);
@@ -920,14 +923,15 @@ impl OwnedDocumentModule {
                     });
                 }
 
-                let authority_fingerprint = validate_persisted_turn_authority(
-                    &transaction,
-                    &context.library_id.0,
-                    &provenance,
-                )?;
                 let authority = read_document_authority(&transaction, &mutation.document_id)?
                     .ok_or_else(|| not_found("Owned Document was not found"))?;
-                authorize_agent_page_document(&transaction, &provenance, &authority)?;
+                let authority_fingerprint = authorize_agent_page_document(
+                    &transaction,
+                    &context,
+                    &authorization,
+                    &authority,
+                    AgentProjectResourceAction::Write,
+                )?;
                 if authority.head.generation != mutation.generation {
                     return Err(StoreError::new(
                         StoreErrorCode::GenerationConflict,
@@ -951,7 +955,7 @@ impl OwnedDocumentModule {
                     &mutation.commands,
                     &operation_id,
                     &operation_id,
-                    &provenance.authority.actor_project_id,
+                    &authorization.provenance.authority.actor_project_id,
                 )?;
                 let mutation_effect = match &prepared_update {
                     PreparedUpdate::Apply {
@@ -973,8 +977,6 @@ impl OwnedDocumentModule {
                     &authority,
                     &footprint,
                 )?;
-                let consent =
-                    agent_page_consent_requirement(&transaction, &provenance, &authority)?;
                 let binding = PreparedAgentOperationBinding {
                     connection_id: context.connection_id.clone(),
                     request_hash: request_hash.clone(),
@@ -992,7 +994,7 @@ impl OwnedDocumentModule {
                     preflight: AgentSemanticPreflight {
                         footprint,
                         preview_markdown,
-                        consent,
+                        consent: AgentConsentRequirement::None,
                         binding,
                     },
                 })
@@ -1841,24 +1843,25 @@ impl OwnedDocumentModule {
         document_id: String,
         generation: i64,
         expected_head_seq: i64,
+        allow_deleting_owned_blocks: bool,
         commands: Vec<DocumentSemanticCommand>,
         prepared_agent: Option<AgentPreparedExecution>,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
-        if let Some(authorization) = prepared_agent.as_ref() {
-            validate_agent_transport_context(context, &authorization.provenance)?;
+        if let Some(execution) = prepared_agent.as_ref() {
+            validate_agent_transport_context(context, &execution.authorization.provenance)?;
         }
         let mutation = AgentDocumentSemanticMutation {
             document_id: document_id.clone(),
             generation,
             expected_head_seq,
-            allow_deleting_owned_blocks: false,
+            allow_deleting_owned_blocks,
             commands: commands.clone(),
         };
-        let fingerprint = if let Some(authorization) = prepared_agent.as_ref() {
+        let fingerprint = if let Some(execution) = prepared_agent.as_ref() {
             agent_semantic_request_fingerprint(
                 &operation_id,
                 &expected_store_epoch,
-                &authorization.provenance,
+                &execution.authorization,
                 &mutation,
             )?
         } else {
@@ -1873,9 +1876,14 @@ impl OwnedDocumentModule {
             .map_err(|_| invalid("Owned Document semantic request cannot be fingerprinted"))?
         };
         let allocation_seed = operation_id.clone();
-        let etag_project_id = prepared_agent
-            .as_ref()
-            .map(|authorization| authorization.provenance.authority.actor_project_id.clone());
+        let etag_project_id = prepared_agent.as_ref().map(|execution| {
+            execution
+                .authorization
+                .provenance
+                .authority
+                .actor_project_id
+                .clone()
+        });
         let mutation_context = if prepared_agent.is_some() {
             BoundModuleContext {
                 adapter: AdapterKind::Agent,
@@ -2692,15 +2700,12 @@ impl OwnedDocumentModule {
                 let agent_authority_fingerprint = if let Some(prepared_agent) =
                     job.prepared_agent.as_ref()
                 {
-                    authorize_agent_page_document(
+                    Some(authorize_agent_page_document(
                         &transaction,
-                        &prepared_agent.authorization.provenance,
+                        &job.context,
+                        &prepared_agent.authorization.authorization,
                         &authority,
-                    )?;
-                    Some(validate_persisted_turn_authority(
-                        &transaction,
-                        &job.context.library_id.0,
-                        &prepared_agent.authorization.provenance,
+                        AgentProjectResourceAction::Write,
                     )?)
                 } else {
                     authorize_yjs(&job.context, &authority, DocumentAccessKind::Write)?;
@@ -3461,6 +3466,7 @@ fn attach_agent_semantic_etags(
         connection,
         &prepared_agent
             .authorization
+            .authorization
             .provenance
             .authority
             .actor_project_id,
@@ -3728,9 +3734,11 @@ fn validate_agent_transport_context(
 
 fn authorize_agent_page_document(
     connection: &rusqlite::Connection,
-    provenance: &AgentTurnProvenance,
+    context: &BoundModuleContext,
+    authorization: &AgentExecutionAuthorization,
     authority: &DocumentAuthorityRow,
-) -> Result<(), StoreError> {
+    action: AgentProjectResourceAction,
+) -> Result<String, StoreError> {
     if authority.owner_type != "page" || authority.owner_lifecycle != "active" {
         return Err(StoreError::new(
             StoreErrorCode::Unauthorized,
@@ -3762,7 +3770,7 @@ fn authorize_agent_page_document(
                 false,
             )
         })?;
-    if page_library_id != provenance.authority.library_id {
+    if page_library_id != authorization.provenance.authority.library_id {
         return Err(StoreError::new(
             StoreErrorCode::Unauthorized,
             "Prepared Agent target is outside its persisted Library authority",
@@ -3770,23 +3778,32 @@ fn authorize_agent_page_document(
         ));
     }
     registered_yjs_schema(authority)?;
-    Ok(())
+    crate::library::agent_authorization::authorize_execution(
+        connection,
+        context,
+        &page_library_id,
+        authorization,
+        &AgentAuthorizationTarget::Page {
+            page_id: authority.owner_block_id.clone(),
+        },
+        action,
+    )
 }
 
 fn agent_semantic_request_fingerprint(
     operation_id: &str,
     store_epoch: &StoreEpoch,
-    provenance: &AgentTurnProvenance,
+    authorization: &AgentExecutionAuthorization,
     mutation: &AgentDocumentSemanticMutation,
 ) -> Result<Vec<u8>, CoreError> {
     if operation_id.is_empty() || operation_id.len() > 512 || operation_id.trim() != operation_id {
         return Err(invalid("Prepared Agent operation_id is invalid"));
     }
     serde_json::to_vec(&(
-        "nodex.agent.document.semantic.v1",
+        "nodex.agent.document.semantic.v2",
         operation_id,
         store_epoch,
-        provenance,
+        authorization,
         mutation,
     ))
     .map_err(|_| invalid("Prepared Agent semantic request cannot be fingerprinted"))
@@ -4154,133 +4171,6 @@ fn agent_authority_revisions_hash(
     )
 }
 
-fn agent_page_consent_requirement(
-    connection: &rusqlite::Connection,
-    provenance: &AgentTurnProvenance,
-    authority: &DocumentAuthorityRow,
-) -> Result<AgentConsentRequirement, StoreError> {
-    use nodex_core_contracts::workspace::ProjectWorkspaceTurnAuthorityScope;
-
-    if provenance.authority.scope == ProjectWorkspaceTurnAuthorityScope::Library {
-        return Ok(AgentConsentRequirement::None);
-    }
-    let project_id = &provenance.authority.actor_project_id;
-    if authority.head.project_id == *project_id {
-        return Ok(AgentConsentRequirement::None);
-    }
-    let primary_database_id = connection
-        .query_row(
-            "SELECT COALESCE(project.database_block_id, binding.database_block_id) \
-             FROM projects project LEFT JOIN project_database_bindings binding \
-               ON binding.project_id = project.id AND binding.lifecycle = 'active' \
-             WHERE project.id = ?1",
-            [project_id],
-            |row| row.get::<_, Option<String>>(0),
-        )
-        .optional()?
-        .flatten();
-    let owning_database_id = agent_page_owning_database(
-        connection,
-        &provenance.authority.library_id,
-        &authority.owner_block_id,
-    )?;
-    if owning_database_id.as_deref() == primary_database_id.as_deref()
-        && owning_database_id.is_some()
-    {
-        return Ok(AgentConsentRequirement::None);
-    }
-    if let Some(database_id) = owning_database_id.as_deref() {
-        let granted = connection
-            .query_row(
-                "SELECT 1 FROM project_resource_grants WHERE project_id = ?1 \
-                 AND root_kind = 'database' AND root_id = ?2 AND access = 'read_write' \
-                 AND lifecycle = 'active'",
-                rusqlite::params![project_id, database_id],
-                |_| Ok(()),
-            )
-            .optional()?;
-        if granted.is_some() {
-            return Ok(AgentConsentRequirement::None);
-        }
-    }
-    let inherited = connection
-        .query_row(
-            "WITH RECURSIVE ancestors(page_id, path) AS ( \
-               SELECT ?2, '|' || ?2 || '|' UNION ALL \
-               SELECT page.parent_id, ancestors.path || page.parent_id || '|' \
-               FROM pages page JOIN ancestors ON page.block_id = ancestors.page_id \
-               WHERE page.parent_kind = 'page' \
-                 AND instr(ancestors.path, '|' || page.parent_id || '|') = 0) \
-             SELECT 1 FROM project_resource_grants grant_row JOIN ancestors \
-               ON grant_row.root_id = ancestors.page_id \
-             WHERE grant_row.project_id = ?1 AND grant_row.root_kind = 'page' \
-               AND grant_row.access = 'read_write' AND grant_row.lifecycle = 'active' LIMIT 1",
-            rusqlite::params![project_id, authority.owner_block_id],
-            |_| Ok(()),
-        )
-        .optional()?;
-    Ok(if inherited.is_some() {
-        AgentConsentRequirement::None
-    } else {
-        AgentConsentRequirement::Resource
-    })
-}
-
-fn agent_page_owning_database(
-    connection: &rusqlite::Connection,
-    library_id: &str,
-    page_id: &str,
-) -> Result<Option<String>, StoreError> {
-    let terminal = connection
-        .query_row(
-            "WITH RECURSIVE ancestors(page_id, parent_kind, parent_id, path) AS ( \
-               SELECT block_id, parent_kind, parent_id, '|' || block_id || '|' FROM pages \
-                 WHERE block_id = ?1 AND library_id = ?2 \
-               UNION ALL \
-               SELECT parent.block_id, parent.parent_kind, parent.parent_id, \
-                 ancestors.path || parent.block_id || '|' \
-               FROM pages parent JOIN ancestors \
-                 ON ancestors.parent_kind = 'page' AND parent.block_id = ancestors.parent_id \
-               WHERE parent.library_id = ?2 \
-                 AND instr(ancestors.path, '|' || parent.block_id || '|') = 0) \
-             SELECT parent_kind, parent_id FROM ancestors WHERE parent_kind <> 'page' LIMIT 1",
-            rusqlite::params![page_id, library_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
-        .optional()?
-        .ok_or_else(|| {
-            StoreError::new(
-                StoreErrorCode::StoreCorrupt,
-                "Page ownership is missing",
-                false,
-            )
-        })?;
-    match terminal.0.as_str() {
-        "library" if terminal.1 == library_id => Ok(None),
-        "data_source" => connection
-            .query_row(
-                "SELECT home_database_block_id FROM data_sources \
-                 WHERE id = ?1 AND library_id = ?2",
-                rusqlite::params![terminal.1, library_id],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?
-            .map(Some)
-            .ok_or_else(|| {
-                StoreError::new(
-                    StoreErrorCode::StoreCorrupt,
-                    "Page Data Source is missing",
-                    false,
-                )
-            }),
-        _ => Err(StoreError::new(
-            StoreErrorCode::StoreCorrupt,
-            "Page ownership is invalid",
-            false,
-        )),
-    }
-}
-
 fn hash_serializable(value: &impl Serialize, message: &'static str) -> Result<String, StoreError> {
     let bytes = serde_json::to_vec(value)
         .map_err(|_| StoreError::new(StoreErrorCode::Internal, message, false))?;
@@ -4621,6 +4511,10 @@ fn sqlite_now(connection: &rusqlite::Connection) -> Result<String, StoreError> {
 mod tests {
     use std::fs;
 
+    use nodex_core_contracts::agent::{
+        AgentProjectResourceAccess, AgentResourceAccessOverlay, AgentResourceAccessOverlayKind,
+        AgentResourceAccessOverlayScope, AgentResourceGrantRoot, AgentResourceGrantSpec,
+    };
     use nodex_core_contracts::document::{
         AgentDocumentSemanticMutation, DeletableOwnedSourceKind,
         DocumentBlockOperation as ContractDocumentBlockOperation,
@@ -4978,6 +4872,36 @@ mod tests {
                 scope: ProjectWorkspaceTurnAuthorityScope::Project,
                 source: ProjectWorkspaceTurnAuthoritySource::ProjectTurn,
             },
+        }
+    }
+
+    fn agent_execution_authorization(
+        provenance: AgentTurnProvenance,
+    ) -> AgentExecutionAuthorization {
+        let authority = provenance.authority.clone();
+        let call_id = "call:agent-document-test".to_owned();
+        AgentExecutionAuthorization {
+            provenance,
+            call_id: call_id.clone(),
+            resource_access: Some(AgentResourceAccessOverlay {
+                kind: AgentResourceAccessOverlayKind::Consent,
+                scope: AgentResourceAccessOverlayScope::Call,
+                thread_id: Some(authority.thread_id.clone()),
+                turn_id: Some(authority.turn_id.clone()),
+                call_id: Some(call_id),
+                root_thread_id: authority.root_thread_id.clone(),
+                actor_project_id: authority.actor_project_id.clone(),
+                library_id: authority.library_id.clone(),
+                store_epoch: authority.store_epoch.clone(),
+                grants: vec![AgentResourceGrantSpec {
+                    root: AgentResourceGrantRoot::Page {
+                        page_id: OWNER_BLOCK_ID.to_owned(),
+                    },
+                    access: AgentProjectResourceAccess::ReadWrite,
+                    library_actions: Vec::new(),
+                }],
+                persist_resulting_page_grants: false,
+            }),
         }
     }
 
@@ -7773,7 +7697,7 @@ mod tests {
                     read: OwnedDocumentRead::PrepareAgentSemanticMutation {
                         operation_id: operation_id.to_owned(),
                         store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
-                        provenance: Box::new(provenance.clone()),
+                        authorization: Box::new(agent_execution_authorization(provenance.clone())),
                         mutation: Box::new(mutation.clone()),
                     },
                 },
@@ -7818,7 +7742,7 @@ mod tests {
             store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
             intent: OwnedDocumentIntent::ExecutePreparedAgentSemanticMutation {
                 authorization: Box::new(AgentPreparedExecution {
-                    provenance: provenance.clone(),
+                    authorization: agent_execution_authorization(provenance.clone()),
                     token,
                 }),
                 mutation: Box::new(mutation.clone()),
@@ -7875,7 +7799,7 @@ mod tests {
                     read: OwnedDocumentRead::PrepareAgentSemanticMutation {
                         operation_id: operation_id.to_owned(),
                         store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
-                        provenance: Box::new(provenance),
+                        authorization: Box::new(agent_execution_authorization(provenance)),
                         mutation: Box::new(mutation),
                     },
                 },
@@ -7946,7 +7870,7 @@ mod tests {
                     read: OwnedDocumentRead::PrepareAgentSemanticMutation {
                         operation_id: operation_id.to_owned(),
                         store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
-                        provenance: Box::new(provenance.clone()),
+                        authorization: Box::new(agent_execution_authorization(provenance.clone())),
                         mutation: Box::new(mutation.clone()),
                     },
                 },
@@ -7977,7 +7901,7 @@ mod tests {
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::ExecutePreparedAgentSemanticMutation {
                         authorization: Box::new(AgentPreparedExecution {
-                            provenance,
+                            authorization: agent_execution_authorization(provenance),
                             token: preparation.token,
                         }),
                         mutation: Box::new(mutation),
@@ -8085,7 +8009,7 @@ mod tests {
                     read: OwnedDocumentRead::PrepareAgentSemanticMutation {
                         operation_id: operation_id.to_owned(),
                         store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
-                        provenance: Box::new(provenance.clone()),
+                        authorization: Box::new(agent_execution_authorization(provenance.clone())),
                         mutation: Box::new(mutation.clone()),
                     },
                 },
@@ -8109,7 +8033,7 @@ mod tests {
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::ExecutePreparedAgentSemanticMutation {
                         authorization: Box::new(AgentPreparedExecution {
-                            provenance: provenance.clone(),
+                            authorization: agent_execution_authorization(provenance.clone()),
                             token: preparation.token,
                         }),
                         mutation: Box::new(mutation.clone()),
@@ -8149,7 +8073,7 @@ mod tests {
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::ExecutePreparedAgentSemanticMutation {
                         authorization: Box::new(AgentPreparedExecution {
-                            provenance: provenance.clone(),
+                            authorization: agent_execution_authorization(provenance.clone()),
                             token: None,
                         }),
                         mutation: Box::new(mutation),
@@ -8173,7 +8097,9 @@ mod tests {
                         version: CORE_CONTRACT_VERSION,
                         read: OwnedDocumentRead::AgentSemanticSnapshot {
                             store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
-                            provenance: Box::new(provenance.clone()),
+                            authorization: Box::new(agent_execution_authorization(
+                                provenance.clone(),
+                            )),
                             document_id: DOCUMENT_ID.to_owned(),
                             target_block_id: root_id.clone(),
                             prepare_title: false,
@@ -8263,7 +8189,7 @@ mod tests {
                     version: CORE_CONTRACT_VERSION,
                     read: OwnedDocumentRead::AgentSemanticSnapshot {
                         store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
-                        provenance: Box::new(provenance.clone()),
+                        authorization: Box::new(agent_execution_authorization(provenance.clone())),
                         document_id: DOCUMENT_ID.to_owned(),
                         target_block_id: root_id.clone(),
                         prepare_title: false,
@@ -8390,7 +8316,7 @@ mod tests {
                     read: OwnedDocumentRead::PrepareAgentSemanticMutation {
                         operation_id: "agent:foreign-library".to_owned(),
                         store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
-                        provenance: Box::new(provenance),
+                        authorization: Box::new(agent_execution_authorization(provenance)),
                         mutation: Box::new(AgentDocumentSemanticMutation {
                             document_id: DOCUMENT_ID.to_owned(),
                             generation: 1,
@@ -8406,7 +8332,7 @@ mod tests {
     }
 
     #[test]
-    fn prepared_agent_token_authorizes_one_ungranted_same_library_page_write() {
+    fn prepared_agent_execution_binds_one_call_resource_consent() {
         const ACTOR_PROJECT_ID: &str = "project:agent-consent";
         let seeded = seeded_module();
         let connection_id = "electron:agent-consent";
@@ -8442,6 +8368,44 @@ mod tests {
                 expected_etag: title_etag,
             }],
         };
+        let denied = seeded
+            .module
+            .read(
+                &context_for_project(connection_id, ACTOR_PROJECT_ID),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::PrepareAgentSemanticMutation {
+                        operation_id: "agent:unconsented-title".to_owned(),
+                        store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                        authorization: Box::new(AgentExecutionAuthorization {
+                            provenance: provenance.clone(),
+                            call_id: "call:agent-document-test".to_owned(),
+                            resource_access: None,
+                        }),
+                        mutation: Box::new(mutation.clone()),
+                    },
+                },
+            )
+            .expect_err("ungranted Page write requires bound resource consent");
+        assert_eq!(denied.code, CoreErrorCode::Unauthorized);
+        let mut mismatched_authorization = agent_execution_authorization(provenance.clone());
+        mismatched_authorization.call_id = "call:another-agent-call".to_owned();
+        let mismatched = seeded
+            .module
+            .read(
+                &context_for_project(connection_id, ACTOR_PROJECT_ID),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::PrepareAgentSemanticMutation {
+                        operation_id: "agent:mismatched-consent-title".to_owned(),
+                        store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                        authorization: Box::new(mismatched_authorization),
+                        mutation: Box::new(mutation.clone()),
+                    },
+                },
+            )
+            .expect_err("one-call consent cannot authorize another call");
+        assert_eq!(mismatched.code, CoreErrorCode::Unauthorized);
         let prepared = seeded
             .module
             .read(
@@ -8451,7 +8415,7 @@ mod tests {
                     read: OwnedDocumentRead::PrepareAgentSemanticMutation {
                         operation_id: operation_id.to_owned(),
                         store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
-                        provenance: Box::new(provenance.clone()),
+                        authorization: Box::new(agent_execution_authorization(provenance.clone())),
                         mutation: Box::new(mutation.clone()),
                     },
                 },
@@ -8464,7 +8428,7 @@ mod tests {
         else {
             panic!("expected prepared consent operation")
         };
-        assert_eq!(preparation.consent, AgentConsentRequirement::Resource);
+        assert_eq!(preparation.consent, AgentConsentRequirement::None);
         let committed = seeded
             .module
             .apply(
@@ -8475,14 +8439,14 @@ mod tests {
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::ExecutePreparedAgentSemanticMutation {
                         authorization: Box::new(AgentPreparedExecution {
-                            provenance,
+                            authorization: agent_execution_authorization(provenance),
                             token: preparation.token,
                         }),
                         mutation: Box::new(mutation),
                     },
                 },
             )
-            .expect("single-use token carries consent for this footprint");
+            .expect("single-use token binds the consented resource footprint");
         assert_eq!(committed.committed.value.head_seq, 2);
         seeded
             .kernel

@@ -142,6 +142,17 @@ const toCoreOverlay = (
     : {}),
 });
 
+export const toCoreAgentExecutionAuthorization = (
+  profileId: string,
+  authority: FrozenNodexAgentTurnAuthority,
+  callId: string,
+  resourceAccess?: NodexAgentResourceAccessOverlay,
+): components["schemas"]["AgentExecutionAuthorization"] => ({
+  provenance: toCoreAgentTurnProvenance(profileId, authority),
+  call_id: callId,
+  ...(resourceAccess ? { resource_access: toCoreOverlay(resourceAccess) } : {}),
+});
+
 const fromCoreOverlay = (
   overlay: CoreAgentOverlay,
 ): NodexAgentResourceAccessOverlay => {

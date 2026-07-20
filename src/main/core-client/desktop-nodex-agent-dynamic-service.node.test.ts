@@ -174,6 +174,43 @@ describe("native desktop Nodex Agent dynamic service", () => {
   });
 
   test("fetches native stable Blocks with Core-minted guards and pagination", async () => {
+    const ownerPage = {
+      version: 2,
+      library_id: "library-native-agent",
+      store_epoch: "store-native-agent",
+      change_log_seq: 12,
+      page: {
+        pageId: "page-fetch",
+        parent: { kind: "data_source", dataSourceId: "source-fetch" },
+      },
+      document: {
+        readiness: "ready",
+        schema_key: "nodex.page",
+        schema_version: 2,
+      },
+      intrinsic_properties: [{
+        key: "status",
+        value_type: "string",
+        value: "todo",
+        revision: 3,
+      }],
+      data_source_context: {
+        kind: "member" as const,
+        membership: {
+          membership_id: "membership-fetch",
+          data_source_id: "source-fetch",
+          revision: 4,
+          created_at: "2026-07-20T00:00:00.000Z",
+        },
+        database: { databaseId: "database-fetch" },
+        data_source: { dataSourceId: "source-fetch" },
+        properties: [],
+        values: {
+          "p_Abcd1234": { value: "high" },
+        },
+      },
+      access_context: { kind: "library" as const },
+    };
     const libraryRead = vi.fn(async (read: { readonly kind: string }) => {
       if (read.kind === "agent_block_target") {
         return {
@@ -187,52 +224,12 @@ describe("native desktop Nodex Agent dynamic service", () => {
               document_id: "document-fetch",
               document_generation: 2,
               document_head_seq: 7,
+              owner_page: ownerPage,
             },
           },
         };
       }
-      return {
-        value: {
-          kind: "page_detail" as const,
-          value: {
-            version: 2,
-            library_id: "library-native-agent",
-            store_epoch: "store-native-agent",
-            change_log_seq: 12,
-            page: {
-              pageId: "page-fetch",
-              parent: { kind: "data_source", dataSourceId: "source-fetch" },
-            },
-            document: {
-              readiness: "ready",
-              schema_key: "nodex.page",
-              schema_version: 2,
-            },
-            intrinsic_properties: [{
-              key: "status",
-              value_type: "string",
-              value: "todo",
-              revision: 3,
-            }],
-            data_source_context: {
-              kind: "member" as const,
-              membership: {
-                membership_id: "membership-fetch",
-                data_source_id: "source-fetch",
-                revision: 4,
-                created_at: "2026-07-20T00:00:00.000Z",
-              },
-              database: { databaseId: "database-fetch" },
-              data_source: { dataSourceId: "source-fetch" },
-              properties: [],
-              values: {
-                "p_Abcd1234": { value: "high" },
-              },
-            },
-            access_context: { kind: "library" as const },
-          },
-        },
-      };
+      throw new Error(`Unexpected Library read ${read.kind}`);
     });
     const documentRead = vi.fn(async (
       clientSessionId: string,
@@ -337,7 +334,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
       },
       page: { hasMore: true, nextCursor: "nxd1.cursor.signature" },
     });
-    expect(libraryRead).toHaveBeenCalledTimes(2);
+    expect(libraryRead).toHaveBeenCalledOnce();
     expect(documentRead).toHaveBeenCalledOnce();
     expect(unavailable).not.toHaveBeenCalled();
   });

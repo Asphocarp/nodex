@@ -9,7 +9,7 @@ import { FetchV3OutputSchema } from "../../shared/nodex-agent-tools/v3-read-sche
 import { serializeInlineMarkdownTitle } from "../../shared/nfm/agent-title";
 import { extractPlainText } from "../../shared/nfm/extract-text";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
-import { toCoreAgentTurnProvenance } from "./desktop-nodex-agent-resource-authority";
+import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import { mapNativeNodexAgentCoreError } from "./native-nodex-agent-page-update";
 
 type FetchRequest = Extract<NodexAgentV3ReadRequest, { readonly tool: "fetch" }>;
@@ -100,9 +100,16 @@ export async function readNativeFetch(
   }
   try {
     const client = runtime.clientForProject(request.projectId);
+    const authorization = toCoreAgentExecutionAuthorization(
+      runtime.rootClient.handshake.profile_id,
+      request.authority,
+      request.callId ?? `nodex-agent:${request.tool}`,
+      request.resourceAccess,
+    );
     const targetRead = await client.libraryRead({
       kind: "agent_block_target",
       block_id: request.input.id,
+      authorization,
     });
     if (targetRead.value.kind !== "agent_block_target") {
       throw new Error("Core returned the wrong Agent Block target variant");
@@ -123,14 +130,7 @@ export async function readNativeFetch(
         },
       };
     }
-    const detailRead = await client.libraryRead({
-      kind: "page_detail",
-      page_id: target.owner_page_id,
-    });
-    if (detailRead.value.kind !== "page_detail") {
-      throw new Error("Core returned the wrong Agent Page detail variant");
-    }
-    const detail = detailRead.value.value;
+    const detail = target.owner_page;
     const preparesTitle = request.input.prepareFor?.some(
       (entry) => entry.kind === "title",
     ) ?? false;
@@ -149,10 +149,7 @@ export async function readNativeFetch(
       {
         kind: "agent_semantic_snapshot",
         store_epoch: request.authority.storeEpoch,
-        provenance: toCoreAgentTurnProvenance(
-          runtime.rootClient.handshake.profile_id,
-          request.authority,
-        ),
+        authorization,
         document_id: target.document_id,
         target_block_id: target.block_id,
         prepare_title: preparesTitle,
