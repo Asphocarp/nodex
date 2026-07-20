@@ -782,7 +782,7 @@ or the Electron client from reaching the local store.
 
 ### CLI (`bin`)
 
-- `crates/nodex-cli`: native `nodex` command, selector, presentation, restricted `meta.yaml`, exact Page-patch, and local shell boundary. It discovers or cold-starts the packaged sibling `nodex-core`, validates the private current-user runtime descriptor/capability, binds a `native_cli` connection, and invokes only versioned Module requests over UDS. It never links the Core implementation, rusqlite, or Yrs. Store Administration-backed backup and doctor commands already execute natively with durable idempotency; the remaining content/snapshot/draft command handlers are completing under the same boundary.
+- `crates/nodex-cli`: native `nodex` command, selector, presentation, restricted `meta.yaml`, exact Page-patch, and local shell boundary. It discovers or cold-starts the packaged sibling `nodex-core`, validates the private current-user runtime descriptor/capability, binds a `native_cli` connection, and invokes only versioned Module requests over UDS. It never links the Core implementation, rusqlite, or Yrs. Context, authorized Page title-path resolution, exact `body.nested.md`/`meta.yaml` reads, restricted line selection, bounded Page history, Project Database/Page trees, backup, and doctor now execute natively. Core alone composes the typed cross-Module metadata projection and signs only explicitly requested title/body/Page validators; snapshot, draft, search, and mutation handlers are completing under the same boundary.
 - `nodex.mjs`: legacy development launcher and pre-cutover HTTP command implementation. Packaged artifacts must expose the native binary; this script is removed once the native command transcript is complete.
 
 ### Renderer Application (`src/renderer`)

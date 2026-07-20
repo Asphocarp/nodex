@@ -1073,7 +1073,9 @@ Codex Threads emit a separate Electron IPC stream (`codex:event`) from the main-
 
 ## CLI Reference
 
-The `nodex` binary serves two roles: starting the server and running agent commands.
+The packaged native `nodex` binary is a UDS client of the detached Rust Core. It resolves a Project from `--project` or the longest containing source/managed-worktree root, accepts full Page IDs as `@<id>`, and resolves exact authorized `/`-separated title paths without exposing unauthorized candidates. `nodex read <page>` returns canonical `body.nested.md` bytes with a final LF; `--meta` returns the deterministic typed `meta.yaml` projection. Ordinary reads emit no validator, while `--prepare title.set`, `document.replace`, or `page.delete` asks Core for only the compatible narrow ETag. `nodex sed -n '<line>[,<line>]p' <page>` selects from those exact body bytes. `nodex history` returns the retained typed cursor timeline, and `nodex tree [page]` traverses the primary Database or one authorized Page with fixed depth/node/cycle bounds. `--json` wraps stable machine output and errors; rejected commands exit 2.
+
+The following server and HTTP-oriented commands describe the legacy development launcher during the remaining native cutover. They are not an authority fallback for the Rust branch.
 
 ### Server Commands
 

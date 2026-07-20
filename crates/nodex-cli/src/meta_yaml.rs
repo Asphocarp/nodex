@@ -1,7 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::{DateTime, NaiveDate};
-use serde::Serialize;
+pub use nodex_core_contracts::library::{
+    PageMetaProjectionV1, ProjectedIdentityV1, ProjectedPropertyTypeV1, ProjectedPropertyV1,
+    ProjectedPropertyValueV1, ProjectedScheduleV1,
+};
 use serde_json::Number;
 use yaml_rust2::parser::{Event, MarkedEventReceiver, Parser};
 use yaml_rust2::scanner::{Marker, TScalarStyle};
@@ -15,60 +18,7 @@ pub const MAX_META_YAML_DEPTH: usize = 32;
 pub const MAX_META_YAML_PROPERTIES: usize = 256;
 pub const MAX_META_YAML_SEQUENCE: usize = 256;
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct PageMetaV1 {
-    pub id: String,
-    pub title: String,
-    pub properties: BTreeMap<String, ProjectedPropertyV1>,
-    pub schedule: Option<ProjectedScheduleV1>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct ProjectedPropertyV1 {
-    pub name: String,
-    pub value_type: ProjectedPropertyTypeV1,
-    pub value: ProjectedPropertyValueV1,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProjectedPropertyTypeV1 {
-    Text,
-    Number,
-    Checkbox,
-    Select,
-    MultiSelect,
-    Date,
-    Datetime,
-    Person,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
-pub enum ProjectedPropertyValueV1 {
-    Null,
-    Text(String),
-    Number(Number),
-    Checkbox(bool),
-    Identity(ProjectedIdentityV1),
-    Identities(Vec<ProjectedIdentityV1>),
-    Date(String),
-    Datetime(String),
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct ProjectedIdentityV1 {
-    pub id: String,
-    pub name: String,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct ProjectedScheduleV1 {
-    pub start: String,
-    pub end: String,
-    pub timezone: Option<String>,
-    pub all_day: bool,
-}
+pub type PageMetaV1 = PageMetaProjectionV1;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DraftMetadataChange {
@@ -113,14 +63,15 @@ pub fn compare_draft_metadata(
     }
 
     let mut read_only_paths = Vec::new();
-    if base.properties != work.properties {
-        let property_ids = base
-            .properties
+    let base_properties = properties_by_id(&base.properties)?;
+    let work_properties = properties_by_id(&work.properties)?;
+    if base_properties != work_properties {
+        let property_ids = base_properties
             .keys()
-            .chain(work.properties.keys())
+            .chain(work_properties.keys())
             .collect::<BTreeSet<_>>();
         for property_id in property_ids {
-            if base.properties.get(property_id) != work.properties.get(property_id) {
+            if base_properties.get(property_id) != work_properties.get(property_id) {
                 read_only_paths.push(format!("properties.{property_id}"));
                 if read_only_paths.len() == 16 {
                     break;
@@ -143,8 +94,24 @@ pub fn compare_draft_metadata(
     }
 
     Ok(DraftMetadataChange {
-        title: (base.title != work.title).then(|| work.title.clone()),
+        title: (base.title_markdown != work.title_markdown).then(|| work.title_markdown.clone()),
     })
+}
+
+fn properties_by_id(
+    properties: &[ProjectedPropertyV1],
+) -> Result<BTreeMap<&str, &ProjectedPropertyV1>, CliError> {
+    let mut indexed = BTreeMap::new();
+    for property in properties {
+        if indexed
+            .insert(property.property_id.as_str(), property)
+            .is_some()
+        {
+            return Err(invalid("metadata repeats a Property ID")
+                .at_path(format!("properties.{}", property.property_id)));
+        }
+    }
+    Ok(indexed)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -562,10 +529,10 @@ fn validate_page(root: SpannedValue) -> Result<PageMetaV1, CliError> {
         Value::Null => None,
         _ => Some(validate_schedule(schedule_node)?),
     };
-    Ok(PageMetaV1 {
+    Ok(PageMetaProjectionV1 {
         id,
-        title,
-        properties,
+        title_markdown: title,
+        properties: properties.into_values().collect(),
         schedule,
     })
 }
@@ -608,6 +575,7 @@ fn validate_property(
         &value_path,
     )?;
     Ok(ProjectedPropertyV1 {
+        property_id: property_id.to_owned(),
         name,
         value_type,
         value,
@@ -628,9 +596,11 @@ fn validate_property_value(
             bounded_string(value, span, path, MAX_META_YAML_SCALAR_BYTES)
                 .map(ProjectedPropertyValueV1::Text)
         }
-        (ProjectedPropertyTypeV1::Number, Value::Number(value)) => {
-            Ok(ProjectedPropertyValueV1::Number(value))
-        }
+        (ProjectedPropertyTypeV1::Number, Value::Number(value)) => value
+            .as_f64()
+            .filter(|value| value.is_finite())
+            .map(ProjectedPropertyValueV1::Number)
+            .ok_or_else(|| invalid("number is outside the supported finite range").at_path(path)),
         (ProjectedPropertyTypeV1::Checkbox, Value::Bool(value)) => {
             Ok(ProjectedPropertyValueV1::Checkbox(value))
         }
@@ -899,7 +869,12 @@ id: page_1
 
         assert_eq!(first, reordered);
         assert_eq!(
-            first.properties["status"].value,
+            first
+                .properties
+                .iter()
+                .find(|property| property.property_id == "status")
+                .expect("status Property")
+                .value,
             ProjectedPropertyValueV1::Identity(ProjectedIdentityV1 {
                 id: "o_triage".to_owned(),
                 name: "Triage".to_owned(),
@@ -938,7 +913,7 @@ id: page_1
     fn draft_comparison_ignores_formatting_but_rejects_read_only_changes() {
         let base = parse(META.as_bytes()).expect("base");
         let mut title = base.clone();
-        title.title = "Changed".to_owned();
+        title.title_markdown = "Changed".to_owned();
         assert_eq!(
             compare_draft_metadata(&base, &title)
                 .unwrap()
@@ -950,9 +925,10 @@ id: page_1
         let mut property = base.clone();
         property
             .properties
-            .get_mut("score")
+            .iter_mut()
+            .find(|property| property.property_id == "score")
             .expect("score property")
-            .value = ProjectedPropertyValueV1::Number(Number::from(2));
+            .value = ProjectedPropertyValueV1::Number(2.0);
         let error = compare_draft_metadata(&base, &property)
             .expect_err("read-only property change must fail");
         assert_eq!(error.code, CliErrorCode::DraftReadOnlyFieldChanged);

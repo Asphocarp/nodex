@@ -649,13 +649,31 @@ pub(crate) fn mint_document_semantic_etags(
     document_id: &str,
     materialization: &DocumentMaterialization,
 ) -> Result<(String, String), SemanticMutationError> {
+    mint_document_projection_etags(
+        connection,
+        project_id,
+        store_epoch,
+        document_id,
+        json!(&materialization.rich_title),
+        &materialization.nfm,
+    )
+}
+
+pub(crate) fn mint_document_projection_etags(
+    connection: &Connection,
+    project_id: &str,
+    store_epoch: &str,
+    document_id: &str,
+    rich_title: Value,
+    nfm: &str,
+) -> Result<(String, String), SemanticMutationError> {
     let title = mint_etag(
         connection,
         "title",
         project_id,
         store_epoch,
         &[document_id],
-        json!({ "richTitle": materialization.rich_title }),
+        json!({ "richTitle": rich_title }),
     )?;
     let body = mint_etag(
         connection,
@@ -663,7 +681,7 @@ pub(crate) fn mint_document_semantic_etags(
         project_id,
         store_epoch,
         &[document_id],
-        json!({ "nfm": materialization.nfm }),
+        json!({ "nfm": nfm }),
     )?;
     Ok((title, body))
 }

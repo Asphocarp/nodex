@@ -70,4 +70,7 @@ pub(crate) use persistence::{
 pub(crate) use primary_canvas::{PrimaryCanvasIdentity, create_primary_canvas};
 pub(crate) use rehome::rebuild_rehomed_document_projections;
 pub(crate) use runtime::reconstruct_yjs_engine;
-pub(crate) use semantic::{mint_document_semantic_etags, parse_inline_markdown_title};
+pub(crate) use semantic::{
+    mint_document_projection_etags, mint_document_semantic_etags, mint_etag,
+    parse_inline_markdown_title,
+};

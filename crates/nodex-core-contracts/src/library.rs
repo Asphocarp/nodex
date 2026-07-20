@@ -440,6 +440,11 @@ pub enum LibraryRead {
     PageContent {
         page_id: String,
     },
+    PageFile {
+        page_id: String,
+        file_kind: LibraryPageFileKind,
+        prepare: Option<LibraryPagePrepareKind>,
+    },
     AgentBlockTarget {
         block_id: String,
         authorization: Box<AgentExecutionAuthorization>,
@@ -1017,6 +1022,101 @@ pub struct LibraryPageContent {
     pub access_context: LibraryPageAccessContext,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryPageFileKind {
+    BodyNestedMarkdown,
+    MetaYaml,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryPagePrepareKind {
+    TitleSet,
+    DocumentReplace,
+    PageDelete,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectedPropertyTypeV1 {
+    Text,
+    Number,
+    Checkbox,
+    Select,
+    MultiSelect,
+    Date,
+    Datetime,
+    Person,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectedIdentityV1 {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum ProjectedPropertyValueV1 {
+    Null,
+    Text(String),
+    Number(f64),
+    Checkbox(bool),
+    Identity(ProjectedIdentityV1),
+    Identities(Vec<ProjectedIdentityV1>),
+    Date(String),
+    Datetime(String),
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct ProjectedPropertyV1 {
+    pub property_id: String,
+    pub name: String,
+    pub value_type: ProjectedPropertyTypeV1,
+    pub value: ProjectedPropertyValueV1,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectedScheduleV1 {
+    pub start: String,
+    pub end: String,
+    pub timezone: Option<String>,
+    pub all_day: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct PageMetaProjectionV1 {
+    pub id: String,
+    pub title_markdown: String,
+    pub properties: Vec<ProjectedPropertyV1>,
+    pub schedule: Option<ProjectedScheduleV1>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageFileValidators {
+    pub title_etag: Option<String>,
+    pub body_etag: Option<String>,
+    pub page_etag: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageFileProjection {
+    pub version: u32,
+    pub library_id: String,
+    pub store_epoch: String,
+    pub event_head: i64,
+    pub page_id: String,
+    pub metadata_revision: i64,
+    pub document_id: String,
+    pub document_generation: i64,
+    pub document_head_seq: i64,
+    pub kind: LibraryPageFileKind,
+    pub content: String,
+    pub metadata: Option<PageMetaProjectionV1>,
+    pub validators: LibraryPageFileValidators,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 pub struct LibraryAgentBlockTarget {
     pub block_id: String,
@@ -1388,6 +1488,9 @@ pub enum LibraryReadValue {
     },
     PageContent {
         value: Box<LibraryPageContent>,
+    },
+    PageFile {
+        value: Box<LibraryPageFileProjection>,
     },
     AgentBlockTarget {
         value: Option<LibraryAgentBlockTarget>,

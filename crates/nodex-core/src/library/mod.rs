@@ -19,6 +19,8 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 
+mod page_projection;
+
 #[derive(Clone, Debug)]
 pub struct LibraryApplyOutcome {
     pub committed: CommittedModuleValue<LibraryCommitValue, LibraryReceipt>,
@@ -625,8 +627,9 @@ mod tests {
         LibraryBlockPropertyMutationErrorCode, LibraryBlockPropertyMutationOutcome,
         LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode, LibraryBlockTransferPlan,
         LibraryBlockTransferSource, LibraryBlockTransferTarget, LibraryNavigationParent,
-        LibraryPageLifecycleMutation, LibraryPageLifecycleState, LibraryPageLifecycleTagOption,
-        LibraryPageWorkflowStatus, LibraryWriteParent,
+        LibraryPageFileKind, LibraryPageLifecycleMutation, LibraryPageLifecycleState,
+        LibraryPageLifecycleTagOption, LibraryPagePrepareKind, LibraryPageWorkflowStatus,
+        LibraryWriteParent,
     };
     use nodex_core_contracts::workspace::{
         ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch, ProjectWorkspaceTurnAuthority,
@@ -1502,6 +1505,79 @@ mod tests {
         };
         assert_eq!(value.title, "Native lifecycle");
         assert_eq!(value.body_nfm, "Native body");
+        let LibraryReadValue::PageFile { value: body_file } = module
+            .read(
+                &persistent_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PageFile {
+                        page_id: PAGE.to_owned(),
+                        file_kind: LibraryPageFileKind::BodyNestedMarkdown,
+                        prepare: None,
+                    },
+                },
+            )
+            .expect("read canonical Page body file")
+            .value
+        else {
+            panic!("Page body file");
+        };
+        assert_eq!(body_file.content, "Native body\n");
+        assert!(body_file.metadata.is_none());
+        assert_eq!(body_file.validators.title_etag, None);
+        assert_eq!(body_file.validators.body_etag, None);
+        assert_eq!(body_file.validators.page_etag, None);
+
+        let LibraryReadValue::PageFile { value: meta_file } = module
+            .read(
+                &persistent_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PageFile {
+                        page_id: PAGE.to_owned(),
+                        file_kind: LibraryPageFileKind::MetaYaml,
+                        prepare: Some(LibraryPagePrepareKind::TitleSet),
+                    },
+                },
+            )
+            .expect("read canonical Page metadata file")
+            .value
+        else {
+            panic!("Page metadata file");
+        };
+        let metadata = meta_file.metadata.expect("typed Page metadata");
+        assert_eq!(metadata.title_markdown, "Native lifecycle");
+        assert!(metadata.schedule.is_none());
+        assert!(metadata.properties.iter().any(|property| {
+            property.property_id == "status"
+                && matches!(
+                    &property.value,
+                    nodex_core_contracts::library::ProjectedPropertyValueV1::Identity(value)
+                        if value.id == "triage" && value.name == "Triage"
+                )
+        }));
+        assert!(meta_file.content.starts_with(&format!(
+            "id: \"{PAGE}\"\ntitle: \"Native lifecycle\"\nproperties:\n"
+        )));
+        assert!(meta_file.content.ends_with("schedule: null\n"));
+        assert!(meta_file.validators.title_etag.is_some());
+        assert_eq!(meta_file.validators.body_etag, None);
+        assert_eq!(meta_file.validators.page_etag, None);
+
+        let invalid_prepare = module
+            .read(
+                &persistent_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PageFile {
+                        page_id: PAGE.to_owned(),
+                        file_kind: LibraryPageFileKind::BodyNestedMarkdown,
+                        prepare: Some(LibraryPagePrepareKind::TitleSet),
+                    },
+                },
+            )
+            .expect_err("title validator must not accompany a body read");
+        assert_eq!(invalid_prepare.code, CoreErrorCode::InvalidInput);
         let LibraryReadValue::PageLifecyclePreflight { value } = module
             .read(
                 &persistent_context,

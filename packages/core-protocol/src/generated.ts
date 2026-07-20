@@ -1876,6 +1876,33 @@ export interface components {
             readonly schema_version: number;
         };
         /** @enum {string} */
+        readonly LibraryPageFileKind: "body_nested_markdown" | "meta_yaml";
+        readonly LibraryPageFileProjection: {
+            readonly content: string;
+            /** Format: int64 */
+            readonly document_generation: number;
+            /** Format: int64 */
+            readonly document_head_seq: number;
+            readonly document_id: string;
+            /** Format: int64 */
+            readonly event_head: number;
+            readonly kind: components["schemas"]["LibraryPageFileKind"];
+            readonly library_id: string;
+            readonly metadata?: null | components["schemas"]["PageMetaProjectionV1"];
+            /** Format: int64 */
+            readonly metadata_revision: number;
+            readonly page_id: string;
+            readonly store_epoch: string;
+            readonly validators: components["schemas"]["LibraryPageFileValidators"];
+            /** Format: int32 */
+            readonly version: number;
+        };
+        readonly LibraryPageFileValidators: {
+            readonly body_etag?: string | null;
+            readonly page_etag?: string | null;
+            readonly title_etag?: string | null;
+        };
+        /** @enum {string} */
         readonly LibraryPageHistoryCategory: "checkpoint" | "content" | "property" | "database" | "lifecycle" | "location" | "unknown";
         readonly LibraryPageHistoryCursor: {
             readonly occurred_at: string;
@@ -2196,6 +2223,8 @@ export interface components {
             readonly page_id: string;
             readonly title: string;
         };
+        /** @enum {string} */
+        readonly LibraryPagePrepareKind: "title_set" | "document_replace" | "page_delete";
         readonly LibraryPageTarget: {
             /** @enum {string} */
             readonly status: "missing";
@@ -3085,6 +3114,12 @@ export interface components {
                 readonly kind: "page_content";
                 readonly page_id: string;
             } | {
+                readonly file_kind: components["schemas"]["LibraryPageFileKind"];
+                /** @enum {string} */
+                readonly kind: "page_file";
+                readonly page_id: string;
+                readonly prepare?: null | components["schemas"]["LibraryPagePrepareKind"];
+            } | {
                 readonly authorization: components["schemas"]["AgentExecutionAuthorization"];
                 readonly block_id: string;
                 /** @enum {string} */
@@ -3354,6 +3389,12 @@ export interface components {
         };
         readonly OwnedDocumentReadRequest: components["schemas"]["ModuleReadRequest_OwnedDocumentRead"];
         readonly OwnedDocumentReadResponse: components["schemas"]["ResponseEnvelope_ModuleReadSnapshot_OwnedDocumentReadValue"];
+        readonly PageMetaProjectionV1: {
+            readonly id: string;
+            readonly properties: readonly components["schemas"]["ProjectedPropertyV1"][];
+            readonly schedule?: null | components["schemas"]["ProjectedScheduleV1"];
+            readonly title_markdown: string;
+        };
         /** @enum {string} */
         readonly PageOccurrenceMutationCode: "page_not_found" | "page_not_scheduled" | "page_not_recurring" | "authorization_denied" | "invalid_occurrence_request";
         readonly PageOccurrenceMutationResult: {
@@ -3398,6 +3439,57 @@ export interface components {
         readonly PageReminderConfig: {
             /** Format: int32 */
             readonly offsetMinutes: number;
+        };
+        readonly ProjectedIdentityV1: {
+            readonly id: string;
+            readonly name: string;
+        };
+        /** @enum {string} */
+        readonly ProjectedPropertyTypeV1: "text" | "number" | "checkbox" | "select" | "multi_select" | "date" | "datetime" | "person";
+        readonly ProjectedPropertyV1: {
+            readonly name: string;
+            readonly property_id: string;
+            readonly value: components["schemas"]["ProjectedPropertyValueV1"];
+            readonly value_type: components["schemas"]["ProjectedPropertyTypeV1"];
+        };
+        readonly ProjectedPropertyValueV1: {
+            /** @enum {string} */
+            readonly kind: "null";
+        } | {
+            /** @enum {string} */
+            readonly kind: "text";
+            readonly value: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "number";
+            /** Format: double */
+            readonly value: number;
+        } | {
+            /** @enum {string} */
+            readonly kind: "checkbox";
+            readonly value: boolean;
+        } | {
+            /** @enum {string} */
+            readonly kind: "identity";
+            readonly value: components["schemas"]["ProjectedIdentityV1"];
+        } | {
+            /** @enum {string} */
+            readonly kind: "identities";
+            readonly value: readonly components["schemas"]["ProjectedIdentityV1"][];
+        } | {
+            /** @enum {string} */
+            readonly kind: "date";
+            readonly value: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "datetime";
+            readonly value: string;
+        };
+        readonly ProjectedScheduleV1: {
+            readonly all_day: boolean;
+            readonly end: string;
+            readonly start: string;
+            readonly timezone?: string | null;
         };
         /** @enum {string} */
         readonly ProjectLifecycle: "active" | "inactive" | "archived";
@@ -4109,6 +4201,10 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "page_content";
                     readonly value: components["schemas"]["LibraryPageContent"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "page_file";
+                    readonly value: components["schemas"]["LibraryPageFileProjection"];
                 } | {
                     /** @enum {string} */
                     readonly kind: "agent_block_target";

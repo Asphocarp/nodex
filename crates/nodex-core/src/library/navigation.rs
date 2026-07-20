@@ -41,15 +41,26 @@ pub(super) fn read(
             cursor: requested_cursor,
             limit,
             force_include_target,
-        } => children(
-            connection,
-            library_id,
-            event_head,
-            parent,
-            requested_cursor,
-            limit,
-            force_include_target,
-        ),
+        } => {
+            if let LibraryNavigationParent::Page { page_id } = &parent {
+                require_bound_page_read_access(
+                    connection,
+                    library_id,
+                    requesting_project_id,
+                    requesting_adapter,
+                    page_id,
+                )?;
+            }
+            children(
+                connection,
+                library_id,
+                event_head,
+                parent,
+                requested_cursor,
+                limit,
+                force_include_target,
+            )
+        }
         LibraryRead::Path { target } => {
             if let (Some(project_id), LibraryRouteTarget::Page { page_id }) =
                 (requesting_project_id, &target)
@@ -116,6 +127,30 @@ pub(super) fn read(
                     store_epoch,
                     event_head,
                     &page_id,
+                )?),
+            })
+        }
+        LibraryRead::PageFile {
+            page_id,
+            file_kind,
+            prepare,
+        } => {
+            require_bound_page_read_access(
+                connection,
+                library_id,
+                requesting_project_id,
+                requesting_adapter,
+                &page_id,
+            )?;
+            Ok(LibraryReadValue::PageFile {
+                value: Box::new(super::page_projection::page_file(
+                    connection,
+                    library_id,
+                    store_epoch,
+                    event_head,
+                    &page_id,
+                    file_kind,
+                    prepare,
                 )?),
             })
         }

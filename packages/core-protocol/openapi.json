@@ -7331,6 +7331,107 @@
           }
         }
       },
+      "LibraryPageFileKind": {
+        "type": "string",
+        "enum": [
+          "body_nested_markdown",
+          "meta_yaml"
+        ]
+      },
+      "LibraryPageFileProjection": {
+        "type": "object",
+        "required": [
+          "version",
+          "library_id",
+          "store_epoch",
+          "event_head",
+          "page_id",
+          "metadata_revision",
+          "document_id",
+          "document_generation",
+          "document_head_seq",
+          "kind",
+          "content",
+          "validators"
+        ],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "document_generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "document_head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "event_head": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/LibraryPageFileKind"
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "metadata": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PageMetaProjectionV1"
+              }
+            ]
+          },
+          "metadata_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "store_epoch": {
+            "type": "string"
+          },
+          "validators": {
+            "$ref": "#/components/schemas/LibraryPageFileValidators"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "LibraryPageFileValidators": {
+        "type": "object",
+        "properties": {
+          "body_etag": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "page_etag": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title_etag": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "LibraryPageHistoryCategory": {
         "type": "string",
         "enum": [
@@ -8718,6 +8819,14 @@
             "type": "string"
           }
         }
+      },
+      "LibraryPagePrepareKind": {
+        "type": "string",
+        "enum": [
+          "title_set",
+          "document_replace",
+          "page_delete"
+        ]
       },
       "LibraryPageTarget": {
         "oneOf": [
@@ -12516,6 +12625,38 @@
               {
                 "type": "object",
                 "required": [
+                  "page_id",
+                  "file_kind",
+                  "kind"
+                ],
+                "properties": {
+                  "file_kind": {
+                    "$ref": "#/components/schemas/LibraryPageFileKind"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "page_file"
+                    ]
+                  },
+                  "page_id": {
+                    "type": "string"
+                  },
+                  "prepare": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryPagePrepareKind"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "block_id",
                   "authorization",
                   "kind"
@@ -13718,6 +13859,38 @@
       },
       "OwnedDocumentReadResponse": {
         "$ref": "#/components/schemas/ResponseEnvelope_ModuleReadSnapshot_OwnedDocumentReadValue"
+      },
+      "PageMetaProjectionV1": {
+        "type": "object",
+        "required": [
+          "id",
+          "title_markdown",
+          "properties"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "properties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectedPropertyV1"
+            }
+          },
+          "schedule": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProjectedScheduleV1"
+              }
+            ]
+          },
+          "title_markdown": {
+            "type": "string"
+          }
+        }
       },
       "PageOccurrenceMutationCode": {
         "type": "string",
@@ -15409,6 +15582,230 @@
           },
           "turn_id": {
             "type": "string"
+          }
+        }
+      },
+      "ProjectedIdentityV1": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "ProjectedPropertyTypeV1": {
+        "type": "string",
+        "enum": [
+          "text",
+          "number",
+          "checkbox",
+          "select",
+          "multi_select",
+          "date",
+          "datetime",
+          "person"
+        ]
+      },
+      "ProjectedPropertyV1": {
+        "type": "object",
+        "required": [
+          "property_id",
+          "name",
+          "value_type",
+          "value"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "property_id": {
+            "type": "string"
+          },
+          "value": {
+            "$ref": "#/components/schemas/ProjectedPropertyValueV1"
+          },
+          "value_type": {
+            "$ref": "#/components/schemas/ProjectedPropertyTypeV1"
+          }
+        }
+      },
+      "ProjectedPropertyValueV1": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "null"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "value",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "text"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "value",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "number"
+                ]
+              },
+              "value": {
+                "type": "number",
+                "format": "double"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "value",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "checkbox"
+                ]
+              },
+              "value": {
+                "type": "boolean"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "value",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "identity"
+                ]
+              },
+              "value": {
+                "$ref": "#/components/schemas/ProjectedIdentityV1"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "value",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "identities"
+                ]
+              },
+              "value": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ProjectedIdentityV1"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "value",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "date"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "value",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "datetime"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "ProjectedScheduleV1": {
+        "type": "object",
+        "required": [
+          "start",
+          "end",
+          "all_day"
+        ],
+        "properties": {
+          "all_day": {
+            "type": "boolean"
+          },
+          "end": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -17144,6 +17541,24 @@
                           },
                           "value": {
                             "$ref": "#/components/schemas/LibraryPageContent"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "page_file"
+                            ]
+                          },
+                          "value": {
+                            "$ref": "#/components/schemas/LibraryPageFileProjection"
                           }
                         }
                       },

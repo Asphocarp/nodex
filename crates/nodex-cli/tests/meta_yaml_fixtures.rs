@@ -9,36 +9,39 @@ fn accepted_metadata_fixtures_cover_the_closed_projection_types() {
     let complete = read_fixture("accept/all-types.yaml");
     let metadata = parse(&complete).expect("all-types fixture");
 
+    let value = |property_id: &str| {
+        &metadata
+            .properties
+            .iter()
+            .find(|property| property.property_id == property_id)
+            .unwrap_or_else(|| panic!("missing {property_id} Property"))
+            .value
+    };
+
+    assert!(matches!(value("text"), ProjectedPropertyValueV1::Text(_)));
     assert!(matches!(
-        metadata.properties["text"].value,
-        ProjectedPropertyValueV1::Text(_)
-    ));
-    assert!(matches!(
-        metadata.properties["number"].value,
+        value("number"),
         ProjectedPropertyValueV1::Number(_)
     ));
     assert!(matches!(
-        metadata.properties["checkbox"].value,
+        value("checkbox"),
         ProjectedPropertyValueV1::Checkbox(true)
     ));
     assert!(matches!(
-        metadata.properties["select"].value,
+        value("select"),
         ProjectedPropertyValueV1::Identity(_)
     ));
     assert!(matches!(
-        metadata.properties["multi"].value,
+        value("multi"),
         ProjectedPropertyValueV1::Identities(_)
     ));
+    assert!(matches!(value("date"), ProjectedPropertyValueV1::Date(_)));
     assert!(matches!(
-        metadata.properties["date"].value,
-        ProjectedPropertyValueV1::Date(_)
-    ));
-    assert!(matches!(
-        metadata.properties["datetime"].value,
+        value("datetime"),
         ProjectedPropertyValueV1::Datetime(_)
     ));
     assert!(matches!(
-        metadata.properties["person"].value,
+        value("person"),
         ProjectedPropertyValueV1::Identity(_)
     ));
     assert!(metadata.schedule.is_some());
