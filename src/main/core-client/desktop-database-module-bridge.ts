@@ -1,8 +1,10 @@
 import type {
   BoardSummary,
+  Column,
   DatabasePage,
   DatabaseRowsDetailsInput,
 } from "../../shared/types";
+import type { WorkflowStatus } from "../../shared/workflow-status";
 import type {
   DatabaseViewReadModel,
   ReadDatabaseViewReferenceInput,
@@ -43,6 +45,7 @@ import {
 } from "./database-module-adapter";
 import {
   projectBoardSummary,
+  projectDatabaseColumn,
   projectDatabasePage,
   projectDatabaseQueryPages,
   projectDatabaseViewReference,
@@ -67,6 +70,10 @@ export interface DesktopDatabaseModuleBridgeInput {
       }>,
     ): Promise<LibraryDatabaseApplyResultV2>;
     getBoardSummary(projectId: string): Promise<BoardSummary>;
+    getDatabaseColumn(
+      projectId: string,
+      columnId: WorkflowStatus,
+    ): Promise<Column>;
     getDatabaseRowsDetails(
       projectId: string,
       input: DatabaseRowsDetailsInput,
@@ -99,6 +106,10 @@ export interface DesktopDatabaseModuleBridge {
     }>,
   ): Promise<LibraryDatabaseApplyResultV2>;
   getBoardSummary(projectId: string): Promise<BoardSummary>;
+  getDatabaseColumn(
+    projectId: string,
+    columnId: WorkflowStatus,
+  ): Promise<Column>;
   getDatabaseRowsDetails(
     projectId: string,
     input: DatabaseRowsDetailsInput,
@@ -208,6 +219,21 @@ export const createDesktopDatabaseModuleBridge = (
         },
       );
       return projectBoardSummary(query);
+    },
+    getDatabaseColumn: async (projectId, columnId) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.getDatabaseColumn(projectId, columnId);
+      }
+      const query = await requireQuerySnapshot(
+        coreAdapterFor(runtime, projectId),
+        {
+          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+          projectId,
+          read: { target: { kind: "project_default" }, mode: "query" },
+        },
+      );
+      return projectDatabaseColumn(query, columnId);
     },
     getDatabaseRowsDetails: async (projectId, detailsInput) => {
       const runtime = await input.authority;

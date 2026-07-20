@@ -15,6 +15,7 @@ import type {
 import {
   DatabasePageProjectionError,
   projectBoardSummary,
+  projectDatabaseColumn,
   projectDatabasePage,
   projectDatabaseViewReference,
 } from "./database-page-projection";
@@ -285,6 +286,20 @@ describe("native Database Page projections", () => {
         order: 0,
         hasDescription: true,
       });
+  });
+
+  test("projects one full workflow column from the same query snapshot", () => {
+    const column = projectDatabaseColumn(makeQuery([
+      makeRow("page:build-a"),
+      makeRow("page:triage", "triage"),
+      makeRow("page:build-b"),
+    ]), "build");
+
+    expect(column).toMatchObject({ id: "build", name: "Build" });
+    expect(column.cards.map((card) => [card.id, card.order])).toEqual([
+      ["page:build-a", 0],
+      ["page:build-b", 1],
+    ]);
   });
 
   test("projects View identity and excludes an inline host without another read", () => {

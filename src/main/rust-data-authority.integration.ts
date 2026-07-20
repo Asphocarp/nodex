@@ -1010,6 +1010,7 @@ describe("Electron native data authority", () => {
           readLibrary: unavailableDatabaseFallback,
           applyLibrary: unavailableDatabaseFallback,
           getBoardSummary: unavailableDatabaseFallback,
+          getDatabaseColumn: unavailableDatabaseFallback,
           getDatabaseRowsDetails: unavailableDatabaseFallback,
           getDatabaseRowPage: unavailableDatabaseFallback,
           resolveDatabaseViewReference: unavailableDatabaseFallback,
@@ -1024,6 +1025,40 @@ describe("Electron native data authority", () => {
             hasDescription: false,
           }),
         ]));
+      __setHttpContentModuleDependenciesForTests({
+        databaseProjections: desktopDatabase,
+      });
+      const boardHttpResponse = await getHttpServerOptions(51_284).fetch(
+        new Request(
+          `http://127.0.0.1:51284/api/projects/${projectId}/board-summary`,
+        ),
+      );
+      expect(boardHttpResponse.status).toBe(200);
+      await expect(boardHttpResponse.json()).resolves.toMatchObject({
+        columns: expect.arrayContaining([
+          expect.objectContaining({
+            id: "ship",
+            cards: expect.arrayContaining([
+              expect.objectContaining({ id: copiedDataSourcePageId }),
+            ]),
+          }),
+        ]),
+      });
+      const columnHttpResponse = await getHttpServerOptions(51_284).fetch(
+        new Request(
+          `http://127.0.0.1:51284/api/projects/${projectId}/column?id=ship`,
+        ),
+      );
+      expect(columnHttpResponse.status).toBe(200);
+      await expect(columnHttpResponse.json()).resolves.toMatchObject({
+        id: "ship",
+        cards: expect.arrayContaining([
+          expect.objectContaining({
+            id: copiedDataSourcePageId,
+            description: expect.any(String),
+          }),
+        ]),
+      });
       await expect(desktopDatabase.getDatabaseRowsDetails(projectId, {
         pageIds: [copiedDataSourcePageId, copiedDataSourcePageId],
       })).resolves.toEqual([
@@ -1824,6 +1859,16 @@ describe("Electron native data authority", () => {
         new Date("2026-07-19T00:00:00.000Z"),
         new Date("2026-07-21T00:00:00.000Z"),
       )).resolves.toEqual([]);
+      __setHttpContentModuleDependenciesForTests({ automation });
+      const occurrencesHttpResponse = await getHttpServerOptions(51_284).fetch(
+        new Request(
+          `http://127.0.0.1:51284/api/projects/${createdProject.id}/calendar/occurrences?start=2026-07-19T00:00:00.000Z&end=2026-07-21T00:00:00.000Z`,
+        ),
+      );
+      expect(occurrencesHttpResponse.status).toBe(200);
+      await expect(occurrencesHttpResponse.json()).resolves.toEqual({
+        occurrences: [],
+      });
       await expect(
         automation.claimDueReminders(10, 120_000),
       ).resolves.toEqual([]);
@@ -1848,6 +1893,18 @@ describe("Electron native data authority", () => {
         label: "Electron native authority",
         includesAssets: true,
         dbBytes: expect.any(Number),
+      });
+      __setHttpContentModuleDependenciesForTests({
+        storeAdministration: { port: administration },
+      });
+      const backupsHttpResponse = await getHttpServerOptions(51_284).fetch(
+        new Request("http://127.0.0.1:51284/api/backups"),
+      );
+      expect(backupsHttpResponse.status).toBe(200);
+      await expect(backupsHttpResponse.json()).resolves.toMatchObject({
+        backups: expect.arrayContaining([
+          expect.objectContaining({ id: nativeBackup.id }),
+        ]),
       });
       await expect(administration.listBackups()).resolves.toEqual(
         expect.arrayContaining([

@@ -60,6 +60,84 @@ describe("HTTP content Module authority", () => {
     await expect(response.json()).resolves.toEqual({ projects: [] });
   });
 
+  test("routes Board projections through the configured Database authority", async () => {
+    const getBoardSummary = vi.fn(async () => ({ columns: [] }));
+    __setHttpContentModuleDependenciesForTests({
+      databaseProjections: { getBoardSummary } as never,
+    });
+
+    const response = await getHttpServerOptions(PORT).fetch(new Request(
+      `http://127.0.0.1:${PORT}/api/projects/project-native/board-summary`,
+    ));
+
+    expect(response.status).toBe(200);
+    expect(getBoardSummary).toHaveBeenCalledWith("project-native");
+    await expect(response.json()).resolves.toEqual({ columns: [] });
+  });
+
+  test("routes Page search through the configured Library authority", async () => {
+    const searchPages = vi.fn(async () => []);
+    __setHttpContentModuleDependenciesForTests({
+      pageSearch: { searchPages },
+    });
+
+    const response = await getHttpServerOptions(PORT).fetch(new Request(
+      `http://127.0.0.1:${PORT}/api/pages/search`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectIds: ["project-native"],
+          query: "native",
+          limit: 12,
+        }),
+      },
+    ));
+
+    expect(response.status).toBe(200);
+    expect(searchPages).toHaveBeenCalledWith({
+      projectIds: ["project-native"],
+      query: "native",
+      limit: 12,
+    });
+    await expect(response.json()).resolves.toEqual([]);
+  });
+
+  test("routes Calendar occurrences through the configured Automation authority", async () => {
+    const listPageOccurrences = vi.fn(async () => []);
+    __setHttpContentModuleDependenciesForTests({
+      automation: { listPageOccurrences } as never,
+    });
+
+    const response = await getHttpServerOptions(PORT).fetch(new Request(
+      `http://127.0.0.1:${PORT}/api/projects/project-native/calendar/occurrences?start=2026-07-20T00:00:00.000Z&end=2026-07-21T00:00:00.000Z&search=native`,
+    ));
+
+    expect(response.status).toBe(200);
+    expect(listPageOccurrences).toHaveBeenCalledWith(
+      "project-native",
+      new Date("2026-07-20T00:00:00.000Z"),
+      new Date("2026-07-21T00:00:00.000Z"),
+      "native",
+    );
+    await expect(response.json()).resolves.toEqual({ occurrences: [] });
+  });
+
+  test("routes Backup inventory through Store Administration", async () => {
+    const listBackups = vi.fn(async () => []);
+    __setHttpContentModuleDependenciesForTests({
+      storeAdministration: { port: { listBackups } } as never,
+    });
+
+    const response = await getHttpServerOptions(PORT).fetch(new Request(
+      `http://127.0.0.1:${PORT}/api/backups`,
+    ));
+
+    expect(response.status).toBe(200);
+    expect(listBackups).toHaveBeenCalledOnce();
+    await expect(response.json()).resolves.toEqual({ backups: [] });
+  });
+
   test("binds Block Transfer transport identity before the configured authority", async () => {
     const transfer = vi.fn(async (
       intent: BlockTransferIntent,

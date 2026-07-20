@@ -6,6 +6,7 @@ import type {
 } from "../../shared/database-module-v2";
 import type {
   BoardSummary,
+  Column,
   DatabasePage,
   DatabasePageSummary,
   Estimate,
@@ -25,6 +26,7 @@ import { toDatabasePageSummary } from "../../shared/page-summary";
 import {
   WORKFLOW_STATUS_COLUMNS,
   isWorkflowStatus,
+  type WorkflowStatus,
 } from "../../shared/workflow-status";
 import { assertValidPageInput } from "../../shared/page-input-validation";
 
@@ -401,6 +403,24 @@ export const projectDatabaseQueryPages = (
     }
     return projectDatabasePage(row, query.properties, order);
   });
+};
+
+export const projectDatabaseColumn = (
+  query: DatabaseViewQueryResultV2,
+  columnId: WorkflowStatus,
+): Column => {
+  const column = WORKFLOW_STATUS_COLUMNS.find((candidate) =>
+    candidate.id === columnId
+  );
+  if (!column) {
+    throw new Error(`Unknown workflow column: ${columnId}`);
+  }
+  return {
+    ...column,
+    cards: projectDatabaseQueryPages(query).filter((page) =>
+      page.status === columnId
+    ),
+  };
 };
 
 export const projectBoardSummary = (

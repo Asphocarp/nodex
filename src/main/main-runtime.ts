@@ -27,6 +27,7 @@ import {
 import {
   findPageLocationById,
   getBoardSummary,
+  readColumn,
   getDatabaseRowPage,
   getDatabaseRowsDetails,
   searchPages,
@@ -1667,6 +1668,14 @@ export async function runMainAppStartup(
     typescript: createTypeScriptStoreAdministrationPort(),
   });
   desktopStoreAdministration = storeAdministration;
+  const onStoreRestored = (): void => {
+    if (desktopDataAuthorityRuntime?.backend !== "rust") return;
+    const restart = setTimeout(() => {
+      app.relaunch();
+      app.exit(0);
+    }, 250);
+    restart.unref?.();
+  };
   const libraryModule = createDesktopLibraryModuleBridge({
     authority: dataAuthority,
     resolveProjectId: (rawEvent) => {
@@ -1776,6 +1785,7 @@ export async function runMainAppStartup(
           identity.accessActor,
         ),
       getBoardSummary,
+      getDatabaseColumn: readColumn,
       getDatabaseRowPage,
       getDatabaseRowsDetails,
       resolveDatabaseViewReference: async (input) =>
@@ -1831,6 +1841,14 @@ export async function runMainAppStartup(
         libraryModule.applyPageLifecycleMutation(request),
     },
     projectWorkspace,
+    databaseProjections: databaseModule,
+    pageSearch: libraryModule,
+    automation: automationModule,
+    storeAdministration: {
+      port: storeAdministration,
+      onBackupSettingsChanged: configureRuntimeBackupScheduler,
+      onStoreRestored,
+    },
     documentSync: {
       realtime: documentSync,
       getOwnedDocumentDescriptor: (projectId, ownerBlockId) =>
@@ -1876,14 +1894,7 @@ export async function runMainAppStartup(
     automationModule,
     storeAdministration,
     onBackupSettingsChanged: configureRuntimeBackupScheduler,
-    onStoreRestored: () => {
-      if (desktopDataAuthorityRuntime?.backend !== "rust") return;
-      const restart = setTimeout(() => {
-        app.relaunch();
-        app.exit(0);
-      }, 250);
-      restart.unref?.();
-    },
+    onStoreRestored,
     documentSync,
     projectWorkspace,
     libraryModule,

@@ -503,6 +503,9 @@ describe("Core Database Module Adapter", () => {
         getBoardSummary: async () => {
           throw new Error("TypeScript Board summary must not run");
         },
+        getDatabaseColumn: async () => {
+          throw new Error("TypeScript Database column must not run");
+        },
         getDatabaseRowsDetails: async () => {
           throw new Error("TypeScript Database row details must not run");
         },
@@ -553,6 +556,11 @@ describe("Core Database Module Adapter", () => {
           return unavailable;
         },
         getBoardSummary: async () => ({ columns: [] }),
+        getDatabaseColumn: async (_projectId, columnId) => ({
+          id: columnId,
+          name: columnId,
+          cards: [],
+        }),
         getDatabaseRowsDetails: async () => [],
         getDatabaseRowPage: async () => null,
         resolveDatabaseViewReference: async () => null,

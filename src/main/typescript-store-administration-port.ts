@@ -1,5 +1,16 @@
 import * as backups from "./local-store/backups";
 import type { DesktopStoreAdministrationPort } from "./core-client/desktop-store-administration-bridge";
+import type { BackupSettings } from "../shared/types";
+
+export function configureTypeScriptAutoBackupScheduler(
+  settings: BackupSettings,
+): void {
+  backups.configureAutoBackupScheduler({
+    enabled: settings.autoEnabled,
+    intervalHours: settings.intervalHours,
+    retentionCount: settings.retentionCount,
+  });
+}
 
 export function createTypeScriptStoreAdministrationPort(): DesktopStoreAdministrationPort {
   return {

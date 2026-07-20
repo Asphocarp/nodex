@@ -3,10 +3,8 @@ import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 import { randomUUID } from "node:crypto";
-import * as backupService from "./local-store/backups";
 import * as boardReadModel from "./local-store/board-read-model";
-import * as pageOccurrences from "./local-store/page-occurrences";
-import * as pagesStore from "./local-store/database-pages";
+import { getDatabaseRowPage } from "./local-store/database-pages";
 import * as sqlInspection from "./local-store/sql-inspection";
 import {
   getBackupSettings,
@@ -142,7 +140,17 @@ import {
   type ProjectSessionBrowserRuntime,
 } from "./project-session-browser-ownership";
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
+import type { DesktopDatabaseModuleBridge } from "./core-client/desktop-database-module-bridge";
+import type { DesktopLibraryModuleBridge } from "./core-client/desktop-library-module-bridge";
+import type { DesktopAutomationModulePort } from "./core-client/desktop-automation-module-bridge";
+import type { DesktopStoreAdministrationPort } from "./core-client/desktop-store-administration-bridge";
+import { CoreModuleResponseError } from "./core-client/core-client";
+import { createTypeScriptAutomationModulePort } from "./typescript-automation-module-port";
 import { createTypeScriptProjectWorkspacePort } from "./typescript-project-workspace-port";
+import {
+  configureTypeScriptAutoBackupScheduler,
+  createTypeScriptStoreAdministrationPort,
+} from "./typescript-store-administration-port";
 import { productFeatureGates } from "./product-feature-gates";
 
 /** SSE keep-alive ping interval (ms) */
@@ -197,6 +205,14 @@ interface HttpServerDependencies {
   contentModules: HttpContentModuleDependencies;
 }
 
+interface HttpStoreAdministrationDependencies {
+  readonly port: DesktopStoreAdministrationPort;
+  readonly onBackupSettingsChanged?: (
+    settings: ReturnType<typeof getBackupSettings>,
+  ) => void;
+  readonly onStoreRestored?: () => void;
+}
+
 export interface HttpContentModuleDependencies {
   referenceReads: ReferenceReadHttpDependencies;
   propertyMutations: {
@@ -211,6 +227,22 @@ export interface HttpContentModuleDependencies {
   pageLifecyclePreflight: PageLifecyclePreflightHttpDependencies;
   pageLifecycle: PageLifecycleHttpDependencies;
   projectWorkspace: DesktopProjectWorkspacePort;
+  databaseProjections: Pick<
+    DesktopDatabaseModuleBridge,
+    | "getBoardSummary"
+    | "getDatabaseColumn"
+    | "getDatabaseRowsDetails"
+    | "getDatabaseRowPage"
+  >;
+  pageSearch: Pick<DesktopLibraryModuleBridge, "searchPages">;
+  automation: Pick<
+    DesktopAutomationModulePort,
+    | "listPageOccurrences"
+    | "completePageOccurrence"
+    | "skipPageOccurrence"
+    | "updatePageOccurrence"
+  >;
+  storeAdministration: HttpStoreAdministrationDependencies;
   documentSync: DocumentSyncHttpDependencies;
   documentMutation: DocumentMutationHttpDependencies;
   additionalDocumentCommand: AdditionalDocumentCommandHttpDependencies;
@@ -429,6 +461,18 @@ const defaultHttpServerDependencies: HttpServerDependencies = {
         (await blockMutationWriter.applyPageLifecycleMutation(request)).result,
     },
     projectWorkspace: createTypeScriptProjectWorkspacePort(),
+    databaseProjections: {
+      getBoardSummary: boardReadModel.getBoardSummary,
+      getDatabaseColumn: boardReadModel.readColumn,
+      getDatabaseRowsDetails: boardReadModel.getDatabaseRowsDetails,
+      getDatabaseRowPage,
+    },
+    pageSearch: { searchPages: boardReadModel.searchPages },
+    automation: createTypeScriptAutomationModulePort(),
+    storeAdministration: {
+      port: createTypeScriptStoreAdministrationPort(),
+      onBackupSettingsChanged: configureTypeScriptAutoBackupScheduler,
+    },
     documentSync: defaultDocumentSyncHttpDependencies,
     documentMutation: {
       applyMutation: (request) => documentSyncHub.applyDocumentMutation(request),
@@ -742,15 +786,29 @@ app.post(
 
 // === Backup routes ===
 
+const backupErrorStatus = (error: unknown): 400 | 404 | 500 => {
+  if (error instanceof CoreModuleResponseError) {
+    if (error.coreError.code === "not_found") return 404;
+    if (error.coreError.code === "invalid_input") return 400;
+    return 500;
+  }
+  if (!(error instanceof Error)) return 500;
+  if (error.name === "InvalidBackupIdError") return 400;
+  if (error.name === "BackupNotFoundError") return 404;
+  return 500;
+};
+
 app.get("/api/backups", async (c) => {
-  const backups = await backupService.listBackups();
+  const backups = await httpServerDependencies.contentModules
+    .storeAdministration.port.listBackups();
   return c.json({ backups });
 });
 
 app.post("/api/backups", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   try {
-    const backup = await backupService.createBackup({
+    const backup = await httpServerDependencies.contentModules
+      .storeAdministration.port.createBackup({
       trigger: "manual",
       label: typeof body.label === "string" ? body.label : undefined,
     });
@@ -764,16 +822,14 @@ app.delete("/api/backups/:backupId", async (c) => {
   const backupId = c.req.param("backupId");
 
   try {
-    const result = await backupService.deleteBackup(backupId);
+    const result = await httpServerDependencies.contentModules
+      .storeAdministration.port.deleteBackup(backupId);
     return c.json(result);
   } catch (err) {
-    if (err instanceof backupService.InvalidBackupIdError) {
-      return c.json({ error: err.message }, 400);
-    }
-    if (err instanceof backupService.BackupNotFoundError) {
-      return c.json({ error: err.message }, 404);
-    }
-    return c.json({ error: (err as Error).message }, 500);
+    return c.json(
+      { error: err instanceof Error ? err.message : "Backup deletion failed" },
+      backupErrorStatus(err),
+    );
   }
 });
 
@@ -785,20 +841,20 @@ app.post("/api/backups/:backupId/restore", async (c) => {
   }
 
   try {
-    const result = await backupService.restoreBackup({
+    const administration = httpServerDependencies.contentModules
+      .storeAdministration;
+    const result = await administration.port.restoreBackup({
       backupId,
       confirm: true,
       createSafetyBackup: body.createSafetyBackup !== false,
     });
+    administration.onStoreRestored?.();
     return c.json(result);
   } catch (err) {
-    if (err instanceof backupService.InvalidBackupIdError) {
-      return c.json({ error: err.message }, 400);
-    }
-    if (err instanceof backupService.BackupNotFoundError) {
-      return c.json({ error: err.message }, 404);
-    }
-    return c.json({ error: (err as Error).message }, 500);
+    return c.json(
+      { error: err instanceof Error ? err.message : "Backup restore failed" },
+      backupErrorStatus(err),
+    );
   }
 });
 
@@ -817,11 +873,8 @@ app.put("/api/settings/backup", async (c) => {
       intervalHours: body.intervalHours,
       retentionCount: body.retentionCount,
     });
-    backupService.configureAutoBackupScheduler({
-      enabled: settings.autoEnabled,
-      intervalHours: settings.intervalHours,
-      retentionCount: settings.retentionCount,
-    });
+    httpServerDependencies.contentModules.storeAdministration
+      .onBackupSettingsChanged?.(settings);
     return c.json(settings);
   } catch (error) {
     return c.json({ error: (error as Error).message }, 400);
@@ -1654,7 +1707,8 @@ app.delete("/api/project-sessions/:sessionId/thread", async (c) => {
 
 app.get("/api/projects/:projectId/board-summary", async (c) => {
   const startedAt = Date.now();
-  const board = await boardReadModel.getBoardSummary(c.req.param("projectId"));
+  const board = await httpServerDependencies.contentModules.databaseProjections
+    .getBoardSummary(c.req.param("projectId"));
   logger.info("board summary payload served", {
     channel: "GET /api/projects/:projectId/board-summary",
     projectId: c.req.param("projectId"),
@@ -1776,7 +1830,8 @@ app.get("/api/projects/:projectId/database-row", async (c) => {
   const status = parseOptionalWorkflowStatus(c.req.query("status") || undefined);
   const pageId = c.req.query("pageId");
   if (!pageId) return c.json({ error: "Missing pageId" }, 400);
-  const result = await pagesStore.getDatabaseRowPage(
+  const result = await httpServerDependencies.contentModules.databaseProjections
+    .getDatabaseRowPage(
     projectId,
     pageId,
     status,
@@ -1793,7 +1848,11 @@ app.post("/api/projects/:projectId/database-rows/details", async (c) => {
     return c.json({ error: "Missing pageIds" }, 400);
   }
   const pageIds = body.pageIds.filter((pageId): pageId is string => typeof pageId === "string");
-  const pages = await boardReadModel.getDatabaseRowsDetails(projectId, { pageIds } satisfies DatabaseRowsDetailsInput);
+  const pages = await httpServerDependencies.contentModules.databaseProjections
+    .getDatabaseRowsDetails(
+      projectId,
+      { pageIds } satisfies DatabaseRowsDetailsInput,
+    );
   logger.info("database row details payload served", {
     channel: "POST /api/projects/:projectId/database-rows/details",
     projectId,
@@ -1816,7 +1875,8 @@ app.post("/api/pages/search", async (c) => {
     query: body.query,
     limit: typeof body.limit === "number" ? body.limit : undefined,
   };
-  const results = await boardReadModel.searchPages(input);
+  const results = await httpServerDependencies.contentModules.pageSearch
+    .searchPages(input);
   logger.info("Page search payload served", {
     channel: "POST /api/pages/search",
     projectCount: input.projectIds.length,
@@ -1836,7 +1896,8 @@ app.get("/api/projects/:projectId/calendar/occurrences", async (c) => {
   try {
     const start = parseRequiredDate("start", startRaw);
     const end = parseRequiredDate("end", endRaw);
-    const occurrences = await pageOccurrences.listPageOccurrences(projectId, start, end, searchQuery);
+    const occurrences = await httpServerDependencies.contentModules.automation
+      .listPageOccurrences(projectId, start, end, searchQuery);
     return c.json({ occurrences });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -1856,7 +1917,8 @@ app.post("/api/projects/:projectId/page-occurrence/complete", async (c) => {
       occurrenceStart: parseRequiredDate("occurrenceStart", body.occurrenceStart),
       source: parseOccurrenceSource(body.source),
     };
-    const { result } = await blockMutationWriter.completePageOccurrence(
+    const result = await httpServerDependencies.contentModules.automation
+      .completePageOccurrence(
       projectId,
       input,
       typeof body.sessionId === "string" ? body.sessionId : undefined,
@@ -1880,7 +1942,8 @@ app.post("/api/projects/:projectId/page-occurrence/skip", async (c) => {
       occurrenceStart: parseRequiredDate("occurrenceStart", body.occurrenceStart),
       source: parseOccurrenceSource(body.source),
     };
-    const { result } = await blockMutationWriter.skipPageOccurrence(
+    const result = await httpServerDependencies.contentModules.automation
+      .skipPageOccurrence(
       projectId,
       input,
       typeof body.sessionId === "string" ? body.sessionId : undefined,
@@ -1916,7 +1979,8 @@ app.put("/api/projects/:projectId/page-occurrence", pageWriteBodyLimit, async (c
         : { createdPageId: parseOccurrenceCreatedPageId(body.createdPageId) }),
       updates: updates as PageOccurrenceUpdateInput["updates"],
     } as PageOccurrenceUpdateInput;
-    const { result } = await blockMutationWriter.updatePageOccurrence(
+    const result = await httpServerDependencies.contentModules.automation
+      .updatePageOccurrence(
       projectId,
       input,
       typeof body.sessionId === "string" ? body.sessionId : undefined,
@@ -1934,7 +1998,8 @@ app.get("/api/projects/:projectId/column", async (c) => {
   const projectId = c.req.param("projectId");
   const columnId = parseOptionalWorkflowStatus(c.req.query("id"));
   if (!columnId) return c.json({ error: "Missing id" }, 400);
-  const column = await boardReadModel.readColumn(projectId, columnId);
+  const column = await httpServerDependencies.contentModules.databaseProjections
+    .getDatabaseColumn(projectId, columnId);
   return c.json(column);
 });
 
