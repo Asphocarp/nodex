@@ -106,6 +106,13 @@ export interface DesktopProjectWorkspaceExecutionContext {
 export interface DesktopProjectWorkspacePort {
   listProjects(): Promise<Project[]>;
   getProject(projectId: string): Promise<Project | null>;
+  readProjectPermissionMode(
+    projectId: string,
+  ): Promise<CodexPermissionMode | null>;
+  setProjectPermissionMode(
+    projectId: string,
+    mode: CodexPermissionMode,
+  ): Promise<CodexPermissionMode>;
   createProject(input: ProjectCreateInput): Promise<Project>;
   updateProject(
     projectId: string,
@@ -456,6 +463,25 @@ export function createCoreProjectWorkspaceAdapter(
     return snapshot.value.projects.map(fromCoreProject);
   };
 
+  const readProjectPermissionMode = async (
+    projectId: string,
+  ): Promise<CodexPermissionMode | null> => {
+    let snapshot: ProjectWorkspaceReadSnapshot;
+    try {
+      snapshot = await client.workspaceRead({
+        kind: "project_permission_mode",
+        project_id: projectId,
+      });
+    } catch (error) {
+      if (isNotFound(error)) return null;
+      throw error;
+    }
+    if (snapshot.value.kind !== "project_permission_mode") {
+      throw new Error("Core returned the wrong Project Workspace read variant");
+    }
+    return snapshot.value.mode ?? null;
+  };
+
   const apply = async (
     intent: Parameters<CoreClientPort["workspaceApply"]>[0]["intent"],
   ): Promise<void> => {
@@ -521,6 +547,19 @@ export function createCoreProjectWorkspaceAdapter(
   return {
     listProjects: readProjects,
     getProject,
+    readProjectPermissionMode,
+    setProjectPermissionMode: async (projectId, mode) => {
+      await apply({
+        kind: "set_project_permission_mode",
+        project_id: projectId,
+        mode,
+      });
+      const selected = await readProjectPermissionMode(projectId);
+      if (!selected) {
+        throw new Error(`Updated Project permission mode not found: ${projectId}`);
+      }
+      return selected;
+    },
     createProject: async (input) => {
       const projectId = randomUUID();
       await apply({

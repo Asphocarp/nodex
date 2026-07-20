@@ -499,6 +499,11 @@ reads the source execution-context snapshot and replaces the target catalog
 through the same authority, while every `nodex_app` call resolves its expected
 toolset revision from that snapshot. The Rust branch therefore never opens
 SQLite in Electron for catalog launch, inheritance, or stale-catalog checks.
+Project permission settings use a separate Project-scoped snapshot because a
+new Project may not own a Thread yet. Codex verifies the selected preset against
+the live app-server config before treating built-in Full access as Library
+authority, then persists the accepted selection through the same Workspace
+port; custom config edits explicitly replace the selection with `custom`.
 
 The same Thread aggregate owns host-observed execution continuity without
 moving process execution into Core. Only a trusted Electron Host Adapter may

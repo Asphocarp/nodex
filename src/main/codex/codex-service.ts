@@ -274,10 +274,6 @@ import {
 } from "../../shared/schemas/project-sessions";
 import * as projectSessionService from "../local-store/project-sessions";
 import {
-  getCodexProjectPermissionModeSelection,
-  putCodexProjectPermissionModeSelection,
-} from "../local-store/codex-project-permission-modes";
-import {
   getThreadGoalAttachmentsRoot,
   PastedTextAttachmentManager,
   readThreadGoalEditableObjective,
@@ -6301,12 +6297,14 @@ export class CodexService extends EventEmitter {
       && state.approvalsReviewer === "user";
   }
 
-  private applyPersistedPermissionModeSelection(
+  private async applyPersistedPermissionModeSelection(
     projectId: string,
     state: CodexPermissionState,
     workspaceRoots: readonly string[],
-  ): CodexPermissionState {
-    const selection = getCodexProjectPermissionModeSelection(projectId);
+  ): Promise<CodexPermissionState> {
+    const selection = await this.projectWorkspace.readProjectPermissionMode(
+      projectId,
+    );
     if (!selection) {
       this.verifiedPermissionModeByProject.delete(projectId);
       return state;
@@ -6383,7 +6381,7 @@ export class CodexService extends EventEmitter {
         defaultUserConfigPath: path.join(resolveCodexHomeDir(), "config.toml"),
         workspaceRoots,
       });
-      const nextState = this.applyPersistedPermissionModeSelection(
+      const nextState = await this.applyPersistedPermissionModeSelection(
         projectId,
         resolvedState,
         workspaceRoots,
@@ -6537,7 +6535,7 @@ export class CodexService extends EventEmitter {
 
     const edits = buildPermissionModeConfigEdits(mode);
     if (edits.length === 0) {
-      putCodexProjectPermissionModeSelection(projectId, mode);
+      await this.projectWorkspace.setProjectPermissionMode(projectId, mode);
       this.verifiedPermissionModeByProject.set(projectId, mode);
       const nextState = this.buildFallbackPermissionState(mode, [], current);
       this.permissionStateByProject.set(projectId, nextState);
@@ -6552,13 +6550,13 @@ export class CodexService extends EventEmitter {
     try {
       await this.client.request("config/batchWrite", params);
     } catch {
-      putCodexProjectPermissionModeSelection(projectId, mode);
+      await this.projectWorkspace.setProjectPermissionMode(projectId, mode);
       this.verifiedPermissionModeByProject.set(projectId, mode);
       const nextState = this.buildFallbackPermissionState(mode, [], current);
       this.permissionStateByProject.set(projectId, nextState);
       return nextState;
     }
-    putCodexProjectPermissionModeSelection(projectId, mode);
+    await this.projectWorkspace.setProjectPermissionMode(projectId, mode);
     this.invalidatePermissionState(projectId);
     const nextState = await this.readPermissionState(projectId);
     if (mode !== "custom" && nextState.mode !== mode) {
@@ -6586,7 +6584,7 @@ export class CodexService extends EventEmitter {
     } catch {
       return current;
     }
-    putCodexProjectPermissionModeSelection(projectId, "custom");
+    await this.projectWorkspace.setProjectPermissionMode(projectId, "custom");
     this.invalidatePermissionState(projectId);
     return await this.readPermissionState(projectId);
   }

@@ -2782,6 +2782,10 @@ export interface components {
                 readonly kind: "project";
                 readonly project_id: string;
             } | {
+                /** @enum {string} */
+                readonly kind: "project_permission_mode";
+                readonly project_id: string;
+            } | {
                 readonly include_archived?: boolean | null;
                 /** @enum {string} */
                 readonly kind: "sessions";
@@ -3739,6 +3743,10 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "project";
                     readonly project: components["schemas"]["ProjectWorkspaceProject"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "project_permission_mode";
+                    readonly mode?: null | components["schemas"]["CodexPermissionMode"];
                 } | {
                     /** @enum {string} */
                     readonly kind: "sessions";

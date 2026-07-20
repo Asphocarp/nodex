@@ -5,7 +5,10 @@ import {
   replaceCodexThreadDynamicToolCatalogs,
 } from "./codex/codex-dynamic-tool-catalog-repository";
 import { getCodexThread } from "./codex/codex-link-repository";
-import { getCodexProjectPermissionModeSelection } from "./local-store/codex-project-permission-modes";
+import {
+  getCodexProjectPermissionModeSelection,
+  putCodexProjectPermissionModeSelection,
+} from "./local-store/codex-project-permission-modes";
 import { getCodexThreadWritableRoots } from "./local-store/codex-thread-writable-roots";
 import { projectDeletionRuntime } from "./project-deletion-runtime";
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
@@ -15,6 +18,12 @@ export const createTypeScriptProjectWorkspacePort = (
 ): DesktopProjectWorkspacePort => ({
   listProjects: async () => projectsStore.listProjects(),
   getProject: async (projectId) => projectsStore.getProject(projectId),
+  readProjectPermissionMode: async (projectId) =>
+    getCodexProjectPermissionModeSelection(projectId),
+  setProjectPermissionMode: async (projectId, mode) => {
+    putCodexProjectPermissionModeSelection(projectId, mode);
+    return mode;
+  },
   createProject: async (input) => projectsStore.createProject(input),
   updateProject: async (projectId, input) =>
     projectsStore.updateProject(projectId, input),

@@ -65,6 +65,13 @@ pub(super) fn read(
                     .ok_or_else(|| not_found("Project is unavailable in this Library"))?,
             })
         }
+        ProjectWorkspaceRead::ProjectPermissionMode { project_id } => {
+            validate_id("project_id", &project_id)?;
+            require_project(connection, library_id, &project_id)?;
+            Ok(ProjectWorkspaceReadValue::ProjectPermissionMode {
+                mode: read_permission_mode(connection, &project_id)?,
+            })
+        }
         ProjectWorkspaceRead::Sessions {
             project_id,
             include_archived,

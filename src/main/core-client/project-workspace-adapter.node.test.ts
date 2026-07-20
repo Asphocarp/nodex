@@ -280,6 +280,57 @@ describe("Core Project Workspace adapter", () => {
     }]);
   });
 
+  test("reads and persists a Project permission mode without requiring a Thread", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueWorkspaceRead({
+      version: 1,
+      event_head: 11,
+      store_epoch: "epoch:test",
+      value: { kind: "project_permission_mode", mode: null },
+    });
+    client.enqueueWorkspaceApply({
+      value: {
+        affected_project_ids: ["project:one"],
+        affected_session_ids: [],
+        affected_thread_ids: [],
+      },
+      receipt: {
+        operation_id: "operation:permission-mode",
+        duplicate: false,
+        affected_project_ids: ["project:one"],
+        affected_session_ids: [],
+      },
+      event_sequence: 12,
+      store_epoch: "epoch:test",
+    });
+    client.enqueueWorkspaceRead({
+      version: 1,
+      event_head: 12,
+      store_epoch: "epoch:test",
+      value: { kind: "project_permission_mode", mode: "full-access" },
+    });
+    const adapter = createCoreProjectWorkspaceAdapter(client);
+
+    await expect(
+      adapter.readProjectPermissionMode("project:one"),
+    ).resolves.toBeNull();
+    await expect(
+      adapter.setProjectPermissionMode("project:one", "full-access"),
+    ).resolves.toBe("full-access");
+    expect(client.workspaceReads).toEqual([
+      { kind: "project_permission_mode", project_id: "project:one" },
+      { kind: "project_permission_mode", project_id: "project:one" },
+    ]);
+    expect(client.workspaceApplies).toEqual([{
+      operationId: expect.any(String),
+      intent: {
+        kind: "set_project_permission_mode",
+        project_id: "project:one",
+        mode: "full-access",
+      },
+    }]);
+  });
+
   test("hydrates one complete Session without leaking Core wire casing", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({

@@ -11098,6 +11098,24 @@
               {
                 "type": "object",
                 "required": [
+                  "project_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "project_permission_mode"
+                    ]
+                  },
+                  "project_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "kind"
                 ],
                 "properties": {
@@ -15407,6 +15425,30 @@
                           },
                           "project": {
                             "$ref": "#/components/schemas/ProjectWorkspaceProject"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "project_permission_mode"
+                            ]
+                          },
+                          "mode": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/CodexPermissionMode"
+                              }
+                            ]
                           }
                         }
                       },

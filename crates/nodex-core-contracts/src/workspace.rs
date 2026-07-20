@@ -13,6 +13,9 @@ pub enum ProjectWorkspaceRead {
     Project {
         project_id: String,
     },
+    ProjectPermissionMode {
+        project_id: String,
+    },
     Sessions {
         project_id: Option<String>,
         include_archived: Option<bool>,
@@ -71,6 +74,9 @@ pub enum ProjectWorkspaceReadValue {
     },
     Project {
         project: ProjectWorkspaceProject,
+    },
+    ProjectPermissionMode {
+        mode: Option<CodexPermissionMode>,
     },
     Sessions {
         sessions: Vec<ProjectWorkspaceSessionSummary>,

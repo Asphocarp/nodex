@@ -1576,6 +1576,15 @@ mod tests {
                 ),
             )
             .expect("select permission mode");
+        let ProjectWorkspaceReadValue::ProjectPermissionMode { mode } = read(
+            &module,
+            ProjectWorkspaceRead::ProjectPermissionMode {
+                project_id: "project:default".to_owned(),
+            },
+        ) else {
+            panic!("Project permission mode");
+        };
+        assert_eq!(mode, Some(CodexPermissionMode::FullAccess));
         module
             .apply(
                 &context(),

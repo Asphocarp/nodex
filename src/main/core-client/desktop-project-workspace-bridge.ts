@@ -26,6 +26,10 @@ export function createDesktopProjectWorkspaceBridge(
     listProjects: async () => await (await resolve()).listProjects(),
     getProject: async (projectId) =>
       await (await resolve()).getProject(projectId),
+    readProjectPermissionMode: async (projectId) =>
+      await (await resolve()).readProjectPermissionMode(projectId),
+    setProjectPermissionMode: async (projectId, mode) =>
+      await (await resolve()).setProjectPermissionMode(projectId, mode),
     createProject: async (projectInput) =>
       await (await resolve()).createProject(projectInput),
     updateProject: async (projectId, projectInput) =>

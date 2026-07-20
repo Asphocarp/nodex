@@ -1789,6 +1789,16 @@ describe("Electron native data authority", () => {
           { namespace: "nodex_app", toolsetRevision: 1 },
         ],
       });
+      await expect(
+        workspace.readProjectPermissionMode(createdProject.id),
+      ).resolves.toBeNull();
+      await expect(workspace.setProjectPermissionMode(
+        createdProject.id,
+        "guardian-approvals",
+      )).resolves.toBe("guardian-approvals");
+      await expect(
+        workspace.readProjectPermissionMode(createdProject.id),
+      ).resolves.toBe("guardian-approvals");
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
       await expect(
         workspace.detachProjectSessionThread(createdSession.id),
