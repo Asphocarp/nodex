@@ -2331,6 +2331,11 @@ export interface components {
                 readonly thread_id: string;
             } | {
                 /** @enum {string} */
+                readonly kind: "update_thread";
+                readonly patch: components["schemas"]["ProjectWorkspaceThreadPatch"];
+                readonly thread_id: string;
+            } | {
+                /** @enum {string} */
                 readonly kind: "delete_thread";
                 readonly thread_id: string;
             } | {
@@ -3153,6 +3158,7 @@ export interface components {
         };
         readonly ProjectWorkspaceThread: {
             readonly agent_nickname?: string | null;
+            readonly agent_path?: string | null;
             readonly agent_role?: string | null;
             readonly archived: boolean;
             /** Format: int64 */
@@ -3197,6 +3203,7 @@ export interface components {
         };
         readonly ProjectWorkspaceThreadPatch: {
             readonly agent_nickname?: string | null;
+            readonly agent_path?: string | null;
             readonly agent_role?: string | null;
             readonly archived?: boolean | null;
             /** Format: int64 */

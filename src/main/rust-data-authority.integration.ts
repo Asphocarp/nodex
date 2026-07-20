@@ -1813,6 +1813,23 @@ describe("Electron native data authority", () => {
       ).resolves.toMatchObject({
         writableRoots: [nodexHome, sharedWritableRoot],
       });
+      await expect(workspace.upsertThread("thread:electron-session", {
+        agentNickname: "@Electron",
+        agentRole: "worker",
+        agentPath: "agents/electron",
+      })).resolves.toMatchObject({
+        agentNickname: "@Electron",
+        agentRole: "worker",
+        agentPath: "agents/electron",
+      });
+      await expect(workspace.updateThread("thread:electron-session", {
+        threadName: "Electron metadata Thread",
+        status: { statusType: "idle", activeFlags: [] },
+      })).resolves.toMatchObject({
+        threadName: "Electron metadata Thread",
+        statusType: "idle",
+        agentPath: "agents/electron",
+      });
       await expect(workspace.setProjectThreadOrder(
         createdProject.id,
         ["thread:electron-session"],

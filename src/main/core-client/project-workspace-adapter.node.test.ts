@@ -69,6 +69,7 @@ const thread = {
   service_name: null,
   agent_nickname: null,
   agent_role: null,
+  agent_path: null,
   thread_preview: "Preview",
   model_provider: "openai",
   cwd: "/workspace/one",
@@ -329,6 +330,96 @@ describe("Core Project Workspace adapter", () => {
         mode: "full-access",
       },
     }]);
+  });
+
+  test("maps presence-sensitive Thread materialization and existing-only metadata updates", async () => {
+    const client = new FakeCoreClient();
+    for (const [operationId, eventSequence, persisted] of [
+      [
+        "operation:upsert-thread",
+        11,
+        {
+          ...thread,
+          agent_nickname: "@Scout",
+          agent_path: "agents/scout",
+        },
+      ],
+      [
+        "operation:update-thread",
+        12,
+        {
+          ...thread,
+          thread_name: "Updated Thread",
+          status: { status_type: "active" as const, active_flags: [] },
+        },
+      ],
+    ] as const) {
+      client.enqueueWorkspaceApply({
+        value: {
+          affected_project_ids: ["project:one"],
+          affected_session_ids: ["session:one"],
+          affected_thread_ids: ["thread:one"],
+        },
+        receipt: {
+          operation_id: operationId,
+          duplicate: false,
+          affected_project_ids: ["project:one"],
+          affected_session_ids: ["session:one"],
+        },
+        event_sequence: eventSequence,
+        store_epoch: "epoch:test",
+      });
+      client.enqueueWorkspaceRead({
+        version: 1,
+        event_head: eventSequence,
+        store_epoch: "epoch:test",
+        value: { kind: "thread", thread: persisted },
+      });
+    }
+    const adapter = createCoreProjectWorkspaceAdapter(client);
+
+    await expect(adapter.upsertThread("thread:one", {
+      projectId: "project:one",
+      agentNickname: "@Scout",
+      agentPath: "agents/scout",
+      managedWorktreePath: null,
+    })).resolves.toMatchObject({
+      agentNickname: "@Scout",
+      agentPath: "agents/scout",
+    });
+    await expect(adapter.updateThread("thread:one", {
+      threadName: "Updated Thread",
+      status: { statusType: "active", activeFlags: [] },
+    })).resolves.toMatchObject({
+      threadName: "Updated Thread",
+      statusType: "active",
+    });
+    expect(client.workspaceApplies).toEqual([
+      {
+        operationId: expect.any(String),
+        intent: {
+          kind: "upsert_thread",
+          thread_id: "thread:one",
+          patch: {
+            project_id: "project:one",
+            agent_nickname: "@Scout",
+            agent_path: "agents/scout",
+            managed_worktree_path: null,
+          },
+        },
+      },
+      {
+        operationId: expect.any(String),
+        intent: {
+          kind: "update_thread",
+          thread_id: "thread:one",
+          patch: {
+            thread_name: "Updated Thread",
+            status: { status_type: "active", active_flags: [] },
+          },
+        },
+      },
+    ]);
   });
 
   test("reads and commits Thread unread state through Workspace authority", async () => {

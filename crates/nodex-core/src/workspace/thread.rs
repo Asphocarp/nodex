@@ -36,6 +36,7 @@ const THREAD_COLUMNS: &str = "
   thread.service_name,
   thread.agent_nickname,
   thread.agent_role,
+  thread.agent_path,
   thread.thread_preview,
   thread.model_provider,
   thread.cwd,
@@ -63,6 +64,7 @@ struct ThreadRow {
     service_name: Option<String>,
     agent_nickname: Option<String>,
     agent_role: Option<String>,
+    agent_path: Option<String>,
     thread_preview: String,
     model_provider: String,
     cwd: Option<String>,
@@ -199,6 +201,33 @@ pub(super) fn upsert_thread(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(super) fn update_thread(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    thread_id: &str,
+    patch: &ProjectWorkspaceThreadPatch,
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    require_thread(connection, library_id, thread_id)?;
+    let effects = upsert_thread_records(connection, library_id, thread_id, patch)?;
+    finish_thread_mutation(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        "update_thread",
+        effects.project_ids,
+        effects.session_ids,
+        vec![thread_id.to_owned()],
+    )
+}
+
 pub(super) fn upsert_thread_records(
     connection: &Connection,
     library_id: &str,
@@ -277,6 +306,13 @@ pub(super) fn upsert_thread_records(
         &patch.agent_role,
         "agent_role",
         MAX_SHORT_TEXT_BYTES,
+        true,
+    )?;
+    let agent_path = merge_nullable_text(
+        existing.as_ref().and_then(|row| row.agent_path.clone()),
+        &patch.agent_path,
+        "agent_path",
+        MAX_PATH_BYTES,
         true,
     )?;
     let cwd = merge_nullable_text(
@@ -383,18 +419,19 @@ pub(super) fn upsert_thread_records(
     connection.execute(
         "INSERT INTO codex_threads (\
            thread_id, project_id, parent_thread_id, thread_name, thread_source, service_name, \
-           agent_nickname, agent_role, thread_preview, model_provider, cwd, \
+           agent_nickname, agent_role, agent_path, thread_preview, model_provider, cwd, \
            managed_worktree_path, projectless_output_directory, \
            projectless_workspace_browser_root, status_type, status_active_flags_json, archived, \
            created_at, updated_at, linked_at, forked_from_id\
          ) VALUES (\
            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, \
-           ?18, ?19, ?20, ?21\
+           ?18, ?19, ?20, ?21, ?22\
          ) ON CONFLICT(thread_id) DO UPDATE SET \
            project_id = excluded.project_id, parent_thread_id = excluded.parent_thread_id, \
            thread_name = excluded.thread_name, thread_source = excluded.thread_source, \
            service_name = excluded.service_name, agent_nickname = excluded.agent_nickname, \
-           agent_role = excluded.agent_role, thread_preview = excluded.thread_preview, \
+           agent_role = excluded.agent_role, agent_path = excluded.agent_path, \
+           thread_preview = excluded.thread_preview, \
            model_provider = excluded.model_provider, cwd = excluded.cwd, \
            managed_worktree_path = excluded.managed_worktree_path, \
            projectless_output_directory = excluded.projectless_output_directory, \
@@ -412,6 +449,7 @@ pub(super) fn upsert_thread_records(
             service_name,
             agent_nickname,
             agent_role,
+            agent_path,
             thread_preview,
             model_provider,
             cwd,
@@ -962,6 +1000,7 @@ fn project_workspace_thread(
         service_name: row.service_name,
         agent_nickname: row.agent_nickname,
         agent_role: row.agent_role,
+        agent_path: row.agent_path,
         thread_preview: row.thread_preview,
         model_provider: row.model_provider,
         cwd: row.cwd,
@@ -991,20 +1030,21 @@ fn thread_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadRow> {
         service_name: row.get(6)?,
         agent_nickname: row.get(7)?,
         agent_role: row.get(8)?,
-        thread_preview: row.get(9)?,
-        model_provider: row.get(10)?,
-        cwd: row.get(11)?,
-        managed_worktree_path: row.get(12)?,
-        projectless_output_directory: row.get(13)?,
-        projectless_workspace_browser_root: row.get(14)?,
-        status_type: row.get(15)?,
-        status_active_flags_json: row.get(16)?,
-        archived: row.get(17)?,
-        pinned_order: row.get(18)?,
-        has_unread_turn: row.get(19)?,
-        created_at: row.get(20)?,
-        updated_at: row.get(21)?,
-        linked_at: row.get(22)?,
+        agent_path: row.get(9)?,
+        thread_preview: row.get(10)?,
+        model_provider: row.get(11)?,
+        cwd: row.get(12)?,
+        managed_worktree_path: row.get(13)?,
+        projectless_output_directory: row.get(14)?,
+        projectless_workspace_browser_root: row.get(15)?,
+        status_type: row.get(16)?,
+        status_active_flags_json: row.get(17)?,
+        archived: row.get(18)?,
+        pinned_order: row.get(19)?,
+        has_unread_turn: row.get(20)?,
+        created_at: row.get(21)?,
+        updated_at: row.get(22)?,
+        linked_at: row.get(23)?,
     })
 }
 
@@ -1260,6 +1300,7 @@ fn validate_stored_thread(row: &ThreadRow) -> Result<(), StoreError> {
             row.agent_role.as_deref(),
             MAX_SHORT_TEXT_BYTES,
         ),
+        ("agent_path", row.agent_path.as_deref(), MAX_PATH_BYTES),
         ("cwd", row.cwd.as_deref(), MAX_PATH_BYTES),
         (
             "managed_worktree_path",
@@ -1729,6 +1770,7 @@ mod tests {
                     service_name: Some(Some("codex".to_owned())),
                     agent_nickname: Some(Some("@Nash".to_owned())),
                     agent_role: Some(Some("worker".to_owned())),
+                    agent_path: Some(Some("agents/nash".to_owned())),
                     thread_preview: Some("Persisted execution context".to_owned()),
                     model_provider: Some("openai".to_owned()),
                     cwd: Some(Some("/workspace/root".to_owned())),
@@ -1755,6 +1797,43 @@ mod tests {
             committed.committed.event_sequence
         );
         assert!(replay.committed.receipt.mutation.duplicate);
+
+        module
+            .apply(
+                &context(),
+                request(
+                    "thread-update-root",
+                    ProjectWorkspaceIntent::UpdateThread {
+                        thread_id: "thread-root".to_owned(),
+                        patch: Box::new(ProjectWorkspaceThreadPatch {
+                            thread_name: Some(Some("Updated Root".to_owned())),
+                            status: Some(ProjectWorkspaceThreadStatus {
+                                status_type: CodexThreadStatusType::Idle,
+                                active_flags: Vec::new(),
+                            }),
+                            updated_at: Some(300),
+                            ..ProjectWorkspaceThreadPatch::default()
+                        }),
+                    },
+                ),
+            )
+            .expect("update existing Thread metadata");
+        let missing_update = module
+            .apply(
+                &context(),
+                request(
+                    "thread-update-missing",
+                    ProjectWorkspaceIntent::UpdateThread {
+                        thread_id: "thread-missing".to_owned(),
+                        patch: Box::new(ProjectWorkspaceThreadPatch {
+                            thread_name: Some(Some("Must not materialize".to_owned())),
+                            ..ProjectWorkspaceThreadPatch::default()
+                        }),
+                    },
+                ),
+            )
+            .expect_err("missing Thread update must fail closed");
+        assert_eq!(missing_update.code, CoreErrorCode::NotFound);
 
         module
             .apply(
@@ -1848,7 +1927,15 @@ mod tests {
         );
         assert_eq!(
             execution_context.thread.thread_name.as_deref(),
-            Some("Root Thread")
+            Some("Updated Root")
+        );
+        assert_eq!(
+            execution_context.thread.agent_path.as_deref(),
+            Some("agents/nash")
+        );
+        assert_eq!(
+            execution_context.thread.status.status_type,
+            CodexThreadStatusType::Idle
         );
         assert_eq!(execution_context.thread.pinned_order, Some(0));
         assert!(execution_context.thread.has_unread_turn);

@@ -13,6 +13,8 @@ import {
   setCodexThreadPinned,
   unlinkCodexThread,
   updateCodexThreadArchived,
+  updateCodexThreadName,
+  upsertCodexThread,
 } from "./codex/codex-link-repository";
 import {
   getCodexProjectPermissionModeSelection,
@@ -42,6 +44,7 @@ import type {
   DesktopProjectWorkspacePort,
   DesktopProjectWorkspaceSidebar,
   DesktopProjectWorkspaceThread,
+  DesktopProjectWorkspaceThreadPatch,
 } from "./core-client/project-workspace-adapter";
 import type { CodexThreadSummary } from "../shared/types";
 
@@ -54,7 +57,13 @@ const fromTypeScriptThread = (
     threadId: thread.threadId,
     projectId: thread.projectId,
     sessionId,
+    forkedFromId: thread.forkedFromId ?? null,
     parentThreadId: thread.source?.parentThreadId ?? null,
+    threadSource: thread.threadSource ?? null,
+    serviceName: thread.serviceName ?? null,
+    agentNickname: thread.agentNickname ?? null,
+    agentRole: thread.agentRole ?? null,
+    agentPath: thread.agentPath ?? null,
     threadName: thread.threadName,
     threadPreview: thread.threadPreview,
     modelProvider: thread.modelProvider,
@@ -116,6 +125,84 @@ const readTypeScriptSidebar = (
     projectThreadOrders: listCodexProjectThreadOrders(),
     projectlessThreadOrder: getCodexSidebarChatOrder(),
   };
+};
+
+const upsertTypeScriptThread = (
+  threadId: string,
+  patch: DesktopProjectWorkspaceThreadPatch,
+): DesktopProjectWorkspaceThread => {
+  const hasThreadName = Object.prototype.hasOwnProperty.call(patch, "threadName");
+  upsertCodexThread({
+    threadId,
+    ...(Object.prototype.hasOwnProperty.call(patch, "projectId")
+      ? { projectId: patch.projectId ?? null }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(patch, "forkedFromId")
+      ? { forkedFromId: patch.forkedFromId ?? null }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(patch, "parentThreadId")
+      ? {
+          source: patch.parentThreadId
+            ? { parentThreadId: patch.parentThreadId }
+            : null,
+        }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(patch, "threadName")
+      ? { threadName: patch.threadName ?? null }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(patch, "threadSource")
+      ? { threadSource: patch.threadSource ?? null }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(patch, "serviceName")
+      ? { serviceName: patch.serviceName ?? null }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(patch, "agentNickname")
+      ? { agentNickname: patch.agentNickname ?? null }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(patch, "agentRole")
+      ? { agentRole: patch.agentRole ?? null }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(patch, "agentPath")
+      ? { agentPath: patch.agentPath ?? null }
+      : {}),
+    ...(patch.threadPreview === undefined
+      ? {}
+      : { threadPreview: patch.threadPreview }),
+    ...(patch.modelProvider === undefined
+      ? {}
+      : { modelProvider: patch.modelProvider }),
+    ...(Object.prototype.hasOwnProperty.call(patch, "cwd")
+      ? { cwd: patch.cwd ?? null }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(patch, "managedWorktreePath")
+      ? { managedWorktreePath: patch.managedWorktreePath ?? null }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(patch, "projectlessOutputDirectory")
+      ? { projectlessOutputDirectory: patch.projectlessOutputDirectory ?? null }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(patch, "projectlessWorkspaceBrowserRoot")
+      ? {
+          projectlessWorkspaceBrowserRoot:
+            patch.projectlessWorkspaceBrowserRoot ?? null,
+        }
+      : {}),
+    ...(patch.status === undefined
+      ? {}
+      : {
+          statusType: patch.status.statusType,
+          statusActiveFlags: [...patch.status.activeFlags],
+        }),
+    ...(patch.archived === undefined ? {} : { archived: patch.archived }),
+    ...(patch.createdAt === undefined ? {} : { createdAt: patch.createdAt }),
+    ...(patch.updatedAt === undefined ? {} : { updatedAt: patch.updatedAt }),
+    ...(patch.linkedAt === undefined ? {} : { linkedAt: patch.linkedAt }),
+  });
+  if (hasThreadName && patch.threadName === null) {
+    updateCodexThreadName(threadId, null);
+  }
+  const thread = readTypeScriptThread(threadId);
+  if (!thread) throw new Error(`Unable to read upserted Codex Thread '${threadId}'`);
+  return thread;
 };
 
 /** TypeScript-oracle implementation of the deep Project Workspace port. */
@@ -215,6 +302,11 @@ export const createTypeScriptProjectWorkspacePort = (
       );
     }
     return readTypeScriptThread(threadId);
+  },
+  upsertThread: async (threadId, patch) => upsertTypeScriptThread(threadId, patch),
+  updateThread: async (threadId, patch) => {
+    if (!getCodexThread(threadId)) return null;
+    return upsertTypeScriptThread(threadId, patch);
   },
   setThreadArchived: async (threadId, archived) => {
     if (!getCodexThread(threadId)) return readTypeScriptSidebar(false);

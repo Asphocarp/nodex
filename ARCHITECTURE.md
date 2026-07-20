@@ -494,6 +494,10 @@ receipt before changing its in-memory read marker or broadcasting
 Session shell; restore reactivates both identities without restoring ephemeral
 pin/read state; delete first preserves an archived detached Session shell, then
 removes the Thread and its dependent continuity/search rows. An
+app-server status or name notification uses an existing-only metadata mutation,
+so a late notification cannot recreate a deleted Thread; materialization uses a
+separate create-capable intent. Native metadata includes the complete persisted
+subagent nickname, role, and path identity. An
 execution-context read combines the exact Thread, its Project binding, current
 permission mode, sorted tool catalogs, and writable roots from one snapshot.
 Invalid protocol status, oversized metadata, cross-Library Projects, duplicate

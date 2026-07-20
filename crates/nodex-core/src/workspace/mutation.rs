@@ -329,6 +329,16 @@ pub(super) fn apply(
                     thread_id,
                     patch,
                 ),
+                ProjectWorkspaceIntent::UpdateThread { thread_id, patch } => thread::update_thread(
+                    transaction,
+                    &library_id,
+                    &context,
+                    &store_epoch,
+                    &request.operation_id,
+                    &request_hash,
+                    thread_id,
+                    patch,
+                ),
                 ProjectWorkspaceIntent::DeleteThread { thread_id } => thread::delete_thread(
                     transaction,
                     &library_id,

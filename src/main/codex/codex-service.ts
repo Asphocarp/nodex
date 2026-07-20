@@ -613,6 +613,7 @@ import type {
   DesktopProjectWorkspacePort,
   DesktopProjectWorkspaceSidebar,
   DesktopProjectWorkspaceThread,
+  DesktopProjectWorkspaceThreadPatch,
 } from "../core-client/project-workspace-adapter";
 import { createTypeScriptProjectWorkspacePort } from "../typescript-project-workspace-port";
 import { CodexScheduledAutomationRetryError } from "../codex-scheduled-automation-scheduler";
@@ -8721,11 +8722,16 @@ export class CodexService extends EventEmitter {
     return {
       threadId: thread.threadId,
       projectId: thread.projectId,
+      forkedFromId: thread.forkedFromId,
       source: thread.parentThreadId
         ? { parentThreadId: thread.parentThreadId }
         : null,
       ephemeral: false,
-      threadSource: null,
+      threadSource: thread.threadSource,
+      serviceName: thread.serviceName,
+      agentNickname: thread.agentNickname,
+      agentRole: thread.agentRole,
+      agentPath: thread.agentPath,
       threadName: thread.threadName,
       threadPreview: thread.threadPreview,
       modelProvider: thread.modelProvider,
@@ -8742,6 +8748,14 @@ export class CodexService extends EventEmitter {
       updatedAt: thread.updatedAt,
       linkedAt: thread.linkedAt,
     };
+  }
+
+  private async updateWorkspaceThreadSummary(
+    threadId: string,
+    patch: DesktopProjectWorkspaceThreadPatch,
+  ): Promise<CodexThreadSummary | null> {
+    const thread = await this.projectWorkspace.updateThread(threadId, patch);
+    return thread ? this.buildWorkspaceThreadSummary(thread) : null;
   }
 
   private async emitWorkspaceSidebarSyncUpdatedFromMetadata(
@@ -22471,14 +22485,25 @@ export class CodexService extends EventEmitter {
         statusType: parsed.statusType,
         statusActiveFlags: parsed.statusActiveFlags,
       });
-      const updated = updateCodexThreadStatus(payload.threadId, parsed.statusType, parsed.statusActiveFlags);
+      const updated = await this.updateWorkspaceThreadSummary(payload.threadId, {
+        status: {
+          statusType: parsed.statusType,
+          activeFlags: parsed.statusActiveFlags,
+        },
+      });
       if (updated) {
         const updatedWithRuntimeStatus = {
           ...updated,
           threadRuntimeStatus: parsed.threadRuntimeStatus,
         };
         this.emitEvent({ type: "threadSummary", thread: updatedWithRuntimeStatus });
-        this.emitSidebarSyncUpdatedForThread(updatedWithRuntimeStatus, "host-message");
+        const metadata = createSidebarThreadSyncMetadata();
+        markSidebarSyncScopeChanged(metadata, updated.projectId);
+        await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
+          await this.projectWorkspace.readSidebar(false),
+          metadata,
+          "host-message",
+        );
         if (updatedWithRuntimeStatus.source?.parentThreadId) {
           this.syncParentChildMembershipMetadata(
             updatedWithRuntimeStatus.source.parentThreadId,
@@ -22615,10 +22640,18 @@ export class CodexService extends EventEmitter {
       if (name?.trim()) {
         this.reduceCanonicalMainThreadMetadataNotification(notification);
       }
-      const updated = updateCodexThreadName(payload.threadId, name);
+      const updated = await this.updateWorkspaceThreadSummary(payload.threadId, {
+        threadName: name,
+      });
       if (updated) {
         this.emitEvent({ type: "threadSummary", thread: updated });
-        this.emitSidebarSyncUpdatedForThread(updated, "host-message");
+        const metadata = createSidebarThreadSyncMetadata();
+        markSidebarSyncScopeChanged(metadata, updated.projectId);
+        await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
+          await this.projectWorkspace.readSidebar(false),
+          metadata,
+          "host-message",
+        );
       } else {
         this.scheduleSidebarThreadListRepair(method, payload.threadId);
       }
@@ -22634,7 +22667,10 @@ export class CodexService extends EventEmitter {
       const payload = params;
       const ownerRouted = this.forwardNotificationToRendererOwner(notification);
 
-      const known = getCodexThread(payload.threadId);
+      const workspaceThread = await this.projectWorkspace.getThread(payload.threadId);
+      const known = workspaceThread
+        ? this.buildWorkspaceThreadSummary(workspaceThread)
+        : null;
       if (!known && !this.getMaybeConversationRecord(payload.threadId)) {
         this.scheduleSidebarThreadListRepair(method, payload.threadId);
         return;
@@ -22658,7 +22694,13 @@ export class CodexService extends EventEmitter {
         this.syncAcceptedConversationDocumentSilently(payload.threadId);
       }
       if (known) {
-        this.emitSidebarSyncUpdatedForThread(known, "host-message");
+        const metadata = createSidebarThreadSyncMetadata();
+        markSidebarSyncScopeChanged(metadata, known.projectId);
+        await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
+          await this.projectWorkspace.readSidebar(false),
+          metadata,
+          "host-message",
+        );
       }
       return;
     }
@@ -22684,7 +22726,10 @@ export class CodexService extends EventEmitter {
         this.scheduleCompletedThreadGoalClear(payload.threadId);
       }
 
-      const known = this.getThreadLinkSafely(payload.threadId);
+      const workspaceThread = await this.projectWorkspace.getThread(payload.threadId);
+      const known = workspaceThread
+        ? this.buildWorkspaceThreadSummary(workspaceThread)
+        : null;
       if (!known) {
         if (!ownerRouted) {
           this.scheduleSidebarThreadListRepair(method, payload.threadId);
@@ -22695,7 +22740,13 @@ export class CodexService extends EventEmitter {
       this.emitEvent({ type: "threadSummary", thread: known });
       if (!ownerRouted) {
         this.syncAcceptedConversationSummary(payload.threadId, { syncCapabilityFlags: true });
-        this.emitSidebarSyncUpdatedForThread(known, "host-message");
+        const metadata = createSidebarThreadSyncMetadata();
+        markSidebarSyncScopeChanged(metadata, known.projectId);
+        await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
+          await this.projectWorkspace.readSidebar(false),
+          metadata,
+          "host-message",
+        );
       } else {
         this.syncAcceptedConversationDocumentSilently(payload.threadId);
       }

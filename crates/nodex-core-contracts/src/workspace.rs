@@ -234,6 +234,7 @@ pub struct ProjectWorkspaceThread {
     pub service_name: Option<String>,
     pub agent_nickname: Option<String>,
     pub agent_role: Option<String>,
+    pub agent_path: Option<String>,
     pub thread_preview: String,
     pub model_provider: String,
     pub cwd: Option<String>,
@@ -401,6 +402,12 @@ pub struct ProjectWorkspaceThreadPatch {
         skip_serializing_if = "Option::is_none"
     )]
     pub agent_role: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub agent_path: Option<Option<String>>,
     pub thread_preview: Option<String>,
     pub model_provider: Option<String>,
     #[serde(
@@ -616,6 +623,10 @@ pub enum ProjectWorkspaceIntent {
         session_ids: Vec<String>,
     },
     UpsertThread {
+        thread_id: String,
+        patch: Box<ProjectWorkspaceThreadPatch>,
+    },
+    UpdateThread {
         thread_id: String,
         patch: Box<ProjectWorkspaceThreadPatch>,
     },

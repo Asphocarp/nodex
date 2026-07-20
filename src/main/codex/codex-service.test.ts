@@ -822,7 +822,13 @@ function makeDesktopWorkspaceThread(
     threadId: "thread-workspace",
     projectId: "project-workspace",
     sessionId: "session-workspace",
+    forkedFromId: null,
     parentThreadId: null,
+    threadSource: null,
+    serviceName: null,
+    agentNickname: null,
+    agentRole: null,
+    agentPath: null,
     threadName: "Workspace Thread",
     threadPreview: "Workspace Thread",
     modelProvider: "openai",
@@ -8802,7 +8808,13 @@ describe("codex-service readThread fallback", () => {
         threadId: "thread-pinned-committed",
         projectId: null,
         sessionId: null,
+        forkedFromId: null,
         parentThreadId: null,
+        threadSource: null,
+        serviceName: null,
+        agentNickname: null,
+        agentRole: null,
+        agentPath: null,
         threadName: "Committed pin",
         threadPreview: "Committed by Workspace",
         modelProvider: "openai",
@@ -26795,6 +26807,85 @@ describe("codex-service approval fallback", () => {
       expect(hostMessages.filter(
         (message) => message.type === "threadReadStateChanged",
       )).toHaveLength(1);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("routes Thread status and name notifications through existing-only Workspace updates", async () => {
+    const service = createService();
+    const calls: string[] = [];
+    let persisted = makeDesktopWorkspaceThread({
+      threadId: "thread-authority-metadata",
+      projectId: "project-authority",
+      sessionId: null,
+      threadName: "Before metadata",
+    });
+    const typescriptWorkspace = createTypeScriptProjectWorkspacePort();
+    service.setProjectWorkspacePort({
+      ...typescriptWorkspace,
+      updateThread: async (threadId, patch) => {
+        calls.push(`update:${threadId}:${JSON.stringify(patch)}`);
+        if (threadId !== persisted.threadId) return null;
+        persisted = {
+          ...persisted,
+          ...(Object.prototype.hasOwnProperty.call(patch, "threadName")
+            ? { threadName: patch.threadName ?? null }
+            : {}),
+          ...(patch.status
+            ? {
+                statusType: patch.status.statusType,
+                statusActiveFlags: [...patch.status.activeFlags],
+              }
+            : {}),
+        };
+        return persisted;
+      },
+      readSidebar: async () => {
+        calls.push("sidebar");
+        return {
+          threads: [persisted],
+          projectThreadOrders: {},
+          projectlessThreadOrder: null,
+        };
+      },
+    });
+    const serviceInternals = service as unknown as {
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
+    };
+    const hostMessages: CodexHostMessage[] = [];
+    service.on("hostMessage", (message) => hostMessages.push(message));
+
+    try {
+      await serviceInternals.handleNotification({
+        method: "thread/status/changed",
+        params: {
+          threadId: persisted.threadId,
+          status: { type: "active", activeFlags: ["waitingOnApproval"] },
+        },
+      });
+      await serviceInternals.handleNotification({
+        method: "thread/name/updated",
+        params: {
+          threadId: persisted.threadId,
+          threadName: "After metadata",
+        },
+      });
+
+      expect(calls).toEqual([
+        "update:thread-authority-metadata:{\"status\":{\"statusType\":\"active\",\"activeFlags\":[\"waitingOnApproval\"]}}",
+        "sidebar",
+        "update:thread-authority-metadata:{\"threadName\":\"After metadata\"}",
+        "sidebar",
+      ]);
+      expect(persisted).toMatchObject({
+        threadName: "After metadata",
+        statusType: "active",
+        statusActiveFlags: ["waitingOnApproval"],
+      });
+      expect(hostMessages.filter(
+        (message) => message.type === "sidebarSyncUpdated",
+      )).toHaveLength(2);
     } finally {
       await service.shutdown();
     }

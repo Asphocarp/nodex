@@ -9082,6 +9082,28 @@
                 "type": "object",
                 "required": [
                   "thread_id",
+                  "patch",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "update_thread"
+                    ]
+                  },
+                  "patch": {
+                    "$ref": "#/components/schemas/ProjectWorkspaceThreadPatch"
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "thread_id",
                   "kind"
                 ],
                 "properties": {
@@ -12710,6 +12732,12 @@
               "null"
             ]
           },
+          "agent_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "agent_role": {
             "type": [
               "string",
@@ -12901,6 +12929,12 @@
         "type": "object",
         "properties": {
           "agent_nickname": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "agent_path": {
             "type": [
               "string",
               "null"

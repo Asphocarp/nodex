@@ -30,6 +30,8 @@ const MAX_AUTOMATION_JITTER_SALT_BYTES: u64 = 512;
 const MAX_WRITABLE_ROOTS_PER_THREAD: usize = 128;
 const MAX_WRITABLE_ROOT_BYTES: usize = 16_384;
 const V83_SCHEMA_SQL: &str = r#"
+ALTER TABLE codex_threads ADD COLUMN agent_path TEXT;
+
 CREATE TABLE core_store_metadata (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   schema_owner TEXT NOT NULL CHECK (schema_owner = 'rust_core'),
@@ -577,12 +579,30 @@ fn ensure_v83_execution_schema(
     now: u64,
 ) -> Result<(), StoreError> {
     with_immediate_transaction(connection, |transaction| {
+        ensure_codex_thread_agent_path(transaction)?;
         transaction.execute_batch(V83_EXECUTION_SCHEMA_SQL)?;
         ensure_automation_definition_revision(transaction)?;
         ensure_automation_run_revision(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
+}
+
+fn ensure_codex_thread_agent_path(connection: &Connection) -> Result<(), StoreError> {
+    let agent_path_columns: i64 = connection.query_row(
+        "SELECT count(*) FROM pragma_table_info('codex_threads') \
+         WHERE name = 'agent_path'",
+        [],
+        |row| row.get(0),
+    )?;
+    if agent_path_columns == 1 {
+        return Ok(());
+    }
+    if agent_path_columns != 0 {
+        return Err(corrupt("Codex Thread agent path schema is ambiguous"));
+    }
+    connection.execute("ALTER TABLE codex_threads ADD COLUMN agent_path TEXT", [])?;
+    Ok(())
 }
 
 fn ensure_automation_definition_revision(connection: &Connection) -> Result<(), StoreError> {
@@ -1114,6 +1134,20 @@ mod tests {
             })
             .expect("read schema version");
         assert_eq!(version, CORE_SCHEMA_VERSION);
+        let agent_path_columns = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT count(*) FROM pragma_table_info('codex_threads') \
+                         WHERE name = 'agent_path'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("read Codex Thread agent path schema");
+        assert_eq!(agent_path_columns, 1);
 
         let second = open_error(&home);
         assert_eq!(second.code, StoreErrorCode::AlreadyOwned);
@@ -1247,7 +1281,8 @@ mod tests {
         let connection = Connection::open(home.join("nodex.db")).expect("early v83 store");
         connection
             .execute_batch(
-                "DROP TABLE codex_thread_writable_roots; \
+                "ALTER TABLE codex_threads DROP COLUMN agent_path; \
+                 DROP TABLE codex_thread_writable_roots; \
                  DROP TABLE core_legacy_imports;",
             )
             .expect("simulate early v83 schema");
@@ -1267,6 +1302,20 @@ mod tests {
             })
             .expect("repaired writable root table");
         assert_eq!(repaired_root, "/workspace/stale");
+        let repaired_agent_path_columns = repaired
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT count(*) FROM pragma_table_info('codex_threads') \
+                         WHERE name = 'agent_path'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("repaired Codex Thread agent path schema");
+        assert_eq!(repaired_agent_path_columns, 1);
     }
 
     #[test]

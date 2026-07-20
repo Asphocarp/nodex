@@ -3,6 +3,9 @@ import { randomUUID } from "node:crypto";
 import type {
   CodexBackgroundProcessRecord,
   CodexPermissionMode,
+  CodexThreadActiveFlag,
+  CodexThreadStatusType,
+  CodexThreadSummary,
   PanelId,
   Project,
   ProjectCreateInput,
@@ -104,7 +107,13 @@ export interface DesktopProjectWorkspaceThread {
   readonly threadId: string;
   readonly projectId: string | null;
   readonly sessionId: string | null;
+  readonly forkedFromId: string | null;
   readonly parentThreadId: string | null;
+  readonly threadSource: CodexThreadSummary["threadSource"];
+  readonly serviceName: string | null;
+  readonly agentNickname: string | null;
+  readonly agentRole: string | null;
+  readonly agentPath: string | null;
   readonly threadName: string | null;
   readonly threadPreview: string;
   readonly modelProvider: string;
@@ -120,6 +129,32 @@ export interface DesktopProjectWorkspaceThread {
   readonly createdAt: number;
   readonly updatedAt: number;
   readonly linkedAt: string;
+}
+
+export interface DesktopProjectWorkspaceThreadPatch {
+  readonly projectId?: string | null;
+  readonly forkedFromId?: string | null;
+  readonly parentThreadId?: string | null;
+  readonly threadName?: string | null;
+  readonly threadSource?: CodexThreadSummary["threadSource"];
+  readonly serviceName?: string | null;
+  readonly agentNickname?: string | null;
+  readonly agentRole?: string | null;
+  readonly agentPath?: string | null;
+  readonly threadPreview?: string;
+  readonly modelProvider?: string;
+  readonly cwd?: string | null;
+  readonly managedWorktreePath?: string | null;
+  readonly projectlessOutputDirectory?: string | null;
+  readonly projectlessWorkspaceBrowserRoot?: string | null;
+  readonly status?: {
+    readonly statusType: CodexThreadStatusType;
+    readonly activeFlags: readonly CodexThreadActiveFlag[];
+  };
+  readonly archived?: boolean;
+  readonly createdAt?: number;
+  readonly updatedAt?: number;
+  readonly linkedAt?: string;
 }
 
 export interface DesktopProjectWorkspaceSidebar {
@@ -246,6 +281,14 @@ export interface DesktopProjectWorkspacePort {
   detachProjectSessionThread(sessionId: string): Promise<boolean>;
   getThread(
     threadId: string,
+  ): Promise<DesktopProjectWorkspaceThread | null>;
+  upsertThread(
+    threadId: string,
+    patch: DesktopProjectWorkspaceThreadPatch,
+  ): Promise<DesktopProjectWorkspaceThread>;
+  updateThread(
+    threadId: string,
+    patch: DesktopProjectWorkspaceThreadPatch,
   ): Promise<DesktopProjectWorkspaceThread | null>;
   setThreadUnread(
     threadId: string,
@@ -377,7 +420,13 @@ const fromCoreWorkspaceThread = (
   threadId: thread.thread_id,
   projectId: thread.project_id ?? null,
   sessionId: thread.session_id ?? null,
+  forkedFromId: thread.forked_from_id ?? null,
   parentThreadId: thread.parent_thread_id ?? null,
+  threadSource: thread.thread_source ?? null,
+  serviceName: thread.service_name ?? null,
+  agentNickname: thread.agent_nickname ?? null,
+  agentRole: thread.agent_role ?? null,
+  agentPath: thread.agent_path ?? null,
   threadName: thread.thread_name ?? null,
   threadPreview: thread.thread_preview,
   modelProvider: thread.model_provider,
@@ -394,6 +443,71 @@ const fromCoreWorkspaceThread = (
   createdAt: thread.created_at,
   updatedAt: thread.updated_at,
   linkedAt: thread.linked_at,
+});
+
+const toCoreThreadPatch = (
+  patch: DesktopProjectWorkspaceThreadPatch,
+) => ({
+  ...(Object.prototype.hasOwnProperty.call(patch, "projectId")
+    ? { project_id: patch.projectId ?? null }
+    : {}),
+  ...(Object.prototype.hasOwnProperty.call(patch, "forkedFromId")
+    ? { forked_from_id: patch.forkedFromId ?? null }
+    : {}),
+  ...(Object.prototype.hasOwnProperty.call(patch, "parentThreadId")
+    ? { parent_thread_id: patch.parentThreadId ?? null }
+    : {}),
+  ...(Object.prototype.hasOwnProperty.call(patch, "threadName")
+    ? { thread_name: patch.threadName ?? null }
+    : {}),
+  ...(Object.prototype.hasOwnProperty.call(patch, "threadSource")
+    ? { thread_source: patch.threadSource ?? null }
+    : {}),
+  ...(Object.prototype.hasOwnProperty.call(patch, "serviceName")
+    ? { service_name: patch.serviceName ?? null }
+    : {}),
+  ...(Object.prototype.hasOwnProperty.call(patch, "agentNickname")
+    ? { agent_nickname: patch.agentNickname ?? null }
+    : {}),
+  ...(Object.prototype.hasOwnProperty.call(patch, "agentRole")
+    ? { agent_role: patch.agentRole ?? null }
+    : {}),
+  ...(Object.prototype.hasOwnProperty.call(patch, "agentPath")
+    ? { agent_path: patch.agentPath ?? null }
+    : {}),
+  ...(patch.threadPreview === undefined
+    ? {}
+    : { thread_preview: patch.threadPreview }),
+  ...(patch.modelProvider === undefined
+    ? {}
+    : { model_provider: patch.modelProvider }),
+  ...(Object.prototype.hasOwnProperty.call(patch, "cwd")
+    ? { cwd: patch.cwd ?? null }
+    : {}),
+  ...(Object.prototype.hasOwnProperty.call(patch, "managedWorktreePath")
+    ? { managed_worktree_path: patch.managedWorktreePath ?? null }
+    : {}),
+  ...(Object.prototype.hasOwnProperty.call(patch, "projectlessOutputDirectory")
+    ? { projectless_output_directory: patch.projectlessOutputDirectory ?? null }
+    : {}),
+  ...(Object.prototype.hasOwnProperty.call(patch, "projectlessWorkspaceBrowserRoot")
+    ? {
+        projectless_workspace_browser_root:
+          patch.projectlessWorkspaceBrowserRoot ?? null,
+      }
+    : {}),
+  ...(patch.status === undefined
+    ? {}
+    : {
+        status: {
+          status_type: patch.status.statusType,
+          active_flags: [...patch.status.activeFlags],
+        },
+      }),
+  ...(patch.archived === undefined ? {} : { archived: patch.archived }),
+  ...(patch.createdAt === undefined ? {} : { created_at: patch.createdAt }),
+  ...(patch.updatedAt === undefined ? {} : { updated_at: patch.updatedAt }),
+  ...(patch.linkedAt === undefined ? {} : { linked_at: patch.linkedAt }),
 });
 
 const fromCoreSessionSummary = (
@@ -1394,6 +1508,31 @@ export function createCoreProjectWorkspaceAdapter(
       return true;
     },
     getThread,
+    upsertThread: async (threadId, patch) => {
+      await apply({
+        kind: "upsert_thread",
+        thread_id: threadId,
+        patch: toCoreThreadPatch(patch),
+      });
+      const thread = await getThread(threadId);
+      if (!thread) {
+        throw new Error(`Unable to read upserted Codex Thread '${threadId}'`);
+      }
+      return thread;
+    },
+    updateThread: async (threadId, patch) => {
+      try {
+        await apply({
+          kind: "update_thread",
+          thread_id: threadId,
+          patch: toCoreThreadPatch(patch),
+        });
+      } catch (error) {
+        if (!isNotFound(error)) throw error;
+        return null;
+      }
+      return await getThread(threadId);
+    },
     setThreadUnread: async (threadId, unread) => {
       try {
         await apply({
