@@ -24,6 +24,11 @@ import type { ConfigBatchWriteParams } from "@nodex/codex-app-server-protocol/v2
 import type { ConfigReadParams } from "@nodex/codex-app-server-protocol/v2/ConfigReadParams";
 import type { ConfigReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigReadResponse";
 import type { ConfigRequirementsReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigRequirementsReadResponse";
+import type { ExternalAgentConfigDetectResponse } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigDetectResponse";
+import type { ExternalAgentConfigImportCompletedNotification } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigImportCompletedNotification";
+import type { ExternalAgentConfigImportProgressNotification } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigImportProgressNotification";
+import type { ExternalAgentConfigImportResponse } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigImportResponse";
+import type { ExternalAgentConfigMigrationItem } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigMigrationItem";
 import type { CommandExecutionRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/CommandExecutionRequestApprovalResponse";
 import type { ConsumeAccountRateLimitResetCreditResponse } from "@nodex/codex-app-server-protocol/v2/ConsumeAccountRateLimitResetCreditResponse";
 import type { DynamicToolCallParams } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallParams";
@@ -51,6 +56,7 @@ import type { ThreadBackgroundTerminalsListResponse } from "@nodex/codex-app-ser
 import type { ThreadBackgroundTerminalsTerminateResponse } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminalsTerminateResponse";
 import type { ThreadForkParams } from "@nodex/codex-app-server-protocol/v2/ThreadForkParams";
 import type { ThreadForkResponse } from "@nodex/codex-app-server-protocol/v2/ThreadForkResponse";
+import type { ThreadDeleteResponse } from "@nodex/codex-app-server-protocol/v2/ThreadDeleteResponse";
 import type { ThreadInjectItemsResponse } from "@nodex/codex-app-server-protocol/v2/ThreadInjectItemsResponse";
 import type { ThreadListParams } from "@nodex/codex-app-server-protocol/v2/ThreadListParams";
 import type { ThreadRollbackResponse } from "@nodex/codex-app-server-protocol/v2/ThreadRollbackResponse";
@@ -497,6 +503,16 @@ import type {
   AgentProviderCredentialMutationInput,
   AgentProviderCredentialMutationResult,
 } from "../../shared/agent-runtime";
+import type {
+  AgentImportApplyInput,
+  AgentImportResult,
+  AgentImportScan,
+  AgentImportSourceKind,
+} from "../../shared/agent-import";
+import {
+  AgentImportCoordinator,
+  type NativeSessionCandidate,
+} from "./agent-import-coordinator";
 import {
   discoverAgentProviderCatalog,
   resolveAgentExecutionProfileFromCatalog,
@@ -1907,23 +1923,8 @@ function isPotentialAutoReviewReviewerPreview(value: unknown): boolean {
   return AUTO_REVIEW_REVIEWER_PROMPT_PREFIXES.some((prefix) => trimmed.startsWith(prefix));
 }
 
-function resolveLegacyCodexHomeDir(): string {
-  const configured = process.env.CODEX_HOME?.trim();
-  if (configured) return path.resolve(configured);
-  return path.join(homedir(), ".codex");
-}
-
-function resolveSessionHistoryHomes(runtimeStateHome: string): string[] {
-  const legacyCodexHome = resolveLegacyCodexHomeDir();
-  return legacyCodexHome === runtimeStateHome
-    ? [runtimeStateHome]
-    : [runtimeStateHome, legacyCodexHome];
-}
-
 function isConfirmedAutoReviewReviewerMetadata(threadId: string, runtimeStateHome: string): boolean {
-  const metadata = resolveSessionHistoryHomes(runtimeStateHome)
-    .map((candidate) => readCodexSessionThreadMetadata(threadId, candidate))
-    .find((candidate) => candidate !== null) ?? null;
+  const metadata = readCodexSessionThreadMetadata(threadId, runtimeStateHome);
   if (!metadata) return false;
   const threadSource = parseThreadSourceValue(metadata.threadSource);
   return threadSource === "subagent" && isGuardianSubagentSource(metadata.source);
@@ -2765,6 +2766,7 @@ const unconfiguredAuthority = <Port extends object>(name: string): Port =>
 export class CodexService extends EventEmitter {
   private readonly logger = codexLogger;
   private readonly client: CodexAppServerClient;
+  private readonly agentImportCoordinator: AgentImportCoordinator;
   private readonly runtimeStateHome: string;
   private readonly providerCredentialStore: ProviderCredentialStore;
   private readonly rateLimitsPollIntervalMs: number;
@@ -2996,6 +2998,39 @@ export class CodexService extends EventEmitter {
         name: "nodex",
         title: "Nodex",
         version: "0.5.0",
+      },
+    });
+
+    this.agentImportCoordinator = new AgentImportCoordinator({
+      runtimeStateHome: this.runtimeStateHome,
+      detectClaude: async () => {
+        await this.ensureClientReady();
+        const response = await this.client.request<
+          "externalAgentConfig/detect",
+          ExternalAgentConfigDetectResponse
+        >("externalAgentConfig/detect", {
+          includeHome: true,
+          cwds: [],
+        });
+        return response.items;
+      },
+      importClaude: async (items, onProgress) =>
+        await this.importClaudeAgentConfiguration(items, onProgress),
+      forkSession: async (session) => await this.importRolloutSession(session),
+      applyConfigEdits: async (edits) => {
+        if (edits.length === 0) return;
+        await this.ensureClientReady();
+        await this.client.request("config/batchWrite", {
+          edits: edits.map((edit) => ({
+            keyPath: edit.keyPath,
+            mergeStrategy: "upsert",
+            value: edit.value as ConfigBatchWriteParams["edits"][number]["value"],
+          })),
+          reloadUserConfig: true,
+        } satisfies ConfigBatchWriteParams);
+      },
+      emitProgress: (progress) => {
+        this.emit("agentImportProgress", progress);
       },
     });
 
@@ -6571,6 +6606,161 @@ export class CodexService extends EventEmitter {
     await this.projectWorkspace.setProjectPermissionMode(projectId, "custom");
     this.invalidatePermissionState(projectId);
     return await this.readPermissionState(projectId);
+  }
+
+  async scanAgentImport(
+    sourceKind: AgentImportSourceKind,
+    selectedSourceHome?: string,
+  ): Promise<AgentImportScan> {
+    return await this.agentImportCoordinator.scan(sourceKind, selectedSourceHome);
+  }
+
+  async applyAgentImport(input: AgentImportApplyInput): Promise<AgentImportResult> {
+    return await this.agentImportCoordinator.apply(input);
+  }
+
+  private async importClaudeAgentConfiguration(
+    migrationItems: readonly ExternalAgentConfigMigrationItem[],
+    onProgress: (progress: ExternalAgentConfigImportProgressNotification) => void,
+  ): Promise<ExternalAgentConfigImportCompletedNotification> {
+    await this.ensureClientReady();
+    let expectedImportId: string | null = null;
+    const earlyCompletions = new Map<string, ExternalAgentConfigImportCompletedNotification>();
+    let settleCompletion: (
+      result: ExternalAgentConfigImportCompletedNotification,
+    ) => void = () => undefined;
+    let rejectCompletion: (error: Error) => void = () => undefined;
+    const completion = new Promise<ExternalAgentConfigImportCompletedNotification>((resolve, reject) => {
+      settleCompletion = resolve;
+      rejectCompletion = reject;
+    });
+    const timeout = setTimeout(() => {
+      rejectCompletion(new Error("Timed out waiting for Claude Code import to finish"));
+    }, 2 * 60 * 1_000);
+    const unsubscribe = this.registerInternalNotificationHandler((notification) => {
+      if (notification.method === "externalAgentConfig/import/progress") {
+        if (expectedImportId && notification.params.importId !== expectedImportId) return;
+        onProgress(notification.params);
+        return;
+      }
+      if (notification.method !== "externalAgentConfig/import/completed") return;
+      if (expectedImportId === null) {
+        earlyCompletions.set(notification.params.importId, notification.params);
+        return;
+      }
+      if (notification.params.importId !== expectedImportId) return;
+      settleCompletion(notification.params);
+    });
+
+    try {
+      const response = await this.client.request<
+        "externalAgentConfig/import",
+        ExternalAgentConfigImportResponse
+      >("externalAgentConfig/import", {
+        migrationItems: [...migrationItems],
+      });
+      expectedImportId = response.importId;
+      const earlyCompletion = earlyCompletions.get(expectedImportId);
+      if (earlyCompletion) settleCompletion(earlyCompletion);
+      const completed = await completion;
+      await this.materializeImportedClaudeThreads(completed);
+      return completed;
+    } finally {
+      clearTimeout(timeout);
+      unsubscribe();
+    }
+  }
+
+  private async materializeImportedClaudeThreads(
+    completed: ExternalAgentConfigImportCompletedNotification,
+  ): Promise<void> {
+    const importedThreadIds = completed.itemTypeResults.flatMap((result) =>
+      result.itemType === "SESSIONS"
+        ? result.successes.flatMap((success) => success.target ? [success.target] : [])
+        : []);
+    for (const threadId of importedThreadIds) {
+      try {
+        const response = await this.client.request<"thread/read", ThreadReadResponse>("thread/read", {
+          includeTurns: true,
+          threadId,
+        });
+        await this.materializeImportedThread(response.thread);
+      } catch (error) {
+        this.logger.warn("Could not materialize an imported Claude Code thread", {
+          error: error instanceof Error ? error.message : String(error),
+          threadId,
+        });
+      }
+    }
+    await this.syncSidebarThreadsDetailed({ policy: "force", reason: "host-message" });
+  }
+
+  private async importRolloutSession(session: NativeSessionCandidate): Promise<string> {
+    await this.ensureClientReady();
+    const cwd = existsSync(session.cwd) ? session.cwd : this.projectlessHomeDirectory();
+    const fork = await this.client.request<"thread/fork", ThreadForkResponse>("thread/fork", {
+      cwd,
+      excludeTurns: false,
+      path: session.sourcePath,
+      threadId: session.sourceThreadId,
+      threadSource: "user",
+    });
+    const threadId = fork.thread.id.trim();
+    if (!threadId) throw new Error("Imported rollout did not return a thread id");
+
+    try {
+      const projectedThread = {
+        ...fork.thread,
+        cwd: resolveCodexCanonicalHydratedCwd({
+          fallbackCwd: cwd,
+          requestedCwd: cwd,
+          responseCwd: fork.cwd,
+          threadCwd: fork.thread.cwd,
+        }) ?? cwd,
+      };
+      await this.materializeImportedThread(projectedThread);
+      if (session.title && !fork.thread.name?.trim()) {
+        await this.client.request("thread/name/set", {
+          name: session.title,
+          threadId,
+        });
+        await this.updateWorkspaceThreadSummary(threadId, { threadName: session.title });
+      }
+      return threadId;
+    } catch (error) {
+      await this.client.request<"thread/delete", ThreadDeleteResponse>("thread/delete", {
+        threadId,
+      }).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  private async materializeImportedThread(thread: Thread): Promise<void> {
+    const cwd = thread.cwd?.trim() || this.projectlessHomeDirectory();
+    const materialized = await this.materializeThreadDetailFromThreadPayload(
+      thread,
+      {
+        cwd,
+        managedWorktreePath: null,
+        projectId: null,
+        projectlessOutputDirectory: null,
+        projectlessWorkspaceBrowserRoot: null,
+      },
+      cwd,
+    );
+    this.setConversationRecordDetail({
+      ...materialized.detail,
+      executionProfile: null,
+      projectId: null,
+    });
+    this.setConversationResumeState(thread.id, "needs_resume");
+    if (materialized.summary) {
+      const summary = await this.updateWorkspaceThreadSummary(thread.id, {
+        executionProfile: null,
+      }) ?? materialized.summary;
+      this.emitEvent({ type: "threadSummary", thread: summary });
+    }
+    await this.emitSidebarCatalogChangedForThread(thread.id, "host-message");
   }
 
   async getProjectPermissionMode(projectId: string): Promise<CodexPermissionMode> {
@@ -12807,12 +12997,10 @@ export class CodexService extends EventEmitter {
     }
 
     const persistedLink = this.getThreadLinkSafely(threadId);
-    const historyHomes = resolveSessionHistoryHomes(this.runtimeStateHome);
+    const historyHome = this.runtimeStateHome;
     const sessionMetadata = persistedLink
       ? null
-      : historyHomes
-          .map((candidate) => readCodexSessionThreadMetadata(threadId, candidate))
-          .find((candidate) => candidate !== null) ?? null;
+      : readCodexSessionThreadMetadata(threadId, historyHome);
     const link: CodexThreadSummary = persistedLink ?? {
       threadId,
       projectId: null,
@@ -12832,13 +13020,11 @@ export class CodexService extends EventEmitter {
       linkedAt: new Date(0).toISOString(),
     };
 
-    const sessionDetail = historyHomes
-      .map((candidate) => readCodexSessionThreadDetail({
-        threadId,
-        link,
-        codexHome: candidate,
-      }))
-      .find((candidate) => candidate !== null) ?? null;
+    const sessionDetail = readCodexSessionThreadDetail({
+      threadId,
+      link,
+      codexHome: historyHome,
+    });
     if (!sessionDetail) return null;
 
     const reconciledDetail = this.reconcileDetailTranscriptToTerminalTurnStatus(sessionDetail);

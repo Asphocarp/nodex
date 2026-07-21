@@ -114,6 +114,13 @@ import type {
   AgentProviderCredentialMutationInput,
   AgentProviderCredentialMutationResult,
 } from "./agent-runtime";
+import type {
+  AgentImportApplyInput,
+  AgentImportProgress,
+  AgentImportResult,
+  AgentImportScan,
+  AgentImportScanInput,
+} from "./agent-import";
 
 import type {
   BackupRecord,
@@ -1362,6 +1369,18 @@ export interface IpcApi {
     args: [input: AgentProviderCredentialDeleteInput];
     result: AgentProviderCredentialMutationResult;
   };
+  "agent-import:scan": {
+    args: [input: AgentImportScanInput];
+    result: AgentImportScan;
+  };
+  "agent-import:scan-picked-home": {
+    args: [input: AgentImportScanInput];
+    result: AgentImportScan | null;
+  };
+  "agent-import:apply": {
+    args: [input: AgentImportApplyInput];
+    result: AgentImportResult;
+  };
   "codex:hooks:list": {
     args: [input: CodexHooksListInput];
     result: CodexHooksListResponse;
@@ -1756,6 +1775,7 @@ export interface IpcApi {
 }
 
 export interface IpcEvents {
+  "agent-import:progress": AgentImportProgress;
   "git:live-query:event": GitReviewLiveEvent;
   "document-sync:event": DocumentSyncRealtimeEvent;
   "persisted-atom:updated": PersistedAtomEvent;

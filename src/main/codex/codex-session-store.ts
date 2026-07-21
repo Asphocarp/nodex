@@ -66,16 +66,14 @@ function resolveHomeDir(): string {
   return process.cwd();
 }
 
-function resolveCodexHomeDir(): string {
+function resolveRuntimeHomeDir(): string {
   const envInterpreterHome = process.env.INTERPRETER_HOME?.trim();
   if (envInterpreterHome) return envInterpreterHome;
-  const envCodexHome = process.env.CODEX_HOME?.trim();
-  if (envCodexHome) return envCodexHome;
-  return path.join(resolveHomeDir(), ".codex");
+  return path.join(resolveHomeDir(), ".openinterpreter");
 }
 
 function loadSessionIndexIfNeeded(codexHome?: string): void {
-  const indexPath = path.join(codexHome ?? resolveCodexHomeDir(), "session_index.jsonl");
+  const indexPath = path.join(codexHome ?? resolveRuntimeHomeDir(), "session_index.jsonl");
   if (sessionIndexLoadedFromPath === indexPath) return;
 
   sessionIndexCache.clear();
@@ -132,7 +130,7 @@ function findSessionFileInDirectory(directoryPath: string, threadId: string, arc
 }
 
 function resolveSessionFile(threadId: string, configuredCodexHome?: string): SessionFileMatch | null {
-  const codexHome = configuredCodexHome ?? resolveCodexHomeDir();
+  const codexHome = configuredCodexHome ?? resolveRuntimeHomeDir();
   if (sessionFileCacheHome !== codexHome) {
     sessionFileCache.clear();
     sessionFileCacheHome = codexHome;

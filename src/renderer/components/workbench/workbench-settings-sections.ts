@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import {
+  Download,
   GitBranch,
   LayoutTemplate,
   Shield,
@@ -22,6 +23,7 @@ export type SettingsSectionId =
   | "appearance"
   | "keyboard-shortcuts"
   | "agent"
+  | "agent-import"
   | "editor"
   | "page"
   | "git"
@@ -85,6 +87,13 @@ export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     groupKey: "personal",
     searchMessages: SETTINGS_SEARCH_CATALOG.agent.messages,
     searchTerms: SETTINGS_SEARCH_CATALOG.agent.searchTerms,
+  },
+  {
+    id: "agent-import",
+    label: "Import",
+    icon: Download,
+    groupKey: "integrations",
+    searchMessages: SETTINGS_SEARCH_CATALOG["agent-import"].messages,
   },
   {
     id: "keyboard-shortcuts",

@@ -30,18 +30,18 @@ function makeLink(threadId: string): CodexThreadSummary {
 }
 
 function withTempCodexHome(run: (codexHome: string) => void): void {
-  const previousCodexHome = process.env.CODEX_HOME;
+  const previousInterpreterHome = process.env.INTERPRETER_HOME;
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-codex-session-store-"));
-  process.env.CODEX_HOME = tempDir;
+  process.env.INTERPRETER_HOME = tempDir;
   resetCodexSessionStoreCaches();
 
   try {
     run(tempDir);
   } finally {
-    if (previousCodexHome) {
-      process.env.CODEX_HOME = previousCodexHome;
+    if (previousInterpreterHome) {
+      process.env.INTERPRETER_HOME = previousInterpreterHome;
     } else {
-      delete process.env.CODEX_HOME;
+      delete process.env.INTERPRETER_HOME;
     }
     resetCodexSessionStoreCaches();
     fs.rmSync(tempDir, { recursive: true, force: true });

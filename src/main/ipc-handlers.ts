@@ -58,6 +58,11 @@ import type {
   CodexProtocolRequestId,
   DatabasePage,
 } from "../shared/types";
+import type {
+  AgentImportApplyInput,
+  AgentImportScanInput,
+  AgentImportSourceKind,
+} from "../shared/agent-import";
 import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminal";
 import type {
   RendererClientRouter,
@@ -866,6 +871,9 @@ export function registerIpcHandlers(
   });
   codexService.on("pendingWorktreeWarning", (event) => {
     broadcastIpcEvent("codex:pending-worktree:warning", event);
+  });
+  codexService.on("agentImportProgress", (event) => {
+    broadcastIpcEvent("agent-import:progress", event);
   });
   registerHandle(
     "codex:pending-worktree:discard-fork-side-panel-transfer",
@@ -2815,6 +2823,45 @@ export function registerIpcHandlers(
       throw new Error("Invalid provider credential delete input");
     }
     return codexService.deleteAgentProviderCredential({ providerId: input.providerId });
+  });
+  const parseAgentImportSourceKind = (value: unknown): AgentImportSourceKind => {
+    if (value === "claude-code" || value === "codex" || value === "open-interpreter") {
+      return value;
+    }
+    throw new Error("Invalid agent import source");
+  };
+  registerHandle("agent-import:scan", (_, input: AgentImportScanInput) => {
+    const sourceKind = parseAgentImportSourceKind(input?.sourceKind);
+    return codexService.scanAgentImport(sourceKind);
+  });
+  registerHandle("agent-import:scan-picked-home", async (event, input: AgentImportScanInput) => {
+    const sourceKind = parseAgentImportSourceKind(input?.sourceKind);
+    if (sourceKind === "claude-code") {
+      throw new Error("Claude Code imports use its standard home directory");
+    }
+    const sourceHome = await showDirectoryPicker(event, {
+      buttonLabel: "Scan",
+      message: "The selected directory is read-only during import.",
+      properties: ["openDirectory"],
+      title: `Select ${sourceKind === "codex" ? "Codex" : "Open Interpreter"} home`,
+    });
+    if (!sourceHome) return null;
+    return await codexService.scanAgentImport(sourceKind, sourceHome);
+  });
+  registerHandle("agent-import:apply", (_, input: AgentImportApplyInput) => {
+    if (
+      typeof input !== "object"
+      || input === null
+      || typeof input.scanId !== "string"
+      || !Array.isArray(input.itemIds)
+      || !input.itemIds.every((itemId) => typeof itemId === "string")
+    ) {
+      throw new Error("Invalid agent import selection");
+    }
+    return codexService.applyAgentImport({
+      itemIds: input.itemIds,
+      scanId: input.scanId,
+    });
   });
 
   registerCodexHooksIpcHandlers({

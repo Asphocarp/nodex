@@ -232,6 +232,32 @@ const SETTINGS_SEARCH_PANELS = {
       },
     ],
   },
+  "agent-import": {
+    title: "Import agent data",
+    subtitle: "Copy selected history and setup into Nodex without changing the source.",
+    groups: [
+      {
+        title: "Sources",
+        entries: [
+          entry("Claude Code", "Import recent conversations and supported setup.", ["CLAUDE.md"]),
+          entry("Codex", "Import rollout history and safe native configuration.", ["CODEX_HOME", ".codex"]),
+          entry("Open Interpreter", "Import rollout history and native agent configuration.", ["INTERPRETER_HOME", ".openinterpreter"]),
+        ],
+      },
+      {
+        title: "Import preview",
+        messages: [
+          "Choose folder",
+          "Recent conversations",
+          "Instructions",
+          "Safe settings",
+          "Skills",
+          "MCP servers",
+          "Provider credentials and authentication state are never imported.",
+        ],
+      },
+    ],
+  },
   "keyboard-shortcuts": {
     title: "Keyboard shortcuts",
     groups: [
@@ -587,6 +613,9 @@ export const SETTINGS_SEARCH_CATALOG = {
     messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS.agent),
     searchTerms: ({ activeProjectName }: SettingsSearchContext) =>
       activeProjectName ? [activeProjectName] : [],
+  },
+  "agent-import": {
+    messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS["agent-import"]),
   },
   "keyboard-shortcuts": {
     messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS["keyboard-shortcuts"]),
