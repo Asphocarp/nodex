@@ -130,7 +130,13 @@ pub fn execute(cli: Cli) -> Result<CommandOutput, CliError> {
     validate_profile_selector(cli.profile.as_deref(), &client)?;
 
     match cli.command {
-        Command::Context => context(&client, cli.project.as_deref(), &cwd),
+        Command::Context => context(
+            &client,
+            cli.project.as_deref(),
+            cli.database.as_deref(),
+            cli.page.as_deref(),
+            &cwd,
+        ),
         Command::Read(arguments) => {
             read_page(&client, cli.project.as_deref(), &cwd, arguments, cli.json)
         }
@@ -258,7 +264,9 @@ pub fn execute(cli: Cli) -> Result<CommandOutput, CliError> {
         Command::Tree { scope } => tree(
             &client,
             cli.project.as_deref(),
-            cli.page.as_deref().or(scope.as_deref()),
+            cli.database.as_deref(),
+            cli.page.as_deref(),
+            scope.as_deref(),
             &cwd,
             cli.json,
         ),
@@ -314,11 +322,11 @@ fn rg_pages(
         resolve_search_scope(client, &project, selector)?
     } else if let Some(selector) = explicit_page {
         LibrarySearchSnapshotScope::Page {
-            page_id: resolve_page_selector(client, &project.id, selector)?,
+            page_id: resolve_page_scope(client, &project.id, selector)?,
         }
     } else if let Some(selector) = explicit_database {
         LibrarySearchSnapshotScope::Database {
-            database_id: stable_scope_id(selector, "--database")?,
+            database_id: resolve_database_selector(client, &project, selector)?,
         }
     } else {
         LibrarySearchSnapshotScope::Database {
@@ -380,9 +388,12 @@ fn resolve_search_scope(
         });
     }
     let Some(identity) = selector.strip_prefix('@') else {
-        return Ok(LibrarySearchSnapshotScope::Page {
-            page_id: resolve_page_selector(client, &project.id, selector)?,
-        });
+        return match resolve_content_selector(client, project, selector)? {
+            ContentScope::Database { database_id } => {
+                Ok(LibrarySearchSnapshotScope::Database { database_id })
+            }
+            ContentScope::Page { page_id } => Ok(LibrarySearchSnapshotScope::Page { page_id }),
+        };
     };
     let page = unwrap_library(client.library_read(
         Some(&project.id),
@@ -466,6 +477,211 @@ fn stable_scope_id(value: &str, label: &str) -> Result<String, CliError> {
         ));
     }
     Ok(value.to_owned())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ContentScope {
+    Database { database_id: String },
+    Page { page_id: String },
+}
+
+fn resolve_content_selector(
+    client: &CoreClient,
+    project: &ProjectWorkspaceProject,
+    selector: &str,
+) -> Result<ContentScope, CliError> {
+    if selector.starts_with('@') {
+        match resolve_page_scope(client, &project.id, selector) {
+            Ok(page_id) => return Ok(ContentScope::Page { page_id }),
+            Err(error) if error.code == CliErrorCode::ScopeNotFound => {}
+            Err(error) => return Err(error),
+        }
+        return resolve_database_selector(client, project, selector)
+            .map(|database_id| ContentScope::Database { database_id });
+    }
+    if selector.contains('/') {
+        return resolve_page_selector(client, &project.id, selector)
+            .map(|page_id| ContentScope::Page { page_id });
+    }
+    let database = resolve_database_selector(client, project, selector);
+    let page = resolve_page_scope(client, &project.id, selector);
+    match (database, page) {
+        (Ok(database_id), Err(error)) if error.code == CliErrorCode::ScopeNotFound => {
+            Ok(ContentScope::Database { database_id })
+        }
+        (Err(error), Ok(page_id)) if error.code == CliErrorCode::ScopeNotFound => {
+            Ok(ContentScope::Page { page_id })
+        }
+        (Err(error), Ok(_)) => Err(error),
+        (Ok(database_id), Ok(page_id)) => Err(CliError::new(
+            CliErrorCode::ScopeAmbiguous,
+            format!("scope '{selector}' matches both Database @{database_id} and Page @{page_id}"),
+        )),
+        (Err(database_error), Err(page_error))
+            if database_error.code == CliErrorCode::ScopeNotFound
+                && page_error.code == CliErrorCode::ScopeNotFound =>
+        {
+            Err(CliError::new(
+                CliErrorCode::ScopeNotFound,
+                format!("no authorized Database or Page matches '{selector}'"),
+            ))
+        }
+        (Err(error), _) if error.code != CliErrorCode::ScopeNotFound => Err(error),
+        (_, Err(error)) => Err(error),
+    }
+}
+
+fn resolve_database_selector(
+    client: &CoreClient,
+    project: &ProjectWorkspaceProject,
+    selector: &str,
+) -> Result<String, CliError> {
+    if selector == "database" {
+        return Ok(project.database_id.clone());
+    }
+    let explicit_identity = selector.starts_with('@');
+    let identity = stable_scope_id(selector, "Database selector")?;
+    if explicit_identity || identity == project.database_id || looks_like_uuid(&identity) {
+        match read_database_name(client, &project.id, &identity) {
+            Ok(_) => return Ok(identity),
+            Err(error) if error.code == CliErrorCode::ScopeNotFound && !explicit_identity => {}
+            Err(error) => return Err(error),
+        }
+    }
+
+    let mut cursor = None;
+    let mut matches = Vec::new();
+    loop {
+        let snapshot = unwrap_library(client.library_read(
+            None,
+            LibraryRead::Catalog {
+                query: Some(selector.to_owned()),
+                kinds: Some(vec![LibraryCatalogKind::Database]),
+                lifecycle: Some(LibraryLifecycle::Active),
+                cursor,
+                limit: Some(100),
+            },
+        ))?;
+        let LibraryReadValue::Catalog {
+            items,
+            next_cursor,
+            has_more,
+            ..
+        } = snapshot.value
+        else {
+            return Err(internal(
+                "Core returned the wrong Database catalog snapshot",
+            ));
+        };
+        for item in items {
+            if item.title != selector {
+                continue;
+            }
+            let LibraryResourceTarget::Database { database_id } = item.target else {
+                return Err(internal(
+                    "Core Database catalog contained a non-Database target",
+                ));
+            };
+            match read_database_name(client, &project.id, &database_id) {
+                Ok(_) => matches.push(database_id),
+                Err(error)
+                    if matches!(
+                        error.code,
+                        CliErrorCode::ScopeNotFound | CliErrorCode::ScopeUnauthorized
+                    ) => {}
+                Err(error) => return Err(error),
+            }
+            if matches.len() > 10_000 {
+                return Err(CliError::new(
+                    CliErrorCode::ScopeBudgetExceeded,
+                    "Database name resolution exceeds the 10000-candidate limit",
+                ));
+            }
+        }
+        if !has_more {
+            break;
+        }
+        cursor = next_cursor;
+        if cursor.is_none() {
+            return Err(internal("Core Database catalog pagination has no cursor"));
+        }
+    }
+    matches.sort();
+    matches.dedup();
+    match matches.as_slice() {
+        [] => Err(CliError::new(
+            CliErrorCode::ScopeNotFound,
+            format!("no authorized Database matches '{selector}'"),
+        )),
+        [database_id] => Ok(database_id.clone()),
+        _ => Err(CliError::new(
+            CliErrorCode::ScopeAmbiguous,
+            format!(
+                "Database name '{selector}' matches multiple Databases: {}",
+                matches.join(", ")
+            ),
+        )),
+    }
+}
+
+fn looks_like_uuid(value: &str) -> bool {
+    value.len() == 36
+        && value.bytes().enumerate().all(|(index, byte)| match index {
+            8 | 13 | 18 | 23 => byte == b'-',
+            _ => byte.is_ascii_hexdigit(),
+        })
+}
+
+fn resolve_page_scope(
+    client: &CoreClient,
+    project_id: &str,
+    selector: &str,
+) -> Result<String, CliError> {
+    let page_id = resolve_page_selector(client, project_id, selector)?;
+    let snapshot = unwrap_library(client.library_read(
+        Some(project_id),
+        LibraryRead::PageLifecyclePreflight {
+            page_id: page_id.clone(),
+        },
+    ))?;
+    let LibraryReadValue::PageLifecyclePreflight { value } = snapshot.value else {
+        return Err(internal("Core returned the wrong Page scope preflight"));
+    };
+    if value.page.is_some_and(|page| page.lifecycle == "active") {
+        return Ok(page_id);
+    }
+    Err(CliError::new(
+        CliErrorCode::ScopeNotFound,
+        format!("Page scope '@{page_id}' is unavailable"),
+    ))
+}
+
+fn read_database_name(
+    client: &CoreClient,
+    project_id: &str,
+    database_id: &str,
+) -> Result<String, CliError> {
+    let snapshot = unwrap_database(client.database_read(
+        Some(project_id),
+        DatabaseRead {
+            target: DatabaseTarget::Database {
+                database_id: database_id.to_owned(),
+            },
+            mode: DatabaseReadMode::Database,
+            filter: None,
+            sort: None,
+        },
+    ))?;
+    let DatabaseReadValue::Database { value } = snapshot.value else {
+        return Err(internal(
+            "Core returned the wrong Database selector snapshot",
+        ));
+    };
+    value
+        .pointer("/database/name")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| internal("Core Database selector has no name"))
 }
 
 fn read_page(
@@ -577,22 +793,55 @@ fn history(
 fn tree(
     client: &CoreClient,
     explicit_project: Option<&str>,
-    page_scope: Option<&str>,
+    explicit_database: Option<&str>,
+    explicit_page: Option<&str>,
+    positional_scope: Option<&str>,
     cwd: &Path,
     json_output: bool,
 ) -> Result<CommandOutput, CliError> {
     let project = selected_project(client, explicit_project, cwd)?;
-    let mut budget = TreeBudget::default();
-    let root = if let Some(selector) = page_scope {
-        let page_id = resolve_page_selector(client, &project.id, selector)?;
-        let page = read_page_tree_node(client, &project.id, &page_id, 0, &mut budget)?;
-        TreeRoot::Page { page }
+    let selection_count = [
+        explicit_database.is_some(),
+        explicit_page.is_some(),
+        positional_scope.is_some(),
+    ]
+    .into_iter()
+    .filter(|selected| *selected)
+    .count();
+    if selection_count > 1 {
+        return Err(CliError::new(
+            CliErrorCode::ScopeAmbiguous,
+            "tree accepts only one positional, --database, or --page scope",
+        ));
+    }
+    let scope = if let Some(selector) = positional_scope {
+        resolve_content_selector(client, &project, selector)?
+    } else if let Some(selector) = explicit_database {
+        ContentScope::Database {
+            database_id: resolve_database_selector(client, &project, selector)?,
+        }
+    } else if let Some(selector) = explicit_page {
+        ContentScope::Page {
+            page_id: resolve_page_scope(client, &project.id, selector)?,
+        }
     } else {
-        let (name, pages) = database_tree(client, &project.id, &mut budget)?;
-        TreeRoot::Database {
+        ContentScope::Database {
             database_id: project.database_id.clone(),
-            name,
-            pages,
+        }
+    };
+    let mut budget = TreeBudget::default();
+    let root = match scope {
+        ContentScope::Page { page_id } => {
+            let page = read_page_tree_node(client, &project.id, &page_id, 0, &mut budget)?;
+            TreeRoot::Page { page }
+        }
+        ContentScope::Database { database_id } => {
+            let (name, pages) = database_tree(client, &project.id, &database_id, &mut budget)?;
+            TreeRoot::Database {
+                database_id,
+                name,
+                pages,
+            }
         }
     };
     if json_output {
@@ -847,26 +1096,55 @@ enum TreeNode {
 fn database_tree(
     client: &CoreClient,
     project_id: &str,
+    database_id: &str,
     budget: &mut TreeBudget,
 ) -> Result<(String, Vec<TreeNode>), CliError> {
-    let snapshot = unwrap_database(client.database_read(
+    let database = unwrap_database(client.database_read(
         Some(project_id),
         DatabaseRead {
-            target: DatabaseTarget::ProjectDefault,
+            target: DatabaseTarget::Database {
+                database_id: database_id.to_owned(),
+            },
+            mode: DatabaseReadMode::Database,
+            filter: None,
+            sort: None,
+        },
+    ))?;
+    budget.observe(database.event_head)?;
+    let DatabaseReadValue::Database { value: database } = database.value else {
+        return Err(internal("Core returned the wrong Database tree descriptor"));
+    };
+    let name = database
+        .pointer("/database/name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| internal("Core Database tree has no name"))?
+        .to_owned();
+    let data_source_id = database
+        .get("dataSources")
+        .and_then(Value::as_array)
+        .and_then(|sources| {
+            sources
+                .iter()
+                .find(|source| source.get("lifecycle").and_then(Value::as_str) == Some("active"))
+        })
+        .and_then(|source| source.get("dataSourceId"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| internal("Core Database tree has no active Data Source"))?;
+    let query = unwrap_database(client.database_read(
+        Some(project_id),
+        DatabaseRead {
+            target: DatabaseTarget::DataSource {
+                data_source_id: data_source_id.to_owned(),
+            },
             mode: DatabaseReadMode::Query,
             filter: None,
             sort: None,
         },
     ))?;
-    budget.observe(snapshot.event_head)?;
-    let DatabaseReadValue::Query { value } = snapshot.value else {
-        return Err(internal("Core returned the wrong Database tree snapshot"));
+    budget.observe(query.event_head)?;
+    let DatabaseReadValue::DataSourceQuery { value } = query.value else {
+        return Err(internal("Core returned the wrong Database tree query"));
     };
-    let name = value
-        .pointer("/database/name")
-        .and_then(Value::as_str)
-        .ok_or_else(|| internal("Core Database tree has no name"))?
-        .to_owned();
     let rows = value
         .get("rows")
         .and_then(Value::as_array)
@@ -997,6 +1275,8 @@ fn render_tree_node(node: &TreeNode, depth: usize, output: &mut String) {
 fn context(
     client: &CoreClient,
     explicit_project: Option<&str>,
+    explicit_database: Option<&str>,
+    explicit_page: Option<&str>,
     cwd: &Path,
 ) -> Result<CommandOutput, CliError> {
     let startup = unwrap_workspace(client.workspace_read(None, ProjectWorkspaceRead::Startup))?;
@@ -1008,7 +1288,29 @@ fn context(
     };
     let resolved = resolve_project(client, projects, explicit_project, cwd)?;
     let health = client.health().map_err(map_client_error)?;
-    let scope_id = resolved.project.database_id.clone();
+    if explicit_database.is_some() && explicit_page.is_some() {
+        return Err(CliError::new(
+            CliErrorCode::ScopeAmbiguous,
+            "context accepts only one of --database or --page",
+        ));
+    }
+    let primary_database_id = resolved.project.database_id.clone();
+    let scope = if let Some(selector) = explicit_database {
+        ContextScope {
+            kind: "database",
+            id: resolve_database_selector(client, &resolved.project, selector)?,
+        }
+    } else if let Some(selector) = explicit_page {
+        ContextScope {
+            kind: "page",
+            id: resolve_page_scope(client, &resolved.project.id, selector)?,
+        }
+    } else {
+        ContextScope {
+            kind: "database",
+            id: primary_database_id.clone(),
+        }
+    };
     let value = serde_json::to_value(ContextOutput {
         profile: ContextProfile {
             id: client.handshake.profile_id.clone(),
@@ -1017,11 +1319,8 @@ fn context(
         project: resolved.project,
         matched_by: resolved.matched_by,
         matched_root: resolved.matched_root,
-        primary_database_id: scope_id.clone(),
-        scope: ContextScope {
-            kind: "database",
-            id: scope_id,
-        },
+        primary_database_id,
+        scope,
         core: ContextCore {
             pid: client.handshake.pid,
             build_id: client.handshake.build_id.clone(),
@@ -1132,13 +1431,20 @@ fn resolve_project(
     }
 
     let cwd = cwd.canonicalize().map_err(core_unavailable)?;
-    let mut candidates = Vec::new();
+    let mut source_candidates = Vec::new();
+    let mut worktree_candidates = Vec::new();
     for project in projects {
         if project.lifecycle == ProjectLifecycle::Archived {
             continue;
         }
         for source in &project.sources {
-            add_path_candidate(&mut candidates, &project, &cwd, &source.root, "source");
+            add_path_candidate(
+                &mut source_candidates,
+                &project,
+                &cwd,
+                &source.root,
+                "source",
+            );
         }
         let worktrees = unwrap_workspace(client.workspace_read(
             Some(&project.id),
@@ -1153,9 +1459,27 @@ fn resolve_project(
             ));
         };
         for root in roots {
-            add_path_candidate(&mut candidates, &project, &cwd, &root, "managed_worktree");
+            add_path_candidate(
+                &mut worktree_candidates,
+                &project,
+                &cwd,
+                &root,
+                "managed_worktree",
+            );
         }
     }
+    let candidates = if worktree_candidates.is_empty() {
+        source_candidates
+    } else {
+        worktree_candidates
+    };
+    select_path_candidate(candidates, &cwd)
+}
+
+fn select_path_candidate(
+    candidates: Vec<ProjectCandidate>,
+    cwd: &Path,
+) -> Result<ResolvedProject, CliError> {
     let Some(maximum) = candidates.iter().map(|candidate| candidate.depth).max() else {
         return Err(CliError::new(
             CliErrorCode::ProjectNotFound,
@@ -1237,21 +1561,11 @@ fn validate_profile_selector(selector: Option<&str>, client: &CoreClient) -> Res
 }
 
 fn resolve_home(cwd: &Path) -> Result<PathBuf, CliError> {
-    if let Some(home) = env::var_os("NODEX_HOME").filter(|value| !value.is_empty()) {
-        let home = PathBuf::from(home);
-        return Ok(if home.is_absolute() {
-            home
-        } else {
-            cwd.join(home)
-        });
-    }
-    let user_home = env::var_os("HOME").ok_or_else(|| {
-        CliError::new(
-            CliErrorCode::CoreUnavailable,
-            "HOME is unavailable and NODEX_HOME is not set",
-        )
-    })?;
-    Ok(PathBuf::from(user_home).join(".nodex"))
+    crate::config::resolve_home(
+        cwd,
+        env::var_os("NODEX_HOME").as_deref(),
+        env::var_os("HOME").as_deref(),
+    )
 }
 
 pub(crate) fn operation_id(explicit: Option<&str>, json_output: bool) -> Result<String, CliError> {
@@ -1412,12 +1726,14 @@ struct ContextCore {
     readiness: String,
 }
 
+#[derive(Debug)]
 struct ResolvedProject {
     project: ProjectWorkspaceProject,
     matched_by: &'static str,
     matched_root: Option<String>,
 }
 
+#[derive(Clone, Debug)]
 struct ProjectCandidate {
     project: ProjectWorkspaceProject,
     root: String,
@@ -1501,8 +1817,8 @@ mod tests {
             &nested.to_string_lossy(),
             "source",
         );
-        candidates.sort_by_key(|candidate| candidate.depth);
-        assert_eq!(candidates.last().expect("winner").project.id, "nested");
+        let selected = select_path_candidate(candidates.clone(), &cwd).expect("deepest source");
+        assert_eq!(selected.project.id, "nested");
 
         let sibling = directory.path().join("project-other");
         std::fs::create_dir_all(&sibling).expect("sibling");
@@ -1515,6 +1831,63 @@ mod tests {
             "source",
         );
         assert_eq!(candidates.len(), before);
+    }
+
+    #[test]
+    fn managed_worktree_precedence_and_equal_depth_ambiguity_are_explicit() {
+        let directory = tempdir().expect("root");
+        let root = directory.path().join("workspace");
+        let deep_source = root.join("managed/nested");
+        let cwd = deep_source.join("src");
+        std::fs::create_dir_all(&cwd).expect("cwd");
+        let cwd = cwd.canonicalize().expect("canonical cwd");
+        let source_project = project("source", "Source", &deep_source);
+        let worktree_project = project("worktree", "Worktree", &root);
+        let mut sources = Vec::new();
+        let mut worktrees = Vec::new();
+        add_path_candidate(
+            &mut sources,
+            &source_project,
+            &cwd,
+            &deep_source.to_string_lossy(),
+            "source",
+        );
+        add_path_candidate(
+            &mut worktrees,
+            &worktree_project,
+            &cwd,
+            &root.to_string_lossy(),
+            "managed_worktree",
+        );
+        let candidates = if worktrees.is_empty() {
+            sources
+        } else {
+            worktrees
+        };
+        let selected = select_path_candidate(candidates, &cwd).expect("worktree precedence");
+        assert_eq!(selected.project.id, "worktree");
+        assert_eq!(selected.matched_by, "managed_worktree");
+
+        let second = project("worktree-2", "Worktree 2", &root);
+        let mut tied = Vec::new();
+        add_path_candidate(
+            &mut tied,
+            &worktree_project,
+            &cwd,
+            &root.to_string_lossy(),
+            "managed_worktree",
+        );
+        add_path_candidate(
+            &mut tied,
+            &second,
+            &cwd,
+            &root.to_string_lossy(),
+            "managed_worktree",
+        );
+        let error = select_path_candidate(tied, &cwd).expect_err("tie must not guess");
+        assert_eq!(error.code, CliErrorCode::ProjectAmbiguous);
+        assert!(error.message.contains("worktree"));
+        assert!(error.message.contains("worktree-2"));
     }
 
     #[test]

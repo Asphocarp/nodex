@@ -24,6 +24,7 @@ signal-hook.workspace = true
 rustix.workspace = true
 similar.workspace = true
 thiserror.workspace = true
+toml.workspace = true
 yaml-rust2.workspace = true
 
 [dev-dependencies]

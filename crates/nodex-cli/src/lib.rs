@@ -5,6 +5,7 @@ use std::ffi::OsString;
 use clap::Parser;
 
 pub mod cli;
+mod config;
 mod draft;
 pub mod error;
 pub mod meta_yaml;
