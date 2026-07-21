@@ -10,6 +10,7 @@ pub mod meta_yaml;
 mod page_lifecycle;
 mod page_mutation;
 pub mod patch;
+mod ripgrep;
 pub mod runtime;
 pub mod sed;
 
@@ -42,13 +43,16 @@ pub fn run(arguments: impl IntoIterator<Item = OsString>) -> i32 {
 
     let json = cli.json;
     match runtime::execute(cli) {
-        Ok(output) => match output.write(json) {
-            Ok(()) => EXIT_SUCCESS,
-            Err(error) => {
-                render_error(&error, json);
-                EXIT_REJECTED
+        Ok(output) => {
+            let exit_status = output.exit_status();
+            match output.write(json) {
+                Ok(()) => exit_status,
+                Err(error) => {
+                    render_error(&error, json);
+                    EXIT_REJECTED
+                }
             }
-        },
+        }
         Err(error) => {
             render_error(&error, json);
             EXIT_REJECTED

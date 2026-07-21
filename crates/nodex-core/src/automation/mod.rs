@@ -226,6 +226,7 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::ProtectedOwnerDeletion => CoreErrorCode::ProtectedOwnerDeletion,
         StoreErrorCode::GenerationConflict => CoreErrorCode::GenerationConflict,
         StoreErrorCode::MissingDependencies => CoreErrorCode::DocumentUpdateMissingDependencies,
+        StoreErrorCode::MaterializationStale => CoreErrorCode::MaterializationStale,
         StoreErrorCode::UnsupportedSchema
         | StoreErrorCode::AlreadyOwned
         | StoreErrorCode::InvalidProfile

@@ -294,6 +294,11 @@ pub(super) fn read(
         LibraryRead::PageLifecyclePreflight { .. } => Err(invalid(
             "Page lifecycle preflight is assembled by the Library Module",
         )),
+        LibraryRead::AcquireSearchSnapshot { .. } | LibraryRead::ReleaseSearchSnapshot { .. } => {
+            Err(invalid(
+                "Search snapshot leases are assembled by the Library Module",
+            ))
+        }
     }
 }
 

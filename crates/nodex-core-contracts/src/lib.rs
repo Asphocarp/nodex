@@ -60,6 +60,7 @@ pub enum CoreErrorCode {
     ProtectedOwnerDeletion,
     DocumentUpdateMissingDependencies,
     InvalidDocumentSchema,
+    MaterializationStale,
     MaintenanceInProgress,
     SchemaUnsupported,
     StoreCorrupt,

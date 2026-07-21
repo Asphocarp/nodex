@@ -33,6 +33,7 @@ pub enum StoreErrorCode {
     InvalidInput,
     InvalidProfile,
     MissingDependencies,
+    MaterializationStale,
     NotFound,
     RevisionConflict,
     StaleStoreEpoch,

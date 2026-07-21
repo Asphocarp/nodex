@@ -707,7 +707,7 @@ export interface components {
             readonly retryable: boolean;
         };
         /** @enum {string} */
-        readonly CoreErrorCode: "invalid_input" | "unauthorized" | "not_found" | "ambiguous" | "stale_store_epoch" | "revision_conflict" | "generation_conflict" | "head_conflict" | "patch_not_found" | "patch_ambiguous" | "patch_overlap" | "idempotency_key_reused" | "protected_owner_deletion" | "document_update_missing_dependencies" | "invalid_document_schema" | "maintenance_in_progress" | "schema_unsupported" | "store_corrupt" | "protocol_incompatible" | "event_replay_unavailable" | "resource_exhausted" | "core_unavailable";
+        readonly CoreErrorCode: "invalid_input" | "unauthorized" | "not_found" | "ambiguous" | "stale_store_epoch" | "revision_conflict" | "generation_conflict" | "head_conflict" | "patch_not_found" | "patch_ambiguous" | "patch_overlap" | "idempotency_key_reused" | "protected_owner_deletion" | "document_update_missing_dependencies" | "invalid_document_schema" | "materialization_stale" | "maintenance_in_progress" | "schema_unsupported" | "store_corrupt" | "protocol_incompatible" | "event_replay_unavailable" | "resource_exhausted" | "core_unavailable";
         readonly CoreErrorRecovery: {
             /** @enum {string} */
             readonly kind: "none";
@@ -2344,6 +2344,91 @@ export interface components {
             readonly rank: number;
             readonly source_kind: components["schemas"]["LibrarySearchSourceKind"];
         };
+        readonly LibrarySearchSnapshotFile: {
+            /** Format: int64 */
+            readonly byte_length: number;
+            readonly kind: components["schemas"]["LibraryPageFileKind"];
+            readonly logical_path: string;
+            readonly physical_relative_path: string;
+            readonly sha256: string;
+        };
+        readonly LibrarySearchSnapshotLease: {
+            /** Format: int64 */
+            readonly expires_at_unix_ms: number;
+            readonly lease_id: string;
+            readonly manifest: components["schemas"]["LibrarySearchSnapshotManifest"];
+            readonly physical_root: string;
+        };
+        readonly LibrarySearchSnapshotManifest: {
+            /** Format: int64 */
+            readonly event_head: number;
+            readonly library_id: string;
+            readonly pages: readonly components["schemas"]["LibrarySearchSnapshotPage"][];
+            readonly project_id: string;
+            /** Format: int32 */
+            readonly projection_version: number;
+            readonly scope: components["schemas"]["LibrarySearchSnapshotScope"];
+            readonly store_epoch: string;
+            /** Format: int32 */
+            readonly version: number;
+            readonly warnings: readonly components["schemas"]["LibrarySearchSnapshotWarning"][];
+        };
+        readonly LibrarySearchSnapshotOwner: {
+            readonly id: string;
+            readonly kind: components["schemas"]["LibrarySearchSnapshotOwnerKind"];
+            readonly title: string;
+        };
+        /** @enum {string} */
+        readonly LibrarySearchSnapshotOwnerKind: "library" | "database" | "data_source" | "page";
+        readonly LibrarySearchSnapshotPage: {
+            readonly body: components["schemas"]["LibrarySearchSnapshotFile"];
+            readonly data_source_id?: string | null;
+            /** Format: int64 */
+            readonly data_source_schema_revision?: number | null;
+            readonly database_id?: string | null;
+            /** Format: int64 */
+            readonly document_generation: number;
+            /** Format: int64 */
+            readonly document_head_seq: number;
+            readonly meta: components["schemas"]["LibrarySearchSnapshotFile"];
+            /** Format: int64 */
+            readonly metadata_revision: number;
+            readonly ownership_path: readonly components["schemas"]["LibrarySearchSnapshotOwner"][];
+            readonly page_id: string;
+            readonly property_revisions: {
+                readonly [key: string]: number;
+            };
+            /** Format: int64 */
+            readonly schedule_revision?: number | null;
+            readonly storage_project_id: string;
+            readonly title_markdown: string;
+            readonly title_sha256: string;
+            readonly value_revisions: {
+                readonly [key: string]: number;
+            };
+        };
+        readonly LibrarySearchSnapshotRelease: {
+            readonly lease_id: string;
+            readonly released: boolean;
+        };
+        readonly LibrarySearchSnapshotScope: {
+            readonly database_id: string;
+            /** @enum {string} */
+            readonly kind: "database";
+        } | {
+            readonly data_source_id: string;
+            /** @enum {string} */
+            readonly kind: "data_source";
+        } | {
+            /** @enum {string} */
+            readonly kind: "page";
+            readonly page_id: string;
+        };
+        readonly LibrarySearchSnapshotWarning: {
+            /** @enum {string} */
+            readonly kind: "materialization_stale";
+            readonly page_id: string;
+        };
         /** @enum {string} */
         readonly LibrarySearchSourceKind: "document_title" | "document_block";
         readonly LibraryWriteParent: {
@@ -3183,6 +3268,15 @@ export interface components {
                 readonly kind: "page_file";
                 readonly page_id: string;
                 readonly prepare?: null | components["schemas"]["LibraryPagePrepareKind"];
+            } | {
+                /** @enum {string} */
+                readonly kind: "acquire_search_snapshot";
+                readonly scope: components["schemas"]["LibrarySearchSnapshotScope"];
+                readonly strict_materialization: boolean;
+            } | {
+                /** @enum {string} */
+                readonly kind: "release_search_snapshot";
+                readonly lease_id: string;
             } | {
                 readonly authorization: components["schemas"]["AgentExecutionAuthorization"];
                 readonly block_id: string;
@@ -4273,6 +4367,14 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "page_file";
                     readonly value: components["schemas"]["LibraryPageFileProjection"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "search_snapshot_lease";
+                    readonly value: components["schemas"]["LibrarySearchSnapshotLease"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "search_snapshot_release";
+                    readonly value: components["schemas"]["LibrarySearchSnapshotRelease"];
                 } | {
                     /** @enum {string} */
                     readonly kind: "agent_block_target";

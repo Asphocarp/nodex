@@ -2437,13 +2437,18 @@ fn internal(message: &str) -> StoreError {
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::fs::PermissionsExt;
+
+    use nodex_core_contracts::document::{DocumentSemanticCommand, OwnedDocumentIntent};
     use nodex_core_contracts::library::{
         LibraryAgentSiblingAnchor, LibraryNavigationParent, LibraryPageFileKind,
         LibraryPagePrepareKind, LibraryPageWriteDestination, LibraryRead, LibraryReadValue,
+        LibrarySearchSnapshotScope,
     };
     use nodex_core_contracts::{AdapterKind, LibraryId, ModuleReadRequest, ProfileId, ProjectId};
     use tempfile::tempdir;
 
+    use crate::document::OwnedDocumentModule;
     use crate::infrastructure::store::SqliteStoreKernel;
     use crate::library::LibraryModule;
 
@@ -3409,6 +3414,364 @@ mod tests {
             metadata.metadata.expect("typed metadata").title_markdown,
             "Native **Page**"
         );
+    }
+
+    #[test]
+    fn search_snapshot_leases_are_immutable_scoped_and_idempotently_released() {
+        let (directory, kernel, module) = seeded_library();
+        let created = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "native-cli:create-search-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePageFromNfm {
+                        title_markdown: "Search **Page**".to_owned(),
+                        nfm: "## Runtime\n\nCore starts on demand.".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("create searchable Page")
+            .committed
+            .value
+            .page_create
+            .expect("created Page result");
+        let acquired = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::AcquireSearchSnapshot {
+                        scope: LibrarySearchSnapshotScope::Page {
+                            page_id: created.page_id.clone(),
+                        },
+                        strict_materialization: true,
+                    },
+                },
+            )
+            .expect("acquire search snapshot");
+        let LibraryReadValue::SearchSnapshotLease { value: lease } = acquired.value else {
+            panic!("search snapshot lease")
+        };
+        assert_eq!(lease.manifest.pages.len(), 1);
+        let page = &lease.manifest.pages[0];
+        assert_eq!(page.page_id, created.page_id);
+        assert!(page.body.logical_path.contains(&created.page_id));
+        assert_eq!(
+            page.body.sha256,
+            crate::document::sha256(b"## Runtime\nCore starts on demand.\n")
+        );
+        let root = std::path::Path::new(&lease.physical_root);
+        for file in [&page.meta, &page.body] {
+            let path = root.join(&file.physical_relative_path);
+            assert_eq!(
+                std::fs::metadata(&path)
+                    .expect("snapshot file")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o400
+            );
+        }
+        assert_eq!(
+            std::fs::metadata(root.join("manifest.json"))
+                .expect("manifest commit marker")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o400
+        );
+        let body_cache = directory
+            .path()
+            .join("search-snapshots/cache/v1/body")
+            .join(&page.body.sha256);
+        assert!(body_cache.is_file());
+
+        kernel
+            .writer()
+            .call({
+                let document_id = created.document_id.clone();
+                let stale_projected_seq = created.document_head_seq + 1;
+                move |connection| {
+                    connection.execute(
+                        "UPDATE document_materializations SET projected_seq = ?1 WHERE document_id = ?2",
+                        rusqlite::params![stale_projected_seq, document_id],
+                    )?;
+                    Ok(())
+                }
+            })
+            .expect("make materialization stale");
+        let stale = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::AcquireSearchSnapshot {
+                        scope: LibrarySearchSnapshotScope::Page {
+                            page_id: created.page_id.clone(),
+                        },
+                        strict_materialization: true,
+                    },
+                },
+            )
+            .expect_err("strict snapshots reject stale materialization");
+        assert_eq!(
+            stale.code,
+            nodex_core_contracts::CoreErrorCode::MaterializationStale
+        );
+        let partial = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::AcquireSearchSnapshot {
+                        scope: LibrarySearchSnapshotScope::Page {
+                            page_id: created.page_id.clone(),
+                        },
+                        strict_materialization: false,
+                    },
+                },
+            )
+            .expect("non-strict snapshots report and skip stale materialization");
+        let LibraryReadValue::SearchSnapshotLease {
+            value: partial_lease,
+        } = partial.value
+        else {
+            panic!("partial search snapshot lease")
+        };
+        assert!(partial_lease.manifest.pages.is_empty());
+        assert_eq!(
+            partial_lease.manifest.warnings,
+            vec![
+                nodex_core_contracts::library::LibrarySearchSnapshotWarning::MaterializationStale {
+                    page_id: created.page_id.clone(),
+                },
+            ]
+        );
+        kernel
+            .writer()
+            .call({
+                let document_id = created.document_id.clone();
+                let projected_seq = created.document_head_seq;
+                move |connection| {
+                    connection.execute(
+                        "UPDATE document_materializations SET projected_seq = ?1 WHERE document_id = ?2",
+                        rusqlite::params![projected_seq, document_id],
+                    )?;
+                    Ok(())
+                }
+            })
+            .expect("restore exact materialization");
+        let partial_lease_id = partial_lease.lease_id.clone();
+
+        std::fs::set_permissions(&body_cache, std::fs::Permissions::from_mode(0o600))
+            .expect("make cache fixture writable");
+        std::fs::write(&body_cache, b"corrupt cache fixture").expect("corrupt cache fixture");
+
+        let prepared_title = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PageFile {
+                        page_id: created.page_id.clone(),
+                        file_kind: LibraryPageFileKind::MetaYaml,
+                        prepare: Some(LibraryPagePrepareKind::TitleSet),
+                    },
+                },
+            )
+            .expect("prepare title mutation");
+        let LibraryReadValue::PageFile {
+            value: prepared_title,
+        } = prepared_title.value
+        else {
+            panic!("prepared title projection")
+        };
+        OwnedDocumentModule::new("profile-1", "library-1", &kernel)
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "native-cli:rename-search-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: OwnedDocumentIntent::ApplySemanticMutation {
+                        document_id: created.document_id.clone(),
+                        generation: created.document_generation,
+                        expected_head_seq: created.document_head_seq,
+                        commands: vec![DocumentSemanticCommand::SetTitle {
+                            inline_markdown: "Renamed Search Page".to_owned(),
+                            expected_etag: prepared_title
+                                .validators
+                                .title_etag
+                                .expect("title ETag"),
+                        }],
+                    },
+                },
+            )
+            .expect("rename searchable Page");
+        let reacquired = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::AcquireSearchSnapshot {
+                        scope: LibrarySearchSnapshotScope::Page {
+                            page_id: created.page_id.clone(),
+                        },
+                        strict_materialization: true,
+                    },
+                },
+            )
+            .expect("reacquire after metadata-only change");
+        let LibraryReadValue::SearchSnapshotLease {
+            value: renamed_lease,
+        } = reacquired.value
+        else {
+            panic!("renamed search snapshot lease")
+        };
+        let renamed_page = &renamed_lease.manifest.pages[0];
+        assert_eq!(renamed_page.body.sha256, page.body.sha256);
+        assert_ne!(renamed_page.meta.sha256, page.meta.sha256);
+        assert_eq!(
+            std::fs::read(&body_cache).expect("rebuilt body cache"),
+            b"## Runtime\nCore starts on demand.\n"
+        );
+        assert_eq!(
+            std::fs::metadata(&body_cache)
+                .expect("rebuilt body cache metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o400
+        );
+        assert_eq!(
+            std::fs::read_dir(directory.path().join("search-snapshots/cache/v1/body"))
+                .expect("body cache")
+                .count(),
+            1
+        );
+        assert_eq!(
+            std::fs::read_dir(directory.path().join("search-snapshots/cache/v1/meta"))
+                .expect("metadata cache")
+                .count(),
+            2
+        );
+
+        module
+            .apply(
+                &context(),
+                create_database_request("native-cli:create-search-database"),
+            )
+            .expect("create searchable Database");
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "native-cli:grant-search-database".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::GrantProjectAccess {
+                        project_id: "project-1".to_owned(),
+                        target: LibraryResourceTarget::Database {
+                            database_id: "018f0000-0000-7000-8000-000000000001".to_owned(),
+                        },
+                        access: LibraryAccess::ReadWrite,
+                    },
+                },
+            )
+            .expect("grant searchable Database");
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "native-cli:move-search-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::MovePage {
+                        page_id: created.page_id.clone(),
+                        destination: LibraryPageWriteDestination::DataSource {
+                            data_source_id: "018f0000-0000-7000-8000-000000000002".to_owned(),
+                            at: Some(LibraryAgentSiblingAnchor::End),
+                        },
+                    },
+                },
+            )
+            .expect("move searchable Page into Data Source");
+        let database_snapshot = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::AcquireSearchSnapshot {
+                        scope: LibrarySearchSnapshotScope::Database {
+                            database_id: "018f0000-0000-7000-8000-000000000001".to_owned(),
+                        },
+                        strict_materialization: true,
+                    },
+                },
+            )
+            .expect("acquire Database search snapshot");
+        let LibraryReadValue::SearchSnapshotLease {
+            value: database_lease,
+        } = database_snapshot.value
+        else {
+            panic!("Database search snapshot lease")
+        };
+        assert_eq!(database_lease.manifest.pages.len(), 1);
+        assert_eq!(
+            database_lease.manifest.pages[0].database_id.as_deref(),
+            Some("018f0000-0000-7000-8000-000000000001")
+        );
+        assert_eq!(
+            database_lease.manifest.pages[0].data_source_id.as_deref(),
+            Some("018f0000-0000-7000-8000-000000000002")
+        );
+        assert!(
+            database_lease.manifest.pages[0]
+                .data_source_schema_revision
+                .is_some()
+        );
+
+        let release = |lease_id: &str| {
+            module
+                .read(
+                    &context(),
+                    ModuleReadRequest {
+                        version: CORE_CONTRACT_VERSION,
+                        read: LibraryRead::ReleaseSearchSnapshot {
+                            lease_id: lease_id.to_owned(),
+                        },
+                    },
+                )
+                .expect("release search snapshot")
+                .value
+        };
+        let LibraryReadValue::SearchSnapshotRelease { value } = release(&lease.lease_id) else {
+            panic!("search snapshot release")
+        };
+        assert!(value.released);
+        assert!(!root.exists());
+        let LibraryReadValue::SearchSnapshotRelease { value } = release(&partial_lease_id) else {
+            panic!("partial search snapshot release")
+        };
+        assert!(value.released);
+        let LibraryReadValue::SearchSnapshotRelease { value } = release(&renamed_lease.lease_id)
+        else {
+            panic!("renamed search snapshot release")
+        };
+        assert!(value.released);
+        let LibraryReadValue::SearchSnapshotRelease { value } = release(&database_lease.lease_id)
+        else {
+            panic!("Database search snapshot release")
+        };
+        assert!(value.released);
+        let LibraryReadValue::SearchSnapshotRelease { value } = release(&lease.lease_id) else {
+            panic!("idempotent search snapshot release")
+        };
+        assert!(!value.released);
+        assert!(body_cache.is_file(), "release preserves immutable cache");
     }
 
     #[test]

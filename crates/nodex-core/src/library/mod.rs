@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use nodex_core_contracts::library::{
@@ -20,11 +20,38 @@ use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 
 mod page_projection;
+mod search_snapshot;
 
 #[derive(Clone, Debug)]
 pub struct LibraryApplyOutcome {
     pub committed: CommittedModuleValue<LibraryCommitValue, LibraryReceipt>,
     pub event: Option<CommittedCoreModuleEvent>,
+}
+
+#[derive(Clone)]
+pub struct LibrarySearchSnapshotLeaseRegistry {
+    store: Arc<Mutex<search_snapshot::SearchSnapshotStore>>,
+}
+
+impl LibrarySearchSnapshotLeaseRegistry {
+    fn new(store: search_snapshot::SearchSnapshotStore) -> Self {
+        Self {
+            store: Arc::new(Mutex::new(store)),
+        }
+    }
+
+    pub fn invalidate_all(&self) -> Result<(), StoreError> {
+        self.store
+            .lock()
+            .map_err(|_| {
+                StoreError::new(
+                    StoreErrorCode::Internal,
+                    "Search snapshot storage lock is unavailable",
+                    false,
+                )
+            })?
+            .invalidate_all()
+    }
 }
 
 #[derive(Clone)]
@@ -48,6 +75,7 @@ pub struct LibraryModule {
     readers: Option<StoreReaders>,
     writer: Option<StoreWriter>,
     assets_root: Option<PathBuf>,
+    search_snapshots: Option<LibrarySearchSnapshotLeaseRegistry>,
     prepared_agent_operations: PreparedAgentOperationRegistry,
 }
 
@@ -61,6 +89,7 @@ impl LibraryModule {
             readers: None,
             writer: None,
             assets_root: None,
+            search_snapshots: None,
             prepared_agent_operations: PreparedAgentOperationRegistry::new(),
         }
     }
@@ -70,6 +99,18 @@ impl LibraryModule {
         library_id: impl Into<String>,
         kernel: &SqliteStoreKernel,
     ) -> Self {
+        let profile_home = kernel
+            .database_path()
+            .parent()
+            .expect("Profile database has a parent");
+        let mut search_snapshots = search_snapshot::SearchSnapshotStore::new(profile_home);
+        if let Err(error) = search_snapshots.cleanup_startup() {
+            tracing::warn!(
+                subsystem = "library_search_snapshot",
+                error = %error,
+                "Search snapshot startup cleanup will be retried on acquisition"
+            );
+        }
         Self {
             profile_id: profile_id.into(),
             library_id: library_id.into(),
@@ -77,13 +118,8 @@ impl LibraryModule {
             state: Mutex::new(LibraryState::default()),
             readers: Some(kernel.readers()),
             writer: Some(kernel.writer()),
-            assets_root: Some(
-                kernel
-                    .database_path()
-                    .parent()
-                    .expect("Profile database has a parent")
-                    .join("assets"),
-            ),
+            assets_root: Some(profile_home.join("assets")),
+            search_snapshots: Some(LibrarySearchSnapshotLeaseRegistry::new(search_snapshots)),
             prepared_agent_operations: PreparedAgentOperationRegistry::new(),
         }
     }
@@ -96,6 +132,85 @@ impl LibraryModule {
         self.validate_context(context)?;
         if request.version != CORE_CONTRACT_VERSION {
             return Err(invalid_input("unsupported Library contract version"));
+        }
+
+        if let LibraryRead::AcquireSearchSnapshot {
+            scope,
+            strict_materialization,
+        } = &request.read
+        {
+            let readers = self.readers.as_ref().ok_or_else(|| {
+                invalid_input("the Library tracer cannot create search snapshots")
+            })?;
+            let library_id = self.library_id.clone();
+            let context = context.clone();
+            let scope = scope.clone();
+            let strict_materialization = *strict_materialization;
+            let (store_epoch, event_head, prepared) = readers
+                .read_default(move |connection| {
+                    let transaction = connection.unchecked_transaction()?;
+                    let store_epoch = crate::document::read_store_epoch(&transaction)?;
+                    let event_head = navigation::event_head(&transaction)?;
+                    let prepared = search_snapshot::prepare(
+                        &transaction,
+                        &library_id,
+                        &store_epoch,
+                        event_head,
+                        &context,
+                        scope,
+                        strict_materialization,
+                    )?;
+                    transaction.commit()?;
+                    Ok((store_epoch, event_head, prepared))
+                })
+                .map_err(core_error)?;
+            let value = self
+                .search_snapshots
+                .as_ref()
+                .expect("persistent Library has search snapshot storage")
+                .store
+                .lock()
+                .map_err(|_| invalid_input("Search snapshot storage lock is unavailable"))?
+                .acquire(prepared)
+                .map_err(core_error)?;
+            return Ok(ModuleReadSnapshot {
+                version: CORE_CONTRACT_VERSION,
+                store_epoch: StoreEpoch(store_epoch),
+                event_head,
+                value: LibraryReadValue::SearchSnapshotLease {
+                    value: Box::new(value),
+                },
+            });
+        }
+
+        if let LibraryRead::ReleaseSearchSnapshot { lease_id } = &request.read {
+            let readers = self.readers.as_ref().ok_or_else(|| {
+                invalid_input("the Library tracer cannot release search snapshots")
+            })?;
+            let (store_epoch, event_head) = readers
+                .read_default(|connection| {
+                    let transaction = connection.unchecked_transaction()?;
+                    let store_epoch = crate::document::read_store_epoch(&transaction)?;
+                    let event_head = navigation::event_head(&transaction)?;
+                    transaction.commit()?;
+                    Ok((store_epoch, event_head))
+                })
+                .map_err(core_error)?;
+            let value = self
+                .search_snapshots
+                .as_ref()
+                .expect("persistent Library has search snapshot storage")
+                .store
+                .lock()
+                .map_err(|_| invalid_input("Search snapshot storage lock is unavailable"))?
+                .release(lease_id)
+                .map_err(core_error)?;
+            return Ok(ModuleReadSnapshot {
+                version: CORE_CONTRACT_VERSION,
+                store_epoch: StoreEpoch(store_epoch),
+                event_head,
+                value: LibraryReadValue::SearchSnapshotRelease { value },
+            });
         }
 
         if let LibraryRead::PrepareAgentPageCopy {
@@ -528,6 +643,10 @@ impl LibraryModule {
         self.prepared_agent_operations.clone()
     }
 
+    pub fn search_snapshot_lease_registry(&self) -> Option<LibrarySearchSnapshotLeaseRegistry> {
+        self.search_snapshots.clone()
+    }
+
     fn validate_context(&self, context: &BoundModuleContext) -> Result<(), CoreError> {
         if context.profile_id.0 == self.profile_id && context.library_id.0 == self.library_id {
             return Ok(());
@@ -587,6 +706,7 @@ fn core_error(error: StoreError) -> CoreError {
         | StoreErrorCode::Internal => CoreErrorCode::CoreUnavailable,
         StoreErrorCode::GenerationConflict => CoreErrorCode::GenerationConflict,
         StoreErrorCode::MissingDependencies => CoreErrorCode::DocumentUpdateMissingDependencies,
+        StoreErrorCode::MaterializationStale => CoreErrorCode::MaterializationStale,
         StoreErrorCode::AlreadyOwned
         | StoreErrorCode::InvalidProfile
         | StoreErrorCode::RuntimeIncompatible => CoreErrorCode::SchemaUnsupported,

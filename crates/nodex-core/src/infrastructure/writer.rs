@@ -640,6 +640,7 @@ fn store_error_code_name(code: StoreErrorCode) -> &'static str {
         StoreErrorCode::InvalidInput => "invalid_input",
         StoreErrorCode::InvalidProfile => "invalid_profile",
         StoreErrorCode::MissingDependencies => "missing_dependencies",
+        StoreErrorCode::MaterializationStale => "materialization_stale",
         StoreErrorCode::NotFound => "not_found",
         StoreErrorCode::RevisionConflict => "revision_conflict",
         StoreErrorCode::StaleStoreEpoch => "stale_store_epoch",

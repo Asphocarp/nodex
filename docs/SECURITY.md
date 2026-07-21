@@ -43,6 +43,14 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   string length; Yjs/Awareness binary frames retain their narrower framing and
   payload bounds. JSON and Document responses are capped independently, while
   SSE remains a bounded-frame stream instead of being buffered as one response.
+- Native CLI search never gives ripgrep a database path or a caller-selected
+  directory. Core alone assembles authorized snapshot leases below the Profile,
+  rejects symlinked or foreign-owned paths, seals directories and files
+  current-user read-only, and publishes the manifest last. The CLI revalidates
+  lease expiry, types, modes, relative paths, lengths, hashes, and the exact
+  manifest before invoking the packaged binary with `--no-config`, a fixed
+  snapshot root, no shell, and a closed read-only option set. Logical Page
+  titles affect display mapping only and never physical path construction.
 - Stable asset URI scheme avoids embedding brittle absolute local URLs.
 - Codex approvals are explicit protocol responses (`accept`/`decline`/etc) and are gated by the per-project Threads permission mode.
 - Codex user-input requests are never auto-answered and require explicit renderer interaction.

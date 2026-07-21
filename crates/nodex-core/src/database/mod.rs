@@ -191,6 +191,7 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::Unauthorized => CoreErrorCode::Unauthorized,
         StoreErrorCode::GenerationConflict => CoreErrorCode::GenerationConflict,
         StoreErrorCode::MissingDependencies => CoreErrorCode::DocumentUpdateMissingDependencies,
+        StoreErrorCode::MaterializationStale => CoreErrorCode::MaterializationStale,
         StoreErrorCode::WriterQueueFull
         | StoreErrorCode::WriterClosed
         | StoreErrorCode::ReaderPoolTimeout

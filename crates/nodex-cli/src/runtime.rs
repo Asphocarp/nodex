@@ -15,6 +15,7 @@ use nodex_core_contracts::library::{
     LibraryCatalogKind, LibraryLifecycle, LibraryNavigationNode, LibraryNavigationParent,
     LibraryPageFileKind, LibraryPageHistoryCursor, LibraryPageOwnershipPath,
     LibraryPagePrepareKind, LibraryRead, LibraryReadValue, LibraryResourceTarget,
+    LibrarySearchSnapshotScope,
 };
 use nodex_core_contracts::workspace::{
     ProjectLifecycle, ProjectWorkspaceProject, ProjectWorkspaceRead, ProjectWorkspaceReadValue,
@@ -32,7 +33,7 @@ use serde_json::{Value, json};
 
 use crate::cli::{
     BackupCommand, BlockArgs, BlockCommand, Cli, Command, HistoryArgs, PageArgs, PageCommand,
-    PageTitleArgs, PageTitleCommand, PrepareKind, ReadArgs, SedArgs,
+    PageTitleArgs, PageTitleCommand, PrepareKind, ReadArgs, RgArgs, SedArgs,
 };
 use crate::error::{CliError, CliErrorCode};
 
@@ -41,9 +42,17 @@ pub enum CommandOutput {
     Json(Value),
     Text(String),
     Bytes(Vec<u8>),
+    Process { stdout: Vec<u8>, exit_status: i32 },
 }
 
 impl CommandOutput {
+    pub fn exit_status(&self) -> i32 {
+        match self {
+            Self::Process { exit_status, .. } => *exit_status,
+            _ => crate::EXIT_SUCCESS,
+        }
+    }
+
     pub fn write(self, json_output: bool) -> Result<(), CliError> {
         let mut stdout = io::stdout().lock();
         if json_output {
@@ -56,6 +65,18 @@ impl CommandOutput {
                         "command returned non-UTF-8 bytes for JSON output",
                     )
                 })?),
+                Self::Process {
+                    stdout,
+                    exit_status,
+                } => json!({
+                    "stdout": String::from_utf8(stdout).map_err(|_| {
+                        CliError::new(
+                            CliErrorCode::Internal,
+                            "command returned non-UTF-8 process output for JSON output",
+                        )
+                    })?,
+                    "exit_status": exit_status,
+                }),
             };
             serde_json::to_writer(
                 &mut stdout,
@@ -79,6 +100,7 @@ impl CommandOutput {
                     .as_bytes(),
             ),
             Self::Text(value) => write_line_terminated(writer, value.as_bytes()),
+            Self::Process { stdout, .. } => writer.write_all(&stdout).map_err(internal),
         }
     }
 }
@@ -106,6 +128,14 @@ pub fn execute(cli: Cli) -> Result<CommandOutput, CliError> {
         Command::Sed(arguments) => {
             sed_page(&client, cli.project.as_deref(), &cwd, arguments, cli.json)
         }
+        Command::Rg(arguments) => rg_pages(
+            &client,
+            cli.project.as_deref(),
+            cli.database.as_deref(),
+            cli.page.as_deref(),
+            &cwd,
+            arguments,
+        ),
         Command::History(arguments) => history(&client, cli.project.as_deref(), &cwd, arguments),
         Command::Patch(arguments) => crate::page_mutation::patch_page(
             &client,
@@ -241,6 +271,186 @@ pub fn execute(cli: Cli) -> Result<CommandOutput, CliError> {
             "this native CLI command is parsed but not implemented yet",
         )),
     }
+}
+
+fn rg_pages(
+    client: &CoreClient,
+    explicit_project: Option<&str>,
+    explicit_database: Option<&str>,
+    explicit_page: Option<&str>,
+    cwd: &Path,
+    arguments: RgArgs,
+) -> Result<CommandOutput, CliError> {
+    let invocation = crate::ripgrep::parse(arguments.arguments)?;
+    if invocation.scope.is_some() && (explicit_database.is_some() || explicit_page.is_some()) {
+        return Err(CliError::new(
+            CliErrorCode::RgArgumentUnsupported,
+            "the positional rg scope cannot be combined with --database or --page",
+        ));
+    }
+    if explicit_database.is_some() && explicit_page.is_some() {
+        return Err(CliError::new(
+            CliErrorCode::ScopeAmbiguous,
+            "--database and --page select different rg scope kinds",
+        ));
+    }
+    let project = selected_project(client, explicit_project, cwd)?;
+    let scope = if let Some(selector) = invocation.scope.as_deref() {
+        resolve_search_scope(client, &project, selector)?
+    } else if let Some(selector) = explicit_page {
+        LibrarySearchSnapshotScope::Page {
+            page_id: resolve_page_selector(client, &project.id, selector)?,
+        }
+    } else if let Some(selector) = explicit_database {
+        LibrarySearchSnapshotScope::Database {
+            database_id: stable_scope_id(selector, "--database")?,
+        }
+    } else {
+        LibrarySearchSnapshotScope::Database {
+            database_id: project.database_id.clone(),
+        }
+    };
+    let snapshot = unwrap_library(client.library_read(
+        Some(&project.id),
+        LibraryRead::AcquireSearchSnapshot {
+            scope,
+            strict_materialization: true,
+        },
+    ))?;
+    let LibraryReadValue::SearchSnapshotLease { value: lease } = snapshot.value else {
+        return Err(internal("Core returned the wrong search snapshot lease"));
+    };
+
+    let searched = crate::ripgrep::run(&lease, &invocation);
+    let released = unwrap_library(client.library_read(
+        Some(&project.id),
+        LibraryRead::ReleaseSearchSnapshot {
+            lease_id: lease.lease_id.clone(),
+        },
+    ));
+    match (searched, released) {
+        (Err(error), _) => Err(error),
+        (Ok(_), Err(error)) => Err(error),
+        (Ok(output), Ok(snapshot)) => {
+            let LibraryReadValue::SearchSnapshotRelease { value } = snapshot.value else {
+                return Err(internal("Core returned the wrong search snapshot release"));
+            };
+            if !value.released {
+                return Err(CliError::new(
+                    CliErrorCode::SnapshotExpired,
+                    "Core search snapshot lease expired before release",
+                ));
+            }
+            Ok(CommandOutput::Process {
+                stdout: output.stdout,
+                exit_status: output.exit_status,
+            })
+        }
+    }
+}
+
+fn resolve_search_scope(
+    client: &CoreClient,
+    project: &ProjectWorkspaceProject,
+    selector: &str,
+) -> Result<LibrarySearchSnapshotScope, CliError> {
+    if selector == "database" || selector.strip_prefix('@') == Some(project.database_id.as_str()) {
+        return Ok(LibrarySearchSnapshotScope::Database {
+            database_id: project.database_id.clone(),
+        });
+    }
+    if let Some(data_source_id) = selector.strip_prefix("data_source:") {
+        return Ok(LibrarySearchSnapshotScope::DataSource {
+            data_source_id: stable_scope_id(data_source_id, "Data Source scope")?,
+        });
+    }
+    let Some(identity) = selector.strip_prefix('@') else {
+        return Ok(LibrarySearchSnapshotScope::Page {
+            page_id: resolve_page_selector(client, &project.id, selector)?,
+        });
+    };
+    let page = unwrap_library(client.library_read(
+        Some(&project.id),
+        LibraryRead::PageLifecyclePreflight {
+            page_id: identity.to_owned(),
+        },
+    ))?;
+    let LibraryReadValue::PageLifecyclePreflight { value } = page.value else {
+        return Err(internal("Core returned the wrong Page scope preflight"));
+    };
+    if value.page.is_some_and(|page| page.lifecycle == "active") {
+        return Ok(LibrarySearchSnapshotScope::Page {
+            page_id: identity.to_owned(),
+        });
+    }
+    let database = client
+        .database_read(
+            Some(&project.id),
+            DatabaseRead {
+                target: DatabaseTarget::Database {
+                    database_id: identity.to_owned(),
+                },
+                mode: DatabaseReadMode::Database,
+                filter: None,
+                sort: None,
+            },
+        )
+        .map_err(map_client_error)?;
+    match database.0 {
+        ResponseEnvelope::Ok(snapshot) => {
+            let DatabaseReadValue::Database { .. } = snapshot.value else {
+                return Err(internal("Core returned the wrong Database scope snapshot"));
+            };
+            return Ok(LibrarySearchSnapshotScope::Database {
+                database_id: identity.to_owned(),
+            });
+        }
+        ResponseEnvelope::Error(error) if error.code == CoreErrorCode::NotFound => {}
+        ResponseEnvelope::Error(error) => return Err(map_core_error(error)),
+    }
+    let source = client
+        .database_read(
+            Some(&project.id),
+            DatabaseRead {
+                target: DatabaseTarget::DataSource {
+                    data_source_id: identity.to_owned(),
+                },
+                mode: DatabaseReadMode::DataSource,
+                filter: None,
+                sort: None,
+            },
+        )
+        .map_err(map_client_error)?;
+    match source.0 {
+        ResponseEnvelope::Ok(snapshot) => {
+            let DatabaseReadValue::DataSource { .. } = snapshot.value else {
+                return Err(internal(
+                    "Core returned the wrong Data Source scope snapshot",
+                ));
+            };
+            Ok(LibrarySearchSnapshotScope::DataSource {
+                data_source_id: identity.to_owned(),
+            })
+        }
+        ResponseEnvelope::Error(error) if error.code == CoreErrorCode::NotFound => {
+            Err(CliError::new(
+                CliErrorCode::ScopeNotFound,
+                format!("no authorized Page, Database, or Data Source matches '{selector}'"),
+            ))
+        }
+        ResponseEnvelope::Error(error) => Err(map_core_error(error)),
+    }
+}
+
+fn stable_scope_id(value: &str, label: &str) -> Result<String, CliError> {
+    let value = value.strip_prefix('@').unwrap_or(value);
+    if value.is_empty() || value.len() > 512 || value.trim() != value {
+        return Err(CliError::new(
+            CliErrorCode::InvalidInput,
+            format!("{label} must contain one bounded stable identity"),
+        ));
+    }
+    Ok(value.to_owned())
 }
 
 fn read_page(
@@ -1133,6 +1343,7 @@ pub(crate) fn map_core_error(error: CoreError) -> CliError {
         CoreErrorCode::PatchOverlap => CliErrorCode::PatchOverlap,
         CoreErrorCode::IdempotencyKeyReused => CliErrorCode::IdempotencyKeyReused,
         CoreErrorCode::ProtectedOwnerDeletion => CliErrorCode::ProtectedOwnerDeletion,
+        CoreErrorCode::MaterializationStale => CliErrorCode::MaterializationStale,
         CoreErrorCode::ProtocolIncompatible => CliErrorCode::ProtocolIncompatible,
         CoreErrorCode::CoreUnavailable => CliErrorCode::CoreUnavailable,
         CoreErrorCode::RevisionConflict

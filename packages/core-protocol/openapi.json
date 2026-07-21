@@ -2428,6 +2428,7 @@
           "protected_owner_deletion",
           "document_update_missing_dependencies",
           "invalid_document_schema",
+          "materialization_stale",
           "maintenance_in_progress",
           "schema_unsupported",
           "store_corrupt",
@@ -9324,6 +9325,337 @@
           }
         }
       },
+      "LibrarySearchSnapshotFile": {
+        "type": "object",
+        "required": [
+          "kind",
+          "sha256",
+          "byte_length",
+          "physical_relative_path",
+          "logical_path"
+        ],
+        "properties": {
+          "byte_length": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "kind": {
+            "$ref": "#/components/schemas/LibraryPageFileKind"
+          },
+          "logical_path": {
+            "type": "string"
+          },
+          "physical_relative_path": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        }
+      },
+      "LibrarySearchSnapshotLease": {
+        "type": "object",
+        "required": [
+          "lease_id",
+          "expires_at_unix_ms",
+          "physical_root",
+          "manifest"
+        ],
+        "properties": {
+          "expires_at_unix_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "lease_id": {
+            "type": "string"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/LibrarySearchSnapshotManifest"
+          },
+          "physical_root": {
+            "type": "string"
+          }
+        }
+      },
+      "LibrarySearchSnapshotManifest": {
+        "type": "object",
+        "required": [
+          "version",
+          "projection_version",
+          "library_id",
+          "project_id",
+          "store_epoch",
+          "event_head",
+          "scope",
+          "pages",
+          "warnings"
+        ],
+        "properties": {
+          "event_head": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "pages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibrarySearchSnapshotPage"
+            }
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "projection_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "scope": {
+            "$ref": "#/components/schemas/LibrarySearchSnapshotScope"
+          },
+          "store_epoch": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibrarySearchSnapshotWarning"
+            }
+          }
+        }
+      },
+      "LibrarySearchSnapshotOwner": {
+        "type": "object",
+        "required": [
+          "kind",
+          "id",
+          "title"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/LibrarySearchSnapshotOwnerKind"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "LibrarySearchSnapshotOwnerKind": {
+        "type": "string",
+        "enum": [
+          "library",
+          "database",
+          "data_source",
+          "page"
+        ]
+      },
+      "LibrarySearchSnapshotPage": {
+        "type": "object",
+        "required": [
+          "page_id",
+          "title_markdown",
+          "storage_project_id",
+          "ownership_path",
+          "metadata_revision",
+          "document_generation",
+          "document_head_seq",
+          "property_revisions",
+          "value_revisions",
+          "title_sha256",
+          "meta",
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/LibrarySearchSnapshotFile"
+          },
+          "data_source_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "data_source_schema_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "database_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "document_generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "document_head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/LibrarySearchSnapshotFile"
+          },
+          "metadata_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "ownership_path": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibrarySearchSnapshotOwner"
+            }
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "property_revisions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "schedule_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "storage_project_id": {
+            "type": "string"
+          },
+          "title_markdown": {
+            "type": "string"
+          },
+          "title_sha256": {
+            "type": "string"
+          },
+          "value_revisions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "LibrarySearchSnapshotRelease": {
+        "type": "object",
+        "required": [
+          "lease_id",
+          "released"
+        ],
+        "properties": {
+          "lease_id": {
+            "type": "string"
+          },
+          "released": {
+            "type": "boolean"
+          }
+        }
+      },
+      "LibrarySearchSnapshotScope": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "database_id",
+              "kind"
+            ],
+            "properties": {
+              "database_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "database"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data_source_id",
+              "kind"
+            ],
+            "properties": {
+              "data_source_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "data_source"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "LibrarySearchSnapshotWarning": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "materialization_stale"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
       "LibrarySearchSourceKind": {
         "type": "string",
         "enum": [
@@ -12937,6 +13269,46 @@
                         "$ref": "#/components/schemas/LibraryPagePrepareKind"
                       }
                     ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "scope",
+                  "strict_materialization",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "acquire_search_snapshot"
+                    ]
+                  },
+                  "scope": {
+                    "$ref": "#/components/schemas/LibrarySearchSnapshotScope"
+                  },
+                  "strict_materialization": {
+                    "type": "boolean"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "lease_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "release_search_snapshot"
+                    ]
+                  },
+                  "lease_id": {
+                    "type": "string"
                   }
                 }
               },
@@ -17867,6 +18239,42 @@
                           },
                           "value": {
                             "$ref": "#/components/schemas/LibraryPageFileProjection"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "search_snapshot_lease"
+                            ]
+                          },
+                          "value": {
+                            "$ref": "#/components/schemas/LibrarySearchSnapshotLease"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "search_snapshot_release"
+                            ]
+                          },
+                          "value": {
+                            "$ref": "#/components/schemas/LibrarySearchSnapshotRelease"
                           }
                         }
                       },

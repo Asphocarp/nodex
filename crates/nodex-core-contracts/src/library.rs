@@ -462,6 +462,13 @@ pub enum LibraryRead {
         file_kind: LibraryPageFileKind,
         prepare: Option<LibraryPagePrepareKind>,
     },
+    AcquireSearchSnapshot {
+        scope: LibrarySearchSnapshotScope,
+        strict_materialization: bool,
+    },
+    ReleaseSearchSnapshot {
+        lease_id: String,
+    },
     AgentBlockTarget {
         block_id: String,
         authorization: Box<AgentExecutionAuthorization>,
@@ -1134,6 +1141,92 @@ pub struct LibraryPageFileProjection {
     pub validators: LibraryPageFileValidators,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibrarySearchSnapshotScope {
+    Database { database_id: String },
+    DataSource { data_source_id: String },
+    Page { page_id: String },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibrarySearchSnapshotOwnerKind {
+    Library,
+    Database,
+    DataSource,
+    Page,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibrarySearchSnapshotOwner {
+    pub kind: LibrarySearchSnapshotOwnerKind,
+    pub id: String,
+    pub title: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibrarySearchSnapshotFile {
+    pub kind: LibraryPageFileKind,
+    pub sha256: String,
+    pub byte_length: u64,
+    pub physical_relative_path: String,
+    pub logical_path: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibrarySearchSnapshotPage {
+    pub page_id: String,
+    pub title_markdown: String,
+    pub storage_project_id: String,
+    pub database_id: Option<String>,
+    pub data_source_id: Option<String>,
+    pub ownership_path: Vec<LibrarySearchSnapshotOwner>,
+    pub metadata_revision: i64,
+    pub document_generation: i64,
+    pub document_head_seq: i64,
+    pub data_source_schema_revision: Option<i64>,
+    pub property_revisions: std::collections::BTreeMap<String, i64>,
+    pub value_revisions: std::collections::BTreeMap<String, i64>,
+    pub schedule_revision: Option<i64>,
+    pub title_sha256: String,
+    pub meta: LibrarySearchSnapshotFile,
+    pub body: LibrarySearchSnapshotFile,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibrarySearchSnapshotWarning {
+    MaterializationStale { page_id: String },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibrarySearchSnapshotManifest {
+    pub version: u32,
+    pub projection_version: u32,
+    pub library_id: String,
+    pub project_id: String,
+    pub store_epoch: String,
+    pub event_head: i64,
+    pub scope: LibrarySearchSnapshotScope,
+    pub pages: Vec<LibrarySearchSnapshotPage>,
+    pub warnings: Vec<LibrarySearchSnapshotWarning>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibrarySearchSnapshotLease {
+    pub lease_id: String,
+    pub expires_at_unix_ms: i64,
+    pub physical_root: String,
+    pub manifest: LibrarySearchSnapshotManifest,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibrarySearchSnapshotRelease {
+    pub lease_id: String,
+    pub released: bool,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 pub struct LibraryAgentBlockTarget {
     pub block_id: String,
@@ -1508,6 +1601,12 @@ pub enum LibraryReadValue {
     },
     PageFile {
         value: Box<LibraryPageFileProjection>,
+    },
+    SearchSnapshotLease {
+        value: Box<LibrarySearchSnapshotLease>,
+    },
+    SearchSnapshotRelease {
+        value: LibrarySearchSnapshotRelease,
     },
     AgentBlockTarget {
         value: Option<LibraryAgentBlockTarget>,

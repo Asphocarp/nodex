@@ -1531,6 +1531,7 @@ fn record_core_error(error: CoreError) -> CoreError {
         CoreErrorCode::ProtectedOwnerDeletion => "protected_owner_deletion",
         CoreErrorCode::DocumentUpdateMissingDependencies => "document_update_missing_dependencies",
         CoreErrorCode::InvalidDocumentSchema => "invalid_document_schema",
+        CoreErrorCode::MaterializationStale => "materialization_stale",
         CoreErrorCode::MaintenanceInProgress => "maintenance_in_progress",
         CoreErrorCode::SchemaUnsupported => "schema_unsupported",
         CoreErrorCode::StoreCorrupt => "store_corrupt",
@@ -2162,6 +2163,7 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let (document_sender, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
     let library = LibraryModule::new(&identity.profile_id, &identity.library_id, &store);
     let replacement_library_operations = library.prepared_agent_operation_registry();
+    let replacement_search_snapshots = library.search_snapshot_lease_registry();
     let database = DatabaseModule::new(&identity.profile_id, &identity.library_id, &store);
     let automation = AutomationModule::new(&identity.profile_id, &identity.library_id, &store);
     let document = OwnedDocumentModule::new(
@@ -2178,6 +2180,9 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         StoreAdministrationModule::new(&identity.profile_id, &identity.library_id, &store)
             .with_store_replacement_hook(move |store_epoch| {
                 replacement_library_operations.invalidate_all()?;
+                if let Some(search_snapshots) = &replacement_search_snapshots {
+                    search_snapshots.invalidate_all()?;
+                }
                 replacement_document
                     .reset_for_store_replacement()
                     .map_err(store_replacement_hook_error)?;

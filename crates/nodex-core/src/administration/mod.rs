@@ -1524,6 +1524,7 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::IdempotencyKeyReused => CoreErrorCode::IdempotencyKeyReused,
         StoreErrorCode::ProtectedOwnerDeletion => CoreErrorCode::ProtectedOwnerDeletion,
         StoreErrorCode::MissingDependencies => CoreErrorCode::DocumentUpdateMissingDependencies,
+        StoreErrorCode::MaterializationStale => CoreErrorCode::MaterializationStale,
         StoreErrorCode::UnsupportedSchema
         | StoreErrorCode::AlreadyOwned
         | StoreErrorCode::InvalidProfile
