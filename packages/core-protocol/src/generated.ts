@@ -2651,10 +2651,10 @@ export interface components {
                 readonly parent: components["schemas"]["LibraryWriteParent"];
                 readonly title: string;
             } | {
+                readonly destination: components["schemas"]["LibraryPageWriteDestination"];
                 /** @enum {string} */
                 readonly kind: "create_page_from_nfm";
                 readonly nfm: string;
-                readonly parent: components["schemas"]["LibraryWriteParent"];
                 readonly title_markdown: string;
             } | {
                 readonly data_source_id: string;

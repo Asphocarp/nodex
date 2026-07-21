@@ -206,7 +206,7 @@ pub(super) fn apply(
                 LibraryIntent::CreatePageFromNfm {
                     title_markdown,
                     nfm,
-                    parent,
+                    destination,
                 } => {
                     let page_id = stable_uuid_v7(
                         &request.operation_id,
@@ -218,7 +218,7 @@ pub(super) fn apply(
                         "page_document",
                         &format!("{library_id}:semantic"),
                     );
-                    create_page(
+                    super::page_write_semantic::create_page(
                         transaction,
                         &context,
                         &store_epoch,
@@ -227,11 +227,9 @@ pub(super) fn apply(
                         &request_hash,
                         &page_id,
                         &document_id,
-                        PageGenesisInput::NestedMarkdown {
-                            title_markdown,
-                            nfm,
-                        },
-                        parent,
+                        title_markdown,
+                        nfm,
+                        destination,
                     )
                 }
                 LibraryIntent::CreateDatabase {
@@ -1910,6 +1908,37 @@ fn create_page(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(super) fn create_page_from_nfm(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    library_id: &str,
+    operation_id: &str,
+    request_hash: &str,
+    page_id: &str,
+    document_id: &str,
+    title_markdown: &str,
+    nfm: &str,
+    parent: &LibraryWriteParent,
+) -> Result<LibraryApplyOutcome, StoreError> {
+    create_page(
+        connection,
+        context,
+        store_epoch,
+        library_id,
+        operation_id,
+        request_hash,
+        page_id,
+        document_id,
+        PageGenesisInput::NestedMarkdown {
+            title_markdown,
+            nfm,
+        },
+        parent,
+    )
+}
+
 enum PageGenesisInput<'a> {
     PlainTitle(&'a str),
     NestedMarkdown {
@@ -3339,7 +3368,7 @@ mod tests {
             intent: LibraryIntent::CreatePageFromNfm {
                 title_markdown: "Native **Page**".to_owned(),
                 nfm: body.to_owned(),
-                parent: LibraryWriteParent::Library { before: None },
+                destination: LibraryPageWriteDestination::Library { at: None },
             },
         };
         let first = module
@@ -3438,6 +3467,166 @@ mod tests {
     }
 
     #[test]
+    fn semantic_page_creation_places_a_complete_page_in_a_data_source_atomically() {
+        let (_directory, kernel, module) = seeded_library();
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated) \
+                         VALUES ('project-storage', 'library-1', 'Database storage', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed destination storage Project");
+        let mut storage_context = context();
+        storage_context.project_id = Some(ProjectId("project-storage".to_owned()));
+        storage_context.connection_id = "connection:database-storage".to_owned();
+        module
+            .apply(
+                &storage_context,
+                create_database_request("native-cli:create-database-for-page"),
+            )
+            .expect("create Data Source destination");
+        module
+            .apply(
+                &storage_context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "native-cli:grant-database-for-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::GrantProjectAccess {
+                        project_id: "project-1".to_owned(),
+                        target: LibraryResourceTarget::Database {
+                            database_id: "018f0000-0000-7000-8000-000000000001".to_owned(),
+                        },
+                        access: LibraryAccess::ReadWrite,
+                    },
+                },
+            )
+            .expect("grant Data Source destination");
+        let request = |body: &str| ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: "native-cli:create-data-source-page".to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::CreatePageFromNfm {
+                title_markdown: "Database **Page**".to_owned(),
+                nfm: body.to_owned(),
+                destination: LibraryPageWriteDestination::DataSource {
+                    data_source_id: "018f0000-0000-7000-8000-000000000002".to_owned(),
+                    at: None,
+                },
+            },
+        };
+        let first = module
+            .apply(&context(), request("## Work\n\nNative placement."))
+            .expect("create Page in Data Source");
+        let created = first
+            .committed
+            .value
+            .page_create
+            .clone()
+            .expect("exact Page creation result");
+        assert_eq!(created.document_generation, 1);
+        assert_eq!(created.document_head_seq, 1);
+        assert_eq!(created.block_ids.len(), 2);
+        assert_eq!(
+            first.committed.receipt.affected_database_ids,
+            vec!["018f0000-0000-7000-8000-000000000001"]
+        );
+        assert_eq!(
+            first.committed.receipt.affected_view_ids,
+            vec!["018f0000-0000-7000-8000-000000000003"]
+        );
+        assert_eq!(
+            first.committed.receipt.committed_revisions
+                [&format!("blockLocation:{}", created.page_id)],
+            2
+        );
+        assert_eq!(
+            first.committed.receipt.committed_revisions[&format!("pageParent:{}", created.page_id)],
+            2
+        );
+
+        let evidence = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT block.project_id, block.location_kind, \
+                           block.containing_database_id, page.parent_kind, page.parent_id, \
+                           membership.revision, projection.location_kind, \
+                           projection.containing_database_id, projection.view_group_key, \
+                           EXISTS(SELECT 1 FROM top_level_block_placements top \
+                             WHERE top.block_id = block.id), \
+                           EXISTS(SELECT 1 FROM library_block_placements library \
+                             WHERE library.block_id = block.id), document.project_id \
+                         FROM blocks block JOIN pages page ON page.block_id = block.id \
+                         JOIN documents document ON document.id = page.document_id \
+                         JOIN data_source_page_memberships membership \
+                           ON membership.page_block_id = block.id AND membership.removed_at IS NULL \
+                         JOIN page_read_model projection ON projection.page_block_id = block.id \
+                         WHERE block.id = ?1",
+                        [&created.page_id],
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, String>(2)?,
+                                row.get::<_, String>(3)?,
+                                row.get::<_, String>(4)?,
+                                row.get::<_, i64>(5)?,
+                                row.get::<_, String>(6)?,
+                                row.get::<_, String>(7)?,
+                                row.get::<_, Option<String>>(8)?,
+                                row.get::<_, i64>(9)?,
+                                row.get::<_, i64>(10)?,
+                                row.get::<_, String>(11)?,
+                            ))
+                        },
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("atomic Data Source placement evidence");
+        assert_eq!(
+            evidence,
+            (
+                "project-storage".to_owned(),
+                "database".to_owned(),
+                "018f0000-0000-7000-8000-000000000001".to_owned(),
+                "data_source".to_owned(),
+                "018f0000-0000-7000-8000-000000000002".to_owned(),
+                1,
+                "database".to_owned(),
+                "018f0000-0000-7000-8000-000000000001".to_owned(),
+                Some("triage".to_owned()),
+                0,
+                0,
+                "project-storage".to_owned(),
+            )
+        );
+
+        let mut retry_context = context();
+        retry_context.connection_id = "connection:native-cli-data-source-retry".to_owned();
+        let replay = module
+            .apply(&retry_context, request("## Work\n\nNative placement."))
+            .expect("exact Data Source Page replay");
+        assert!(replay.committed.receipt.mutation.duplicate);
+        assert!(replay.event.is_none());
+        assert_eq!(replay.committed.value.page_create, Some(created));
+        let collision = module
+            .apply(&context(), request("Changed body"))
+            .expect_err("same key cannot change Data Source Page content");
+        assert_eq!(
+            collision.code,
+            nodex_core_contracts::CoreErrorCode::IdempotencyKeyReused
+        );
+    }
+
+    #[test]
     fn search_snapshot_leases_are_immutable_scoped_and_idempotently_released() {
         let (directory, kernel, module) = seeded_library();
         let created = module
@@ -3450,7 +3639,7 @@ mod tests {
                     intent: LibraryIntent::CreatePageFromNfm {
                         title_markdown: "Search **Page**".to_owned(),
                         nfm: "## Runtime\n\nCore starts on demand.".to_owned(),
-                        parent: LibraryWriteParent::Library { before: None },
+                        destination: LibraryPageWriteDestination::Library { at: None },
                     },
                 },
             )
@@ -3807,7 +3996,7 @@ mod tests {
             intent: LibraryIntent::CreatePageFromNfm {
                 title_markdown: title.to_owned(),
                 nfm: "## Body\n\nDurable content.".to_owned(),
-                parent: LibraryWriteParent::Library { before: None },
+                destination: LibraryPageWriteDestination::Library { at: None },
             },
         };
         let parent = module

@@ -132,7 +132,7 @@ pub(crate) struct OccurrencePageCloneResult {
     pub(crate) affected_document_ids: Vec<String>,
 }
 
-fn write_parent(
+pub(super) fn write_parent(
     destination: &LibraryPageCopyDestination,
 ) -> Result<LibraryWriteParent, StoreError> {
     match destination {
@@ -156,7 +156,7 @@ fn write_parent(
     }
 }
 
-fn data_source_destination(
+pub(super) fn data_source_destination(
     destination: &LibraryPageCopyDestination,
 ) -> Option<PageCopyDataSourceDestination> {
     let LibraryPageCopyDestination::DataSource {

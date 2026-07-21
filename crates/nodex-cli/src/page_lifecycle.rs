@@ -5,7 +5,7 @@ use nodex_core_contracts::database::{
 };
 use nodex_core_contracts::library::{
     LIBRARY_CONTRACT_VERSION, LibraryAgentSiblingAnchor, LibraryIntent,
-    LibraryPageWriteDestination, LibraryRead, LibraryReadValue, LibraryWriteParent,
+    LibraryPageWriteDestination, LibraryRead, LibraryReadValue,
 };
 use nodex_core_contracts::workspace::ProjectWorkspaceProject;
 use nodex_core_contracts::{CoreErrorCode, ModuleApplyRequest, StoreEpoch};
@@ -42,7 +42,7 @@ pub(crate) fn create_page(
         )?
     };
     let project = selected_project(client, explicit_project, cwd)?;
-    let parent = resolve_write_parent(client, &project.id, &arguments.parent)?;
+    let destination = resolve_page_destination(client, &project, &arguments.parent, None)?;
     let operation_id = operation_id(arguments.mutation.idempotency_key.as_deref(), json_output)?;
     let response = client
         .library_apply(
@@ -54,7 +54,7 @@ pub(crate) fn create_page(
                 intent: LibraryIntent::CreatePageFromNfm {
                     title_markdown,
                     nfm,
-                    parent,
+                    destination,
                 },
             },
         )
@@ -454,45 +454,6 @@ fn maybe_include_commit(
         serde_json::to_value(commit).map_err(internal)?,
     );
     Ok(())
-}
-
-fn resolve_write_parent(
-    client: &CoreClient,
-    project_id: &str,
-    selector: &str,
-) -> Result<LibraryWriteParent, CliError> {
-    let unprefixed = selector.strip_prefix('@').unwrap_or(selector);
-    if selector == "library" || unprefixed == client.handshake.library_id {
-        return Ok(LibraryWriteParent::Library { before: None });
-    }
-    let page_id = resolve_page_selector(client, project_id, selector)?;
-    let snapshot = unwrap_library(client.library_read(
-        Some(project_id),
-        LibraryRead::PageLifecyclePreflight {
-            page_id: page_id.clone(),
-        },
-    ))?;
-    let LibraryReadValue::PageLifecyclePreflight { value } = snapshot.value else {
-        return Err(internal("Core returned the wrong Page parent preflight"));
-    };
-    let page = value.page.ok_or_else(|| {
-        CliError::new(
-            CliErrorCode::ScopeNotFound,
-            format!("Page parent @{page_id} is unavailable"),
-        )
-    })?;
-    if page.lifecycle != "active" {
-        return Err(CliError::new(
-            CliErrorCode::ScopeNotFound,
-            format!("Page parent @{page_id} is not active"),
-        ));
-    }
-    Ok(LibraryWriteParent::Page {
-        page_id,
-        expected_document_generation: page.document.generation,
-        expected_document_head_seq: page.document.head_seq,
-        before: None,
-    })
 }
 
 fn internal(error: impl std::fmt::Display) -> CliError {

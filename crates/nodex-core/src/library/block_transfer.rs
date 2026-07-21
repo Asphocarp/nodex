@@ -2621,38 +2621,36 @@ struct StagedPageParentGenesis {
     prepared: crate::document::PreparedYjsGenesis,
 }
 
-pub(super) struct StagedFreshAgentPage {
+pub(super) struct StagedFreshPage {
     pub(super) document_id: String,
     pub(super) document_head_seq: i64,
     pub(super) body_block_ids: Vec<String>,
+    pub(super) materialization: DocumentMaterialization,
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn stage_fresh_agent_page_in_library(
+pub(super) fn stage_fresh_page_in_library(
     connection: &Connection,
     library_id: &str,
     project_id: &str,
     operation_id: &str,
     store_epoch: &str,
     page_id: &str,
+    document_id: &str,
+    body_block_id_role: &str,
     rich_title: &[RichTextItem],
     nfm: &str,
     before_block_id: Option<&str>,
     now: &str,
-) -> Result<StagedFreshAgentPage, StoreError> {
-    let document_id = format!("document:{page_id}");
+) -> Result<StagedFreshPage, StoreError> {
     let mut block_ordinal = 0usize;
     let mut allocate_block_id = || {
-        let block_id = stable_uuid_v7(
-            operation_id,
-            "agent_create_body",
-            &block_ordinal.to_string(),
-        );
+        let block_id = stable_uuid_v7(operation_id, body_block_id_role, &block_ordinal.to_string());
         block_ordinal += 1;
         block_id
     };
     let prepared = prepare_page_yjs_genesis_with_content(
-        &document_id,
+        document_id,
         rich_title,
         nfm,
         &mut allocate_block_id,
@@ -2672,7 +2670,7 @@ pub(super) fn stage_fresh_agent_page_in_library(
     let mut fresh_block_ids = vec![page_id.to_owned()];
     fresh_block_ids.extend(body_block_ids.iter().cloned());
     assert_fresh_copy_identities(connection, &fresh_block_ids)?;
-    if read_document_authority(connection, &document_id)?.is_some() {
+    if read_document_authority(connection, document_id)?.is_some() {
         return Err(StoreError::new(
             StoreErrorCode::AlreadyOwned,
             "Created Page Document identity is already owned",
@@ -2715,12 +2713,9 @@ pub(super) fn stage_fresh_agent_page_in_library(
         .transpose()?;
     insert_library_placement(connection, library_id, page_id, anchor.as_ref(), now)?;
 
-    let authority = read_document_authority(connection, &document_id)?
+    let authority = read_document_authority(connection, document_id)?
         .ok_or_else(|| corrupt("Created Page has no Document authority"))?;
-    let update_id = format!(
-        "agent-create-page-genesis:{}",
-        sha256(operation_id.as_bytes())
-    );
+    let update_id = format!("create-page-genesis:{}", sha256(operation_id.as_bytes()));
     let full_state = prepared.engine.full_state_v1();
     let persisted = persist_yjs_genesis(
         connection,
@@ -2728,7 +2723,7 @@ pub(super) fn stage_fresh_agent_page_in_library(
             authority: &authority,
             materialization: &prepared.materialization,
             update_id: &update_id,
-            client_session_id: "rust:nodex-agent-create",
+            client_session_id: "rust:nodex-page-create",
             update: &prepared.update_v1,
             state_vector: &prepared.state_vector_v1,
             full_state: &full_state,
@@ -2741,7 +2736,7 @@ pub(super) fn stage_fresh_agent_page_in_library(
         connection,
         page_id,
         project_id,
-        &document_id,
+        document_id,
         "space",
         None,
         Some(&top_level_rank),
@@ -2756,10 +2751,11 @@ pub(super) fn stage_fresh_agent_page_in_library(
          WHERE page_block_id = ?1",
         [page_id],
     )?;
-    Ok(StagedFreshAgentPage {
-        document_id,
+    Ok(StagedFreshPage {
+        document_id: document_id.to_owned(),
         document_head_seq: persisted.head_seq,
         body_block_ids,
+        materialization: prepared.materialization,
     })
 }
 

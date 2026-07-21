@@ -10566,10 +10566,13 @@
                 "required": [
                   "title_markdown",
                   "nfm",
-                  "parent",
+                  "destination",
                   "kind"
                 ],
                 "properties": {
+                  "destination": {
+                    "$ref": "#/components/schemas/LibraryPageWriteDestination"
+                  },
                   "kind": {
                     "type": "string",
                     "enum": [
@@ -10578,9 +10581,6 @@
                   },
                   "nfm": {
                     "type": "string"
-                  },
-                  "parent": {
-                    "$ref": "#/components/schemas/LibraryWriteParent"
                   },
                   "title_markdown": {
                     "type": "string"

@@ -1692,7 +1692,7 @@ pub enum LibraryIntent {
     CreatePageFromNfm {
         title_markdown: String,
         nfm: String,
-        parent: LibraryWriteParent,
+        destination: LibraryPageWriteDestination,
     },
     CreateDatabase {
         database_id: String,

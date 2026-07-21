@@ -418,13 +418,16 @@ fn apply_pages(
             .pages
             .get(index)
             .ok_or_else(|| corrupt("Prepared Page draft disappeared"))?;
-        let staged = super::block_transfer::stage_fresh_agent_page_in_library(
+        let document_id = format!("document:{}", page.page_id);
+        let staged = super::block_transfer::stage_fresh_page_in_library(
             connection,
             library_id,
             &preflight.destination_project_id,
             &page.page_operation_id,
             store_epoch,
             &page.page_id,
+            &document_id,
+            "agent_create_body",
             &page.rich_title,
             &draft.nfm,
             library_before.as_deref(),
