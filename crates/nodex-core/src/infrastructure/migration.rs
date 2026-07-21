@@ -1235,6 +1235,12 @@ mod tests {
         .expect("seed v83 Page");
     }
 
+    fn seed_v84_page(home: &Path) {
+        seed_v83_page(home);
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v84 writer");
+        migrate_typescript_v83_to_v84(&mut connection).expect("TypeScript v84 schema");
+    }
+
     fn open_error(home: &Path) -> StoreError {
         match SqliteStoreKernel::open(home) {
             Ok(_) => panic!("store open unexpectedly succeeded"),
@@ -1282,14 +1288,14 @@ mod tests {
     }
 
     #[test]
-    fn v83_migration_backs_up_validates_and_publishes_fingerprints_once() {
+    fn typescript_v84_migration_backs_up_validates_and_publishes_fingerprints_once() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        seed_v83_page(&home);
+        seed_v84_page(&home);
 
         let kernel = SqliteStoreKernel::open(&home).expect("migrated Core store");
         let preparation = kernel.preparation();
-        assert_eq!(preparation.migrated_from_version, Some(83));
+        assert_eq!(preparation.migrated_from_version, Some(84));
         assert_eq!(preparation.validated_yjs_documents, 1);
         let backup_path = preparation
             .migration_backup_path
@@ -1300,7 +1306,7 @@ mod tests {
         let backup_version: i64 = backup
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("backup version");
-        assert_eq!(backup_version, 83);
+        assert_eq!(backup_version, 84);
 
         let evidence = kernel
             .readers()

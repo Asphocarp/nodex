@@ -42,7 +42,6 @@
     "core:build:mac:x64": "MACOSX_DEPLOYMENT_TARGET=12.0 cargo build --release --target x86_64-apple-darwin -p nodex-core-server -p nodex-cli && tsx scripts/stage-rust-core.ts --target-arch x64 --out .generated/rust-core-runtime/x64",
     "core:baseline:typescript": "NODEX_MEASURE_RUST_CORE_BASELINE=1 node scripts/run-vitest-in-electron.mjs --config vitest.main.config.ts src/main/rust-core-baseline.integration.test.ts",
     "core:benchmark:rust": "cargo build --release -p nodex-core-server && NODEX_MEASURE_RUST_CORE_RUNTIME=1 vitest run --config vitest.node.config.ts src/main/core-client/rust-core-runtime-benchmark.node.test.ts",
-    "core:probe:v83": "cargo test -p nodex-core v83_migration_backs_up_validates_and_publishes_fingerprints_once --lib",
     "core:probe:v84": "NODEX_GENERATE_RUST_CORE_V84_FIXTURE=1 node scripts/run-vitest-in-electron.mjs --config vitest.main.config.ts src/main/rust-core-v84-fixture.integration.test.ts && NODEX_V84_FIXTURE=.generated/rust-core-migration/v84-profile cargo test -p nodex-core --test v84_fixture_compatibility -- --ignored",
     "core:schema:v84:generate": "cargo run --quiet -p nodex-core --example export_v84_schema -- .generated/rust-core-migration/v84-profile/nodex.db crates/nodex-core/schema/v84.sql",
     "core:schema:v84:verify": "cargo run --quiet -p nodex-core --example export_v84_schema -- .generated/rust-core-migration/v84-profile/nodex.db crates/nodex-core/schema/v84.sql --verify",

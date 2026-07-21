@@ -59,7 +59,7 @@ const rustRows: readonly FailureRow[] = [
   },
   {
     failurePoint: "migration-before-publication",
-    test: "infrastructure::migration::tests::v83_migration_backs_up_validates_and_publishes_fingerprints_once",
+    test: "infrastructure::migration::tests::typescript_v84_migration_backs_up_validates_and_publishes_fingerprints_once",
   },
   {
     failurePoint: "backup-after-filesystem-before-receipt",

@@ -213,18 +213,22 @@ Responsibilities:
    - `dist/latest-mac.yml`
    - `dist/Nodex-<version>-arm64.zip.blockmap`
    - built `Nodex.app`
-9. Assert bundled Codex runtime resources exist inside `Nodex.app/Contents/Resources/bin`:
+9. Assert bundled Codex and Nodex runtime resources exist inside the architecture-specific app:
    - `codex`
    - `codex-code-mode-host`
    - `rg`
    - `runtime.json`
-10. Run `scripts/verify-codex-runtime.ts` against the packaged Resources directory. It validates every upstream native artifact against its size and SHA-256, checks declared search-path tools as regular executables, runs the bundled `codex --version`, and verifies the metadata version.
-11. Strictly validate every executable native artifact signature before inspecting its identity; the preserved artifacts must report `TeamIdentifier=2DC432GLL2`. `rg` is intentionally signed by the app packager and is covered by the final deep app-signature check.
-12. Verify signing and notarization:
-   - `codesign --verify --deep --strict --verbose=2`
+   - `nodex`
+   - `nodex-core`
+   - `rust-core-runtime.json`
+   - `Contents/Helpers/Nodex Service.app`
+10. Extract the signed ZIP into a new `${RUNNER_TEMP}` install root. All runtime and launch checks use this extracted app, not the mutable builder output.
+11. Run `scripts/verify-codex-runtime.ts` against the fresh install. It validates every upstream native artifact against its size and SHA-256, checks declared search-path tools as regular executables, runs bundled `codex --version`, and verifies the metadata version. Preserved upstream executables must retain `TeamIdentifier=2DC432GLL2`; `rg` is signed by the app packager and covered by the app seal.
+12. Run `scripts/verify-native-runtime.ts` for the job architecture. It validates the closed native manifest, exact bundle destinations, regular executable modes, thin Mach-O architecture, macOS 12 load commands, the nested ServiceManagement bundle, Developer ID team consistency, and the final deep app seal. With a PATH limited to `/usr/bin:/bin` and nonexistent Cargo/Rustup homes, it runs `nodex --version`, cold-starts Core through `nodex --json doctor`, queries optional service status, and keeps the fresh Electron app process alive through startup.
+13. Require both notarization checks from the same verifier:
    - `spctl --assess --type execute --verbose=4`
    - `xcrun stapler validate`
-13. Upload the DMG, ZIP, `latest-mac.yml`, and blockmaps as the `macos-arm64-release` artifact.
+14. Upload the DMG, ZIP, `latest-mac.yml`, and blockmaps as the `macos-arm64-release` artifact.
 
 Secrets consumed:
 - `CSC_LINK`
@@ -241,7 +245,7 @@ Secrets consumed:
 Runner:
 - `macos-26-intel`
 
-Responsibilities are the same as the arm64 job, except it runs `pnpm run package:mac:x64`, expects `x64` artifacts, and uploads them as `macos-x64-release`. It also must stay on a macOS 26 image because `mac.icon` packaging now requires the Xcode 26 `actool` toolchain.
+Responsibilities are the same as the arm64 job, except it runs `pnpm run package:mac:x64`, verifies every native artifact and fresh launch as x86_64 on the Intel runner, expects `x64` artifacts, and uploads them as `macos-x64-release`. It also must stay on a macOS 26 image because `mac.icon` packaging now requires the Xcode 26 `actool` toolchain.
 
 #### `publish-release`
 

@@ -39,8 +39,9 @@ pub fn run(arguments: impl IntoIterator<Item = OsString>) -> i32 {
     let cli = match Cli::try_parse_from(arguments) {
         Ok(cli) => cli,
         Err(error) => {
+            let exit_status = error.exit_code();
             let _ = error.print();
-            return EXIT_REJECTED;
+            return exit_status;
         }
     };
 
@@ -107,5 +108,18 @@ mod tests {
         assert_eq!(EXIT_NO_MATCHES, 1);
         assert_eq!(EXIT_REJECTED, 2);
         assert_eq!(EXIT_INTERRUPTED, 130);
+    }
+
+    #[test]
+    fn clap_help_and_version_are_successful_control_flow() {
+        assert_eq!(run(["nodex", "--help"].map(OsString::from)), EXIT_SUCCESS);
+        assert_eq!(
+            run(["nodex", "--version"].map(OsString::from)),
+            EXIT_SUCCESS
+        );
+        assert_eq!(
+            run(["nodex", "not-a-command"].map(OsString::from)),
+            EXIT_REJECTED
+        );
     }
 }

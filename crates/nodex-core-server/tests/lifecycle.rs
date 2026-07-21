@@ -819,3 +819,65 @@ fn incompatible_idle_core_drains_before_a_replacement_starts() {
         .expect("replacement Core process");
     assert!(replacement.wait().expect("wait for replacement").success());
 }
+
+#[test]
+fn moved_or_deleted_old_app_core_is_reused_then_drained_without_a_second_writer() {
+    let directory = tempdir().expect("disposable update installation");
+    let home = directory.path().join("profile");
+    fs::create_dir(&home).expect("Profile home");
+    let old_bundle = directory.path().join("Old Nodex.app");
+    let old_bin = old_bundle.join("Contents/Resources/bin");
+    fs::create_dir_all(&old_bin).expect("old app runtime directory");
+    let old_executable = old_bin.join("nodex-core");
+    fs::copy(env!("CARGO_BIN_EXE_nodex-core"), &old_executable).expect("copy old packaged Core");
+    fs::set_permissions(&old_executable, fs::Permissions::from_mode(0o755))
+        .expect("old packaged Core is executable");
+
+    let mut incumbent = Command::new(&old_executable)
+        .args(["--home", home.to_str().expect("UTF-8 home")])
+        .env("NODEX_CORE_IDLE_TIMEOUT_MS", "0")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("start Core from old app bundle");
+    let incumbent_descriptor = read_ready_descriptor(&mut incumbent);
+
+    fs::remove_dir_all(&old_bundle).expect("delete old app bundle after update");
+    assert!(!old_executable.exists());
+
+    let mut compatible_new_app = Command::new(env!("CARGO_BIN_EXE_nodex-core"))
+        .args(["--home", home.to_str().expect("UTF-8 home")])
+        .env("NODEX_CORE_IDLE_TIMEOUT_MS", "0")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("start compatible Core from new app bundle");
+    let reused = read_ready_descriptor(&mut compatible_new_app);
+    assert_eq!(reused.pid, incumbent_descriptor.pid);
+    assert_eq!(reused.start_nonce, incumbent_descriptor.start_nonce);
+    assert!(
+        compatible_new_app
+            .wait()
+            .expect("wait for compatible new app launcher")
+            .success()
+    );
+
+    let runtime = home.join("run/core");
+    let auth = fs::read_to_string(runtime.join("core.auth"))
+        .expect("incumbent auth")
+        .trim()
+        .to_owned();
+    let handoff = request(
+        &incumbent_descriptor.socket_path,
+        &auth,
+        "POST",
+        "/core/v1/admin/shutdown",
+        &version_handoff_request(&incumbent_descriptor, 2, 2),
+    );
+    assert!(handoff.starts_with("HTTP/1.1 200"));
+    assert_eq!(response_json(&handoff)["status"], "draining");
+    assert!(incumbent.wait().expect("wait for old Core drain").success());
+    assert!(!runtime.join("core.sock").exists());
+    assert!(!runtime.join("core.json").exists());
+    assert!(!runtime.join("core.auth").exists());
+}
