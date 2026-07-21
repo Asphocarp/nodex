@@ -55,66 +55,66 @@ fail() {
 
 while (($# > 0)); do
   case "$1" in
-    -a|--auth)
-      copy_codex_auth="true"
-      shift
-      ;;
-    -c|--config)
-      copy_codex_config="true"
-      shift
-      ;;
-    --global-codex)
-      use_codex_home="false"
-      shift
-      ;;
-    --global-nodex)
-      use_nodex_home="false"
-      shift
-      ;;
-    -d|--dev)
-      run_script="dev"
-      shift
-      ;;
-    -k|--keep)
-      keep_run_root="true"
-      shift
-      ;;
-    -[acdk]*)
-      short_options="${1#-}"
-      while [[ -n "${short_options}" ]]; do
-        case "${short_options:0:1}" in
-          a) copy_codex_auth="true" ;;
-          c) copy_codex_config="true" ;;
-          d) run_script="dev" ;;
-          k) keep_run_root="true" ;;
-          *) fail "Unknown short option in $1: -${short_options:0:1}" ;;
-        esac
-        short_options="${short_options:1}"
-      done
-      shift
-      ;;
-    -r|--root)
-      shift
-      (($# > 0)) || fail "Expected a directory after --root."
-      [[ -n "$1" ]] || fail "The --root directory cannot be empty."
-      requested_run_root="$1"
-      shift
-      ;;
-    --root=*)
-      requested_run_root="${1#*=}"
-      [[ -n "${requested_run_root}" ]] || fail "The --root directory cannot be empty."
-      shift
-      ;;
-    --help|-h)
-      usage
-      exit 0
-      ;;
-    --)
-      shift
-      ;;
-    *)
-      fail "Unknown argument: $1"
-      ;;
+  -a | --auth)
+    copy_codex_auth="true"
+    shift
+    ;;
+  -c | --config)
+    copy_codex_config="true"
+    shift
+    ;;
+  --global-codex)
+    use_codex_home="false"
+    shift
+    ;;
+  --global-nodex)
+    use_nodex_home="false"
+    shift
+    ;;
+  -d | --dev)
+    run_script="dev"
+    shift
+    ;;
+  -k | --keep)
+    keep_run_root="true"
+    shift
+    ;;
+  -[acdk]*)
+    short_options="${1#-}"
+    while [[ -n "${short_options}" ]]; do
+      case "${short_options:0:1}" in
+      a) copy_codex_auth="true" ;;
+      c) copy_codex_config="true" ;;
+      d) run_script="dev" ;;
+      k) keep_run_root="true" ;;
+      *) fail "Unknown short option in $1: -${short_options:0:1}" ;;
+      esac
+      short_options="${short_options:1}"
+    done
+    shift
+    ;;
+  -r | --root)
+    shift
+    (($# > 0)) || fail "Expected a directory after --root."
+    [[ -n "$1" ]] || fail "The --root directory cannot be empty."
+    requested_run_root="$1"
+    shift
+    ;;
+  --root=*)
+    requested_run_root="${1#*=}"
+    [[ -n "${requested_run_root}" ]] || fail "The --root directory cannot be empty."
+    shift
+    ;;
+  --help | -h)
+    usage
+    exit 0
+    ;;
+  --)
+    shift
+    ;;
+  *)
+    fail "Unknown argument: $1"
+    ;;
   esac
 done
 
@@ -181,7 +181,7 @@ if [[ "${use_codex_home}" == "true" || "${use_nodex_home}" == "true" ]]; then
 fi
 
 if [[ "${use_codex_home}" == "true" ]]; then
-  isolated_codex_home="${run_root}/.codex"
+  isolated_codex_home="${run_root}/.nodex/agent"
   mkdir -p "${isolated_codex_home}"
 
   if [[ "${copy_codex_auth}" == "true" || "${copy_codex_config}" == "true" ]]; then
