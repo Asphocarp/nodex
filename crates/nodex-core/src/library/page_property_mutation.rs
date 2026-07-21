@@ -341,6 +341,7 @@ pub(super) fn apply(
             affected_view_ids: affected_view_ids.into_iter().collect(),
             affected_document_ids: Vec::new(),
             committed_revisions,
+            page_create: None,
             page_copy: None,
             block_transfer: None,
             page_lifecycle: None,
@@ -1888,6 +1889,7 @@ fn finish_rejection(
     let committed = CommittedModuleValue {
         value: LibraryCommitValue {
             affected_resource_ids: Vec::new(),
+            page_create: None,
             page_copy: None,
             block_transfer: None,
             page_lifecycle: None,

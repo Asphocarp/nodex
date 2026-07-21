@@ -4,8 +4,8 @@ use std::path::Path;
 use nodex_core_contracts::library::{
     LibraryAccess, LibraryBlockPropertyMutationReceipt, LibraryBlockTransferDocumentCommit,
     LibraryBlockTransferResult, LibraryCommitValue, LibraryEvent, LibraryEventKind, LibraryIntent,
-    LibraryPageCopyResult, LibraryPageLifecycleMutationReceipt, LibraryReceipt,
-    LibraryResourceTarget, LibraryWriteParent,
+    LibraryPageCopyResult, LibraryPageCreateResult, LibraryPageLifecycleMutationReceipt,
+    LibraryReceipt, LibraryResourceTarget, LibraryWriteParent,
 };
 use nodex_core_contracts::{
     BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue,
@@ -20,14 +20,17 @@ use crate::database::create_database_authority_records;
 use crate::document::{
     BlockDocumentSchema, DocumentAuthorityRow, DocumentBlockOperation, DocumentMaterialization,
     PAGE_SCHEMA_KEY, PAGE_SCHEMA_VERSION, PersistYjsCommit, PersistYjsGenesis, YrsDocumentEngine,
-    decode_block_document, materialize_decoded_document, persist_yjs_commit, persist_yjs_genesis,
-    prepare_document_operation_update, prepare_page_yjs_genesis, read_document_authority,
-    read_store_epoch, reconstruct_yjs_engine, sha256,
+    decode_block_document, materialize_decoded_document, mint_document_semantic_etags,
+    parse_inline_markdown_title, persist_yjs_commit, persist_yjs_genesis,
+    prepare_document_operation_update, prepare_page_yjs_genesis,
+    prepare_page_yjs_genesis_with_content, read_document_authority, read_store_epoch,
+    reconstruct_yjs_engine, sha256,
 };
 use crate::domain::block_materialization::MaterializedBlockNode;
 use crate::domain::fractional_rank::{
     FractionalRankErrorCode, RankedItem, plan as plan_fractional_rank,
 };
+use crate::domain::identity::stable_uuid_v7;
 use crate::infrastructure::module_receipts::{
     NewModuleReceipt, insert_module_receipt, read_module_receipt,
 };
@@ -53,6 +56,7 @@ pub(super) struct MutationEffects {
     pub(super) affected_view_ids: Vec<String>,
     pub(super) affected_document_ids: Vec<String>,
     pub(super) committed_revisions: BTreeMap<String, i64>,
+    pub(super) page_create: Option<LibraryPageCreateResult>,
     pub(super) page_copy: Option<LibraryPageCopyResult>,
     pub(super) block_transfer: Option<LibraryBlockTransferResult>,
     pub(super) page_lifecycle: Option<LibraryPageLifecycleMutationReceipt>,
@@ -193,9 +197,40 @@ pub(super) fn apply(
                     &request_hash,
                     page_id,
                     document_id,
-                    title,
+                    PageGenesisInput::PlainTitle(title),
                     parent,
                 ),
+                LibraryIntent::CreatePageFromNfm {
+                    title_markdown,
+                    nfm,
+                    parent,
+                } => {
+                    let page_id = stable_uuid_v7(
+                        &request.operation_id,
+                        "page",
+                        &format!("{library_id}:semantic"),
+                    );
+                    let document_id = stable_uuid_v7(
+                        &request.operation_id,
+                        "page_document",
+                        &format!("{library_id}:semantic"),
+                    );
+                    create_page(
+                        transaction,
+                        &context,
+                        &store_epoch,
+                        &library_id,
+                        &request.operation_id,
+                        &request_hash,
+                        &page_id,
+                        &document_id,
+                        PageGenesisInput::NestedMarkdown {
+                            title_markdown,
+                            nfm,
+                        },
+                        parent,
+                    )
+                }
                 LibraryIntent::CreateDatabase {
                     database_id,
                     data_source_id,
@@ -656,6 +691,7 @@ fn move_block(
             affected_view_ids: Vec::new(),
             affected_document_ids,
             committed_revisions,
+            page_create: None,
             page_copy: None,
             block_transfer: None,
             page_lifecycle: None,
@@ -852,6 +888,7 @@ fn change_resource_lifecycle(
                     )
                 })),
             ),
+            page_create: None,
             page_copy: None,
             block_transfer: None,
             page_lifecycle: None,
@@ -1001,6 +1038,7 @@ fn grant_project_access(
                 .map(|revision| (format!("projectGrant:{project_id}"), revision))
                 .into_iter()
                 .collect(),
+            page_create: None,
             page_copy: None,
             block_transfer: None,
             page_lifecycle: None,
@@ -1535,6 +1573,7 @@ fn create_database(
                     },
                 )),
             ),
+            page_create: None,
             page_copy: None,
             block_transfer: None,
             page_lifecycle: None,
@@ -1558,13 +1597,13 @@ fn create_page(
     request_hash: &str,
     page_id: &str,
     document_id: &str,
-    title: &str,
+    genesis: PageGenesisInput<'_>,
     parent: &LibraryWriteParent,
 ) -> Result<LibraryApplyOutcome, StoreError> {
     validate_id("page_id", page_id)?;
     validate_id("document_id", document_id)?;
     validate_id("operation_id", operation_id)?;
-    if title.len() > MAX_PAGE_TITLE_LENGTH {
+    if genesis.title().len() > MAX_PAGE_TITLE_LENGTH {
         return Err(invalid("Page title exceeds its bound"));
     }
     let resolved_parent =
@@ -1587,8 +1626,26 @@ fn create_page(
     }
     let project_id = resolved_parent.project_id.clone();
     let now = sqlite_now(connection)?;
-    let root_block_id = deterministic_block_id(operation_id);
-    let prepared = prepare_page_yjs_genesis(document_id, title, &root_block_id)?;
+    let prepared = match genesis {
+        PageGenesisInput::PlainTitle(title) => {
+            let root_block_id = deterministic_block_id(operation_id);
+            prepare_page_yjs_genesis(document_id, title, &root_block_id)?
+        }
+        PageGenesisInput::NestedMarkdown {
+            title_markdown,
+            nfm,
+        } => {
+            let rich_title = parse_inline_markdown_title(title_markdown)
+                .map_err(|error| invalid(&error.to_string()))?;
+            let mut ordinal = 0_u64;
+            prepare_page_yjs_genesis_with_content(document_id, &rich_title, nfm, &mut || {
+                let block_id =
+                    stable_uuid_v7(operation_id, "page_body_block", &ordinal.to_string());
+                ordinal += 1;
+                block_id
+            })?
+        }
+    };
 
     connection.execute(
         "INSERT INTO blocks (\
@@ -1732,6 +1789,23 @@ fn create_page(
             )
         })
         .transpose()?;
+    let (title_etag, body_etag) = mint_document_semantic_etags(
+        connection,
+        &project_id,
+        store_epoch,
+        document_id,
+        &prepared.materialization,
+    )
+    .map_err(|error| internal(&error.to_string()))?;
+    let page_create = LibraryPageCreateResult {
+        page_id: page_id.to_owned(),
+        document_id: document_id.to_owned(),
+        document_generation: 1,
+        document_head_seq: persisted.head_seq,
+        block_ids: materialized_block_ids(&prepared.materialization.block_tree),
+        title_etag,
+        body_etag,
+    };
 
     finish_mutation(
         connection,
@@ -1778,6 +1852,7 @@ fn create_page(
                     },
                 )),
             ),
+            page_create: Some(page_create),
             page_copy: None,
             block_transfer: None,
             page_lifecycle: None,
@@ -1789,6 +1864,23 @@ fn create_page(
             committed_at: now,
         },
     )
+}
+
+enum PageGenesisInput<'a> {
+    PlainTitle(&'a str),
+    NestedMarkdown {
+        title_markdown: &'a str,
+        nfm: &'a str,
+    },
+}
+
+impl PageGenesisInput<'_> {
+    fn title(&self) -> &str {
+        match self {
+            Self::PlainTitle(title) => title,
+            Self::NestedMarkdown { title_markdown, .. } => title_markdown,
+        }
+    }
 }
 
 pub(super) fn finish_mutation(
@@ -1856,6 +1948,7 @@ pub(super) fn finish_mutation(
     let committed = CommittedModuleValue {
         value: LibraryCommitValue {
             affected_resource_ids: block_ids,
+            page_create: effects.page_create,
             page_copy: effects.page_copy,
             block_transfer: effects.block_transfer,
             page_lifecycle: effects.page_lifecycle,
@@ -2255,6 +2348,15 @@ fn deterministic_block_id(seed: &str) -> String {
     )
 }
 
+fn materialized_block_ids(blocks: &[MaterializedBlockNode]) -> Vec<String> {
+    blocks
+        .iter()
+        .flat_map(|block| {
+            std::iter::once(block.id.clone()).chain(materialized_block_ids(&block.children))
+        })
+        .collect()
+}
+
 fn embedded_resource_block(block_id: &str, block_type: &str) -> MaterializedBlockNode {
     MaterializedBlockNode {
         id: block_id.to_owned(),
@@ -2291,7 +2393,9 @@ fn internal(message: &str) -> StoreError {
 
 #[cfg(test)]
 mod tests {
-    use nodex_core_contracts::library::{LibraryNavigationParent, LibraryRead, LibraryReadValue};
+    use nodex_core_contracts::library::{
+        LibraryNavigationParent, LibraryPageFileKind, LibraryRead, LibraryReadValue,
+    };
     use nodex_core_contracts::{AdapterKind, LibraryId, ModuleReadRequest, ProfileId, ProjectId};
     use tempfile::tempdir;
 
@@ -2341,8 +2445,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn creates_page_genesis_and_all_projections_once() {
+    fn seeded_library() -> (tempfile::TempDir, SqliteStoreKernel, LibraryModule) {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
         let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
@@ -2374,6 +2477,12 @@ mod tests {
             })
             .expect("seed Library identity");
         let module = LibraryModule::new("profile-1", "library-1", &kernel);
+        (directory, kernel, module)
+    }
+
+    #[test]
+    fn creates_page_genesis_and_all_projections_once() {
+        let (_directory, kernel, module) = seeded_library();
 
         let first = module
             .apply(
@@ -3168,5 +3277,87 @@ mod tests {
                 Ok(())
             })
             .expect("move ownership evidence");
+    }
+
+    #[test]
+    fn semantic_page_creation_owns_identity_content_etags_and_replay() {
+        let (_directory, _kernel, module) = seeded_library();
+        let request = |body: &str| ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: "native-cli:create-page".to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::CreatePageFromNfm {
+                title_markdown: "Native **Page**".to_owned(),
+                nfm: body.to_owned(),
+                parent: LibraryWriteParent::Library { before: None },
+            },
+        };
+        let first = module
+            .apply(&context(), request("## Runtime\n\nCore starts on demand."))
+            .expect("semantic Page create");
+        let created = first
+            .committed
+            .value
+            .page_create
+            .clone()
+            .expect("exact Page creation result");
+        assert_eq!(created.document_generation, 1);
+        assert_eq!(created.document_head_seq, 1);
+        assert_eq!(&created.page_id[14..15], "7");
+        assert_eq!(&created.document_id[14..15], "7");
+        assert_eq!(created.block_ids.len(), 2);
+        assert!(created.title_etag.starts_with("nxe1."));
+        assert!(created.body_etag.starts_with("nxe1."));
+
+        let replay = module
+            .apply(&context(), request("## Runtime\n\nCore starts on demand."))
+            .expect("exact semantic Page replay");
+        assert!(replay.committed.receipt.mutation.duplicate);
+        assert_eq!(replay.committed.value.page_create, Some(created.clone()));
+        let collision = module
+            .apply(&context(), request("Changed body"))
+            .expect_err("same key cannot change semantic Page content");
+        assert_eq!(
+            collision.code,
+            nodex_core_contracts::CoreErrorCode::IdempotencyKeyReused
+        );
+
+        let body = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PageFile {
+                        page_id: created.page_id.clone(),
+                        file_kind: LibraryPageFileKind::BodyNestedMarkdown,
+                        prepare: None,
+                    },
+                },
+            )
+            .expect("read created Page body");
+        let LibraryReadValue::PageFile { value: body } = body.value else {
+            panic!("Page body projection")
+        };
+        assert_eq!(body.content, "## Runtime\nCore starts on demand.\n");
+        let metadata = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PageFile {
+                        page_id: created.page_id,
+                        file_kind: LibraryPageFileKind::MetaYaml,
+                        prepare: None,
+                    },
+                },
+            )
+            .expect("read created Page metadata");
+        let LibraryReadValue::PageFile { value: metadata } = metadata.value else {
+            panic!("Page metadata projection")
+        };
+        assert_eq!(
+            metadata.metadata.expect("typed metadata").title_markdown,
+            "Native **Page**"
+        );
     }
 }

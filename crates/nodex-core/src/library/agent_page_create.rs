@@ -355,6 +355,7 @@ pub(super) fn execute_create_pages(
                 affected_view_ids: execution.affected_view_ids,
                 affected_document_ids: execution.affected_document_ids,
                 committed_revisions: execution.committed_revisions,
+                page_create: None,
                 page_copy: None,
                 block_transfer: None,
                 page_lifecycle: None,

@@ -29,7 +29,7 @@ use crate::runtime::{
     selected_project, unwrap_library,
 };
 
-const MAX_BODY_INPUT_BYTES: usize = 8 * 1024 * 1024;
+pub(crate) const MAX_BODY_INPUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_BLOCK_JSON_BYTES: usize = 1024 * 1024;
 const MAX_TITLE_INPUT_BYTES: usize = 64 * 1024;
 const MAX_HEAD_REBASE_ATTEMPTS: usize = 3;
@@ -614,7 +614,7 @@ fn mutation_output(
     Ok(CommandOutput::Json(Value::Object(result)))
 }
 
-fn validate_return_fields(fields: &[String]) -> Result<(), CliError> {
+pub(crate) fn validate_return_fields(fields: &[String]) -> Result<(), CliError> {
     let invalid = fields
         .iter()
         .filter(|field| field.as_str() != "commit")
@@ -635,7 +635,11 @@ fn validate_return_fields(fields: &[String]) -> Result<(), CliError> {
     ))
 }
 
-fn read_content_input(path: Option<&Path>, limit: usize, label: &str) -> Result<String, CliError> {
+pub(crate) fn read_content_input(
+    path: Option<&Path>,
+    limit: usize,
+    label: &str,
+) -> Result<String, CliError> {
     let bytes = if let Some(path) = path {
         let mut file = File::open(path).map_err(|error| input_error(path, error))?;
         read_bounded(&mut file, limit, label)
@@ -698,7 +702,7 @@ fn read_bounded(reader: &mut impl Read, limit: usize, label: &str) -> Result<Vec
     ))
 }
 
-fn validate_title(mut value: String) -> Result<String, CliError> {
+pub(crate) fn validate_title(mut value: String) -> Result<String, CliError> {
     if value.ends_with('\n') {
         value.pop();
     }

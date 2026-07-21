@@ -509,6 +509,48 @@ mod tests {
     }
 
     #[test]
+    fn page_create_keeps_prose_out_of_structured_flags() {
+        let cli = Cli::try_parse_from([
+            "nodex",
+            "page",
+            "create",
+            "--parent",
+            "library",
+            "--title",
+            "Native **Page**",
+            "--empty",
+            "--idempotency-key",
+            "create-page-1",
+        ])
+        .expect("empty semantic Page creation");
+        let Command::Page(PageArgs {
+            command: PageCommand::Create(arguments),
+        }) = cli.command
+        else {
+            panic!("expected Page create command")
+        };
+        assert_eq!(arguments.parent, "library");
+        assert_eq!(arguments.title, "Native **Page**");
+        assert!(arguments.content.empty);
+        assert!(arguments.content.file.is_none());
+
+        let conflicting = Cli::try_parse_from([
+            "nodex",
+            "page",
+            "create",
+            "--parent",
+            "library",
+            "--title",
+            "Page",
+            "--empty",
+            "--file",
+            "body.nested.md",
+        ])
+        .expect_err("Page create body sources are exclusive");
+        assert_eq!(conflicting.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
     fn machine_help_is_versioned_and_effect_aware() {
         let help = machine_help(&["page".into(), "delete".into()]);
         assert_eq!(help.version, 1);

@@ -1549,6 +1549,11 @@ pub enum LibraryIntent {
         title: String,
         parent: LibraryWriteParent,
     },
+    CreatePageFromNfm {
+        title_markdown: String,
+        nfm: String,
+        parent: LibraryWriteParent,
+    },
     CreateDatabase {
         database_id: String,
         data_source_id: String,
@@ -1637,6 +1642,7 @@ pub struct LibraryReceipt {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryCommitValue {
     pub affected_resource_ids: Vec<String>,
+    pub page_create: Option<LibraryPageCreateResult>,
     pub page_copy: Option<LibraryPageCopyResult>,
     pub block_transfer: Option<LibraryBlockTransferResult>,
     pub page_lifecycle: Option<LibraryPageLifecycleMutationReceipt>,
@@ -1644,6 +1650,17 @@ pub struct LibraryCommitValue {
     pub agent_page_copy: Option<LibraryAgentPageCopyResult>,
     pub agent_create_pages: Option<LibraryAgentCreatePagesResult>,
     pub agent_move_pages: Option<LibraryAgentMovePagesResult>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageCreateResult {
+    pub page_id: String,
+    pub document_id: String,
+    pub document_generation: i64,
+    pub document_head_seq: i64,
+    pub block_ids: Vec<String>,
+    pub title_etag: String,
+    pub body_etag: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

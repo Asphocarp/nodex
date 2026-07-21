@@ -614,6 +614,7 @@ pub(super) fn persist_project_grants(
             affected_view_ids: Vec::new(),
             affected_document_ids: Vec::new(),
             committed_revisions,
+            page_create: None,
             page_copy: None,
             block_transfer: None,
             page_lifecycle: None,

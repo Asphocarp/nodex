@@ -2212,6 +2212,16 @@
                   }
                 ]
               },
+              "page_create": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LibraryPageCreateResult"
+                  }
+                ]
+              },
               "page_lifecycle": {
                 "oneOf": [
                   {
@@ -7243,6 +7253,46 @@
           }
         }
       },
+      "LibraryPageCreateResult": {
+        "type": "object",
+        "required": [
+          "page_id",
+          "document_id",
+          "document_generation",
+          "document_head_seq",
+          "block_ids",
+          "title_etag",
+          "body_etag"
+        ],
+        "properties": {
+          "block_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "body_etag": {
+            "type": "string"
+          },
+          "document_generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "document_head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "title_etag": {
+            "type": "string"
+          }
+        }
+      },
       "LibraryPageDataSourceContext": {
         "oneOf": [
           {
@@ -9992,6 +10042,32 @@
                     "$ref": "#/components/schemas/LibraryWriteParent"
                   },
                   "title": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "title_markdown",
+                  "nfm",
+                  "parent",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "create_page_from_nfm"
+                    ]
+                  },
+                  "nfm": {
+                    "type": "string"
+                  },
+                  "parent": {
+                    "$ref": "#/components/schemas/LibraryWriteParent"
+                  },
+                  "title_markdown": {
                     "type": "string"
                   }
                 }
@@ -16494,6 +16570,16 @@
                           },
                           {
                             "$ref": "#/components/schemas/LibraryPageCopyResult"
+                          }
+                        ]
+                      },
+                      "page_create": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "$ref": "#/components/schemas/LibraryPageCreateResult"
                           }
                         ]
                       },

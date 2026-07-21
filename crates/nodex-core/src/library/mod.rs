@@ -472,6 +472,7 @@ impl LibraryModule {
         let committed = CommittedModuleValue {
             value: LibraryCommitValue {
                 affected_resource_ids: vec![resource_id],
+                page_create: None,
                 page_copy: None,
                 block_transfer: None,
                 page_lifecycle: None,

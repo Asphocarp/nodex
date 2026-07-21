@@ -572,6 +572,7 @@ fn apply_with_authority(
                 .map(|head| head.document_id.clone())
                 .collect(),
             committed_revisions,
+            page_create: None,
             page_copy: None,
             block_transfer: Some(result.clone()),
             page_lifecycle: None,
@@ -1785,6 +1786,7 @@ fn apply_page_ownership_transfer(
             affected_view_ids,
             affected_document_ids,
             committed_revisions,
+            page_create: None,
             page_copy: None,
             block_transfer: Some(result.clone()),
             page_lifecycle: None,
@@ -1955,6 +1957,7 @@ fn apply_page_ownership_copy(
             affected_view_ids: affected_view_ids.into_iter().collect(),
             affected_document_ids: affected_document_ids.into_iter().collect(),
             committed_revisions,
+            page_create: None,
             page_copy: None,
             block_transfer: Some(result.clone()),
             page_lifecycle: None,
@@ -2557,6 +2560,7 @@ fn apply_page_parent_transfer(
                 .map(|commit| commit.public.document_id.clone())
                 .collect(),
             committed_revisions,
+            page_create: None,
             page_copy: None,
             block_transfer: Some(result.clone()),
             page_lifecycle: None,

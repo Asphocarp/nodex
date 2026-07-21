@@ -663,6 +663,7 @@ export interface components {
                 readonly block_property_mutation?: null | components["schemas"]["LibraryBlockPropertyMutationReceipt"];
                 readonly block_transfer?: null | components["schemas"]["LibraryBlockTransferResult"];
                 readonly page_copy?: null | components["schemas"]["LibraryPageCopyResult"];
+                readonly page_create?: null | components["schemas"]["LibraryPageCreateResult"];
                 readonly page_lifecycle?: null | components["schemas"]["LibraryPageLifecycleMutationReceipt"];
             };
         };
@@ -1849,6 +1850,17 @@ export interface components {
             readonly group_key?: string | null;
             readonly view_id: string;
         };
+        readonly LibraryPageCreateResult: {
+            readonly block_ids: readonly string[];
+            readonly body_etag: string;
+            /** Format: int64 */
+            readonly document_generation: number;
+            /** Format: int64 */
+            readonly document_head_seq: number;
+            readonly document_id: string;
+            readonly page_id: string;
+            readonly title_etag: string;
+        };
         readonly LibraryPageDataSourceContext: {
             /** @enum {string} */
             readonly kind: "standalone";
@@ -2507,6 +2519,12 @@ export interface components {
                 readonly page_id: string;
                 readonly parent: components["schemas"]["LibraryWriteParent"];
                 readonly title: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "create_page_from_nfm";
+                readonly nfm: string;
+                readonly parent: components["schemas"]["LibraryWriteParent"];
+                readonly title_markdown: string;
             } | {
                 readonly data_source_id: string;
                 readonly database_id: string;
@@ -3975,6 +3993,7 @@ export interface components {
                     readonly block_property_mutation?: null | components["schemas"]["LibraryBlockPropertyMutationReceipt"];
                     readonly block_transfer?: null | components["schemas"]["LibraryBlockTransferResult"];
                     readonly page_copy?: null | components["schemas"]["LibraryPageCopyResult"];
+                    readonly page_create?: null | components["schemas"]["LibraryPageCreateResult"];
                     readonly page_lifecycle?: null | components["schemas"]["LibraryPageLifecycleMutationReceipt"];
                 };
             };

@@ -7,6 +7,7 @@ use clap::Parser;
 pub mod cli;
 pub mod error;
 pub mod meta_yaml;
+mod page_lifecycle;
 mod page_mutation;
 pub mod patch;
 pub mod runtime;

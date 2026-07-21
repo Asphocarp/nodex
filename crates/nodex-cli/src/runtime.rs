@@ -115,6 +115,15 @@ pub fn execute(cli: Cli) -> Result<CommandOutput, CliError> {
             cli.json,
         ),
         Command::Page(PageArgs {
+            command: PageCommand::Create(arguments),
+        }) => crate::page_lifecycle::create_page(
+            &client,
+            cli.project.as_deref(),
+            &cwd,
+            arguments,
+            cli.json,
+        ),
+        Command::Page(PageArgs {
             command: PageCommand::Insert(arguments),
         }) => crate::page_mutation::insert_page_content(
             &client,
