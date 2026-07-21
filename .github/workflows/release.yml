@@ -107,17 +107,35 @@ jobs:
         echo "zip_blockmap_path=${zip_blockmap_path}" >> "${GITHUB_OUTPUT}"
         echo "app_path=${app_path}" >> "${GITHUB_OUTPUT}"
 
+    - name: Materialize fresh install
+      id: fresh_install
+      shell: bash
+      run: |
+        install_root="${RUNNER_TEMP}/nodex-fresh-install-arm64"
+        mkdir -p "${install_root}"
+        ditto -x -k "${{ steps.artifact_paths.outputs.zip_path }}" "${install_root}"
+        app_path="${install_root}/Nodex.app"
+        if [[ ! -d "${app_path}" ]]; then
+          echo "The arm64 update archive did not contain Nodex.app." >&2
+          exit 1
+        fi
+        echo "app_path=${app_path}" >> "${GITHUB_OUTPUT}"
+
     - name: Verify bundled Codex runtime
       run: |
         pnpm exec tsx scripts/verify-codex-runtime.ts \
-          --resources-path "${{ steps.artifact_paths.outputs.app_path }}/Contents/Resources" \
+          --resources-path "${{ steps.fresh_install.outputs.app_path }}/Contents/Resources" \
           --verify-macos-signatures
 
-    - name: Verify signing and notarization
+    - name: Verify native runtime, fresh launch, signing, and notarization
       run: |
-        codesign --verify --deep --strict --verbose=2 "${{ steps.artifact_paths.outputs.app_path }}"
-        spctl --assess --type execute --verbose=4 "${{ steps.artifact_paths.outputs.app_path }}"
-        xcrun stapler validate "${{ steps.artifact_paths.outputs.app_path }}"
+        pnpm exec tsx scripts/verify-native-runtime.ts \
+          --app-path "${{ steps.fresh_install.outputs.app_path }}" \
+          --target-arch arm64 \
+          --verify-signatures \
+          --require-developer-id \
+          --verify-notarization \
+          --launch-app
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v7
@@ -219,17 +237,35 @@ jobs:
         echo "zip_blockmap_path=${zip_blockmap_path}" >> "${GITHUB_OUTPUT}"
         echo "app_path=${app_path}" >> "${GITHUB_OUTPUT}"
 
+    - name: Materialize fresh install
+      id: fresh_install
+      shell: bash
+      run: |
+        install_root="${RUNNER_TEMP}/nodex-fresh-install-x64"
+        mkdir -p "${install_root}"
+        ditto -x -k "${{ steps.artifact_paths.outputs.zip_path }}" "${install_root}"
+        app_path="${install_root}/Nodex.app"
+        if [[ ! -d "${app_path}" ]]; then
+          echo "The x64 update archive did not contain Nodex.app." >&2
+          exit 1
+        fi
+        echo "app_path=${app_path}" >> "${GITHUB_OUTPUT}"
+
     - name: Verify bundled Codex runtime
       run: |
         pnpm exec tsx scripts/verify-codex-runtime.ts \
-          --resources-path "${{ steps.artifact_paths.outputs.app_path }}/Contents/Resources" \
+          --resources-path "${{ steps.fresh_install.outputs.app_path }}/Contents/Resources" \
           --verify-macos-signatures
 
-    - name: Verify signing and notarization
+    - name: Verify native runtime, fresh launch, signing, and notarization
       run: |
-        codesign --verify --deep --strict --verbose=2 "${{ steps.artifact_paths.outputs.app_path }}"
-        spctl --assess --type execute --verbose=4 "${{ steps.artifact_paths.outputs.app_path }}"
-        xcrun stapler validate "${{ steps.artifact_paths.outputs.app_path }}"
+        pnpm exec tsx scripts/verify-native-runtime.ts \
+          --app-path "${{ steps.fresh_install.outputs.app_path }}" \
+          --target-arch x64 \
+          --verify-signatures \
+          --require-developer-id \
+          --verify-notarization \
+          --launch-app
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v7

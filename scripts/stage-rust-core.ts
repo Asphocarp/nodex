@@ -1,5 +1,4 @@
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import {
   chmodSync,
   copyFileSync,
@@ -12,7 +11,15 @@ import {
 } from "node:fs";
 import path from "node:path";
 
-type TargetArchitecture = "arm64" | "x64";
+import {
+  NATIVE_RUNTIME_BINARY_PATHS,
+  sha256File,
+  type NativeRuntimeArchitecture,
+  type NativeRuntimeBinaryName,
+  type NativeRuntimeManifest,
+} from "./native-runtime-manifest";
+
+type TargetArchitecture = NativeRuntimeArchitecture;
 
 interface Arguments {
   readonly targetArch: TargetArchitecture;
@@ -20,10 +27,10 @@ interface Arguments {
   readonly signIdentity: string | null;
 }
 
-const TARGETS: Readonly<Record<TargetArchitecture, string>> = {
+const TARGETS = {
   arm64: "aarch64-apple-darwin",
   x64: "x86_64-apple-darwin",
-};
+} as const satisfies Readonly<Record<TargetArchitecture, string>>;
 
 const expectedFileArchitecture = (architecture: TargetArchitecture): string =>
   architecture === "arm64" ? "arm64" : "x86_64";
@@ -84,9 +91,6 @@ const assertNotSymlink = (entry: string): void => {
   }
 };
 
-const sha256 = (file: string): string =>
-  createHash("sha256").update(readFileSync(file)).digest("hex");
-
 const stage = ({ targetArch, outputRoot, signIdentity }: Arguments): void => {
   const repositoryRoot = path.resolve(".");
   const target = TARGETS[targetArch];
@@ -110,7 +114,10 @@ const stage = ({ targetArch, outputRoot, signIdentity }: Arguments): void => {
     serviceBuild,
   ]);
 
-  const binaries = [
+  const binaries: ReadonlyArray<{
+    readonly name: NativeRuntimeBinaryName;
+    readonly source: string;
+  }> = [
     {
       name: "nodex-core",
       source: path.join(repositoryRoot, "target", target, "release", "nodex-core"),
@@ -160,17 +167,18 @@ const stage = ({ targetArch, outputRoot, signIdentity }: Arguments): void => {
       throw new Error(`${name} was not staged executable`);
     }
     return {
-      name,
-      sha256: sha256(destination),
-      size: stats.size,
+      bundlePath: NATIVE_RUNTIME_BINARY_PATHS[name],
       file: fileDescription,
-      signed: signIdentity !== null,
+      name,
+      sourceSha256: sha256File(destination),
+      sourceSize: stats.size,
     };
   });
   rmSync(serviceBuild, { force: true });
 
-  const manifest = {
-    schemaVersion: 1,
+  const manifest: NativeRuntimeManifest = {
+    schemaVersion: 2,
+    targetPlatform: "darwin",
     targetArch,
     rustTarget: target,
     minimumMacOS: "12.0",
