@@ -9919,6 +9919,44 @@
               {
                 "type": "object",
                 "required": [
+                  "automation_id",
+                  "expected_revision",
+                  "kind"
+                ],
+                "properties": {
+                  "automation_id": {
+                    "type": "string"
+                  },
+                  "expected_revision": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "reschedule_definition"
+                    ]
+                  },
+                  "not_before_ms": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int64"
+                  },
+                  "retry_within_ms": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int64",
+                    "minimum": 0
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "limit",
                   "lease_duration_ms",
                   "kind"

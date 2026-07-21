@@ -10,6 +10,7 @@ import {
 function automation(id: string): CodexScheduledAutomation {
   return {
     id,
+    definitionRevision: 1,
     kind: "cron",
     status: "ACTIVE",
     targetThreadId: null,
@@ -148,15 +149,15 @@ describe("codex scheduled automation scheduler", () => {
         archivedPendingCount: 1,
         pendingReviewCount: 0,
       }),
-      reconcileAutomations: (now) => {
-        expect(now).toBe(123);
-        return 1;
-      },
-      listDueAutomations: (now, limit) => {
-        expect(now).toBe(123);
+      claimDueAutomations: async (limit) => {
         expect(limit).toBe(CODEX_SCHEDULED_AUTOMATION_SCHEDULER_MAX_PER_TICK);
-        return dueAutomations.slice(0, limit);
+        return dueAutomations.slice(0, limit).map((definition) => ({
+          leaseId: `lease:${definition.id}`,
+          definition,
+        }));
       },
+      completeClaim: async () => undefined,
+      failClaim: async () => undefined,
       onAutomationRunsUpdated: () => {
         runsUpdated += 1;
       },
@@ -189,11 +190,12 @@ describe("codex scheduled automation scheduler", () => {
         archivedPendingCount: 0,
         pendingReviewCount: 0,
       }),
-      reconcileAutomations: () => 0,
-      listDueAutomations: () => {
+      claimDueAutomations: async () => {
         listCalls += 1;
-        return [automation("slow")];
+        return [{ leaseId: "lease:slow", definition: automation("slow") }];
       },
+      completeClaim: async () => undefined,
+      failClaim: async () => undefined,
       runAutomation: () => {
         if (!blockRun) return Promise.resolve();
         return new Promise<void>((resolve) => {
@@ -229,8 +231,12 @@ describe("codex scheduled automation scheduler", () => {
         archivedPendingCount: 0,
         pendingReviewCount: 0,
       }),
-      reconcileAutomations: () => 0,
-      listDueAutomations: () => [heartbeatAutomation("heartbeat")],
+      claimDueAutomations: async () => [{
+        leaseId: "lease:heartbeat",
+        definition: heartbeatAutomation("heartbeat"),
+      }],
+      completeClaim: async () => undefined,
+      failClaim: async () => undefined,
       runAutomation: async (_item, context) => {
         contexts.push(context);
       },

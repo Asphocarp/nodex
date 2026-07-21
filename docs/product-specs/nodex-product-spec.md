@@ -80,7 +80,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Page Stage session selection lives in the active session's right-panel tab groups; leaf tab strips support hover tooltips, close, wheel-driven horizontal scrolling when tabs overflow, pointer-only drag reorder, cross-leaf tab moves, and edge-drop splitting through the shared tab strip/tree
 - Settings can choose which optional Page Stage rows start behind the `more properties` toggle (`Tags`, `Assignee`, `Threads`, and `Schedule`).
 - Terminal is a session-attached panel tab that defaults to the bottom panel, starts from the active session/thread cwd before falling back to the Project primary source, and can be moved to the right panel. Page Stage may request a session terminal, but Pages cannot own terminal tabs or PTY IDs.
-- Scheduled is a Workbench-owned route opened from the sidebar, command palette, and floating summary Scheduled row while the normal project/session sidebar remains mounted. It manages local scheduled automation definitions stored as profile TOML files and mirrored through `codex_scheduled_automations` for low-frequency reads, with task/template tabs, search, list, create, edit, and delete behavior in the main pane plus a peer right-side detail rail. The header create control is an in-app split menu where `Create manually` opens a local draft rail and `Create via chat` opens a blank project session with a prefilled scheduled-task interview prompt. The Templates tab renders a searchable System catalog of scheduled task templates; selecting one opens the create rail with its name, prompt, and schedule prefilled, and the template draft primary action starts a project chat that asks Codex to personalize the template and return a suggested scheduled task. Task list search covers the task name, prompt, workspace/source label, schedule label, kind, target thread, RRULE, and CWDs. Rows group into `Current` and `Paused`, display workspace fallback plus schedule/status text, show `In progress` for active runs or `Next run ...` for active scheduled tasks, mark unread previous runs, and expose Pause/Resume, Run now, Edit, and Delete row actions. Run now starts the task through the same runtime path as scheduled execution, shows `Scheduled task started` on success, and shows `Could not start scheduled task` with the host error message on failure. Delete always opens an in-app confirmation dialog before removing the task. The detail rail exposes title and prompt editing plus Status and Details sections. Details include in-app dropdown controls for Runs in and Environment, a Schedule popover for Repeats or Interval with mode, time, interval, weekly-day, and custom RRULE controls, and a combined Model and reasoning selector; Chat for heartbeat tasks; a Project dropdown backed by configured local project source folders; and a Previous runs section for existing cron tasks. The Model and reasoning selector loads visible Codex models from `codex:model:list`, shows `Loading model` while the app-server model list is pending, resolves empty or unavailable draft models to the visible `isDefault` model and then the first visible model, and clamps reasoning effort to the selected model's supported/default options. The Environment dropdown appears only for cron worktree tasks with one selected project folder, reads the selected project's local-environment options, supports `No environment`, highlights the preferred `environment.toml` config, and opens Settings -> Local environments with the selected project/config context. Previous runs list matching run chats newest first, show unread/running/archived state, source workspace label, compact relative time, `No chats` empty state, open available run chats as normal threads, row menus for Mark as read/unread and Archive/Unarchive/Delete where applicable, and a section menu for Mark all as read and Archive all with archive confirmation. Cron create/edit requires a name, prompt, schedule, project, and model; heartbeat create/edit requires a name, prompt, schedule, and chat. Existing detail edits autosave after a short debounce, and route-changing actions first flush a valid dirty edit through the same update payload before tab switches, row selection, detail close, chat/settings entry, or previous-run open; create remains an explicit submit that selects the saved task; navigating away from a changed create draft opens a discard confirmation with keep-editing and discard actions. Conversation agents receive an `automation_update` dynamic tool that can view, directly create, directly update, suggest, or delete scheduled automations with cron and heartbeat payload validation, structured success/failure output, duplicate-heartbeat/store safety checks, explicit rejection of direct heartbeat writes that target an unknown or non-local thread, and the same scheduled-automation invalidation channel used by manual mutations. Suggested automation tool calls are render-only until the user accepts them in the conversation UI; their conversation cards show Proposed or Proposed update state with Cancel plus Create scheduled task or Apply changes actions. Saved or direct-result cards show Created, Updated, Deleted, or Missing state and can open the matching Scheduled route when an automation id is available. Previous automation runs are stored separately in `codex_automation_runs` with lifecycle status, read state, archived message excerpts, source cwd, and thread/inbox metadata; deleting a scheduled automation also removes its previous-run rows. The route keeps selection in `/automations` search params (`tab`, `automationId`, `automationMode`); creating a task selects the saved automation, closing detail removes selection params, editing updates the same row, and deleting the selected task returns to the scheduled-task list.
+- Scheduled is a Workbench-owned route opened from the sidebar, command palette, and floating summary Scheduled row while the normal Project/Session sidebar remains mounted. Rust Core is the only authority for versioned definitions, RRULE scheduling and jitter, due leases, run/inbox/read/archive state, occurrences, and reminders; the Host owns external Codex execution and OS notifications. The route provides task/template tabs, search, list, create, edit, Pause/Resume, Run now, delete confirmation, a peer detail rail, Project/environment/model/reasoning/schedule controls, and previous-run actions. Cron drafts require a name, prompt, schedule, Project, and model; heartbeat drafts require a name, prompt, schedule, and local task. Existing edits autosave after a short debounce and route changes first flush a valid dirty edit. `automation_update` can list/search Core definitions, view one, create/update/delete directly, or return suggested changes for user review; direct heartbeats reject unknown/non-local task targets and all mutations share the same Core revision fence and renderer invalidation event. Suggested cards remain render-only until accepted. The route keeps selection in `/automations` search params, and deleting a definition atomically removes its owned run rows.
 - Run lifecycle changes broadcast an automation-run update event so Scheduled rows, the automation-run inbox, and the sidebar/recent thread snapshot stay synchronized after scheduled execution, run-now, archive/delete/read actions, and tool-driven deletion.
 - Process Manager is a Workbench-owned dialog opened from the command palette `Process Manager`, `Ctrl+Alt+M`, and the floating summary panel `Tasks` section action. It lists Nodex's registered background-process rows for known attached chats, joins currently live app-server background terminal snapshots and terminal-action sessions for status/output data, polls only while open, freezes the visible snapshot while a row action menu is open, sorts live rows by CPU then memory, and keeps previously registered but currently missing processes visible as `not-found` rows. App-server terminal rows use app-server CPU/memory/pid data; local terminal-action rows use the terminal session OS pid and leave CPU/memory unavailable rather than inventing metrics. `Open output` focuses the owning chat when needed and opens a right-panel `Process output` tab that follows the matching command item's live output or the registered terminal-action session buffer. Floating summary `Tasks` rows open the same output tab directly. `Start` and `Restart` are available for registered rows with a command and working directory, create or refresh a terminal-action session, and refresh the row's start time. Restarting a live app-server process stops that process before starting the terminal action. `Stop` handles either a live app-server process id or a terminal-action session.
 - When the desktop host reports an active Computer Use PiP stream for the attached thread, the floating summary panel shows a headerless `Computer Use` row between `Tasks` and `Browser`. Nodex derives that active stream state from BrowserUse capture tabs that are unreleased, capture-active, attached to a live webContents, and associated with the attached thread's session. The row's accessible label and native title are `Show PiP` or `Hide PiP` based on the current visibility request from the host, and activation publishes a visibility change back to the desktop host. Attached thread scroll layouts publish the remote-hosted PiP host layout through the desktop bridge, using the thread viewport as `codex-main-thread` and treating the sticky footer and floating summary panel as PiP obstacles. Host layout publication is placement metadata only; threads without an active toggleable PiP stream do not show a placeholder row.
@@ -161,7 +161,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
   - detailed Review panel behavior lives in [Review Right Panel Behavior](./review-right-panel-behavior.md)
 - Create/delete projects from the sidebar Projects header or project-row action menus.
 - Default project is seeded on first boot with a UUID canonical ID and a retained `default` legacy alias.
-- In Electron, startup opens into a blocking bootstrap surface until local initialization completes. A shipped v26 or v57 profile is converted and validated in staging before v58 replaces it, then the installed store advances through ordered, resumable release migrations to the current schema; the surface shows determinate migration progress while HTTP, mutation workers, and schedulers remain unavailable.
+- In Electron, startup opens into a blocking bootstrap surface until native Core readiness completes. Fresh Profiles are created as exact Rust-owned v85; the only legacy input is the exact final TypeScript v84 inventory, which Core validates and backs up before one-way v85 publication. Drifted, v83, ambiguous, or damaged stores fail closed while HTTP, schedulers, and windows remain unavailable.
 - Project ID: opaque UUID generated server-side. Legacy slug IDs resolve through aliases, but responses return canonical UUIDs.
 - Project icon: optional per-project emoji persisted in SQLite; when empty, UI shows a project-colored dot
 - Project sources: ordered source folders persisted separately from the project row. The first source is the primary workspace root for Git, Files, Review, local thread cwd, and managed worktree base repository; all configured sources are writable workspace roots for sandboxing.
@@ -176,7 +176,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Sidebar project headers can be reordered by dragging the project-label activator. Pointer drag starts after 6px; the row midpoint selects a before/after insertion boundary, refreshed on both drag move and drag over. The source remains as an inert 20% ghost, sibling projects stay fixed, and a compact body-level overlay follows the pointer. A zero-height 2px line with a leading outlined dot marks the final boundary. Normal project groups persist their order in `project_order`; pinned project groups render inside the single `Pinned` section above Projects and persist their order in `pinned_project_order`. Semantic no-ops do not write, and failed writes clear the matching optimistic order and show the shared reorder error.
 - Dragging a normal project header onto the pinned section pins that project and leaves normal project order unchanged. The Projects section excludes pinned projects while preserving their normal order for later unpinning.
 - The Projects header exposes compact actions: the project-group action is hidden when it does not apply, shows `Collapse all` when more than one visible project folder is expanded, and then shows `Reopen previous` to restore that previous expanded set after collapsing all; `Project sidebar options` contains `Archive all chats`, the fixed `By project` organization, and the fixed `Manual order` sorting contract, with no pin-specific organization control. `Manual order` is not a pinned-layout mode. `Add new project` opens a submenu with `Start from scratch` and `Use an existing folder`, both using the project-add glyph. `Start from scratch` opens the local project setup dialog with optional name/source collection. `Use an existing folder` opens the native folder picker, names the project from the folder basename, and stores that folder as the first source.
-- Removing a Project enters the same durable FIFO as Page/Document edits and archives only the execution context plus its Database binding. It removes the Project from ordinary navigation, prevents new Sessions and writes, retains historical Sessions as read-only, and leaves every Library Page, Database, Document, asset, and durable identity untouched. Reactivation increments the binding revision and recomputes current access; permanent content deletion is a separate Library resource operation.
+- Removing a Project enters the same serialized Core writer as Page/Document edits and archives only the execution context plus its Database binding. It removes the Project from ordinary navigation, prevents new Sessions and writes, retains historical Sessions as read-only, and leaves every Library Page, Database, Document, asset, and durable identity untouched. Reactivation increments the binding revision and recomputes current access; permanent content deletion is a separate Library resource operation.
 - Codex thread links are session-owned. Cards can mention threads and send selected content to chats, but they do not own durable Codex threads.
 
 #### 2. Kanban Board View
@@ -225,10 +225,10 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Top-level rows are Database query results, not host-editor children; membership and View operations own their structure/order.
 - Supported DB view filter/sort/display settings persist per project and per view in renderer localStorage
 
-#### 4. SQLite Database Storage
-- Single `nodex.db` file in the Nodex home
-- Schema v81 stores Profile→Library, Page ownership, independently identified Database Containers/Data Sources/Views, Source-scoped compact Property/option identity, Project binding/lifecycle/grants, engine-neutral Documents, immutable mutation/history evidence, exact-Turn Nodex authority provenance, actor/source/target relocation evidence, and rebuildable Page/search/schedule/reference projections. Physical Space/Document/Database coordinates are private adapters for canonical Library/Page/Data Source parents; the previous Project-shaped Database tables are migration input only.
-- One asynchronous `BlockMutationWriter` serializes Block/Page/Database-domain `better-sqlite3` transactions outside the Electron main event loop.
+#### 4. Native Core Storage
+- One detached Rust Core exclusively owns the Profile's `nodex.db`, WAL, collaborative Documents, projections, receipts, schedules, backups, and migrations. Electron never opens the database.
+- The only accepted legacy import is the exact final TypeScript v84 physical schema, which contains no local Thread transcript/FTS projection. Core validates and backs it up before publishing Rust ownership as v85; fresh Profiles start directly at v85.
+- One serialized native writer commits Block/Page/Database/Workspace/Automation semantics and their events atomically, while bounded read snapshots serve desktop, browser, CLI, and Agent adapters.
 - New user/content Blocks, Database Containers, Data Sources, and Views use independently allocated canonical lowercase UUID-v7 identities and are validated only at creation. Existing global IDs remain opaque. Built-in Data Source Properties use reserved stable IDs; custom Properties use `p_` plus eight base64url characters, and custom options use `o_` plus eight base64url characters under their owning Property. Unbound references carry `{dataSourceId, propertyId}` and, for options, `optionId`; display names never define identity. Membership, operation, and mutation identities remain opaque, while explicit timestamps, ranks, and sequences are the only ordering authority.
 
 #### 5. Page and Data Source Properties
@@ -281,7 +281,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Page title is a rich contenteditable projection of that Y.Text. It preserves bold/italic/underline/code/color, links, line breaks, and registered title-safe mention atoms; formatting never applies to atomic objects or line breaks. Ordinary input and deletion mutate minimal Y.Text ranges, Shift+Enter inserts a canonical line break, Enter remains Page Stage navigation, and paste falls back to sanitized plain title text when external rich content is unsupported. Copy and cut write plain text plus semantic HTML derived from the selected title content, so Page-title presentation weight never becomes a copied bold mark while explicit inline formatting remains portable; cut deletes only after a clipboard payload is written successfully.
 - Synced Block sources are not another Page: each is a system-managed body-only collaborative Document whose Library placement is omitted from normal Page/Database navigation, while visible occurrences are childless references to the same source Block. The typed ownership command is available through renderer IPC/HTTP and CLI. A collapsed occurrence creates no provider; expanding a visible occurrence mounts the source's independent collaborative editor without copying its body into the host Page.
 - Reusable Template Library sources and non-primary Canvas owners use the same production command boundary. Templates have an authoritative human name, childless references, and copy-on-instantiate semantics with fresh Block IDs; expanding a reference opens the independently synchronized source without embedding foreign body content. Canvas scene Documents remain in Canvas view and never mount a BlockNote body editor. A source can be deleted only after a global exact-head scan proves that no Project references any Block in its recursively owned closure; deletion retains Documents/history until GC. Long-form content remains a Page, ordinary code remains a `codeBlock`, and size never changes a Block's durable type or ownership.
-- Promotion/demotion preserves selected subtree IDs, allocates fresh IDs only for copies, obtains host/source flush fences through the collaboration Hub, and either commits a sole-occurrence demotion completely or leaves both Documents unchanged. Clients never submit writer fence proofs directly.
+- Promotion/demotion preserves selected subtree IDs, allocates fresh IDs only for copies, obtains host/source flush evidence through the Host coordinator, and lets Core reprepare and either commit a sole-occurrence demotion completely or leave both Documents unchanged. Clients never submit writer fence proofs directly.
 - Primary title/body edits are Yjs transactions and never run whole-NFM autosave, external whole-body replacement, or description conflict overwrite. Lifecycle and metadata use separate typed commands; explicit NFM import requires current Document generation/head CAS and produces a forward Yjs transaction.
 - A descriptor that is not ready/primary/schema-compatible remains on a fail-closed diagnostic surface. There is no legacy snapshot editor or whole-Page overwrite recovery, and authority is never inferred from a compatibility description projection.
 - Title/body undo tracks only the current surface's local origins. Body UndoManager lifetime follows the registered collaborative editor surface rather than its replaceable ProseMirror EditorView, so React StrictMode and DOM detach/reattach do not disable `Cmd/Ctrl+Z`; remote edits merge visibly but do not enter that surface's undo stack. Extension unregister and editor disposal still detach the UndoManager from Yjs.
@@ -359,7 +359,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Canonical child Page shells use Block type `page` and persist no copied title. Canonical non-owning editor references use `pageRef`; NFM derives owning identity as `<page uuid="..." />` and serializes Page references as `<page-ref url="nodex://pages/..." />`. Historical `<card />`, `<card-ref ... />`, `<mention-card ... />`, and `cardRef` nodes are decode-only. Existing Page UUIDs may pin same-Document shells during exact-head NFM replacement, but create/copy/move remain typed ownership operations.
 - Page expansion keeps the projected title row stable while the target boundary or first sync is pending and uses a body skeleton instead of replacing the row with opening text.
 - Canonical Page and Database View reference owners remain ordinary stable-ID Blocks for BlockNote selection and drag operations. Result rows are projections and cannot be dragged as host Document children.
-- During v57 import, inline rules compile into the canonical durable Database View schema before v58 publication. Project-authorized reads validate and execute filter/sort/include-host semantics over memberships, including negative set membership and creation-time sorts, use View rank plus Page ID as stable tie-breakers, and safely show all rows when a malformed legacy rule cannot be interpreted. No active View retains a legacy compatibility config.
+- The accepted v84 import inventory already contains the canonical durable Database View schema; Core runs no older inline-rule conversion. Project-authorized reads validate and execute filter/sort/include-host semantics over memberships, including negative set membership and creation-time sorts, and use View rank plus Page ID as stable tie-breakers. No active View retains a legacy compatibility config.
 - `pageRef` / `databaseViewRef` are childless persistence shapes. Parser, codec, and primary storage validation reject foreign Page bodies; `cardRef`, `cardToggle`, and `toggleListInlineView` exist only as migration inputs and inert diagnostics.
 - Toggle List summary rows do not export or accept body snapshots; only an independently mounted Page editor can move its own stable-ID Blocks through `BlockTransfer`.
 - Reference recursion is guarded by inherited Page ancestry (including A → B → A), while a per-mounted-surface provider budget caps independent editors; foreign bodies never enter the host tree.
@@ -566,7 +566,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - **HTTP Server**: Hono (embedded in main process)
 - **HTTP Server Port**: Configurable via `[server].port` / `NODEX_PORT` (default 51283)
 - **Drag & Drop**: @atlaskit/pragmatic-drag-and-drop, @atlaskit/pragmatic-drag-and-drop-auto-scroll
-- **Database**: better-sqlite3 (in main process)
+- **Data Authority**: detached Rust Core with rusqlite and Yrs over an authenticated Profile-private Unix socket
 - **Real-Time**: IPC events (Electron) / SSE (browser fallback)
 - **Codex Runtime**: main-process `codex app-server --listen stdio://` JSON-RPC bridge
 - **Transport**: Dual-mode — IPC when in Electron, HTTP fetch when in browser
@@ -581,7 +581,13 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 ```
 nodex/
 ├── bin/
-│   └── nodex.mjs              # Unified CLI (server + agent + project commands)
+│   └── nodex.mjs              # Compatibility launcher for the native nodex CLI
+├── crates/
+│   ├── nodex-cli/              # Native agent-facing CLI
+│   ├── nodex-core/             # SQLite/Yrs authority and six deep Modules
+│   ├── nodex-core-contracts/   # Versioned semantic Module contracts
+│   ├── nodex-core-protocol/    # Generated transport envelopes/OpenAPI source
+│   └── nodex-core-server/      # Profile-private authenticated UDS process
 ├── skills/nodex-kanban/
 │   └── SKILL.md                # Agent skill documentation
 ├── .github/
@@ -609,26 +615,16 @@ nodex/
 │   │   └── page-limits.ts      # Shared Page payload/field size limits
 │   ├── main/                   # Electron main process
 │   │   ├── bootstrap.ts        # Early Electron lifecycle, profile lock, dynamic runtime import
-│   │   ├── main-runtime.ts     # BrowserWindow, IPC registration, HTTP server
+│   │   ├── main-runtime.ts     # Core readiness, BrowserWindow, IPC, HTTP server
 │   │   ├── ipc-handlers.ts     # ipcMain.handle() registrations
-│   │   ├── http-server.ts      # Hono HTTP server (configured port) for CLI + browser
+│   │   ├── http-server.ts      # Hono browser/loopback Adapter over Core
+│   │   ├── core-client/        # Authenticated typed desktop Adapters
 │   │   └── local-store/
-│   │       ├── config.ts       # Configuration (NODEX_HOME + backup env)
-│   │       ├── database.ts     # SQLite connection, init, and legacy filename migration
-│   │       ├── projects.ts     # Project CRUD and run context
-│   │       ├── project-sessions.ts # Session tree, tabs, and thread links
-│   │       ├── pages.ts        # Page create/read facade over Block/Document authority
-│   │       ├── block-document-store.ts # Y.Doc update/snapshot/receipt authority
-│   │       ├── block-property-mutations.ts # Field/path property authority
-│   │       ├── database-kernel.ts # Database/membership/property/View authority
-│   │       ├── board-read-model.ts # Board summary/detail/search reads
-│   │       ├── page-occurrences.ts # Calendar occurrence actions
-│   │       ├── backups.ts      # Backup create/list/restore + auto scheduler
-│   │       ├── assets.ts       # Image/resource upload, storage, and read helpers
-│   │       ├── notifier.ts     # EventEmitter for local-store changes
-│   │       ├── schema.ts       # Latest database schema bootstrap + version guard
-│   │       ├── page-history.ts # Canonical merged Page history read model
-│   │       └── block-first-finalization.ts # private shipped-schema import fixed point
+│   │       ├── config.ts       # Host Profile configuration
+│   │       ├── assets.ts       # Host filesystem asset ingress/read helpers
+│   │       ├── persisted-atoms.ts # Renderer shell preference persistence
+│   │       ├── notifier.ts     # Host event fanout only
+│   │       └── store-maintenance-gate.ts # Host admission during Core maintenance
 │   ├── preload/
 │   │   └── index.ts            # contextBridge: exposes window.api (invoke, on, serverUrl, assetPathPrefix)
 │   └── renderer/               # React SPA (Vite dev server on port 51284)
@@ -790,10 +786,10 @@ nodex/
 | PUT | `/api/projects/[projectId]/page-occurrence` | Update occurrence timing with scope (body: `{operationId, createdPageId?, pageId, occurrenceStart, source, scope, updates, sessionId?}`; `createdPageId` is required for `this` and `this-and-future`) |
 | GET | `/api/projects/[projectId]/events` | SSE stream for real-time updates |
 | GET | `/api/projects/[projectId]/pages/[pageId]/history` | Cursor-paginated canonical Page timeline after Project resource authorization |
-| POST | `/api/projects/[projectId]/query` | Execute read-only SQL query |
-| GET | `/api/projects/[projectId]/schema` | Get database schema |
-
-The former board-create, Page-delete, and description-write snapshot endpoints return `410 Gone` and identify the lifecycle or Document mutation replacement. No HTTP route accepts a whole-Page update.
+The former SQL/schema inspection, board-create, Page-delete, and
+description-write snapshot endpoints are absent or return `410 Gone` with the
+typed semantic replacement. No HTTP route accepts a whole-Page update or raw
+SQL.
 
 #### Block Document Routes (project-scoped)
 
@@ -1017,14 +1013,14 @@ CREATE TABLE codex_pinned_threads (
 
 **Electron path (IPC):**
 ```
-Database Write → EventEmitter (notifier) → mainWindow.webContents.send()
+Core commit → authenticated event stream → mainWindow.webContents.send()
     → window.api.on("board-changed") → useKanban hook → UI re-renders
 ```
 
 Primary Page Document edits use the independent binary collaboration plane:
 
 ```
-Page Stage Y.Doc transaction → durable FIFO Document apply → SQLite commit/ACK
+Page Stage Y.Doc transaction → Core Document apply → serialized SQLite commit/ACK
     → Document subscriber fanout + same-head DatabasePageSummary materialization event
     → other mounted surfaces apply remote origin; board summaries patch from projection
 ```
@@ -1033,11 +1029,11 @@ Each surface subscribes before its state-vector handshake. Missed or reordered r
 
 Agent-facing body edits use ordered stable-ID Document operations (`set title`, `insert`, `update`, `delete`, and `move`) against the current Page Document. A batch either commits its Yjs update, Block registry/indexes, projections, mutation receipt, and change cursor together or changes nothing. Identity-destructive operations require mounted editors to flush and freeze behind a short write fence. Whole NFM input is an explicit compare-and-swap import; an owning `<page uuid="..." />` may pin only an existing Page shell in that same Document.
 
-Electron exposes this contract as `block-documents:mutate`. Browser and CLI clients use `POST /api/projects/:projectId/documents/:documentId/mutations`. Client-supplied `actor`, `clientSessionId`, Project, or Document scope cannot mint authority: the host binds audit identity and route scope before the request reaches the Hub. The response is a typed immutable receipt or typed conflict; structural fence proof is never part of the public body.
+Electron exposes this contract as `block-documents:mutate`. Browser clients use `POST /api/projects/:projectId/documents/:documentId/mutations`; the native CLI calls Core directly over its private UDS contract. Client-supplied `actor`, `clientSessionId`, Project, or Document scope cannot mint authority: the Host binds audit identity and route scope before Core reprepares the request. The response is a typed immutable receipt or typed conflict; structural fence proof is never part of the public body.
 
 **Browser path (HTTP + SSE):**
 ```
-Database Write → EventEmitter (notifier) → SSE push (Hono /events endpoint)
+Core commit → authenticated event stream → SSE push (Hono /events endpoint)
     → EventSource listener → useKanban hook → UI re-renders
 ```
 
@@ -1059,113 +1055,10 @@ The packaged native `nodex` binary is a UDS client of the detached Rust Core. It
 
 `nodex page create` accepts one inline-Markdown title plus bounded Nested Markdown from a file/stdin or an explicit empty body and targets the Library, an authorized Page, or a Database/Data Source owner. Core deterministically allocates the Page, Document, and recursive body Block identities from the idempotent operation, commits their complete genesis and projections together, and retains the exact IDs and initial title/body ETags in the replayable Library receipt. A Data Source target stages that complete genesis in the destination Database's storage Project and atomically replaces the temporary Library placement with the membership, built-in values, and default View position; no partial standalone Page is observable. `nodex page move` and `nodex page duplicate` accept start/end/before/after placement under the same owner kinds; Core resolves live destinations and revisions inside the writer transaction, preserves ownership/membership/View invariants, and returns the moved Page-shell ETag or copied identity map plus title/body ETags. A default grouped Database destination enters its valid `triage` workflow group. `nodex page delete` requires the narrow Page-shell ETag produced by `read --prepare page.delete`, recursively tombstones only through the protected Page lifecycle aggregate, and preserves exact replay after deletion. `nodex page title set` and `nodex page replace` require the corresponding narrow title/body ETag. `nodex patch` accepts the bounded one-Page patch language and preflights every old fragment against the same canonical body: each must match exactly once and no two hunks may overlap. `nodex page insert` accepts only stable start/end/before/after/inside anchors. `nodex block insert|update|move|delete` consumes a bounded closed JSON semantic draft or patch only where Block structure requires it; Core allocates actual Block identities, update guards cover intrinsic Block fields, and delete guards cover the complete subtree. Core repeats all checks against current authority and commits the collaborative update, materializations, history, receipt, and event atomically. Every mutation accepts a stable idempotency key; generated keys are diagnostics only, and a lost-response retry from another CLI process returns the original receipt even though the connection and current Document head changed. Compact results include affected Block IDs and fresh ETags for each changed semantic unit. File/stdin content is bounded UTF-8 with LF endings, and a missing source on an interactive terminal rejects instead of waiting. Decoded Document semantic strings are capped at 8 MiB; their JSON transport has a separate 64 MiB encoded bound so valid content cannot be rejected merely because JSON escaping expands it.
 
-The following server and HTTP-oriented commands describe the legacy development launcher during the remaining native cutover. They are not an authority fallback for the Rust branch.
-
-### Server Commands
-
-```bash
-nodex                            # Start server with defaults
-nodex serve [path] [-p port]     # Explicit server start
-nodex serve --dev                # Development mode
-```
-
-Server options:
-- `[nodex-home]` - path to the Nodex home (default: `~/.nodex`)
-- `-p, --port <port>` - Port to run on (default: 51283)
-- `--dev` - Run in development mode with hot reload
-
-### Project Commands
-
-```bash
-nodex projects                          # List all projects
-nodex projects add <id> <name>          # Create a project
-nodex projects mv <old-id> <new-id>     # Rename a project (updates all references)
-nodex projects rm <id>                  # Delete a project (and all its data)
-```
-
-### Config Commands
-
-```bash
-nodex config                     # Edit config interactively
-nodex config show                # Show resolved config with sources
-nodex config show --json         # JSON output
-```
-
-### Agent Commands
-
-```bash
-nodex ls [status]                # List Pages (all or by status)
-nodex get <page-id>              # Get Page details
-nodex add <status> <title>       # Create Page
-nodex update <page-id> [opts]    # Update Page (minimal output; -v for full details)
-nodex block descriptor <page-id> # Read Document id/epoch/generation/head
-nodex block apply <page-id> <json|@file|@-> # Stable-ID operation batch
-nodex block replace <page-id> <nfm|@file|@-> # Explicit NFM CAS import
-nodex block title <page-id> <text> # Collaborative title replacement
-nodex block export <page-id>      # Export title + materialized NFM
-nodex block command <json|@file|@-> # Synced/Template/Canvas ownership command
-nodex rm <page-id>               # Delete a top-level Library Page
-nodex mv <page-id> <from> <to> [order] [opts] # Move Page in the default View
-nodex history <page-id>          # View the Page-scoped durable cursor timeline
-nodex database catalog           # List Databases and owning membership counts
-nodex database members <database-id> # List current Page memberships
-nodex database membership <page-id> <database-id|none> [view-id] # Move the Page to a Database's initial Source or back to Library
-nodex database view-update <view-id> <json|@file|@-> # Update that exact durable View
-nodex query "<sql>" [params...]  # Run read-only SQL query
-nodex schema                     # Show database schema
-nodex backups [subcommand]       # List/create/restore backups
-# Aliases: list/show/create/remove/delete/move/hist
-```
-
-Agent command options:
-- `-p, --project <id>` - Project to operate on (default: "default")
-- `--url <url>` - Server URL override
-- `--session-id <id>` - Stable client session identity for mutation audit
-- `--jsonl` - Output JSON Lines (default)
-- `--json` - Output JSON array/object
-- `--csv` - Output CSV
-- `--pretty` - Pretty-print JSON output (use with `--json`)
-- `--table` - Output aligned plain-text tables
-- `-v, --verbose` - Verbose output (e.g. full Page details after update)
-- `-d, --description <text>` - Page body in NFM (supports `@file` / `@-` for stdin)
-- `-P, --priority <p>` - Priority level
-- `-e, --estimate <e>` - Size estimate
-- `-t, --tags <t1,t2>` - Comma-separated tags
-- `-a, --assignee <name>` - Assignee
-- `--yes` - Required confirmation flag for destructive backup restore
-- `--no-safety-backup` - Skip automatic pre-restore safety backup
-- `--label <text>` - Optional backup label for `nodex backups create`
-- `--clear-description` - Clear description (update/mv)
-- `--clear-tags` - Clear tags (update/mv)
-- `--clear-assignee` - Clear assignee (update/mv)
-- `--clear-due` - Clear due date (update/mv)
-- `--full` - Include full Page fields in `ls`
-- `--description-chars <n>` - Truncate `ls --full` descriptions to `n` chars (default: 240)
-- `--description-full` - Include full description in `ls --full`
-- `--mutation-id <id>` - Stable identity for an exact-retry Document mutation
-- `--expected-head <seq>` - Explicit Document CAS head (obtain it with `nodex block descriptor`)
-
-CLI parsing is strict: unknown options and invalid enum/date values fail fast with actionable errors.
-
-Status args accept the canonical ids or names only: `triage`, `plan`, `build`, `review`, and `ship`.
-
-### Backup Commands
-
-```bash
-nodex backups                                   # List backups
-nodex backups create [--label <text>]           # Create manual backup
-nodex backups restore <backup-id> --yes         # Restore backup with safety backup
-nodex backups restore <backup-id> --yes --no-safety-backup
-```
-
-### File/Stdin Input
-
-Text fields (`--description`, `--title`) support reading from files or stdin:
-
-```bash
-nodex add plan "Task" -d @./plan.md        # Read from file
-cat spec.md | nodex add plan "Task" -d @-  # Read from stdin
-```
+The JavaScript HTTP launcher and its `serve`, `query`, `schema`, URL/session,
+and direct-SQL command families are removed. The npm `nodex` bin only locates
+and execs the native binary; every product command uses authenticated UDS Module
+requests and never receives a database path.
 
 ---
 
@@ -1173,19 +1066,15 @@ cat spec.md | nodex add plan "Task" -d @-  # Read from stdin
 
 ### Config File: `.nodex/config.toml`
 
-TOML config for both agent and server settings. Resolution order (later wins):
+TOML config for Profile and desktop settings. The native CLI reads only
+`[server].home`; other `[server]` fields configure the Desktop Host. Resolution
+order (later wins):
 1. Defaults
 2. `~/.nodex/config.toml` (user-level, auto-generated if no config exists)
 3. `.nodex/config.toml` walked up from CWD (project-level overrides user-level)
-4. Env vars: `NODEX_*` for agent and server settings
-5. CLI flags: `--url`, `--session-id`, `--project`, `--port`, `[path]`
+4. Supported `NODEX_*` environment overrides
 
 ```toml
-# .nodex/config.toml
-url = "http://localhost:51283"
-session_id = "my-agent"
-project = "default"
-
 [server]
 home = "~/.nodex"
 port = 51283
@@ -1195,7 +1084,10 @@ backup_retention = 28
 history_retention = 1000 # retained newest deleted Block roots; legacy config key
 ```
 
-**Dev/production separation**: Use project-level `.nodex/config.toml` for dev settings (different `port`/`home`) and `~/.nodex/config.toml` for production. When running `nodex --dev` from a project directory, the project-level config takes priority. When the Electron app is launched directly (e.g., from Dock), only `~/.nodex/config.toml` is read.
+**Profile selection**: Use project-level `.nodex/config.toml` to select a
+repository-specific `[server].home`; it overrides the user config for native CLI
+and unpackaged runs launched from that tree. A Dock-launched Electron app reads
+the user-level config because it has no repository working directory.
 
 **Electron renderer API base resolution**: Main process resolves server port from the same config chain (`config.toml` + env), starts HTTP server on that port, and injects `serverUrl` through preload. Renderer HTTP helpers (including image upload and asset URL resolution) consume this runtime URL so `[server].port` changes are honored; browser mode uses same-origin except local Vite dev (`:51284`) which falls back to default API port (`:51283`).
 
@@ -1232,15 +1124,6 @@ In the desktop app, Settings -> General -> `App updates` updates the user-level 
 In the desktop app, Settings -> General -> `Diagnostics` updates user-level `[server]` fields for `diagnostics_enabled`, `diagnostics_dsn`, `diagnostics_environment`, `diagnostics_traces_sample_rate`, `diagnostics_replay_enabled`, `diagnostics_replays_session_sample_rate`, and `diagnostics_replays_on_error_sample_rate`. Diagnostics and Session Replay are disabled by default; Replay is a separate renderer-only opt-in that only runs when crash diagnostics are also enabled. When diagnostics are enabled without an explicit DSN, Nodex uses its bundled Sentry project DSN. Env overrides win and the UI disables overridden controls.
 
 In the desktop app, Settings -> General -> `Telemetry` updates user-level `[server]` fields for `telemetry_enabled`, `telemetry_client_key`, `telemetry_environment`, and `telemetry_auto_capture_enabled`. Product telemetry and web analytics are disabled by default, and settings changes apply after restart. When telemetry is enabled without an explicit client key, Nodex uses its bundled Statsig client key. The renderer dynamically loads Statsig only when telemetry is enabled, passes no `userID` or account data, and relies on Statsig's anonymous Stable ID plus safe app/runtime metadata. `Share web analytics` is a separate opt-in that only runs when product telemetry is enabled; it disables console-log capture, copy-text capture, and current-page URL attachment, then filters AutoCapture to low-risk technical signals such as web vitals, performance, and session start. Click, copy, form, dead-click, rage-click, error, and page-view AutoCapture events remain blocked by default. Nodex does not use Statsig Session Replay in v1; renderer replay remains the separate Sentry diagnostic opt-in.
-
-### Agent Environment Variables
-```bash
-NODEX_URL=http://localhost:51283
-NODEX_SESSION_ID=my-agent
-NODEX_PROJECT=default
-```
-
-Environment variables can be passed directly. CLI arguments take precedence.
 
 ### Development
 ```bash
@@ -1317,82 +1200,27 @@ The current Codex dynamic-tool transport returns JSON text. In Code Mode, parse 
 
 Independent value editing for an existing Data Source membership is intentionally absent from revision 5. New or relocated Data Source memberships may receive initial values, and `move_pages` can change saved-View placement. A future property-editing tool must begin from a focused user intent rather than restoring the retired generic `edit_database` union.
 
-### Design: CLI + REST API
+### Design: Native CLI + Desktop Adapters
 
-External agents and scripts use the **`nodex` CLI** for board operations. The CLI wraps the REST API with ergonomic commands, strict option/value validation, auto-column-resolution, and config file support. The REST API remains available for direct HTTP access, while interactive Project-bound Codex tasks use the narrower `nodex_app` contract above.
+External agents and scripts use the native **`nodex` CLI**, which is an
+authenticated UDS Adapter over the same Core Modules as the desktop. It supports
+context/tree inspection, exact Page and metadata reads, bounded history,
+immutable-snapshot ripgrep, explicit one-Page drafts, semantic Page and stable
+Block mutations, backups, doctor, and optional Core prewarming. Browser and
+Electron callers use typed HTTP/IPC Adapters for their product workflows; the
+CLI does not wrap Hono and Hono does not proxy private Core administration.
 
-### How Agents Use the Board
+Project, Page, Database, Document, and backup commands all submit semantic
+intent. Core resolves current ownership and revisions, applies the mutation and
+projections atomically, and returns an idempotent receipt. No Adapter accepts raw
+SQL, a database path, physical rank, or Yjs storage coordinates.
 
-```bash
-# 1. Read planned tasks (uses default project, or set --project)
-nodex ls plan
+### Output and Inspection
 
-# 2. Claim a task atomically (fails if another agent already claimed it)
-nodex mv abc1234 plan build
-
-# 3. Finish implementation - move to review
-nodex mv abc1234 build review
-
-# Working with a specific project
-nodex --project my-app ls plan
-nodex --project my-app add plan "New feature"
-
-# Create a manual safety snapshot before risky changes
-nodex backups create --label "before release refactor"
-
-# Restore full board state (db + assets)
-nodex backups restore <backup-id> --yes
-```
-
-### CLI vs REST API
-
-| Action | CLI Command | REST API |
-|--------|------------|----------|
-| List projects | `nodex projects` | GET `/api/projects` |
-| Create project | `nodex projects add <id> <name>` | POST `/api/projects` |
-| Rename project | `nodex projects mv <old> <new>` | PUT `/api/projects/[projectId]` |
-| Delete project | `nodex projects rm <id>` | DELETE `/api/projects/[projectId]` |
-| List Pages | `nodex ls [status]` | GET `/api/projects/[projectId]/column` |
-| Get Page | `nodex get <id>` | GET `/api/projects/[projectId]/database-row?pageId=Y` |
-| Create page | `nodex add <status> <title>` | POST `/api/projects/[projectId]/page-lifecycle-mutations` plus Database Module property values |
-| Update Page | `nodex update <id> [opts]` | Database Module value mutation and/or Document mutation APIs |
-| Read Page Document boundary | `nodex block descriptor <id>` | POST `/api/projects/[projectId]/blocks/[pageId]/document/prepare` |
-| Apply stable-ID Block operations | `nodex block apply <id> <json>` | POST `/api/projects/[projectId]/documents/[documentId]/mutations` |
-| Import/export collaborative body | `nodex block replace/export ...` | Document mutation API / authoritative Page read projection |
-| Change document-bearing ownership | `nodex block command <json>` | POST `/api/projects/[projectId]/document-commands` |
-| Delete page | `nodex rm <id>` | POST `/api/projects/[projectId]/page-lifecycle-mutations` |
-| Move Page within a View | `nodex mv <id> <from> <to> [opts]` | POST Database Module read + apply |
-| Page history | `nodex history <id>` | GET `/api/projects/[projectId]/pages/[pageId]/history` with a source-specific cursor |
-| SQL query | `nodex query "<sql>"` | POST `/api/projects/[projectId]/query` |
-| Schema | `nodex schema` | GET `/api/projects/[projectId]/schema` |
-| List backups | `nodex backups` | GET `/api/backups` |
-| Create backup | `nodex backups create` | POST `/api/backups` |
-| Restore backup | `nodex backups restore <id> --yes` | POST `/api/backups/[backupId]/restore` |
-
-Page commands compile to Block/Document and Database Module authority. `mv` requires explicit `<from> <to>` status intent and commits status plus View position as one Database mutation; a stale captured revision fails the whole request. Title/body commands resolve the owned Document and send an exact generation/head mutation; callers retry a lost response with the same mutation ID and expected head. `nodex update --title/--description` uses that Y.Doc path, while Data Source properties compile to typed value mutations.
-
-### Output Format
-
-All CLI output is **JSON Lines by default** (machine-readable, one object per line). Use `--json` for JSON array/object output, `--csv` for CSV, or `--table` for aligned plain-text tables.
-
-```bash
-nodex ls plan               # JSONL (one Page object per line)
-nodex get abc1234 --json    # JSON object
-nodex ls plan --csv         # CSV table
-nodex ls plan --table       # aligned plain-text table
-nodex ls plan --full        # full Page fields + truncated body
-nodex ls plan --full --description-full  # full description
-nodex ls --offset 10 --limit 10      # paginate (skip 10, take 10)
-```
-
-### Low-Level SQL Query
-
-```bash
-# Inspect active Page Block identities and locations
-nodex query "SELECT id, library_id, parent_kind, parent_id FROM blocks WHERE type = ? AND lifecycle = ?" page active
-```
-
-Use `nodex ls` with its status, priority, assignee, pagination, and output options for product-level Page queries. `nodex query` exposes storage-level records for diagnostics and advanced inspection; it does not provide a legacy wide Page table. Only SELECT queries are allowed (enforced via SQLite's `Statement.readonly`), and parameters are positional (`?` placeholders).
+Commands provide concise human output by default and stable structured output
+through `--json` where documented. Storage inspection is intentionally absent;
+`nodex doctor`, typed context/tree/history reads, and Core validation reports are
+the supported diagnostics.
 
 ---
 
@@ -1402,7 +1230,7 @@ Use `nodex ls` with its status, priority, assignee, pagination, and output optio
 - **Atomic transactions**: Move operations are atomic, no data corruption
 - **Fast queries**: Indexed lookups, no file parsing overhead
 - **Single file**: Easy to backup, restore, or move
-- **No server**: Embedded database, no separate process needed
+- **Local ownership**: Embedded database with no network database service; one detached per-Profile Core process owns it
 - **WAL mode**: Good concurrent read performance
 
 ### Why Multi-Project in One Database?
@@ -1414,7 +1242,7 @@ Use `nodex ls` with its status, priority, assignee, pagination, and output optio
 ### Why Electron?
 - Desktop app with native window management
 - Preload script provides secure IPC bridge via contextBridge
-- Main process hosts both SQLite and HTTP server in one long-lived process
+- Rust Core hosts SQLite/Yrs authority; Electron hosts windows, Hono, OS integration, and Codex app-server
 - No need for globalThis singleton hacks (unlike Next.js server)
 - Browser fallback: UI also works at `http://localhost:51284` via HTTP fetch
 
@@ -1431,14 +1259,14 @@ Use `nodex ls` with its status, priority, assignee, pagination, and output optio
 - Automatic reconnection
 - No additional dependencies
 
-### Why Local Database?
+### Why a Local Native Core?
 - No server setup required
-- Easy to inspect with any SQLite client
+- Offline-first with explicit `nodex doctor`, backup, and semantic CLI diagnostics
 - Portable single file
 - Works offline
 
 ### Why SQLite Online Backup API for Backups?
-- **WAL-safe snapshots**: `db.backup(...)` captures consistent state from a live WAL database
+- **WAL-safe snapshots**: Core's online backup API captures consistent state from the live WAL database
 - **Atomic backup directories**: Stage in temp dir and rename into place
 - **Restore safety**: A continuous maintenance fence, auto safety backup, integrity validation, and durable DB/WAL/assets restore journal protect against failed or interrupted restores
 - **Whole-store recovery**: Backups include both `nodex.db` and `assets/`
@@ -1450,14 +1278,13 @@ Use `nodex ls` with its status, priority, assignee, pagination, and output optio
 - **Safer lifecycle**: Deferred cleanup avoids accidental data loss from aggressive orphan deletion
 
 ### Why CLI for External Agents and Automation?
-- **Ergonomic**: `nodex mv abc1234 5 6` vs multi-line curl commands
-- **Concurrency-safe**: Server-side column resolution means each CLI command is a single atomic HTTP request — no TOCTOU races when multiple agents operate simultaneously
+- **Semantic**: Page, Block, draft, tree, history, search, backup, and doctor commands expose product intent instead of tables
+- **Concurrency-safe**: each mutation is one idempotent native Module request, so current ownership and revisions resolve inside the transaction
 - **Stable identities**: Agents address Pages, Data Sources, Views, and properties by canonical IDs.
 - **Strict parsing**: Unknown flags/invalid values fail fast instead of silently being ignored
-- **Flexible output**: JSONL by default, plus `--json`, `--csv`, and human-friendly `--table`
-- **Config files**: TOML config at `.nodex/config.toml` avoids repeating `--url`
-- **File input**: `@file` / `@-` for uploading plans or descriptions
-- **REST API still available**: CLI wraps the API; direct HTTP access remains for advanced use
+- **Machine output**: documented commands expose stable `--json` output in addition to concise human output
+- **Profile selection**: `NODEX_HOME` and `[server].home` use the same precedence as the desktop
+- **Private transport**: the CLI authenticates over Profile-private UDS and never receives the database path or Core bearer capability
 
 ### Why REST API?
 - **Consistent interface**: Same HTTP patterns for all operations
@@ -1466,7 +1293,7 @@ Use `nodex ls` with its status, priority, assignee, pagination, and output optio
 
 ### Why Write Limits in App Layer?
 - **Stops runaway growth early**: Field-level validation blocks exponential-content bugs before they hit SQLite/history
-- **Transport consistency**: `local-store/page-input-validation` protects both HTTP and Electron IPC writes.
+- **Transport consistency**: shared validators and generated Core contracts protect HTTP, Electron IPC, and native Module requests.
 - **Resource protection**: Route-level body caps reject oversized requests with `413` before JSON parsing/DB work
 - **Operational simplicity**: Limits live in shared constants, so values stay consistent across modules
 

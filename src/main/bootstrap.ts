@@ -15,15 +15,13 @@ import {
   type MacApplicationsInstallerEnvironment,
 } from "./macos-applications-installer";
 import type { MainRuntimeController } from "./main-runtime";
-import { selectDataAuthorityBackend } from "./data-authority";
+import { assertRustDataAuthorityEnvironment } from "./data-authority";
 
 process.env.NODEX_INTERNAL_APP_PACKAGED = app.isPackaged ? "true" : "false";
 
 const nodexHome = resolveBootstrapNodexHome();
 process.env.NODEX_HOME = nodexHome;
 configureInstanceScopePaths(app, nodexHome);
-selectDataAuthorityBackend();
-
 const runtimeQueue = new BootstrapRuntimeEventQueue();
 
 function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
@@ -161,6 +159,7 @@ async function handleStartupFailure(error: unknown): Promise<void> {
 
 async function startRuntime(): Promise<void> {
   await mainSentryInitialization;
+  assertRustDataAuthorityEnvironment(process.env);
 
   const installerResult = await runMacApplicationsInstallerGate(
     createMacApplicationsInstallerEnvironment(),

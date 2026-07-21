@@ -8,9 +8,6 @@ import {
   requireProjectSessionBrowserTabId,
   type BrowserSidebarTabIdentity,
 } from "../shared/browser-sidebar";
-import * as projectSessionService from "./local-store/project-sessions";
-import * as projectsStore from "./local-store/projects";
-import { projectDeletionRuntime } from "./project-deletion-runtime";
 
 export interface ProjectSessionBrowserRuntime {
   closeBrowserConversation(browserConversationId: string): void | Promise<void>;
@@ -20,22 +17,6 @@ export interface ProjectSessionBrowserRuntime {
 
 function readDeleteTabId(input: string | ProjectSessionTabDeleteInput): string {
   return typeof input === "string" ? input : input.tabId;
-}
-
-export async function deleteProjectSessionTabWithBrowserCleanup(
-  input: string | ProjectSessionTabDeleteInput,
-  browserRuntime: ProjectSessionBrowserRuntime,
-): Promise<boolean> {
-  return await deleteProjectSessionTabWithBrowserCleanupUsing({
-    input,
-    browserRuntime,
-    getProjectSessionTab: async (tabId) =>
-      projectSessionService.getProjectSessionTab(tabId),
-    deleteProjectSessionTab: async (tabInput) =>
-      projectSessionService.deleteProjectSessionTab(tabInput),
-    getProjectSession: async (sessionId) =>
-      projectSessionService.getProjectSession(sessionId),
-  });
 }
 
 export interface DeleteProjectSessionTabWithBrowserCleanupInput {
@@ -76,20 +57,6 @@ export async function deleteProjectSessionTabWithBrowserCleanupUsing(
   return true;
 }
 
-export async function deleteProjectSessionWithBrowserCleanup(
-  sessionId: string,
-  browserRuntime: ProjectSessionBrowserRuntime,
-): Promise<boolean> {
-  return await deleteProjectSessionWithBrowserCleanupUsing({
-    sessionId,
-    browserRuntime,
-    getProjectSession: async (targetSessionId) =>
-      projectSessionService.getProjectSession(targetSessionId),
-    deleteProjectSession: async (targetSessionId) =>
-      projectSessionService.deleteProjectSession(targetSessionId),
-  });
-}
-
 export interface DeleteProjectSessionWithBrowserCleanupInput {
   readonly sessionId: string;
   readonly browserRuntime: ProjectSessionBrowserRuntime;
@@ -110,24 +77,6 @@ export async function deleteProjectSessionWithBrowserCleanupUsing(
 
   await input.browserRuntime.closeBrowserConversation(existing.id);
   return true;
-}
-
-export async function deleteProjectWithBrowserCleanup(
-  projectId: string,
-  browserRuntime: ProjectSessionBrowserRuntime,
-  deleteProject: (projectId: string) => boolean | Promise<boolean> = projectDeletionRuntime.deleteProject,
-): Promise<boolean> {
-  return await deleteProjectWithBrowserCleanupUsing({
-    projectId,
-    browserRuntime,
-    deleteProject,
-    getProject: async (targetProjectId) =>
-      projectsStore.getProject(targetProjectId),
-    listProjectSessions: async (targetProjectId) =>
-      projectSessionService.listProjectSessions(targetProjectId, {
-        includeArchived: true,
-      }),
-  });
 }
 
 export interface DeleteProjectWithBrowserCleanupInput {

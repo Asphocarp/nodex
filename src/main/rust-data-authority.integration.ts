@@ -24,15 +24,12 @@ import { createCoreBlockTransferAdapter } from "./core-client/block-transfer-ada
 import { createCoreProjectWorkspaceAdapter } from "./core-client/project-workspace-adapter";
 import {
   createDesktopAutomationModuleBridge,
-  type DesktopAutomationModulePort,
 } from "./core-client/desktop-automation-module-bridge";
 import {
   createDesktopStoreAdministrationBridge,
-  type DesktopStoreAdministrationPort,
 } from "./core-client/desktop-store-administration-bridge";
 import type { CoreEventEnvelope } from "./core-client/types";
 import { NodexYProvider } from "../renderer/lib/nodex-y-provider";
-import { closeDatabase, getDb } from "./local-store/database";
 import { LIBRARY_MODULE_CONTRACT_VERSION } from "../shared/library-module";
 import { PAGE_HISTORY_CONTRACT_VERSION } from "../shared/page-history";
 import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../shared/database-module-v2";
@@ -62,59 +59,6 @@ import {
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 const temporaryDirectories: string[] = [];
 
-const unavailableAutomationPort = (): DesktopAutomationModulePort => {
-  const unavailable = async (): Promise<never> => {
-    throw new Error("TypeScript Automation fallback must not run");
-  };
-  return {
-    listDefinitions: unavailable,
-    getDefinition: unavailable,
-    createDefinition: unavailable,
-    updateDefinition: unavailable,
-    deleteDefinition: unavailable,
-    dispatchDefinitionNow: unavailable,
-    claimDueDefinitions: unavailable,
-    completeLease: unavailable,
-    failLease: unavailable,
-    settleInterruptedRuns: unavailable,
-    getRun: unavailable,
-    beginRun: unavailable,
-    replacePendingRunThread: unavailable,
-    setRunThreadTitle: unavailable,
-    completeRunForReview: unavailable,
-    setRunInboxItem: unavailable,
-    acceptRun: unavailable,
-    archiveRun: unavailable,
-    deleteRun: unavailable,
-    unarchiveRun: unavailable,
-    readInbox: unavailable,
-    setRunReadState: unavailable,
-    markAllRunsRead: unavailable,
-    listPageOccurrences: unavailable,
-    completePageOccurrence: unavailable,
-    skipPageOccurrence: unavailable,
-    updatePageOccurrence: unavailable,
-    snoozeReminder: unavailable,
-    claimDueReminders: unavailable,
-    completeReminderLease: unavailable,
-    failReminderLease: unavailable,
-  };
-};
-
-const unavailableStoreAdministrationPort = (): DesktopStoreAdministrationPort => {
-  const unavailable = async (): Promise<never> => {
-    throw new Error("TypeScript Store Administration fallback must not run");
-  };
-  return {
-    listBackups: unavailable,
-    createBackup: unavailable,
-    deleteBackup: unavailable,
-    restoreBackup: unavailable,
-    pruneBackups: unavailable,
-    runMaintenance: unavailable,
-  };
-};
-
 const waitUntil = async (
   predicate: () => boolean,
   message: string,
@@ -138,7 +82,6 @@ const listCurrentProcessFiles = (): string => {
 
 afterEach(() => {
   __resetHttpServerDependenciesForTests();
-  closeDatabase();
   delete process.env.NODEX_CORE_EXECUTABLE;
   delete process.env.NODEX_HOME;
   for (const directory of temporaryDirectories.splice(0)) {
@@ -168,9 +111,6 @@ describe("Electron native data authority", () => {
 
       const databasePath = path.join(nodexHome, "nodex.db");
       expect(existsSync(databasePath)).toBe(true);
-      expect(() => getDb()).toThrow(
-        "native Rust Core owns this Profile",
-      );
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
 
       const startup = await runtime.rootClient.workspaceRead({ kind: "startup" });
@@ -181,7 +121,6 @@ describe("Electron native data authority", () => {
       if (!projectId) throw new Error("Core startup has no Project");
       const desktopWorkspace = createDesktopProjectWorkspaceBridge({
         authority: Promise.resolve(runtime),
-        typescript: {} as never,
       });
       __setHttpContentModuleDependenciesForTests({
         projectWorkspace: desktopWorkspace,
@@ -194,12 +133,6 @@ describe("Electron native data authority", () => {
         projects: expect.arrayContaining([
           expect.objectContaining({ id: projectId }),
         ]),
-      });
-      __setHttpContentModuleDependenciesForTests({
-        sqlInspection: {
-          getSchema: async () => null,
-          executeReadOnlyQuery: async () => null,
-        },
       });
       const sqlHttpResponse = await getHttpServerOptions(51_284).fetch(
         new Request(
@@ -494,7 +427,6 @@ describe("Electron native data authority", () => {
       });
       const desktopDocuments = createDesktopDocumentSyncBridge({
         authority: Promise.resolve(runtime),
-        typescript: {} as never,
       });
       __setHttpContentModuleDependenciesForTests({
         documentSync: {
@@ -1018,32 +950,14 @@ describe("Electron native data authority", () => {
         finalLocationRevisions: { [copiedDataSourcePageId]: 2 },
         affectedDatabaseBlockIds: [primaryDatabase.database.databaseId],
       });
-      const unavailableDatabaseFallback = async (): Promise<never> => {
-        throw new Error("TypeScript Database fallback must not run");
-      };
       const desktopDatabase = createDesktopDatabaseModuleBridge({
         authority: Promise.resolve(runtime),
-        typescript: {
-          read: unavailableDatabaseFallback,
-          apply: unavailableDatabaseFallback,
-          readLibrary: unavailableDatabaseFallback,
-          applyLibrary: unavailableDatabaseFallback,
-          getBoardSummary: unavailableDatabaseFallback,
-          getDatabaseColumn: unavailableDatabaseFallback,
-          getDatabaseRowsDetails: unavailableDatabaseFallback,
-          getDatabaseRowPage: unavailableDatabaseFallback,
-          resolveDatabaseViewReference: unavailableDatabaseFallback,
-        },
       });
       const nativeAgentService = createDesktopNodexAgentV3DynamicService({
         authority: Promise.resolve(runtime),
         projectWorkspace: desktopWorkspace,
         databaseModule: desktopDatabase,
         documentSync: desktopDocuments,
-        typescript: {
-          writer: {} as never,
-          documentHub: {} as never,
-        },
       });
       const nativeAgentContext = await nativeAgentService.registry.execute({
         namespace: NODEX_APP_TOOL_NAMESPACE,
@@ -2152,7 +2066,6 @@ describe("Electron native data authority", () => {
       ).resolves.toMatchObject({ thread: null });
       const turnAuthority = createDesktopNodexAgentAuthorityPort({
         authority: Promise.resolve(runtime),
-        typescript: {} as never,
       });
       const authorityLaunch = await turnAuthority.beginTurn({
         threadId: "thread:electron-session",
@@ -2186,7 +2099,6 @@ describe("Electron native data authority", () => {
       });
       const agentResources = createDesktopNodexAgentResourceAuthorityPort({
         authority: Promise.resolve(runtime),
-        typescript: {} as never,
       });
       const consentPlan = await agentResources.plan({
         authority: frozenAuthority,
@@ -2426,7 +2338,6 @@ describe("Electron native data authority", () => {
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
       const automation = createDesktopAutomationModuleBridge({
         authority: Promise.resolve(runtime),
-        typescript: unavailableAutomationPort(),
       });
       const automationDefinition = await automation.createDefinition({
         kind: "cron",
@@ -2529,7 +2440,6 @@ describe("Electron native data authority", () => {
       });
       const administration = createDesktopStoreAdministrationBridge({
         authority: Promise.resolve(runtime),
-        typescript: unavailableStoreAdministrationPort(),
       });
       const nativeBackup = await administration.createBackup({
         trigger: "manual",

@@ -2,8 +2,6 @@ import {
   CANVAS_SCENE_SYNC_VERSION,
   canonicalizeCanvasSceneMutationRequest,
   canonicalizeCanvasSceneMutationResult,
-  decodeCanvasSceneSseEvent,
-  decodeCanvasSceneSyncResultHttp,
   type CanvasSceneMutationCommandResult,
   type CanvasSceneMutationError,
   type CanvasSceneMutationRequest,
@@ -11,7 +9,11 @@ import {
   type CanvasSceneSubscribeRequest,
   type CanvasSceneSyncCommandResult,
   type CanvasSceneSyncRequest,
-} from "../../shared/block-documents";
+} from "../../shared/block-documents/canvas-scene-sync";
+import {
+  decodeCanvasSceneSseEvent,
+  decodeCanvasSceneSyncResultHttp,
+} from "../../shared/block-documents/canvas-scene-http-contract";
 import { decodeOwnedDocumentDescriptorHttp } from "../../shared/block-documents/http-contract";
 import { CoreModuleResponseError } from "./core-client";
 import type {

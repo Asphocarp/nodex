@@ -47,6 +47,13 @@ jobs:
         node-version-file: .node-version
         cache: pnpm
 
+    - uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: 1.97.1
+        components: clippy,rustfmt
+
+    - uses: Swatinem/rust-cache@v2
+
     - name: Install dependencies
       run: pnpm install --frozen-lockfile
 
@@ -59,14 +66,22 @@ jobs:
     - name: Lint
       run: pnpm run lint
 
+    - name: Verify Rust Core
+      run: |
+        pnpm run core:fmt
+        pnpm run core:clippy
+        pnpm run core:test
+        pnpm run core:protocol:verify
+        pnpm run core:module-boundaries
+
+    - name: Build Rust Core integration runtime
+      run: cargo build -p nodex-core-server --all-targets
+
     - name: Test Node, main, renderer, and integration suites
       run: pnpm test
 
     - name: Test Browser Mode
       run: xvfb-run --auto-servernum pnpm test:browser
-
-    - name: Test native Electron runtime probes
-      run: pnpm test:electron-runtime
 
     - name: Test Electron end-to-end smoke flow
       run: xvfb-run --auto-servernum pnpm test:e2e
@@ -234,6 +249,15 @@ jobs:
           --resources-path "${{ steps.artifact_paths.outputs.app_path }}/Contents/Resources" \
           --verify-macos-signatures
 
+    - name: Verify packaged native runtime
+      working-directory: ${{ env.RELEASE_WORKDIR }}
+      run: |
+        pnpm exec tsx scripts/verify-native-runtime.ts \
+          --app-path "${{ steps.artifact_paths.outputs.app_path }}" \
+          --target-arch arm64 \
+          --verify-signatures \
+          --require-developer-id
+
     - name: Verify signing and notarization
       run: |
         codesign --verify --deep --strict --verbose=2 "${{ steps.artifact_paths.outputs.app_path }}"
@@ -337,6 +361,15 @@ jobs:
         pnpm exec tsx scripts/verify-codex-runtime.ts \
           --resources-path "${{ steps.artifact_paths.outputs.app_path }}/Contents/Resources" \
           --verify-macos-signatures
+
+    - name: Verify packaged native runtime
+      working-directory: ${{ env.RELEASE_WORKDIR }}
+      run: |
+        pnpm exec tsx scripts/verify-native-runtime.ts \
+          --app-path "${{ steps.artifact_paths.outputs.app_path }}" \
+          --target-arch x64 \
+          --verify-signatures \
+          --require-developer-id
 
     - name: Verify signing and notarization
       run: |

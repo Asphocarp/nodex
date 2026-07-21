@@ -2494,6 +2494,16 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "dispatch_now";
             } | {
+                readonly automation_id: string;
+                /** Format: int64 */
+                readonly expected_revision: number;
+                /** @enum {string} */
+                readonly kind: "reschedule_definition";
+                /** Format: int64 */
+                readonly not_before_ms?: number | null;
+                /** Format: int64 */
+                readonly retry_within_ms?: number | null;
+            } | {
                 /** @enum {string} */
                 readonly kind: "claim_due";
                 /** Format: int64 */

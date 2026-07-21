@@ -42,7 +42,6 @@ export interface DesktopStoreAdministrationPort {
 
 export interface DesktopStoreAdministrationBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
-  readonly typescript: DesktopStoreAdministrationPort;
 }
 
 export interface CoreStoreAdministrationInvalidation {
@@ -165,7 +164,6 @@ export function createDesktopStoreAdministrationBridge(
   let corePort: DesktopStoreAdministrationPort | null = null;
   const resolve = async (): Promise<DesktopStoreAdministrationPort> => {
     const runtime = await input.authority;
-    if (runtime.backend === "typescript") return input.typescript;
     corePort ??= createCorePort(runtime.rootClient);
     return corePort;
   };

@@ -71,6 +71,11 @@ export interface DynamicToolExecutionResult<TOutput = unknown> {
   readonly output: TOutput;
 }
 
+export interface DynamicToolValidationResult {
+  readonly effect: DynamicToolEffect;
+  readonly input: unknown;
+}
+
 function registryKey(identity: DynamicToolExecutionIdentity): string {
   return JSON.stringify([
     identity.namespace,
@@ -194,11 +199,38 @@ export class DynamicToolRegistry<TContext> {
     });
   }
 
+  public validate(
+    identity: DynamicToolExecutionIdentity,
+    rawInput: unknown,
+  ): DynamicToolValidationResult {
+    const validated = this.#validate(identity, rawInput);
+    return { effect: validated.effect, input: validated.input };
+  }
+
   public async execute(
     identity: DynamicToolExecutionIdentity,
     rawInput: unknown,
     context: TContext,
   ): Promise<DynamicToolExecutionResult> {
+    const { effect, input, registration } = this.#validate(identity, rawInput);
+    const rawOutput = await registration.execute({ identity, input, context });
+    const parsedOutput = registration.outputSchema.safeParse(rawOutput);
+    if (!parsedOutput.success) {
+      throw new DynamicToolRegistryError(
+        "invalid_output",
+        `Invalid output from ${identity.namespace}.${identity.tool}`,
+        formatZodIssues(parsedOutput.error),
+      );
+    }
+
+    return { effect, output: parsedOutput.data };
+  }
+
+  #validate(identity: DynamicToolExecutionIdentity, rawInput: unknown): {
+    readonly effect: DynamicToolEffect;
+    readonly input: unknown;
+    readonly registration: ErasedDynamicToolRegistration<TContext>;
+  } {
     const catalog = this.#catalogs.get(catalogKey(identity));
     if (!catalog) {
       throw new DynamicToolRegistryError(
@@ -225,20 +257,6 @@ export class DynamicToolRegistry<TContext> {
     }
 
     const effect = registration.classifyEffect(parsedInput.data);
-    const rawOutput = await registration.execute({
-      identity,
-      input: parsedInput.data,
-      context,
-    });
-    const parsedOutput = registration.outputSchema.safeParse(rawOutput);
-    if (!parsedOutput.success) {
-      throw new DynamicToolRegistryError(
-        "invalid_output",
-        `Invalid output from ${identity.namespace}.${identity.tool}`,
-        formatZodIssues(parsedOutput.error),
-      );
-    }
-
-    return { effect, output: parsedOutput.data };
+    return { effect, input: parsedInput.data, registration };
   }
 }

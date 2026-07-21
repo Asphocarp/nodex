@@ -14,9 +14,9 @@ Nodex pins Node `24.15.0` in `.node-version` and pnpm `11.11.0` in
 `package.json`. Use those versions before running a frozen install.
 
 The install lifecycle runs `electron-builder install-app-deps`, which rebuilds
-`better-sqlite3` and `node-pty` for Electron. Do not run `pnpm rebuild` for these
-packages: it can replace the Electron-compatible binaries with host-Node
-binaries.
+`node-pty` for Electron. Do not run `pnpm rebuild` for it: that can replace the
+Electron-compatible binary with a host-Node binary. SQLite and collaborative
+Document authority are native Rust code and do not use a Node addon.
 
 Start the desktop app in development mode:
 
@@ -79,12 +79,13 @@ The test commands follow production boundaries:
 - `pnpm test:unit` runs pure shared, script, configuration, and renderer helper
   logic in Node. Renderer tests use the `.node.test.ts` suffix when they do not
   require DOM behavior.
-- `pnpm test:main` runs main/store tests in Electron's embedded Node runtime.
+- `pnpm test:main` runs Electron main-process adapter and host tests.
 - `pnpm test:renderer` runs ordinary React and DOM behavior in jsdom.
 - `pnpm test:browser` runs browser-sensitive renderer contracts in Chromium.
 - `pnpm test:integration` runs integration tests in Electron's Node runtime.
-- `pnpm test:electron-runtime` runs native persistence probes.
-- `pnpm test:e2e` builds and exercises the complete Electron/preload/IPC/SQLite chain.
+- `pnpm run core:fmt`, `pnpm run core:clippy`, and `pnpm run core:test` validate the native authority.
+- `pnpm run core:protocol:verify` and `pnpm run core:module-boundaries` verify generated contracts and the Rust-only production boundary.
+- `pnpm test:e2e` builds and exercises the complete Electron/preload/IPC/Core chain.
 
 Use the matching runtime when running one test file:
 
@@ -113,8 +114,8 @@ change. Run the complete validation set once after the final edit set is stable;
 ## Native Addon ABI Errors
 
 Electron and the host Node executable can report the same Node version while
-using different native module ABIs. `better-sqlite3` and `node-pty` therefore
-must be loaded by the runtime they were rebuilt for. An error containing
+using different native module ABIs. `node-pty` therefore must be loaded by the
+runtime it was rebuilt for. An error containing
 `compiled against a different Node.js version` or mismatched
 `NODE_MODULE_VERSION` values usually means the wrong runtime launched the code;
 it does not necessarily mean dependencies are stale.
@@ -138,9 +139,9 @@ node -p "process.versions.modules"
 ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron -p "process.versions.modules"
 ```
 
-Different values are expected. Do not try to make one native binary serve both
-runtimes; keep native-addon work on the Electron-owned test and application
-paths.
+Different values are expected. Do not try to make one `node-pty` binary serve
+both runtimes; keep native-addon work on Electron-owned test and application
+paths. Rust Core tests and binaries are independent of this Node ABI boundary.
 
 ## Related Technical Docs
 

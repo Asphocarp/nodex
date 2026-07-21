@@ -1318,20 +1318,6 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       );
       return res.json();
     }
-    case "db:schema": {
-      const [projectId] = args as [string];
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/schema`));
-      return res.json();
-    }
-    case "db:query": {
-      const [projectId, sql, params] = args as [string, string, unknown[]?];
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/query`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sql, params }),
-      });
-      return res.json();
-    }
     case "backup:list": {
       const res = await fetch(toApiUrl("/api/backups"));
       const data = await res.json();

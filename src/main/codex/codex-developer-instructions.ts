@@ -13,7 +13,7 @@ const CODEX_WORKSPACE_DEPENDENCIES_CONTEXT = `### Workspace Dependencies
 - For sheets, slides, and documents, call \`load_workspace_dependencies\` to find the bundled runtime and libraries.`;
 
 const CODEX_AUTOMATIONS_CONTEXT = `### Automations
-- This app supports recurring automations, reminders, monitors, follow-ups, and thread wakeups. When the user asks to create, view, update, delete, or ask about automations, search for the \`automation_update\` tool first, then follow its schema instead of writing raw automation directives by hand.
+- This app supports recurring automations, reminders, monitors, follow-ups, and thread wakeups. When the user asks to list, search, create, view, update, delete, or ask about automations, search for the \`automation_update\` tool first, then follow its schema instead of writing raw automation directives by hand.
 - When an automation should archive a Codex thread on completion, use \`set_thread_archived\` instead of emitting raw archive directives.`;
 
 const CODEX_THREAD_COORDINATION_CONTEXT = `### Thread Coordination

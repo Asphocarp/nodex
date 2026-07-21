@@ -205,6 +205,23 @@ pub(super) fn apply(
                     &request_hash,
                     automation_id,
                 ),
+                AutomationIntent::RescheduleDefinition {
+                    automation_id,
+                    expected_revision,
+                    not_before_ms,
+                    retry_within_ms,
+                } => reschedule_definition(
+                    transaction,
+                    &library_id,
+                    &context,
+                    &store_epoch,
+                    &request.operation_id,
+                    &request_hash,
+                    automation_id,
+                    *expected_revision,
+                    *not_before_ms,
+                    *retry_within_ms,
+                ),
                 AutomationIntent::ClaimDue {
                     limit,
                     lease_duration_ms,
@@ -380,6 +397,95 @@ pub(super) fn apply(
             }
         })
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn reschedule_definition(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    automation_id: &str,
+    expected_revision: i64,
+    not_before_ms: Option<i64>,
+    retry_within_ms: Option<u64>,
+) -> Result<AutomationApplyOutcome, StoreError> {
+    validate_id("automation_id", automation_id)?;
+    if not_before_ms.is_some_and(|value| value < 0) {
+        return Err(invalid("Scheduled Automation not-before time is invalid"));
+    }
+    if retry_within_ms.is_some_and(|delay| delay > MAX_RETRY_DELAY_MS) {
+        return Err(invalid("Automation retry delay exceeds its bound"));
+    }
+    if not_before_ms.is_some() && retry_within_ms.is_some() {
+        return Err(invalid(
+            "Scheduled Automation reschedule policy is ambiguous",
+        ));
+    }
+    let definition = read_definition(connection, automation_id)?
+        .ok_or_else(|| not_found("Scheduled Automation is unavailable"))?;
+    if definition.status != AutomationDefinitionStatus::Active {
+        return Err(conflict("Only an active Automation can be rescheduled"));
+    }
+    if definition.definition_revision != expected_revision {
+        return Err(conflict("Scheduled Automation changed before rescheduling"));
+    }
+    let (now_ms, committed_at) = core_now(connection)?;
+    let scheduled = scheduled_next_for_stored(connection, &definition, now_ms)?;
+    let next_run_at_ms = if let Some(not_before_ms) = not_before_ms {
+        Some(scheduled.map_or(not_before_ms, |next| next.max(not_before_ms)))
+    } else if let Some(retry_within_ms) = retry_within_ms {
+        let retry_at = now_ms
+            .checked_add(
+                i64::try_from(retry_within_ms)
+                    .map_err(|_| invalid("Automation retry delay exceeds the timestamp range"))?,
+            )
+            .ok_or_else(|| invalid("Automation retry time exceeds the timestamp range"))?;
+        Some(scheduled.map_or(retry_at, |next| next.min(retry_at)))
+    } else {
+        scheduled
+    };
+    let changed = connection.execute(
+        "UPDATE codex_scheduled_automations SET next_run_at = ?1, updated_at = ?2, \
+           definition_revision = definition_revision + 1 \
+         WHERE automation_id = ?3 AND definition_revision = ?4 AND status != 'DELETED'",
+        params![next_run_at_ms, now_ms, automation_id, expected_revision],
+    )?;
+    if changed != 1 {
+        return Err(conflict("Scheduled Automation changed before rescheduling"));
+    }
+    let stored = read_definition(connection, automation_id)?
+        .ok_or_else(|| corrupt("Rescheduled Automation is unavailable"))?;
+    finish_mutation(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        MutationEffects {
+            operation_kind: "reschedule_definition",
+            automation_ids: vec![automation_id.to_owned()],
+            definitions: vec![stored],
+            claimed_leases: Vec::new(),
+            lease_ids: Vec::new(),
+            runs: Vec::new(),
+            deleted_run_ids: Vec::new(),
+            run_ids: Vec::new(),
+            run_bulk: None,
+            reminder_leases: Vec::new(),
+            reminder_snoozes: Vec::new(),
+            reminder_lease_ids: Vec::new(),
+            snooze_ids: Vec::new(),
+            page_occurrence_mutation: None,
+            page_ids: Vec::new(),
+            document_ids: Vec::new(),
+            database_ids: Vec::new(),
+            committed_at,
+        },
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1473,6 +1579,7 @@ fn require_trusted_host(
         intent,
         AutomationIntent::ClaimDue { .. }
             | AutomationIntent::DispatchNow { .. }
+            | AutomationIntent::RescheduleDefinition { .. }
             | AutomationIntent::CompleteLease { .. }
             | AutomationIntent::FailLease { .. }
             | AutomationIntent::BeginRun { .. }
@@ -2235,6 +2342,65 @@ mod tests {
         assert_eq!(
             deleted.committed.value.definitions[0].status,
             AutomationDefinitionStatus::Deleted
+        );
+    }
+
+    #[test]
+    fn definition_reschedule_is_revision_fenced_and_exactly_replayed() {
+        let harness = harness();
+        create(&harness);
+
+        let rescheduled = apply(
+            &harness,
+            "reschedule-automation",
+            AutomationIntent::RescheduleDefinition {
+                automation_id: "daily-report".to_owned(),
+                expected_revision: 1,
+                not_before_ms: Some(4_000_000_000_000),
+                retry_within_ms: None,
+            },
+        )
+        .expect("reschedule Automation");
+        assert_eq!(
+            rescheduled.committed.value.definitions[0].next_run_at_ms,
+            Some(4_000_000_000_000)
+        );
+        assert_eq!(
+            rescheduled.committed.value.definitions[0].definition_revision,
+            2
+        );
+
+        let replay = apply(
+            &harness,
+            "reschedule-automation",
+            AutomationIntent::RescheduleDefinition {
+                automation_id: "daily-report".to_owned(),
+                expected_revision: 1,
+                not_before_ms: Some(4_000_000_000_000),
+                retry_within_ms: None,
+            },
+        )
+        .expect("replay reschedule");
+        assert!(replay.committed.receipt.mutation.duplicate);
+        assert_eq!(
+            replay.committed.event_sequence,
+            rescheduled.committed.event_sequence
+        );
+
+        let stale = apply(
+            &harness,
+            "stale-reschedule",
+            AutomationIntent::RescheduleDefinition {
+                automation_id: "daily-report".to_owned(),
+                expected_revision: 1,
+                not_before_ms: Some(4_000_000_000_001),
+                retry_within_ms: None,
+            },
+        )
+        .expect_err("stale reschedule");
+        assert_eq!(
+            stale.code,
+            nodex_core_contracts::CoreErrorCode::RevisionConflict
         );
     }
 

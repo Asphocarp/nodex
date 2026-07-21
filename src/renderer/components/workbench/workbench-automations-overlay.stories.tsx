@@ -18,6 +18,7 @@ import { buildAutomationsPath } from "./workbench-automations-routes";
 const AUTOMATIONS: CodexScheduledAutomation[] = [
   {
     id: "automation-standup",
+    definitionRevision: 1,
     kind: "heartbeat",
     status: "ACTIVE",
     targetThreadId: "thread-standup",
@@ -36,6 +37,7 @@ const AUTOMATIONS: CodexScheduledAutomation[] = [
   },
   {
     id: "automation-review",
+    definitionRevision: 1,
     kind: "heartbeat",
     status: "ACTIVE",
     targetThreadId: "thread-review",
@@ -54,6 +56,7 @@ const AUTOMATIONS: CodexScheduledAutomation[] = [
   },
   {
     id: "automation-paused",
+    definitionRevision: 1,
     kind: "heartbeat",
     status: "PAUSED",
     targetThreadId: "thread-paused",
@@ -74,6 +77,7 @@ const AUTOMATIONS: CodexScheduledAutomation[] = [
 
 const HISTORY_AUTOMATION: CodexScheduledAutomation = {
   id: "automation-history",
+  definitionRevision: 1,
   kind: "cron",
   status: "ACTIVE",
   targetThreadId: null,
@@ -257,6 +261,7 @@ function storyAutomationFromInput(
   const id = "id" in input ? input.id : `automation-${Date.now()}`;
   return {
     id,
+    definitionRevision: 1,
     kind: input.kind,
     status: "status" in input ? input.status : "ACTIVE",
     targetThreadId: input.targetThreadId ?? null,

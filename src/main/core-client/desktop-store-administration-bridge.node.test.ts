@@ -1,9 +1,8 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 
 import {
   createDesktopStoreAdministrationBridge,
   mapCoreStoreAdministrationEvent,
-  type DesktopStoreAdministrationPort,
 } from "./desktop-store-administration-bridge";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { FakeCoreClient } from "./testing/fake-core-client";
@@ -66,21 +65,11 @@ const rustRuntime = (client: FakeCoreClient): RustDataAuthorityRuntime => ({
   clientForProject: () => client,
 }) as unknown as RustDataAuthorityRuntime;
 
-const fallback = (): DesktopStoreAdministrationPort => ({
-  listBackups: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  createBackup: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  deleteBackup: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  restoreBackup: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  pruneBackups: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  runMaintenance: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-});
-
 describe("Desktop Store Administration bridge", () => {
   test("maps complete Backup records and trusted backup mutations through Core", async () => {
     const client = new FakeCoreClient();
     const bridge = createDesktopStoreAdministrationBridge({
       authority: Promise.resolve(rustRuntime(client)),
-      typescript: fallback(),
     });
     client.enqueueAdministrationApply(committed({ backup_id: backup.backup_id }));
     client.enqueueAdministrationRead(readSnapshot({
@@ -131,7 +120,7 @@ describe("Desktop Store Administration bridge", () => {
     });
   });
 
-  test("maps Store Administration events and selects the explicit fallback", async () => {
+  test("maps Store Administration events", () => {
     expect(mapCoreStoreAdministrationEvent({
       protocol_version: 1,
       event: {
@@ -155,13 +144,5 @@ describe("Desktop Store Administration bridge", () => {
       readinessChanged: false,
     });
 
-    const typescript = fallback();
-    vi.mocked(typescript.listBackups).mockResolvedValue([]);
-    const bridge = createDesktopStoreAdministrationBridge({
-      authority: Promise.resolve({ backend: "typescript" } as never),
-      typescript,
-    });
-    await expect(bridge.listBackups()).resolves.toEqual([]);
-    expect(typescript.listBackups).toHaveBeenCalledOnce();
   });
 });

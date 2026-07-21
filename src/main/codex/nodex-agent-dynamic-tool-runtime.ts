@@ -1,10 +1,8 @@
 import type { DynamicToolCallParams } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallParams";
 import type { DynamicToolCallResponse } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallResponse";
-import {
-  NODEX_APP_TOOL_NAMESPACE,
-  type NodexAgentAccess,
-  type ToolFailure,
-} from "../../shared/nodex-agent-tools";
+import type { ToolFailure } from "../../shared/nodex-agent-tools/base-schemas";
+import { NODEX_APP_TOOL_NAMESPACE } from "../../shared/nodex-agent-tools/identity";
+import type { NodexAgentAccess } from "../../shared/nodex-agent-tools/read-runtime";
 import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
 import type { NodexAgentResourceAccessOverlay } from "../../shared/nodex-agent-resource-access";
 import {
@@ -13,12 +11,14 @@ import {
 } from "../agent-tools/dynamic-service-core";
 import {
   NodexAgentV3DynamicService,
-  nodexAgentV3DynamicService,
 } from "../agent-tools/dynamic-service-v3";
 import { DynamicToolRegistryError } from "./dynamic-tool-registry";
-import { buildNodexAgentV3DynamicToolCatalog } from "./nodex-dynamic-tool-registry";
+import {
+  buildNodexAgentV3DynamicToolCatalog,
+  validateNodexAgentV3DynamicToolCall,
+} from "./nodex-dynamic-tool-registry";
 
-let activeNodexAgentV3DynamicService = nodexAgentV3DynamicService;
+let activeNodexAgentV3DynamicService: NodexAgentV3DynamicService | null = null;
 
 export function configureNodexAgentV3DynamicService(
   service: NodexAgentV3DynamicService,
@@ -113,7 +113,21 @@ export async function executeNodexAgentDynamicToolCall(
   }
 
   try {
-    const result = await activeNodexAgentV3DynamicService.registry.execute(
+    const service = activeNodexAgentV3DynamicService;
+    if (!service) {
+      validateNodexAgentV3DynamicToolCall({
+        toolsetRevision: input.toolsetRevision,
+        tool: params.tool,
+        arguments: params.arguments,
+      });
+      return serializeFailure(buildFailure(
+        "internal_error",
+        "Nodex Agent tools are unavailable before Rust Core initialization",
+        "retry_same",
+        true,
+      ));
+    }
+    const result = await service.registry.execute(
       {
         namespace: NODEX_APP_TOOL_NAMESPACE,
         toolsetRevision: input.toolsetRevision,

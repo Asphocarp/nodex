@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import type {
   CodexAutomationInboxItem,
@@ -112,6 +112,14 @@ export interface DesktopAutomationModulePort {
   ): Promise<CodexScheduledAutomation | null>;
   deleteDefinition(id: string): Promise<DesktopAutomationDefinitionDeleteResult>;
   dispatchDefinitionNow(id: string): Promise<CodexScheduledAutomation | null>;
+  rescheduleDefinition(
+    id: string,
+    expectedRevision: number,
+    policy: {
+      readonly notBefore?: number;
+      readonly retryWithinMs?: number;
+    },
+  ): Promise<CodexScheduledAutomation | null>;
   claimDueDefinitions(
     limit: number,
     leaseDurationMs: number,
@@ -199,7 +207,6 @@ export interface DesktopAutomationModulePort {
 
 export interface DesktopAutomationModuleBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
-  readonly typescript: DesktopAutomationModulePort;
 }
 
 export interface CoreAutomationInvalidation {
@@ -222,6 +229,7 @@ const mapDefinition = (
   definition: CoreAutomationDefinition,
 ): CodexScheduledAutomation => ({
   id: definition.automation_id,
+  definitionRevision: definition.definition_revision,
   kind: definition.kind,
   status: definition.status,
   targetThreadId: definition.target_thread_id ?? null,
@@ -457,6 +465,13 @@ const toCoreOccurrenceSchedulePatch = (
 const operationId = (kind: string): string =>
   `electron:automation:${kind}:${randomUUID()}`;
 
+const stableOperationId = (kind: string, payload: unknown): string => {
+  const hash = createHash("sha256")
+    .update(JSON.stringify(payload))
+    .digest("hex");
+  return `electron:automation:${kind}:${hash}`;
+};
+
 const slugifyAutomationName = (name: string): string =>
   name
     .toLowerCase()
@@ -533,9 +548,10 @@ const createCoreAutomationPort = (
   ): Promise<CoreAutomationRun | null> => {
     const run = await readRun(threadId);
     if (!run) return null;
+    const requestedIntent = intent(run);
     const committed = await client.automationApply({
-      operationId: operationId(`run:${threadId}`),
-      intent: intent(run),
+      operationId: stableOperationId(`run:${threadId}`, requestedIntent),
+      intent: requestedIntent,
     });
     return requireRun(committed, threadId);
   };
@@ -658,6 +674,22 @@ const createCoreAutomationPort = (
       const committed = await client.automationApply({
         operationId: operationId(`dispatch-now:${id}`),
         intent: { kind: "dispatch_now", automation_id: id },
+      });
+      return mapDefinition(requireDefinition(committed, id));
+    },
+    rescheduleDefinition: async (id, expectedRevision, policy) => {
+      const committed = await client.automationApply({
+        operationId: stableOperationId(`reschedule:${id}`, {
+          expectedRevision,
+          ...policy,
+        }),
+        intent: {
+          kind: "reschedule_definition",
+          automation_id: id,
+          expected_revision: expectedRevision,
+          not_before_ms: policy.notBefore ?? null,
+          retry_within_ms: policy.retryWithinMs ?? null,
+        },
       });
       return mapDefinition(requireDefinition(committed, id));
     },
@@ -983,7 +1015,6 @@ export const createDesktopAutomationModuleBridge = (
   let corePort: DesktopAutomationModulePort | null = null;
   const port = async (): Promise<DesktopAutomationModulePort> => {
     const runtime = await input.authority;
-    if (runtime.backend === "typescript") return input.typescript;
     corePort ??= createCoreAutomationPort(
       runtime.rootClient,
       runtime.clientForProject,
@@ -1000,6 +1031,8 @@ export const createDesktopAutomationModuleBridge = (
     deleteDefinition: async (id) => (await port()).deleteDefinition(id),
     dispatchDefinitionNow: async (id) =>
       (await port()).dispatchDefinitionNow(id),
+    rescheduleDefinition: async (id, expectedRevision, policy) =>
+      (await port()).rescheduleDefinition(id, expectedRevision, policy),
     claimDueDefinitions: async (limit, leaseDurationMs) =>
       (await port()).claimDueDefinitions(limit, leaseDurationMs),
     completeLease: async (leaseId) => (await port()).completeLease(leaseId),

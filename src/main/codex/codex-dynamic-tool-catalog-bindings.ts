@@ -6,7 +6,7 @@ import {
 import {
   NODEX_APP_TOOL_NAMESPACE,
   NODEX_APP_TOOLSET_REVISION,
-} from "../../shared/nodex-agent-tools";
+} from "../../shared/nodex-agent-tools/identity";
 import type { DynamicToolCatalogSelection } from "./dynamic-tool-registry";
 
 const CURRENT_TOOLSET_REVISION_BY_NAMESPACE = new Map<string, number>([

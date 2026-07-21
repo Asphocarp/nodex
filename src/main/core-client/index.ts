@@ -74,7 +74,6 @@ export type {
   DesktopDataAuthorityRuntime,
   InitializeDesktopDataAuthorityInput,
   RustDataAuthorityRuntime,
-  TypeScriptDataAuthorityRuntime,
 } from "./desktop-data-authority";
 export type {
   CoreLibraryModuleAdapter,

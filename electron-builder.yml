@@ -16,8 +16,6 @@ files:
 - "!**/*.test.*"
 - "!**/*.spec.*"
 - "!node_modules/@types/**"
-- "!node_modules/better-sqlite3/deps/**"
-- "!node_modules/better-sqlite3/src/**"
 - "!node_modules/node-pty/deps/**"
 - "!node_modules/node-pty/scripts/**"
 - "!node_modules/node-pty/src/**"

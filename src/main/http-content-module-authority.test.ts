@@ -162,22 +162,12 @@ describe("HTTP content Module authority", () => {
     });
   });
 
-  test("hides arbitrary SQL inspection when the selected backend disables it", async () => {
-    __setHttpContentModuleDependenciesForTests({
-      sqlInspection: {
-        getSchema: async () => null,
-        executeReadOnlyQuery: async () => null,
-      },
-    });
-
+  test("does not expose arbitrary SQL inspection", async () => {
     const response = await getHttpServerOptions(PORT).fetch(new Request(
       `http://127.0.0.1:${PORT}/api/projects/project-native/schema`,
     ));
 
     expect(response.status).toBe(404);
-    await expect(response.json()).resolves.toEqual({
-      error: "SQL inspection is unavailable for this backend",
-    });
   });
 
   test("binds Block Transfer transport identity before the configured authority", async () => {

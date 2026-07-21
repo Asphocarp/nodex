@@ -1178,6 +1178,7 @@ function makeScheduledAutomation(
 ): CodexScheduledAutomation {
   return {
     id: "automation-alpha",
+    definitionRevision: 1,
     kind: "heartbeat",
     status: "ACTIVE",
     targetThreadId: "thread-alpha",
@@ -1952,6 +1953,7 @@ function renderWorkbench({
       const input = args[0] as CodexScheduledAutomationCreateInput;
       const saved: CodexScheduledAutomation = {
         id: `automation-${scheduledAutomations.length + 1}`,
+        definitionRevision: 1,
         kind: input.kind,
         status: "ACTIVE",
         targetThreadId: input.targetThreadId ?? null,
@@ -1976,6 +1978,7 @@ function renderWorkbench({
       const existing = scheduledAutomations.find((automation) => automation.id === input.id);
       const saved: CodexScheduledAutomation = {
         id: input.id,
+        definitionRevision: (existing?.definitionRevision ?? 0) + 1,
         kind: input.kind,
         status: input.status,
         targetThreadId: input.targetThreadId ?? null,

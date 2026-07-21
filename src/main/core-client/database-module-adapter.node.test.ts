@@ -487,35 +487,6 @@ describe("Core Database Module Adapter", () => {
     } as unknown as RustDataAuthorityRuntime;
     const bridge = createDesktopDatabaseModuleBridge({
       authority: Promise.resolve(runtime),
-      typescript: {
-        read: async () => {
-          throw new Error("TypeScript Database read must not run");
-        },
-        apply: async () => {
-          throw new Error("TypeScript Database apply must not run");
-        },
-        readLibrary: async () => {
-          throw new Error("TypeScript Library Database read must not run");
-        },
-        applyLibrary: async () => {
-          throw new Error("TypeScript Library Database apply must not run");
-        },
-        getBoardSummary: async () => {
-          throw new Error("TypeScript Board summary must not run");
-        },
-        getDatabaseColumn: async () => {
-          throw new Error("TypeScript Database column must not run");
-        },
-        getDatabaseRowsDetails: async () => {
-          throw new Error("TypeScript Database row details must not run");
-        },
-        getDatabaseRowPage: async () => {
-          throw new Error("TypeScript Database row read must not run");
-        },
-        resolveDatabaseViewReference: async () => {
-          throw new Error("TypeScript Database View reference must not run");
-        },
-      },
     });
     const request = {
       version: DATABASE_MODULE_V2_CONTRACT_VERSION,
@@ -526,74 +497,6 @@ describe("Core Database Module Adapter", () => {
     await expect(bridge.read(request)).resolves.toMatchObject({ ok: true });
     await expect(bridge.read(request)).resolves.toMatchObject({ ok: true });
     expect(requestedProjects).toEqual([identity.projectId]);
-  });
-
-  test("preserves the caller's Library access identity on the TypeScript fallback", async () => {
-    let readAccessActor: "app_window" | "http_loopback" | null = null;
-    let applyIdentity: Readonly<{
-      actor: Readonly<Record<string, unknown>>;
-      accessActor: "app_window" | "http_loopback";
-    }> | null = null;
-    const unavailable = {
-      ok: false as const,
-      error: {
-        code: "store_not_initialized" as const,
-        message: "fallback sentinel",
-        retryable: true,
-      },
-    };
-    const bridge = createDesktopDatabaseModuleBridge({
-      authority: Promise.resolve({ backend: "typescript" } as never),
-      typescript: {
-        read: async () => unavailable,
-        apply: async () => unavailable,
-        readLibrary: async (_request, accessActor) => {
-          readAccessActor = accessActor;
-          return unavailable;
-        },
-        applyLibrary: async (_request, identity) => {
-          applyIdentity = identity;
-          return unavailable;
-        },
-        getBoardSummary: async () => ({ columns: [] }),
-        getDatabaseColumn: async (_projectId, columnId) => ({
-          id: columnId,
-          name: columnId,
-          cards: [],
-        }),
-        getDatabaseRowsDetails: async () => [],
-        getDatabaseRowPage: async () => null,
-        resolveDatabaseViewReference: async () => null,
-      },
-    });
-    const readRequest = {
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-      read: {
-        target: {
-          kind: "database" as const,
-          databaseId: parseDatabaseId("database:test"),
-        },
-        mode: "database" as const,
-      },
-    };
-    const applyRequest = {
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-      operationId: "operation:http",
-      storeEpoch: identity.storeEpoch,
-      operations: [],
-    };
-
-    await bridge.readLibrary(readRequest, "http_loopback");
-    await bridge.applyLibrary(applyRequest, {
-      actor: { kind: "http_loopback" },
-      accessActor: "http_loopback",
-    });
-
-    expect(readAccessActor).toBe("http_loopback");
-    expect(applyIdentity).toEqual({
-      actor: { kind: "http_loopback" },
-      accessActor: "http_loopback",
-    });
   });
 
   test("maps Database Core events into resource-scoped renderer invalidations", () => {

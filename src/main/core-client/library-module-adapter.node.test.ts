@@ -15,7 +15,6 @@ import { createCoreLibraryModuleAdapter } from "./library-module-adapter";
 import {
   createDesktopLibraryModuleBridge,
   mapCoreLibraryEvent,
-  type DesktopLibraryModuleBridgeInput,
 } from "./desktop-library-module-bridge";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 
@@ -292,48 +291,6 @@ const pageLifecyclePreflightSnapshot = () => ({
   },
 });
 
-const neverTypeScript = (): DesktopLibraryModuleBridgeInput["typescript"] => ({
-  read: async () => {
-    throw new Error("TypeScript read must not run");
-  },
-  apply: async () => {
-    throw new Error("TypeScript apply must not run");
-  },
-  readProjectPageDetail: async () => {
-    throw new Error("TypeScript Project Page Detail must not run");
-  },
-  readLibraryPageDetail: async () => {
-    throw new Error("TypeScript Library Page Detail must not run");
-  },
-  listPageHistory: async () => {
-    throw new Error("TypeScript Page history must not run");
-  },
-  searchPages: async () => {
-    throw new Error("TypeScript Page search must not run");
-  },
-  resolvePageTarget: async () => {
-    throw new Error("TypeScript Page target read must not run");
-  },
-  resolvePageOwnershipPath: async () => {
-    throw new Error("TypeScript Page ownership path read must not run");
-  },
-  findPageLocation: async () => {
-    throw new Error("TypeScript Page location read must not run");
-  },
-  readPageLifecyclePreflight: async () => {
-    throw new Error("TypeScript lifecycle preflight must not run");
-  },
-  applyPageLifecycleMutation: async () => {
-    throw new Error("TypeScript lifecycle mutation must not run");
-  },
-  applyBlockPropertyMutation: async () => {
-    throw new Error("TypeScript Property mutation must not run");
-  },
-  applyLibraryBlockPropertyMutation: async () => {
-    throw new Error("TypeScript Library Property mutation must not run");
-  },
-});
-
 describe("Core Library Module Adapter", () => {
   test("maps strict Project and Library Page Detail snapshots", async () => {
     const client = new FakeCoreClient();
@@ -401,7 +358,6 @@ describe("Core Library Module Adapter", () => {
     const bridge = createDesktopLibraryModuleBridge({
       authority: Promise.resolve(runtime),
       resolveProjectId: () => null,
-      typescript: neverTypeScript(),
     });
 
     await expect(bridge.readProjectPageDetail(
@@ -434,32 +390,6 @@ describe("Core Library Module Adapter", () => {
     expect(requestedProjects).toEqual(["project:test"]);
     expect(projectClient.reads).toHaveLength(2);
     expect(rootClient.reads).toHaveLength(1);
-  });
-
-  test("preserves Library Page Detail access identity on the TypeScript fallback", async () => {
-    let receivedAccessActor: "app_window" | "http_loopback" | null = null;
-    const bridge = createDesktopLibraryModuleBridge({
-      authority: Promise.resolve({ backend: "typescript" } as never),
-      resolveProjectId: () => null,
-      typescript: {
-        ...neverTypeScript(),
-        readLibraryPageDetail: async (_pageId, accessActor) => {
-          receivedAccessActor = accessActor;
-          return {
-            ok: false,
-            error: {
-              code: "store_not_initialized",
-              message: "fallback sentinel",
-              retryable: true,
-            },
-          };
-        },
-      },
-    });
-
-    await bridge.readLibraryPageDetail("page:one", "http_loopback");
-
-    expect(receivedAccessActor).toBe("http_loopback");
   });
 
   test("maps Page history cursors and entries through the strict shared contract", async () => {
@@ -1008,7 +938,6 @@ describe("Core Library Module Adapter", () => {
     const bridge = createDesktopLibraryModuleBridge({
       authority: Promise.resolve(runtime),
       resolveProjectId: () => null,
-      typescript: neverTypeScript(),
     });
 
     await bridge.resolvePageTarget({
@@ -1192,7 +1121,6 @@ describe("Core Library Module Adapter", () => {
   });
 
   test("fails closed before a Rust write without a trusted window Project", async () => {
-    let typescriptApplyCalled = false;
     const runtime = {
       backend: "rust",
       rootClient: { handshake: {
@@ -1207,13 +1135,6 @@ describe("Core Library Module Adapter", () => {
     const bridge = createDesktopLibraryModuleBridge({
       authority: Promise.resolve(runtime),
       resolveProjectId: () => null,
-      typescript: {
-        ...neverTypeScript(),
-        apply: async () => {
-          typescriptApplyCalled = true;
-          throw new Error("TypeScript apply must not run");
-        },
-      },
     });
 
     await expect(bridge.apply({
@@ -1231,7 +1152,6 @@ describe("Core Library Module Adapter", () => {
       ok: false,
       error: { code: "invalid_request" },
     });
-    expect(typescriptApplyCalled).toBe(false);
   });
 
   test("routes trusted Library writes through the root Core client", async () => {
@@ -1276,7 +1196,6 @@ describe("Core Library Module Adapter", () => {
     const bridge = createDesktopLibraryModuleBridge({
       authority: Promise.resolve(runtime),
       resolveProjectId: () => null,
-      typescript: neverTypeScript(),
     });
     const request = {
       version: LIBRARY_MODULE_CONTRACT_VERSION,

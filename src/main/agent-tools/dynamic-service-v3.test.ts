@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import type { BlockMutationEnvelope } from "../block-mutation-writer";
+import type { NodexAgentMutationEnvelope } from "./dynamic-service-v3-port";
 import {
   CreatePagesV3InputSchema,
   CreatePagesV3OutputSchema,
@@ -18,7 +18,7 @@ import {
 
 const ETAG = `nxe1.${"a".repeat(43)}`;
 
-function envelope<T>(result: T): BlockMutationEnvelope<T> {
+function envelope<T>(result: T): NodexAgentMutationEnvelope<T> {
   return {
     result,
     events: [],

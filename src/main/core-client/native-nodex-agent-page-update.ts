@@ -4,22 +4,22 @@ import type {
   DocumentMutationRequest,
   DocumentOperationCommandResult,
   DocumentOperationResult,
-} from "../../shared/block-documents";
+} from "../../shared/block-documents/document-operations";
 import {
-  type AgentDocumentEditEffects,
   type CompleteNodexAgentPageUpdateRequest,
   type CompleteNodexAgentPageUpdateResult,
-  type NewBlockDraftInput,
   type PrepareNodexAgentPageUpdateRequest,
   type PrepareNodexAgentPageUpdateResult,
-  type ToolFailure,
-} from "../../shared/nodex-agent-tools";
+} from "../../shared/nodex-agent-tools/v3-write-runtime";
+import type { AgentDocumentEditEffects } from "../../shared/nodex-agent-tools/document-edit-compiler";
+import type { NewBlockDraftInput } from "../../shared/nodex-agent-tools/write-schemas";
+import type { ToolFailure } from "../../shared/nodex-agent-tools/base-schemas";
 import { UpdatePageV3OutputSchema } from "../../shared/nodex-agent-tools/v3-write-schemas";
 import {
   AgentDocumentEditCompilerError,
   applyExactNfmPatches,
-} from "../../shared/nodex-agent-tools/document-edit-compiler";
-import type { BlockMutationEnvelope } from "../block-mutation-writer";
+} from "../../shared/nodex-agent-tools/exact-nfm-patches";
+import type { NodexAgentMutationEnvelope } from "../agent-tools/dynamic-service-v3-port";
 import { CoreModuleResponseError } from "./core-client";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
@@ -45,7 +45,7 @@ interface PendingNativePageUpdate {
 const envelope = <Result>(
   result: Result,
   mutationId: string,
-): BlockMutationEnvelope<Result> => ({
+): NodexAgentMutationEnvelope<Result> => ({
   result,
   events: [],
   metrics: {
@@ -339,7 +339,7 @@ export class NativeNodexAgentPageUpdateRuntime {
 
   async prepare(
     request: PrepareNodexAgentPageUpdateRequest,
-  ): Promise<BlockMutationEnvelope<PrepareNodexAgentPageUpdateResult>> {
+  ): Promise<NodexAgentMutationEnvelope<PrepareNodexAgentPageUpdateResult>> {
     const operationId = operationIdFor(request);
     try {
       if (!request.authority) {
@@ -545,7 +545,7 @@ export class NativeNodexAgentPageUpdateRuntime {
 
   async complete(
     request: CompleteNodexAgentPageUpdateRequest,
-  ): Promise<BlockMutationEnvelope<CompleteNodexAgentPageUpdateResult>> {
+  ): Promise<NodexAgentMutationEnvelope<CompleteNodexAgentPageUpdateResult>> {
     const operationId = operationIdFor(request);
     const pending = this.pending.get(operationId);
     const committed = pending?.committed;

@@ -53,40 +53,6 @@ import {
 
 export interface DesktopDatabaseModuleBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
-  readonly typescript: {
-    read(
-      request: DatabaseModuleReadRequestV2,
-    ): Promise<DatabaseModuleReadResultV2>;
-    apply(request: DatabaseApplyV2): Promise<DatabaseApplyResultV2>;
-    readLibrary(
-      request: LibraryDatabaseModuleReadRequestV2,
-      accessActor: "app_window" | "http_loopback",
-    ): Promise<LibraryDatabaseModuleReadResultV2>;
-    applyLibrary(
-      request: LibraryDatabaseApplyV2,
-      identity: Readonly<{
-        actor: DatabaseApplyV2["actor"];
-        accessActor: "app_window" | "http_loopback";
-      }>,
-    ): Promise<LibraryDatabaseApplyResultV2>;
-    getBoardSummary(projectId: string): Promise<BoardSummary>;
-    getDatabaseColumn(
-      projectId: string,
-      columnId: WorkflowStatus,
-    ): Promise<Column>;
-    getDatabaseRowsDetails(
-      projectId: string,
-      input: DatabaseRowsDetailsInput,
-    ): Promise<DatabasePage[]>;
-    getDatabaseRowPage(
-      projectId: string,
-      pageId: string,
-      status?: DatabasePage["status"],
-    ): Promise<DatabasePage | null>;
-    resolveDatabaseViewReference(
-      input: ReadDatabaseViewReferenceInput,
-    ): Promise<DatabaseViewReadModel | null>;
-  };
 }
 
 export interface DesktopDatabaseModuleBridge {
@@ -173,43 +139,22 @@ export const createDesktopDatabaseModuleBridge = (
   return {
     read: async (request) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.read(request);
-      }
       return await coreAdapterFor(runtime, request.projectId).read(request);
     },
     apply: async (request) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.apply(request);
-      }
       return await coreAdapterFor(runtime, request.projectId).apply(request);
     },
-    readLibrary: async (request, accessActor = "app_window") => {
+    readLibrary: async (request) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.readLibrary(request, accessActor);
-      }
       return await libraryAdapterFor(runtime).read(request);
     },
-    applyLibrary: async (
-      request,
-      identity = {
-        actor: { kind: "electron_renderer" },
-        accessActor: "app_window",
-      },
-    ) => {
+    applyLibrary: async (request) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.applyLibrary(request, identity);
-      }
       return await libraryAdapterFor(runtime).apply(request);
     },
     getBoardSummary: async (projectId) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.getBoardSummary(projectId);
-      }
       const query = await requireQuerySnapshot(
         coreAdapterFor(runtime, projectId),
         {
@@ -222,9 +167,6 @@ export const createDesktopDatabaseModuleBridge = (
     },
     getDatabaseColumn: async (projectId, columnId) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.getDatabaseColumn(projectId, columnId);
-      }
       const query = await requireQuerySnapshot(
         coreAdapterFor(runtime, projectId),
         {
@@ -237,12 +179,6 @@ export const createDesktopDatabaseModuleBridge = (
     },
     getDatabaseRowsDetails: async (projectId, detailsInput) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.getDatabaseRowsDetails(
-          projectId,
-          detailsInput,
-        );
-      }
       const pageIds = Array.from(new Set(
         detailsInput.pageIds.map((pageId) => pageId.trim()).filter(Boolean),
       ));
@@ -265,13 +201,6 @@ export const createDesktopDatabaseModuleBridge = (
     },
     getDatabaseRowPage: async (projectId, pageId, status) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.getDatabaseRowPage(
-          projectId,
-          pageId,
-          status,
-        );
-      }
       const result = await coreAdapterFor(runtime, projectId).readPage(pageId);
       if (!result.ok) {
         if (
@@ -299,11 +228,6 @@ export const createDesktopDatabaseModuleBridge = (
     },
     resolveDatabaseViewReference: async (referenceInput) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.resolveDatabaseViewReference(
-          referenceInput,
-        );
-      }
       let viewId;
       try {
         viewId = parseDatabaseViewId(referenceInput.databaseViewId);

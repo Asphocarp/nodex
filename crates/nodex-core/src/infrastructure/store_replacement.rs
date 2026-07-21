@@ -848,14 +848,7 @@ mod tests {
                          VALUES (1, ?1, ?2, ?2)",
                         params![SOURCE_EPOCH, NOW],
                     )?;
-                    connection.execute_batch(
-                        "CREATE TABLE store_replacement_probe (\
-                           id INTEGER PRIMARY KEY CHECK (id = 1), \
-                           marker TEXT NOT NULL\
-                         ) STRICT; \
-                         INSERT INTO store_replacement_probe(id, marker) VALUES (1, 'source'); \
-                         PRAGMA wal_checkpoint(TRUNCATE);",
-                    )?;
+                    connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
                     Ok(())
                 })
                 .expect("source fixture");
@@ -881,12 +874,6 @@ mod tests {
             )
             .expect("candidate asset");
             let candidate = open_writer(&staging.join(STORE_FILE_NAME)).expect("candidate Store");
-            candidate
-                .execute(
-                    "UPDATE store_replacement_probe SET marker = 'candidate' WHERE id = 1",
-                    [],
-                )
-                .expect("candidate marker");
             candidate
                 .execute(
                     "UPDATE block_store_metadata SET store_epoch = ?1, updated_at = ?2 WHERE id = 1",
@@ -921,23 +908,23 @@ mod tests {
             .expect("replacement journal")
         }
 
-        fn marker_at(&self, database: &Path) -> String {
-            let connection = open_writer(database).expect("probe Store");
+        fn epoch_at(&self, database: &Path) -> String {
+            let connection = open_writer(database).expect("Store epoch");
             connection
                 .query_row(
-                    "SELECT marker FROM store_replacement_probe WHERE id = 1",
+                    "SELECT store_epoch FROM block_store_metadata WHERE id = 1",
                     [],
                     |row| row.get::<_, String>(0),
                 )
-                .expect("probe marker")
+                .expect("Store epoch")
         }
 
-        fn live_marker(&self) -> String {
-            self.marker_at(&live_database_path(self.home()))
+        fn live_epoch(&self) -> String {
+            self.epoch_at(&live_database_path(self.home()))
         }
 
-        fn staged_marker(&self) -> String {
-            self.marker_at(&staging_database_path(self.home(), STAGING_NAME))
+        fn staged_epoch(&self) -> String {
+            self.epoch_at(&staging_database_path(self.home(), STAGING_NAME))
         }
     }
 
@@ -947,8 +934,8 @@ mod tests {
         fixture.create_journal();
 
         let kernel = SqliteStoreKernel::open(fixture.home()).expect("recovered Store");
-        assert_eq!(fixture.live_marker(), "source");
-        assert_eq!(fixture.staged_marker(), "candidate");
+        assert_eq!(fixture.live_epoch(), SOURCE_EPOCH);
+        assert_eq!(fixture.staged_epoch(), CANDIDATE_EPOCH);
         assert_eq!(
             read_store_replacement_journal(fixture.home())
                 .expect("journal")
@@ -1031,8 +1018,8 @@ mod tests {
         .expect("install phase");
 
         let kernel = SqliteStoreKernel::open(fixture.home()).expect("recovered Store");
-        assert_eq!(fixture.live_marker(), "source");
-        assert_eq!(fixture.staged_marker(), "candidate");
+        assert_eq!(fixture.live_epoch(), SOURCE_EPOCH);
+        assert_eq!(fixture.staged_epoch(), CANDIDATE_EPOCH);
         assert_eq!(
             read_store_replacement_journal(fixture.home())
                 .expect("journal")
@@ -1068,8 +1055,8 @@ mod tests {
         install_staged_store_files(fixture.home(), &install_started).expect("install candidate");
 
         let kernel = SqliteStoreKernel::open(fixture.home()).expect("rolled back Store");
-        assert_eq!(fixture.live_marker(), "source");
-        assert_eq!(fixture.staged_marker(), "candidate");
+        assert_eq!(fixture.live_epoch(), SOURCE_EPOCH);
+        assert_eq!(fixture.staged_epoch(), CANDIDATE_EPOCH);
         assert_eq!(
             fs::read(
                 fixture
@@ -1151,7 +1138,7 @@ mod tests {
         .expect("committed phase");
 
         let kernel = SqliteStoreKernel::open(fixture.home()).expect("pending receipt Store");
-        assert_eq!(fixture.live_marker(), "candidate");
+        assert_eq!(fixture.live_epoch(), INSTALLED_EPOCH);
         assert!(journal_path(fixture.home()).exists());
         kernel
             .writer()
@@ -1189,7 +1176,7 @@ mod tests {
         drop(connection);
 
         let kernel = SqliteStoreKernel::open(fixture.home()).expect("cleaned Store");
-        assert_eq!(fixture.live_marker(), "candidate");
+        assert_eq!(fixture.live_epoch(), INSTALLED_EPOCH);
         assert!(!journal_path(fixture.home()).exists());
         assert!(!fixture.home().join("backups").join(STAGING_NAME).exists());
         assert!(!fixture.home().join("backups").join(ROLLBACK_NAME).exists());

@@ -3,11 +3,6 @@ import type {
   CodexHeartbeatAutomationPermissions,
   CodexScheduledAutomation,
 } from "../shared/types";
-import {
-  listDueCodexScheduledAutomationRuns,
-  reconcileCodexScheduledAutomations,
-} from "./local-store/codex-scheduled-automations";
-import { settleInterruptedCodexAutomationRuns } from "./local-store/codex-automation-runs";
 import { getLogger } from "./logging/logger";
 
 export const CODEX_SCHEDULED_AUTOMATION_SCHEDULER_INTERVAL_MS = 30_000;
@@ -86,18 +81,16 @@ export interface StartCodexScheduledAutomationSchedulerOptions {
     automation: CodexScheduledAutomation,
     context: CodexScheduledAutomationRunContext,
   ) => Promise<void>;
-  listDueAutomations?: (now: number, limit: number) => CodexScheduledAutomation[];
-  claimDueAutomations?: (
+  claimDueAutomations: (
     limit: number,
   ) => Promise<readonly CodexScheduledAutomationClaim[]>;
-  completeClaim?: (leaseId: string) => Promise<void>;
-  failClaim?: (
+  completeClaim: (leaseId: string) => Promise<void>;
+  failClaim: (
     leaseId: string,
     retryDelayMs: number | null,
     reasonCode: string,
   ) => Promise<void>;
-  reconcileAutomations?: (now: number) => number | Promise<number>;
-  settleInterruptedRuns?: () => {
+  settleInterruptedRuns: () => {
     archivedPendingCount: number;
     pendingReviewCount: number;
   } | Promise<{
@@ -117,9 +110,6 @@ export function startCodexScheduledAutomationScheduler(
   const maxPerTick = Math.max(1, options.maxPerTick ?? CODEX_SCHEDULED_AUTOMATION_SCHEDULER_MAX_PER_TICK);
   const now = options.now ?? Date.now;
   const logger = options.logger ?? getLogger({ subsystem: "codex-scheduled-automations" });
-  const listDueAutomations = options.listDueAutomations ?? listDueCodexScheduledAutomationRuns;
-  const reconcileAutomations = options.reconcileAutomations ?? reconcileCodexScheduledAutomations;
-  const settleInterruptedRuns = options.settleInterruptedRuns ?? settleInterruptedCodexAutomationRuns;
   const setIntervalImpl = options.setIntervalImpl ?? ((callback, ms) => setInterval(callback, ms));
   const clearIntervalImpl = options.clearIntervalImpl ?? ((timer) => clearInterval(timer));
   let disposed = false;
@@ -133,19 +123,12 @@ export function startCodexScheduledAutomationScheduler(
 
   const initialize = async (): Promise<void> => {
     try {
-      const settled = await settleInterruptedRuns();
+      const settled = await options.settleInterruptedRuns();
       if (settled.archivedPendingCount > 0 || settled.pendingReviewCount > 0) {
         options.onAutomationRunsUpdated?.();
       }
     } catch (error) {
       logger.warn("Failed to settle interrupted scheduled automation runs", { error });
-    }
-
-    if (options.claimDueAutomations) return;
-    try {
-      await reconcileAutomations(now());
-    } catch (error) {
-      logger.warn("Failed to reconcile scheduled automations", { error });
     }
   };
   const initialized = initialize();
@@ -172,12 +155,12 @@ export function startCodexScheduledAutomationScheduler(
             }
           : {}),
       });
-      await options.completeClaim?.(claim.leaseId);
+      await options.completeClaim(claim.leaseId);
     } catch (error) {
       const retry = error instanceof CodexScheduledAutomationRetryError
         ? error
         : null;
-      await options.failClaim?.(
+      await options.failClaim(
         claim.leaseId,
         retry?.retryDelayMs ?? null,
         retry?.reasonCode ?? "execution_failed",
@@ -208,37 +191,8 @@ export function startCodexScheduledAutomationScheduler(
     const tickNow = now();
     try {
       await initialized;
-      if (options.claimDueAutomations) {
-        const claims = await options.claimDueAutomations(maxPerTick);
-        await Promise.all(claims.map((claim) => runClaim(claim, tickNow)));
-        return;
-      }
-      const dueAutomations = listDueAutomations(tickNow, maxPerTick);
-      await Promise.all(dueAutomations.map(async (automation) => {
-        try {
-          await options.runAutomation(automation, {
-            now: tickNow,
-            reason: "scheduled",
-            ...(automation.kind === "heartbeat"
-              ? {
-                  heartbeat: buildHeartbeatRunContext({
-                    automation,
-                    automationsEnabled: heartbeatAutomationsEnabled,
-                    rendererStates: heartbeatThreadRendererStates,
-                    collaborationModes: heartbeatThreadCollaborationModes,
-                    permissions: heartbeatThreadPermissions,
-                    now: tickNow,
-                  }),
-                }
-              : {}),
-          });
-        } catch (error) {
-          logger.warn("Scheduled automation run failed", {
-            automationId: automation.id,
-            error,
-          });
-        }
-      }));
+      const claims = await options.claimDueAutomations(maxPerTick);
+      await Promise.all(claims.map((claim) => runClaim(claim, tickNow)));
     } catch (error) {
       logger.debug("Scheduled automation scheduler tick failed", { error });
     } finally {

@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 
-import type { NodexAgentResourceAuthorityPort } from "../nodex-agent-resource-authority-port";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { createDesktopNodexAgentResourceAuthorityPort } from "./desktop-nodex-agent-resource-authority";
 import { FakeCoreClient } from "./testing/fake-core-client";
@@ -28,15 +27,6 @@ const runtimeFor = (client: FakeCoreClient): RustDataAuthorityRuntime => ({
   clientForProject: () => client,
   close: async () => undefined,
 }) as unknown as RustDataAuthorityRuntime;
-
-const unavailableTypeScript = (): NodexAgentResourceAuthorityPort => ({
-  plan: async () => {
-    throw new Error("TypeScript Agent resource planner must not run");
-  },
-  persistProjectGrants: async () => {
-    throw new Error("TypeScript Agent grant writer must not run");
-  },
-});
 
 describe("Desktop Nodex Agent resource authority", () => {
   test("maps exact-Turn planning and Core's resolved Page consent", async () => {
@@ -81,7 +71,6 @@ describe("Desktop Nodex Agent resource authority", () => {
     });
     const port = createDesktopNodexAgentResourceAuthorityPort({
       authority: Promise.resolve(runtimeFor(client)),
-      typescript: unavailableTypeScript(),
     });
 
     await expect(port.plan({
@@ -176,7 +165,6 @@ describe("Desktop Nodex Agent resource authority", () => {
     });
     const port = createDesktopNodexAgentResourceAuthorityPort({
       authority: Promise.resolve(runtimeFor(client)),
-      typescript: unavailableTypeScript(),
     });
 
     await expect(port.persistProjectGrants({
@@ -239,7 +227,6 @@ describe("Desktop Nodex Agent resource authority", () => {
     });
     const port = createDesktopNodexAgentResourceAuthorityPort({
       authority: Promise.resolve(runtimeFor(client)),
-      typescript: unavailableTypeScript(),
     });
 
     await expect(port.plan({

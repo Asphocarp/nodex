@@ -49,8 +49,6 @@ import type {
   NodexAgentLeaseDocument,
 } from "../../shared/nodex-agent-tools";
 import type {
-  DocumentAccessAck,
-  DocumentAccessKind,
   DocumentAwarenessPublishAck,
   DocumentAwarenessPublishRequest,
   DocumentRelocationLeaseResponseAck,
@@ -64,7 +62,6 @@ import type {
   DocumentSyncSubscribeRequest,
   DocumentSyncSubscriptionAck,
   DocumentSyncUnsubscribeAck,
-  LibraryDocumentAccessAck,
 } from "../../shared/block-documents/document-sync";
 import { parseDocumentRelocationLeaseResponseRequest } from "../../shared/block-documents/document-sync";
 import {
@@ -72,11 +69,10 @@ import {
   type DocumentRelocationLeaseEvent,
 } from "../document-relocation-lease-coordinator";
 import { coordinateBlockTransfer } from "../block-transfer-coordinator";
-import { documentSyncUnauthorized } from "../document-sync-hub";
-import type {
-  DocumentSyncClientTarget,
-  DocumentSyncHub,
-} from "../document-sync-hub";
+import {
+  documentSyncUnauthorized,
+  type DocumentSyncClientTarget,
+} from "../document-sync-transport";
 import { safeSendToWebContents } from "../ipc-safe-send";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import {
@@ -207,55 +203,6 @@ export interface DesktopDocumentSyncPort {
 
 export interface DesktopDocumentSyncBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
-  readonly typescript: {
-    readonly hub: Pick<
-      DocumentSyncHub,
-      | "subscribe"
-      | "unsubscribe"
-      | "sync"
-      | "applyUpdate"
-      | "publishAwareness"
-      | "respondToRelocationLease"
-      | "subscribeCanvasScene"
-      | "unsubscribeCanvasScene"
-      | "syncCanvasScene"
-      | "applyCanvasSceneMutation"
-      | "applyAdditionalDocumentCommand"
-      | "transferBlocks"
-    >;
-    authorizeProject(input: {
-      readonly projectId: string;
-      readonly documentId: string;
-      readonly access: DocumentAccessKind;
-    }): Promise<DocumentSyncCommandResult<DocumentAccessAck>>;
-    authorizeLibrary(input: {
-      readonly documentId: string;
-      readonly access: DocumentAccessKind;
-    }): Promise<DocumentSyncCommandResult<LibraryDocumentAccessAck>>;
-    getOwnedDocumentDescriptor(
-      projectId: string,
-      ownerBlockId: string,
-    ): Promise<OwnedDocumentDescriptor>;
-    prepareOwnedBlockDocument(
-      projectId: string,
-      ownerBlockId: string,
-    ): Promise<DocumentSyncCommandResult<OwnedDocumentDescriptor>>;
-    prepareLibraryOwnedBlockDocument(
-      ownerBlockId: string,
-    ): Promise<DocumentSyncCommandResult<LibraryOwnedDocumentDescriptor>>;
-    createCheckpoint(
-      request: CreateDocumentVersionCheckpoint,
-    ): Promise<DocumentHistoryCommandResult<CreatedDocumentVersionSummary>>;
-    listVersions(
-      request: ListDocumentVersions,
-    ): Promise<DocumentHistoryCommandResult<readonly DocumentVersionSummary[]>>;
-    getVersion(
-      request: GetDocumentVersion,
-    ): Promise<DocumentHistoryCommandResult<DocumentVersionDetail>>;
-    applyDocumentMutation(
-      request: DocumentMutationRequest,
-    ): Promise<DocumentOperationCommandResult>;
-  };
 }
 
 interface NativeSubscription {
@@ -411,17 +358,6 @@ const canvasSceneTransportUnavailable = <Value>(
   "unknown",
   error instanceof Error ? error.message : String(error),
   { retryable: true, mutationId },
-);
-
-const canvasSceneAccessFailure = <Value>(
-  error: DocumentSyncCommandError,
-  mutationId?: string,
-): CanvasCommandResult<Value> => canvasSceneFailure(
-  error.code === "transport_unavailable" || error.code === "store_not_initialized"
-    ? "unknown"
-    : "project_scope_mismatch",
-  error.message,
-  { retryable: error.retryable, mutationId },
 );
 
 const hasCanvasSceneIdentity = (
@@ -643,21 +579,6 @@ export function createDesktopDocumentSyncBridge(
     return subscription?.target === target;
   };
 
-  const authorizeTypeScript = async (
-    scope: DesktopDocumentSyncScope,
-    documentId: string,
-    access: DocumentAccessKind,
-  ): Promise<DocumentSyncCommandError | null> => {
-    const authorization = scope.kind === "project"
-      ? await input.typescript.authorizeProject({
-          projectId: scope.projectId,
-          documentId,
-          access,
-        })
-      : await input.typescript.authorizeLibrary({ documentId, access });
-    return authorization.ok ? null : authorization.error;
-  };
-
   const withRuntime = async <Value>(
     run: (
       runtime: DesktopDataAuthorityRuntime,
@@ -698,9 +619,6 @@ export function createDesktopDocumentSyncBridge(
           { mutationId: request.mutationId, retryable: true },
         ),
       };
-    }
-    if (runtime.backend === "typescript") {
-      return await input.typescript.applyDocumentMutation(request);
     }
     const adapter = adapterFor(runtime, {
       kind: "project",
@@ -1021,9 +939,6 @@ export function createDesktopDocumentSyncBridge(
         },
       };
     }
-    if (runtime.backend === "typescript") {
-      return await input.typescript.hub.transferBlocks(intent);
-    }
     const adapter = blockTransferAdapterFor(runtime, intent.projectId);
     return await coordinateBlockTransfer(intent, {
       backend: {
@@ -1186,12 +1101,6 @@ export function createDesktopDocumentSyncBridge(
   return {
     getOwnedDocumentDescriptor: async (projectId, ownerBlockId) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.getOwnedDocumentDescriptor(
-          projectId,
-          ownerBlockId,
-        );
-      }
       const descriptor = await adapterFor(runtime, { kind: "project", projectId })
         .readDescriptor({
           ownerBlockId,
@@ -1202,12 +1111,6 @@ export function createDesktopDocumentSyncBridge(
     },
     prepareOwnedBlockDocument: async (projectId, ownerBlockId) =>
       await withRuntime(async (runtime) => {
-        if (runtime.backend === "typescript") {
-          return await input.typescript.prepareOwnedBlockDocument(
-            projectId,
-            ownerBlockId,
-          );
-        }
         const scope = { kind: "project", projectId } as const;
         const prepared = await adapterFor(runtime, scope).prepareOwner({
           ownerBlockId,
@@ -1223,11 +1126,6 @@ export function createDesktopDocumentSyncBridge(
       }),
     prepareLibraryOwnedBlockDocument: async (ownerBlockId) =>
       await withRuntime(async (runtime) => {
-        if (runtime.backend === "typescript") {
-          return await input.typescript.prepareLibraryOwnedBlockDocument(
-            ownerBlockId,
-          );
-        }
         const scope = { kind: "library" } as const;
         const prepared = await adapterFor(runtime, scope).prepareOwner({
           ownerBlockId,
@@ -1245,15 +1143,6 @@ export function createDesktopDocumentSyncBridge(
         };
       }),
     subscribe: async (scope, target, request) => await withRuntime(async (runtime) => {
-      if (runtime.backend === "typescript") {
-        const blocked = await authorizeTypeScript(
-          scope,
-          request.documentId,
-          "read",
-        );
-        if (blocked) return { ok: false, error: blocked };
-        return input.typescript.hub.subscribe(target, request);
-      }
       if (target.isDestroyed()) return documentSyncUnauthorized();
       const adapter = adapterFor(runtime, scope);
       const key = subscriptionKey(target, scope, request);
@@ -1301,24 +1190,12 @@ export function createDesktopDocumentSyncBridge(
       }
       return subscribed;
     }),
-    unsubscribe: async (scope, target, request) => await withRuntime((runtime) => {
-      if (runtime.backend === "typescript") {
-        return input.typescript.hub.unsubscribe(target, request);
-      }
+    unsubscribe: async (scope, target, request) => await withRuntime(() => {
       const key = subscriptionKey(target, scope, request);
       if (subscriptions.get(key)?.target === target) closeSubscription(key);
       return { ok: true, value: { unsubscribed: true } };
     }),
     sync: async (scope, target, request) => await withRuntime(async (runtime) => {
-      if (runtime.backend === "typescript") {
-        const blocked = await authorizeTypeScript(
-          scope,
-          request.documentId,
-          "read",
-        );
-        if (blocked) return { ok: false, error: blocked };
-        return await input.typescript.hub.sync(target, request);
-      }
       const adapter = adapterFor(runtime, scope);
       if (!hasNativeSubscription(target, scope, request)) {
         return documentSyncUnauthorized();
@@ -1331,15 +1208,6 @@ export function createDesktopDocumentSyncBridge(
       return result;
     }),
     applyUpdate: async (scope, target, request) => await withRuntime(async (runtime) => {
-      if (runtime.backend === "typescript") {
-        const blocked = await authorizeTypeScript(
-          scope,
-          request.documentId,
-          "write",
-        );
-        if (blocked) return { ok: false, error: blocked };
-        return await input.typescript.hub.applyUpdate(target, request);
-      }
       const adapter = adapterFor(runtime, scope);
       if (!hasNativeSubscription(target, scope, request)) {
         return documentSyncUnauthorized();
@@ -1355,34 +1223,13 @@ export function createDesktopDocumentSyncBridge(
       return result;
     }),
     publishAwareness: async (scope, target, request) => await withRuntime(async (runtime) => {
-      if (runtime.backend === "typescript") {
-        const blocked = await authorizeTypeScript(
-          scope,
-          request.documentId,
-          "read",
-        );
-        if (blocked) return { ok: false, error: blocked };
-        return await input.typescript.hub.publishAwareness(target, request);
-      }
       const adapter = adapterFor(runtime, scope);
       if (!hasNativeSubscription(target, scope, request)) {
         return documentSyncUnauthorized();
       }
       return await adapter.publishAwareness(request);
     }),
-    respondToRelocationLease: async (scope, target, request) => await withRuntime(async (runtime) => {
-      if (runtime.backend === "typescript") {
-        const blocked = await authorizeTypeScript(
-          scope,
-          request.documentId,
-          "read",
-        );
-        if (blocked) return { ok: false, error: blocked };
-        return await input.typescript.hub.respondToRelocationLease(
-          target,
-          request,
-        );
-      }
+    respondToRelocationLease: async (scope, target, request) => await withRuntime(async () => {
       let parsed: DocumentRelocationLeaseResponseRequest;
       try {
         parsed = parseDocumentRelocationLeaseResponseRequest(request);
@@ -1477,15 +1324,6 @@ export function createDesktopDocumentSyncBridge(
     }),
     subscribeCanvasScene: async (target, request) =>
       await withCanvasSceneRuntime(async (runtime) => {
-        if (runtime.backend === "typescript") {
-          const blocked = await authorizeTypeScript(
-            { kind: "project", projectId: request.projectId },
-            request.documentId,
-            "read",
-          );
-          if (blocked) return canvasSceneAccessFailure(blocked);
-          return input.typescript.hub.subscribeCanvasScene(target, request);
-        }
         if (target.isDestroyed() || !hasCanvasSceneIdentity(request)) {
           return canvasSceneUnauthorized();
         }
@@ -1546,10 +1384,7 @@ export function createDesktopDocumentSyncBridge(
         return { ok: true, value: { subscribed: true } };
       }),
     unsubscribeCanvasScene: async (target, request) =>
-      await withCanvasSceneRuntime((runtime) => {
-        if (runtime.backend === "typescript") {
-          return input.typescript.hub.unsubscribeCanvasScene(target, request);
-        }
+      await withCanvasSceneRuntime(() => {
         if (!hasCanvasSceneIdentity(request)) return canvasSceneUnauthorized();
         const key = canvasSceneSubscriptionKey(target, request);
         if (subscriptions.get(key)?.target === target) closeSubscription(key);
@@ -1557,15 +1392,6 @@ export function createDesktopDocumentSyncBridge(
       }),
     syncCanvasScene: async (target, request) =>
       await withCanvasSceneRuntime(async (runtime) => {
-        if (runtime.backend === "typescript") {
-          const blocked = await authorizeTypeScript(
-            { kind: "project", projectId: request.projectId },
-            request.documentId,
-            "read",
-          );
-          if (blocked) return canvasSceneAccessFailure(blocked);
-          return await input.typescript.hub.syncCanvasScene(target, request);
-        }
         if (!hasNativeCanvasSceneSubscription(target, request)) {
           return canvasSceneUnauthorized();
         }
@@ -1581,20 +1407,6 @@ export function createDesktopDocumentSyncBridge(
       }),
     applyCanvasSceneMutation: async (target, request) =>
       await withCanvasSceneRuntime(async (runtime) => {
-        if (runtime.backend === "typescript") {
-          const blocked = await authorizeTypeScript(
-            { kind: "project", projectId: request.projectId },
-            request.documentId,
-            "write",
-          );
-          if (blocked) {
-            return canvasSceneAccessFailure(blocked, request.mutationId);
-          }
-          return await input.typescript.hub.applyCanvasSceneMutation(
-            target,
-            request,
-          );
-        }
         if (!hasNativeCanvasSceneSubscription(target, request)) {
           return canvasSceneUnauthorized(request.mutationId);
         }
@@ -1610,9 +1422,6 @@ export function createDesktopDocumentSyncBridge(
       }, request.mutationId),
     applyAdditionalDocumentCommand: async (request) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.hub.applyAdditionalDocumentCommand(request);
-      }
       return await adapterFor(runtime, {
         kind: "project",
         projectId: request.projectId,
@@ -1620,9 +1429,6 @@ export function createDesktopDocumentSyncBridge(
     },
     createCheckpoint: async (request) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.createCheckpoint(request);
-      }
       return await adapterFor(runtime, {
         kind: "project",
         projectId: request.projectId,
@@ -1630,9 +1436,6 @@ export function createDesktopDocumentSyncBridge(
     },
     listVersions: async (request) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.listVersions(request);
-      }
       return await adapterFor(runtime, {
         kind: "project",
         projectId: request.projectId,
@@ -1640,9 +1443,6 @@ export function createDesktopDocumentSyncBridge(
     },
     getVersion: async (request) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.getVersion(request);
-      }
       return await adapterFor(runtime, {
         kind: "project",
         projectId: request.projectId,

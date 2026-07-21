@@ -1,5 +1,5 @@
--- Generated from the TypeScript-authoritative Nodex v84 schema.
--- Regenerate with: pnpm core:schema:v84:generate
+-- Frozen final TypeScript-authoritative Nodex v84 import schema.
+-- This artifact is immutable after the Rust v85 ownership cutover.
 PRAGMA foreign_keys = OFF;
 BEGIN IMMEDIATE;
 

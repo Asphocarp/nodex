@@ -1,25 +1,8 @@
 import { describe, expect, test } from "vitest";
 
-import type { NodexAgentAuthorityPort } from "../nodex-agent-authority-port";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { createDesktopNodexAgentAuthorityPort } from "./desktop-nodex-agent-authority";
 import { FakeCoreClient } from "./testing/fake-core-client";
-
-const unavailableTypeScriptPort = (): NodexAgentAuthorityPort => {
-  const unavailable = async (): Promise<never> => {
-    throw new Error("TypeScript Turn authority fallback must not run");
-  };
-  return {
-    beginTurn: unavailable,
-    bindTurn: unavailable,
-    observeTurnStarted: unavailable,
-    abortTurn: () => undefined,
-    inheritTurn: unavailable,
-    capturePersisted: unavailable,
-    hasRecordedAuthority: unavailable,
-    capture: unavailable,
-  };
-};
 
 const project = {
   id: "project:one",
@@ -99,7 +82,6 @@ describe("Desktop Nodex Agent Turn authority", () => {
     });
     const port = createDesktopNodexAgentAuthorityPort({
       authority: Promise.resolve(runtimeFor(client)),
-      typescript: unavailableTypeScriptPort(),
     });
 
     const launch = await port.beginTurn({
@@ -152,7 +134,6 @@ describe("Desktop Nodex Agent Turn authority", () => {
     });
     const port = createDesktopNodexAgentAuthorityPort({
       authority: Promise.resolve(runtimeFor(client)),
-      typescript: unavailableTypeScriptPort(),
     });
 
     await expect(port.capture({
@@ -211,7 +192,6 @@ describe("Desktop Nodex Agent Turn authority", () => {
     });
     const port = createDesktopNodexAgentAuthorityPort({
       authority: Promise.resolve(runtimeFor(client)),
-      typescript: unavailableTypeScriptPort(),
     });
     const launch = await port.beginTurn({
       threadId: "thread:child",

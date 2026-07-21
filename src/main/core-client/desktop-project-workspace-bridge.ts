@@ -7,7 +7,6 @@ import {
 
 export interface DesktopProjectWorkspaceBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
-  readonly typescript: DesktopProjectWorkspacePort;
 }
 
 export function createDesktopProjectWorkspaceBridge(
@@ -17,7 +16,6 @@ export function createDesktopProjectWorkspaceBridge(
 
   const resolve = async (): Promise<DesktopProjectWorkspacePort> => {
     const runtime = await input.authority;
-    if (runtime.backend === "typescript") return input.typescript;
     coreAdapter ??= createCoreProjectWorkspaceAdapter(runtime.rootClient);
     return coreAdapter;
   };

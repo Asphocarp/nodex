@@ -14,6 +14,7 @@ function makeAutomation(
 ): CodexScheduledAutomation {
   return {
     id: "daily-report",
+    definitionRevision: 1,
     kind: "cron",
     status: "ACTIVE",
     targetThreadId: null,

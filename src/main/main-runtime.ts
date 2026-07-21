@@ -14,54 +14,21 @@ import {
   type MenuItemConstructorOptions,
 } from "electron";
 import { join, resolve } from "path";
-import type {
-  AppInitializationStep,
-  DatabaseMigrationProgress,
-} from "../shared/app-startup";
+import type { AppInitializationStep } from "../shared/app-startup";
 import type { AppUpdateStatus } from "../shared/types";
 import { registerIpcHandlers } from "./ipc-handlers";
 import {
   configureHttpContentModuleAuthorities,
   startHttpServer,
 } from "./http-server";
-import {
-  findPageLocationById,
-  getBoardSummary,
-  readColumn,
-  getDatabaseRowPage,
-  getDatabaseRowsDetails,
-  searchPages,
-} from "./local-store/database-pages";
-import {
-  readProjectScopedDatabaseViewReference,
-  resolveProjectScopedPageOwnershipPath,
-  resolveProjectScopedPageTarget,
-} from "./local-store/reference-reads";
-import { getDb, initializeDatabase } from "./local-store/database";
-import * as sqlInspection from "./local-store/sql-inspection";
-import * as projectSessionService from "./local-store/project-sessions";
 import { dbNotifier } from "./local-store/notifier";
 import { getAssetsPathPrefix } from "./local-store/assets";
-import { runReminderTick, startReminderScheduler } from "./local-store/reminders";
 import {
   startAutomationReminderScheduler,
 } from "./automation-reminder-scheduler";
 import type { ReminderNotificationPayload } from "./reminder-notification";
 import { terminalManager } from "./terminal-manager";
-import { blockMutationWriter } from "./block-mutation-writer";
-import { documentSyncHub } from "./document-sync-runtime";
-import { startBlockDocumentCompactionScheduler } from "./block-document-compaction-scheduler";
-import { createBlockDocumentCompactionRuntime } from "./block-document-compaction-runtime";
-import {
-  startBlockRetentionMaintenanceScheduler,
-  type BlockRetentionMaintenanceScheduler,
-} from "./block-retention-maintenance-scheduler";
-import {
-  startDocumentRevisionMaintenanceScheduler,
-  type DocumentRevisionMaintenanceScheduler,
-} from "./document-revision-maintenance-scheduler";
-import { DOCUMENT_REVISION_MAINTENANCE_VERSION } from "../shared/block-documents/document-revision-maintenance";
-import { readBlockStoreEpoch } from "./local-store/block-store-metadata";
+import { browserSidebarService } from "./browser-sidebar-service";
 import {
   getAppUpdateSettings,
   getBackupSettings,
@@ -72,8 +39,6 @@ import {
   getPort,
 } from "./local-store/config";
 import { codexService } from "./codex/codex-service";
-import { createTypeScriptNodexAgentAuthorityPort } from "./codex/codex-nodex-agent-authority";
-import { createTypeScriptNodexAgentResourceAuthorityPort } from "./typescript-nodex-agent-resource-authority-port";
 import { NodexAgentAuthorizationBroker } from "./agent-tools/authorization-broker";
 import {
   startCodexScheduledAutomationScheduler,
@@ -166,11 +131,8 @@ import {
   type DesktopLibraryModuleBridge,
   type DesktopStoreAdministrationPort,
 } from "./core-client";
-import { createTypeScriptAutomationModulePort } from "./typescript-automation-module-port";
-import { createTypeScriptStoreAdministrationPort } from "./typescript-store-administration-port";
 import { createDesktopNodexAgentV3DynamicService } from "./core-client/desktop-nodex-agent-dynamic-service";
 import { configureNodexAgentV3DynamicService } from "./codex/nodex-agent-dynamic-tool-runtime";
-import { createTypeScriptProjectWorkspacePort } from "./typescript-project-workspace-port";
 import { createDesktopNodexAgentAuthorityPort } from "./core-client/desktop-nodex-agent-authority";
 import { createDesktopNodexAgentResourceAuthorityPort } from "./core-client/desktop-nodex-agent-resource-authority";
 import {
@@ -205,12 +167,9 @@ let windowSessionState: WindowSessionState | null = null;
 let appQuitRequested = false;
 let lastClosedWindowSessionId: string | null = null;
 let appInitializationStep: AppInitializationStep = { phase: "app_waiting" };
-let latestDatabaseMigrationProgress: DatabaseMigrationProgress | null = null;
 let appInitializationPromise: Promise<void> = Promise.resolve();
 let appUpdateService: AppUpdateService | null = null;
 let scheduledAutomationScheduler: CodexScheduledAutomationScheduler | null = null;
-let blockRetentionMaintenanceScheduler: BlockRetentionMaintenanceScheduler | null = null;
-let documentRevisionMaintenanceScheduler: DocumentRevisionMaintenanceScheduler | null = null;
 let appPermissionHandlersRegistered = false;
 let rendererClientRouter: RendererClientRouter | null = null;
 let desktopDataAuthorityRuntime: DesktopDataAuthorityRuntime | null = null;
@@ -224,27 +183,6 @@ let storeAdministrationMaintenanceScheduler:
 let reminderResumeHandlerRegistered = false;
 const desktopNotificationManager = new DesktopNotificationManager();
 const logger = getLogger({ subsystem: "app" });
-const blockDocumentCompactionRuntime = createBlockDocumentCompactionRuntime(
-  () =>
-    startBlockDocumentCompactionScheduler({
-      writer: blockMutationWriter,
-      readStoreEpoch: () => readBlockStoreEpoch(getDb()),
-      onResult: (result) => {
-        if (result.selectedDocumentCount === 0) return;
-        logger.info("Block Document compaction pass completed", {
-          documentCount: result.selectedDocumentCount,
-          updateCount: result.selectedUpdateCount,
-          updateBytes: result.selectedUpdateBytes,
-        });
-      },
-      onError: (error) => {
-        logger.warn("Block Document compaction pass deferred", {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      },
-    }),
-);
-
 function showReminderNotification(
   payload: ReminderNotificationPayload,
 ): void {
@@ -293,20 +231,12 @@ function startRuntimeReminderDelivery(): void {
     logger.warn("Reminder scheduler deferred: Automation module unavailable");
     return;
   }
-  if (desktopDataAuthorityRuntime?.backend === "rust") {
-    const scheduler = startAutomationReminderScheduler({
-      automation,
-      onReminder: showReminderNotification,
-    });
-    runtimeReminderTick = scheduler.runNow;
-    stopReminderScheduler = scheduler.dispose;
-  } else {
-    const onReminder = (payload: ReminderNotificationPayload): void => {
-      showReminderNotification(payload);
-    };
-    stopReminderScheduler = startReminderScheduler({ onReminder });
-    runtimeReminderTick = () => runReminderTick(onReminder);
-  }
+  const scheduler = startAutomationReminderScheduler({
+    automation,
+    onReminder: showReminderNotification,
+  });
+  runtimeReminderTick = scheduler.runNow;
+  stopReminderScheduler = scheduler.dispose;
   if (reminderResumeHandlerRegistered) return;
   reminderResumeHandlerRegistered = true;
   powerMonitor.on("resume", () => {
@@ -314,65 +244,6 @@ function startRuntimeReminderDelivery(): void {
   });
 }
 
-const startBlockRetentionMaintenanceRuntime = (): void => {
-  if (blockRetentionMaintenanceScheduler) return;
-  blockRetentionMaintenanceScheduler = startBlockRetentionMaintenanceScheduler({
-    writer: blockMutationWriter,
-    readStoreEpoch: () => readBlockStoreEpoch(getDb()),
-    readRetentionCount: () => getHistorySettings().retentionCount,
-    onResult: (result) => {
-      if (
-        result.collectedCandidateCount === 0 &&
-        result.coveredCandidateCount === 0 &&
-        result.retainedCandidateCount === 0 &&
-        result.failedCandidateCount === 0
-      ) {
-        return;
-      }
-      logger.info("Block retention maintenance pass completed", {
-        collectedCandidateCount: result.collectedCandidateCount,
-        coveredCandidateCount: result.coveredCandidateCount,
-        retainedCandidateCount: result.retainedCandidateCount,
-        failedCandidateCount: result.failedCandidateCount,
-        collectedBlockCount: result.collectedBlockCount,
-      });
-    },
-    onError: (error) => {
-      logger.warn("Block retention maintenance pass deferred", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    },
-  });
-};
-
-const startDocumentRevisionMaintenanceRuntime = (): void => {
-  if (documentRevisionMaintenanceScheduler) return;
-  documentRevisionMaintenanceScheduler =
-    startDocumentRevisionMaintenanceScheduler({
-      writer: blockMutationWriter,
-      readStoreEpoch: () => readBlockStoreEpoch(getDb()),
-      onResult: (result) => {
-        if (
-          result.finalizedDocumentCount === 0 &&
-          result.alreadyCoveredDocumentCount === 0 &&
-          result.staleSessionCount === 0 &&
-          result.failedDocumentCount === 0
-        ) {
-          return;
-        }
-        if (result.failedDocumentCount > 0) {
-          logger.warn("Document revision maintenance pass was incomplete", result);
-          return;
-        }
-        logger.info("Document revision maintenance pass completed", result);
-      },
-      onError: (error) => {
-        logger.warn("Document revision maintenance pass deferred", {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      },
-    });
-};
 const electronWindowOpaqueSurfaceModes = new Map<number, boolean>();
 
 function shouldManageElectronWindowBackdrop(): boolean {
@@ -691,18 +562,10 @@ function maybeStartAutomaticAppUpdateChecks(): void {
   appUpdateService.maybeStartAutomaticChecks(getAppUpdateSettings());
 }
 
-function publishDatabaseMigrationProgress(progress: DatabaseMigrationProgress): void {
-  latestDatabaseMigrationProgress = progress;
-  broadcastToWindows("db:migration-progress", progress);
-}
-
 function registerInitializationIpcHandlers(): void {
   ipcMain.removeHandler("app:await-initialization");
   ipcMain.handle("app:await-initialization", (event) => {
     safeSendToWebContents(event.sender, "app:init-step", [appInitializationStep]);
-    if (latestDatabaseMigrationProgress) {
-      safeSendToWebContents(event.sender, "db:migration-progress", [latestDatabaseMigrationProgress]);
-    }
     return appInitializationPromise;
   });
 }
@@ -765,13 +628,9 @@ async function resolvePendingPageDeepLink(): Promise<void> {
   }
 
   const pageId = pendingPageDeepLinkPageId;
-  const legacyLocation = (): { readonly pageId: string; readonly projectId: string } | null => {
-    const location = findPageLocationById(pageId);
-    return location ? { pageId, projectId: location.projectId } : null;
-  };
   const location = desktopLibraryModule
     ? await desktopLibraryModule.findPageLocation(pageId)
-    : legacyLocation();
+    : null;
   if (pendingPageDeepLinkPageId !== pageId) {
     return;
   }
@@ -800,11 +659,11 @@ async function resolvePendingSessionDeepLink(): Promise<void> {
 
   const sessionId = pendingSessionDeepLinkSessionId;
   pendingSessionDeepLinkSessionId = null;
-  const session = desktopDataAuthorityRuntime?.backend === "rust"
+  const session = desktopDataAuthorityRuntime
     ? await createCoreProjectWorkspaceAdapter(
         desktopDataAuthorityRuntime.rootClient,
       ).getProjectSession(sessionId)
-    : projectSessionService.getProjectSession(sessionId);
+    : null;
   if (!session) {
     return;
   }
@@ -1178,45 +1037,12 @@ function registerDatabaseNotifierBridges(): void {
   });
 }
 
-async function initializeTypeScriptDesktopApp(serverPort: number): Promise<void> {
-  await initializeDatabase({
-    onMigrationProgress: (progress) => {
-      setAppInitializationStep({ phase: "sqlite_waiting" });
-      publishDatabaseMigrationProgress(progress);
-    },
-  });
-  blockDocumentCompactionRuntime.start();
-  startBlockRetentionMaintenanceRuntime();
-  startDocumentRevisionMaintenanceRuntime();
-  databaseReady = true;
-  await resolvePendingPageDeepLink();
-  await resolvePendingSessionDeepLink();
-
-  startHttpServer(serverPort);
-
-  configureRuntimeBackupScheduler(getBackupSettings());
-
-  startRuntimeReminderDelivery();
-
-  await codexService.synchronizeAutomationRuntime();
-  startRuntimeScheduledAutomationScheduler();
-
-  registerDesktopActivationHandler();
-
-  setAppInitializationStep({ phase: "done" });
-  maybeStartAutomaticAppUpdateChecks();
-}
-
 async function initializeDesktopApp(
   serverPort: number,
   authority: Promise<DesktopDataAuthorityRuntime>,
 ): Promise<void> {
   desktopDataAuthorityRuntime = await authority;
   registerDatabaseNotifierBridges();
-  if (desktopDataAuthorityRuntime.backend === "typescript") {
-    await initializeTypeScriptDesktopApp(serverPort);
-    return;
-  }
 
   coreEventSubscription = await desktopDataAuthorityRuntime.rootClient.openEventStream(
     desktopDataAuthorityRuntime.rootClient.handshake.event_head,
@@ -1224,12 +1050,10 @@ async function initializeDesktopApp(
     (resync) => {
       broadcastToWindows("library-navigation-changed", {
         version: 1,
-        libraryId: desktopDataAuthorityRuntime?.backend === "rust"
-          ? desktopDataAuthorityRuntime.rootClient.handshake.library_id
-          : "",
-        storeEpoch: desktopDataAuthorityRuntime?.backend === "rust"
-          ? desktopDataAuthorityRuntime.rootClient.handshake.store_epoch
-          : null,
+        libraryId: desktopDataAuthorityRuntime?.rootClient.handshake.library_id
+          ?? "",
+        storeEpoch: desktopDataAuthorityRuntime?.rootClient.handshake.store_epoch
+          ?? null,
         changeLogSeq: resync.event_head,
         changeKind: "content",
         affectedParentKeys: ["library", "catalog"],
@@ -1262,7 +1086,7 @@ async function initializeDesktopApp(
 }
 
 function publishCoreModuleEvent(envelope: CoreEventEnvelope): void {
-  if (desktopDataAuthorityRuntime?.backend !== "rust") return;
+  if (!desktopDataAuthorityRuntime) return;
   const administrationEvent = mapCoreStoreAdministrationEvent(envelope);
   if (administrationEvent) return;
   const automationEvent = mapCoreAutomationEvent(envelope);
@@ -1362,8 +1186,7 @@ function configureRuntimeBackupScheduler(settings: {
 
 function startRuntimeStoreMaintenanceScheduler(): void {
   if (
-    desktopDataAuthorityRuntime?.backend !== "rust"
-    || !desktopStoreAdministration
+    !desktopStoreAdministration
     || storeAdministrationMaintenanceScheduler
   ) {
     return;
@@ -1471,11 +1294,6 @@ function beginMainRuntimeShutdown(): void {
   logger.info("Nodex before-quit");
   coreEventSubscription?.close();
   coreEventSubscription = null;
-  blockDocumentCompactionRuntime.dispose();
-  blockRetentionMaintenanceScheduler?.dispose();
-  blockRetentionMaintenanceScheduler = null;
-  documentRevisionMaintenanceScheduler?.dispose();
-  documentRevisionMaintenanceScheduler = null;
   storeAdministrationBackupScheduler?.dispose();
   storeAdministrationBackupScheduler = null;
   if (stopReminderScheduler) {
@@ -1530,35 +1348,6 @@ function shutdownMainRuntime(): Promise<void> {
   }
 
   runtimeShutdownPromise = (async () => {
-    if (desktopDataAuthorityRuntime?.backend !== "rust") {
-      await settleRuntimeShutdownStep(
-        "Document revision flush",
-        async () => {
-          const storeEpoch = readBlockStoreEpoch(getDb());
-          if (!storeEpoch) return;
-          while (true) {
-            const { result } =
-              await blockMutationWriter.maintainDocumentRevisionHistory({
-                version: DOCUMENT_REVISION_MAINTENANCE_VERSION,
-                storeEpoch,
-                now: new Date().toISOString(),
-                force: true,
-              });
-            if (result.failedDocumentCount > 0) {
-              throw new Error(
-                `Document revision flush left ${result.failedDocumentCount} session(s) unresolved`,
-              );
-            }
-            if (result.scannedDocumentCount === 0) return;
-          }
-        },
-        RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
-      );
-      await settleRuntimeShutdownStep(
-        "Block mutation writer",
-        () => blockMutationWriter.shutdown(),
-      );
-    }
     await settleRuntimeShutdownStep(
       "Codex service",
       () => codexService.shutdown(),
@@ -1663,38 +1452,29 @@ export async function runMainAppStartup(
     buildId: `nodex-desktop/${app.getVersion()}`,
     isPackaged: app.isPackaged,
     nodexHome: getNodexHome(),
-    repositoryRoot: process.cwd(),
+    repositoryRoot: app.getAppPath(),
   });
   codexService.setNodexAgentAuthorityPort(
     createDesktopNodexAgentAuthorityPort({
       authority: dataAuthority,
-      typescript: createTypeScriptNodexAgentAuthorityPort(),
     }),
   );
   const nodexAgentResourceAuthority = createDesktopNodexAgentResourceAuthorityPort({
     authority: dataAuthority,
-    typescript: createTypeScriptNodexAgentResourceAuthorityPort({
-      persistProjectGrants: async (input) => {
-        await blockMutationWriter.persistNodexAgentProjectResourceGrants(input);
-      },
-    }),
   });
   codexService.setNodexAgentResourceAuthorityPort(
     nodexAgentResourceAuthority,
   );
   const automationModule = createDesktopAutomationModuleBridge({
     authority: dataAuthority,
-    typescript: createTypeScriptAutomationModulePort(),
   });
   desktopAutomationModule = automationModule;
   codexService.setAutomationModule(automationModule);
   const storeAdministration = createDesktopStoreAdministrationBridge({
     authority: dataAuthority,
-    typescript: createTypeScriptStoreAdministrationPort(),
   });
   desktopStoreAdministration = storeAdministration;
   const onStoreRestored = (): void => {
-    if (desktopDataAuthorityRuntime?.backend !== "rust") return;
     const restart = setTimeout(() => {
       app.relaunch();
       app.exit(0);
@@ -1711,116 +1491,20 @@ export async function runMainAppStartup(
       if (!projectId || projectId === "default") return null;
       return projectId;
     },
-    typescript: {
-      read: async (request) =>
-        (await blockMutationWriter.readLibraryModule(request)).result,
-      apply: async (request) =>
-        (await blockMutationWriter.applyLibraryModule(request)).result,
-      readProjectPageDetail: async (projectId, pageId) =>
-        (await blockMutationWriter.readPageDetail(projectId, pageId)).result,
-      readLibraryPageDetail: async (pageId, accessActor) =>
-        (
-          await blockMutationWriter.readLibraryPageDetail(
-            pageId,
-            accessActor,
-          )
-        ).result,
-      listPageHistory: (request) =>
-        blockMutationWriter.listPageHistory(request),
-      searchPages,
-      resolvePageTarget: async (request) =>
-        resolveProjectScopedPageTarget(request),
-      resolvePageOwnershipPath: async (request) =>
-        resolveProjectScopedPageOwnershipPath(request),
-      findPageLocation: async (pageId) => {
-        const location = findPageLocationById(pageId);
-        return location ? { pageId, projectId: location.projectId } : null;
-      },
-      readPageLifecyclePreflight: async (projectId, pageId) =>
-        (
-          await blockMutationWriter.readPageLifecyclePreflight(
-            projectId,
-            pageId,
-          )
-        ).result,
-      applyPageLifecycleMutation: async (request) =>
-        (await blockMutationWriter.applyPageLifecycleMutation(request)).result,
-      applyBlockPropertyMutation: async (request) =>
-        (await blockMutationWriter.applyBlockPropertyMutation(request)).result,
-      applyLibraryBlockPropertyMutation: async (input) =>
-        (
-          await blockMutationWriter.applyLibraryBlockPropertyMutation({
-            ...input,
-            accessActor: input.accessActor ?? "app_window",
-          })
-        ).result,
-    },
   });
   desktopLibraryModule = libraryModule;
   const documentSync = createDesktopDocumentSyncBridge({
     authority: dataAuthority,
-    typescript: {
-      hub: documentSyncHub,
-      authorizeProject: async (input) =>
-        await blockMutationWriter.authorizeDocumentAccess(input),
-      authorizeLibrary: async (input) =>
-        await blockMutationWriter.authorizeLibraryDocumentAccess(input),
-      getOwnedDocumentDescriptor: async (projectId, ownerBlockId) =>
-        (
-          await blockMutationWriter.getOwnedDocumentDescriptor(
-            projectId,
-            ownerBlockId,
-          )
-        ).result,
-      prepareOwnedBlockDocument: async (projectId, ownerBlockId) =>
-        await blockMutationWriter.prepareOwnedBlockDocument(
-          projectId,
-          ownerBlockId,
-        ),
-      prepareLibraryOwnedBlockDocument: async (ownerBlockId) =>
-        await blockMutationWriter.prepareLibraryOwnedBlockDocument(
-          ownerBlockId,
-        ),
-      createCheckpoint: async (request) =>
-        await blockMutationWriter.createDocumentVersionCheckpoint(request),
-      listVersions: async (request) =>
-        await blockMutationWriter.listDocumentVersions(request),
-      getVersion: async (request) =>
-        await blockMutationWriter.getDocumentVersion(request),
-      applyDocumentMutation: async (request) =>
-        await documentSyncHub.applyDocumentMutation(request),
-    },
   });
   const databaseModule = createDesktopDatabaseModuleBridge({
     authority: dataAuthority,
-    typescript: {
-      read: async (request) =>
-        (await blockMutationWriter.readDatabaseModule(request)).result,
-      apply: async (request) =>
-        (await blockMutationWriter.applyDatabaseModule(request)).result,
-      readLibrary: (request, accessActor) =>
-        blockMutationWriter.readLibraryDatabaseModule(
-          request,
-          accessActor,
-        ),
-      applyLibrary: (request, identity) =>
-        blockMutationWriter.applyLibraryDatabaseModule(
-          request,
-          identity.actor,
-          identity.accessActor,
-        ),
-      getBoardSummary,
-      getDatabaseColumn: readColumn,
-      getDatabaseRowPage,
-      getDatabaseRowsDetails,
-      resolveDatabaseViewReference: async (input) =>
-        readProjectScopedDatabaseViewReference(input),
-    },
   });
   const projectWorkspace = createDesktopProjectWorkspaceBridge({
     authority: dataAuthority,
-    typescript: createTypeScriptProjectWorkspacePort(),
   });
+  browserSidebarService.setProjectSessionResolver(async (sessionId) =>
+    (await projectWorkspace.getProjectSession(sessionId))?.projectId ?? null
+  );
   codexService.setProjectWorkspacePort(projectWorkspace);
   configureNodexAgentV3DynamicService(
     createDesktopNodexAgentV3DynamicService({
@@ -1828,10 +1512,6 @@ export async function runMainAppStartup(
       projectWorkspace,
       databaseModule,
       documentSync,
-      typescript: {
-        writer: blockMutationWriter,
-        documentHub: documentSyncHub,
-      },
     }),
   );
   configureHttpContentModuleAuthorities({
@@ -1887,19 +1567,6 @@ export async function runMainAppStartup(
       onBackupSettingsChanged: configureRuntimeBackupScheduler,
       onStoreRestored,
     },
-    sqlInspection: {
-      getSchema: async () =>
-        (await dataAuthority).backend === "rust"
-          ? null
-          : sqlInspection.getSchema(),
-      executeReadOnlyQuery: async (sql, params) =>
-        (await dataAuthority).backend === "rust"
-          ? null
-          : sqlInspection.executeReadOnlyQuery(
-              sql,
-              params as (string | number | null)[] | undefined,
-            ),
-    },
     documentSync: {
       realtime: documentSync,
       getOwnedDocumentDescriptor: (projectId, ownerBlockId) =>
@@ -1941,9 +1608,7 @@ export async function runMainAppStartup(
     readStoreEpoch: () => {
       const runtime = desktopDataAuthorityRuntime;
       if (!runtime) return null;
-      return runtime.backend === "rust"
-        ? runtime.rootClient.handshake.store_epoch
-        : readBlockStoreEpoch(getDb());
+      return runtime.rootClient.handshake.store_epoch;
     },
     persistProjectGrants: async (input) =>
       await nodexAgentResourceAuthority.persistProjectGrants(input),

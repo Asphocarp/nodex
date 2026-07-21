@@ -4,7 +4,6 @@ import type { CodexScheduledAutomationCreateInput } from "../../shared/types";
 import {
   createDesktopAutomationModuleBridge,
   mapCoreAutomationEvent,
-  type DesktopAutomationModulePort,
 } from "./desktop-automation-module-bridge";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { FakeCoreClient } from "./testing/fake-core-client";
@@ -157,40 +156,6 @@ const createInput: CodexScheduledAutomationCreateInput = {
   executionEnvironment: "worktree",
 };
 
-const neverTypeScript = (): DesktopAutomationModulePort => ({
-  listDefinitions: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  getDefinition: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  createDefinition: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  updateDefinition: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  deleteDefinition: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  dispatchDefinitionNow: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  claimDueDefinitions: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  completeLease: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  failLease: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  settleInterruptedRuns: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  getRun: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  beginRun: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  replacePendingRunThread: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  setRunThreadTitle: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  completeRunForReview: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  setRunInboxItem: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  acceptRun: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  archiveRun: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  deleteRun: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  unarchiveRun: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  readInbox: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  setRunReadState: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  markAllRunsRead: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  listPageOccurrences: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  completePageOccurrence: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  skipPageOccurrence: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  updatePageOccurrence: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  snoozeReminder: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  claimDueReminders: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  completeReminderLease: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-  failReminderLease: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
-});
-
 describe("Desktop Automation Module bridge", () => {
   test("maps Automation events into authority-neutral invalidations", () => {
     expect(mapCoreAutomationEvent({
@@ -226,7 +191,6 @@ describe("Desktop Automation Module bridge", () => {
     const client = new FakeCoreClient();
     const bridge = createDesktopAutomationModuleBridge({
       authority: Promise.resolve(rustRuntime(client)),
-      typescript: neverTypeScript(),
     });
     client.enqueueAutomationRead(readSnapshot({
       kind: "definitions",
@@ -305,7 +269,6 @@ describe("Desktop Automation Module bridge", () => {
     const client = new FakeCoreClient();
     const bridge = createDesktopAutomationModuleBridge({
       authority: Promise.resolve(rustRuntime(client)),
-      typescript: neverTypeScript(),
     });
     client.enqueueAutomationRead(readSnapshot({ kind: "run", item: run() }));
     client.enqueueAutomationApply(committed({
@@ -327,13 +290,13 @@ describe("Desktop Automation Module bridge", () => {
       archived_assistant_message: "Report complete.",
       archived_reason: "manual",
     });
+
   });
 
   test("dispatches and claims definitions before revision-fenced Run lifecycle commits", async () => {
     const client = new FakeCoreClient();
     const bridge = createDesktopAutomationModuleBridge({
       authority: Promise.resolve(rustRuntime(client)),
-      typescript: neverTypeScript(),
     });
 
     client.enqueueAutomationRead(readSnapshot({
@@ -351,6 +314,25 @@ describe("Desktop Automation Module bridge", () => {
     expect(client.automationApplies[0]?.intent).toEqual({
       kind: "dispatch_now",
       automation_id: "daily-report",
+    });
+
+    client.enqueueAutomationApply(committed({
+      definitions: [definition({ definition_revision: 2, next_run_at_ms: 275 })],
+    }));
+    await expect(bridge.rescheduleDefinition(
+      "daily-report",
+      1,
+      { notBefore: 275 },
+    )).resolves.toMatchObject({
+      id: "daily-report",
+      nextRunAt: 275,
+    });
+    expect(client.automationApplies[1]?.intent).toEqual({
+      kind: "reschedule_definition",
+      automation_id: "daily-report",
+      expected_revision: 1,
+      not_before_ms: 275,
+      retry_within_ms: null,
     });
 
     client.enqueueAutomationApply(committed({
@@ -375,7 +357,7 @@ describe("Desktop Automation Module bridge", () => {
       expiresAt: 60_200,
       definition: expect.objectContaining({ id: "daily-report" }),
     }]);
-    expect(client.automationApplies[1]?.intent).toEqual({
+    expect(client.automationApplies[2]?.intent).toEqual({
       kind: "claim_due",
       limit: 3,
       lease_duration_ms: 60_000,
@@ -390,7 +372,7 @@ describe("Desktop Automation Module bridge", () => {
       threadTitle: "Daily Report run",
       sourceCwd: "/workspace",
     })).resolves.toBe(true);
-    expect(client.automationApplies[2]?.intent).toEqual({
+    expect(client.automationApplies[3]?.intent).toEqual({
       kind: "begin_run",
       thread_id: "thread:daily-report",
       automation_id: "daily-report",
@@ -407,7 +389,7 @@ describe("Desktop Automation Module bridge", () => {
       inboxTitle: "Report ready",
       inboxSummary: "Review the report.",
     })).resolves.toBe(true);
-    expect(client.automationApplies[3]?.intent).toEqual({
+    expect(client.automationApplies[4]?.intent).toEqual({
       kind: "complete_run_for_review",
       thread_id: "thread:daily-report",
       expected_revision: 3,
@@ -426,7 +408,6 @@ describe("Desktop Automation Module bridge", () => {
     } as unknown as RustDataAuthorityRuntime;
     const bridge = createDesktopAutomationModuleBridge({
       authority: Promise.resolve(runtime),
-      typescript: neverTypeScript(),
     });
     const windowStart = new Date("2026-07-20T00:00:00.000Z");
     const windowEnd = new Date("2026-07-21T00:00:00.000Z");
@@ -501,7 +482,6 @@ describe("Desktop Automation Module bridge", () => {
     const client = new FakeCoreClient();
     const bridge = createDesktopAutomationModuleBridge({
       authority: Promise.resolve(rustRuntime(client)),
-      typescript: neverTypeScript(),
     });
     client.enqueueAutomationApply(committed({
       reminder_leases: [{
@@ -567,7 +547,6 @@ describe("Desktop Automation Module bridge", () => {
     const client = new FakeCoreClient();
     const bridge = createDesktopAutomationModuleBridge({
       authority: Promise.resolve(rustRuntime(client)),
-      typescript: neverTypeScript(),
     });
     const inboxValue = {
       kind: "inbox" as const,
@@ -597,13 +576,5 @@ describe("Desktop Automation Module bridge", () => {
       unreadRunCounts: { total: 0 },
     });
 
-    const fallback = neverTypeScript();
-    vi.mocked(fallback.listDefinitions).mockResolvedValue([]);
-    const fallbackBridge = createDesktopAutomationModuleBridge({
-      authority: Promise.resolve({ backend: "typescript" } as never),
-      typescript: fallback,
-    });
-    await expect(fallbackBridge.listDefinitions()).resolves.toEqual([]);
-    expect(fallback.listDefinitions).toHaveBeenCalledOnce();
   });
 });

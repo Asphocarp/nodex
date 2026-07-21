@@ -53,7 +53,7 @@ All notable changes to this project will be documented in this file.
 - Added a Page Stage heading rail navigator for rich NFM descriptions, with automatic left-gutter markers for heading-heavy Pages.
 
 ### Changed
-- Nodex now starts every production Profile through the native Rust Core; the former TypeScript/Rust authority selector is retired, and v83 Profiles are backed up and migrated one way to the Rust-owned v84 store before readiness.
+- Nodex now starts every production Profile through the native Rust Core; the former TypeScript/Rust authority selector and JavaScript storage engine are retired, exact final TypeScript v84 Profiles are backed up and migrated one way to the Rust-owned v85 store before readiness, and task-history search delegates exclusively to Codex app-server.
 - Nodex Profile storage is now configured exclusively through `NODEX_HOME` or `[server].home`; the previous environment variable and TOML key are no longer accepted.
 - Page workflows now use the action-oriented Triage, Plan, Build, Review, and Ship stages; CLI and API callers must use the corresponding `triage`, `plan`, `build`, `review`, and `ship` identifiers.
 - Page mentions now persist only stable Page identity and refresh from membership-independent, identity-keyed events, so renamed or cleared titles cannot fall back to stale insertion-time text and nested Pages update without a Database row.

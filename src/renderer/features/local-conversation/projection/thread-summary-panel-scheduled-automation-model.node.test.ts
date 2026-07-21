@@ -7,6 +7,7 @@ function automation(
 ): CodexScheduledAutomation {
   return {
     id: "automation-1",
+    definitionRevision: 1,
     kind: "heartbeat",
     status: "ACTIVE",
     targetThreadId: "thread-1",

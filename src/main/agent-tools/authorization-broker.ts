@@ -4,7 +4,7 @@ import {
   NODEX_AGENT_AUTHORIZATION_TIMEOUT_MS,
   type NodexAgentAuthorizationRequest,
   type NodexAgentAuthorizationResponse,
-} from "../../shared/nodex-agent-tools";
+} from "../../shared/nodex-agent-tools/authorization";
 import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
 import {
   canonicalizeNodexAgentResourceGrantSpecs,
@@ -13,8 +13,6 @@ import {
   type PersistNodexAgentProjectResourceGrantsInput,
 } from "../../shared/nodex-agent-resource-access";
 import type { RendererClientRouter } from "../codex/renderer-client-router";
-import { readBlockStoreEpoch } from "../local-store/block-store-metadata";
-import { getDb } from "../local-store/database";
 import type { NodexAgentDynamicAuthorizationInput } from "./dynamic-service-core";
 
 export type NodexAgentAuthorizationOutcome =
@@ -38,7 +36,7 @@ export interface NodexAgentAuthorizationBrokerOptions {
   readonly rendererClientRouter: Pick<RendererClientRouter, "sendRequest">;
   readonly sessionEpoch?: string;
   readonly now?: () => number;
-  readonly readStoreEpoch?: () => string | null;
+  readonly readStoreEpoch: () => string | null;
   readonly persistProjectGrants?: (
     input: PersistNodexAgentProjectResourceGrantsInput,
   ) => Promise<unknown>;
@@ -88,8 +86,7 @@ export class NodexAgentAuthorizationBroker {
     this.router = options.rendererClientRouter;
     this.sessionEpoch = options.sessionEpoch ?? randomUUID();
     this.now = options.now ?? Date.now;
-    this.readStoreEpoch = options.readStoreEpoch
-      ?? (() => readBlockStoreEpoch(getDb()));
+    this.readStoreEpoch = options.readStoreEpoch;
     this.persistProjectGrants = options.persistProjectGrants;
   }
 

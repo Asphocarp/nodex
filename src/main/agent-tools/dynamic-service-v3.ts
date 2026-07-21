@@ -13,13 +13,15 @@ import type {
   NodexAgentResourceGrantSpec,
   NodexAgentResourceIntent,
 } from "../../shared/nodex-agent-resource-access";
-import { blockMutationWriter } from "../block-mutation-writer";
 import {
   createNodexV3DynamicToolRegistry,
   type NodexAgentV3ToolHandlers,
   type NodexAgentV3ToolInput,
 } from "../codex/nodex-dynamic-tool-registry";
-import { documentSyncHub } from "../document-sync-runtime";
+import type {
+  NodexAgentV3DocumentHub,
+  NodexAgentV3Writer,
+} from "./dynamic-service-v3-port";
 import {
   authorizationFootprint,
   type NodexAgentAuthorizationFootprint,
@@ -46,27 +48,11 @@ type PageUpdateInput =
   | NodexAgentV3ToolInput<"update_page">
   | NodexAgentV3ToolInput<"advanced_update_page">;
 
-export type NodexAgentV3Writer = Pick<
-  typeof blockMutationWriter,
-  | "readNodexAgentV3Tool"
-  | "prepareNodexAgentPageUpdate"
-  | "completeNodexAgentPageUpdate"
-  | "prepareNodexAgentCreatePages"
-  | "prepareNodexAgentDuplicatePage"
-  | "prepareNodexAgentMovePages"
->;
-
-export type NodexAgentV3DocumentHub = Pick<
-  typeof documentSyncHub,
-  | "applyDocumentMutation"
-  | "executeNodexAgentCreatePages"
-  | "executeNodexAgentDuplicatePage"
-  | "executeNodexAgentMovePages"
->;
+export type { NodexAgentV3DocumentHub, NodexAgentV3Writer } from "./dynamic-service-v3-port";
 
 export interface NodexAgentV3DynamicServiceOptions {
-  readonly writer?: NodexAgentV3Writer;
-  readonly documentHub?: NodexAgentV3DocumentHub;
+  readonly writer: NodexAgentV3Writer;
+  readonly documentHub: NodexAgentV3DocumentHub;
   readonly executionTimeoutMs?: number;
 }
 
@@ -376,9 +362,9 @@ export class NodexAgentV3DynamicService {
   private readonly executionTimeoutMs: number;
   readonly registry;
 
-  constructor(options: NodexAgentV3DynamicServiceOptions = {}) {
-    this.writer = options.writer ?? blockMutationWriter;
-    this.documentHub = options.documentHub ?? documentSyncHub;
+  constructor(options: NodexAgentV3DynamicServiceOptions) {
+    this.writer = options.writer;
+    this.documentHub = options.documentHub;
     this.executionTimeoutMs = options.executionTimeoutMs
       ?? NODEX_AGENT_EXECUTION_TIMEOUT_MS;
     const handlers: NodexAgentV3ToolHandlers<NodexAgentDynamicExecutionContext> = {
@@ -726,5 +712,3 @@ export class NodexAgentV3DynamicService {
     return completed.output;
   }
 }
-
-export const nodexAgentV3DynamicService = new NodexAgentV3DynamicService();

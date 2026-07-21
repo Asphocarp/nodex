@@ -12,6 +12,8 @@ node_modules
 
 # testing
 /coverage
+/.vitest-attachments/
+/test-results/
 
 # next.js
 /.next/

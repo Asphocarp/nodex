@@ -4,20 +4,19 @@
 Nodex is local-first. Main risks are malformed local inputs, accidental data loss, unintended exposure of the local HTTP API, and unsafe command/file-change approvals during Codex thread execution.
 
 ## Security Controls in Place
-- Input validation for card writes (`card-input-validation.ts`).
+- Boundary validation for typed Core Module, IPC, and HTTP requests.
 - HTTP body limits for mutation and image-upload routes.
 - Browser-origin checks for mutating HTTP requests (trusted local dev origins only).
 - Restrictive CORS policy for browser access (trusted local dev origins only).
-- Read-only guard on SQL query endpoint.
-- Read-only SQL result-size cap to avoid large memory responses.
+- No arbitrary SQL inspection route in IPC, loopback HTTP, or the public CLI.
 - Electron preload bridge limits renderer access to a typed API surface.
 - Workspace-file IPC is available only to the top-level renderer frame of an owned app window. Directory browsing accepts canonical root-relative coordinates, verifies lexical and resolved-realpath containment, and omits directory symlinks that escape the selected root. Exact-file metadata/text/binary operations intentionally accept an absolute local path without a Project-root grant so user-visible agent outputs and patches remain openable outside the active source; this relies on the trusted-renderer boundary rather than path sandboxing. Write requests use an expected-modification-time CAS guard and never create missing parent directories implicitly.
 - Electron bootstrap fixes Rust Core as the only production authority before
-  store startup; the retired TypeScript selector fails closed, and every
-  TypeScript SQLite entry point refuses to open a production Profile. Native launch validates a regular, executable,
+  store startup; the retired selector and JavaScript SQLite/Yjs implementation
+  are absent. Native launch validates a regular, executable,
   non-symlinked Core binary, then trusts readiness only after the existing
   descriptor, capability, UDS, and handshake checks succeed; failed startup
-  never falls back to the TypeScript authority.
+  never falls back to another authority.
 - The native Core runtime validates the Profile, `run`, and `run/core`
   ancestry without following symlinks; requires current-user ownership; and
   requires 0700 for `run/core` plus 0600 and the expected file type for the
@@ -65,7 +64,7 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
 - Codex approvals are explicit protocol responses (`accept`/`decline`/etc) and are gated by the per-project Threads permission mode.
 - Codex user-input requests are never auto-answered and require explicit renderer interaction.
 - `nodex_app` reads and writes derive an exact-Turn authority snapshot from the verified launched task; model arguments and renderer responses cannot select another Project, Library, store epoch, Turn, or catalog revision. Ordinary snapshots use Project binding/grants. Main persists the selected Nodex preset separately from raw Codex config and requires both to agree before the built-in Full access preset records `:danger-full-access` provenance and receives temporary same-Library scope; Custom settings with equivalent raw sandbox values do not upgrade a Turn. Missing historical provenance falls back to Project scope, while stale or inconsistent recorded provenance fails closed.
-- Every `nodex_app@4` write performs mutation-free canonical preflight before any required consent, then re-resolves the exact `(thread, turn, root thread, actor Project, Library, Profile, store epoch)` authority. Execution proceeds only when the fresh effect class, target resources, deletions, and ownership transformations equal the approved footprint. Primary-Database and `read_write`-grant operations, including destructive writes, execute without a renderer card. Full-access Library scope also auto-approves. Neither path bypasses ETag/CAS guards, schema revisions, lifecycle checks, footprint equality, or transaction validation.
+- Every `nodex_app@5` write performs mutation-free canonical preflight before any required consent, then re-resolves the exact `(thread, turn, root thread, actor Project, Library, Profile, store epoch)` authority. Execution proceeds only when the fresh effect class, target resources, deletions, and ownership transformations equal the approved footprint. Primary-Database and `read_write`-grant operations, including destructive writes, execute without a renderer card. Full-access Library scope also auto-approves. Neither path bypasses ETag/CAS guards, schema revisions, lifecycle checks, footprint equality, or transaction validation.
 - Native Core prepared operations expose no additional private route: prepare
   and execute are typed intents in the owning Module `read/apply` pair. Only an
   Electron-host connection (or the isolated test role) may submit the exact
@@ -107,7 +106,7 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   proxy those private UDS routes by path coincidence.
 - No role-based access control model (single-user/local trust assumption).
 - Security logging/auditing is still local-first and not audit-grade. Backend logs redact common secret-bearing fields (for example authorization headers, tokens, API keys, passwords, cookies, and session values) before writing JSON-line log records; optional Sentry crash diagnostics are for failure triage, not an audit trail.
-- `full-access` is intentionally high authority: it removes Nodex approval prompts for the exact Turn and permits every read/write/destructive action currently exposed by `nodex_app@4` across the current Library, in addition to unrestricted Codex filesystem and network access.
+- `full-access` is intentionally high authority: it removes Nodex approval prompts for the exact Turn and permits every read/write/destructive action currently exposed by `nodex_app@5` across the current Library, in addition to unrestricted Codex filesystem and network access.
 - Workspace-write sandbox roots are derived from user-configured project sources. Additional allow-listing beyond those local source roots remains future hardening work.
 - A compromised trusted top-level renderer can request exact local file reads through the workspace-file bridge. Webviews, subframes, and unowned renderer contents are rejected, but process-level renderer isolation is still the confidentiality boundary for these reads.
 - Dynamic-tool receipts are an idempotency and recovery ledger, not an audit-grade record of human intent. They intentionally exclude raw Nested Markdown/body content; the authorization preview is not retained as a second document history.
@@ -120,6 +119,6 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
 
 ## Hardening Backlog
 - Optional API token gate for CLI/browser calls.
-- Basic security smoke checks in CI (write-limit and read-only query assertions).
+- Basic security smoke checks in CI for transport/body limits and absence of SQL inspection routes.
 - Approval policy profiles (for example, command/file-change scopes and allow-lists) beyond the current `sandbox`/`full-access`/`custom` permission presets.
 - Additional execution boundary controls for Codex subprocess invocations.

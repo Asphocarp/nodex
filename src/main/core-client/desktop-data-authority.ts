@@ -1,14 +1,9 @@
-import { selectDataAuthorityBackend } from "../data-authority";
 import { CoreClient } from "./core-client";
 import {
   connectOrStartCore,
   type ConnectOrStartCoreInput,
   type CoreLaunchResult,
 } from "./core-launcher";
-
-export interface TypeScriptDataAuthorityRuntime {
-  readonly backend: "typescript";
-}
 
 export interface RustDataAuthorityRuntime {
   readonly backend: "rust";
@@ -17,9 +12,7 @@ export interface RustDataAuthorityRuntime {
   clientForProject(projectId: string): CoreClient;
 }
 
-export type DesktopDataAuthorityRuntime =
-  | TypeScriptDataAuthorityRuntime
-  | RustDataAuthorityRuntime;
+export type DesktopDataAuthorityRuntime = RustDataAuthorityRuntime;
 
 export interface InitializeDesktopDataAuthorityInput
   extends Omit<ConnectOrStartCoreInput, "nodexHome"> {
@@ -29,8 +22,6 @@ export interface InitializeDesktopDataAuthorityInput
 export async function initializeDesktopDataAuthority(
   input: InitializeDesktopDataAuthorityInput,
 ): Promise<RustDataAuthorityRuntime> {
-  const backend = selectDataAuthorityBackend();
-
   const launch = await connectOrStartCore(input);
   const health = await launch.client.health();
   if (health.status !== "ready") {
@@ -39,7 +30,7 @@ export async function initializeDesktopDataAuthority(
 
   const clients = new Map<string, CoreClient>();
   return {
-    backend,
+    backend: "rust",
     launch,
     rootClient: launch.client,
     clientForProject: (projectId) => {

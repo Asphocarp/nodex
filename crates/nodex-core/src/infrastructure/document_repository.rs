@@ -917,14 +917,14 @@ mod tests {
     use rusqlite::params;
 
     use super::*;
-    use crate::infrastructure::schema::install_v83_schema;
+    use crate::infrastructure::schema::install_v84_schema;
 
     const NOW: &str = "2026-07-18T00:00:00.000Z";
     const HASH: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
     fn seeded_store() -> Connection {
         let connection = Connection::open_in_memory().expect("memory store");
-        install_v83_schema(&connection).expect("v83 schema");
+        install_v84_schema(&connection).expect("v84 schema");
         connection
             .execute(
                 "INSERT INTO projects(id, name, created, updated) VALUES ('project:1', 'Test', ?1, ?1)",

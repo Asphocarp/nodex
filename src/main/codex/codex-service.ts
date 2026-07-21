@@ -293,15 +293,13 @@ import {
 import type { NodexAgentResourceIntent } from "../../shared/nodex-agent-resource-access";
 import {
   canAutoApproveNodexAgentWrite,
-  createTypeScriptNodexAgentAuthorityPort,
   resolveNodexAgentWriteAccess,
-} from "./codex-nodex-agent-authority";
+} from "./nodex-agent-access";
 import type {
   NodexAgentAuthorityPort,
   NodexAgentTurnAuthorityLaunch,
 } from "../nodex-agent-authority-port";
 import type { NodexAgentResourceAuthorityPort } from "../nodex-agent-resource-authority-port";
-import { createTypeScriptNodexAgentResourceAuthorityPort } from "../typescript-nodex-agent-resource-authority-port";
 import { CodexRendererViewRegistry } from "./codex-renderer-view-registry";
 import {
   buildPlanImplementationRequestId,
@@ -526,8 +524,8 @@ import {
 } from "../../shared/codex-dynamic-tool-identity";
 import {
   NODEX_APP_TOOL_NAMESPACE,
-  type NodexAgentAccess,
-} from "../../shared/nodex-agent-tools";
+} from "../../shared/nodex-agent-tools/identity";
+import type { NodexAgentAccess } from "../../shared/nodex-agent-tools/read-runtime";
 import { resolveDynamicToolCatalogBindings } from "./codex-dynamic-tool-catalog-bindings";
 import type {
   NodexAgentAuthorizationBroker,
@@ -567,13 +565,6 @@ import { requestChatGptDesktop } from "./chatgpt-desktop-request";
 import { terminalManager } from "../terminal-manager";
 import { makeCodexBackgroundProcessRecordId } from "../../shared/codex-background-processes";
 import {
-  recordCodexScheduledAutomationNextRun,
-  recordCodexScheduledAutomationNextScheduledRun,
-} from "../local-store/codex-scheduled-automations";
-import {
-  captureCodexAutomationArchiveMessages,
-} from "../local-store/codex-automation-runs";
-import {
   CODEX_AUTOMATION_DEVELOPER_INSTRUCTIONS,
   buildCodexScheduledAutomationHeartbeatPrompt,
   buildCodexProjectlessThreadInstructions,
@@ -581,16 +572,16 @@ import {
   parseCodexAutomationInboxItemDirective,
   resolveCodexScheduledAutomationModelSettings,
 } from "../codex-scheduled-automation-runtime";
-import { computeCodexScheduledAutomationIntervalMs } from "../local-store/codex-scheduled-automation-schedule";
+import {
+  computeCodexScheduledAutomationIntervalMs,
+} from "../local-store/codex-scheduled-automation-schedule";
 import type { DesktopAutomationModulePort } from "../core-client/desktop-automation-module-bridge";
-import { createTypeScriptAutomationModulePort } from "../typescript-automation-module-port";
 import type {
   DesktopProjectWorkspacePort,
   DesktopProjectWorkspaceSidebar,
   DesktopProjectWorkspaceThread,
   DesktopProjectWorkspaceThreadPatch,
 } from "../core-client/project-workspace-adapter";
-import { createTypeScriptProjectWorkspacePort } from "../typescript-project-workspace-port";
 import { CodexScheduledAutomationRetryError } from "../codex-scheduled-automation-scheduler";
 import {
   buildCodexNewConversationParams,
@@ -1083,6 +1074,7 @@ class PendingServerRequestRegistry<T> {
 }
 
 type AutomationUpdateMode =
+  | "list"
   | "view"
   | "create"
   | "suggested_create"
@@ -1093,6 +1085,7 @@ type AutomationUpdateMode =
 type AutomationUpdateDestination = "local" | "worktree" | "thread";
 
 type ParsedAutomationUpdateArgs =
+  | { mode: "list"; query: string | null; limit: number }
   | { mode: "view"; id: string }
   | { mode: "delete"; id: string }
   | ParsedAutomationUpdateUpsertArgs;
@@ -1584,11 +1577,6 @@ function resolveAutomationArchiveMessagesFromProtocolTurns(
   }
 
   return { archivedUserMessage, archivedAssistantMessage };
-}
-
-function isUnavailableSqliteBindingError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes("better-sqlite3") && message.includes("not yet supported");
 }
 
 type DefaultCodexRuntimeOptions = {
@@ -2749,6 +2737,13 @@ function parseModelOption(value: unknown): CodexModelOption | null {
   };
 }
 
+const unconfiguredAuthority = <Port extends object>(name: string): Port =>
+  new Proxy({}, {
+    get: () => () => {
+      throw new Error(`${name} is unavailable before Rust Core initialization`);
+    },
+  }) as Port;
+
 export class CodexService extends EventEmitter {
   private readonly logger = codexLogger;
   private readonly client: CodexAppServerClient;
@@ -2786,9 +2781,9 @@ export class CodexService extends EventEmitter {
     CodexServiceOptions["forkSidePanelTransferLifecycle"];
   private nodexAgentAuthorizationBroker: NodexAgentAuthorizationBroker | null = null;
   private automationModule: DesktopAutomationModulePort =
-    createTypeScriptAutomationModulePort();
+    unconfiguredAuthority("Automation authority");
   private projectWorkspace: DesktopProjectWorkspacePort =
-    createTypeScriptProjectWorkspacePort();
+    unconfiguredAuthority("Project Workspace authority");
   private readonly workspaceThreadProjectionById = new Map<
     string,
     DesktopProjectWorkspaceThread
@@ -2797,9 +2792,9 @@ export class CodexService extends EventEmitter {
   private readonly activeHeartbeatAutomationIdByThreadId =
     new Map<string, string>();
   private nodexAgentAuthorityRegistry: NodexAgentAuthorityPort =
-    createTypeScriptNodexAgentAuthorityPort();
+    unconfiguredAuthority("Nodex Agent authority");
   private nodexAgentResourceAuthority: NodexAgentResourceAuthorityPort =
-    createTypeScriptNodexAgentResourceAuthorityPort();
+    unconfiguredAuthority("Nodex Agent resource authority");
 
   private readonly permissionStateByProject = new Map<string, CodexPermissionState>();
   private readonly verifiedPermissionModeByProject = new Map<string, CodexPermissionMode>();
@@ -6312,15 +6307,10 @@ export class CodexService extends EventEmitter {
       return cached;
     }
 
-    let workspaceRoots: string[] = [];
-    try {
-      const project = await this.projectWorkspace.getProject(projectId);
-      workspaceRoots = project?.sources.map((source) => source.root).filter((root) => root.trim().length > 0) ?? [];
-    } catch (error) {
-      if (!isUnavailableSqliteBindingError(error)) {
-        throw error;
-      }
-    }
+    const project = await this.projectWorkspace.getProject(projectId);
+    const workspaceRoots = project?.sources
+      .map((source) => source.root)
+      .filter((root) => root.trim().length > 0) ?? [];
 
     try {
       await this.ensureClientReady();
@@ -7224,7 +7214,7 @@ export class CodexService extends EventEmitter {
     if (policy === "read") {
       return logResult("read", await this.buildWorkspaceSidebarSyncResult({
         includeArchived,
-        source: "sqlite",
+        source: "core",
         refreshed: false,
         refreshedAt: this.sidebarLastSuccessfulRefreshAt,
       }));
@@ -7236,7 +7226,7 @@ export class CodexService extends EventEmitter {
     if (policy === "stale" && isFresh) {
       return logResult("stale-cache-hit", await this.buildWorkspaceSidebarSyncResult({
         includeArchived,
-        source: "sqlite",
+        source: "core",
         refreshed: false,
         refreshedAt: this.sidebarLastSuccessfulRefreshAt,
       }), {
@@ -7248,7 +7238,7 @@ export class CodexService extends EventEmitter {
     if (backoffActive) {
       return logResult("backoff", await this.buildWorkspaceSidebarSyncResult({
         includeArchived,
-        source: "sqlite",
+        source: "core",
         refreshed: false,
         refreshedAt: this.sidebarLastSuccessfulRefreshAt,
       }), {
@@ -7315,7 +7305,7 @@ export class CodexService extends EventEmitter {
       });
       const result = await this.buildWorkspaceSidebarSyncResult({
         includeArchived: input.includeArchived,
-        source: "sqlite",
+        source: "core",
         refreshed: false,
         refreshedAt: this.sidebarLastSuccessfulRefreshAt,
       });
@@ -7376,7 +7366,7 @@ export class CodexService extends EventEmitter {
 
   private async buildWorkspaceSidebarSyncResult(input: {
     includeArchived: boolean;
-    source: "sqlite" | "app-server";
+    source: "core" | "app-server";
     refreshed: boolean;
     refreshedAt: number;
     metadata?: SidebarThreadSyncMetadata;
@@ -8668,7 +8658,7 @@ export class CodexService extends EventEmitter {
     this.invalidateSidebarSnapshotCache();
     const result: CodexSidebarSyncResult = {
       snapshot: await this.buildWorkspaceSidebarSnapshot(sidebar),
-      source: "sqlite",
+      source: "core",
       refreshed: false,
       refreshedAt: this.sidebarLastSuccessfulRefreshAt,
       changedProjectIds: [...metadata.changedProjectIds],
@@ -9239,7 +9229,7 @@ export class CodexService extends EventEmitter {
     const targetThreadId = automation.targetThreadId?.trim() ?? "";
     if (!targetThreadId) {
       if (context.reason === "run-now") throw new Error("Heartbeat thread not found.");
-      this.deferHeartbeatAutomation(automation, context, "heartbeat_thread_missing");
+      await this.deferHeartbeatAutomation(automation, context, "heartbeat_thread_missing");
       return;
     }
 
@@ -9251,7 +9241,11 @@ export class CodexService extends EventEmitter {
           "heartbeat_disabled",
         );
       }
-      recordCodexScheduledAutomationNextScheduledRun(automation.id, context.now);
+      await this.automationModule.rescheduleDefinition(
+        automation.id,
+        automation.definitionRevision,
+        {},
+      );
       this.logger.debug("Heartbeat automation skipped: feature disabled", {
         automationId: automation.id,
         targetThreadId,
@@ -9262,7 +9256,7 @@ export class CodexService extends EventEmitter {
     const targetThreadResult = await this.readHeartbeatTargetThread(targetThreadId).catch(() => null);
     if (!targetThreadResult) {
       if (context.reason === "run-now") throw new Error("Heartbeat thread not found.");
-      this.deferHeartbeatAutomation(automation, context, "heartbeat_thread_missing");
+      await this.deferHeartbeatAutomation(automation, context, "heartbeat_thread_missing");
       this.logger.warn("Heartbeat automation skipped: thread missing", {
         automationId: automation.id,
         targetThreadId,
@@ -9277,7 +9271,7 @@ export class CodexService extends EventEmitter {
     );
     if (rendererBlockReason) {
       if (context.reason === "run-now") throw new Error("Heartbeat thread is not eligible right now.");
-      this.deferHeartbeatAutomation(automation, context, rendererBlockReason);
+      await this.deferHeartbeatAutomation(automation, context, rendererBlockReason);
       this.logger.debug("Heartbeat automation blocked by renderer state", {
         automationId: automation.id,
         targetThreadId,
@@ -9289,7 +9283,7 @@ export class CodexService extends EventEmitter {
     const collaborationMode = this.resolveHeartbeatCollaborationMode(context.heartbeat?.collaborationMode ?? null);
     if (!collaborationMode) {
       if (context.reason === "run-now") throw new Error("Heartbeat thread mode is still loading.");
-      this.deferHeartbeatAutomation(automation, context, "heartbeat_mode_unavailable");
+      await this.deferHeartbeatAutomation(automation, context, "heartbeat_mode_unavailable");
       this.logger.debug("Heartbeat automation waiting for renderer mode state", {
         automationId: automation.id,
         targetThreadId,
@@ -9303,7 +9297,7 @@ export class CodexService extends EventEmitter {
     );
     if (threadBlockReason) {
       if (context.reason === "run-now") throw new Error("Heartbeat thread is busy right now.");
-      this.deferHeartbeatAutomation(automation, context, threadBlockReason);
+      await this.deferHeartbeatAutomation(automation, context, threadBlockReason);
       this.logger.debug("Heartbeat automation blocked by thread state", {
         automationId: automation.id,
         targetThreadId,
@@ -9321,7 +9315,11 @@ export class CodexService extends EventEmitter {
           "heartbeat_cooldown",
         );
       }
-      recordCodexScheduledAutomationNextRun(automation.id, cooldownAt, context.now);
+      await this.automationModule.rescheduleDefinition(
+        automation.id,
+        automation.definitionRevision,
+        { notBefore: cooldownAt },
+      );
       this.logger.debug("Heartbeat automation skipped: not due yet", {
         automationId: automation.id,
         targetThreadId,
@@ -9350,24 +9348,23 @@ export class CodexService extends EventEmitter {
     });
   }
 
-  private recordHeartbeatRetry(
+  private async recordHeartbeatRetry(
     automation: CodexScheduledAutomation,
-    now: number,
-  ): void {
-    const nextScheduled = recordCodexScheduledAutomationNextScheduledRun(automation.id, now)?.nextRunAt ?? null;
-    const retryAt = nextScheduled === null
-      ? now + 60_000
-      : Math.min(nextScheduled, now + 60_000);
-    recordCodexScheduledAutomationNextRun(automation.id, retryAt, now);
+  ): Promise<void> {
+    await this.automationModule.rescheduleDefinition(
+      automation.id,
+      automation.definitionRevision,
+      { retryWithinMs: 60_000 },
+    );
   }
 
-  private deferHeartbeatAutomation(
+  private async deferHeartbeatAutomation(
     automation: CodexScheduledAutomation,
     context: Pick<CodexScheduledAutomationRunContext, "leaseId" | "now"> & {
       now: number;
     },
     reasonCode: string,
-  ): void {
+  ): Promise<void> {
     if (context.leaseId !== undefined) {
       throw new CodexScheduledAutomationRetryError(
         "Heartbeat automation is temporarily blocked.",
@@ -9375,7 +9372,7 @@ export class CodexService extends EventEmitter {
         reasonCode,
       );
     }
-    this.recordHeartbeatRetry(automation, context.now);
+    await this.recordHeartbeatRetry(automation);
   }
 
   private resolveHeartbeatRendererBlockReason(
@@ -10574,13 +10571,8 @@ export class CodexService extends EventEmitter {
     canonicalProjectId: string;
     primaryWorkspaceRoot: string | null;
     workspaceRoots: string[];
-  } | null> {
-    try {
-      return await this.resolveProjectRuntimeContext(projectId);
-    } catch (error) {
-      if (isUnavailableSqliteBindingError(error)) return null;
-      throw error;
-    }
+  }> {
+    return await this.resolveProjectRuntimeContext(projectId);
   }
 
   private async requirePrimaryWorkspaceRoot(projectId: string): Promise<{
@@ -16715,12 +16707,6 @@ export class CodexService extends EventEmitter {
     return true;
   }
 
-  async captureAutomationArchiveMessages(threadId: string): Promise<boolean> {
-    const messages = await this.resolveAutomationArchiveMessages(threadId);
-    if (!hasAutomationArchiveMessages(messages)) return false;
-    return this.persistAutomationArchiveMessages(threadId, messages);
-  }
-
   async resolveAutomationArchiveMessages(
     threadId: string,
   ): Promise<CodexAutomationArchiveMessages> {
@@ -16780,25 +16766,6 @@ export class CodexService extends EventEmitter {
         archivedUserMessage: null,
         archivedAssistantMessage: null,
       };
-    }
-  }
-
-  private persistAutomationArchiveMessages(
-    threadId: string,
-    messages: CodexAutomationArchiveMessages,
-  ): boolean {
-    try {
-      return captureCodexAutomationArchiveMessages({
-        threadId,
-        archivedUserMessage: messages.archivedUserMessage,
-        archivedAssistantMessage: messages.archivedAssistantMessage,
-      });
-    } catch (error) {
-      this.logger.warn("Failed to capture automation archive messages", {
-        threadId,
-        error,
-      });
-      return false;
     }
   }
 
@@ -17228,14 +17195,11 @@ export class CodexService extends EventEmitter {
     const projectRunContext = !threadCwd && threadRef?.projectId
       ? await this.maybeResolveProjectRuntimeContext(threadRef.projectId)
       : null;
-    let fallbackWorkspacePath: string | null = null;
-    if (!threadCwd && !projectRunContext?.primaryWorkspaceRoot && threadRef?.projectId) {
-      try {
-        fallbackWorkspacePath = await this.parseWorkspacePath(threadRef.projectId);
-      } catch (error) {
-        if (!isUnavailableSqliteBindingError(error)) throw error;
-      }
-    }
+    const fallbackWorkspacePath = !threadCwd
+      && !projectRunContext?.primaryWorkspaceRoot
+      && threadRef?.projectId
+      ? await this.parseWorkspacePath(threadRef.projectId)
+      : null;
     let workspacePath = threadCwd || projectRunContext?.primaryWorkspaceRoot || fallbackWorkspacePath || null;
     let workspaceRoots = threadCwd
       ? [threadCwd]
@@ -18537,6 +18501,7 @@ export class CodexService extends EventEmitter {
   private parseAutomationUpdateMode(value: unknown): AutomationUpdateMode | null {
     if (
       value === "view"
+      || value === "list"
       || value === "create"
       || value === "suggested_create"
       || value === "update"
@@ -18619,6 +18584,14 @@ export class CodexService extends EventEmitter {
   private parseAutomationUpdateArgs(args: Record<string, unknown>): ParsedAutomationUpdateArgs {
     const mode = this.parseAutomationUpdateMode(args.mode);
     if (!mode) throw new Error("mode is invalid");
+
+    if (mode === "list") {
+      return {
+        mode,
+        query: this.parseDynamicString(args.query),
+        limit: this.clampDynamicInt(args.limit, 20, 1, 100),
+      };
+    }
 
     if (mode === "view" || mode === "delete") {
       const id = this.parseDynamicString(args.id);
@@ -18882,6 +18855,33 @@ export class CodexService extends EventEmitter {
 
     try {
       await this.assertAutomationUpdateHeartbeatTargetIsLocalThread(parsed, params.threadId);
+
+      if (parsed.mode === "list") {
+        const query = parsed.query?.toLowerCase() ?? "";
+        const definitions = (await this.automationModule.listDefinitions())
+          .filter((automation) => {
+            if (!query) return true;
+            return [automation.id, automation.name, automation.prompt]
+              .join(" ")
+              .toLowerCase()
+              .includes(query);
+          })
+          .slice(0, parsed.limit)
+          .map((automation) => ({
+            id: automation.id,
+            kind: automation.kind,
+            status: automation.status,
+            name: automation.name,
+            prompt: automation.prompt,
+            rrule: automation.rrule,
+            targetThreadId: automation.targetThreadId,
+            nextRunAt: automation.nextRunAt,
+          }));
+        return this.buildDynamicToolSuccess({
+          query: parsed.query,
+          automations: definitions,
+        });
+      }
 
       if (parsed.mode === "view" || parsed.mode === "suggested_create" || parsed.mode === "suggested_update") {
         return this.buildAutomationUpdateToolResponse();
@@ -20102,12 +20102,10 @@ export class CodexService extends EventEmitter {
     try {
       retainedWritableRoots = await this.readThreadWritableRoots(input.threadId);
     } catch (error) {
-      if (!isUnavailableSqliteBindingError(error)) {
-        this.logger.warn("Failed to load dynamic create-thread writable roots", {
-          threadId: input.threadId,
-          error,
-        });
-      }
+      this.logger.warn("Failed to load dynamic create-thread writable roots", {
+        threadId: input.threadId,
+        error,
+      });
     }
 
     const visualizationDirectory = input.responseContext.sandboxPolicy.type === "workspaceWrite"

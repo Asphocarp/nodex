@@ -7,21 +7,7 @@ use super::sqlite::{StoreError, StoreErrorCode};
 
 pub const TYPESCRIPT_SCHEMA_VERSION: i64 = 84;
 pub const CORE_SCHEMA_VERSION: i64 = 85;
-pub const V83_SCHEMA_SQL: &str = include_str!("../../schema/v83.sql");
 pub const V84_SCHEMA_SQL: &str = include_str!("../../schema/v84.sql");
-
-pub fn v83_schema_objects_sql() -> &'static str {
-    let start_marker = "BEGIN IMMEDIATE;\n\n";
-    let end_marker = "\nPRAGMA user_version = 83;";
-    let start = V83_SCHEMA_SQL
-        .find(start_marker)
-        .expect("v83 schema artifact start marker")
-        + start_marker.len();
-    let end = V83_SCHEMA_SQL
-        .rfind(end_marker)
-        .expect("v83 schema artifact end marker");
-    &V83_SCHEMA_SQL[start..end]
-}
 
 pub fn v84_schema_objects_sql() -> &'static str {
     let start_marker = "BEGIN IMMEDIATE;\n\n";
@@ -45,32 +31,6 @@ pub struct SchemaObjectKey {
 }
 
 pub type SchemaInventory = BTreeMap<SchemaObjectKey, String>;
-
-pub fn install_v83_schema(connection: &Connection) -> Result<(), StoreError> {
-    let current: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    let object_count: i64 = connection.query_row(
-        "SELECT count(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'",
-        [],
-        |row| row.get(0),
-    )?;
-    if current != 0 || object_count != 0 {
-        return Err(StoreError::new(
-            StoreErrorCode::UnsupportedSchema,
-            "v83 schema installation requires an empty SQLite database",
-            false,
-        ));
-    }
-    connection.execute_batch(V83_SCHEMA_SQL)?;
-    let installed: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    if installed != 83 {
-        return Err(StoreError::new(
-            StoreErrorCode::StoreCorrupt,
-            format!("v83 schema artifact published v{installed}"),
-            false,
-        ));
-    }
-    Ok(())
-}
 
 pub fn install_v84_schema(connection: &Connection) -> Result<(), StoreError> {
     let current: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
@@ -129,6 +89,53 @@ pub fn read_schema_inventory(connection: &Connection) -> Result<SchemaInventory,
         .collect())
 }
 
+pub fn validate_exact_v84_schema(connection: &Connection) -> Result<(), StoreError> {
+    let retired_thread_search_objects: i64 = connection.query_row(
+        "SELECT count(*) FROM sqlite_schema WHERE name LIKE 'thread_search%'",
+        [],
+        |row| row.get(0),
+    )?;
+    if retired_thread_search_objects != 0 {
+        return Err(StoreError::new(
+            StoreErrorCode::UnsupportedSchema,
+            "TypeScript v84 import contains the retired Thread search projection",
+            false,
+        ));
+    }
+
+    let expected_connection = Connection::open_in_memory()?;
+    install_v84_schema(&expected_connection)?;
+    let expected = read_schema_inventory(&expected_connection)?;
+    let actual = read_schema_inventory(connection)?;
+    if actual == expected {
+        return Ok(());
+    }
+
+    let missing = expected
+        .keys()
+        .filter(|key| !actual.contains_key(*key))
+        .count();
+    let unexpected = actual
+        .keys()
+        .filter(|key| !expected.contains_key(*key))
+        .count();
+    let changed = expected
+        .iter()
+        .filter(|(key, sql)| {
+            actual
+                .get(*key)
+                .is_some_and(|actual_sql| actual_sql != *sql)
+        })
+        .count();
+    Err(StoreError::new(
+        StoreErrorCode::UnsupportedSchema,
+        format!(
+            "TypeScript v84 physical schema does not match the frozen import artifact ({missing} missing, {unexpected} unexpected, {changed} changed objects)"
+        ),
+        false,
+    ))
+}
+
 fn normalize_sql(sql: &str) -> String {
     sql.trim_end_matches(';')
         .split_whitespace()
@@ -170,6 +177,7 @@ mod tests {
             .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
             .expect("foreign key mode");
         assert_eq!(foreign_keys, 1);
+        validate_exact_v84_schema(&connection).expect("exact frozen schema");
     }
 
     #[test]

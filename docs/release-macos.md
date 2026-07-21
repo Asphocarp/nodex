@@ -22,7 +22,7 @@ The release pipeline uses two GitHub Actions workflows:
 - `.github/workflows/prepare-release.yml`
 - `.github/workflows/release.yml`
 
-`Prepare Release` is the normal entrypoint. It validates the repo, prepares an unpushed release-candidate workspace, builds and notarizes both macOS artifacts from that candidate, and only then creates and pushes the release commit plus the `v<version>` tag before publishing the GitHub Release and updating the Homebrew tap.
+`Prepare Release` is the normal entrypoint. It validates the TypeScript and Rust sources, generated Core protocol, production authority boundary, browser and Electron restart flows; prepares an unpushed release-candidate workspace; builds and notarizes both macOS artifacts from that candidate; verifies the closed native runtime from each signed app; and only then creates and pushes the release commit plus the `v<version>` tag before publishing the GitHub Release and updating the Homebrew tap.
 
 `Release` is the fallback workflow for already-existing refs. It builds, signs, notarizes, verifies, publishes the GitHub Release, and updates the first-party Homebrew tap for a committed tag or ref. It does not mutate git history.
 
@@ -123,7 +123,7 @@ Supporting files:
 
 Behavior:
 - runs only the `prepare` job from `.github/workflows/prepare-release.yml`
-- keeps checkout, Bun setup, install, typecheck, lint, and test aligned with GitHub Actions
+- keeps checkout, Node/pnpm and Rust setup, install, typecheck, lint, Core fmt/clippy/tests/protocol/boundary audit, application tests, browser tests, and Electron restart E2E aligned with GitHub Actions
 - skips version bump, changelog generation, candidate artifact creation, macOS packaging, commit/tag/push, and publication when `github.event.act` is true
 
 Current known target:
@@ -153,24 +153,26 @@ Steps:
 2. Install the Node and pnpm versions pinned by `.node-version` and `package.json#packageManager`, then install dependencies with `pnpm install --frozen-lockfile`.
 3. Run `pnpm run typecheck`.
 4. Run `pnpm run lint`.
-5. Run `pnpm test`.
-6. When `github.event.act` is true, stop after validation and skip all candidate-build, git-mutation, and publish steps.
-7. Resolve the target version:
+5. Run Rust formatting, strict Clippy, the complete Rust workspace, generated Core protocol verification, and the production authority boundary audit.
+6. Build the debug Core integration runtime, then run the Node/main/renderer/integration, Chromium browser, and Electron restart E2E suites.
+7. When `github.event.act` is true, stop after validation and skip all candidate-build, git-mutation, and publish steps.
+8. Resolve the target version:
    - for `patch`/`minor`/`major`, use Bun semver bumping
    - for `custom`, use the explicit version string
-8. Run `pnpm version ... --no-git-tag-version`.
-9. Run `pnpm run release:prepare` to:
+9. Run `pnpm version ... --no-git-tag-version`.
+10. Run `pnpm run release:prepare` to:
    - roll `CHANGELOG.md` forward
    - generate release notes
    - generate the release commit message
-10. Archive the prepared workspace as a release-candidate source artifact, plus release notes and commit-message metadata artifacts.
-11. Build and notarize `arm64` and `x64` macOS artifacts from that unpushed release-candidate source.
-12. Verify the release branch head is still unchanged since the workflow started.
-13. Create the release commit.
-14. Create annotated tag `v<version>`.
-15. Push the commit and tag.
-16. Publish the GitHub Release from the already-built artifacts.
-17. Update the Homebrew tap from those same verified artifacts.
+11. Archive the prepared workspace as a release-candidate source artifact, plus release notes and commit-message metadata artifacts.
+12. Build and notarize `arm64` and `x64` macOS artifacts from that unpushed release-candidate source.
+13. Verify each packaged native runtime's closed manifest, architecture, deployment target, Developer ID team, CLI/Core cold start, optional service status, and Electron startup before the existing notarization/stapling checks.
+14. Verify the release branch head is still unchanged since the workflow started.
+15. Create the release commit.
+16. Create annotated tag `v<version>`.
+17. Push the commit and tag.
+18. Publish the GitHub Release from the already-built artifacts.
+19. Update the Homebrew tap from those same verified artifacts.
 
 Output contract:
 - `tag_name`: for example `v0.1.3`

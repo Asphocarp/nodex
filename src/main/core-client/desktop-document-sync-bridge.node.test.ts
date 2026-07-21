@@ -10,13 +10,12 @@ import {
   BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
   type BlockTransferIntent,
 } from "../../shared/block-transfer";
-import type { DocumentSyncClientTarget } from "../document-sync-hub";
+import type { DocumentSyncClientTarget } from "../document-sync-transport";
 import type { ExecuteNodexAgentDuplicatePageResult } from "../../shared/nodex-agent-tools";
 import { DuplicatePageV3OutputSchema } from "../../shared/nodex-agent-tools/v3-write-schemas";
 import { CoreModuleResponseError } from "./core-client";
 import {
   createDesktopDocumentSyncBridge,
-  type DesktopDocumentSyncBridgeInput,
 } from "./desktop-document-sync-bridge";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { FakeCoreClient } from "./testing/fake-core-client";
@@ -45,54 +44,6 @@ class FakeTarget implements DocumentSyncClientTarget {
     for (const listener of this.#destroyedListeners) listener();
   }
 }
-
-const neverTypeScript = (): DesktopDocumentSyncBridgeInput["typescript"] => ({
-  hub: {
-    subscribe: () => { throw new Error("TypeScript Hub must not run"); },
-    unsubscribe: () => { throw new Error("TypeScript Hub must not run"); },
-    sync: async () => { throw new Error("TypeScript Hub must not run"); },
-    applyUpdate: async () => { throw new Error("TypeScript Hub must not run"); },
-    publishAwareness: () => { throw new Error("TypeScript Hub must not run"); },
-    respondToRelocationLease: () => { throw new Error("TypeScript Hub must not run"); },
-    subscribeCanvasScene: () => { throw new Error("TypeScript Hub must not run"); },
-    unsubscribeCanvasScene: () => { throw new Error("TypeScript Hub must not run"); },
-    syncCanvasScene: async () => { throw new Error("TypeScript Hub must not run"); },
-    applyCanvasSceneMutation: async () => { throw new Error("TypeScript Hub must not run"); },
-    applyAdditionalDocumentCommand: async () => {
-      throw new Error("TypeScript Hub must not run");
-    },
-    transferBlocks: async () => {
-      throw new Error("TypeScript Hub must not run");
-    },
-  },
-  authorizeProject: async () => {
-    throw new Error("TypeScript authorization must not run");
-  },
-  authorizeLibrary: async () => {
-    throw new Error("TypeScript authorization must not run");
-  },
-  getOwnedDocumentDescriptor: async () => {
-    throw new Error("TypeScript descriptor reader must not run");
-  },
-  prepareOwnedBlockDocument: async () => {
-    throw new Error("TypeScript Document preparation must not run");
-  },
-  prepareLibraryOwnedBlockDocument: async () => {
-    throw new Error("TypeScript Library Document preparation must not run");
-  },
-  createCheckpoint: async () => {
-    throw new Error("TypeScript Document history must not run");
-  },
-  listVersions: async () => {
-    throw new Error("TypeScript Document history must not run");
-  },
-  getVersion: async () => {
-    throw new Error("TypeScript Document history must not run");
-  },
-  applyDocumentMutation: async () => {
-    throw new Error("TypeScript Document mutation must not run");
-  },
-});
 
 const rustRuntime = (
   rootClient: FakeCoreClient,
@@ -244,7 +195,6 @@ describe("Desktop Document sync bridge", () => {
     });
     const bridge = createDesktopDocumentSyncBridge({
       authority: Promise.resolve(rustRuntime(client)),
-      typescript: neverTypeScript(),
     });
     const owner = new FakeTarget(1);
     const other = new FakeTarget(2);
@@ -302,7 +252,6 @@ describe("Desktop Document sync bridge", () => {
     });
     const bridge = createDesktopDocumentSyncBridge({
       authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
-      typescript: neverTypeScript(),
     });
     const target = new FakeTarget(1);
     const scope = { kind: "library" } as const;
@@ -325,7 +274,6 @@ describe("Desktop Document sync bridge", () => {
     const projectClient = new FakeCoreClient();
     const bridge = createDesktopDocumentSyncBridge({
       authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
-      typescript: neverTypeScript(),
     });
     projectClient.enqueueDocumentRead(ownedDocumentDescriptorSnapshot());
 
@@ -385,7 +333,6 @@ describe("Desktop Document sync bridge", () => {
     const projectClient = new FakeCoreClient();
     const bridge = createDesktopDocumentSyncBridge({
       authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
-      typescript: neverTypeScript(),
     });
     projectClient.enqueueDocumentApply({
       store_epoch: "epoch:test",
@@ -449,7 +396,6 @@ describe("Desktop Document sync bridge", () => {
     const projectClient = new FakeCoreClient();
     const bridge = createDesktopDocumentSyncBridge({
       authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
-      typescript: neverTypeScript(),
     });
     projectClient.enqueueDocumentRead({
       version: 1,
@@ -535,7 +481,6 @@ describe("Desktop Document sync bridge", () => {
     });
     const bridge = createDesktopDocumentSyncBridge({
       authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
-      typescript: neverTypeScript(),
     });
     const target = new FakeTarget(1);
     const attacker = new FakeTarget(2);
@@ -695,7 +640,6 @@ describe("Desktop Document sync bridge", () => {
     });
     const bridge = createDesktopDocumentSyncBridge({
       authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
-      typescript: neverTypeScript(),
     });
 
     await expect(bridge.applyDocumentMutation(request)).resolves.toMatchObject({
@@ -816,7 +760,6 @@ describe("Desktop Document sync bridge", () => {
     });
     const bridge = createDesktopDocumentSyncBridge({
       authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
-      typescript: neverTypeScript(),
     });
     const sourceTarget = new FakeTarget(11);
     const targetTarget = new FakeTarget(12);
@@ -927,7 +870,6 @@ describe("Desktop Document sync bridge", () => {
     const projectClient = new FakeCoreClient();
     const bridge = createDesktopDocumentSyncBridge({
       authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
-      typescript: neverTypeScript(),
     });
     const target = new FakeTarget(21);
     const scope = { kind: "project", projectId: "project:one" } as const;
@@ -1048,7 +990,6 @@ describe("Desktop Document sync bridge", () => {
     projectClient.enqueueDocumentRead(canvasSyncSnapshot());
     const bridge = createDesktopDocumentSyncBridge({
       authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
-      typescript: neverTypeScript(),
     });
     const yjsTarget = new FakeTarget(1);
     const canvasTarget = new FakeTarget(2);
@@ -1099,78 +1040,6 @@ describe("Desktop Document sync bridge", () => {
     }]);
   });
 
-  test("authorizes TypeScript Canvas subscription and sync before invoking the Hub", async () => {
-    const authorized = {
-      ok: true as const,
-      value: {
-        projectId: canvasSubscribeRequest.projectId,
-        documentId: canvasSubscribeRequest.documentId,
-        access: "read" as const,
-        authorized: true as const,
-      },
-    };
-    const denied = {
-      ok: false as const,
-      error: {
-        code: "unauthorized" as const,
-        message: "Canvas access was revoked",
-        retryable: false,
-        resetRequired: false,
-      },
-    };
-    const authorizeProject = vi.fn()
-      .mockResolvedValueOnce(authorized)
-      .mockResolvedValueOnce(denied);
-    const subscribeCanvasScene = vi.fn(() => ({
-      ok: true as const,
-      value: { subscribed: true as const },
-    }));
-    const syncCanvasScene = vi.fn(async () => {
-      throw new Error("Revoked Canvas sync must not reach the Hub");
-    });
-    const bridge = createDesktopDocumentSyncBridge({
-      authority: Promise.resolve({ backend: "typescript" } as never),
-      typescript: {
-        ...neverTypeScript(),
-        authorizeProject,
-        hub: {
-          ...neverTypeScript().hub,
-          subscribeCanvasScene,
-          syncCanvasScene,
-        },
-      },
-    });
-    const target = new FakeTarget(9);
-
-    await expect(bridge.subscribeCanvasScene(
-      target,
-      canvasSubscribeRequest,
-    )).resolves.toEqual({ ok: true, value: { subscribed: true } });
-    await expect(bridge.syncCanvasScene(
-      target,
-      canvasSubscribeRequest,
-    )).resolves.toMatchObject({
-      ok: false,
-      error: {
-        code: "project_scope_mismatch",
-        message: "Canvas access was revoked",
-      },
-    });
-
-    expect(authorizeProject).toHaveBeenNthCalledWith(1, {
-      projectId: canvasSubscribeRequest.projectId,
-      documentId: canvasSubscribeRequest.documentId,
-      access: "read",
-    });
-    expect(authorizeProject).toHaveBeenNthCalledWith(2, {
-      projectId: canvasSubscribeRequest.projectId,
-      documentId: canvasSubscribeRequest.documentId,
-      access: "read",
-    });
-    expect(subscribeCanvasScene).toHaveBeenCalledOnce();
-    expect(syncCanvasScene).not.toHaveBeenCalled();
-  });
-
   test("does not open a late subscription for a destroyed startup target", async () => {
     let resolveAuthority: ((runtime: RustDataAuthorityRuntime) => void) | undefined;
     const authority = new Promise<RustDataAuthorityRuntime>((resolve) => {
@@ -1179,7 +1048,6 @@ describe("Desktop Document sync bridge", () => {
     const client = new FakeCoreClient();
     const bridge = createDesktopDocumentSyncBridge({
       authority,
-      typescript: neverTypeScript(),
     });
     const target = new FakeTarget(1);
     const pending = bridge.subscribe(
@@ -1200,7 +1068,6 @@ describe("Desktop Document sync bridge", () => {
   test("normalizes authority startup failure into a typed transport error", async () => {
     const bridge = createDesktopDocumentSyncBridge({
       authority: Promise.reject(new Error("Core startup failed")),
-      typescript: neverTypeScript(),
     });
 
     await expect(bridge.subscribe(

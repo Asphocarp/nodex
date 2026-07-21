@@ -25,11 +25,11 @@ fn abrupt_writer_process() {
 }
 
 #[test]
-fn fresh_v84_recovers_a_committed_wal_after_abrupt_writer_exit() {
-    let directory = tempdir().expect("disposable v84 Profile");
+fn fresh_v85_recovers_a_committed_wal_after_abrupt_writer_exit() {
+    let directory = tempdir().expect("disposable v85 Profile");
     let profile_home = directory.path().canonicalize().expect("absolute Profile");
     let database_path = profile_home.join("nodex.db");
-    let kernel = SqliteStoreKernel::open(&profile_home).expect("fresh v84 store");
+    let kernel = SqliteStoreKernel::open(&profile_home).expect("fresh v85 store");
     let before = kernel
         .readers()
         .read_default(|connection| {

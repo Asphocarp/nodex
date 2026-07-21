@@ -45,6 +45,7 @@ const MODELS: CodexModelOption[] = [
 function makeAutomation(overrides: Partial<CodexScheduledAutomation> = {}): CodexScheduledAutomation {
   return {
     id: "automation-1",
+    definitionRevision: 1,
     kind: "heartbeat",
     status: "ACTIVE",
     targetThreadId: "thread-1",

@@ -8,37 +8,12 @@ import {
   UpdatePageV3InputSchema,
 } from "../../shared/nodex-agent-tools/v3-write-schemas";
 import type { NodexAgentDynamicExecutionContext } from "../agent-tools/dynamic-service-core";
-import type {
-  NodexAgentV3DocumentHub,
-  NodexAgentV3Writer,
-} from "../agent-tools/dynamic-service-v3";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import type { DesktopDatabaseModuleBridge } from "./desktop-database-module-bridge";
 import type { DesktopDocumentSyncPort } from "./desktop-document-sync-bridge";
 import { createDesktopNodexAgentV3DynamicService } from "./desktop-nodex-agent-dynamic-service";
 import { NativeNodexAgentPageUpdateRuntime } from "./native-nodex-agent-page-update";
 import type { DesktopProjectWorkspacePort } from "./project-workspace-adapter";
-
-const unavailable = vi.fn(async () => {
-  throw new Error("TypeScript Agent authority must not run");
-});
-
-const typescript = {
-  writer: {
-    readNodexAgentV3Tool: unavailable,
-    prepareNodexAgentPageUpdate: unavailable,
-    completeNodexAgentPageUpdate: unavailable,
-    prepareNodexAgentCreatePages: unavailable,
-    prepareNodexAgentDuplicatePage: unavailable,
-    prepareNodexAgentMovePages: unavailable,
-  } as unknown as NodexAgentV3Writer,
-  documentHub: {
-    applyDocumentMutation: unavailable,
-    executeNodexAgentCreatePages: unavailable,
-    executeNodexAgentDuplicatePage: unavailable,
-    executeNodexAgentMovePages: unavailable,
-  } as unknown as NodexAgentV3DocumentHub,
-};
 
 const documentSync = {
   coordinateNodexAgentLeasedMutation: async (options: {
@@ -125,7 +100,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
         read: readDatabase,
       } as unknown as DesktopDatabaseModuleBridge,
       documentSync,
-      typescript,
     });
 
     const result = await service.registry.execute({
@@ -154,7 +128,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
     });
     expect(getProject).toHaveBeenCalledWith("project-native-agent");
     expect(readDatabase).toHaveBeenCalledOnce();
-    expect(unavailable).not.toHaveBeenCalled();
   });
 
   test("creates a Page batch through Core under the exact target Document lease", async () => {
@@ -325,7 +298,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
       documentSync: {
         coordinateNodexAgentLeasedMutation: coordinate,
       } as unknown as Pick<DesktopDocumentSyncPort, "coordinateNodexAgentLeasedMutation">,
-      typescript,
     });
 
     const result = await service.registry.execute({
@@ -362,7 +334,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
     expect(libraryRead).toHaveBeenCalledTimes(2);
     expect(coordinate).toHaveBeenCalledOnce();
     expect(libraryApply).toHaveBeenCalledOnce();
-    expect(unavailable).not.toHaveBeenCalled();
   });
 
   test("moves a mixed-source Page batch through Core under one exact target lease", async () => {
@@ -522,7 +493,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
       documentSync: {
         coordinateNodexAgentLeasedMutation: coordinate,
       } as unknown as Pick<DesktopDocumentSyncPort, "coordinateNodexAgentLeasedMutation">,
-      typescript,
     });
 
     const result = await service.registry.execute({
@@ -553,7 +523,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
     expect(libraryRead).toHaveBeenCalledTimes(2);
     expect(coordinate).toHaveBeenCalledOnce();
     expect(libraryApply).toHaveBeenCalledOnce();
-    expect(unavailable).not.toHaveBeenCalled();
   });
 
   test("duplicates a Page through Core only after coordinating its exact Document lease", async () => {
@@ -727,7 +696,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
       documentSync: {
         coordinateNodexAgentLeasedMutation: coordinate,
       } as unknown as Pick<DesktopDocumentSyncPort, "coordinateNodexAgentLeasedMutation">,
-      typescript,
     });
 
     const result = await service.registry.execute({
@@ -766,7 +734,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
     expect(libraryRead).toHaveBeenCalledTimes(2);
     expect(coordinate).toHaveBeenCalledOnce();
     expect(libraryApply).toHaveBeenCalledOnce();
-    expect(unavailable).not.toHaveBeenCalled();
   });
 
   test("searches native Library resources with Core authority and pagination", async () => {
@@ -805,7 +772,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
       projectWorkspace: {} as DesktopProjectWorkspacePort,
       databaseModule: {} as DesktopDatabaseModuleBridge,
       documentSync,
-      typescript,
     });
 
     const result = await service.registry.execute({
@@ -851,7 +817,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
       limit: 1,
       authorization: expect.objectContaining({ call_id: "call-native-agent" }),
     }));
-    expect(unavailable).not.toHaveBeenCalled();
   });
 
   test("fetches native stable Blocks with Core-minted guards and pagination", async () => {
@@ -969,7 +934,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
       projectWorkspace: {} as DesktopProjectWorkspacePort,
       databaseModule: {} as DesktopDatabaseModuleBridge,
       documentSync,
-      typescript,
     });
 
     const result = await service.registry.execute({
@@ -1018,7 +982,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
     });
     expect(libraryRead).toHaveBeenCalledOnce();
     expect(documentRead).toHaveBeenCalledOnce();
-    expect(unavailable).not.toHaveBeenCalled();
   });
 
   test("queries native Data Sources with exact Agent authority and Core pagination", async () => {
@@ -1070,7 +1033,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
       projectWorkspace: {} as DesktopProjectWorkspacePort,
       databaseModule: {} as DesktopDatabaseModuleBridge,
       documentSync,
-      typescript,
     });
 
     const result = await service.registry.execute({
@@ -1107,7 +1069,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
       }),
       mode: "query",
     }));
-    expect(unavailable).not.toHaveBeenCalled();
   });
 
   test("commits exact Page patches through prepared native Document authority", async () => {
@@ -1230,7 +1191,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
       projectWorkspace: {} as DesktopProjectWorkspacePort,
       databaseModule: {} as DesktopDatabaseModuleBridge,
       documentSync,
-      typescript,
     });
 
     const result = await service.registry.execute({
@@ -1277,7 +1237,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
     expect(documentRead).toHaveBeenCalledTimes(2);
     expect(documentApply).toHaveBeenCalledOnce();
     expect(libraryRead).toHaveBeenCalledTimes(3);
-    expect(unavailable).not.toHaveBeenCalled();
   });
 
   test("maps Page insertion anchors and uses Core canonical preview Markdown", async () => {

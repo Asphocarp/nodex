@@ -13,16 +13,7 @@ import { performance } from "node:perf_hooks";
 import { writeImageToClipboard } from "./clipboard-image-writer";
 import { inspectClipboardPasteItems } from "./clipboard-paste-inspector";
 import { prepareComposerPickedFiles } from "./composer-picked-files";
-import * as boardReadModel from "./local-store/board-read-model";
-import * as pagesStore from "./local-store/database-pages";
-import {
-  readProjectScopedDatabaseViewReference,
-  resolveProjectScopedPageOwnershipPath,
-  resolveProjectScopedPageTarget,
-} from "./local-store/reference-reads";
 import { registerPersistedAtomIpc } from "./persisted-atom-ipc";
-import * as projectSessionService from "./local-store/project-sessions";
-import * as sqlInspection from "./local-store/sql-inspection";
 import { terminalManager } from "./terminal-manager";
 import {
   getAppUpdateSettings,
@@ -65,6 +56,7 @@ import type {
   CodexApprovalResponse,
   CodexCollaborationModeKind,
   CodexProtocolRequestId,
+  DatabasePage,
 } from "../shared/types";
 import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminal";
 import type {
@@ -97,7 +89,6 @@ import {
   WorkspaceFileWriteInputSchema,
 } from "../shared/schemas/workspace-files";
 import { dbNotifier } from "./local-store/notifier";
-import { blockMutationWriter } from "./block-mutation-writer";
 import { renameProjectSessionChat } from "./project-session-rename-service";
 import { captureMainException } from "./observability/sentry-main";
 import { getLogger } from "./logging/logger";
@@ -128,14 +119,11 @@ import {
   deleteProjectWithBrowserCleanupUsing,
 } from "./project-session-browser-ownership";
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
-import { createTypeScriptProjectWorkspacePort } from "./typescript-project-workspace-port";
 import type { DesktopDocumentSyncPort } from "./core-client/desktop-document-sync-bridge";
 import type { DesktopLibraryModuleBridge } from "./core-client/desktop-library-module-bridge";
 import type { DesktopDatabaseModuleBridge } from "./core-client/desktop-database-module-bridge";
 import type { DesktopAutomationModulePort } from "./core-client/desktop-automation-module-bridge";
-import { createTypeScriptAutomationModulePort } from "./typescript-automation-module-port";
 import type { DesktopStoreAdministrationPort } from "./core-client/desktop-store-administration-bridge";
-import { createTypeScriptStoreAdministrationPort } from "./typescript-store-administration-port";
 import type { DesktopNotificationManager } from "./desktop-notification-manager";
 import {
   checkoutGitBranch,
@@ -218,10 +206,8 @@ import { registerCodexScheduledAutomationIpcHandlers } from "./codex-scheduled-a
 import { registerCodexHooksIpcHandlers } from "./codex-hooks-ipc-handlers";
 import {
   type DocumentSyncClientTarget,
-  DocumentSyncHub,
   documentSyncUnauthorized,
-} from "./document-sync-hub";
-import { documentSyncHub as defaultDocumentSyncHub } from "./document-sync-runtime";
+} from "./document-sync-transport";
 import {
   registerBlockPropertyMutationIpcHandler,
   registerLibraryBlockPropertyMutationIpcHandler,
@@ -358,10 +344,9 @@ function sendIpcEvent<Channel extends keyof IpcEvents>(
   safeSendToWebContents(sender, channel, [payload]);
 }
 
-let resolveRemoteHostedPipThreadId = async (
+let resolveRemoteHostedPipThreadId: (
   sessionId: string,
-): Promise<string | null> =>
-  projectSessionService.getProjectSession(sessionId)?.thread?.threadId ?? null;
+) => Promise<string | null> = async () => null;
 
 const remoteHostedPipService = new RemoteHostedPipService({
   broadcast: (channel, payload) => {
@@ -548,7 +533,6 @@ function refreshBrowserSidebarCommandAccelerators(): void {
 }
 
 interface RegisterIpcHandlersOptions {
-  documentSyncHub?: DocumentSyncHub;
   onCreateWindow?: (seed?: WindowSessionSeed) => void;
   onBootstrapWindowSession?: (webContentsId: number) => WindowSessionBootstrap;
   onSaveWindowSessionLayout?: (
@@ -606,6 +590,14 @@ interface RegisterIpcHandlersOptions {
   projectWorkspace?: DesktopProjectWorkspacePort;
   documentSync?: DesktopDocumentSyncPort;
 }
+
+const createUnconfiguredIpcAuthority = <Port extends object>(
+  name: string,
+): Port => new Proxy({}, {
+  get: () => () => {
+    throw new Error(`${name} is unavailable before Rust Core initialization`);
+  },
+}) as Port;
 
 function assertValidOccurrenceIpcInput(
   input: PageOccurrenceActionInput,
@@ -684,13 +676,29 @@ function assertValidOccurrenceUpdateIpcInput(
 export function registerIpcHandlers(
   options: RegisterIpcHandlersOptions = {},
 ): void {
-  const documentSyncHub = options.documentSyncHub ?? defaultDocumentSyncHub;
   const storeAdministration = options.storeAdministration
-    ?? createTypeScriptStoreAdministrationPort();
+    ?? createUnconfiguredIpcAuthority<DesktopStoreAdministrationPort>(
+      "Store Administration authority",
+    );
   const automationModule = options.automationModule
-    ?? createTypeScriptAutomationModulePort();
+    ?? createUnconfiguredIpcAuthority<DesktopAutomationModulePort>(
+      "Automation authority",
+    );
   const projectWorkspace: DesktopProjectWorkspacePort =
-    options.projectWorkspace ?? createTypeScriptProjectWorkspacePort();
+    options.projectWorkspace
+      ?? createUnconfiguredIpcAuthority("Project Workspace authority");
+  const documentSync = options.documentSync
+    ?? createUnconfiguredIpcAuthority<DesktopDocumentSyncPort>(
+      "Document authority",
+    );
+  const libraryModule = options.libraryModule
+    ?? createUnconfiguredIpcAuthority<
+      NonNullable<RegisterIpcHandlersOptions["libraryModule"]>
+    >("Library authority");
+  const databaseModule = options.databaseModule
+    ?? createUnconfiguredIpcAuthority<
+      NonNullable<RegisterIpcHandlersOptions["databaseModule"]>
+    >("Database authority");
   resolveRemoteHostedPipThreadId = async (sessionId) =>
     (await projectWorkspace.getProjectSession(sessionId))?.thread?.threadId ?? null;
   ensureBrowserSidebarEventBridge();
@@ -959,60 +967,34 @@ export function registerIpcHandlers(
     if (!target) {
       return documentSyncUnauthorized();
     }
-    if (options.documentSync) {
-      return await options.documentSync.subscribe(
-        { kind: "project", projectId: request.projectId },
-        target,
-        omitProjectScope(request),
-      );
-    }
-    const authorization = await blockMutationWriter.authorizeDocumentAccess({
-      projectId: request.projectId,
-      documentId: request.documentId,
-      access: "read",
-    });
-    if (!authorization.ok) return authorization;
-    return documentSyncHub.subscribe(target, omitProjectScope(request));
+    return await documentSync.subscribe(
+      { kind: "project", projectId: request.projectId },
+      target,
+      omitProjectScope(request),
+    );
   });
   registerHandle("page-target:resolve", (_, input) =>
-    options.libraryModule?.resolvePageTarget(input)
-      ?? resolveProjectScopedPageTarget(input),
+    libraryModule.resolvePageTarget(input),
   );
   registerHandle("page-ownership-path:resolve", (_, input) =>
-    options.libraryModule?.resolvePageOwnershipPath(input)
-      ?? resolveProjectScopedPageOwnershipPath(input),
+    libraryModule.resolvePageOwnershipPath(input),
   );
   registerHandle("database-view:reference:get", (_, input) =>
-    options.databaseModule?.resolveDatabaseViewReference(input)
-      ?? readProjectScopedDatabaseViewReference(input),
+    databaseModule.resolveDatabaseViewReference(input),
   );
   registerHandle(
     "block-document:owned:get",
     async (_, projectId, ownerBlockId) => {
-      if (options.documentSync) {
-        return await options.documentSync.getOwnedDocumentDescriptor(
-          projectId,
-          ownerBlockId,
-        );
-      }
-      return (
-        await blockMutationWriter.getOwnedDocumentDescriptor(
-          projectId,
-          ownerBlockId,
-        )
-      ).result;
+      return await documentSync.getOwnedDocumentDescriptor(
+        projectId,
+        ownerBlockId,
+      );
     },
   );
   registerHandle(
     "block-document:owned:prepare",
     async (_, projectId, ownerBlockId) => {
-      if (options.documentSync) {
-        return await options.documentSync.prepareOwnedBlockDocument(
-          projectId,
-          ownerBlockId,
-        );
-      }
-      return await blockMutationWriter.prepareOwnedBlockDocument(
+      return await documentSync.prepareOwnedBlockDocument(
         projectId,
         ownerBlockId,
       );
@@ -1021,12 +1003,7 @@ export function registerIpcHandlers(
   registerHandle(
     "library-block-document:owned:prepare",
     async (_, ownerBlockId) => {
-      if (options.documentSync) {
-        return await options.documentSync.prepareLibraryOwnedBlockDocument(
-          ownerBlockId,
-        );
-      }
-      return await blockMutationWriter.prepareLibraryOwnedBlockDocument(
+      return await documentSync.prepareLibraryOwnedBlockDocument(
         ownerBlockId,
       );
     },
@@ -1036,54 +1013,33 @@ export function registerIpcHandlers(
     if (!target) {
       return documentSyncUnauthorized();
     }
-    if (options.documentSync) {
-      return await options.documentSync.unsubscribe(
-        { kind: "project", projectId: request.projectId },
-        target,
-        omitProjectScope(request),
-      );
-    }
-    return documentSyncHub.unsubscribe(target, omitProjectScope(request));
+    return await documentSync.unsubscribe(
+      { kind: "project", projectId: request.projectId },
+      target,
+      omitProjectScope(request),
+    );
   });
   registerHandle("document-sync:sync", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) {
       return documentSyncUnauthorized();
     }
-    if (options.documentSync) {
-      return await options.documentSync.sync(
-        { kind: "project", projectId: request.projectId },
-        target,
-        omitProjectScope(request),
-      );
-    }
-    const authorization = await blockMutationWriter.authorizeDocumentAccess({
-      projectId: request.projectId,
-      documentId: request.documentId,
-      access: "read",
-    });
-    if (!authorization.ok) return authorization;
-    return documentSyncHub.sync(target, omitProjectScope(request));
+    return await documentSync.sync(
+      { kind: "project", projectId: request.projectId },
+      target,
+      omitProjectScope(request),
+    );
   });
   registerHandle("document-sync:apply", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) {
       return documentSyncUnauthorized();
     }
-    if (options.documentSync) {
-      return await options.documentSync.applyUpdate(
-        { kind: "project", projectId: request.projectId },
-        target,
-        omitProjectScope(request),
-      );
-    }
-    const authorization = await blockMutationWriter.authorizeDocumentAccess({
-      projectId: request.projectId,
-      documentId: request.documentId,
-      access: "write",
-    });
-    if (!authorization.ok) return authorization;
-    return documentSyncHub.applyUpdate(target, omitProjectScope(request));
+    return await documentSync.applyUpdate(
+      { kind: "project", projectId: request.projectId },
+      target,
+      omitProjectScope(request),
+    );
   });
   registerHandle("canvas-scene:subscribe", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
@@ -1098,10 +1054,7 @@ export function registerIpcHandlers(
         },
       };
     }
-    if (options.documentSync) {
-      return await options.documentSync.subscribeCanvasScene(target, request);
-    }
-    return documentSyncHub.subscribeCanvasScene(target, request);
+    return await documentSync.subscribeCanvasScene(target, request);
   });
   registerHandle("canvas-scene:unsubscribe", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
@@ -1116,10 +1069,7 @@ export function registerIpcHandlers(
         },
       };
     }
-    if (options.documentSync) {
-      return await options.documentSync.unsubscribeCanvasScene(target, request);
-    }
-    return documentSyncHub.unsubscribeCanvasScene(target, request);
+    return await documentSync.unsubscribeCanvasScene(target, request);
   });
   registerHandle("canvas-scene:sync", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
@@ -1134,10 +1084,7 @@ export function registerIpcHandlers(
         },
       };
     }
-    if (options.documentSync) {
-      return await options.documentSync.syncCanvasScene(target, request);
-    }
-    return documentSyncHub.syncCanvasScene(target, request);
+    return await documentSync.syncCanvasScene(target, request);
   });
   registerHandle("canvas-scene:apply", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
@@ -1153,33 +1100,15 @@ export function registerIpcHandlers(
         },
       };
     }
-    if (options.documentSync) {
-      return await options.documentSync.applyCanvasSceneMutation(
-        target,
-        request,
-      );
-    }
-    return documentSyncHub.applyCanvasSceneMutation(target, request);
+    return await documentSync.applyCanvasSceneMutation(target, request);
   });
   registerHandle("document-sync:awareness:publish", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) {
       return documentSyncUnauthorized();
     }
-    if (options.documentSync) {
-      return await options.documentSync.publishAwareness(
-        { kind: "project", projectId: request.projectId },
-        target,
-        omitProjectScope(request),
-      );
-    }
-    const authorization = await blockMutationWriter.authorizeDocumentAccess({
-      projectId: request.projectId,
-      documentId: request.documentId,
-      access: "read",
-    });
-    if (!authorization.ok) return authorization;
-    return documentSyncHub.publishAwareness(
+    return await documentSync.publishAwareness(
+      { kind: "project", projectId: request.projectId },
       target,
       omitProjectScope(request),
     );
@@ -1189,20 +1118,8 @@ export function registerIpcHandlers(
     if (!target) {
       return documentSyncUnauthorized();
     }
-    if (options.documentSync) {
-      return await options.documentSync.respondToRelocationLease(
-        { kind: "project", projectId: request.projectId },
-        target,
-        omitRelocationLeaseProjectScope(request),
-      );
-    }
-    const authorization = await blockMutationWriter.authorizeDocumentAccess({
-      projectId: request.projectId,
-      documentId: request.documentId,
-      access: "read",
-    });
-    if (!authorization.ok) return authorization;
-    return documentSyncHub.respondToRelocationLease(
+    return await documentSync.respondToRelocationLease(
+      { kind: "project", projectId: request.projectId },
       target,
       omitRelocationLeaseProjectScope(request),
     );
@@ -1210,84 +1127,33 @@ export function registerIpcHandlers(
   registerHandle("library-document-sync:subscribe", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) return documentSyncUnauthorized();
-    if (options.documentSync) {
-      return await options.documentSync.subscribe(
-        { kind: "library" },
-        target,
-        request,
-      );
-    }
-    const authorization = await blockMutationWriter.authorizeLibraryDocumentAccess({
-      documentId: request.documentId,
-      access: "read",
-    });
-    if (!authorization.ok) return authorization;
-    return documentSyncHub.subscribe(target, request);
+    return await documentSync.subscribe({ kind: "library" }, target, request);
   });
   registerHandle("library-document-sync:unsubscribe", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) return documentSyncUnauthorized();
-    if (options.documentSync) {
-      return await options.documentSync.unsubscribe(
-        { kind: "library" },
-        target,
-        request,
-      );
-    }
-    return documentSyncHub.unsubscribe(target, request);
+    return await documentSync.unsubscribe({ kind: "library" }, target, request);
   });
   registerHandle("library-document-sync:sync", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) return documentSyncUnauthorized();
-    if (options.documentSync) {
-      return await options.documentSync.sync(
-        { kind: "library" },
-        target,
-        request,
-      );
-    }
-    const authorization = await blockMutationWriter.authorizeLibraryDocumentAccess({
-      documentId: request.documentId,
-      access: "read",
-    });
-    if (!authorization.ok) return authorization;
-    return documentSyncHub.sync(target, request);
+    return await documentSync.sync({ kind: "library" }, target, request);
   });
   registerHandle("library-document-sync:apply", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) return documentSyncUnauthorized();
-    if (options.documentSync) {
-      return await options.documentSync.applyUpdate(
-        { kind: "library" },
-        target,
-        request,
-      );
-    }
-    const authorization = await blockMutationWriter.authorizeLibraryDocumentAccess({
-      documentId: request.documentId,
-      access: "write",
-    });
-    if (!authorization.ok) return authorization;
-    return documentSyncHub.applyUpdate(target, request);
+    return await documentSync.applyUpdate({ kind: "library" }, target, request);
   });
   registerHandle(
     "library-document-sync:awareness:publish",
     async (event, request) => {
       const target = resolveDocumentSyncTarget(event);
       if (!target) return documentSyncUnauthorized();
-      if (options.documentSync) {
-        return await options.documentSync.publishAwareness(
-          { kind: "library" },
-          target,
-          request,
-        );
-      }
-      const authorization = await blockMutationWriter.authorizeLibraryDocumentAccess({
-        documentId: request.documentId,
-        access: "read",
-      });
-      if (!authorization.ok) return authorization;
-      return documentSyncHub.publishAwareness(target, request);
+      return await documentSync.publishAwareness(
+        { kind: "library" },
+        target,
+        request,
+      );
     },
   );
   registerHandle(
@@ -1295,19 +1161,11 @@ export function registerIpcHandlers(
     async (event, request) => {
       const target = resolveDocumentSyncTarget(event);
       if (!target) return documentSyncUnauthorized();
-      if (options.documentSync) {
-        return await options.documentSync.respondToRelocationLease(
-          { kind: "library" },
-          target,
-          request,
-        );
-      }
-      const authorization = await blockMutationWriter.authorizeLibraryDocumentAccess({
-        documentId: request.documentId,
-        access: "read",
-      });
-      if (!authorization.ok) return authorization;
-      return documentSyncHub.respondToRelocationLease(target, request);
+      return await documentSync.respondToRelocationLease(
+        { kind: "library" },
+        target,
+        request,
+      );
     },
   );
   registerBlockPropertyMutationIpcHandler({
@@ -1330,9 +1188,7 @@ export function registerIpcHandlers(
         },
       };
     },
-    applyMutation: options.libraryModule?.applyBlockPropertyMutation
-      ?? (async (request) =>
-        (await blockMutationWriter.applyBlockPropertyMutation(request)).result),
+    applyMutation: libraryModule.applyBlockPropertyMutation,
   });
   registerLibraryBlockPropertyMutationIpcHandler({
     registerHandle: (channel, listener) => {
@@ -1349,9 +1205,7 @@ export function registerIpcHandlers(
         actor: { kind: "electron_renderer", clientId },
       };
     },
-    applyMutation: options.libraryModule?.applyLibraryBlockPropertyMutation
-      ?? (async (input) =>
-        (await blockMutationWriter.applyLibraryBlockPropertyMutation(input)).result),
+    applyMutation: libraryModule.applyLibraryBlockPropertyMutation,
   });
 
   registerDatabaseModuleIpcHandlers({
@@ -1372,10 +1226,8 @@ export function registerIpcHandlers(
         actor: { kind: "electron_renderer", clientId },
       };
     },
-    apply: options.databaseModule?.apply ?? (async (request) =>
-      (await blockMutationWriter.applyDatabaseModule(request)).result),
-    read: options.databaseModule?.read ?? (async (request) =>
-      (await blockMutationWriter.readDatabaseModule(request)).result),
+    apply: databaseModule.apply,
+    read: databaseModule.read,
   });
 
   registerLibraryModuleIpcHandler({
@@ -1388,10 +1240,8 @@ export function registerIpcHandlers(
     },
     isTrustedEvent: (rawEvent) =>
       resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
-    read: options.libraryModule?.read ?? (async (request) =>
-      (await blockMutationWriter.readLibraryModule(request)).result),
-    apply: options.libraryModule?.apply ?? (async (request) =>
-      (await blockMutationWriter.applyLibraryModule(request)).result),
+    read: libraryModule.read,
+    apply: libraryModule.apply,
   });
 
   registerLibraryDatabaseModuleIpcHandler({
@@ -1404,14 +1254,8 @@ export function registerIpcHandlers(
     },
     isTrustedEvent: (rawEvent) =>
       resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
-    read: options.databaseModule?.readLibrary ?? ((request) =>
-      blockMutationWriter.readLibraryDatabaseModule(request, "app_window")),
-    apply: options.databaseModule?.applyLibrary ?? ((request) =>
-      blockMutationWriter.applyLibraryDatabaseModule(
-        request,
-        { kind: "electron_renderer" },
-        "app_window",
-      )),
+    read: databaseModule.readLibrary,
+    apply: databaseModule.applyLibrary,
   });
 
   registerPageDetailIpcHandler({
@@ -1422,9 +1266,7 @@ export function registerIpcHandlers(
     },
     isTrustedEvent: (rawEvent) =>
       resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
-    read: options.libraryModule?.readProjectPageDetail ??
-      (async (projectId, pageId) =>
-        (await blockMutationWriter.readPageDetail(projectId, pageId)).result),
+    read: libraryModule.readProjectPageDetail,
   });
 
   registerLibraryPageDetailIpcHandler({
@@ -1433,14 +1275,7 @@ export function registerIpcHandlers(
     },
     isTrustedEvent: (rawEvent) =>
       resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
-    read: options.libraryModule?.readLibraryPageDetail ??
-      (async (pageId) =>
-        (
-          await blockMutationWriter.readLibraryPageDetail(
-            pageId,
-            "app_window",
-          )
-        ).result),
+    read: libraryModule.readLibraryPageDetail,
   });
 
   registerPageLifecyclePreflightIpcHandler({
@@ -1449,14 +1284,7 @@ export function registerIpcHandlers(
         listener(event, projectId, pageId),
       );
     },
-    readPreflight: options.libraryModule?.readPageLifecyclePreflight ??
-      (async (projectId, pageId) =>
-        (
-          await blockMutationWriter.readPageLifecyclePreflight(
-            projectId,
-            pageId,
-          )
-        ).result),
+    readPreflight: libraryModule.readPageLifecyclePreflight,
   });
 
   registerPageLifecycleIpcHandler({
@@ -1476,9 +1304,7 @@ export function registerIpcHandlers(
         actor: { kind: "electron_renderer", clientId },
       };
     },
-    applyMutation: options.libraryModule?.applyPageLifecycleMutation ??
-      (async (request) =>
-        (await blockMutationWriter.applyPageLifecycleMutation(request)).result),
+    applyMutation: libraryModule.applyPageLifecycleMutation,
   });
 
   registerDocumentMutationIpcHandler({
@@ -1501,9 +1327,7 @@ export function registerIpcHandlers(
         },
       };
     },
-    applyMutation: (request) =>
-      options.documentSync?.applyDocumentMutation(request) ??
-      documentSyncHub.applyDocumentMutation(request),
+    applyMutation: documentSync.applyDocumentMutation,
   });
 
   registerAdditionalDocumentCommandIpcHandler({
@@ -1523,10 +1347,7 @@ export function registerIpcHandlers(
         actor: { kind: "electron_renderer", clientId },
       };
     },
-    applyCommand: (request) =>
-      options.documentSync
-        ? options.documentSync.applyAdditionalDocumentCommand(request)
-        : documentSyncHub.applyAdditionalDocumentCommand(request),
+    applyCommand: documentSync.applyAdditionalDocumentCommand,
   });
 
   registerBlockTransferIpcHandler({
@@ -1546,9 +1367,7 @@ export function registerIpcHandlers(
         actor: { kind: "electron_renderer", clientId },
       };
     },
-    transfer: (intent) => options.documentSync
-      ? options.documentSync.transferBlocks(intent)
-      : documentSyncHub.transferBlocks(intent),
+    transfer: documentSync.transferBlocks,
   });
 
   registerDocumentHistoryIpcHandlers({
@@ -1598,18 +1417,10 @@ export function registerIpcHandlers(
         actor: { kind: "electron_renderer", clientId },
       };
     },
-    createCheckpoint: (request) =>
-      options.documentSync?.createCheckpoint(request) ??
-      blockMutationWriter.createDocumentVersionCheckpoint(request),
-    listVersions: (request) =>
-      options.documentSync?.listVersions(request) ??
-      blockMutationWriter.listDocumentVersions(request),
-    getVersion: (request) =>
-      options.documentSync?.getVersion(request) ??
-      blockMutationWriter.getDocumentVersion(request),
-    restoreVersion: (request) =>
-      options.documentSync?.restoreVersion(request) ??
-      documentSyncHub.applyDocumentMutation(request),
+    createCheckpoint: documentSync.createCheckpoint,
+    listVersions: documentSync.listVersions,
+    getVersion: documentSync.getVersion,
+    restoreVersion: documentSync.restoreVersion,
   });
 
   registerPageHistoryIpcHandler({
@@ -1618,8 +1429,7 @@ export function registerIpcHandlers(
     },
     isTrustedEvent: (rawEvent) =>
       resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
-    listHistory: options.libraryModule?.listPageHistory ??
-      ((request) => blockMutationWriter.listPageHistory(request)),
+    listHistory: libraryModule.listPageHistory,
   });
 
   registerPersistedAtomIpc({
@@ -2057,9 +1867,7 @@ export function registerIpcHandlers(
   // Board
   registerHandle("board:summary:get", async (_, projectId: string) => {
     const startedAt = performance.now();
-    const board = options.databaseModule
-      ? await options.databaseModule.getBoardSummary(projectId)
-      : await boardReadModel.getBoardSummary(projectId);
+    const board = await databaseModule.getBoardSummary(projectId);
     ipcPayloadLogger.info("board summary payload served", {
       channel: "board:summary:get",
       projectId,
@@ -2073,9 +1881,7 @@ export function registerIpcHandlers(
   // Database Pages
   registerHandle("database-rows:details:get", async (_, projectId, input) => {
     const startedAt = performance.now();
-    const pages = options.databaseModule
-      ? await options.databaseModule.getDatabaseRowsDetails(projectId, input)
-      : await boardReadModel.getDatabaseRowsDetails(projectId, input);
+    const pages = await databaseModule.getDatabaseRowsDetails(projectId, input);
     ipcPayloadLogger.info("database row details payload served", {
       channel: "database-rows:details:get",
       projectId,
@@ -2089,9 +1895,7 @@ export function registerIpcHandlers(
 
   registerHandle("pages:search", async (_, input) => {
     const startedAt = performance.now();
-    const results = options.libraryModule
-      ? await options.libraryModule.searchPages(input)
-      : await boardReadModel.searchPages(input);
+    const results = await libraryModule.searchPages(input);
     ipcPayloadLogger.info("page search payload served", {
       channel: "pages:search",
       projectCount: input.projectIds.length,
@@ -2105,17 +1909,11 @@ export function registerIpcHandlers(
   registerHandle(
     "database-row:get",
     (_, projectId: string, pageId: string, status?: string) =>
-      options.databaseModule
-        ? options.databaseModule.getDatabaseRowPage(
-            projectId,
-            pageId,
-            status as Parameters<typeof pagesStore.getDatabaseRowPage>[2],
-          )
-        : pagesStore.getDatabaseRowPage(
-            projectId,
-            pageId,
-            status as Parameters<typeof pagesStore.getDatabaseRowPage>[2],
-          ),
+      databaseModule.getDatabaseRowPage(
+        projectId,
+        pageId,
+        status as DatabasePage["status"] | undefined,
+      ),
   );
 
   registerHandle(
@@ -2164,23 +1962,6 @@ export function registerIpcHandlers(
         projectId,
         input,
         sessionId,
-      );
-    },
-  );
-
-  // Database introspection
-  registerHandle("db:schema", (_event, projectId: string) => {
-    void projectId;
-    return sqlInspection.getSchema();
-  });
-
-  registerHandle(
-    "db:query",
-    (_, projectId: string, sql: string, params?: unknown[]) => {
-      void projectId;
-      return sqlInspection.executeReadOnlyQuery(
-        sql,
-        params as (string | number | null)[] | undefined,
       );
     },
   );

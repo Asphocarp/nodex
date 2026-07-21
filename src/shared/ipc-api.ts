@@ -411,25 +411,6 @@ export interface ComposerPickedFile {
   imageDataUrl?: string;
 }
 
-export interface SchemaResult {
-  tables: {
-    name: string;
-    columns: {
-      name: string;
-      type: string;
-      nullable: boolean;
-      defaultValue: string | null;
-      primaryKey: boolean;
-    }[];
-  }[];
-}
-
-export interface QueryResult {
-  rows: Record<string, unknown>[];
-  rowCount: number;
-  columns: string[];
-}
-
 export interface BoardChangeEvent {
   projectId: string;
   changeType: string;
@@ -890,11 +871,6 @@ export interface IpcApi {
       sessionId?: string,
     ];
     result: { success: boolean; error?: string };
-  };
-  "db:schema": { args: [projectId: string]; result: SchemaResult };
-  "db:query": {
-    args: [projectId: string, sql: string, params?: unknown[]];
-    result: QueryResult;
   };
   "backup:list": { args: []; result: BackupRecord[] };
   "backup:create": { args: [input?: CreateBackupInput]; result: BackupRecord };

@@ -16,6 +16,7 @@ import { useCodexScheduledAutomations } from "./use-codex-scheduled-automations"
 function makeAutomation(id: string): CodexScheduledAutomation {
   return {
     id,
+    definitionRevision: 1,
     kind: "cron",
     status: "ACTIVE",
     targetThreadId: null,

@@ -209,7 +209,7 @@ function main(): void {
     })),
     {
       failurePoint: "abrupt-wal-process-exit",
-      test: "v84_store_recovery::fresh_v84_recovers_a_committed_wal_after_abrupt_writer_exit",
+      test: "v84_store_recovery::fresh_v85_recovers_a_committed_wal_after_abrupt_writer_exit",
       recovered: true,
       finalCommittedSequence: verification.finalCommittedSequence,
       integrityCheck: verification.integrityCheck,

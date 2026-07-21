@@ -58,7 +58,7 @@ function makeSyncResult(input: {
 } = {}): CodexSidebarSyncResult {
   return {
     snapshot: input.snapshot ?? emptySnapshot,
-    source: "sqlite",
+    source: "core",
     refreshed: false,
     refreshedAt: 0,
     changedProjectIds: input.changedProjectIds ?? [],

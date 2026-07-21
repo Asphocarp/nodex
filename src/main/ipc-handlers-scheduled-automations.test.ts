@@ -1,18 +1,12 @@
 import { beforeAll, describe, expect, test } from "vitest";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import {
   registerCodexScheduledAutomationIpcHandlers,
   type CodexScheduledAutomationIpcChannel,
   type CodexScheduledAutomationIpcHandler,
 } from "./codex-scheduled-automation-ipc-handlers";
-import {
-  insertCodexAutomationRunInProgress,
-  markCodexAutomationRunPendingReview,
-} from "./local-store/codex-automation-runs";
-import { closeDatabase, initializeDatabase } from "./local-store/database";
+import type { DesktopAutomationModulePort } from "./core-client/desktop-automation-module-bridge";
 import type {
+  CodexAutomationRun,
   CodexAutomationRunsInboxResponse,
   CodexScheduledAutomationChangedEvent,
   CodexScheduledAutomationDeleteResponse,
@@ -39,37 +33,117 @@ async function invokeIpc(channel: string, ...args: unknown[]): Promise<unknown> 
   return await handler(null, ...args);
 }
 
-function isUnsupportedSqliteError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes("better-sqlite3") && message.includes("not yet supported");
-}
+const definitions = new Map<string, CodexScheduledAutomationMutationResponse["item"]>();
+const runs = new Map<string, CodexAutomationRun>();
 
-async function withTempDatabase(run: (tempDir: string) => Promise<void> | void): Promise<boolean> {
-  closeDatabase();
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-ipc-scheduled-"));
-  process.env.NODEX_HOME = tempDir;
-  try {
-    await initializeDatabase();
-  } catch (error) {
-    closeDatabase();
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    delete process.env.NODEX_HOME;
-    if (isUnsupportedSqliteError(error)) return false;
-    throw error;
-  }
-
-  try {
-    sentIpcEvents.length = 0;
-    runNowInputs.length = 0;
-    unarchivedThreadIds.length = 0;
-    await run(tempDir);
+const automationModule = {
+  listDefinitions: async () => [...definitions.values()],
+  createDefinition: async (input: Parameters<DesktopAutomationModulePort["createDefinition"]>[0]) => {
+    const id = input.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const now = Date.now();
+    const item = {
+      id,
+      definitionRevision: 1,
+      kind: input.kind ?? "cron",
+      status: "ACTIVE" as const,
+      targetThreadId: input.targetThreadId ?? null,
+      name: input.name,
+      prompt: input.prompt ?? "",
+      rrule: input.rrule ?? null,
+      model: input.model ?? null,
+      reasoningEffort: input.reasoningEffort ?? null,
+      cwds: input.cwds ?? [],
+      executionEnvironment: input.executionEnvironment ?? "worktree",
+      localEnvironmentConfigPath: input.localEnvironmentConfigPath ?? null,
+      nextRunAt: null,
+      lastRunAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    definitions.set(id, item);
+    return item;
+  },
+  updateDefinition: async (input: Parameters<DesktopAutomationModulePort["updateDefinition"]>[0]) => {
+    const current = definitions.get(input.id);
+    if (!current) return null;
+    const item = {
+      ...current,
+      id: input.id,
+      definitionRevision: current.definitionRevision + 1,
+      kind: input.kind,
+      status: input.status,
+      targetThreadId: input.targetThreadId ?? current.targetThreadId,
+      name: input.name,
+      prompt: input.prompt ?? current.prompt,
+      rrule: input.rrule ?? current.rrule,
+      model: input.model ?? null,
+      reasoningEffort: input.reasoningEffort ?? null,
+      cwds: input.cwds ?? current.cwds,
+      executionEnvironment:
+        input.executionEnvironment ?? current.executionEnvironment,
+      localEnvironmentConfigPath: input.localEnvironmentConfigPath ?? null,
+      updatedAt: Date.now(),
+    };
+    definitions.set(input.id, item);
+    return item;
+  },
+  deleteDefinition: async (id: string) => {
+    const item = definitions.get(id) ?? null;
+    definitions.delete(id);
+    return {
+      item,
+      success: true,
+      status: item ? "deleted" as const : "not_found" as const,
+      deletedRunCount: 0,
+    };
+  },
+  getRun: async (threadId: string) => runs.get(threadId) ?? null,
+  archiveRun: async (input: { readonly threadId: string }) => {
+    const run = runs.get(input.threadId);
+    if (!run) return false;
+    runs.set(input.threadId, { ...run, status: "ARCHIVED" });
     return true;
-  } finally {
-    closeDatabase();
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    delete process.env.NODEX_HOME;
-  }
-}
+  },
+  deleteRun: async (threadId: string) => runs.delete(threadId),
+  unarchiveRun: async (threadId: string) => {
+    const run = runs.get(threadId);
+    if (!run) return false;
+    runs.set(threadId, { ...run, status: "ACCEPTED" });
+    return true;
+  },
+  readInbox: async () => ({
+    items: [...runs.values()].map((run) => ({
+      id: run.threadId,
+      automationId: run.automationId,
+      automationName: definitions.get(run.automationId)?.name ?? null,
+      title: run.threadTitle,
+      description: run.inboxSummary,
+      archivedAssistantMessage: run.archivedAssistantMessage,
+      archivedUserMessage: run.archivedUserMessage,
+      archivedReason: run.archivedReason,
+      sourceCwd: run.sourceCwd,
+      threadId: run.threadId,
+      readAt: run.readAt,
+      createdAt: run.createdAt,
+      status: run.status,
+    })),
+    unreadRunCounts: {
+      total: [...runs.values()].filter((run) => run.readAt === null).length,
+      automationIds: [...new Set([...runs.values()].map((run) => run.automationId))],
+      unreadRuns: [...runs.values()].filter((run) => run.readAt === null).map((run) => ({
+        automationId: run.automationId,
+        threadId: run.threadId,
+      })),
+    },
+  }),
+  setRunReadState: async (input: { readonly threadId: string; readonly readAt: number | null }) => {
+    const run = runs.get(input.threadId);
+    if (!run) return null;
+    runs.set(input.threadId, { ...run, readAt: input.readAt });
+    return (await automationModule.readInbox()).items[0] ?? null;
+  },
+  markAllRunsRead: async () => 0,
+} as unknown as DesktopAutomationModulePort;
 
 function countEvents(channel: string): number {
   return sentIpcEvents.filter((event) => event.channel === channel).length;
@@ -97,6 +171,7 @@ beforeAll(async () => {
     ) => {
       registeredHandlers.set(channel, listener as RegisteredIpcHandler);
     },
+    automationModule,
     runScheduledAutomationNow: async (input) => {
       runNowInputs.push(input);
     },
@@ -143,7 +218,8 @@ describe("scheduled automation IPC contract", () => {
   });
 
   test("returns list/create/update/delete response shapes and broadcasts task changes", async () => {
-    const ran = await withTempDatabase(async (tempDir) => {
+    definitions.clear();
+    sentIpcEvents.length = 0;
       const createResponse = await invokeIpc("codex:scheduled-automations:create", {
         kind: "cron",
         name: "Daily Report",
@@ -196,12 +272,6 @@ describe("scheduled automation IPC contract", () => {
       const updatedListResponse = await invokeIpc("codex:scheduled-automations:list") as CodexScheduledAutomationListResponse;
       expect(updatedListResponse.items[0]?.model).toBe("gpt-5.1");
       expect(updatedListResponse.items[0]?.reasoningEffort).toBe("high");
-      const updatedToml = fs.readFileSync(
-        path.join(tempDir, "automations", "daily-report", "automation.toml"),
-        "utf8",
-      );
-      expect(updatedToml.includes("model = \"gpt-5.1\"")).toBe(true);
-      expect(updatedToml.includes("reasoning_effort = \"high\"")).toBe(true);
 
       const deleteResponse = await invokeIpc("codex:scheduled-automations:delete", {
         id: "daily-report",
@@ -220,9 +290,6 @@ describe("scheduled automation IPC contract", () => {
       expect(deleteAgainResponse.success).toBe(true);
       expect(deleteAgainResponse.status).toBe("not_found");
       expect(deleteAgainResponse.item).toBe(null);
-    });
-
-    if (!ran) expect(true).toBe(true);
   });
 
   test("forwards run-now input to the automation runtime and returns success", async () => {
@@ -242,7 +309,10 @@ describe("scheduled automation IPC contract", () => {
   });
 
   test("returns previous-run inbox and mutation response shapes with run update events", async () => {
-    const ran = await withTempDatabase(async () => {
+    definitions.clear();
+    runs.clear();
+    sentIpcEvents.length = 0;
+    unarchivedThreadIds.length = 0;
       const createResponse = await invokeIpc("codex:scheduled-automations:create", {
         kind: "cron",
         name: "Review Runs",
@@ -253,14 +323,21 @@ describe("scheduled automation IPC contract", () => {
       }) as CodexScheduledAutomationMutationResponse;
       const automationId = createResponse.item.id;
 
-      expect(insertCodexAutomationRunInProgress({
+      runs.set("thread-run-1", {
         threadId: "thread-run-1",
         automationId,
+        status: "PENDING_REVIEW",
+        readAt: null,
         threadTitle: "Review Runs execution",
         sourceCwd: "/repo/project-alpha",
-        now: 10,
-      })).toBe(true);
-      expect(markCodexAutomationRunPendingReview("thread-run-1", 20)).toBe(true);
+        inboxTitle: null,
+        inboxSummary: null,
+        archivedUserMessage: null,
+        archivedAssistantMessage: null,
+        archivedReason: null,
+        createdAt: 10,
+        updatedAt: 20,
+      });
 
       const inboxResponse = await invokeIpc("codex:automation-runs:inbox-items", 25) as CodexAutomationRunsInboxResponse;
       expect(inboxResponse.items.length).toBe(1);
@@ -302,8 +379,5 @@ describe("scheduled automation IPC contract", () => {
       }) as CodexAutomationRunMutationResponse;
       expect(deleteResponse.success).toBe(true);
       expect(latestAutomationRunsUpdatedEvent().reason).toBe("delete");
-    });
-
-    if (!ran) expect(true).toBe(true);
   });
 });

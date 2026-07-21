@@ -8,12 +8,12 @@ import type {
 } from "../../shared/nodex-agent-tools";
 import { GetContextV3OutputSchema } from "../../shared/nodex-agent-tools/v3-read-schemas";
 import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../shared/database-module-v2";
-import type { BlockMutationEnvelope } from "../block-mutation-writer";
 import {
   NodexAgentV3DynamicService,
   type NodexAgentV3DocumentHub,
   type NodexAgentV3Writer,
 } from "../agent-tools/dynamic-service-v3";
+import type { NodexAgentMutationEnvelope } from "../agent-tools/dynamic-service-v3-port";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import type { DesktopDatabaseModuleBridge } from "./desktop-database-module-bridge";
 import type { DesktopDocumentSyncPort } from "./desktop-document-sync-bridge";
@@ -34,10 +34,6 @@ export interface DesktopNodexAgentDynamicServiceInput {
     DesktopDocumentSyncPort,
     "coordinateNodexAgentLeasedMutation"
   >;
-  readonly typescript: {
-    readonly writer: NodexAgentV3Writer;
-    readonly documentHub: NodexAgentV3DocumentHub;
-  };
 }
 
 const nativeDuplicatePageFailure = (
@@ -82,7 +78,7 @@ const nativeMovePagesFailure = (
 const envelope = <Result>(
   result: Result,
   mutationId: string,
-): BlockMutationEnvelope<Result> => ({
+): NodexAgentMutationEnvelope<Result> => ({
   result,
   events: [],
   metrics: {
@@ -231,25 +227,25 @@ export function createDesktopNodexAgentV3DynamicService(
   let nativePageCreates: NativeNodexAgentPageCreateRuntime | null = null;
   let nativePageMoves: NativeNodexAgentPageMoveRuntime | null = null;
   const pageUpdatesFor = (
-    runtime: Extract<DesktopDataAuthorityRuntime, { readonly backend: "rust" }>,
+    runtime: DesktopDataAuthorityRuntime,
   ): NativeNodexAgentPageUpdateRuntime => {
     nativePageUpdates ??= new NativeNodexAgentPageUpdateRuntime(runtime);
     return nativePageUpdates;
   };
   const pageCopiesFor = (
-    runtime: Extract<DesktopDataAuthorityRuntime, { readonly backend: "rust" }>,
+    runtime: DesktopDataAuthorityRuntime,
   ): NativeNodexAgentPageCopyRuntime => {
     nativePageCopies ??= new NativeNodexAgentPageCopyRuntime(runtime);
     return nativePageCopies;
   };
   const pageCreatesFor = (
-    runtime: Extract<DesktopDataAuthorityRuntime, { readonly backend: "rust" }>,
+    runtime: DesktopDataAuthorityRuntime,
   ): NativeNodexAgentPageCreateRuntime => {
     nativePageCreates ??= new NativeNodexAgentPageCreateRuntime(runtime);
     return nativePageCreates;
   };
   const pageMovesFor = (
-    runtime: Extract<DesktopDataAuthorityRuntime, { readonly backend: "rust" }>,
+    runtime: DesktopDataAuthorityRuntime,
   ): NativeNodexAgentPageMoveRuntime => {
     nativePageMoves ??= new NativeNodexAgentPageMoveRuntime(runtime);
     return nativePageMoves;
@@ -257,9 +253,6 @@ export function createDesktopNodexAgentV3DynamicService(
   const writer: NodexAgentV3Writer = {
     readNodexAgentV3Tool: async (request) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.writer.readNodexAgentV3Tool(request);
-      }
       const result = request.tool === "get_context"
         ? await readNativeContext(
             request,
@@ -275,37 +268,22 @@ export function createDesktopNodexAgentV3DynamicService(
     },
     prepareNodexAgentPageUpdate: async (request) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.writer.prepareNodexAgentPageUpdate(request);
-      }
       return await pageUpdatesFor(runtime).prepare(request);
     },
     completeNodexAgentPageUpdate: async (request) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.writer.completeNodexAgentPageUpdate(request);
-      }
       return await pageUpdatesFor(runtime).complete(request);
     },
     prepareNodexAgentCreatePages: async (request) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.writer.prepareNodexAgentCreatePages(request);
-      }
       return await pageCreatesFor(runtime).prepare(request);
     },
     prepareNodexAgentDuplicatePage: async (request) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.writer.prepareNodexAgentDuplicatePage(request);
-      }
       return await pageCopiesFor(runtime).prepare(request);
     },
     prepareNodexAgentMovePages: async (request) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.writer.prepareNodexAgentMovePages(request);
-      }
       return await pageMovesFor(runtime).prepare(request);
     },
   };
@@ -313,16 +291,10 @@ export function createDesktopNodexAgentV3DynamicService(
   const documentHub: NodexAgentV3DocumentHub = {
     applyDocumentMutation: async (...args) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.documentHub.applyDocumentMutation(...args);
-      }
       return await pageUpdatesFor(runtime).apply(args[0]);
     },
     executeNodexAgentCreatePages: async (...args) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.documentHub.executeNodexAgentCreatePages(...args);
-      }
       const [command, leaseDocuments] = args;
       return await input.documentSync.coordinateNodexAgentLeasedMutation({
         projectId: command.projectId,
@@ -339,9 +311,6 @@ export function createDesktopNodexAgentV3DynamicService(
     },
     executeNodexAgentDuplicatePage: async (...args) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.documentHub.executeNodexAgentDuplicatePage(...args);
-      }
       const command = args[0];
       return await input.documentSync.coordinateNodexAgentLeasedMutation({
         projectId: command.projectId,
@@ -355,9 +324,6 @@ export function createDesktopNodexAgentV3DynamicService(
     },
     executeNodexAgentMovePages: async (...args) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.documentHub.executeNodexAgentMovePages(...args);
-      }
       const command = args[0];
       return await input.documentSync.coordinateNodexAgentLeasedMutation({
         projectId: command.projectId,

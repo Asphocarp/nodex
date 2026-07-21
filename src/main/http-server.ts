@@ -3,9 +3,6 @@ import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 import { randomUUID } from "node:crypto";
-import * as boardReadModel from "./local-store/board-read-model";
-import { getDatabaseRowPage } from "./local-store/database-pages";
-import * as sqlInspection from "./local-store/sql-inspection";
 import {
   getBackupSettings,
   getHistorySettings,
@@ -17,7 +14,6 @@ import {
   updateThreadNotificationSettings,
 } from "./local-store/config";
 import { dbNotifier } from "./local-store/notifier";
-import { blockMutationWriter } from "./block-mutation-writer";
 import {
   checkoutGitBranch,
   createAndCheckoutGitBranch,
@@ -63,14 +59,6 @@ import {
   registerDocumentSyncHttpRoutes,
   type DocumentSyncHttpDependencies,
 } from "./document-sync-http";
-import { documentSyncHub } from "./document-sync-runtime";
-import type {
-  DesktopDocumentSyncScope,
-} from "./core-client/desktop-document-sync-bridge";
-import type {
-  DocumentAccessKind,
-  DocumentSyncCommandError,
-} from "../shared/block-documents/document-sync";
 import {
   registerReferenceReadHttpRoutes,
   type ReferenceReadHttpDependencies,
@@ -128,11 +116,6 @@ import {
   type BlockTransferHttpDependencies,
 } from "./block-transfer-http";
 import {
-  readProjectScopedDatabaseViewReference,
-  resolveProjectScopedPageOwnershipPath,
-  resolveProjectScopedPageTarget,
-} from "./local-store/reference-reads";
-import {
   deleteProjectSessionTabWithBrowserCleanupUsing,
   deleteProjectSessionWithBrowserCleanupUsing,
   deleteProjectWithBrowserCleanupUsing,
@@ -144,12 +127,6 @@ import type { DesktopLibraryModuleBridge } from "./core-client/desktop-library-m
 import type { DesktopAutomationModulePort } from "./core-client/desktop-automation-module-bridge";
 import type { DesktopStoreAdministrationPort } from "./core-client/desktop-store-administration-bridge";
 import { CoreModuleResponseError } from "./core-client/core-client";
-import { createTypeScriptAutomationModulePort } from "./typescript-automation-module-port";
-import { createTypeScriptProjectWorkspacePort } from "./typescript-project-workspace-port";
-import {
-  configureTypeScriptAutoBackupScheduler,
-  createTypeScriptStoreAdministrationPort,
-} from "./typescript-store-administration-port";
 import { productFeatureGates } from "./product-feature-gates";
 
 /** SSE keep-alive ping interval (ms) */
@@ -212,20 +189,6 @@ interface HttpStoreAdministrationDependencies {
   readonly onStoreRestored?: () => void;
 }
 
-interface HttpSqlInspectionDependencies {
-  readonly getSchema: () =>
-    | ReturnType<typeof sqlInspection.getSchema>
-    | null
-    | Promise<ReturnType<typeof sqlInspection.getSchema> | null>;
-  readonly executeReadOnlyQuery: (
-    sql: string,
-    params?: unknown[],
-  ) =>
-    | ReturnType<typeof sqlInspection.executeReadOnlyQuery>
-    | null
-    | Promise<ReturnType<typeof sqlInspection.executeReadOnlyQuery> | null>;
-}
-
 export interface HttpContentModuleDependencies {
   referenceReads: ReferenceReadHttpDependencies;
   propertyMutations: {
@@ -256,7 +219,6 @@ export interface HttpContentModuleDependencies {
     | "updatePageOccurrence"
   >;
   storeAdministration: HttpStoreAdministrationDependencies;
-  sqlInspection: HttpSqlInspectionDependencies;
   documentSync: DocumentSyncHttpDependencies;
   documentMutation: DocumentMutationHttpDependencies;
   additionalDocumentCommand: AdditionalDocumentCommandHttpDependencies;
@@ -265,145 +227,19 @@ export interface HttpContentModuleDependencies {
   pageHistory: PageHistoryHttpDependencies;
 }
 
-const authorizeDefaultDocumentSyncScope = async (
-  scope: DesktopDocumentSyncScope,
-  documentId: string,
-  access: DocumentAccessKind,
-): Promise<DocumentSyncCommandError | null> => {
-  if (scope.kind === "project") {
-    const result = await blockMutationWriter.authorizeDocumentAccess({
-      projectId: scope.projectId,
-      documentId,
-      access,
-    });
-    if (!result.ok) return result.error;
-    if (
-      result.value.authorized
-      && result.value.projectId === scope.projectId
-      && result.value.documentId === documentId
-      && result.value.access === access
-    ) {
-      return null;
-    }
-  } else {
-    const result = await blockMutationWriter.authorizeLibraryDocumentAccess({
-      documentId,
-      access,
-    });
-    if (!result.ok) return result.error;
-    if (
-      result.value.authorized
-      && result.value.documentId === documentId
-      && result.value.access === access
-    ) {
-      return null;
-    }
-  }
-  return {
-    code: "invalid_response",
-    message: "Document access escaped its requested scope",
-    retryable: false,
-    resetRequired: false,
-  };
-};
-
-const defaultDocumentSyncHttpDependencies: DocumentSyncHttpDependencies = {
-  realtime: {
-    subscribe: async (scope, target, request) => {
-      const error = await authorizeDefaultDocumentSyncScope(
-        scope,
-        request.documentId,
-        "read",
-      );
-      return error ? { ok: false, error } : documentSyncHub.subscribe(target, request);
+const createUnconfiguredHttpContentModules = (): HttpContentModuleDependencies => {
+  const unavailable = new Proxy(
+    function unavailableHttpAuthority(): never {
+      throw new Error("HTTP content authority is unavailable before Rust Core initialization");
     },
-    sync: async (scope, target, request) => {
-      const error = await authorizeDefaultDocumentSyncScope(
-        scope,
-        request.documentId,
-        "read",
-      );
-      return error ? { ok: false, error } : await documentSyncHub.sync(target, request);
+    {
+      get: () => unavailable,
+      apply: () => {
+        throw new Error("HTTP content authority is unavailable before Rust Core initialization");
+      },
     },
-    applyUpdate: async (scope, target, request) => {
-      const error = await authorizeDefaultDocumentSyncScope(
-        scope,
-        request.documentId,
-        "write",
-      );
-      return error
-        ? { ok: false, error }
-        : await documentSyncHub.applyUpdate(target, request);
-    },
-    publishAwareness: async (scope, target, request) => {
-      const error = await authorizeDefaultDocumentSyncScope(
-        scope,
-        request.documentId,
-        "read",
-      );
-      return error
-        ? { ok: false, error }
-        : documentSyncHub.publishAwareness(target, request);
-    },
-    respondToRelocationLease: async (scope, target, request) => {
-      const error = await authorizeDefaultDocumentSyncScope(
-        scope,
-        request.documentId,
-        "read",
-      );
-      return error
-        ? { ok: false, error }
-        : documentSyncHub.respondToRelocationLease(target, request);
-    },
-    subscribeCanvasScene: async (target, request) => {
-      const error = await authorizeDefaultDocumentSyncScope(
-        { kind: "project", projectId: request.projectId },
-        request.documentId,
-        "read",
-      );
-      return error
-        ? {
-            ok: false,
-            error: {
-              code: "project_scope_mismatch",
-              message: error.message,
-              retryable: error.retryable,
-              resetRequired: error.resetRequired,
-            },
-          }
-        : documentSyncHub.subscribeCanvasScene(target, request);
-    },
-    syncCanvasScene: async (target, request) =>
-      await documentSyncHub.syncCanvasScene(target, request),
-    applyCanvasSceneMutation: async (target, request) => {
-      const error = await authorizeDefaultDocumentSyncScope(
-        { kind: "project", projectId: request.projectId },
-        request.documentId,
-        "write",
-      );
-      return error
-        ? {
-            ok: false,
-            error: {
-              code: "project_scope_mismatch",
-              message: error.message,
-              retryable: error.retryable,
-              resetRequired: error.resetRequired,
-              mutationId: request.mutationId,
-            },
-          }
-        : await documentSyncHub.applyCanvasSceneMutation(target, request);
-    },
-  },
-  getOwnedDocumentDescriptor: async (projectId, ownerBlockId) =>
-    (await blockMutationWriter.getOwnedDocumentDescriptor(
-      projectId,
-      ownerBlockId,
-    )).result,
-  prepareOwnedBlockDocument: async (projectId, ownerBlockId) =>
-    await blockMutationWriter.prepareOwnedBlockDocument(projectId, ownerBlockId),
-  prepareLibraryOwnedBlockDocument: (ownerBlockId) =>
-    blockMutationWriter.prepareLibraryOwnedBlockDocument(ownerBlockId),
+  );
+  return unavailable as unknown as HttpContentModuleDependencies;
 };
 
 const defaultHttpServerDependencies: HttpServerDependencies = {
@@ -422,101 +258,7 @@ const defaultHttpServerDependencies: HttpServerDependencies = {
     },
   },
   transcribeDictation: async (input) => await codexService.transcribeDictation(input),
-  contentModules: {
-    referenceReads: {
-      resolvePageOwnershipPath: resolveProjectScopedPageOwnershipPath,
-      resolvePageTarget: resolveProjectScopedPageTarget,
-      readDatabaseViewReference: readProjectScopedDatabaseViewReference,
-    },
-    propertyMutations: {
-      project: async (request) =>
-        (await blockMutationWriter.applyBlockPropertyMutation(request)).result,
-      library: async (input) =>
-        (await blockMutationWriter.applyLibraryBlockPropertyMutation(input)).result,
-    },
-    database: {
-      apply: async (request) =>
-        (await blockMutationWriter.applyDatabaseModule(request)).result,
-      read: async (request) =>
-        (await blockMutationWriter.readDatabaseModule(request)).result,
-    },
-    library: {
-      read: async (request) =>
-        (await blockMutationWriter.readLibraryModule(request)).result,
-      apply: async (request) =>
-        (await blockMutationWriter.applyLibraryModule(request)).result,
-    },
-    libraryDatabase: {
-      read: (request) =>
-        blockMutationWriter.readLibraryDatabaseModule(request, "http_loopback"),
-      apply: (request) =>
-        blockMutationWriter.applyLibraryDatabaseModule(
-          request,
-          { kind: "http_loopback" },
-          "http_loopback",
-        ),
-    },
-    pageDetail: {
-      read: async (projectId, pageId) =>
-        (await blockMutationWriter.readPageDetail(projectId, pageId)).result,
-    },
-    libraryPageDetail: {
-      read: async (pageId) =>
-        (await blockMutationWriter.readLibraryPageDetail(pageId, "http_loopback"))
-          .result,
-    },
-    pageLifecyclePreflight: {
-      readPreflight: async (projectId, pageId) =>
-        (await blockMutationWriter.readPageLifecyclePreflight(projectId, pageId))
-          .result,
-    },
-    pageLifecycle: {
-      applyMutation: async (request) =>
-        (await blockMutationWriter.applyPageLifecycleMutation(request)).result,
-    },
-    projectWorkspace: createTypeScriptProjectWorkspacePort(),
-    databaseProjections: {
-      getBoardSummary: boardReadModel.getBoardSummary,
-      getDatabaseColumn: boardReadModel.readColumn,
-      getDatabaseRowsDetails: boardReadModel.getDatabaseRowsDetails,
-      getDatabaseRowPage,
-    },
-    pageSearch: { searchPages: boardReadModel.searchPages },
-    automation: createTypeScriptAutomationModulePort(),
-    storeAdministration: {
-      port: createTypeScriptStoreAdministrationPort(),
-      onBackupSettingsChanged: configureTypeScriptAutoBackupScheduler,
-    },
-    sqlInspection: {
-      getSchema: sqlInspection.getSchema,
-      executeReadOnlyQuery: (sql, params) =>
-        sqlInspection.executeReadOnlyQuery(
-          sql,
-          params as (string | number | null)[] | undefined,
-        ),
-    },
-    documentSync: defaultDocumentSyncHttpDependencies,
-    documentMutation: {
-      applyMutation: (request) => documentSyncHub.applyDocumentMutation(request),
-    },
-    additionalDocumentCommand: {
-      applyCommand: (request) =>
-        documentSyncHub.applyAdditionalDocumentCommand(request),
-    },
-    blockTransfer: {
-      transfer: (intent) => documentSyncHub.transferBlocks(intent),
-    },
-    documentHistory: {
-      createCheckpoint: (request) =>
-        blockMutationWriter.createDocumentVersionCheckpoint(request),
-      listVersions: (request) => blockMutationWriter.listDocumentVersions(request),
-      getVersion: (request) => blockMutationWriter.getDocumentVersion(request),
-      restoreVersion: (request) => documentSyncHub.applyDocumentMutation(request),
-    },
-    pageHistory: {
-      listHistory: (request) => blockMutationWriter.listPageHistory(request),
-    },
-  },
+  contentModules: createUnconfiguredHttpContentModules(),
 };
 
 let httpServerDependencies: HttpServerDependencies = defaultHttpServerDependencies;
@@ -2220,31 +1962,6 @@ app.get("/api/projects/:projectId/events", async (c) => {
       Connection: "keep-alive",
     },
   });
-});
-
-// === Schema/Query routes ===
-
-app.get("/api/projects/:projectId/schema", async (c) => {
-  const schema = await httpServerDependencies.contentModules.sqlInspection
-    .getSchema();
-  if (!schema) {
-    return c.json({ error: "SQL inspection is unavailable for this backend" }, 404);
-  }
-  return Response.json(schema);
-});
-
-app.post("/api/projects/:projectId/query", async (c) => {
-  const body = await c.req.json();
-  try {
-    const result = await httpServerDependencies.contentModules.sqlInspection
-      .executeReadOnlyQuery(body.sql, body.params);
-    if (!result) {
-      return c.json({ error: "SQL inspection is unavailable for this backend" }, 404);
-    }
-    return c.json(result);
-  } catch (err) {
-    return c.json({ error: (err as Error).message }, 400);
-  }
 });
 
 export function getHttpServerOptions(port: number): {

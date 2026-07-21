@@ -44,7 +44,6 @@ export default defineConfig({
       rollupOptions: {
         input: {
           bootstrap: resolve(__dirname, "src/main/bootstrap.ts"),
-          "block-mutation-worker": resolve(__dirname, "src/main/block-mutation-worker.ts"),
         },
         output: {
           entryFileNames: "[name].js",

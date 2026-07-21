@@ -48,7 +48,7 @@ import type {
 import { MAX_CANVAS_SCENE_MUTATION_BYTES } from "../shared/block-documents/canvas-scene-sync";
 import {
   type DocumentSyncClientTarget,
-} from "./document-sync-hub";
+} from "./document-sync-transport";
 import type {
   DesktopDocumentSyncPort,
 } from "./core-client/desktop-document-sync-bridge";

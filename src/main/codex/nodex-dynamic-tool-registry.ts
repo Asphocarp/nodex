@@ -83,7 +83,7 @@ export function createNodexV3DynamicToolRegistry<TContext>(
  * Build the exact production catalog without importing the Agent service or
  * constructing any runtime/store dependencies.
  */
-function buildNodexCatalogOnly(input: {
+function createNodexCatalogOnlyRegistry(input: {
   readonly tools: readonly string[];
   readonly contracts: Readonly<Record<string, CatalogContract>>;
   readonly namespaceDescription: string;
@@ -106,17 +106,31 @@ function buildNodexCatalogOnly(input: {
       execute: catalogOnlyHandler,
     });
   }
-  return registry.buildCatalog([{
+  return registry;
+}
+
+const nodexAgentV3CatalogRegistry = createNodexCatalogOnlyRegistry({
+  tools: NODEX_APP_V5_TOOLS,
+  contracts: NODEX_AGENT_V5_TOOL_CONTRACTS,
+  namespaceDescription: NODEX_APP_V3_TOOL_NAMESPACE_DESCRIPTION,
+  toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+});
+
+export function buildNodexAgentV3DynamicToolCatalog() {
+  return nodexAgentV3CatalogRegistry.buildCatalog([{
     namespace: NODEX_APP_TOOL_NAMESPACE,
-    toolsetRevision: input.toolsetRevision,
+    toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
   }]);
 }
 
-export function buildNodexAgentV3DynamicToolCatalog() {
-  return buildNodexCatalogOnly({
-    tools: NODEX_APP_V5_TOOLS,
-    contracts: NODEX_AGENT_V5_TOOL_CONTRACTS,
-    namespaceDescription: NODEX_APP_V3_TOOL_NAMESPACE_DESCRIPTION,
-    toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
-  });
+export function validateNodexAgentV3DynamicToolCall(input: {
+  readonly toolsetRevision: number;
+  readonly tool: string;
+  readonly arguments: unknown;
+}): void {
+  nodexAgentV3CatalogRegistry.validate({
+    namespace: NODEX_APP_TOOL_NAMESPACE,
+    toolsetRevision: input.toolsetRevision,
+    tool: input.tool,
+  }, input.arguments);
 }

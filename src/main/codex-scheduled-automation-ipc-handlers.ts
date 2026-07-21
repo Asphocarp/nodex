@@ -3,7 +3,6 @@ import type {
   AutomationArchiveMessages,
   DesktopAutomationModulePort,
 } from "./core-client/desktop-automation-module-bridge";
-import { createTypeScriptAutomationModulePort } from "./typescript-automation-module-port";
 import type {
   CodexAutomationRunsUpdatedEvent,
   CodexHeartbeatAutomationThreadStateChangedInput,
@@ -63,7 +62,13 @@ export function registerCodexScheduledAutomationIpcHandlers(
   options: CodexScheduledAutomationIpcRegistration,
 ): void {
   const automationModule =
-    options.automationModule ?? createTypeScriptAutomationModulePort();
+    options.automationModule ?? new Proxy({}, {
+      get: () => () => {
+        throw new Error(
+          "Automation authority is unavailable before Rust Core initialization",
+        );
+      },
+    }) as DesktopAutomationModulePort;
   const broadcastAutomationRunChanged = (
     event: CodexAutomationRunsUpdatedEvent,
     eventOptions: { refreshAutomationList?: boolean } = {},

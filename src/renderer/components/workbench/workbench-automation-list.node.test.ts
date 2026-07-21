@@ -11,6 +11,7 @@ import {
 function automation(overrides: Partial<CodexScheduledAutomation> = {}): CodexScheduledAutomation {
   return {
     id: "automation-alpha",
+    definitionRevision: 1,
     kind: "cron",
     status: "ACTIVE",
     targetThreadId: null,

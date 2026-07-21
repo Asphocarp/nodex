@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, test } from "vitest";
 import { cdp, userEvent } from "vitest/browser";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
+import { createMaitaiStore, MaitaiProvider } from "@/lib/maitai";
 import type { CodexConversationItem } from "@/lib/types";
 import type {
   ThreadAgentActivityGroupBlockModel,
@@ -150,23 +151,26 @@ describe("ThreadAgentActivityGroupBlock Chromium behavior", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
+    const maitaiStore = createMaitaiStore();
     const commits: ProfileCommit[] = [];
     let stage: TraceStage = "mount";
     const onRender: ProfilerOnRenderCallback = (_id, phase, actualDuration) => {
       commits.push({ actualDurationMs: actualDuration, phase, stage });
     };
     const renderGroup = (block: ThreadAgentActivityGroupBlockModel) => (
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <Profiler id="large-thread-agent-activity" onRender={onRender}>
-            <ThreadAgentActivityGroupBlock
-              block={block}
-              isLatestTurn
-              isStreamingTurn={block.status === "inProgress"}
-            />
-          </Profiler>
-        </TooltipProvider>
-      </QueryClientProvider>
+      <MaitaiProvider store={maitaiStore}>
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <Profiler id="large-thread-agent-activity" onRender={onRender}>
+              <ThreadAgentActivityGroupBlock
+                block={block}
+                isLatestTurn
+                isStreamingTurn={block.status === "inProgress"}
+              />
+            </Profiler>
+          </TooltipProvider>
+        </QueryClientProvider>
+      </MaitaiProvider>
     );
     const view = render(renderGroup(initialBlock));
     const disclosure = view.getByRole("button", { name: /Edited files/i });
@@ -274,19 +278,22 @@ describe("ThreadAgentActivityGroupBlock Chromium behavior", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
+    const maitaiStore = createMaitaiStore();
     const view = render(
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <div data-testid="narrow-activity-host" style={{ width: 220 }}>
-            <ThreadAgentActivityGroupBlock
-              block={block}
-              isLatestTurn={false}
-              isStreamingTurn={false}
-              threadCwd="/workspace/nodex"
-            />
-          </div>
-        </TooltipProvider>
-      </QueryClientProvider>,
+      <MaitaiProvider store={maitaiStore}>
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <div data-testid="narrow-activity-host" style={{ width: 220 }}>
+              <ThreadAgentActivityGroupBlock
+                block={block}
+                isLatestTurn={false}
+                isStreamingTurn={false}
+                threadCwd="/workspace/nodex"
+              />
+            </div>
+          </TooltipProvider>
+        </QueryClientProvider>
+      </MaitaiProvider>,
     );
     const host = view.getByTestId("narrow-activity-host");
     const disclosure = view.container.querySelector<HTMLButtonElement>("button[aria-expanded]");
@@ -299,13 +306,17 @@ describe("ThreadAgentActivityGroupBlock Chromium behavior", () => {
     expect(host.scrollWidth).toBeLessThanOrEqual(host.clientWidth);
 
     disclosure.focus();
-    await userEvent.keyboard("{Enter}");
+    await act(async () => {
+      await userEvent.keyboard("{Enter}");
+    });
     await waitFor(() => {
       expect(disclosure.getAttribute("aria-expanded")).toBe("true");
       expect(view.getByTestId("agent-activity-group-body")).toBeDefined();
     });
 
-    await userEvent.keyboard("{Space}");
+    await act(async () => {
+      await userEvent.keyboard("{Space}");
+    });
     await waitFor(() => {
       expect(view.queryByTestId("agent-activity-group-body")).toBeNull();
     });
@@ -350,18 +361,21 @@ describe("ThreadAgentActivityGroupBlock Chromium behavior", () => {
       const queryClient = new QueryClient({
         defaultOptions: { queries: { retry: false } },
       });
+      const maitaiStore = createMaitaiStore();
       const view = render(
-        <QueryClientProvider client={queryClient}>
-          <TooltipProvider>
-            <div data-testid="scaled-activity-host" style={{ width: 320 }}>
-              <ThreadAgentActivityGroupBlock
-                block={buildLargeMixedGroup()}
-                isLatestTurn={false}
-                isStreamingTurn={false}
-              />
-            </div>
-          </TooltipProvider>
-        </QueryClientProvider>,
+        <MaitaiProvider store={maitaiStore}>
+          <QueryClientProvider client={queryClient}>
+            <TooltipProvider>
+              <div data-testid="scaled-activity-host" style={{ width: 320 }}>
+                <ThreadAgentActivityGroupBlock
+                  block={buildLargeMixedGroup()}
+                  isLatestTurn={false}
+                  isStreamingTurn={false}
+                />
+              </div>
+            </TooltipProvider>
+          </QueryClientProvider>
+        </MaitaiProvider>,
       );
       const disclosure = view.container.querySelector<HTMLButtonElement>("button[aria-expanded]");
       if (!disclosure) throw new Error("Expected the activity disclosure button.");

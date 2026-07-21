@@ -19,8 +19,8 @@ An ordinary title or body edit stays inside Yjs and ProseMirror:
 
 1. The editor applies the local transaction immediately.
 2. `NodexYProvider` captures the binary incremental update.
-3. Pending updates are sent sequentially to the Block mutation worker and may be merged while queued.
-4. SQLite validates and commits the update, head, Block registry/index, exact-head materialization, search/assets, receipt, and change evidence atomically.
+3. Pending updates are sent sequentially to Rust Core and may be merged while queued.
+4. Core validates and commits the update, head, Block registry/index, exact-head materialization, search/assets, receipt, and change evidence atomically.
 5. The provider clears pending state only after the durable ACK; other subscribed surfaces receive the committed update.
 
 The hot path does not serialize the complete body to NFM, update a React `description` draft, replace the BlockNote tree from Card props, or send a whole-Card mutation. This removes both the historical per-keystroke serialization cost and the last-writer-wins snapshot seam.
@@ -37,7 +37,10 @@ Editor-local derived features may observe BlockNote transactions for selection, 
 - fan out only durable first commits;
 - repair missed, duplicated, or reordered events with state-vector synchronization.
 
-The main process coordinates this asynchronously. Synchronous `better-sqlite3` work runs in the single `BlockMutationWriter` worker, never in an IPC/HTTP handler and never in one worker per Document. The worker's bounded Y.Doc cache is validated against SQLite coordinates and swapped only after commit.
+Electron coordinates this asynchronously through the native Document bridge. A
+single Rust Core process owns SQLite, the serialized writer, and the bounded Yrs
+Document cache; IPC and HTTP handlers never open the Store. Core validates cache
+coordinates against SQLite and swaps the cached Document only after commit.
 
 If validation or persistence fails, the provider remains pending/failed and exposes retry or reload. There is no synchronous main-process fallback and no snapshot overwrite action.
 
@@ -104,7 +107,7 @@ A checkpoint is recovery data, not authority. On reopen it is validated in a det
 Normal same-Document edits use Yjs transactions. Identity-destructive operations and cross-Document moves require stronger coordination:
 
 - same-Document move: one editor/Yjs transaction;
-- stable-ID Agent update/delete/move: a Hub-issued short write fence;
+- stable-ID Agent update/delete/move: a Core-issued short write fence;
 - cross-Document move: one relocation lease covering source and target;
 - whole-Document restore/import: current-head CAS plus the same trusted fence.
 
@@ -128,7 +131,7 @@ Nested surfaces are lazy and bounded by a renderer activation budget. Expansion,
 - Card/Board read-model updates never call `replaceBlocks` on an existing surface.
 - There is no whole-Card title/body conflict overwrite path.
 - NFM replacement is explicit, exact-head gated, and produces a forward update.
-- Block/Card writes go through `BlockMutationWriter`; main-process handlers do not run synchronous Card transactions.
+- Block/Card writes go through Rust Core's serialized writer; main-process handlers never open SQLite or run Card transactions.
 - Board caches remain summary-only and full bodies load only through explicit scoped reads or mounted Documents.
 - Reference surfaces never store a foreign body in their host Document.
 - Retained inactive tabs clear Awareness and do not own active shell refs.
@@ -141,7 +144,7 @@ Meaningful regression coverage belongs at behavior boundaries:
 - `nodex-y-provider.test.ts`: convergence, duplicate/out-of-order updates, durable ACK ordering, retry, checkpoint recovery, and epoch reset.
 - `block-document-surface.test.tsx` and runtime tests: descriptor validation, subscribe/sync before mount, bounded persist/close, reload, and inactive Awareness.
 - collaborative title and Card Stage component tests: direct Y.Text/body binding, local undo ownership, retained-tab identity, and fail-closed descriptor errors.
-- DocumentStore/worker tests: snapshot+tail reconstruction, schema/identity validation, atomic materialization/index commit, cache eviction, and worker failure.
+- Rust Document Module tests: snapshot+tail reconstruction, schema/identity validation, atomic materialization/index commit, cache eviction, and post-commit recovery.
 - relocation/Document operation tests: leases, exact-head conflicts, fault injection, stale update recovery, and all-old/all-new outcomes.
 - Board/read-model tests: exact-head summary projection, bounded payloads, and rejection of stale projections.
 - reference surface tests: idle collapsed rows create no provider; explicit Card-title engagement or expanded visibility mounts only the target Document within the provider cap; cycles remain navigation-only.

@@ -994,7 +994,7 @@ export type CodexSidebarRefreshPolicy = "read" | "stale" | "force";
 
 export interface CodexSidebarSyncResult {
   snapshot: CodexSidebarSnapshot;
-  source: "sqlite" | "app-server";
+  source: "core" | "app-server";
   refreshed: boolean;
   refreshedAt: number;
   changedProjectIds: string[];
@@ -1446,6 +1446,7 @@ export type CodexScheduledAutomationReasoningEffort =
 
 export interface CodexScheduledAutomation {
   id: string;
+  definitionRevision: number;
   kind: CodexScheduledAutomationKind;
   status: CodexScheduledAutomationStatus;
   targetThreadId: string | null;

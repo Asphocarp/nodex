@@ -118,6 +118,27 @@ function buildAutomationViewOrDeleteSchema(mode: "view" | "delete") {
   };
 }
 
+function buildAutomationListSchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      mode: { type: "string", enum: ["list"] },
+      query: {
+        type: "string",
+        description: "Optional case-insensitive name, prompt, or id filter.",
+      },
+      limit: {
+        type: "integer",
+        minimum: 1,
+        maximum: 100,
+        description: "Maximum results to return. Defaults to 20.",
+      },
+    },
+    required: ["mode"],
+  };
+}
+
 function buildAutomationCronSchema(modes: string[], requiresId: boolean) {
   return {
     type: "object",
@@ -215,6 +236,7 @@ function buildAutomationHeartbeatSchema(modes: string[], requiresId: boolean) {
 function buildAutomationUpdateToolSchema() {
   return {
     anyOf: [
+      buildAutomationListSchema(),
       buildAutomationViewOrDeleteSchema("view"),
       buildAutomationViewOrDeleteSchema("delete"),
       buildAutomationCronSchema(["create", "suggested_create"], false),
@@ -633,7 +655,7 @@ export function buildCodexAppMetaThreadToolSpecs(options?: {
       type: "function",
       name: AUTOMATION_UPDATE_TOOL_NAME,
       description:
-        "Create, update, view, or delete recurring automations in the Nodex app. Use this when the user asks for a scheduled task, automation, recurring run, repeated task, reminder, follow-up, monitor, or asks you to watch something, keep an eye on it, check back later, wake up later, notify them, or keep working later. Cron automations run as standalone jobs against workspaces. Heartbeat automations are proactive follow-ups attached to the current local thread. Prefer heartbeats for requests to continue this thread later, especially below one hour. Use suggested_create or suggested_update when proposing a worktree automation with a local environment setup config so the user can review it before it is saved. Never write raw automation directives by hand, show raw RRULE strings to the user, or create a workaround cron automation for a thread heartbeat unless the user explicitly asks for that. For requests about existing automations, inspect $NODEX_HOME/automations/*/automation.toml to find matching automation ids by name or prompt. Prefer updating an existing automation over creating a duplicate. For updates, preserve existing fields unless the user asks to change them, and call automation_update with the resolved id and full updated fields.",
+        "List, search, create, update, view, or delete recurring automations in the Nodex app. Use this when the user asks for a scheduled task, automation, recurring run, repeated task, reminder, follow-up, monitor, or asks you to watch something, keep an eye on it, check back later, wake up later, notify them, or keep working later. Cron automations run as standalone jobs against workspaces. Heartbeat automations are proactive follow-ups attached to the current local thread. Prefer heartbeats for requests to continue this thread later, especially below one hour. Use suggested_create or suggested_update when proposing a worktree automation with a local environment setup config so the user can review it before it is saved. Never write raw automation directives by hand, show raw RRULE strings to the user, or create a workaround cron automation for a thread heartbeat unless the user explicitly asks for that. For requests about existing automations, call this tool with mode=list and an optional query to resolve matching ids from Core. Prefer updating an existing automation over creating a duplicate. For updates, preserve existing fields unless the user asks to change them, and call automation_update with the resolved id and full updated fields.",
       inputSchema: buildAutomationUpdateToolSchema(),
     },
   ];

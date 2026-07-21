@@ -42,14 +42,13 @@ It ships as an Electron desktop app plus a CLI/HTTP API backed by SQLite.
 ## Runtime and Tooling
 - Package manager: pnpm
 - Development runtime: Node 24.15.0
-- Native addons: `better-sqlite3` and `node-pty` are rebuilt for Electron by
-  `postinstall`; host Node and Electron have different ABIs even when they report
-  the same Node version.
+- Native addon: `node-pty` is rebuilt for Electron by `postinstall`; host Node
+  and Electron have different ABIs even when they report the same Node version.
 - Test runner: Vitest; Playwright for Chromium and Electron E2E
 - Language: TypeScript (`strict` mode)
 - Desktop shell: Electron + electron-vite
 - Frontend: React 19 + Tailwind + Radix + BlockNote/Prosemirror
-- Backend in main process: Hono + better-sqlite3
+- Backend: detached Rust Core (`rusqlite` + Yrs) with a Hono desktop adapter
 
 ## Code Style
 - **DRY**: Always keep code DRY. Extract shared hooks, helpers, and patterns instead of duplicating.
@@ -58,7 +57,7 @@ It ships as an Electron desktop app plus a CLI/HTTP API backed by SQLite.
 - Treat `packages/codex-app-server-protocol/src/v2` as the source of truth for Codex app server request/response/notification/thread shapes.
 - Prefer importing protocol types directly, or re-exporting them as aliases when a local name is needed.
 - Do not hand-write parallel protocol field definitions in `src/shared/types.ts` unless the local type is intentionally a derived or view-model shape.
-- Keep data validation at boundaries (`src/main/http-server.ts`, `src/main/local-store/card-input-validation.ts`).
+- Keep data validation at boundaries (`src/main/http-server.ts`, generated Core contracts, and shared transport-neutral validators such as `src/shared/page-input-validation.ts`).
 - Prefer pure helpers in `src/renderer/lib/` for reusable behavior.
 - Keep renderer transport-agnostic by going through `src/renderer/lib/api.ts`.
 - Preserve project scoping for stateful UI and server operations.

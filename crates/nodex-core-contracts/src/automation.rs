@@ -425,6 +425,12 @@ pub enum AutomationIntent {
     DispatchNow {
         automation_id: String,
     },
+    RescheduleDefinition {
+        automation_id: String,
+        expected_revision: i64,
+        not_before_ms: Option<i64>,
+        retry_within_ms: Option<u64>,
+    },
     ClaimDue {
         limit: u32,
         lease_duration_ms: u64,

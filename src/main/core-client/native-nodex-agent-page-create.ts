@@ -10,7 +10,7 @@ import type {
 } from "../../shared/nodex-agent-tools";
 import { CreatePagesV3OutputSchema } from "../../shared/nodex-agent-tools/v3-write-schemas";
 import { CreateInputSchema } from "../../shared/nodex-agent-tools/write-schemas";
-import type { BlockMutationEnvelope } from "../block-mutation-writer";
+import type { NodexAgentMutationEnvelope } from "../agent-tools/dynamic-service-v3-port";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import {
@@ -40,7 +40,7 @@ interface PendingNativePageCreate {
 const envelope = <Result>(
   result: Result,
   mutationId: string,
-): BlockMutationEnvelope<Result> => ({
+): NodexAgentMutationEnvelope<Result> => ({
   result,
   events: [],
   metrics: {
@@ -195,7 +195,7 @@ export class NativeNodexAgentPageCreateRuntime {
 
   async prepare(
     request: PrepareNodexAgentCreatePagesRequest,
-  ): Promise<BlockMutationEnvelope<PrepareNodexAgentCreatePagesResult>> {
+  ): Promise<NodexAgentMutationEnvelope<PrepareNodexAgentCreatePagesResult>> {
     const operationId = operationIdFor(request);
     try {
       if (!request.authority) {

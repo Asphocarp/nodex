@@ -85,6 +85,7 @@ describe("codex app meta thread tool specs", () => {
     expect(JSON.stringify(automationModes)).toBe(JSON.stringify([
       "create",
       "delete",
+      "list",
       "suggested_create",
       "suggested_update",
       "update",

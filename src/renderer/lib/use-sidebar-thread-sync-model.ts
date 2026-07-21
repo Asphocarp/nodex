@@ -61,7 +61,7 @@ function addProjectSessionEventScope(
 ): CodexSidebarSyncResult {
   return {
     snapshot,
-    source: "sqlite",
+    source: "core",
     refreshed: false,
     refreshedAt: 0,
     changedProjectIds: event.projectId === null ? [] : [event.projectId],

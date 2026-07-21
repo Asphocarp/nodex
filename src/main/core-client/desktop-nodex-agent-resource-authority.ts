@@ -332,7 +332,6 @@ const createCorePort = (
 
 export interface DesktopNodexAgentResourceAuthorityPortInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
-  readonly typescript: NodexAgentResourceAuthorityPort;
 }
 
 export const createDesktopNodexAgentResourceAuthorityPort = (
@@ -342,9 +341,7 @@ export const createDesktopNodexAgentResourceAuthorityPort = (
   const resolve = async (): Promise<NodexAgentResourceAuthorityPort> => {
     if (selected) return selected;
     const runtime = await input.authority;
-    selected = runtime.backend === "typescript"
-      ? input.typescript
-      : createCorePort(runtime);
+    selected = createCorePort(runtime);
     return selected;
   };
   return {

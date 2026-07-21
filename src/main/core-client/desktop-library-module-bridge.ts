@@ -42,46 +42,6 @@ import {
 export interface DesktopLibraryModuleBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
   readonly resolveProjectId: (event: unknown) => string | null;
-  readonly typescript: {
-    read(request: LibraryModuleReadRequest): Promise<LibraryModuleReadResult>;
-    apply(request: LibraryModuleApplyRequest): Promise<LibraryModuleApplyResult>;
-    readProjectPageDetail(
-      projectId: string,
-      pageId: string,
-    ): Promise<PageDetailResult>;
-    readLibraryPageDetail(
-      pageId: string,
-      accessActor: "app_window" | "http_loopback",
-    ): Promise<LibraryPageDetailResult>;
-    listPageHistory(
-      request: ListPageHistoryRequest,
-    ): Promise<PageHistoryCommandResult>;
-    searchPages(input: PageSearchInput): Promise<PageSearchResult[]>;
-    resolvePageTarget(
-      input: ResolvePageTargetInput,
-    ): Promise<PageTargetReadModel | null>;
-    resolvePageOwnershipPath(
-      input: ResolvePageOwnershipPathInput,
-    ): Promise<PageOwnershipPathReadModel | null>;
-    findPageLocation(
-      pageId: string,
-    ): Promise<{ readonly pageId: string; readonly projectId: string } | null>;
-    readPageLifecyclePreflight(
-      projectId: string,
-      pageId: string,
-    ): Promise<PageLifecyclePreflightResultV2>;
-    applyPageLifecycleMutation(
-      request: PageLifecycleMutationRequestV2,
-    ): Promise<PageLifecycleMutationCommandResultV2>;
-    applyBlockPropertyMutation(
-      request: BlockPropertyMutationRequestV2,
-    ): Promise<BlockPropertyMutationCommandResultV2>;
-    applyLibraryBlockPropertyMutation(input: {
-      readonly request: LibraryBlockPropertyMutationRequestV2;
-      readonly actor: BlockPropertyMutationRequestV2["actor"];
-      readonly accessActor?: "app_window" | "http_loopback";
-    }): Promise<LibraryBlockPropertyMutationCommandResultV2>;
-  };
 }
 
 export interface DesktopLibraryModuleBridge {
@@ -137,7 +97,7 @@ export function createDesktopLibraryModuleBridge(
   let rootCoreAdapter: CoreLibraryModuleAdapter | null = null;
   const projectCoreAdapters = new Map<string, CoreLibraryModuleAdapter>();
   const coreAdapter = (
-    runtime: Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>,
+    runtime: DesktopDataAuthorityRuntime,
     projectId?: string,
   ): CoreLibraryModuleAdapter => createCoreLibraryModuleAdapter({
     client: projectId
@@ -148,7 +108,7 @@ export function createDesktopLibraryModuleBridge(
     storeEpoch: runtime.rootClient.handshake.store_epoch,
   });
   const projectCoreAdapter = (
-    runtime: Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>,
+    runtime: DesktopDataAuthorityRuntime,
     projectId: string,
   ): CoreLibraryModuleAdapter => {
     let adapter = projectCoreAdapters.get(projectId);
@@ -161,17 +121,11 @@ export function createDesktopLibraryModuleBridge(
   return {
     read: async (request) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.read(request);
-      }
       rootCoreAdapter ??= coreAdapter(runtime);
       return await rootCoreAdapter.read(request);
     },
     apply: async (request, event) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.apply(request);
-      }
       const projectId = input.resolveProjectId(event);
       if (!projectId) {
         return {
@@ -187,100 +141,61 @@ export function createDesktopLibraryModuleBridge(
     },
     applyTrustedLibrary: async (request) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.apply(request);
-      }
       rootCoreAdapter ??= coreAdapter(runtime);
       return await rootCoreAdapter.apply(request);
     },
     readProjectPageDetail: async (projectId, pageId) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.readProjectPageDetail(projectId, pageId);
-      }
       return await projectCoreAdapter(runtime, projectId)
         .readProjectPageDetail(projectId, pageId);
     },
-    readLibraryPageDetail: async (pageId, accessActor = "app_window") => {
+    readLibraryPageDetail: async (pageId) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.readLibraryPageDetail(pageId, accessActor);
-      }
       rootCoreAdapter ??= coreAdapter(runtime);
       return await rootCoreAdapter.readLibraryPageDetail(pageId);
     },
     listPageHistory: async (request) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.listPageHistory(request);
-      }
       return await projectCoreAdapter(runtime, request.requestingProjectId)
         .listPageHistory(request);
     },
     searchPages: async (searchInput) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.searchPages(searchInput);
-      }
       rootCoreAdapter ??= coreAdapter(runtime);
       return await rootCoreAdapter.searchPages(searchInput);
     },
     resolvePageTarget: async (request) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.resolvePageTarget(request);
-      }
       return await projectCoreAdapter(runtime, request.requestingProjectId)
         .resolvePageTarget(request);
     },
     resolvePageOwnershipPath: async (request) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.resolvePageOwnershipPath(request);
-      }
       return await projectCoreAdapter(runtime, request.requestingProjectId)
         .resolvePageOwnershipPath(request);
     },
     findPageLocation: async (pageId) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.findPageLocation(pageId);
-      }
       rootCoreAdapter ??= coreAdapter(runtime);
       return await rootCoreAdapter.findPageLocation(pageId);
     },
     readPageLifecyclePreflight: async (projectId, pageId) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.readPageLifecyclePreflight(
-          projectId,
-          pageId,
-        );
-      }
       return await projectCoreAdapter(runtime, projectId)
         .readPageLifecyclePreflight(projectId, pageId);
     },
     applyPageLifecycleMutation: async (request) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.applyPageLifecycleMutation(request);
-      }
       return await projectCoreAdapter(runtime, request.projectId)
         .applyPageLifecycleMutation(request);
     },
     applyBlockPropertyMutation: async (request) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.applyBlockPropertyMutation(request);
-      }
       return await projectCoreAdapter(runtime, request.projectId)
         .applyBlockPropertyMutation(request);
     },
     applyLibraryBlockPropertyMutation: async (request) => {
       const runtime = await input.authority;
-      if (runtime.backend === "typescript") {
-        return await input.typescript.applyLibraryBlockPropertyMutation(request);
-      }
       rootCoreAdapter ??= coreAdapter(runtime);
       return await rootCoreAdapter.applyLibraryBlockPropertyMutation(request);
     },

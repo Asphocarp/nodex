@@ -29,7 +29,6 @@ import {
 } from "../shared/browser-sidebar";
 import { isBlankBrowserUrl, normalizeBrowserNavigationUrl } from "../shared/browser-url";
 import { getLogger, type BackendLogger } from "./logging/logger";
-import * as projectSessionService from "./local-store/project-sessions";
 import { safeBroadcastToWindows } from "./ipc-safe-send";
 
 type BrowserUseCommand = Extract<BrowserSidebarCommand, {
@@ -76,6 +75,9 @@ interface BrowserSidebarElectronDeps {
 interface BrowserSidebarServiceDeps {
   electron?: BrowserSidebarElectronDeps;
   logger?: Pick<BackendLogger, "debug" | "info" | "warn">;
+  resolveProjectIdForSession?: (
+    sessionId: string,
+  ) => Promise<string | null>;
 }
 
 const DEFAULT_VIEWPORT: BrowserSidebarViewport = {
@@ -206,6 +208,9 @@ export class BrowserSidebarService extends EventEmitter {
   private readonly logger: Pick<BackendLogger, "debug" | "info" | "warn">;
   private readonly browserUseActiveTabIdsByConversation = new Map<string, string>();
   private readonly browserUseCursors = new Map<string, BrowserUseCursorState>();
+  private resolveProjectIdForSession:
+    | ((sessionId: string) => Promise<string | null>)
+    | null;
   private teardownSequence = 0;
 
   constructor(deps: BrowserSidebarServiceDeps = {}) {
@@ -218,6 +223,13 @@ export class BrowserSidebarService extends EventEmitter {
       },
     };
     this.logger = deps.logger ?? getLogger({ subsystem: "browser-sidebar" });
+    this.resolveProjectIdForSession = deps.resolveProjectIdForSession ?? null;
+  }
+
+  setProjectSessionResolver(
+    resolveProjectIdForSession: (sessionId: string) => Promise<string | null>,
+  ): void {
+    this.resolveProjectIdForSession = resolveProjectIdForSession;
   }
 
   override on<EventName extends BrowserSidebarEventName>(
@@ -766,16 +778,29 @@ export class BrowserSidebarService extends EventEmitter {
   }
 
   observePtyData(terminalSessionId: string, data: string): void {
+    void this.observePtyDataWithProjectSession(terminalSessionId, data).catch(
+      (error) => {
+        this.logger.warn("Failed to resolve terminal Project Session", {
+          terminalSessionId,
+          error,
+        });
+      },
+    );
+  }
+
+  private async observePtyDataWithProjectSession(
+    terminalSessionId: string,
+    data: string,
+  ): Promise<void> {
     const sessionId = parseProjectSessionIdFromTerminalId(terminalSessionId);
     if (!sessionId) return;
-    const sessionRecord = projectSessionService.getProjectSession(sessionId);
-    if (!sessionRecord) return;
-    if (sessionRecord.projectId === null) return;
+    const projectId = await this.resolveProjectIdForSession?.(sessionId) ?? null;
+    if (projectId === null) return;
 
     const matches = data.match(LOCAL_SERVER_URL_PATTERN);
     if (!matches || matches.length === 0) return;
 
-    const state = this.getLocalServerProjectState(sessionRecord.projectId);
+    const state = this.getLocalServerProjectState(projectId);
     const now = Date.now();
     for (const match of matches) {
       const url = normalizeBrowserNavigationUrl(match);
@@ -819,7 +844,7 @@ export class BrowserSidebarService extends EventEmitter {
 
     state.isLoading = false;
     state.updatedAt = now;
-    this.emitLocalServers(sessionRecord.projectId);
+    this.emitLocalServers(projectId);
   }
 
   private navigate(tab: BrowserSidebarTabSnapshot, rawUrl: string): BrowserSidebarCommandResult {
