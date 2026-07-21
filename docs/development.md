@@ -25,7 +25,9 @@ pnpm run dev
 ```
 
 Both `pnpm run dev` and `pnpm run build:run` expose the renderer Chrome DevTools
-Protocol endpoint on `127.0.0.1:9333` for local debugging.
+Protocol endpoint on `127.0.0.1:9333` for local debugging. Both commands first
+build the development `target/debug/nodex-core` executable so Electron cannot
+start a stale native authority after a branch switch or rebase.
 
 Run Nodex against disposable Codex and Nodex state when checking first-run or
 profile-scoped behavior:
@@ -50,7 +52,9 @@ NODEX_LIBRARY_WORKSPACE_ENABLED=true scripts/run.sh -ack -r /tmp/nodex-library
 Run `scripts/run.sh --help` for options that use either global home.
 Use `--keep` to preserve the generated run root for inspection, or
 `--root DIR` to choose its path explicitly. An existing root can be reused only
-when `--keep` is also set.
+when `--keep` is also set. Reuse preserves its existing schema and data; choose
+a new root when checking first-run behavior or when the retained profile predates
+the currently supported Core import boundary.
 
 Build the app:
 

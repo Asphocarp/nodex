@@ -6,6 +6,7 @@ import { CoreClient } from "./core-client";
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 10_000;
 const DEFAULT_POLL_INTERVAL_MS = 25;
+const MAX_STARTUP_STDERR_CHARS = 16_384;
 
 export interface ResolveCoreExecutableInput {
   readonly appResourcesPath?: string;
@@ -32,6 +33,8 @@ export interface CoreLaunchResult {
 interface ChildExitState {
   code: number | null;
   error: Error | null;
+  exited: boolean;
+  stderr: string;
 }
 
 const delay = (durationMs: number): Promise<void> =>
@@ -73,6 +76,9 @@ function validateCoreExecutable(executablePath: string): void {
   accessSync(executablePath, constants.X_OK);
 }
 
+const appendBoundedStderr = (current: string, chunk: string): string =>
+  `${current}${chunk}`.slice(-MAX_STARTUP_STDERR_CHARS);
+
 const connect = (input: ConnectOrStartCoreInput): Promise<CoreClient> =>
   CoreClient.connect({
     nodexHome: input.nodexHome,
@@ -106,15 +112,29 @@ export async function connectOrStartCore(
       ...input.environment,
       NODEX_INTERNAL_APP_PACKAGED: input.isPackaged ? "true" : "false",
     },
-    stdio: "ignore",
+    stdio: ["ignore", "ignore", "pipe"],
   });
   const startedProcessId = child.pid ?? null;
-  const exit: ChildExitState = { code: null, error: null };
+  const exit: ChildExitState = {
+    code: null,
+    error: null,
+    exited: false,
+    stderr: "",
+  };
+  const stderr = child.stderr as (NonNullable<typeof child.stderr> & {
+    unref?: () => void;
+  }) | null;
+  stderr?.setEncoding("utf8");
+  stderr?.on("data", (chunk: string) => {
+    exit.stderr = appendBoundedStderr(exit.stderr, chunk);
+  });
+  stderr?.unref?.();
   child.once("error", (error) => {
     exit.error = error;
   });
-  child.once("exit", (code) => {
+  child.once("close", (code) => {
     exit.code = code;
+    exit.exited = true;
   });
   child.unref();
 
@@ -125,8 +145,11 @@ export async function connectOrStartCore(
 
   while (Date.now() < deadline) {
     if (exit.error) throw new Error("Could not start native Rust Core", { cause: exit.error });
-    if (exit.code !== null && exit.code !== 0) {
-      throw new Error(`Native Rust Core exited during startup with code ${exit.code}`);
+    if (exit.exited) {
+      const status = exit.code === null ? "without an exit code" : `with code ${exit.code}`;
+      const diagnostic = exit.stderr.trim();
+      const suffix = diagnostic ? `: ${diagnostic}` : "";
+      throw new Error(`Native Rust Core exited during startup ${status}${suffix}`);
     }
 
     try {

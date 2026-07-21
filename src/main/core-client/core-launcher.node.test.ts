@@ -82,4 +82,20 @@ describe("native Core launcher", () => {
       rmSync(nodexHome, { recursive: true, force: true });
     }
   });
+
+  test("includes Core stderr when startup exits", async () => {
+    const nodexHome = mkdtempSync(path.join(tmpdir(), "nodex-core-launcher-failure-"));
+
+    try {
+      await expect(connectOrStartCore({
+        buildId: "core-launcher-failure-test",
+        environment: { NODEX_CORE_EXECUTABLE: process.execPath },
+        isPackaged: false,
+        nodexHome,
+        startupTimeoutMs: 2_000,
+      })).rejects.toThrow(/Native Rust Core exited during startup with code \d+: .*--home/s);
+    } finally {
+      rmSync(nodexHome, { recursive: true, force: true });
+    }
+  });
 });
