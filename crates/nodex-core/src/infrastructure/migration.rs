@@ -10,9 +10,9 @@ use yrs::updates::encoder::Encode;
 use yrs::{ReadTxn, StateVector, Transact, Update};
 
 use crate::document::{
-    BlockDocumentSchema, MAX_DOCUMENT_UPDATE_BYTES, create_compatible_document,
-    decode_block_document, decode_state_vector_v1, has_pending_dependencies,
-    materialize_decoded_document,
+    BlockDocumentSchema, DocumentMaterialization, MAX_DOCUMENT_UPDATE_BYTES,
+    create_compatible_document, decode_block_document, decode_state_vector_v1,
+    has_pending_dependencies, materialize_decoded_document, rebuild_legacy_import_projections,
 };
 
 use super::document_repository::{DocumentHeadRow, DocumentReadRepository};
@@ -354,6 +354,67 @@ pub fn prepare_profile_store(
     })
 }
 
+pub(crate) fn prepare_legacy_import_candidate(
+    connection: &mut Connection,
+    profile_home: &Path,
+    source_version: i64,
+    source_backup_path: &Path,
+) -> Result<StorePreparation, StoreError> {
+    validate_store(connection)?;
+    validate_exact_v84_schema(connection)?;
+    if has_core_ownership_marker(connection)? {
+        return Err(StoreError::new(
+            StoreErrorCode::UnsupportedSchema,
+            "Legacy import candidate is already owned by Rust Core",
+            false,
+        ));
+    }
+    let backup_name = source_backup_path
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::Internal,
+                "Legacy migration backup name is not valid UTF-8",
+                false,
+            )
+        })?;
+    with_immediate_transaction(connection, |transaction| {
+        rebuild_legacy_import_document_projections(transaction)
+    })?;
+    let fingerprints = validate_live_yjs_documents(connection)?;
+    let now = unix_time_millis()?;
+    publish_current_store(
+        connection,
+        profile_home,
+        Some(TYPESCRIPT_SCHEMA_VERSION),
+        Some(backup_name),
+        now,
+        &fingerprints,
+    )?;
+    validate_store(connection)?;
+    validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
+    validate_exact_current_schema(connection)?;
+    Ok(StorePreparation {
+        schema_version: CORE_SCHEMA_VERSION,
+        created_fresh: false,
+        migrated_from_version: Some(source_version),
+        migration_backup_path: Some(source_backup_path.to_path_buf()),
+        validated_yjs_documents: fingerprints.len(),
+    })
+}
+
+fn rebuild_legacy_import_document_projections(connection: &Connection) -> Result<(), StoreError> {
+    let repository = DocumentReadRepository::new(connection);
+    let heads = repository.live_yjs_heads()?;
+    for head in heads {
+        let reconstructed = reconstruct_live_yjs_document(&repository, &head)?;
+        rebuild_legacy_import_projections(connection, &head.id, &reconstructed.materialization)?;
+    }
+    Ok(())
+}
+
 fn upgrade_v85_store(
     connection: &mut Connection,
     profile_home: &Path,
@@ -475,6 +536,21 @@ fn validate_live_yjs_document(
     repository: &DocumentReadRepository<'_>,
     head: &DocumentHeadRow,
 ) -> Result<DocumentEngineFingerprint, StoreError> {
+    let reconstructed = reconstruct_live_yjs_document(repository, head)?;
+    assert_persisted_materialization(repository, head, &reconstructed.materialization)?;
+    fingerprint_live_yjs_document(head, &reconstructed)
+}
+
+struct ReconstructedLiveYjsDocument {
+    materialization: DocumentMaterialization,
+    state_vector_v1: Vec<u8>,
+    full_state_v1: Vec<u8>,
+}
+
+fn reconstruct_live_yjs_document(
+    repository: &DocumentReadRepository<'_>,
+    head: &DocumentHeadRow,
+) -> Result<ReconstructedLiveYjsDocument, StoreError> {
     if !is_sha256(&head.state_hash) {
         return Err(corrupt(format!(
             "Document {} has an invalid source state hash",
@@ -529,21 +605,15 @@ fn validate_live_yjs_document(
     }
     let expected_vector = decode_state_vector_v1(&head.state_vector)
         .map_err(|error| corrupt(format!("Document {} state vector: {error}", head.id)))?;
-    let actual_vector = document.transact().state_vector();
+    let transaction = document.transact();
+    let actual_vector = transaction.state_vector();
     if actual_vector != expected_vector {
         return Err(corrupt(format!(
             "Document {} persisted state vector does not match reconstruction",
             head.id
         )));
     }
-    let decoded = decode_block_document(&document, schema)
-        .map_err(|error| corrupt(format!("Document {} schema validation: {error}", head.id)))?;
-    let materialization = materialize_decoded_document(&decoded)
-        .map_err(|error| corrupt(format!("Document {} materialization: {error}", head.id)))?;
-    assert_persisted_materialization(repository, head, &materialization)?;
-
-    let transaction = document.transact();
-    let state_vector_v1 = transaction.state_vector().encode_v1();
+    let state_vector_v1 = actual_vector.encode_v1();
     let full_state_v1 = transaction.encode_state_as_update_v1(&StateVector::default());
     drop(transaction);
     if full_state_v1.len() > MAX_DOCUMENT_UPDATE_BYTES {
@@ -552,20 +622,36 @@ fn validate_live_yjs_document(
             head.id
         )));
     }
-    let materialization_json = serde_json::to_vec(&materialization).map_err(|error| {
-        StoreError::new(
-            StoreErrorCode::Internal,
-            format!("Could not serialize Document materialization: {error}"),
-            false,
-        )
-    })?;
+    let decoded = decode_block_document(&document, schema)
+        .map_err(|error| corrupt(format!("Document {} schema validation: {error}", head.id)))?;
+    let materialization = materialize_decoded_document(&decoded)
+        .map_err(|error| corrupt(format!("Document {} materialization: {error}", head.id)))?;
+    Ok(ReconstructedLiveYjsDocument {
+        materialization,
+        state_vector_v1,
+        full_state_v1,
+    })
+}
+
+fn fingerprint_live_yjs_document(
+    head: &DocumentHeadRow,
+    reconstructed: &ReconstructedLiveYjsDocument,
+) -> Result<DocumentEngineFingerprint, StoreError> {
+    let materialization_json =
+        serde_json::to_vec(&reconstructed.materialization).map_err(|error| {
+            StoreError::new(
+                StoreErrorCode::Internal,
+                format!("Could not serialize Document materialization: {error}"),
+                false,
+            )
+        })?;
     Ok(DocumentEngineFingerprint {
         document_id: head.id.clone(),
         generation: head.generation,
         head_seq: head.head_seq,
         source_state_hash: head.state_hash.clone(),
-        yrs_state_vector_sha256: sha256(&state_vector_v1),
-        yrs_full_state_sha256: sha256(&full_state_v1),
+        yrs_state_vector_sha256: sha256(&reconstructed.state_vector_v1),
+        yrs_full_state_sha256: sha256(&reconstructed.full_state_v1),
         materialization_sha256: sha256(&materialization_json),
     })
 }
@@ -582,23 +668,32 @@ fn assert_persisted_materialization(
     let block_tree = serde_json::to_value(&actual.block_tree).map_err(internal_json)?;
     let references = serde_json::to_value(&actual.references).map_err(internal_json)?;
     let asset_refs = serde_json::to_value(&actual.asset_refs).map_err(internal_json)?;
-    let matches = persisted.generation == head.generation
-        && persisted.projected_seq == head.head_seq
-        && persisted.schema_version == i64::from(actual.schema_version)
-        && persisted.title == actual.title
-        && persisted.rich_title == rich_title
-        && persisted.nfm == actual.nfm
-        && persisted.plain_text == actual.plain_text
-        && persisted.preview == actual.preview
-        && persisted.block_tree == block_tree
-        && persisted.references == references
-        && persisted.asset_refs == asset_refs;
-    if matches {
+    let mismatched_fields = [
+        (persisted.generation != head.generation, "generation"),
+        (persisted.projected_seq != head.head_seq, "projected_seq"),
+        (
+            persisted.schema_version != i64::from(actual.schema_version),
+            "schema_version",
+        ),
+        (persisted.title != actual.title, "title"),
+        (persisted.rich_title != rich_title, "rich_title"),
+        (persisted.nfm != actual.nfm, "nfm"),
+        (persisted.plain_text != actual.plain_text, "plain_text"),
+        (persisted.preview != actual.preview, "preview"),
+        (persisted.block_tree != block_tree, "block_tree"),
+        (persisted.references != references, "references"),
+        (persisted.asset_refs != asset_refs, "asset_refs"),
+    ]
+    .into_iter()
+    .filter_map(|(mismatched, field)| mismatched.then_some(field))
+    .collect::<Vec<_>>();
+    if mismatched_fields.is_empty() {
         return Ok(());
     }
     Err(corrupt(format!(
-        "Document {} persisted materialization does not match Yrs reconstruction",
-        head.id
+        "Document {} persisted materialization does not match Yrs reconstruction (fields: {})",
+        head.id,
+        mismatched_fields.join(", ")
     )))
 }
 

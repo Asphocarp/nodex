@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use super::legacy_migration::migrate_legacy_profile_if_needed;
 use super::migration::{StorePreparation, prepare_profile_store};
 use super::sqlite::{StoreError, StoreErrorCode, open_writer};
 use super::store_lock::ProfileStoreLock;
@@ -23,6 +24,7 @@ impl SqliteStoreKernel {
     pub fn open(profile_home: &Path) -> Result<Self, StoreError> {
         let lock = ProfileStoreLock::acquire(profile_home)?;
         recover_interrupted_store_replacement(profile_home)?;
+        let legacy_preparation = migrate_legacy_profile_if_needed(profile_home)?;
         let database_path = profile_home.join(STORE_FILE_NAME);
         if fs::symlink_metadata(&database_path)
             .is_ok_and(|metadata| metadata.file_type().is_symlink())
@@ -34,7 +36,10 @@ impl SqliteStoreKernel {
             ));
         }
         let mut migration_connection = open_writer(&database_path)?;
-        let preparation = prepare_profile_store(&mut migration_connection, profile_home)?;
+        let preparation = match legacy_preparation {
+            Some(preparation) => preparation,
+            None => prepare_profile_store(&mut migration_connection, profile_home)?,
+        };
         drop(migration_connection);
 
         let runtime = StoreRuntime::start(

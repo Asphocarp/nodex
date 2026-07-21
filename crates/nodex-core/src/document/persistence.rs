@@ -810,6 +810,43 @@ pub(super) fn replace_secondary_projections(
     Ok(())
 }
 
+/// Rebuild only the derived rows for a validated legacy Yjs authority.
+///
+/// Startup migration calls this against an isolated candidate store. It never
+/// rewrites the Yjs snapshot/update stream or advances the Document head.
+pub(crate) fn rebuild_legacy_import_projections(
+    connection: &Connection,
+    document_id: &str,
+    materialization: &DocumentMaterialization,
+) -> Result<(), StoreError> {
+    let authority = read_document_authority(connection, document_id)?
+        .ok_or_else(|| corrupt("Legacy import Document has no authority"))?;
+    let now = sqlite_now(connection)?;
+    validate_document_references(connection, &authority.head.project_id, materialization)?;
+    reconcile_document_blocks(
+        connection,
+        &authority,
+        materialization,
+        authority.head.head_seq,
+        &now,
+    )?;
+    persist_materialization(
+        connection,
+        document_id,
+        authority.head.generation,
+        authority.head.head_seq,
+        materialization,
+        &now,
+    )?;
+    replace_secondary_projections(
+        connection,
+        &authority,
+        materialization,
+        authority.head.head_seq,
+        &now,
+    )
+}
+
 struct SearchUnitProjection<'a> {
     block_id: &'a str,
     projected_seq: i64,

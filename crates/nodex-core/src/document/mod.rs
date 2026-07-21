@@ -65,7 +65,8 @@ pub(crate) use genesis::{
 pub(crate) use history::{NewDocumentCheckpoint, insert_document_checkpoint};
 pub(crate) use persistence::{
     DocumentAuthorityRow, PersistYjsCommit, PersistYjsGenesis, persist_yjs_commit,
-    persist_yjs_genesis, read_document_authority, read_store_epoch, sha256,
+    persist_yjs_genesis, read_document_authority, read_store_epoch,
+    rebuild_legacy_import_projections, sha256,
 };
 pub(crate) use primary_canvas::{PrimaryCanvasIdentity, create_primary_canvas};
 pub(crate) use rehome::rebuild_rehomed_document_projections;

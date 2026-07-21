@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::LazyLock;
 
+use regex::Regex;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
@@ -126,21 +128,31 @@ pub fn validate_exact_v84_schema(connection: &Connection) -> Result<(), StoreErr
                 .get(*key)
                 .is_some_and(|actual_sql| actual_sql != *sql)
         })
-        .count();
+        .map(|(key, _)| key.name.as_str())
+        .collect::<Vec<_>>();
     Err(StoreError::new(
         StoreErrorCode::UnsupportedSchema,
         format!(
-            "TypeScript v84 physical schema does not match the frozen import artifact ({missing} missing, {unexpected} unexpected, {changed} changed objects)"
+            "TypeScript v84 physical schema does not match the frozen import artifact ({missing} missing, {unexpected} unexpected, {} changed objects: {})",
+            changed.len(),
+            changed.join(", ")
         ),
         false,
     ))
 }
 
 fn normalize_sql(sql: &str) -> String {
-    sql.trim_end_matches(';')
+    static SIMPLE_QUOTED_IDENTIFIER: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r#"\"([A-Za-z_][A-Za-z0-9_]*)\""#).expect("quoted identifier regex")
+    });
+    let whitespace_normalized = sql
+        .trim_end_matches(';')
         .split_whitespace()
         .collect::<Vec<_>>()
-        .join(" ")
+        .join(" ");
+    SIMPLE_QUOTED_IDENTIFIER
+        .replace_all(&whitespace_normalized, "$1")
+        .into_owned()
 }
 
 #[cfg(test)]

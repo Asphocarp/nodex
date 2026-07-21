@@ -1,10 +1,10 @@
 import { spawn } from "node:child_process";
-import { accessSync, constants, lstatSync } from "node:fs";
+import { accessSync, constants, lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import { CoreClient } from "./core-client";
 
-const DEFAULT_STARTUP_TIMEOUT_MS = 10_000;
+const DEFAULT_STARTUP_TIMEOUT_MS = 300_000;
 const DEFAULT_POLL_INTERVAL_MS = 25;
 const MAX_STARTUP_STDERR_CHARS = 16_384;
 
@@ -35,6 +35,12 @@ interface ChildExitState {
   error: Error | null;
   exited: boolean;
   stderr: string;
+}
+
+interface LegacyMigratorManifest {
+  readonly bundle: {
+    readonly sha256: string;
+  };
 }
 
 const delay = (durationMs: number): Promise<void> =>
@@ -76,6 +82,67 @@ function validateCoreExecutable(executablePath: string): void {
   accessSync(executablePath, constants.X_OK);
 }
 
+const legacyMigratorResourceRoot = (input: ResolveCoreExecutableInput): string => {
+  if (input.isPackaged) {
+    if (!input.appResourcesPath) {
+      throw new Error("Packaged legacy migration requires an app resources path");
+    }
+    return requireAbsolutePath(input.appResourcesPath, "App resources path");
+  }
+  return path.join(
+    requireAbsolutePath(
+      input.repositoryRoot ?? process.cwd(),
+      "Core repository root",
+    ),
+    "resources",
+  );
+};
+
+const requireSha256 = (value: unknown): string => {
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/u.test(value)) {
+    throw new Error("Legacy migrator manifest has an invalid bundle digest");
+  }
+  return value;
+};
+
+export function resolveLegacyMigratorEnvironment(
+  input: ResolveCoreExecutableInput,
+): NodeJS.ProcessEnv {
+  const environment = input.environment ?? process.env;
+  const configuredExecutable = environment.NODEX_LEGACY_MIGRATOR_EXECUTABLE?.trim();
+  const configuredScript = environment.NODEX_LEGACY_MIGRATOR_SCRIPT?.trim();
+  const configuredSha256 = environment.NODEX_LEGACY_MIGRATOR_SHA256?.trim();
+  if (configuredExecutable && configuredScript && configuredSha256) {
+    return {
+      NODEX_LEGACY_MIGRATOR_EXECUTABLE: requireAbsolutePath(
+        configuredExecutable,
+        "NODEX_LEGACY_MIGRATOR_EXECUTABLE",
+      ),
+      NODEX_LEGACY_MIGRATOR_SCRIPT: requireAbsolutePath(
+        configuredScript,
+        "NODEX_LEGACY_MIGRATOR_SCRIPT",
+      ),
+      NODEX_LEGACY_MIGRATOR_SHA256: requireSha256(configuredSha256),
+    };
+  }
+  if (configuredExecutable || configuredScript || configuredSha256) {
+    throw new Error("Legacy migrator overrides must be configured together");
+  }
+
+  const resourceRoot = legacyMigratorResourceRoot(input);
+  const script = path.join(resourceRoot, "legacy-profile-migrator.mjs");
+  const manifestPath = path.join(resourceRoot, "legacy-profile-migrator.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as LegacyMigratorManifest;
+  return {
+    NODEX_LEGACY_MIGRATOR_EXECUTABLE: requireAbsolutePath(
+      process.execPath,
+      "Electron executable",
+    ),
+    NODEX_LEGACY_MIGRATOR_SCRIPT: script,
+    NODEX_LEGACY_MIGRATOR_SHA256: requireSha256(manifest.bundle?.sha256),
+  };
+}
+
 const appendBoundedStderr = (current: string, chunk: string): string =>
   `${current}${chunk}`.slice(-MAX_STARTUP_STDERR_CHARS);
 
@@ -105,11 +172,13 @@ export async function connectOrStartCore(
   }
 
   validateCoreExecutable(executablePath);
+  const legacyMigratorEnvironment = resolveLegacyMigratorEnvironment(input);
   const child = spawn(executablePath, ["--home", input.nodexHome], {
     detached: true,
     env: {
       ...process.env,
       ...input.environment,
+      ...legacyMigratorEnvironment,
       NODEX_INTERNAL_APP_PACKAGED: input.isPackaged ? "true" : "false",
     },
     stdio: ["ignore", "ignore", "pipe"],
@@ -164,7 +233,10 @@ export async function connectOrStartCore(
     await delay(pollIntervalMs);
   }
 
-  throw new Error("Native Rust Core did not become ready before the startup deadline", {
-    cause: lastConnectionError,
-  });
+  const diagnostic = exit.stderr.trim();
+  const suffix = diagnostic ? `: ${diagnostic}` : "";
+  throw new Error(
+    `Native Rust Core did not become ready before the startup deadline${suffix}`,
+    { cause: lastConnectionError },
+  );
 }

@@ -62,6 +62,22 @@ const rustRows: readonly FailureRow[] = [
     test: "infrastructure::migration::tests::typescript_v84_migration_backs_up_validates_and_publishes_fingerprints_once",
   },
   {
+    failurePoint: "legacy-import-before-publication",
+    test: "infrastructure::legacy_migration::tests::imports_every_published_legacy_boundary_and_reopens_idempotently",
+  },
+  {
+    failurePoint: "legacy-import-sidecar-failure",
+    test: "infrastructure::legacy_migration::tests::failed_sidecar_keeps_the_source_and_removes_its_staging_directory",
+  },
+  {
+    failurePoint: "legacy-import-interrupted-before-first-move",
+    test: "infrastructure::legacy_migration::tests::recovery_before_the_first_move_preserves_live_companion_files",
+  },
+  {
+    failurePoint: "legacy-import-interrupted-install",
+    test: "infrastructure::legacy_migration::tests::interrupted_install_restores_the_legacy_database_and_assets",
+  },
+  {
     failurePoint: "backup-after-filesystem-before-receipt",
     test: "administration::tests::adopts_a_published_backup_after_a_pre_receipt_crash_boundary",
   },

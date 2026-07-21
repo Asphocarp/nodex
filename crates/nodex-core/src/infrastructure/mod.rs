@@ -3,6 +3,7 @@
 pub mod agent_operations;
 pub mod document_repository;
 pub mod event_log;
+pub(crate) mod legacy_migration;
 pub mod metrics;
 pub mod migration;
 pub mod module_receipts;

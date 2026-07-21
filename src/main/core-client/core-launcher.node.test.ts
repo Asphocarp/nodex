@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
 
-import { connectOrStartCore, resolveCoreExecutable } from "./core-launcher";
+import {
+  connectOrStartCore,
+  resolveCoreExecutable,
+  resolveLegacyMigratorEnvironment,
+} from "./core-launcher";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 
@@ -45,6 +49,39 @@ describe("native Core launcher", () => {
         isPackaged: false,
       }),
     ).toThrow("NODEX_CORE_EXECUTABLE must be absolute");
+  });
+
+  test("resolves the frozen legacy migrator for development startup", () => {
+    const environment = resolveLegacyMigratorEnvironment({
+      isPackaged: false,
+      repositoryRoot: path.resolve("."),
+    });
+    expect(environment).toEqual({
+      NODEX_LEGACY_MIGRATOR_EXECUTABLE: process.execPath,
+      NODEX_LEGACY_MIGRATOR_SCRIPT: path.resolve(
+        "resources/legacy-profile-migrator.mjs",
+      ),
+      NODEX_LEGACY_MIGRATOR_SHA256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+    });
+  });
+
+  test("rejects partial or malformed legacy migrator overrides", () => {
+    expect(() =>
+      resolveLegacyMigratorEnvironment({
+        isPackaged: false,
+        environment: { NODEX_LEGACY_MIGRATOR_SCRIPT: "/opt/nodex/migrator.mjs" },
+      }),
+    ).toThrow("overrides must be configured together");
+    expect(() =>
+      resolveLegacyMigratorEnvironment({
+        isPackaged: false,
+        environment: {
+          NODEX_LEGACY_MIGRATOR_EXECUTABLE: "/opt/nodex/node",
+          NODEX_LEGACY_MIGRATOR_SCRIPT: "/opt/nodex/migrator.mjs",
+          NODEX_LEGACY_MIGRATOR_SHA256: "not-a-digest",
+        },
+      }),
+    ).toThrow("invalid bundle digest");
   });
 
   test("starts one detached Core and reuses the validated runtime", async () => {

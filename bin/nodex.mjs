@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,8 +44,31 @@ export function runNativeCli(argv = process.argv.slice(2), environment = process
     return 127;
   }
 
+  const resourceRoots = [
+    join(packageRoot, "resources"),
+    resolve(dirname(executable), ".."),
+  ];
+  const resourceRoot = resourceRoots.find((candidate) =>
+    existsSync(join(candidate, "legacy-profile-migrator.mjs")) &&
+    existsSync(join(candidate, "legacy-profile-migrator.json")),
+  );
+  const legacyEnvironment = resourceRoot
+    ? (() => {
+        const manifest = JSON.parse(
+          readFileSync(join(resourceRoot, "legacy-profile-migrator.json"), "utf8"),
+        );
+        if (!/^[a-f0-9]{64}$/u.test(manifest?.bundle?.sha256)) {
+          throw new Error("Legacy migrator manifest has an invalid bundle digest");
+        }
+        return {
+          NODEX_LEGACY_MIGRATOR_EXECUTABLE: process.execPath,
+          NODEX_LEGACY_MIGRATOR_SCRIPT: join(resourceRoot, "legacy-profile-migrator.mjs"),
+          NODEX_LEGACY_MIGRATOR_SHA256: manifest.bundle.sha256,
+        };
+      })()
+    : {};
   const result = spawnSync(executable, argv, {
-    env: environment,
+    env: { ...environment, ...legacyEnvironment },
     stdio: "inherit",
   });
   if (result.error) {

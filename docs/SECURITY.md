@@ -17,6 +17,15 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   non-symlinked Core binary, then trusts readiness only after the existing
   descriptor, capability, UDS, and handshake checks succeed; failed startup
   never falls back to another authority.
+- Legacy Profile import does not restore JavaScript storage authority. The Host
+  resolves one absolute regular-file migrator executable and bundle from its
+  verified resources, while Core verifies the bundle against its manifest
+  SHA-256 before use. Core accepts only complete normalized schema fingerprints
+  for the published v26/v57/v68/v82/v83 inventories, creates an online database
+  snapshot and validated no-symlink asset backup, and gives the sidecar only a
+  staging Profile. Native exact-v84 and semantic validation must succeed before
+  an fsynced journaled rename can replace live files; failure or interruption
+  preserves or restores the original database, SQLite companions, and assets.
 - The native Core runtime validates the Profile, `run`, and `run/core`
   ancestry without following symlinks; requires current-user ownership; and
   requires 0700 for `run/core` plus 0600 and the expected file type for the
