@@ -10,7 +10,8 @@ use serde_json::Value;
 use crate::document_wire;
 
 pub(crate) const MAX_JSON_REQUEST_BYTES: usize = 2 * 1024 * 1024;
-pub(crate) const MAX_DOCUMENT_REQUEST_BYTES: usize = document_wire::MAX_DOCUMENT_FRAME_BYTES;
+pub(crate) const MAX_DOCUMENT_REQUEST_BYTES: usize =
+    nodex_core_protocol::MAX_DOCUMENT_JSON_REQUEST_BYTES;
 const MAX_JSON_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_DOCUMENT_RESPONSE_BYTES: usize = 16 * 1024 * 1024 + 8 * 1024 * 1024 + 8;
 const MAX_JSON_DEPTH: usize = 32;
@@ -27,8 +28,12 @@ struct TransportError<'a> {
 }
 
 pub(crate) async fn enforce(mut request: Request, next: Next) -> Response {
-    let request_limit = if request.uri().path().starts_with(DOCUMENT_ROUTE_PREFIX) {
+    let document_json =
+        request.uri().path().starts_with(DOCUMENT_ROUTE_PREFIX) && is_json(request.headers());
+    let request_limit = if document_json {
         MAX_DOCUMENT_REQUEST_BYTES
+    } else if request.uri().path().starts_with(DOCUMENT_ROUTE_PREFIX) {
+        document_wire::MAX_DOCUMENT_FRAME_BYTES
     } else {
         MAX_JSON_REQUEST_BYTES
     };
@@ -51,7 +56,14 @@ pub(crate) async fn enforce(mut request: Request, next: Next) -> Response {
             }
         };
         if !bytes.is_empty()
-            && let Err(message) = validate_json(&bytes)
+            && let Err(message) = validate_json(
+                &bytes,
+                if document_json {
+                    nodex_core_protocol::MAX_DOCUMENT_JSON_STRING_BYTES
+                } else {
+                    MAX_JSON_STRING_BYTES
+                },
+            )
         {
             return error_response(StatusCode::BAD_REQUEST, message);
         }
@@ -81,14 +93,19 @@ pub(crate) async fn enforce(mut request: Request, next: Next) -> Response {
     Response::from_parts(parts, Body::from(bytes))
 }
 
-fn validate_json(bytes: &[u8]) -> Result<(), &'static str> {
+fn validate_json(bytes: &[u8], max_string_bytes: usize) -> Result<(), &'static str> {
     let value = serde_json::from_slice::<Value>(bytes)
         .map_err(|_| "request body is not valid UTF-8 JSON")?;
     let mut nodes = 0;
-    validate_json_value(&value, 1, &mut nodes)
+    validate_json_value(&value, 1, &mut nodes, max_string_bytes)
 }
 
-fn validate_json_value(value: &Value, depth: usize, nodes: &mut usize) -> Result<(), &'static str> {
+fn validate_json_value(
+    value: &Value,
+    depth: usize,
+    nodes: &mut usize,
+    max_string_bytes: usize,
+) -> Result<(), &'static str> {
     if depth > MAX_JSON_DEPTH {
         return Err("request JSON exceeds its nesting bound");
     }
@@ -99,7 +116,7 @@ fn validate_json_value(value: &Value, depth: usize, nodes: &mut usize) -> Result
         return Err("request JSON exceeds its node bound");
     }
     match value {
-        Value::String(value) if value.len() > MAX_JSON_STRING_BYTES => {
+        Value::String(value) if value.len() > max_string_bytes => {
             Err("request JSON string exceeds its bound")
         }
         Value::Array(values) => {
@@ -107,7 +124,7 @@ fn validate_json_value(value: &Value, depth: usize, nodes: &mut usize) -> Result
                 return Err("request JSON array exceeds its bound");
             }
             for value in values {
-                validate_json_value(value, depth + 1, nodes)?;
+                validate_json_value(value, depth + 1, nodes, max_string_bytes)?;
             }
             Ok(())
         }
@@ -119,7 +136,7 @@ fn validate_json_value(value: &Value, depth: usize, nodes: &mut usize) -> Result
                 if key.len() > MAX_JSON_KEY_BYTES {
                     return Err("request JSON key exceeds its bound");
                 }
-                validate_json_value(value, depth + 1, nodes)?;
+                validate_json_value(value, depth + 1, nodes, max_string_bytes)?;
             }
             Ok(())
         }
@@ -177,14 +194,20 @@ mod tests {
 
     #[test]
     fn accepts_a_normal_protocol_object() {
-        validate_json(br#"{"version":1,"read":{"kind":"metadata"}}"#)
-            .expect("normal protocol JSON");
+        validate_json(
+            br#"{"version":1,"read":{"kind":"metadata"}}"#,
+            MAX_JSON_STRING_BYTES,
+        )
+        .expect("normal protocol JSON");
     }
 
     #[test]
     fn rejects_invalid_utf8_depth_and_container_bombs() {
         assert_eq!(
-            validate_json(&[b'{', b'"', b'x', b'"', b':', b'"', 0xff, b'"', b'}']),
+            validate_json(
+                &[b'{', b'"', b'x', b'"', b':', b'"', 0xff, b'"', b'}'],
+                MAX_JSON_STRING_BYTES,
+            ),
             Err("request body is not valid UTF-8 JSON")
         );
         let nested = format!(
@@ -193,13 +216,13 @@ mod tests {
             "]".repeat(MAX_JSON_DEPTH + 1)
         );
         assert_eq!(
-            validate_json(nested.as_bytes()),
+            validate_json(nested.as_bytes(), MAX_JSON_STRING_BYTES),
             Err("request JSON exceeds its nesting bound")
         );
         let array = serde_json::to_vec(&vec![0_u8; MAX_JSON_ARRAY_ITEMS + 1])
             .expect("oversized array JSON");
         assert_eq!(
-            validate_json(&array),
+            validate_json(&array, MAX_JSON_STRING_BYTES),
             Err("request JSON array exceeds its bound")
         );
     }
@@ -208,12 +231,43 @@ mod tests {
     fn rejects_oversized_keys_and_strings() {
         let key = serde_json::json!({ "x".repeat(MAX_JSON_KEY_BYTES + 1): true });
         assert_eq!(
-            validate_json(&serde_json::to_vec(&key).expect("key JSON")),
+            validate_json(
+                &serde_json::to_vec(&key).expect("key JSON"),
+                MAX_JSON_STRING_BYTES,
+            ),
             Err("request JSON key exceeds its bound")
         );
         let string = serde_json::json!({ "value": "x".repeat(MAX_JSON_STRING_BYTES + 1) });
         assert_eq!(
-            validate_json(&serde_json::to_vec(&string).expect("string JSON")),
+            validate_json(
+                &serde_json::to_vec(&string).expect("string JSON"),
+                MAX_JSON_STRING_BYTES,
+            ),
+            Err("request JSON string exceeds its bound")
+        );
+    }
+
+    #[test]
+    fn document_json_uses_its_larger_decoded_string_bound() {
+        let accepted = serde_json::json!({
+            "nestedMarkdown": "x".repeat(nodex_core_protocol::MAX_DOCUMENT_JSON_STRING_BYTES),
+        });
+        validate_json(
+            &serde_json::to_vec(&accepted).expect("accepted Document JSON"),
+            nodex_core_protocol::MAX_DOCUMENT_JSON_STRING_BYTES,
+        )
+        .expect("Document JSON accepts an 8 MiB decoded string");
+
+        let rejected = serde_json::json!({
+            "nestedMarkdown": "x".repeat(
+                nodex_core_protocol::MAX_DOCUMENT_JSON_STRING_BYTES + 1
+            ),
+        });
+        assert_eq!(
+            validate_json(
+                &serde_json::to_vec(&rejected).expect("rejected Document JSON"),
+                nodex_core_protocol::MAX_DOCUMENT_JSON_STRING_BYTES,
+            ),
             Err("request JSON string exceeds its bound")
         );
     }

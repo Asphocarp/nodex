@@ -6,9 +6,11 @@ use nodex_core::document::{
 };
 use nodex_core::infrastructure::sqlite::with_immediate_transaction;
 use nodex_core::infrastructure::store::SqliteStoreKernel;
+use nodex_core::workspace::ProjectWorkspaceModule;
 use nodex_core_contracts::document::{
     OwnedDocumentIntent, OwnedDocumentRead, OwnedDocumentReadValue,
 };
+use nodex_core_contracts::workspace::ProjectWorkspaceIntent;
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, LibraryId, ModuleApplyRequest,
     ModuleReadRequest, ProfileId, ProjectId, StoreEpoch,
@@ -43,19 +45,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 [LIBRARY_ID, PROFILE_ID],
             )?;
             transaction.execute(
-                "INSERT INTO projects(id, library_id, name, created, updated) \
-                 VALUES (?1, ?2, 'Core renderer test', \
-                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
-                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
-                [PROJECT_ID, LIBRARY_ID],
-            )?;
-            transaction.execute(
                 "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
                  VALUES (1, ?1, \
                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
                 [STORE_EPOCH],
             )?;
+            Ok(())
+        })
+    })?;
+
+    let context = BoundModuleContext {
+        profile_id: ProfileId(PROFILE_ID.to_owned()),
+        library_id: LibraryId(LIBRARY_ID.to_owned()),
+        project_id: Some(ProjectId(PROJECT_ID.to_owned())),
+        connection_id: "seed:renderer".to_owned(),
+        adapter: AdapterKind::Test,
+    };
+    let workspace = ProjectWorkspaceModule::new(PROFILE_ID, LIBRARY_ID, &kernel)
+        .map_err(|error| std::io::Error::other(error.message))?;
+    workspace
+        .apply(
+            &context,
+            ModuleApplyRequest {
+                version: CORE_CONTRACT_VERSION,
+                operation_id: "seed:project".to_owned(),
+                store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                intent: ProjectWorkspaceIntent::CreateProject {
+                    project_id: PROJECT_ID.to_owned(),
+                    name: "Core renderer test".to_owned(),
+                    description: String::new(),
+                    icon: None,
+                    source_roots: Vec::new(),
+                },
+            },
+        )
+        .map_err(|error| std::io::Error::other(error.message))?;
+
+    kernel.writer().call(|connection| {
+        with_immediate_transaction(connection, |transaction| {
             transaction.execute(
                 "INSERT INTO blocks(\
                    id, project_id, type, lifecycle, location_kind, containing_document_id, \
@@ -92,14 +120,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         })
     })?;
-
-    let context = BoundModuleContext {
-        profile_id: ProfileId(PROFILE_ID.to_owned()),
-        library_id: LibraryId(LIBRARY_ID.to_owned()),
-        project_id: Some(ProjectId(PROJECT_ID.to_owned())),
-        connection_id: "seed:renderer".to_owned(),
-        adapter: AdapterKind::Test,
-    };
     let module = OwnedDocumentModule::new(PROFILE_ID, LIBRARY_ID, &kernel);
     module
         .apply(

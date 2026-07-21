@@ -462,6 +462,9 @@ pub enum LibraryRead {
         file_kind: LibraryPageFileKind,
         prepare: Option<LibraryPagePrepareKind>,
     },
+    PageDraftProjection {
+        page_id: String,
+    },
     AcquireSearchSnapshot {
         scope: LibrarySearchSnapshotScope,
         strict_materialization: bool,
@@ -1142,6 +1145,24 @@ pub struct LibraryPageFileProjection {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageDraftProjection {
+    pub version: u32,
+    pub metadata_projection_version: u32,
+    pub library_id: String,
+    pub store_epoch: String,
+    pub event_head: i64,
+    pub page_id: String,
+    pub metadata_revision: i64,
+    pub document_id: String,
+    pub document_generation: i64,
+    pub document_head_seq: i64,
+    pub meta_yaml: String,
+    pub body_nested_markdown: String,
+    pub title_etag: String,
+    pub body_etag: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LibrarySearchSnapshotScope {
     Database { database_id: String },
@@ -1601,6 +1622,9 @@ pub enum LibraryReadValue {
     },
     PageFile {
         value: Box<LibraryPageFileProjection>,
+    },
+    PageDraftProjection {
+        value: Box<LibraryPageDraftProjection>,
     },
     SearchSnapshotLease {
         value: Box<LibrarySearchSnapshotLease>,

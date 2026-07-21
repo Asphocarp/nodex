@@ -3400,7 +3400,7 @@ mod tests {
                 ModuleReadRequest {
                     version: CORE_CONTRACT_VERSION,
                     read: LibraryRead::PageFile {
-                        page_id: created.page_id,
+                        page_id: created.page_id.clone(),
                         file_kind: LibraryPageFileKind::MetaYaml,
                         prepare: None,
                     },
@@ -3414,6 +3414,27 @@ mod tests {
             metadata.metadata.expect("typed metadata").title_markdown,
             "Native **Page**"
         );
+        let draft = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PageDraftProjection {
+                        page_id: created.page_id.clone(),
+                    },
+                },
+            )
+            .expect("read atomic Page draft projection");
+        let LibraryReadValue::PageDraftProjection { value: draft } = draft.value else {
+            panic!("Page draft projection")
+        };
+        assert_eq!(draft.page_id, created.page_id);
+        assert_eq!(draft.document_id, created.document_id);
+        assert_eq!(draft.document_head_seq, created.document_head_seq);
+        assert_eq!(draft.body_nested_markdown, body.content);
+        assert!(draft.meta_yaml.contains("title: \"Native **Page**\""));
+        assert_eq!(draft.title_etag, created.title_etag);
+        assert_eq!(draft.body_etag, created.body_etag);
     }
 
     #[test]

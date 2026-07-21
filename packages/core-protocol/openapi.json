@@ -7442,6 +7442,77 @@
           }
         }
       },
+      "LibraryPageDraftProjection": {
+        "type": "object",
+        "required": [
+          "version",
+          "metadata_projection_version",
+          "library_id",
+          "store_epoch",
+          "event_head",
+          "page_id",
+          "metadata_revision",
+          "document_id",
+          "document_generation",
+          "document_head_seq",
+          "meta_yaml",
+          "body_nested_markdown",
+          "title_etag",
+          "body_etag"
+        ],
+        "properties": {
+          "body_etag": {
+            "type": "string"
+          },
+          "body_nested_markdown": {
+            "type": "string"
+          },
+          "document_generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "document_head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "event_head": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "meta_yaml": {
+            "type": "string"
+          },
+          "metadata_projection_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "metadata_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "store_epoch": {
+            "type": "string"
+          },
+          "title_etag": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "LibraryPageFileKind": {
         "type": "string",
         "enum": [
@@ -13275,6 +13346,24 @@
               {
                 "type": "object",
                 "required": [
+                  "page_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "page_draft_projection"
+                    ]
+                  },
+                  "page_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "scope",
                   "strict_materialization",
                   "kind"
@@ -18239,6 +18328,24 @@
                           },
                           "value": {
                             "$ref": "#/components/schemas/LibraryPageFileProjection"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "page_draft_projection"
+                            ]
+                          },
+                          "value": {
+                            "$ref": "#/components/schemas/LibraryPageDraftProjection"
                           }
                         }
                       },

@@ -29,7 +29,7 @@ use crate::runtime::{
     selected_project, unwrap_library,
 };
 
-pub(crate) const MAX_BODY_INPUT_BYTES: usize = 8 * 1024 * 1024;
+pub(crate) const MAX_BODY_INPUT_BYTES: usize = nodex_core_protocol::MAX_DOCUMENT_JSON_STRING_BYTES;
 const MAX_BLOCK_JSON_BYTES: usize = 1024 * 1024;
 const MAX_TITLE_INPUT_BYTES: usize = 64 * 1024;
 const MAX_HEAD_REBASE_ATTEMPTS: usize = 3;
@@ -551,6 +551,21 @@ fn mutation_output(
     >,
     return_fields: &[String],
 ) -> Result<CommandOutput, CliError> {
+    Ok(CommandOutput::Json(semantic_mutation_result(
+        page_id,
+        &committed,
+        return_fields,
+    )?))
+}
+
+pub(crate) fn semantic_mutation_result(
+    page_id: &str,
+    committed: &nodex_core_contracts::CommittedModuleValue<
+        nodex_core_contracts::document::OwnedDocumentCommitValue,
+        nodex_core_contracts::document::OwnedDocumentReceipt,
+    >,
+    return_fields: &[String],
+) -> Result<Value, CliError> {
     let effect = committed.value.mutation_effect.as_ref();
     let etags =
         committed.value.semantic_etags.as_ref().ok_or_else(|| {
@@ -586,7 +601,7 @@ fn mutation_output(
         (
             "outcome".to_owned(),
             Value::String(
-                match committed.value.outcome {
+                match &committed.value.outcome {
                     DocumentCommitOutcome::Committed => "committed",
                     DocumentCommitOutcome::NoChange => "no_change",
                 }
@@ -611,7 +626,7 @@ fn mutation_output(
             serde_json::to_value(&committed.value).map_err(internal)?,
         );
     }
-    Ok(CommandOutput::Json(Value::Object(result)))
+    Ok(Value::Object(result))
 }
 
 pub(crate) fn validate_return_fields(fields: &[String]) -> Result<(), CliError> {

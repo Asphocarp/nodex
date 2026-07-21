@@ -1,8 +1,8 @@
 use chrono::{DateTime, NaiveDate};
 use nodex_core_contracts::library::{
-    LibraryPageFileKind, LibraryPageFileProjection, LibraryPageFileValidators,
-    LibraryPagePrepareKind, PageMetaProjectionV1, ProjectedIdentityV1, ProjectedPropertyTypeV1,
-    ProjectedPropertyV1, ProjectedPropertyValueV1, ProjectedScheduleV1,
+    LibraryPageDraftProjection, LibraryPageFileKind, LibraryPageFileProjection,
+    LibraryPageFileValidators, LibraryPagePrepareKind, PageMetaProjectionV1, ProjectedIdentityV1,
+    ProjectedPropertyTypeV1, ProjectedPropertyV1, ProjectedPropertyValueV1, ProjectedScheduleV1,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
@@ -17,6 +17,7 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use super::content::page_content;
 
 const PAGE_FILE_VERSION: u32 = 1;
+const PAGE_DRAFT_VERSION: u32 = 1;
 const MAX_IDENTITY_BYTES: usize = 512;
 const MAX_NAME_BYTES: usize = 4_096;
 const MAX_TEXT_BYTES: usize = 64 * 1024;
@@ -108,6 +109,66 @@ pub(super) fn page_file(
         content,
         metadata,
         validators,
+    })
+}
+
+pub(super) fn page_draft_projection(
+    connection: &Connection,
+    library_id: &str,
+    store_epoch: &str,
+    event_head: i64,
+    page_id: &str,
+) -> Result<LibraryPageDraftProjection, StoreError> {
+    let meta = page_file(
+        connection,
+        library_id,
+        store_epoch,
+        event_head,
+        page_id,
+        LibraryPageFileKind::MetaYaml,
+        Some(LibraryPagePrepareKind::TitleSet),
+    )?;
+    let body = page_file(
+        connection,
+        library_id,
+        store_epoch,
+        event_head,
+        page_id,
+        LibraryPageFileKind::BodyNestedMarkdown,
+        Some(LibraryPagePrepareKind::DocumentReplace),
+    )?;
+    if meta.document_id != body.document_id
+        || meta.document_generation != body.document_generation
+        || meta.document_head_seq != body.document_head_seq
+        || meta.metadata_revision != body.metadata_revision
+    {
+        return Err(corrupt(
+            "Page draft projections do not share one authority revision",
+        ));
+    }
+    let title_etag = meta
+        .validators
+        .title_etag
+        .ok_or_else(|| corrupt("Page draft metadata omitted its title ETag"))?;
+    let body_etag = body
+        .validators
+        .body_etag
+        .ok_or_else(|| corrupt("Page draft body omitted its body ETag"))?;
+    Ok(LibraryPageDraftProjection {
+        version: PAGE_DRAFT_VERSION,
+        metadata_projection_version: PAGE_FILE_VERSION,
+        library_id: library_id.to_owned(),
+        store_epoch: store_epoch.to_owned(),
+        event_head,
+        page_id: page_id.to_owned(),
+        metadata_revision: meta.metadata_revision,
+        document_id: meta.document_id,
+        document_generation: meta.document_generation,
+        document_head_seq: meta.document_head_seq,
+        meta_yaml: meta.content,
+        body_nested_markdown: body.content,
+        title_etag,
+        body_etag,
     })
 }
 

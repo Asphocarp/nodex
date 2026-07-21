@@ -32,8 +32,8 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::cli::{
-    BackupCommand, BlockArgs, BlockCommand, Cli, Command, HistoryArgs, PageArgs, PageCommand,
-    PageTitleArgs, PageTitleCommand, PrepareKind, ReadArgs, RgArgs, SedArgs,
+    BackupCommand, BlockArgs, BlockCommand, Cli, Command, DraftArgs, DraftCommand, HistoryArgs,
+    PageArgs, PageCommand, PageTitleArgs, PageTitleCommand, PrepareKind, ReadArgs, RgArgs, SedArgs,
 };
 use crate::error::{CliError, CliErrorCode};
 
@@ -115,6 +115,15 @@ fn write_line_terminated(writer: &mut impl Write, bytes: &[u8]) -> Result<(), Cl
 
 pub fn execute(cli: Cli) -> Result<CommandOutput, CliError> {
     let cwd = env::current_dir().map_err(core_unavailable)?;
+    match &cli.command {
+        Command::Draft(DraftArgs {
+            command: DraftCommand::Diff { directory },
+        }) => return crate::draft::diff(directory),
+        Command::Draft(DraftArgs {
+            command: DraftCommand::Discard { directory },
+        }) => return crate::draft::discard(directory),
+        _ => {}
+    }
     let home = resolve_home(&cwd)?;
     let client =
         connect_or_launch(&home, env!("CARGO_PKG_VERSION"), None).map_err(map_client_error)?;
@@ -266,6 +275,12 @@ pub fn execute(cli: Cli) -> Result<CommandOutput, CliError> {
             arguments.mutation.idempotency_key.as_deref(),
             cli.json,
         ),
+        Command::Draft(DraftArgs {
+            command: DraftCommand::Create { page, output },
+        }) => crate::draft::create(&client, cli.project.as_deref(), &cwd, &page, &output),
+        Command::Draft(DraftArgs {
+            command: DraftCommand::Apply { directory },
+        }) => crate::draft::apply(&client, cli.project.as_deref(), &cwd, &directory),
         _ => Err(CliError::new(
             CliErrorCode::InvalidInput,
             "this native CLI command is parsed but not implemented yet",

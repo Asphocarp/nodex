@@ -29,6 +29,13 @@ use utoipa::{OpenApi, ToSchema};
 
 pub const PROTOCOL_MIN: u32 = 1;
 pub const PROTOCOL_MAX: u32 = 1;
+/// Maximum decoded UTF-8 size of one JSON string on the Document transport.
+///
+/// This is also the public Page body input bound: JSON escaping may make the
+/// encoded request substantially larger than the decoded string.
+pub const MAX_DOCUMENT_JSON_STRING_BYTES: usize = 8 * 1024 * 1024;
+/// Maximum encoded JSON body accepted by a Document HTTP endpoint.
+pub const MAX_DOCUMENT_JSON_REQUEST_BYTES: usize = 64 * 1024 * 1024;
 
 #[cfg(unix)]
 pub mod client;

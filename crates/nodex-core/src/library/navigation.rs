@@ -154,6 +154,24 @@ pub(super) fn read(
                 )?),
             })
         }
+        LibraryRead::PageDraftProjection { page_id } => {
+            require_bound_page_read_access(
+                connection,
+                library_id,
+                requesting_project_id,
+                requesting_adapter,
+                &page_id,
+            )?;
+            Ok(LibraryReadValue::PageDraftProjection {
+                value: Box::new(super::page_projection::page_draft_projection(
+                    connection,
+                    library_id,
+                    store_epoch,
+                    event_head,
+                    &page_id,
+                )?),
+            })
+        }
         LibraryRead::AgentBlockTarget {
             block_id,
             authorization,

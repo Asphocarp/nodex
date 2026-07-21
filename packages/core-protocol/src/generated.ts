@@ -1903,6 +1903,28 @@ export interface components {
             /** Format: int64 */
             readonly schema_version: number;
         };
+        readonly LibraryPageDraftProjection: {
+            readonly body_etag: string;
+            readonly body_nested_markdown: string;
+            /** Format: int64 */
+            readonly document_generation: number;
+            /** Format: int64 */
+            readonly document_head_seq: number;
+            readonly document_id: string;
+            /** Format: int64 */
+            readonly event_head: number;
+            readonly library_id: string;
+            readonly meta_yaml: string;
+            /** Format: int32 */
+            readonly metadata_projection_version: number;
+            /** Format: int64 */
+            readonly metadata_revision: number;
+            readonly page_id: string;
+            readonly store_epoch: string;
+            readonly title_etag: string;
+            /** Format: int32 */
+            readonly version: number;
+        };
         /** @enum {string} */
         readonly LibraryPageFileKind: "body_nested_markdown" | "meta_yaml";
         readonly LibraryPageFileProjection: {
@@ -3270,6 +3292,10 @@ export interface components {
                 readonly prepare?: null | components["schemas"]["LibraryPagePrepareKind"];
             } | {
                 /** @enum {string} */
+                readonly kind: "page_draft_projection";
+                readonly page_id: string;
+            } | {
+                /** @enum {string} */
                 readonly kind: "acquire_search_snapshot";
                 readonly scope: components["schemas"]["LibrarySearchSnapshotScope"];
                 readonly strict_materialization: boolean;
@@ -4367,6 +4393,10 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "page_file";
                     readonly value: components["schemas"]["LibraryPageFileProjection"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "page_draft_projection";
+                    readonly value: components["schemas"]["LibraryPageDraftProjection"];
                 } | {
                     /** @enum {string} */
                     readonly kind: "search_snapshot_lease";

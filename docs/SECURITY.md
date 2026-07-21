@@ -51,6 +51,15 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   manifest before invoking the packaged binary with `--no-config`, a fixed
   snapshot root, no shell, and a closed read-only option set. Logical Page
   titles affect display mapping only and never physical path construction.
+- Native CLI drafts use an explicit current-user-owned destination and a fixed
+  manifest/base/work layout. Creation stages beside the destination and
+  atomically promotes only a complete tree; base evidence and apply markers are
+  read-only, while editable files are private. Every read opens with no-follow,
+  validates ownership, type, mode, exact entry names, hashes, UTF-8, and byte
+  bounds, and rejects symlink traversal or unknown entries. Core receives only
+  the selected identities and accepted title/body semantic commands, never a
+  filesystem path. Discard has no recursive caller-selected deletion path and
+  refuses uncertainty instead of broadening cleanup.
 - Stable asset URI scheme avoids embedding brittle absolute local URLs.
 - Codex approvals are explicit protocol responses (`accept`/`decline`/etc) and are gated by the per-project Threads permission mode.
 - Codex user-input requests are never auto-answered and require explicit renderer interaction.
