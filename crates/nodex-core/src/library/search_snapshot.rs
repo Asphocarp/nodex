@@ -36,9 +36,24 @@ struct PreparedFile {
     bytes: Vec<u8>,
 }
 
+#[derive(Clone)]
 pub(super) struct PreparedSearchSnapshot {
     manifest: LibrarySearchSnapshotManifest,
     files: Vec<PreparedFile>,
+}
+
+#[derive(Clone, Eq, PartialEq)]
+pub(super) struct SearchSnapshotCacheKey {
+    project_id: String,
+    store_epoch: String,
+    event_head: i64,
+    scope: LibrarySearchSnapshotScope,
+    strict_materialization: bool,
+}
+
+struct CachedSearchSnapshot {
+    key: SearchSnapshotCacheKey,
+    prepared: PreparedSearchSnapshot,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -50,17 +65,37 @@ struct LeaseMarker {
 
 pub(super) struct SearchSnapshotStore {
     root: PathBuf,
+    cached: Option<CachedSearchSnapshot>,
+    lease_keys: BTreeMap<String, SearchSnapshotCacheKey>,
+    reusable_key: Option<SearchSnapshotCacheKey>,
 }
 
 impl SearchSnapshotStore {
     pub(super) fn new(profile_home: &Path) -> Self {
         Self {
             root: profile_home.join("search-snapshots"),
+            cached: None,
+            lease_keys: BTreeMap::new(),
+            reusable_key: None,
         }
+    }
+
+    pub(super) fn acquire_cached(
+        &mut self,
+        key: &SearchSnapshotCacheKey,
+    ) -> Result<Option<LibrarySearchSnapshotLease>, StoreError> {
+        let Some(cached) = &self.cached else {
+            return Ok(None);
+        };
+        if cached.key != *key {
+            return Ok(None);
+        }
+        self.acquire(cached.prepared.clone(), key.clone()).map(Some)
     }
 
     pub(super) fn cleanup_startup(&mut self) -> Result<(), StoreError> {
         self.ensure_layout()?;
+        self.discard_reusable()?;
         self.cleanup_cache_temporary_files()?;
         self.cleanup_expired(now_unix_ms()?)
     }
@@ -68,6 +103,7 @@ impl SearchSnapshotStore {
     pub(super) fn acquire(
         &mut self,
         prepared: PreparedSearchSnapshot,
+        cache_key: SearchSnapshotCacheKey,
     ) -> Result<LibrarySearchSnapshotLease, StoreError> {
         let now = now_unix_ms()?;
         self.ensure_layout()?;
@@ -79,51 +115,65 @@ impl SearchSnapshotStore {
         let leases_root = self.root.join("leases");
         let staging = leases_root.join(format!(".{lease_id}.tmp"));
         let destination = leases_root.join(&lease_id);
-        create_owned_directory(&staging).map_err(|error| {
-            snapshot_context(error, "could not create the lease staging directory")
-        })?;
+        let reused_tree = self.reusable_key.as_ref() == Some(&cache_key)
+            && fs::symlink_metadata(self.reusable_path()).is_ok();
+        if reused_tree {
+            fs::rename(self.reusable_path(), &staging)
+                .map_err(io_error)
+                .map_err(|error| {
+                    snapshot_context(error, "could not adopt the reusable lease tree")
+                })?;
+            self.reusable_key = None;
+        } else {
+            self.discard_reusable()?;
+            create_owned_directory(&staging).map_err(|error| {
+                snapshot_context(error, "could not create the lease staging directory")
+            })?;
+        }
 
         let result = (|| {
-            let pages_root = staging.join("pages");
-            create_owned_directory(&pages_root).map_err(|error| {
-                snapshot_context(error, "could not create the leased pages directory")
-            })?;
-            let mut page_directories = Vec::new();
-            for file in &prepared.files {
-                let cache = self.ensure_cache_file(file).map_err(|error| {
-                    snapshot_context(error, "could not validate the projection cache")
+            if !reused_tree {
+                let pages_root = staging.join("pages");
+                create_owned_directory(&pages_root).map_err(|error| {
+                    snapshot_context(error, "could not create the leased pages directory")
                 })?;
-                let target = staging.join(&file.relative_path);
-                let parent = target
-                    .parent()
-                    .ok_or_else(|| internal("Search snapshot file has no parent"))?;
-                if !parent.is_dir() {
-                    create_owned_directory(parent).map_err(|error| {
-                        snapshot_context(error, "could not create a leased Page directory")
+                let mut page_directories = Vec::new();
+                for file in &prepared.files {
+                    let cache = self.ensure_cache_file(file).map_err(|error| {
+                        snapshot_context(error, "could not validate the projection cache")
                     })?;
-                    page_directories.push(parent.to_path_buf());
+                    let target = staging.join(&file.relative_path);
+                    let parent = target
+                        .parent()
+                        .ok_or_else(|| internal("Search snapshot file has no parent"))?;
+                    if !parent.is_dir() {
+                        create_owned_directory(parent).map_err(|error| {
+                            snapshot_context(error, "could not create a leased Page directory")
+                        })?;
+                        page_directories.push(parent.to_path_buf());
+                    }
+                    link_immutable_file(&cache, &target, &file.sha256).map_err(|error| {
+                        snapshot_context(error, "could not assemble an immutable projection file")
+                    })?;
                 }
-                copy_immutable_file(&cache, &target, &file.sha256).map_err(|error| {
-                    snapshot_context(error, "could not assemble an immutable projection file")
-                })?;
-            }
 
-            for directory in page_directories {
+                for directory in page_directories {
+                    fs::set_permissions(
+                        &directory,
+                        fs::Permissions::from_mode(READ_ONLY_DIRECTORY_MODE),
+                    )
+                    .map_err(io_error)
+                    .map_err(|error| {
+                        snapshot_context(error, "could not seal a leased Page directory")
+                    })?;
+                }
                 fs::set_permissions(
-                    &directory,
+                    &pages_root,
                     fs::Permissions::from_mode(READ_ONLY_DIRECTORY_MODE),
                 )
                 .map_err(io_error)
-                .map_err(|error| {
-                    snapshot_context(error, "could not seal a leased Page directory")
-                })?;
+                .map_err(|error| snapshot_context(error, "could not seal the leased pages root"))?;
             }
-            fs::set_permissions(
-                &pages_root,
-                fs::Permissions::from_mode(READ_ONLY_DIRECTORY_MODE),
-            )
-            .map_err(io_error)
-            .map_err(|error| snapshot_context(error, "could not seal the leased pages root"))?;
 
             let marker = LeaseMarker {
                 lease_id: lease_id.clone(),
@@ -152,12 +202,18 @@ impl SearchSnapshotStore {
             return Err(error);
         }
 
-        Ok(LibrarySearchSnapshotLease {
+        let lease = LibrarySearchSnapshotLease {
             lease_id,
             expires_at_unix_ms,
             physical_root: destination.to_string_lossy().into_owned(),
-            manifest: prepared.manifest,
-        })
+            manifest: prepared.manifest.clone(),
+        };
+        self.cached = Some(CachedSearchSnapshot {
+            key: cache_key.clone(),
+            prepared,
+        });
+        self.lease_keys.insert(lease.lease_id.clone(), cache_key);
+        Ok(lease)
     }
 
     pub(super) fn release(
@@ -171,10 +227,18 @@ impl SearchSnapshotStore {
         self.cleanup_expired(now_unix_ms()?)?;
         let released = match fs::symlink_metadata(&target) {
             Ok(_) => {
-                remove_owned_tree(&target)?;
+                let lease_key = self.lease_keys.remove(lease_id);
+                if self.can_reuse(&target, lease_key.as_ref())? {
+                    self.publish_reusable(&target, lease_key.expect("reusable lease key"))?;
+                } else {
+                    remove_owned_tree(&target)?;
+                }
                 true
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => existed_before_cleanup,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                self.lease_keys.remove(lease_id);
+                existed_before_cleanup
+            }
             Err(error) => return Err(io_error(error)),
         };
         Ok(LibrarySearchSnapshotRelease {
@@ -185,12 +249,20 @@ impl SearchSnapshotStore {
 
     pub(super) fn invalidate_all(&mut self) -> Result<(), StoreError> {
         self.ensure_layout()?;
+        self.cached = None;
+        self.lease_keys.clear();
+        self.discard_reusable()?;
         let leases_root = self.root.join("leases");
         for entry in fs::read_dir(&leases_root).map_err(io_error)? {
             let entry = entry.map_err(io_error)?;
             remove_owned_tree(&entry.path())?;
         }
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub(super) fn invalidate_prepared(&mut self) {
+        self.cached = None;
     }
 
     fn ensure_layout(&self) -> Result<(), StoreError> {
@@ -203,7 +275,7 @@ impl SearchSnapshotStore {
         Ok(())
     }
 
-    fn cleanup_expired(&self, now: i64) -> Result<(), StoreError> {
+    fn cleanup_expired(&mut self, now: i64) -> Result<(), StoreError> {
         let leases_root = self.root.join("leases");
         require_owned_directory(&leases_root)?;
         for entry in fs::read_dir(&leases_root).map_err(io_error)? {
@@ -229,13 +301,73 @@ impl SearchSnapshotStore {
             validate_lease_id(name)?;
             if metadata.permissions().mode() & 0o777 != READ_ONLY_DIRECTORY_MODE {
                 remove_owned_tree(&path)?;
+                self.lease_keys.remove(name);
                 continue;
             }
             let marker = read_lease_marker(&path.join("manifest.json"))?;
             if marker.lease_id != name || marker.expires_at_unix_ms <= now {
                 remove_owned_tree(&path)?;
+                self.lease_keys.remove(name);
             }
         }
+        Ok(())
+    }
+
+    fn reusable_path(&self) -> PathBuf {
+        self.root.join(".reusable")
+    }
+
+    fn discard_reusable(&mut self) -> Result<(), StoreError> {
+        self.reusable_key = None;
+        remove_owned_tree(&self.reusable_path())
+    }
+
+    fn can_reuse(
+        &mut self,
+        lease_root: &Path,
+        lease_key: Option<&SearchSnapshotCacheKey>,
+    ) -> Result<bool, StoreError> {
+        let (Some(lease_key), Some(cached)) = (lease_key, &self.cached) else {
+            return Ok(false);
+        };
+        if cached.key != *lease_key {
+            return Ok(false);
+        }
+        if self.reusable_key.as_ref() == Some(lease_key) {
+            return Ok(false);
+        }
+        if self.reusable_key.is_some() {
+            self.discard_reusable()?;
+        }
+        let cached = self
+            .cached
+            .as_ref()
+            .expect("matching search snapshot cache");
+        for file in &cached.prepared.files {
+            if !validate_immutable_file(&lease_root.join(&file.relative_path), &file.sha256)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    fn publish_reusable(
+        &mut self,
+        lease_root: &Path,
+        key: SearchSnapshotCacheKey,
+    ) -> Result<(), StoreError> {
+        let reusable = self.reusable_path();
+        if fs::symlink_metadata(&reusable).is_ok() {
+            remove_owned_tree(&reusable)?;
+        }
+        fs::set_permissions(
+            lease_root,
+            fs::Permissions::from_mode(PRIVATE_DIRECTORY_MODE),
+        )
+        .map_err(io_error)?;
+        remove_owned_file(&lease_root.join("manifest.json"))?;
+        fs::rename(lease_root, &reusable).map_err(io_error)?;
+        self.reusable_key = Some(key);
         Ok(())
     }
 
@@ -293,6 +425,28 @@ impl SearchSnapshotStore {
         result?;
         Ok(path)
     }
+}
+
+pub(super) fn cache_key(
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    event_head: i64,
+    scope: LibrarySearchSnapshotScope,
+    strict_materialization: bool,
+) -> Result<SearchSnapshotCacheKey, StoreError> {
+    let project_id = context
+        .project_id
+        .as_ref()
+        .map(|project| project.0.clone())
+        .ok_or_else(|| unauthorized("Search snapshots require a bound Project"))?;
+    validate_identity(&project_id, "Search snapshot Project")?;
+    Ok(SearchSnapshotCacheKey {
+        project_id,
+        store_epoch: store_epoch.to_owned(),
+        event_head,
+        scope,
+        strict_materialization,
+    })
 }
 
 pub(super) fn prepare(
@@ -932,7 +1086,7 @@ fn write_immutable_file(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
     fs::set_permissions(path, fs::Permissions::from_mode(READ_ONLY_FILE_MODE)).map_err(io_error)
 }
 
-fn copy_immutable_file(
+fn link_immutable_file(
     source: &Path,
     destination: &Path,
     expected: &str,
@@ -942,13 +1096,14 @@ fn copy_immutable_file(
             "Search snapshot cache entry failed validation before assembly",
         ));
     }
-    let bytes = fs::read(source).map_err(io_error)?;
-    if sha256(&bytes) != expected {
+    fs::hard_link(source, destination).map_err(io_error)?;
+    if !validate_immutable_file(destination, expected)? {
+        let _ = fs::remove_file(destination);
         return Err(invalid_profile(
             "Search snapshot cache changed during assembly",
         ));
     }
-    write_immutable_file(destination, &bytes)
+    Ok(())
 }
 
 fn remove_owned_file(path: &Path) -> Result<(), StoreError> {
@@ -963,7 +1118,6 @@ fn remove_owned_file(path: &Path) -> Result<(), StoreError> {
             "Search snapshot cache entry is not a regular file",
         ));
     }
-    fs::set_permissions(path, fs::Permissions::from_mode(PRIVATE_FILE_MODE)).map_err(io_error)?;
     fs::remove_file(path).map_err(io_error)
 }
 
@@ -993,8 +1147,6 @@ fn remove_owned_tree(path: &Path) -> Result<(), StoreError> {
                 "Search snapshot lease contains an unsupported entry",
             ));
         }
-        fs::set_permissions(&child, fs::Permissions::from_mode(PRIVATE_FILE_MODE))
-            .map_err(io_error)?;
         fs::remove_file(child).map_err(io_error)?;
     }
     fs::remove_dir(path).map_err(io_error)

@@ -4,17 +4,16 @@ export type DataAuthorityBackend = "typescript" | "rust";
 
 export interface DataAuthoritySelection {
   readonly get: () => DataAuthorityBackend | null;
-  readonly select: (environment?: NodeJS.ProcessEnv) => DataAuthorityBackend;
+  readonly select: (environment?: NodeJS.ProcessEnv) => "rust";
 }
 
 export function resolveDataAuthorityBackend(
   environment: NodeJS.ProcessEnv = process.env,
-): DataAuthorityBackend {
+): "rust" {
   const configured = environment[NODEX_CORE_BACKEND_ENV]?.trim().toLowerCase();
-  if (!configured || configured === "typescript") return "typescript";
-  if (configured === "rust") return "rust";
+  if (!configured || configured === "rust") return "rust";
   throw new Error(
-    `${NODEX_CORE_BACKEND_ENV} must be either "typescript" or "rust"`,
+    `${NODEX_CORE_BACKEND_ENV}=typescript is no longer supported; Rust Core is the only production data authority`,
   );
 }
 
@@ -40,15 +39,15 @@ const processSelection = createDataAuthoritySelection();
 
 export const selectDataAuthorityBackend = (
   environment: NodeJS.ProcessEnv = process.env,
-): DataAuthorityBackend => processSelection.select(environment);
+): "rust" => processSelection.select(environment);
 
 export const getSelectedDataAuthorityBackend = (): DataAuthorityBackend | null =>
   processSelection.get();
 
 export function requireTypeScriptDataAuthority(): void {
-  const selected = selectDataAuthorityBackend();
-  if (selected === "typescript") return;
+  const selected = getSelectedDataAuthorityBackend();
+  if (selected === null && process.env.NODE_ENV === "test") return;
   throw new Error(
-    "The TypeScript SQLite authority is disabled because native Rust Core owns this Profile",
+    "The TypeScript SQLite authority is test-oracle-only because native Rust Core owns this Profile in production",
   );
 }

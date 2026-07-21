@@ -21,6 +21,13 @@ const MAX_JSON_REQUEST_BYTES = 64 * 1024;
 const MAX_JSON_RESPONSE_BYTES = 512 * 1024;
 const MAX_EVENT_FRAME_BYTES = 512 * 1024;
 const REQUEST_TIMEOUT_MS = 5_000;
+const MAX_CONFIGURED_JSON_RESPONSE_BYTES = 64 * 1024 * 1024;
+const MAX_CONFIGURED_REQUEST_TIMEOUT_MS = 120_000;
+
+export interface UdsHttpTransportOptions {
+  readonly maximumJsonResponseBytes?: number;
+  readonly requestTimeoutMs?: number;
+}
 
 export type DocumentFrameResponse<Response> =
   | { readonly kind: "binary"; readonly bytes: Uint8Array }
@@ -44,10 +51,25 @@ export class CoreEventReplayError extends Error {
 }
 
 export class UdsHttpTransport {
+  readonly #maximumJsonResponseBytes: number;
+  readonly #requestTimeoutMs: number;
+
   constructor(
     readonly socketPath: string,
     readonly authCapability: string,
-  ) {}
+    options: UdsHttpTransportOptions = {},
+  ) {
+    this.#maximumJsonResponseBytes = boundedPositiveInteger(
+      options.maximumJsonResponseBytes ?? MAX_JSON_RESPONSE_BYTES,
+      MAX_CONFIGURED_JSON_RESPONSE_BYTES,
+      "Core JSON response limit",
+    );
+    this.#requestTimeoutMs = boundedPositiveInteger(
+      options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
+      MAX_CONFIGURED_REQUEST_TIMEOUT_MS,
+      "Core request timeout",
+    );
+  }
 
   requestJson<Response>(
     method: "GET" | "POST",
@@ -85,11 +107,11 @@ export class UdsHttpTransport {
           },
         },
         (response) => {
-          collectResponse(response, MAX_JSON_RESPONSE_BYTES)
+          collectResponse(response, this.#maximumJsonResponseBytes)
             .then((bytes) => {
               const value = decodeBoundedJson<Response>(
                 bytes,
-                MAX_JSON_RESPONSE_BYTES,
+                this.#maximumJsonResponseBytes,
                 "Core response",
               );
               const status = response.statusCode ?? 0;
@@ -102,7 +124,7 @@ export class UdsHttpTransport {
             .catch((error: unknown) => settle(() => reject(error)));
         },
       );
-      request.setTimeout(REQUEST_TIMEOUT_MS, () => {
+      request.setTimeout(this.#requestTimeoutMs, () => {
         request.destroy(new Error("Core request timed out"));
       });
       request.on("error", (error) => settle(() => reject(error)));
@@ -170,7 +192,7 @@ export class UdsHttpTransport {
             .catch((error: unknown) => settle(() => reject(error)));
         },
       );
-      request.setTimeout(REQUEST_TIMEOUT_MS, () => {
+      request.setTimeout(this.#requestTimeoutMs, () => {
         request.destroy(new Error("Core Document request timed out"));
       });
       request.on("error", (error) => settle(() => reject(error)));
@@ -216,11 +238,11 @@ export class UdsHttpTransport {
           request.setTimeout(0);
           const status = response.statusCode ?? 0;
           if (status !== 200) {
-            collectResponse(response, MAX_JSON_RESPONSE_BYTES)
+            collectResponse(response, this.#maximumJsonResponseBytes)
               .then((bytes) => {
                 const value = decodeBoundedJson<unknown>(
                   bytes,
-                  MAX_JSON_RESPONSE_BYTES,
+                  this.#maximumJsonResponseBytes,
                   "Core event error response",
                 );
                 reject(new CoreHttpError(status, errorMessage(value)));
@@ -295,13 +317,24 @@ export class UdsHttpTransport {
         }
         if (!closed) rejectDone?.(error);
       });
-      request.setTimeout(REQUEST_TIMEOUT_MS, () => {
+      request.setTimeout(this.#requestTimeoutMs, () => {
         request.destroy(new Error("Core event stream timed out before opening"));
       });
       request.end();
     });
   }
 }
+
+const boundedPositiveInteger = (
+  value: number,
+  maximum: number,
+  label: string,
+): number => {
+  if (!Number.isSafeInteger(value) || value <= 0 || value > maximum) {
+    throw new Error(`${label} must be a positive integer no greater than ${maximum}`);
+  }
+  return value;
+};
 
 const collectResponse = (
   response: IncomingMessage,

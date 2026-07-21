@@ -1,4 +1,3 @@
-import type { DataAuthorityBackend } from "../data-authority";
 import { selectDataAuthorityBackend } from "../data-authority";
 import { CoreClient } from "./core-client";
 import {
@@ -24,15 +23,13 @@ export type DesktopDataAuthorityRuntime =
 
 export interface InitializeDesktopDataAuthorityInput
   extends Omit<ConnectOrStartCoreInput, "nodexHome"> {
-  readonly backend?: DataAuthorityBackend;
   readonly nodexHome: string;
 }
 
 export async function initializeDesktopDataAuthority(
   input: InitializeDesktopDataAuthorityInput,
-): Promise<DesktopDataAuthorityRuntime> {
-  const backend = input.backend ?? selectDataAuthorityBackend();
-  if (backend === "typescript") return { backend };
+): Promise<RustDataAuthorityRuntime> {
+  const backend = selectDataAuthorityBackend();
 
   const launch = await connectOrStartCore(input);
   const health = await launch.client.health();

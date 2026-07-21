@@ -2466,7 +2466,7 @@ fn internal(message: &str) -> StoreError {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
     use nodex_core_contracts::document::{DocumentSemanticCommand, OwnedDocumentIntent};
     use nodex_core_contracts::library::{
@@ -3698,6 +3698,15 @@ mod tests {
             .join("search-snapshots/cache/v1/body")
             .join(&page.body.sha256);
         assert!(body_cache.is_file());
+        assert_eq!(
+            std::fs::metadata(root.join(&page.body.physical_relative_path))
+                .expect("leased body metadata")
+                .ino(),
+            std::fs::metadata(&body_cache)
+                .expect("cached body metadata")
+                .ino(),
+            "unchanged projections must use immutable hard links",
+        );
 
         kernel
             .writer()
@@ -3713,6 +3722,10 @@ mod tests {
                 }
             })
             .expect("make materialization stale");
+        module
+            .search_snapshot_lease_registry()
+            .expect("search snapshot registry")
+            .invalidate_prepared();
         let stale = module
             .read(
                 &context(),
@@ -3774,6 +3787,10 @@ mod tests {
                 }
             })
             .expect("restore exact materialization");
+        module
+            .search_snapshot_lease_registry()
+            .expect("search snapshot registry")
+            .invalidate_prepared();
         let partial_lease_id = partial_lease.lease_id.clone();
 
         std::fs::set_permissions(&body_cache, std::fs::Permissions::from_mode(0o600))
@@ -3975,6 +3992,39 @@ mod tests {
         let LibraryReadValue::SearchSnapshotRelease { value } = release(&database_lease.lease_id)
         else {
             panic!("Database search snapshot release")
+        };
+        assert!(value.released);
+        let reusable_root = directory.path().join("search-snapshots/.reusable");
+        assert!(reusable_root.is_dir(), "validated lease tree is reusable");
+        let reused_database_snapshot = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::AcquireSearchSnapshot {
+                        scope: LibrarySearchSnapshotScope::Database {
+                            database_id: "018f0000-0000-7000-8000-000000000001".to_owned(),
+                        },
+                        strict_materialization: true,
+                    },
+                },
+            )
+            .expect("reuse unchanged Database search snapshot");
+        let LibraryReadValue::SearchSnapshotLease {
+            value: reused_database_lease,
+        } = reused_database_snapshot.value
+        else {
+            panic!("reused Database search snapshot lease")
+        };
+        assert_eq!(reused_database_lease.manifest, database_lease.manifest);
+        assert!(
+            !reusable_root.exists(),
+            "reusable tree moves atomically into its new random lease"
+        );
+        let LibraryReadValue::SearchSnapshotRelease { value } =
+            release(&reused_database_lease.lease_id)
+        else {
+            panic!("reused Database search snapshot release")
         };
         assert!(value.released);
         let LibraryReadValue::SearchSnapshotRelease { value } = release(&lease.lease_id) else {

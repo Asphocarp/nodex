@@ -109,7 +109,6 @@ const readRuntimePid = (home: string): number => {
 };
 
 afterEach(() => {
-  delete process.env.NODEX_CORE_BACKEND;
   delete process.env.NODEX_CORE_EXECUTABLE;
   delete process.env.NODEX_HOME;
   for (const directory of temporaryDirectories.splice(0)) {
@@ -147,7 +146,6 @@ describe.skipIf(!packagedCli)("packaged native CLI and Electron authority", () =
       expect(coldDoctor.ok).toBe(true);
       const coldCorePid = readRuntimePid(home);
 
-      process.env.NODEX_CORE_BACKEND = "rust";
       process.env.NODEX_CORE_EXECUTABLE = packagedCore;
       process.env.NODEX_HOME = home;
       const selected = await initializeDesktopDataAuthority({

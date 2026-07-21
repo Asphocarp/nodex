@@ -52,6 +52,19 @@ afterEach(async () => {
 });
 
 describe("UDS Core event replay boundaries", () => {
+  test("bounds caller-specific response and timeout budgets", () => {
+    expect(() => new UdsHttpTransport("/tmp/core.sock", "capability", {
+      maximumJsonResponseBytes: 64 * 1024 * 1024 + 1,
+    })).toThrow("Core JSON response limit must be a positive integer");
+    expect(() => new UdsHttpTransport("/tmp/core.sock", "capability", {
+      requestTimeoutMs: 120_001,
+    })).toThrow("Core request timeout must be a positive integer");
+    expect(() => new UdsHttpTransport("/tmp/core.sock", "capability", {
+      maximumJsonResponseBytes: 16 * 1024 * 1024,
+      requestTimeoutMs: 60_000,
+    })).not.toThrow();
+  });
+
   test("delivers an explicit resync boundary to a registered consumer", async () => {
     const transport = new UdsHttpTransport(await serveReplayBoundary(), "test-capability");
     let observed: CoreEventReplayRequired | undefined;

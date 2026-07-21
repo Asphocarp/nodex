@@ -139,7 +139,6 @@ const listCurrentProcessFiles = (): string => {
 afterEach(() => {
   __resetHttpServerDependenciesForTests();
   closeDatabase();
-  delete process.env.NODEX_CORE_BACKEND;
   delete process.env.NODEX_CORE_EXECUTABLE;
   delete process.env.NODEX_HOME;
   for (const directory of temporaryDirectories.splice(0)) {
@@ -153,7 +152,6 @@ describe("Electron native data authority", () => {
     expect(existsSync(CORE_BINARY), "build nodex-core before this test").toBe(true);
     const nodexHome = mkdtempSync(path.join(tmpdir(), "nodex-rust-authority-"));
     temporaryDirectories.push(nodexHome);
-    process.env.NODEX_CORE_BACKEND = "rust";
     process.env.NODEX_CORE_EXECUTABLE = CORE_BINARY;
     process.env.NODEX_HOME = nodexHome;
     let runtime: RustDataAuthorityRuntime | null = null;

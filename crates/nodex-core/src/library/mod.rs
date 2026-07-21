@@ -52,6 +52,14 @@ impl LibrarySearchSnapshotLeaseRegistry {
             })?
             .invalidate_all()
     }
+
+    #[cfg(test)]
+    fn invalidate_prepared(&self) {
+        self.store
+            .lock()
+            .expect("Search snapshot storage lock")
+            .invalidate_prepared();
+    }
 }
 
 #[derive(Clone)]
@@ -146,6 +154,44 @@ impl LibraryModule {
             let context = context.clone();
             let scope = scope.clone();
             let strict_materialization = *strict_materialization;
+            let (current_store_epoch, current_event_head) = readers
+                .read_default(|connection| {
+                    let transaction = connection.unchecked_transaction()?;
+                    let store_epoch = crate::document::read_store_epoch(&transaction)?;
+                    let event_head = navigation::event_head(&transaction)?;
+                    transaction.commit()?;
+                    Ok((store_epoch, event_head))
+                })
+                .map_err(core_error)?;
+            let current_cache_key = search_snapshot::cache_key(
+                &context,
+                &current_store_epoch,
+                current_event_head,
+                scope.clone(),
+                strict_materialization,
+            )
+            .map_err(core_error)?;
+            if let Some(value) = self
+                .search_snapshots
+                .as_ref()
+                .expect("persistent Library has search snapshot storage")
+                .store
+                .lock()
+                .map_err(|_| invalid_input("Search snapshot storage lock is unavailable"))?
+                .acquire_cached(&current_cache_key)
+                .map_err(core_error)?
+            {
+                return Ok(ModuleReadSnapshot {
+                    version: CORE_CONTRACT_VERSION,
+                    store_epoch: StoreEpoch(current_store_epoch),
+                    event_head: current_event_head,
+                    value: LibraryReadValue::SearchSnapshotLease {
+                        value: Box::new(value),
+                    },
+                });
+            }
+            let prepare_context = context.clone();
+            let prepare_scope = scope.clone();
             let (store_epoch, event_head, prepared) = readers
                 .read_default(move |connection| {
                     let transaction = connection.unchecked_transaction()?;
@@ -156,14 +202,22 @@ impl LibraryModule {
                         &library_id,
                         &store_epoch,
                         event_head,
-                        &context,
-                        scope,
+                        &prepare_context,
+                        prepare_scope,
                         strict_materialization,
                     )?;
                     transaction.commit()?;
                     Ok((store_epoch, event_head, prepared))
                 })
                 .map_err(core_error)?;
+            let cache_key = search_snapshot::cache_key(
+                &context,
+                &store_epoch,
+                event_head,
+                scope,
+                strict_materialization,
+            )
+            .map_err(core_error)?;
             let value = self
                 .search_snapshots
                 .as_ref()
@@ -171,7 +225,7 @@ impl LibraryModule {
                 .store
                 .lock()
                 .map_err(|_| invalid_input("Search snapshot storage lock is unavailable"))?
-                .acquire(prepared)
+                .acquire(prepared, cache_key)
                 .map_err(core_error)?;
             return Ok(ModuleReadSnapshot {
                 version: CORE_CONTRACT_VERSION,

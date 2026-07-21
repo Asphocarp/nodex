@@ -16,8 +16,10 @@ export interface ResolveCoreExecutableInput {
 
 export interface ConnectOrStartCoreInput extends ResolveCoreExecutableInput {
   readonly buildId: string;
+  readonly maximumJsonResponseBytes?: number;
   readonly nodexHome: string;
   readonly pollIntervalMs?: number;
+  readonly requestTimeoutMs?: number;
   readonly startupTimeoutMs?: number;
 }
 
@@ -76,6 +78,8 @@ const connect = (input: ConnectOrStartCoreInput): Promise<CoreClient> =>
     nodexHome: input.nodexHome,
     clientKind: "electron_host",
     buildId: input.buildId,
+    maximumJsonResponseBytes: input.maximumJsonResponseBytes,
+    requestTimeoutMs: input.requestTimeoutMs,
   });
 
 export async function connectOrStartCore(

@@ -1,7 +1,7 @@
 # Architecture
 
 ## Overview
-Nodex is a local-first, block-based agent orchestrator for coordinating coding-agent work. The TypeScript oracle keeps SQLite authority in Electron, while the Rust development selector gives the detached native Core exclusive store authority before Electron initializes. Electron continues to host the embedded public HTTP Interface and Codex app-server runtime so CLI clients, browser clients, and the desktop renderer operate on one product model while Codex Threads run Electron-first.
+Nodex is a local-first, block-based agent orchestrator for coordinating coding-agent work. One detached native Rust Core is the exclusive SQLite and collaborative-document authority for each Profile. Electron is the Desktop Host for windows, the embedded public HTTP Interface, operating-system integration, and the Codex app-server runtime; CLI clients, browser clients, and the desktop renderer reach product state through Core-backed semantic adapters.
 
 Each local Profile owns one Library. Library is the durable content scope for
 Blocks, Pages, Documents, Database Containers, Data Sources, Views, assets,
@@ -61,33 +61,31 @@ Modules.
 
 ## Codemap
 
-### Native Core migration and development-cutover boundary
+### Native Core and Desktop Host boundary
 
-The repository includes an additive native-Core boundary that is deliberately
-not the default Electron authority yet. Bootstrap makes one process-lifetime
-choice from `NODEX_CORE_BACKEND=typescript|rust` before either database path can
-open; an invalid selector or attempted in-process change fails closed. Every
-legacy `better-sqlite3` entry point independently rejects access after the Rust
-choice. The detached Core launcher first authenticates and reuses a compatible
+Bootstrap fixes Rust Core as the process-lifetime authority before any legacy
+database path can open. The retired `NODEX_CORE_BACKEND=typescript` selector is
+rejected, and legacy `better-sqlite3` entry points remain available only to
+isolated conformance tests while final source removal proceeds. The detached
+Core launcher first authenticates and reuses a compatible
 runtime from the fixed Profile-private descriptor, or starts the validated
 development/app-bundle executable and polls the same handshake until readiness;
 it never interprets process output as authority. Main initialization now routes
-through that selection: the Rust branch skips the TypeScript database, worker,
+through Core: it skips the TypeScript database, worker,
 TypeScript maintenance schedulers, and revision-flush shutdown path, while it
 starts the public loopback server only after Core reports ready; disconnecting
-Electron does not terminate the detached Core. Remaining desktop boundaries
-still need to replace their TypeScript stores
-before the Rust development selector can serve the full workflow. The active
+Electron does not terminate the detached Core. The active
 proxy slices cover the established Library catalog/navigation `read`/`apply`
 IPC pair, Project/Library Page Detail, Project-scoped Page references and
 ownership paths, trusted-root Page deep-link location, and the Project catalog
 boundary. Page lifecycle and mixed Page Property writes also cross the native
-Library aggregate boundary under the Rust selector.
+Library aggregate boundary through Core.
 Library reads use the Library connection, writes derive the actor Project from
 the trusted invoking window,
 and committed Core events become renderer Library or Workspace invalidations.
-The event bridge is backend-neutral and active for both authority choices, so
-Rust Session and Project receipts refresh existing renderer subscriptions.
+The event bridge maps committed Core receipts into existing renderer
+subscriptions, so Session and Project changes refresh without a local-store
+observer.
 Project catalog reads, creation, metadata/source updates, sidebar and pinned ordering,
 and archival all pass through one Workspace Adapter. Its Session startup/list
 and exact-snapshot reads hydrate the existing camel-cased IPC model from Core
@@ -692,8 +690,8 @@ single Automation receipt/event commit or roll back together. Deterministic
 request failures persist as replayable rejected receipts without a change-log
 row, including across authenticated Adapter changes.
 
-The complete Automation Host boundary is active behind the Electron Rust
-development selector, including durable execution and reminder leases,
+The complete Automation Host boundary is active through Core, including
+durable execution and reminder leases,
 Calendar occurrence reads/mutations, snooze, and committed event invalidation.
 Generated protocol artifacts are byte-verified, and dependency audits prevent
 UDS routes from importing SQLite, deep Modules from importing transport code,
@@ -831,7 +829,7 @@ or the Electron client from reaching the local store.
 1. Renderer issues a command through `lib/api.ts`.
 2. Transport resolves to IPC or HTTP based on runtime.
    Focused-window UI commands do not enter this mutation transport: application-menu accelerators send a typed command request through preload, `app.tsx` assigns a monotonic request tick, and `WorkbenchShell` executes the same handler used by toolbar and command-palette entry points.
-3. Main selects one authority before opening the Profile. The TypeScript oracle routes Page lifecycle, intrinsic Block property, Database Module, Document, history, relocation, transfer, maintenance commands, and Project-bound Agent read snapshots through `BlockMutationWriter`. The Rust selector sends enabled capabilities to the owning native deep Module; Electron never opens SQLite or reconstructs their transaction. A Page editor sends binary Yjs updates; there is no Page title/body snapshot command or main-process SQLite fallback. Agent reads publish no mutation events.
+3. Main starts or reuses Core before opening the Profile. Every production capability enters its owning native deep Module; Electron never opens SQLite or reconstructs the transaction. The TypeScript oracle runs only against independent disposable copies in conformance tests. A Page editor sends binary Yjs updates; there is no Page title/body snapshot command or main-process SQLite fallback. Agent reads publish no mutation events.
 4. Page local-store writes emit domain events inside the worker, where they are captured into the mutation envelope. Every committed Page Document head emits membership-independent `page-target-changed` by Project access context and Page identity; lifecycle, location, and target-visible metadata changes use the same invalidation boundary. A Database-row summary additionally emits `board-changed` when that optional projection exists. Main republishes both only after the durable ACK boundary.
 5. Electron main broadcasts ordinary change events to all open windows through the safe IPC sender; Codex host-message/event fanout goes through the renderer-client router, which itself uses the safe sender. Direct `webContents.send` fanout is not allowed outside those helpers because renderer reload/close can dispose frames between lookup and send. Board and session renderer subscriptions filter by `projectId`; project-list subscriptions are global.
 6. Renderer shared Project stores (`kanban-store`) receive IPC/SSE board-change events. Events carrying a `DatabasePageSummary` patch the local summary cache directly; Document summaries come from committed exact-head materializations. Structurally ambiguous board events are coalesced into a summary refetch per Project. Page target queries use the separate Project stream event, dispatch by `targetBlockId`, and invalidate only the exact TanStack Query key; deleted targets retain their Project subscription for restoration. Page Stage breadcrumb queries read the root-to-parent ownership chain from one main-process Page hierarchy/authority snapshot rather than session navigation state and observe the target plus returned ancestor identities. A Library-scoped, identity-free ownership-path event also invalidates their Project prefix after location/lifecycle changes that make the changed Page fail post-change authorization; Project-scoped access events cover grant changes without exposing Page identities or titles. Workbench sidebar session rows receive IPC/SSE session-change signals and refresh affected lightweight project-session summaries; full session detail is loaded through explicit selected-session or panel/tab paths.

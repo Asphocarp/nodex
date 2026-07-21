@@ -84,6 +84,8 @@ export interface ConnectCoreClientInput {
   readonly clientKind: ClientKind;
   readonly buildId: string;
   readonly projectId?: string;
+  readonly maximumJsonResponseBytes?: number;
+  readonly requestTimeoutMs?: number;
 }
 
 export class CoreModuleResponseError extends Error {
@@ -117,6 +119,10 @@ export class CoreClient implements CoreClientPort {
     const transport = new UdsHttpTransport(
       runtime.descriptor.socket_path,
       runtime.authCapability,
+      {
+        maximumJsonResponseBytes: input.maximumJsonResponseBytes,
+        requestTimeoutMs: input.requestTimeoutMs,
+      },
     );
     const handshake = await transport.requestJson<CoreHandshakeResponse>(
       "POST",

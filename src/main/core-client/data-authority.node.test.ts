@@ -6,15 +6,14 @@ import {
 } from "../data-authority";
 
 describe("data authority selection", () => {
-  test("defaults to TypeScript and accepts only explicit supported backends", () => {
-    expect(resolveDataAuthorityBackend({})).toBe("typescript");
-    expect(resolveDataAuthorityBackend({ NODEX_CORE_BACKEND: " TypeScript " })).toBe(
-      "typescript",
-    );
+  test("defaults to Rust and rejects the retired production selector", () => {
+    expect(resolveDataAuthorityBackend({})).toBe("rust");
     expect(resolveDataAuthorityBackend({ NODEX_CORE_BACKEND: " RUST " })).toBe("rust");
     expect(() =>
-      resolveDataAuthorityBackend({ NODEX_CORE_BACKEND: "auto" }),
-    ).toThrow('NODEX_CORE_BACKEND must be either "typescript" or "rust"');
+      resolveDataAuthorityBackend({ NODEX_CORE_BACKEND: "typescript" }),
+    ).toThrow("Rust Core is the only production data authority");
+    expect(() => resolveDataAuthorityBackend({ NODEX_CORE_BACKEND: "auto" }))
+      .toThrow("Rust Core is the only production data authority");
   });
 
   test("freezes the first process-lifetime selection", () => {
@@ -25,6 +24,6 @@ describe("data authority selection", () => {
     expect(selection.get()).toBe("rust");
     expect(() =>
       selection.select({ NODEX_CORE_BACKEND: "typescript" }),
-    ).toThrow("cannot switch its data authority from rust to typescript at runtime");
+    ).toThrow("Rust Core is the only production data authority");
   });
 });
