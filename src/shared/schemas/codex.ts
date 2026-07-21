@@ -1,5 +1,4 @@
 import modeKindJsonSchema from "@nodex/codex-app-server-protocol/runtime-schemas/ModeKind.schema.json";
-import reasoningEffortJsonSchema from "@nodex/codex-app-server-protocol/runtime-schemas/ReasoningEffort.schema.json";
 import threadActiveFlagJsonSchema from "@nodex/codex-app-server-protocol/runtime-schemas/ThreadActiveFlag.schema.json";
 import threadGoalJsonSchema from "@nodex/codex-app-server-protocol/runtime-schemas/ThreadGoal.schema.json";
 import threadGoalStatusJsonSchema from "@nodex/codex-app-server-protocol/runtime-schemas/ThreadGoalStatus.schema.json";
@@ -27,9 +26,15 @@ import {
 
 export const CodexUnknownRecordSchema = z.record(z.string(), z.unknown());
 
-export const CodexReasoningEffortSchema = createGeneratedCodexSchema<CodexReasoningEffort>(
-  reasoningEffortJsonSchema,
-);
+const CODEX_REASONING_EFFORT_MAX_LENGTH = 64;
+const CODEX_REASONING_EFFORT_CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f-\u009f]/u;
+
+/** Runtime-advertised opaque value. Preserve spelling and case (for example, Kimi `Thinking`). */
+export const CodexReasoningEffortSchema: z.ZodType<CodexReasoningEffort> = z.string()
+  .trim()
+  .min(1)
+  .max(CODEX_REASONING_EFFORT_MAX_LENGTH)
+  .refine((value) => !CODEX_REASONING_EFFORT_CONTROL_CHARACTER_PATTERN.test(value));
 
 export const CodexThreadDetailLevelSchema = z.enum([
   "STEPS_PROSE",

@@ -165,6 +165,9 @@ export function buildCodexPendingStartConversationParams(
     cwd: sourceWorkspaceRoot,
     fileAttachments: params.fileAttachments.map((attachment) => ({ ...attachment })),
     addedFiles: params.addedFiles.map((attachment) => ({ ...attachment })),
+    executionProfile: params.executionProfile
+      ? { ...params.executionProfile }
+      : null,
     config: { ...params.config },
     ...(params.configOverrides === undefined
       ? {}

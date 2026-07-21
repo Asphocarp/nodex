@@ -43,6 +43,8 @@ describe("generated Codex schemas", () => {
 
   test("accepts dynamic reasoning efforts while deriving closed status values", () => {
     expect(CodexReasoningEffortSchema.parse("future-effort")).toBe("future-effort");
+    expect(CodexReasoningEffortSchema.parse(" Thinking ")).toBe("Thinking");
+    expect(CodexReasoningEffortSchema.safeParse("thinking\nunsafe").success).toBe(false);
     expect(CodexThreadStatusTypeSchema.safeParse("active").success).toBe(true);
     expect(CodexThreadStatusTypeSchema.safeParse("future-status").success).toBe(false);
   });

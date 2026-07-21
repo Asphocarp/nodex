@@ -13,14 +13,13 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
+import { resolveCodexRuntime } from "../src/main/codex/codex-runtime";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDir, "..");
 const protocolPackagePath = resolve(projectRoot, "packages/codex-app-server-protocol");
 const schemasOutputPath = resolve(protocolPackagePath, "src");
 const runtimeSchemasOutputPath = resolve(protocolPackagePath, "runtime-schemas");
-const require = createRequire(import.meta.url);
 
 type CodexSchemasCommand = "generate" | "verify";
 
@@ -289,17 +288,17 @@ function readJsonObject(path: string): JsonObject {
   return value;
 }
 
-function resolveCodexLauncherPath(): string {
-  const packageJsonPath = require.resolve("@openai/codex/package.json", {
-    paths: [projectRoot],
-  });
-  return join(dirname(packageJsonPath), "bin", "codex.js");
+function resolveAgentRuntimeLauncherPath(): string {
+  return resolveCodexRuntime({
+    isPackaged: false,
+    projectRootPath: projectRoot,
+  }).binaryPath;
 }
 
 function runCodexSchemaGenerator(kind: "generate-json-schema" | "generate-ts", outputPath: string): void {
   execFileSync(
-    "node",
-    [resolveCodexLauncherPath(), "app-server", kind, "--experimental", "--out", outputPath],
+    resolveAgentRuntimeLauncherPath(),
+    ["app-server", kind, "--experimental", "--out", outputPath],
     {
       cwd: projectRoot,
       stdio: "inherit",
@@ -475,7 +474,7 @@ function main(): void {
   }
 
   verifySchemas();
-  console.log("Committed codex-app-server-protocol package matches the pinned Codex version.");
+  console.log("Committed app-server protocol package matches the pinned Agent runtime.");
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

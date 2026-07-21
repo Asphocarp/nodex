@@ -12,6 +12,7 @@ import type {
   CodexThreadStartHeartbeatAutomationInput,
   CodexThreadStartMemoryPreferences,
 } from "./types";
+import type { AgentExecutionProfile } from "./agent-runtime";
 
 export type CodexPendingWorktreePhase =
   | "queued"
@@ -83,6 +84,7 @@ export interface CodexPendingStartConversationParamsInput {
   readonly permissionProfileId?: string | undefined;
   readonly shouldSendPermissionOverrides: boolean;
   readonly model: null;
+  readonly executionProfile?: AgentExecutionProfile | null;
   readonly serviceTier: string | null;
   readonly reasoningEffort: CodexReasoningEffort | null;
   readonly collaborationMode: CollaborationMode | null;

@@ -158,6 +158,52 @@ describe("createThreadStageActions settings routing", () => {
     expect(JSON.stringify(draftReasoning)).toBe(JSON.stringify(["medium"]));
   });
 
+  test("routes provider profiles and credentials through their dedicated boundaries", async () => {
+    const calls: unknown[] = [];
+    const profile = {
+      providerId: "kimi-for-coding",
+      modelId: "kimi-k3",
+      harnessId: "kimi-code",
+      reasoningEffort: "Thinking",
+      serviceTier: null,
+    };
+    const actions = createThreadStageActions(buildInput({
+      activeThreadId: null,
+      codexControl: {
+        setExecutionProfile: (next: unknown) => calls.push({ profile: next }),
+        setProviderCredential: async (input: unknown) => {
+          calls.push({ setCredential: input });
+          return { providerId: "kimi-for-coding", status: "ready", runtimeRestartPending: false };
+        },
+        deleteProviderCredential: async (input: unknown) => {
+          calls.push({ deleteCredential: input });
+          return { providerId: "kimi-for-coding", status: "missing", runtimeRestartPending: false };
+        },
+      } as unknown as ThreadActionControllerInput["codexControl"],
+    }));
+
+    await actions.onExecutionProfileChange?.(profile);
+    await actions.onProviderCredentialSet?.("kimi-for-coding", "secret-key");
+    await actions.onProviderCredentialDelete?.("kimi-for-coding");
+
+    expect(calls).toEqual([
+      { profile },
+      { setCredential: { providerId: "kimi-for-coding", apiKey: "secret-key" } },
+      { deleteCredential: { providerId: "kimi-for-coding" } },
+    ]);
+  });
+
+  test("rejects changing the immutable execution profile of an active thread", () => {
+    const actions = createThreadStageActions(buildInput());
+    expect(() => actions.onExecutionProfileChange?.({
+      providerId: "anthropic",
+      modelId: "claude-opus-4-1",
+      harnessId: "claude-code",
+      reasoningEffort: "high",
+      serviceTier: null,
+    })).toThrow("Start a new thread");
+  });
+
   test("opens a pending worktree route without refreshing real project sessions", async () => {
     const calls: string[] = [];
     const input = buildInput({

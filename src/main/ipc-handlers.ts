@@ -2766,6 +2766,10 @@ export function registerIpcHandlers(
   registerCodexScheduledAutomationIpcHandlers({
     registerHandle,
     automationModule,
+    prepareCreateInput: (input) =>
+      codexService.prepareScheduledAutomationInput(input),
+    prepareUpdateInput: (input, current) =>
+      codexService.prepareScheduledAutomationInput(input, current),
     runScheduledAutomationNow: (input, rendererClientId) =>
       codexService.runScheduledAutomationNow(input, rendererClientId),
     resolveAutomationArchiveMessages: (threadId) =>
@@ -2784,6 +2788,34 @@ export function registerIpcHandlers(
   });
 
   registerHandle("codex:model:list", () => codexService.listModels());
+
+  registerHandle("agent-runtime:catalog:get", (_, options?: { refresh?: boolean }) =>
+    codexService.listAgentProviderCatalog({ refresh: options?.refresh === true }),
+  );
+  registerHandle("agent-runtime:credential:set", (_, input) => {
+    if (
+      typeof input !== "object"
+      || input === null
+      || typeof input.providerId !== "string"
+      || typeof input.apiKey !== "string"
+    ) {
+      throw new Error("Invalid provider credential input");
+    }
+    return codexService.setAgentProviderCredential({
+      providerId: input.providerId,
+      apiKey: input.apiKey,
+    });
+  });
+  registerHandle("agent-runtime:credential:delete", (_, input) => {
+    if (
+      typeof input !== "object"
+      || input === null
+      || typeof input.providerId !== "string"
+    ) {
+      throw new Error("Invalid provider credential delete input");
+    }
+    return codexService.deleteAgentProviderCredential({ providerId: input.providerId });
+  });
 
   registerCodexHooksIpcHandlers({
     registerHandle,

@@ -2,7 +2,7 @@ use nodex_core_contracts::BoundModuleContext;
 use nodex_core_contracts::automation::{
     AutomationDefinition, AutomationDefinitionKind, AutomationDefinitionStatus,
     AutomationExecutionEnvironment, AutomationLease, AutomationLeaseStatus, AutomationRead,
-    AutomationReadValue, AutomationReasoningEffort,
+    AutomationReadValue,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -126,7 +126,8 @@ pub(super) fn read_definitions(
 ) -> Result<Vec<AutomationDefinition>, StoreError> {
     let mut statement = connection.prepare(
         "SELECT automation_id, definition_revision, kind, status, target_thread_id, name, \
-                prompt, rrule, model, reasoning_effort, cwds_json, execution_environment, \
+                prompt, rrule, model, model_provider, harness_id, reasoning_effort, service_tier, \
+                cwds_json, execution_environment, \
                 local_environment_config_path, next_run_at, last_run_at, created_at, updated_at \
          FROM codex_scheduled_automations \
          WHERE ?1 OR status <> 'DELETED' \
@@ -148,7 +149,8 @@ pub(super) fn read_definition(
     let definition = connection
         .query_row(
             "SELECT automation_id, definition_revision, kind, status, target_thread_id, name, \
-                    prompt, rrule, model, reasoning_effort, cwds_json, execution_environment, \
+                    prompt, rrule, model, model_provider, harness_id, reasoning_effort, service_tier, \
+                    cwds_json, execution_environment, \
                     local_environment_config_path, next_run_at, last_run_at, created_at, updated_at \
              FROM codex_scheduled_automations WHERE automation_id = ?1",
             [automation_id],
@@ -162,13 +164,8 @@ pub(super) fn read_definition(
 fn definition_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AutomationDefinition> {
     let kind = parse_kind(row.get::<_, String>(2)?).map_err(rusqlite_conversion)?;
     let status = parse_status(row.get::<_, String>(3)?).map_err(rusqlite_conversion)?;
-    let reasoning = row
-        .get::<_, Option<String>>(9)?
-        .map(parse_reasoning)
-        .transpose()
-        .map_err(rusqlite_conversion)?;
-    let environment = parse_environment(row.get::<_, String>(11)?).map_err(rusqlite_conversion)?;
-    let cwds_json = row.get::<_, String>(10)?;
+    let environment = parse_environment(row.get::<_, String>(14)?).map_err(rusqlite_conversion)?;
+    let cwds_json = row.get::<_, String>(13)?;
     let cwds = serde_json::from_str::<Vec<String>>(&cwds_json)
         .map_err(|_| rusqlite_conversion("Scheduled Automation cwd JSON is invalid".to_owned()))?;
     Ok(AutomationDefinition {
@@ -181,14 +178,17 @@ fn definition_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AutomationDe
         prompt: row.get(6)?,
         rrule: row.get(7)?,
         model: row.get(8)?,
-        reasoning_effort: reasoning,
+        model_provider: row.get(9)?,
+        harness_id: row.get(10)?,
+        reasoning_effort: row.get(11)?,
+        service_tier: row.get(12)?,
         cwds,
         execution_environment: environment,
-        local_environment_config_path: row.get(12)?,
-        next_run_at_ms: row.get(13)?,
-        last_run_at_ms: row.get(14)?,
-        created_at_ms: row.get(15)?,
-        updated_at_ms: row.get(16)?,
+        local_environment_config_path: row.get(15)?,
+        next_run_at_ms: row.get(16)?,
+        last_run_at_ms: row.get(17)?,
+        created_at_ms: row.get(18)?,
+        updated_at_ms: row.get(19)?,
     })
 }
 
@@ -205,6 +205,27 @@ fn validate_definition(
         || definition.last_run_at_ms.is_some_and(|value| value < 0)
     {
         return Err(corrupt("Stored Scheduled Automation definition is invalid"));
+    }
+    for (label, value, max_bytes) in [
+        ("model_provider", definition.model_provider.as_deref(), 512),
+        ("model", definition.model.as_deref(), 512),
+        ("harness_id", definition.harness_id.as_deref(), 512),
+        (
+            "reasoning_effort",
+            definition.reasoning_effort.as_deref(),
+            64,
+        ),
+        ("service_tier", definition.service_tier.as_deref(), 64),
+    ] {
+        if value.is_some_and(|value| {
+            value.trim().is_empty()
+                || value.trim() != value
+                || value.len() > max_bytes
+                || value.chars().any(char::is_control)
+        }) {
+            let message = format!("Stored Scheduled Automation {label} is invalid");
+            return Err(corrupt(&message));
+        }
     }
     Ok(definition)
 }
@@ -307,18 +328,6 @@ pub(super) fn environment_string(value: AutomationExecutionEnvironment) -> &'sta
     }
 }
 
-pub(super) fn reasoning_string(value: AutomationReasoningEffort) -> &'static str {
-    match value {
-        AutomationReasoningEffort::None => "none",
-        AutomationReasoningEffort::Minimal => "minimal",
-        AutomationReasoningEffort::Low => "low",
-        AutomationReasoningEffort::Medium => "medium",
-        AutomationReasoningEffort::High => "high",
-        AutomationReasoningEffort::Xhigh => "xhigh",
-        AutomationReasoningEffort::Max => "max",
-    }
-}
-
 fn parse_kind(value: String) -> Result<AutomationDefinitionKind, String> {
     match value.as_str() {
         "cron" => Ok(AutomationDefinitionKind::Cron),
@@ -341,19 +350,6 @@ fn parse_environment(value: String) -> Result<AutomationExecutionEnvironment, St
         "local" => Ok(AutomationExecutionEnvironment::Local),
         "worktree" => Ok(AutomationExecutionEnvironment::Worktree),
         _ => Err("Scheduled Automation execution environment is invalid".to_owned()),
-    }
-}
-
-fn parse_reasoning(value: String) -> Result<AutomationReasoningEffort, String> {
-    match value.as_str() {
-        "none" => Ok(AutomationReasoningEffort::None),
-        "minimal" => Ok(AutomationReasoningEffort::Minimal),
-        "low" => Ok(AutomationReasoningEffort::Low),
-        "medium" => Ok(AutomationReasoningEffort::Medium),
-        "high" => Ok(AutomationReasoningEffort::High),
-        "xhigh" => Ok(AutomationReasoningEffort::Xhigh),
-        "max" => Ok(AutomationReasoningEffort::Max),
-        _ => Err("Scheduled Automation reasoning effort is invalid".to_owned()),
     }
 }
 

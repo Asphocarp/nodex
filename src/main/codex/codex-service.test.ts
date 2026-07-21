@@ -791,6 +791,68 @@ const createTestAutomationModule = (): DesktopAutomationModulePort => ({
   failReminderLease: async () => undefined,
 });
 
+describe("codex-service provider-backed scheduled automations", () => {
+  test("resumes heartbeat targets with their persisted provider profile", async () => {
+    const service = createService();
+    const client = Reflect.get(service as object, "client") as {
+      request: (method: string, params?: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+    client.request = async (method, params) => {
+      requests.push({ method, params });
+      if (method !== "thread/resume") throw new Error(`Unexpected request: ${method}`);
+      return {
+        thread: {
+          id: "thread-heartbeat-kimi",
+          status: { type: "idle" },
+          createdAt: 1,
+          updatedAt: 2,
+          cwd: "/tmp/kimi",
+          modelProvider: "kimi-for-coding",
+          preview: "",
+          name: "Kimi heartbeat",
+          turns: [],
+        },
+        cwd: "/tmp/kimi",
+      };
+    };
+    const internals = service as unknown as {
+      resumeHeartbeatTargetThread: (
+        thread: unknown,
+        rolloutPath: string | null,
+      ) => Promise<{ threadId: string; cwd: string }>;
+    };
+
+    try {
+      await internals.resumeHeartbeatTargetThread({
+        threadId: "thread-heartbeat-kimi",
+        cwd: "/tmp/kimi",
+        executionProfile: {
+          providerId: "kimi-for-coding",
+          modelId: "kimi-k3",
+          harnessId: "kimi-code",
+          reasoningEffort: "Thinking",
+          serviceTier: null,
+        },
+      }, "/tmp/kimi/rollout.jsonl");
+
+      const params = requests[0]?.params as {
+        model?: string | null;
+        modelProvider?: string | null;
+        serviceTier?: string | null;
+        config?: Record<string, unknown>;
+      };
+      expect(params.model).toBe("kimi-k3");
+      expect(params.modelProvider).toBe("kimi-for-coding");
+      expect(params.serviceTier).toBeNull();
+      expect(params.config?.harness).toBe("kimi-code");
+      expect(params.config?.model_reasoning_effort).toBe("Thinking");
+    } finally {
+      await service.shutdown();
+    }
+  });
+});
+
 const TEST_NODEX_AGENT_AUTHORITY: NodexAgentAuthorityPort = {
   beginTurn: async () => null,
   bindTurn: async () => null,
@@ -8877,7 +8939,10 @@ describe("codex-service approval fallback", () => {
         prompt: "Check release readiness.",
         rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
         model: "gpt-5",
+        modelProvider: null,
+        harnessId: null,
         reasoningEffort: "medium",
+        serviceTier: null,
         cwds: ["/workspace/release"],
         executionEnvironment: "local",
         localEnvironmentConfigPath: null,
@@ -8896,7 +8961,10 @@ describe("codex-service approval fallback", () => {
         prompt: "Follow up later.",
         rrule: "FREQ=DAILY",
         model: null,
+        modelProvider: null,
+        harnessId: null,
         reasoningEffort: null,
+        serviceTier: null,
         cwds: [],
         executionEnvironment: "worktree",
         localEnvironmentConfigPath: null,

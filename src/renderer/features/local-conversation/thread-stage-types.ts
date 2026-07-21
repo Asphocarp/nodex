@@ -58,6 +58,11 @@ import type { CodexTurnScopedConversationRequest } from "./conversation-request-
 import type { NewChatProjectSelectorOption } from "../../lib/new-chat-project-selector";
 import type { NewChatStartInTarget } from "../../lib/new-chat-start-in-selector";
 import type { ThreadWorkedForTiming } from "./thread-worked-for-time";
+import type {
+  AgentExecutionProfile,
+  AgentProviderCatalog,
+  AgentProviderCredentialMutationResult,
+} from "../../../shared/agent-runtime";
 
 export interface NewChatProjectSelectorModel {
   projects: NewChatProjectSelectorOption[];
@@ -211,6 +216,9 @@ export interface ThreadStageRouteInput {
   connection: CodexConnectionState;
   account: CodexAccountSnapshot | null;
   availableModels: CodexModelOption[];
+  agentProviderCatalog?: AgentProviderCatalog | null;
+  agentProviderCatalogLoading?: boolean;
+  selectedExecutionProfile?: AgentExecutionProfile | null;
   collaborationModes: CodexCollaborationModePreset[];
   selectedCollaborationMode: CodexCollaborationModeKind;
   selectedModel: string;
@@ -239,6 +247,14 @@ export interface ThreadStageActions {
   onCollaborationModeChange: (mode: CodexCollaborationModeKind) => void | Promise<void>;
   onModelChange: (model: string) => void | Promise<void>;
   onReasoningEffortChange: (reasoningEffort: CodexReasoningEffort) => void | Promise<void>;
+  onExecutionProfileChange?: (profile: AgentExecutionProfile) => void | Promise<void>;
+  onProviderCredentialSet?: (
+    providerId: string,
+    apiKey: string,
+  ) => Promise<AgentProviderCredentialMutationResult>;
+  onProviderCredentialDelete?: (
+    providerId: string,
+  ) => Promise<AgentProviderCredentialMutationResult>;
   onPersonalityChange?: (personality: CodexPersonality) => void | Promise<void>;
   onPermissionModeChange: (mode: CodexPermissionMode) => void | Promise<void>;
   onQueueingEnabledChange: (enabled: boolean) => void;
@@ -950,6 +966,10 @@ export interface ThreadFooterModel {
   selectedCollaborationMode: CodexCollaborationModeKind;
   selectedModel: string;
   availableModels: CodexModelOption[];
+  agentProviderCatalog?: AgentProviderCatalog | null;
+  agentProviderCatalogLoading?: boolean;
+  executionProfile?: AgentExecutionProfile | null;
+  executionProfileLocked?: boolean;
   selectedReasoningEffort: CodexReasoningEffort;
   selectedPersonality?: CodexPersonality;
   reasoningEffortOptions: CodexReasoningEffortOption[];

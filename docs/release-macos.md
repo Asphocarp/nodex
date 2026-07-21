@@ -215,17 +215,20 @@ Responsibilities:
    - `dist/latest-mac.yml`
    - `dist/Nodex-<version>-arm64.zip.blockmap`
    - built `Nodex.app`
-9. Assert bundled Codex and Nodex runtime resources exist inside the architecture-specific app:
-   - `codex`
-   - `codex-code-mode-host`
-   - `rg`
-   - `runtime.json`
-   - `nodex`
-   - `nodex-core`
-   - `rust-core-runtime.json`
+9. Assert bundled Agent and Nodex runtime resources exist inside the architecture-specific app:
+   - `Contents/Resources/agent-runtime/bin/interpreter`
+   - `Contents/Resources/agent-runtime/bin/codex-code-mode-host`
+   - `Contents/Resources/agent-runtime/codex-path/rg`
+   - `Contents/Resources/agent-runtime/codex-resources/zsh/bin/zsh`
+   - `Contents/Resources/agent-runtime/runtime.json`
+   - `Contents/Resources/agent-runtime/third-party/open-interpreter/LICENSE`
+   - `Contents/Resources/agent-runtime/third-party/open-interpreter/NOTICE`
+   - `Contents/Resources/bin/nodex`
+   - `Contents/Resources/bin/nodex-core`
+   - `Contents/Resources/bin/rust-core-runtime.json`
    - `Contents/Helpers/Nodex Service.app`
 10. Extract the signed ZIP into a new `${RUNNER_TEMP}` install root. All runtime and launch checks use this extracted app, not the mutable builder output.
-11. Run `scripts/verify-codex-runtime.ts` against the fresh install. It validates every upstream native artifact against its size and SHA-256, checks declared search-path tools as regular executables, runs bundled `codex --version`, and verifies the metadata version. Preserved upstream executables must retain `TeamIdentifier=2DC432GLL2`; `rg` is signed by the app packager and covered by the app seal.
+11. Run `scripts/verify-codex-runtime.ts` against the fresh install. It validates every locked upstream artifact against its size and SHA-256, checks declared search-path tools as regular executables, runs bundled `interpreter --version`, and verifies the Open Interpreter release metadata. Every embedded runtime executable must use the same TeamIdentifier as the enclosing app.
 12. Run `scripts/verify-native-runtime.ts` for the job architecture. It validates the closed native manifest, exact bundle destinations, regular executable modes, thin Mach-O architecture, macOS 12 load commands, the nested ServiceManagement bundle, Developer ID team consistency, and the final deep app seal. With a PATH limited to `/usr/bin:/bin` and nonexistent Cargo/Rustup homes, it runs `nodex --version`, cold-starts Core through `nodex --json doctor`, queries optional service status, and keeps the fresh Electron app process alive through startup.
 13. Require both notarization checks from the same verifier:
    - `spctl --assess --type execute --verbose=4`
@@ -410,8 +413,8 @@ Before trusting CI with signing secrets, do one local dry run on a Mac that has 
 
 ```bash
 pnpm run package:mac:arm64
-"dist/mac-arm64/Nodex.app/Contents/Resources/bin/codex" --version
-codesign -dvvv "dist/mac-arm64/Nodex.app/Contents/Resources/bin/codex" 2>&1 | rg "TeamIdentifier=2DC432GLL2"
+"dist/mac-arm64/Nodex.app/Contents/Resources/agent-runtime/bin/interpreter" --version
+codesign -dvvv "dist/mac-arm64/Nodex.app/Contents/Resources/agent-runtime/bin/interpreter" 2>&1 | rg "TeamIdentifier="
 codesign --verify --deep --strict --verbose=2 "dist/mac-arm64/Nodex.app"
 spctl --assess --type execute --verbose=4 "dist/mac-arm64/Nodex.app"
 xcrun stapler validate "dist/mac-arm64/Nodex.app"

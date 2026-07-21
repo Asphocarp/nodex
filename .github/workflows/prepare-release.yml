@@ -242,7 +242,7 @@ jobs:
         echo "zip_blockmap_path=${zip_blockmap_path}" >> "${GITHUB_OUTPUT}"
         echo "app_path=${app_path}" >> "${GITHUB_OUTPUT}"
 
-    - name: Verify bundled Codex runtime
+    - name: Verify bundled Agent runtime
       working-directory: ${{ env.RELEASE_WORKDIR }}
       run: |
         pnpm exec tsx scripts/verify-codex-runtime.ts \
@@ -355,7 +355,7 @@ jobs:
         echo "zip_blockmap_path=${zip_blockmap_path}" >> "${GITHUB_OUTPUT}"
         echo "app_path=${app_path}" >> "${GITHUB_OUTPUT}"
 
-    - name: Verify bundled Codex runtime
+    - name: Verify bundled Agent runtime
       working-directory: ${{ env.RELEASE_WORKDIR }}
       run: |
         pnpm exec tsx scripts/verify-codex-runtime.ts \

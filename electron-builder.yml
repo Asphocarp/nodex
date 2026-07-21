@@ -35,6 +35,10 @@ extraResources:
   filter:
   - "**/*"
   - "!nodex-service"
+- from: .generated/codex-runtime/agent-runtime
+  to: agent-runtime
+  filter:
+  - "**/*"
 extraFiles:
 - from: resources/macos/app.jyu.nodex.background-service.core.plist
   to: Helpers/Nodex Service.app/Contents/Library/LaunchAgents/app.jyu.nodex.background-service.core.plist
@@ -59,11 +63,13 @@ mac:
   artifactName: "${productName}-${version}-${arch}.${ext}"
   category: public.app-category.productivity
   hardenedRuntime: true
-  signIgnore:
-  - "^.*\\/Contents\\/Resources\\/bin\\/(?!rg$|runtime\\.json$|nodex$|nodex-core$|nodex-service$).+$"
   binaries:
   - Contents/Resources/bin/nodex
   - Contents/Resources/bin/nodex-core
+  - Contents/Resources/agent-runtime/bin/interpreter
+  - Contents/Resources/agent-runtime/bin/codex-code-mode-host
+  - Contents/Resources/agent-runtime/codex-path/rg
+  - Contents/Resources/agent-runtime/codex-resources/zsh/bin/zsh
   - Contents/Helpers/Nodex Service.app/Contents/MacOS/nodex-service
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist

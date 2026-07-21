@@ -66,6 +66,7 @@ import type {
   ServerNotification as CodexAppServerServerNotification,
   ThreadMemoryMode as CodexAppServerThreadMemoryMode,
 } from "@nodex/codex-app-server-protocol";
+import type { AgentExecutionProfile } from "./agent-runtime";
 import type { PortableRichText } from "./block-documents/portable-rich-text";
 import type { ProjectLifecycle } from "./library";
 import type {
@@ -735,6 +736,7 @@ export interface ProjectSessionThreadLink {
   threadName?: string;
   threadPreview: string;
   modelProvider: string;
+  executionProfile?: AgentExecutionProfile | null;
   cwd?: string;
   managedWorktreePath?: string | null;
   projectlessOutputDirectory?: string | null;
@@ -930,6 +932,7 @@ export interface ProjectSessionThreadLinkInput {
   threadName?: string | null;
   threadPreview?: string;
   modelProvider?: string;
+  executionProfile?: AgentExecutionProfile | null;
   cwd?: string | null;
   managedWorktreePath?: string | null;
   projectlessOutputDirectory?: string | null;
@@ -1413,6 +1416,7 @@ export interface CodexThreadSummary {
   threadName: string | null;
   threadPreview: string;
   modelProvider: string;
+  executionProfile?: AgentExecutionProfile | null;
   cwd: string | null;
   managedWorktreePath?: string | null;
   projectlessOutputDirectory?: string | null;
@@ -1435,14 +1439,7 @@ export interface CodexThreadSummary {
 export type CodexScheduledAutomationKind = "cron" | "heartbeat";
 export type CodexScheduledAutomationStatus = "ACTIVE" | "PAUSED" | "DELETED";
 export type CodexScheduledAutomationExecutionEnvironment = "local" | "worktree";
-export type CodexScheduledAutomationReasoningEffort =
-  | "none"
-  | "minimal"
-  | "low"
-  | "medium"
-  | "high"
-  | "xhigh"
-  | "max";
+export type CodexScheduledAutomationReasoningEffort = string;
 
 export interface CodexScheduledAutomation {
   id: string;
@@ -1454,7 +1451,10 @@ export interface CodexScheduledAutomation {
   prompt: string;
   rrule: string | null;
   model: string | null;
+  modelProvider: string | null;
+  harnessId: string | null;
   reasoningEffort: CodexScheduledAutomationReasoningEffort | null;
+  serviceTier: string | null;
   cwds: string[];
   executionEnvironment: CodexScheduledAutomationExecutionEnvironment;
   localEnvironmentConfigPath: string | null;
@@ -1471,7 +1471,10 @@ export interface CodexScheduledAutomationCreateInput {
   prompt?: string | null;
   rrule?: string | null;
   model?: string | null;
+  modelProvider?: string | null;
+  harnessId?: string | null;
   reasoningEffort?: CodexScheduledAutomationReasoningEffort | null;
+  serviceTier?: string | null;
   cwds?: string[];
   executionEnvironment?: CodexScheduledAutomationExecutionEnvironment | null;
   localEnvironmentConfigPath?: string | null;
@@ -1800,6 +1803,7 @@ export interface CodexThreadStartForSessionInput {
   threadName?: string;
   skipAutoTitleGeneration?: boolean;
   model?: string;
+  executionProfile?: AgentExecutionProfile;
   serviceTier?: CodexServiceTier;
   permissionMode?: CodexPermissionMode;
   permissionProfileId?: string;

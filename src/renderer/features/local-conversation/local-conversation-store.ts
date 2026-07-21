@@ -11,6 +11,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { flushSync } from "react-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ThreadMemoryMode } from "@nodex/codex-app-server-protocol";
 import {
   NODEX_AGENT_AUTHORIZATION_RENDERER_METHOD,
@@ -249,6 +250,14 @@ import {
 import { useCodexThreadSettings } from "../../lib/use-codex-thread-settings";
 import { terminalSessionStore } from "../../lib/terminal-session-store";
 import { useCodexServiceTierSettings } from "../../lib/use-codex-service-tier-settings";
+import { useAgentExecutionProfile } from "../../lib/use-agent-execution-profile";
+import { agentProviderCatalogQueryOptions } from "../../lib/query-options";
+import { queryKeys } from "../../lib/query-keys";
+import type {
+  AgentProviderCredentialDeleteInput,
+  AgentProviderCredentialMutationInput,
+  AgentProviderCredentialMutationResult,
+} from "../../../shared/agent-runtime";
 import {
   logAssistantStreamingDebug,
   logAssistantStreamingDebugSampled,
@@ -10261,6 +10270,8 @@ export function useCodexThreadStartProgress(
 
 export function useCodexAppServerControl(activeProjectId: string | null) {
   const manager = useDefaultCodexAppServerManager();
+  const queryClient = useQueryClient();
+  const providerCatalogQuery = useQuery(agentProviderCatalogQueryOptions());
   const availableModels = useCodexAvailableModels();
   const permissionState = useCodexPermissionState(activeProjectId);
   const permissionMode = permissionState.mode;
@@ -10290,6 +10301,15 @@ export function useCodexAppServerControl(activeProjectId: string | null) {
     () => resolveCodexThreadSettings(storedThreadSettings, availableModels),
     [availableModels, storedThreadSettings],
   );
+  const {
+    executionProfile,
+    setExecutionProfile,
+  } = useAgentExecutionProfile({
+    catalog: providerCatalogQuery.data ?? null,
+    legacyModelId: threadSettings.model,
+    legacyReasoningEffort: threadSettings.reasoningEffort,
+    serviceTier: serviceTierSettings.serviceTier,
+  });
   const reasoningEffortOptions = useMemo<CodexReasoningEffortOption[]>(
     () => [...resolveCodexReasoningEffortOptions(threadSettings.model, availableModels)],
     [availableModels, threadSettings.model],
@@ -10330,12 +10350,13 @@ export function useCodexAppServerControl(activeProjectId: string | null) {
       ...input,
       ...requestSettings,
       ...buildCodexServiceTierRequestOverride(effectiveServiceTier),
+      executionProfile: input.executionProfile ?? executionProfile ?? undefined,
     });
     if (result.kind === "started" && input.projectId !== null) {
       await manager.loadThreads(input.projectId);
     }
     return result;
-  }, [availableModels, manager, serviceTierSettings.serviceTier, storedThreadSettings]);
+  }, [availableModels, executionProfile, manager, serviceTierSettings.serviceTier, storedThreadSettings]);
 
   const startSideChat = useCallback(async (
     input: CodexSideChatStartInput,
@@ -10606,9 +10627,26 @@ export function useCodexAppServerControl(activeProjectId: string | null) {
 
     updateStoredThreadSettings({ reasoningEffort });
   }, [updateStoredThreadSettings]);
+  const setProviderCredential = useCallback(async (
+    input: AgentProviderCredentialMutationInput,
+  ): Promise<AgentProviderCredentialMutationResult> => {
+    const result = await invoke("agent-runtime:credential:set", input) as AgentProviderCredentialMutationResult;
+    await queryClient.invalidateQueries({ queryKey: queryKeys.agentProviderCatalog.all() });
+    return result;
+  }, [queryClient]);
+  const deleteProviderCredential = useCallback(async (
+    input: AgentProviderCredentialDeleteInput,
+  ): Promise<AgentProviderCredentialMutationResult> => {
+    const result = await invoke("agent-runtime:credential:delete", input) as AgentProviderCredentialMutationResult;
+    await queryClient.invalidateQueries({ queryKey: queryKeys.agentProviderCatalog.all() });
+    return result;
+  }, [queryClient]);
 
   return {
     availableModels,
+    agentProviderCatalog: providerCatalogQuery.data ?? null,
+    agentProviderCatalogLoading: providerCatalogQuery.isLoading,
+    executionProfile,
     threadSettings,
     reasoningEffortOptions,
     permissionState,
@@ -10667,5 +10705,8 @@ export function useCodexAppServerControl(activeProjectId: string | null) {
     setPermissionMode,
     setThreadModel,
     setThreadReasoningEffort,
+    setExecutionProfile,
+    setProviderCredential,
+    deleteProviderCredential,
   };
 }

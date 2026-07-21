@@ -97,6 +97,10 @@ export const queryKeys = {
     all: () => ["codexModels"] as const,
     list: () => ["codexModels", "list"] as const,
   },
+  agentProviderCatalog: {
+    all: () => ["agentProviderCatalog"] as const,
+    current: () => ["agentProviderCatalog", "current"] as const,
+  },
   codexExperimentalFeatures: {
     all: () => ["codexExperimentalFeatures"] as const,
     list: () => ["codexExperimentalFeatures", "list"] as const,

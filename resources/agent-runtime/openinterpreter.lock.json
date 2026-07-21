@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "runtimeFamily": "open-interpreter",
+  "repository": "openinterpreter/openinterpreter",
+  "tag": "rust-v0.0.34",
+  "runtimeVersion": "0.0.34",
+  "codexCompatibilityVersion": "0.144.5",
+  "protocolSchemaSha256": "c0b872c0180f9228b239da69e49a85c7baa7618db229d18e2773b7c965ce0fe2",
+  "packageManifest": {
+    "layoutVersion": 1,
+    "version": "0.0.34",
+    "variant": "open-interpreter",
+    "entrypoint": "bin/interpreter",
+    "resourcesDir": "codex-resources",
+    "pathDir": "codex-path"
+  },
+  "requiredArtifacts": [
+    "codex-package.json",
+    "bin/interpreter",
+    "bin/codex-code-mode-host",
+    "codex-path/rg",
+    "codex-resources/zsh/bin/zsh"
+  ],
+  "assets": {
+    "darwin-arm64": {
+      "targetTriple": "aarch64-apple-darwin",
+      "assetName": "open-interpreter-package-aarch64-apple-darwin.tar.gz",
+      "url": "https://github.com/openinterpreter/openinterpreter/releases/download/rust-v0.0.34/open-interpreter-package-aarch64-apple-darwin.tar.gz",
+      "archiveSha256": "78f1b18e1fa1cdb72938dc78c9f6c0204bccfce1e1f0c969fb83df6789dbd411",
+      "archiveSize": 241774104
+    },
+    "darwin-x64": {
+      "targetTriple": "x86_64-apple-darwin",
+      "assetName": "open-interpreter-package-x86_64-apple-darwin.tar.gz",
+      "url": "https://github.com/openinterpreter/openinterpreter/releases/download/rust-v0.0.34/open-interpreter-package-x86_64-apple-darwin.tar.gz",
+      "archiveSha256": "1d1909e50c93c343f5b039ce50149857e372c6f0db222a8d70c78af1b679a715",
+      "archiveSize": 254416754
+    }
+  },
+  "notices": {
+    "licensePath": "resources/third-party/open-interpreter/LICENSE",
+    "licenseSha256": "d17f227e4df5da1600391338865ce0f3055211760a36688f816941d58232d8dc",
+    "noticePath": "resources/third-party/open-interpreter/NOTICE",
+    "noticeSha256": "9d71575ecfd9a843fc1677b0efb08053c6ba9fd686a0de1a6f5382fd3c220915"
+  }
+}

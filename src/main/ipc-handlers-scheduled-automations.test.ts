@@ -38,6 +38,7 @@ const runs = new Map<string, CodexAutomationRun>();
 
 const automationModule = {
   listDefinitions: async () => [...definitions.values()],
+  getDefinition: async (id: string) => definitions.get(id) ?? null,
   createDefinition: async (input: Parameters<DesktopAutomationModulePort["createDefinition"]>[0]) => {
     const id = input.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
     const now = Date.now();
@@ -51,7 +52,10 @@ const automationModule = {
       prompt: input.prompt ?? "",
       rrule: input.rrule ?? null,
       model: input.model ?? null,
+      modelProvider: input.modelProvider ?? null,
+      harnessId: input.harnessId ?? null,
       reasoningEffort: input.reasoningEffort ?? null,
+      serviceTier: input.serviceTier ?? null,
       cwds: input.cwds ?? [],
       executionEnvironment: input.executionEnvironment ?? "worktree",
       localEnvironmentConfigPath: input.localEnvironmentConfigPath ?? null,
@@ -77,7 +81,10 @@ const automationModule = {
       prompt: input.prompt ?? current.prompt,
       rrule: input.rrule ?? current.rrule,
       model: input.model ?? null,
+      modelProvider: input.modelProvider ?? current.modelProvider,
+      harnessId: input.harnessId ?? current.harnessId,
       reasoningEffort: input.reasoningEffort ?? null,
+      serviceTier: input.serviceTier ?? current.serviceTier,
       cwds: input.cwds ?? current.cwds,
       executionEnvironment:
         input.executionEnvironment ?? current.executionEnvironment,
@@ -175,6 +182,17 @@ beforeAll(async () => {
     runScheduledAutomationNow: async (input) => {
       runNowInputs.push(input);
     },
+    prepareCreateInput: async (input) => input.modelProvider
+      ? { ...input, harnessId: "resolved-harness" }
+      : input,
+    prepareUpdateInput: async (input, current) => input.modelProvider || current?.modelProvider
+      ? {
+          ...input,
+          model: input.model ?? current?.model ?? null,
+          modelProvider: input.modelProvider ?? current?.modelProvider ?? null,
+          harnessId: "resolved-harness",
+        }
+      : input,
     resolveAutomationArchiveMessages: async () => ({
       archivedAssistantMessage: null,
       archivedUserMessage: null,
@@ -290,6 +308,47 @@ describe("scheduled automation IPC contract", () => {
       expect(deleteAgainResponse.success).toBe(true);
       expect(deleteAgainResponse.status).toBe("not_found");
       expect(deleteAgainResponse.item).toBe(null);
+  });
+
+  test("persists the main-process-resolved provider profile", async () => {
+    const response = await invokeIpc("codex:scheduled-automations:create", {
+      kind: "cron",
+      name: "Kimi report",
+      prompt: "Summarize the repository.",
+      rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
+      model: "moonshotai/kimi-k3",
+      modelProvider: "openrouter",
+      harnessId: null,
+      reasoningEffort: "Thinking",
+      serviceTier: null,
+      cwds: ["/repo/project-alpha"],
+      executionEnvironment: "local",
+    }) as CodexScheduledAutomationMutationResponse;
+
+    expect(response.item.modelProvider).toBe("openrouter");
+    expect(response.item.model).toBe("moonshotai/kimi-k3");
+    expect(response.item.harnessId).toBe("resolved-harness");
+    expect(response.item.reasoningEffort).toBe("Thinking");
+
+    const updated = await invokeIpc("codex:scheduled-automations:update", {
+      id: response.item.id,
+      kind: "cron",
+      status: "PAUSED",
+      name: "Kimi report paused",
+      prompt: "Summarize blockers.",
+      rrule: "FREQ=DAILY;BYHOUR=10;BYMINUTE=0",
+      model: null,
+      modelProvider: null,
+      harnessId: null,
+      reasoningEffort: "Thinking",
+      serviceTier: null,
+      cwds: ["/repo/project-alpha"],
+      executionEnvironment: "local",
+    }) as CodexScheduledAutomationMutationResponse;
+
+    expect(updated.item.modelProvider).toBe("openrouter");
+    expect(updated.item.model).toBe("moonshotai/kimi-k3");
+    expect(updated.item.harnessId).toBe("resolved-harness");
   });
 
   test("forwards run-now input to the automation runtime and returns success", async () => {

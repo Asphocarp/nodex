@@ -11,8 +11,10 @@ describe("codex-service runtime bootstrap", () => {
       source: "bundled",
       binaryPath: "/tmp/nodex/codex",
       additionalSearchPaths: ["/tmp/nodex/path"],
+      codexCompatibilityVersion: "0.144.5",
       metadataPath: "/tmp/nodex/runtime.json",
-      missingBinaryMessage: "Bundled Codex runtime is missing or corrupted. Reinstall Nodex.",
+      missingBinaryMessage: "Bundled agent runtime is missing or corrupted. Reinstall Nodex.",
+      runtimeFamily: "open-interpreter",
       version: "0.115.0",
     };
     const service = new CodexService({ runtime }) as unknown as {
@@ -50,11 +52,15 @@ describe("codex-service runtime bootstrap", () => {
       };
 
       try {
-        const expectedRuntimeRootSuffix = path.join(".generated", "codex-runtime", "bin");
-        expect(service.client.binaryPath.endsWith(path.join(expectedRuntimeRootSuffix, "codex"))).toBe(true);
-        expect((service.client.additionalSearchPaths[0] ?? "").endsWith(expectedRuntimeRootSuffix)).toBe(true);
+        const expectedRuntimeRootSuffix = path.join(".generated", "codex-runtime", "agent-runtime");
+        expect(service.client.binaryPath.endsWith(
+          path.join(expectedRuntimeRootSuffix, "bin", "interpreter"),
+        )).toBe(true);
+        expect((service.client.additionalSearchPaths[0] ?? "").endsWith(
+          path.join(expectedRuntimeRootSuffix, "codex-path"),
+        )).toBe(true);
         expect(service.client.missingBinaryMessage).toBe(
-          "Pinned Codex runtime is missing or incomplete. Run `pnpm run stage:codex-runtime:mac`.",
+          "Pinned agent runtime is missing or incomplete. Run `pnpm run stage:codex-runtime:mac`.",
         );
       } finally {
         await service.shutdown();

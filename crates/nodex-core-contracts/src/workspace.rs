@@ -180,6 +180,10 @@ pub struct ProjectWorkspaceThread {
     pub agent_path: Option<String>,
     pub thread_preview: String,
     pub model_provider: String,
+    pub model_id: Option<String>,
+    pub harness_id: Option<String>,
+    pub reasoning_effort: Option<String>,
+    pub service_tier: Option<String>,
     pub cwd: Option<String>,
     pub managed_worktree_path: Option<String>,
     pub projectless_output_directory: Option<String>,
@@ -353,6 +357,30 @@ pub struct ProjectWorkspaceThreadPatch {
     pub agent_path: Option<Option<String>>,
     pub thread_preview: Option<String>,
     pub model_provider: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub model_id: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub harness_id: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub reasoning_effort: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub service_tier: Option<Option<String>>,
     #[serde(
         default,
         deserialize_with = "deserialize_present",

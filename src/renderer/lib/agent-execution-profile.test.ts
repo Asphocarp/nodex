@@ -1,0 +1,125 @@
+import { describe, expect, test } from "vitest";
+import type { AgentProviderCatalog } from "../../shared/agent-runtime";
+import {
+  parseStoredAgentExecutionProfile,
+  resolveAgentExecutionProfile,
+  selectAgentModel,
+  selectAgentReasoningEffort,
+  selectAgentProvider,
+} from "./agent-execution-profile";
+
+const CATALOG: AgentProviderCatalog = {
+  providers: [
+    {
+      id: "openai",
+      displayName: "OpenAI",
+      description: null,
+      wireApi: "responses",
+      credentialStatus: "runtimeManaged",
+      supportedByNodex: true,
+      isDefault: true,
+      credentialEnvKey: null,
+      recommendedHarnessId: null,
+      models: [{
+        providerId: "openai",
+        modelId: "gpt-5.5",
+        displayName: "GPT-5.5",
+        description: null,
+        hidden: false,
+        isDefault: true,
+        recommendedHarnessId: null,
+        supportedReasoningEfforts: [{ value: "high", description: null }],
+        defaultReasoningEffort: "high",
+        inputCapabilities: ["text", "image"],
+        switchPolicy: "same-thread",
+      }],
+    },
+    {
+      id: "kimi-for-coding",
+      displayName: "Kimi For Coding",
+      description: null,
+      wireApi: "chat",
+      credentialStatus: "ready",
+      supportedByNodex: true,
+      isDefault: false,
+      credentialEnvKey: "KIMI_API_KEY",
+      recommendedHarnessId: "kimi-code",
+      models: [{
+        providerId: "kimi-for-coding",
+        modelId: "kimi-k3",
+        displayName: "Kimi K3",
+        description: null,
+        hidden: false,
+        isDefault: true,
+        recommendedHarnessId: "kimi-code",
+        supportedReasoningEfforts: [
+          { value: "Thinking", description: null },
+          { value: "Instant", description: null },
+        ],
+        defaultReasoningEffort: "Thinking",
+        inputCapabilities: ["text"],
+        switchPolicy: "new-thread",
+      }],
+    },
+  ],
+};
+
+describe("agent execution profile selection", () => {
+  test("uses a valid stored provider/model identity and preserves opaque effort case", () => {
+    const profile = resolveAgentExecutionProfile({
+      catalog: CATALOG,
+      storedProfile: {
+        providerId: "kimi-for-coding",
+        modelId: "kimi-k3",
+        harnessId: "stale-harness",
+        reasoningEffort: "Thinking",
+        serviceTier: "fast",
+      },
+    });
+
+    expect(profile).toEqual({
+      providerId: "kimi-for-coding",
+      modelId: "kimi-k3",
+      harnessId: "kimi-code",
+      reasoningEffort: "Thinking",
+      serviceTier: null,
+    });
+  });
+
+  test("falls back atomically and rejects unsupported effort changes", () => {
+    const initial = resolveAgentExecutionProfile({
+      catalog: CATALOG,
+      storedProfile: {
+        providerId: "removed",
+        modelId: "removed",
+        harnessId: null,
+        reasoningEffort: null,
+        serviceTier: null,
+      },
+      legacyModelId: "gpt-5.5",
+      legacyReasoningEffort: "high",
+      serviceTier: "fast",
+    });
+    expect(initial?.providerId).toBe("openai");
+    expect(initial?.serviceTier).toBe("fast");
+
+    const kimi = selectAgentProvider(CATALOG, "kimi-for-coding", initial);
+    expect(kimi?.reasoningEffort).toBe("Thinking");
+    expect(kimi?.serviceTier).toBeNull();
+    expect(kimi && selectAgentReasoningEffort(CATALOG, kimi, "unsupported")).toBeNull();
+    expect(kimi && selectAgentReasoningEffort(CATALOG, kimi, "Instant")?.reasoningEffort).toBe("Instant");
+
+    const openaiModel = CATALOG.providers[0]?.models[0];
+    expect(openaiModel && selectAgentModel(openaiModel, kimi).reasoningEffort).toBe("high");
+  });
+
+  test("fails closed for malformed persisted values", () => {
+    expect(parseStoredAgentExecutionProfile({
+      providerId: "anthropic",
+      modelId: "claude\u0000opus",
+      harnessId: null,
+      reasoningEffort: null,
+      serviceTier: null,
+    })).toBeNull();
+  });
+});

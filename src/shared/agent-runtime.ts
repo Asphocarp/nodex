@@ -1,0 +1,86 @@
+export type AgentWireApi = "responses" | "chat" | "messages";
+
+export type AgentProviderCredentialStatus =
+  | "ready"
+  | "inherited"
+  | "runtimeManaged"
+  | "missing"
+  | "unavailable"
+  | "unsupported";
+
+export interface AgentExecutionProfile {
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly harnessId: string | null;
+  readonly reasoningEffort: string | null;
+  readonly serviceTier: string | null;
+}
+
+export interface AgentReasoningEffortOption {
+  readonly value: string;
+  readonly description: string | null;
+}
+
+export interface AgentModelOption {
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly displayName: string;
+  readonly description: string | null;
+  readonly hidden: boolean;
+  readonly isDefault: boolean;
+  readonly recommendedHarnessId: string | null;
+  readonly supportedReasoningEfforts: readonly AgentReasoningEffortOption[];
+  readonly defaultReasoningEffort: string | null;
+  readonly inputCapabilities: readonly ("text" | "image")[];
+  readonly switchPolicy: "same-thread" | "new-thread";
+}
+
+export interface AgentProviderOption {
+  readonly id: string;
+  readonly displayName: string;
+  readonly description: string | null;
+  readonly wireApi: AgentWireApi;
+  readonly credentialStatus: AgentProviderCredentialStatus;
+  readonly supportedByNodex: boolean;
+  readonly isDefault: boolean;
+  readonly credentialEnvKey: string | null;
+  readonly recommendedHarnessId: string | null;
+  readonly models: readonly AgentModelOption[];
+}
+
+export interface AgentProviderCatalog {
+  readonly providers: readonly AgentProviderOption[];
+}
+
+export interface AgentProviderCredentialMutationInput {
+  readonly providerId: string;
+  readonly apiKey: string;
+}
+
+export interface AgentProviderCredentialDeleteInput {
+  readonly providerId: string;
+}
+
+export interface AgentProviderCredentialMutationResult {
+  readonly providerId: string;
+  readonly status: AgentProviderCredentialStatus;
+  readonly runtimeRestartPending: boolean;
+}
+
+export function encodeAgentModelKey(providerId: string, modelId: string): string {
+  return JSON.stringify([providerId, modelId]);
+}
+
+export function decodeAgentModelKey(value: string): { providerId: string; modelId: string } | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed) || parsed.length !== 2) return null;
+  const [providerId, modelId] = parsed;
+  if (typeof providerId !== "string" || typeof modelId !== "string") return null;
+  if (!providerId || !modelId) return null;
+  return { providerId, modelId };
+}

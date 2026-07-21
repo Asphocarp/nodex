@@ -12,28 +12,59 @@ function writeExecutable(filePath: string, source: string): void {
 }
 
 function prepareRuntimeFixture(root: string): void {
-  const runtimeRoot = path.join(root, ".generated", "codex-runtime", "bin");
-  fs.mkdirSync(runtimeRoot, { recursive: true });
+  const runtimeRoot = path.join(root, ".generated", "codex-runtime", "agent-runtime");
+  fs.mkdirSync(path.join(runtimeRoot, "bin"), { recursive: true });
+  fs.mkdirSync(path.join(runtimeRoot, "codex-path"), { recursive: true });
+  fs.mkdirSync(path.join(runtimeRoot, "codex-resources"), { recursive: true });
   const artifactBodies = new Map([
-    ["codex", "#!/bin/sh\nexit 0\n"],
-    ["codex-code-mode-host", "#!/bin/sh\nexit 0\n"],
+    ["bin/interpreter", "#!/bin/sh\nexit 0\n"],
+    ["codex-package.json", JSON.stringify({
+      entrypoint: "bin/interpreter",
+      layoutVersion: 1,
+      pathDir: "codex-path",
+      resourcesDir: "codex-resources",
+      target: `${process.arch}-${process.platform}`,
+      variant: "open-interpreter",
+      version: "0.0.0-e2e",
+    })],
   ]);
   const artifacts = [...artifactBodies].map(([artifactName, body]) => {
-    writeExecutable(path.join(runtimeRoot, artifactName), body);
+    const artifactPath = path.join(runtimeRoot, artifactName);
+    if (artifactName === "bin/interpreter") {
+      writeExecutable(artifactPath, body);
+    } else {
+      fs.writeFileSync(artifactPath, body);
+    }
     return {
-      executable: true,
+      executable: artifactName === "bin/interpreter",
       path: artifactName,
       sha256: createHash("sha256").update(body).digest("hex"),
       size: Buffer.byteLength(body),
     };
   });
-  writeExecutable(path.join(runtimeRoot, "rg"), "#!/bin/sh\nexit 1\n");
   fs.writeFileSync(path.join(runtimeRoot, "runtime.json"), JSON.stringify({
     artifacts,
-    codexVersion: "0.0.0-e2e",
-    layoutVersion: 1,
-    searchPathTools: ["rg"],
-    sourcePackage: "nodex-e2e-fixture",
+    codexCompatibilityVersion: "0.0.0-e2e",
+    entrypoint: "bin/interpreter",
+    layoutVersion: 2,
+    packageManifest: {
+      entrypoint: "bin/interpreter",
+      layoutVersion: 1,
+      pathDir: "codex-path",
+      resourcesDir: "codex-resources",
+      target: `${process.arch}-${process.platform}`,
+      variant: "open-interpreter",
+      version: "0.0.0-e2e",
+    },
+    runtimeFamily: "open-interpreter",
+    runtimeVersion: "0.0.0-e2e",
+    searchPaths: ["codex-path"],
+    sourceRelease: {
+      archiveSha256: "0".repeat(64),
+      assetName: "nodex-e2e-fixture.tar.gz",
+      repository: "openinterpreter/openinterpreter",
+      tag: "rust-v0.0.0-e2e",
+    },
     targetArch: process.arch,
     targetPlatform: process.platform,
     targetTriple: `${process.arch}-${process.platform}`,

@@ -108,6 +108,12 @@ import type {
   CodexHooksListResponse,
   CodexHooksStateUpdateInput,
 } from "./codex-hooks";
+import type {
+  AgentProviderCatalog,
+  AgentProviderCredentialDeleteInput,
+  AgentProviderCredentialMutationInput,
+  AgentProviderCredentialMutationResult,
+} from "./agent-runtime";
 
 import type {
   BackupRecord,
@@ -1343,6 +1349,18 @@ export interface IpcApi {
   "codex:model:list": {
     args: [];
     result: CodexModelOption[];
+  };
+  "agent-runtime:catalog:get": {
+    args: [options?: { refresh?: boolean }];
+    result: AgentProviderCatalog;
+  };
+  "agent-runtime:credential:set": {
+    args: [input: AgentProviderCredentialMutationInput];
+    result: AgentProviderCredentialMutationResult;
+  };
+  "agent-runtime:credential:delete": {
+    args: [input: AgentProviderCredentialDeleteInput];
+    result: AgentProviderCredentialMutationResult;
   };
   "codex:hooks:list": {
     args: [input: CodexHooksListInput];

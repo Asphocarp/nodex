@@ -107,6 +107,18 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     onReasoningEffortChange: (reasoningEffort) => {
       updateThreadSettingsOrDraft({ reasoningEffort });
     },
+    onExecutionProfileChange: (profile) => {
+      if (input.activeThreadId) {
+        throw new Error("Start a new thread to change its provider or model");
+      }
+      input.codexControl.setExecutionProfile(profile);
+    },
+    onProviderCredentialSet: async (providerId, apiKey) => (
+      input.codexControl.setProviderCredential({ providerId, apiKey })
+    ),
+    onProviderCredentialDelete: async (providerId) => (
+      input.codexControl.deleteProviderCredential({ providerId })
+    ),
     onPersonalityChange: async (personality) => {
       await Promise.all([
         input.codexControl.setPersonality(personality),

@@ -2,8 +2,8 @@ import fs from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import {
-  parseBundledCodexRuntimeMetadata,
-  type BundledCodexRuntimeMetadata,
+  parseBundledAgentRuntimeMetadata,
+  type BundledAgentRuntimeMetadata,
 } from "../../shared/codex-runtime-metadata";
 
 export type CodexRuntimeSource = "bundled" | "staged";
@@ -11,8 +11,10 @@ export type CodexRuntimeSource = "bundled" | "staged";
 export type ResolvedCodexRuntime = {
   additionalSearchPaths: string[];
   binaryPath: string;
+  codexCompatibilityVersion: string | null;
   metadataPath: string | null;
   missingBinaryMessage: string;
+  runtimeFamily: "open-interpreter";
   source: CodexRuntimeSource;
   version: string | null;
 };
@@ -32,47 +34,44 @@ function readSha256(filePath: string): string {
   }
 }
 
-function validateRuntimeArtifacts(runtimeRoot: string, metadata: BundledCodexRuntimeMetadata): void {
+function validateRuntimeArtifacts(runtimeRoot: string, metadata: BundledAgentRuntimeMetadata): void {
   for (const artifact of metadata.artifacts) {
     const artifactPath = path.join(runtimeRoot, ...artifact.path.split("/"));
     let stats: fs.Stats;
     try {
       stats = fs.lstatSync(artifactPath);
     } catch {
-      throw new Error(`Codex runtime artifact is missing: ${artifact.path}`);
+      throw new Error(`Agent runtime artifact is missing: ${artifact.path}`);
     }
     if (!stats.isFile() || stats.isSymbolicLink()) {
-      throw new Error(`Codex runtime artifact is not a regular file: ${artifact.path}`);
+      throw new Error(`Agent runtime artifact is not a regular file: ${artifact.path}`);
     }
     if (stats.size !== artifact.size) {
-      throw new Error(`Codex runtime artifact size does not match metadata: ${artifact.path}`);
+      throw new Error(`Agent runtime artifact size does not match metadata: ${artifact.path}`);
     }
     if (artifact.executable && (stats.mode & 0o111) === 0) {
-      throw new Error(`Codex runtime artifact is not executable: ${artifact.path}`);
+      throw new Error(`Agent runtime artifact is not executable: ${artifact.path}`);
     }
     if (readSha256(artifactPath) !== artifact.sha256) {
-      throw new Error(`Codex runtime artifact checksum does not match metadata: ${artifact.path}`);
+      throw new Error(`Agent runtime artifact checksum does not match metadata: ${artifact.path}`);
     }
   }
 }
 
-function validateRuntimeSearchPathTools(
+function validateRuntimeSearchPaths(
   runtimeRoot: string,
-  metadata: BundledCodexRuntimeMetadata,
+  metadata: BundledAgentRuntimeMetadata,
 ): void {
-  for (const tool of metadata.searchPathTools) {
-    const toolPath = path.join(runtimeRoot, tool);
+  for (const searchPath of metadata.searchPaths) {
+    const searchPathRoot = path.join(runtimeRoot, ...searchPath.split("/"));
     let stats: fs.Stats;
     try {
-      stats = fs.lstatSync(toolPath);
+      stats = fs.lstatSync(searchPathRoot);
     } catch {
-      throw new Error(`Codex runtime search-path tool is missing: ${tool}`);
+      throw new Error(`Agent runtime search path is missing: ${searchPath}`);
     }
-    if (!stats.isFile() || stats.isSymbolicLink()) {
-      throw new Error(`Codex runtime search-path tool is not a regular file: ${tool}`);
-    }
-    if ((stats.mode & 0o111) === 0) {
-      throw new Error(`Codex runtime search-path tool is not executable: ${tool}`);
+    if (!stats.isDirectory() || stats.isSymbolicLink()) {
+      throw new Error(`Agent runtime search path is not a regular directory: ${searchPath}`);
     }
   }
 }
@@ -91,33 +90,37 @@ function resolveRuntimeFromRoot(input: {
   const metadataPath = path.join(input.runtimeRoot, "runtime.json");
 
   if (!fs.existsSync(metadataPath)) {
-    throw new Error(`Codex runtime is missing or incomplete under ${input.runtimeRoot}`);
+    throw new Error(`Agent runtime is missing or incomplete under ${input.runtimeRoot}`);
   }
 
   const metadata = parseBundledRuntimeMetadata(metadataPath);
   validateRuntimeArtifacts(input.runtimeRoot, metadata);
-  validateRuntimeSearchPathTools(input.runtimeRoot, metadata);
+  validateRuntimeSearchPaths(input.runtimeRoot, metadata);
 
   return {
     source: input.source,
-    binaryPath: path.join(input.runtimeRoot, "codex"),
-    additionalSearchPaths: [input.runtimeRoot],
-    version: metadata.codexVersion,
+    binaryPath: path.join(input.runtimeRoot, ...metadata.entrypoint.split("/")),
+    additionalSearchPaths: metadata.searchPaths.map((searchPath) => (
+      path.join(input.runtimeRoot, ...searchPath.split("/"))
+    )),
+    codexCompatibilityVersion: metadata.codexCompatibilityVersion,
+    runtimeFamily: metadata.runtimeFamily,
+    version: metadata.runtimeVersion,
     metadataPath,
     missingBinaryMessage: input.missingBinaryMessage,
   };
 }
 
-function parseBundledRuntimeMetadata(metadataPath: string): BundledCodexRuntimeMetadata {
+function parseBundledRuntimeMetadata(metadataPath: string): BundledAgentRuntimeMetadata {
   let rawMetadata: unknown;
   try {
     rawMetadata = JSON.parse(fs.readFileSync(metadataPath, "utf8"));
   } catch {
-    throw new Error(`Invalid bundled Codex runtime metadata at ${metadataPath}`);
+    throw new Error(`Invalid bundled Agent runtime metadata at ${metadataPath}`);
   }
-  const parsed = parseBundledCodexRuntimeMetadata(rawMetadata);
+  const parsed = parseBundledAgentRuntimeMetadata(rawMetadata);
   if (!parsed) {
-    throw new Error(`Invalid bundled Codex runtime metadata at ${metadataPath}`);
+    throw new Error(`Invalid bundled Agent runtime metadata at ${metadataPath}`);
   }
   return parsed;
 }
@@ -126,24 +129,24 @@ export function resolveCodexRuntime(options: ResolveCodexRuntimeOptions): Resolv
   if (!options.isPackaged) {
     const projectRootPath = options.projectRootPath?.trim();
     if (!projectRootPath) {
-      throw new Error("Unpackaged Codex runtime resolution requires a project root path");
+      throw new Error("Unpackaged Agent runtime resolution requires a project root path");
     }
 
     return resolveRuntimeFromRoot({
       source: "staged",
-      runtimeRoot: path.join(projectRootPath, ".generated", "codex-runtime", "bin"),
-      missingBinaryMessage: "Pinned Codex runtime is missing or incomplete. Run `pnpm run stage:codex-runtime:mac`.",
+      runtimeRoot: path.join(projectRootPath, ".generated", "codex-runtime", "agent-runtime"),
+      missingBinaryMessage: "Pinned agent runtime is missing or incomplete. Run `pnpm run stage:codex-runtime:mac`.",
     });
   }
 
   const resourcesPath = options.resourcesPath?.trim();
   if (!resourcesPath) {
-    throw new Error("Packaged Codex runtime resolution requires process.resourcesPath");
+    throw new Error("Packaged Agent runtime resolution requires process.resourcesPath");
   }
 
   return resolveRuntimeFromRoot({
     source: "bundled",
-    runtimeRoot: path.join(resourcesPath, "bin"),
-    missingBinaryMessage: "Bundled Codex runtime is missing or corrupted. Reinstall Nodex.",
+    runtimeRoot: path.join(resourcesPath, "agent-runtime"),
+    missingBinaryMessage: "Bundled agent runtime is missing or corrupted. Reinstall Nodex.",
   });
 }

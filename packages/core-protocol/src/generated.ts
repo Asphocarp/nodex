@@ -467,17 +467,20 @@ export interface components {
             /** Format: int64 */
             readonly definition_revision: number;
             readonly execution_environment: components["schemas"]["AutomationExecutionEnvironment"];
+            readonly harness_id?: string | null;
             readonly kind: components["schemas"]["AutomationDefinitionKind"];
             /** Format: int64 */
             readonly last_run_at_ms?: number | null;
             readonly local_environment_config_path?: string | null;
             readonly model?: string | null;
+            readonly model_provider?: string | null;
             readonly name: string;
             /** Format: int64 */
             readonly next_run_at_ms?: number | null;
             readonly prompt: string;
-            readonly reasoning_effort?: null | components["schemas"]["AutomationReasoningEffort"];
+            readonly reasoning_effort?: string | null;
             readonly rrule: string;
+            readonly service_tier?: string | null;
             readonly status: components["schemas"]["AutomationDefinitionStatus"];
             readonly target_thread_id?: string | null;
             /** Format: int64 */
@@ -486,13 +489,16 @@ export interface components {
         readonly AutomationDefinitionInput: {
             readonly cwds?: readonly string[] | null;
             readonly execution_environment?: null | components["schemas"]["AutomationExecutionEnvironment"];
+            readonly harness_id?: string | null;
             readonly kind: components["schemas"]["AutomationDefinitionKind"];
             readonly local_environment_config_path?: string | null;
             readonly model?: string | null;
+            readonly model_provider?: string | null;
             readonly name: string;
             readonly prompt?: string | null;
-            readonly reasoning_effort?: null | components["schemas"]["AutomationReasoningEffort"];
+            readonly reasoning_effort?: string | null;
             readonly rrule?: string | null;
+            readonly service_tier?: string | null;
             readonly target_thread_id?: string | null;
         };
         /** @enum {string} */
@@ -552,8 +558,6 @@ export interface components {
         readonly AutomationLeaseStatus: "claimed" | "completed" | "failed" | "cancelled";
         readonly AutomationReadRequest: components["schemas"]["ModuleReadRequest_AutomationRead"];
         readonly AutomationReadResponse: components["schemas"]["ResponseEnvelope_ModuleReadSnapshot_AutomationReadValue"];
-        /** @enum {string} */
-        readonly AutomationReasoningEffort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
         readonly AutomationRun: {
             readonly archived_assistant_message?: string | null;
             readonly archived_reason?: string | null;
@@ -3873,9 +3877,11 @@ export interface components {
             readonly cwd?: string | null;
             readonly dynamic_tool_catalogs: readonly components["schemas"]["ProjectWorkspaceDynamicToolCatalog"][];
             readonly forked_from_id?: string | null;
+            readonly harness_id?: string | null;
             readonly has_unread_turn: boolean;
             readonly linked_at: string;
             readonly managed_worktree_path?: string | null;
+            readonly model_id?: string | null;
             readonly model_provider: string;
             readonly parent_thread_id?: string | null;
             /** Format: int64 */
@@ -3883,7 +3889,9 @@ export interface components {
             readonly project_id?: string | null;
             readonly projectless_output_directory?: string | null;
             readonly projectless_workspace_browser_root?: string | null;
+            readonly reasoning_effort?: string | null;
             readonly service_name?: string | null;
+            readonly service_tier?: string | null;
             readonly session_id?: string | null;
             readonly status: components["schemas"]["ProjectWorkspaceThreadStatus"];
             readonly thread_id: string;
@@ -3917,14 +3925,18 @@ export interface components {
             readonly created_at?: number | null;
             readonly cwd?: string | null;
             readonly forked_from_id?: string | null;
+            readonly harness_id?: string | null;
             readonly linked_at?: string | null;
             readonly managed_worktree_path?: string | null;
+            readonly model_id?: string | null;
             readonly model_provider?: string | null;
             readonly parent_thread_id?: string | null;
             readonly project_id?: string | null;
             readonly projectless_output_directory?: string | null;
             readonly projectless_workspace_browser_root?: string | null;
+            readonly reasoning_effort?: string | null;
             readonly service_name?: string | null;
+            readonly service_tier?: string | null;
             readonly status?: null | components["schemas"]["ProjectWorkspaceThreadStatus"];
             readonly thread_name?: string | null;
             readonly thread_preview?: string | null;

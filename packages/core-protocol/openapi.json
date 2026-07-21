@@ -1337,6 +1337,12 @@
           "execution_environment": {
             "$ref": "#/components/schemas/AutomationExecutionEnvironment"
           },
+          "harness_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "kind": {
             "$ref": "#/components/schemas/AutomationDefinitionKind"
           },
@@ -1359,6 +1365,12 @@
               "null"
             ]
           },
+          "model_provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "name": {
             "type": "string"
           },
@@ -1373,17 +1385,19 @@
             "type": "string"
           },
           "reasoning_effort": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/AutomationReasoningEffort"
-              }
+            "type": [
+              "string",
+              "null"
             ]
           },
           "rrule": {
             "type": "string"
+          },
+          "service_tier": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "status": {
             "$ref": "#/components/schemas/AutomationDefinitionStatus"
@@ -1426,6 +1440,12 @@
               }
             ]
           },
+          "harness_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "kind": {
             "$ref": "#/components/schemas/AutomationDefinitionKind"
           },
@@ -1441,6 +1461,12 @@
               "null"
             ]
           },
+          "model_provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "name": {
             "type": "string"
           },
@@ -1451,16 +1477,18 @@
             ]
           },
           "reasoning_effort": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/AutomationReasoningEffort"
-              }
+            "type": [
+              "string",
+              "null"
             ]
           },
           "rrule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "service_tier": {
             "type": [
               "string",
               "null"
@@ -1717,18 +1745,6 @@
       },
       "AutomationReadResponse": {
         "$ref": "#/components/schemas/ResponseEnvelope_ModuleReadSnapshot_AutomationReadValue"
-      },
-      "AutomationReasoningEffort": {
-        "type": "string",
-        "enum": [
-          "none",
-          "minimal",
-          "low",
-          "medium",
-          "high",
-          "xhigh",
-          "max"
-        ]
       },
       "AutomationRun": {
         "type": "object",
@@ -15695,6 +15711,12 @@
               "null"
             ]
           },
+          "harness_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "has_unread_turn": {
             "type": "boolean"
           },
@@ -15702,6 +15724,12 @@
             "type": "string"
           },
           "managed_worktree_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model_id": {
             "type": [
               "string",
               "null"
@@ -15741,7 +15769,19 @@
               "null"
             ]
           },
+          "reasoning_effort": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "service_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "service_tier": {
             "type": [
               "string",
               "null"
@@ -15897,6 +15937,12 @@
               "null"
             ]
           },
+          "harness_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "linked_at": {
             "type": [
               "string",
@@ -15904,6 +15950,12 @@
             ]
           },
           "managed_worktree_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model_id": {
             "type": [
               "string",
               "null"
@@ -15939,7 +15991,19 @@
               "null"
             ]
           },
+          "reasoning_effort": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "service_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "service_tier": {
             "type": [
               "string",
               "null"

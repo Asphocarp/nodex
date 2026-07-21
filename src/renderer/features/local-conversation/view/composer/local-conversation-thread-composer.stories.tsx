@@ -11,6 +11,7 @@ import type {
   CodexPermissionMode,
   CodexReasoningEffortOption,
 } from "@/lib/types";
+import type { AgentProviderCatalog } from "../../../../../shared/agent-runtime";
 import type {
   NewChatProjectSelectorModel,
   ThreadFooterModel,
@@ -47,7 +48,88 @@ interface ComposerSendButtonStoryProps {
   savedGoalState: "none" | "active";
   seedPromptHistory: boolean;
   seedCompletedContext: boolean;
+  multiProviderCatalog: boolean;
 }
+
+const STORY_AGENT_PROVIDER_CATALOG: AgentProviderCatalog = {
+  providers: [
+    {
+      id: "openai",
+      displayName: "OpenAI",
+      description: "Codex Responses models.",
+      wireApi: "responses",
+      credentialStatus: "runtimeManaged",
+      supportedByNodex: true,
+      isDefault: true,
+      credentialEnvKey: null,
+      recommendedHarnessId: null,
+      models: [{
+        providerId: "openai",
+        modelId: "gpt-5.5",
+        displayName: "GPT-5.5",
+        description: "Default Codex coding model.",
+        hidden: false,
+        isDefault: true,
+        recommendedHarnessId: null,
+        supportedReasoningEfforts: [{ value: "high", description: "Deep reasoning." }],
+        defaultReasoningEffort: "high",
+        inputCapabilities: ["text", "image"],
+        switchPolicy: "same-thread",
+      }],
+    },
+    {
+      id: "anthropic",
+      displayName: "Anthropic",
+      description: "Claude Messages models.",
+      wireApi: "messages",
+      credentialStatus: "missing",
+      supportedByNodex: true,
+      isDefault: false,
+      credentialEnvKey: "ANTHROPIC_API_KEY",
+      recommendedHarnessId: "claude-code",
+      models: [{
+        providerId: "anthropic",
+        modelId: "claude-opus-4-1",
+        displayName: "Claude Opus 4.1",
+        description: "Claude's most capable coding model.",
+        hidden: false,
+        isDefault: true,
+        recommendedHarnessId: "claude-code",
+        supportedReasoningEfforts: [{ value: "high", description: "Extended thinking." }],
+        defaultReasoningEffort: "high",
+        inputCapabilities: ["text", "image"],
+        switchPolicy: "new-thread",
+      }],
+    },
+    {
+      id: "kimi-for-coding",
+      displayName: "Kimi For Coding",
+      description: "Kimi coding endpoint.",
+      wireApi: "chat",
+      credentialStatus: "ready",
+      supportedByNodex: true,
+      isDefault: false,
+      credentialEnvKey: "KIMI_API_KEY",
+      recommendedHarnessId: "kimi-code",
+      models: [{
+        providerId: "kimi-for-coding",
+        modelId: "kimi-k3",
+        displayName: "Kimi K3",
+        description: "Kimi's coding agent model.",
+        hidden: false,
+        isDefault: true,
+        recommendedHarnessId: "kimi-code",
+        supportedReasoningEfforts: [
+          { value: "Thinking", description: "Reason before responding." },
+          { value: "Instant", description: "Respond directly." },
+        ],
+        defaultReasoningEffort: "Thinking",
+        inputCapabilities: ["text"],
+        switchPolicy: "new-thread",
+      }],
+    },
+  ],
+};
 
 const LONG_PROMPT_STORY_DRAFT = Array.from(
   { length: 32 },
@@ -195,6 +277,19 @@ function buildModel(args: ComposerSendButtonStoryProps): ThreadFooterModel {
       : selectedModelReasoningOptions[0]?.reasoningEffort ?? footerModel.selectedReasoningEffort,
     reasoningEffortOptions: selectedModelReasoningOptions,
     selectedCollaborationMode: args.selectedCollaborationMode,
+    ...(args.multiProviderCatalog
+      ? {
+          agentProviderCatalog: STORY_AGENT_PROVIDER_CATALOG,
+          executionProfile: {
+            providerId: "anthropic",
+            modelId: "claude-opus-4-1",
+            harnessId: "claude-code",
+            reasoningEffort: "high",
+            serviceTier: null,
+          },
+          executionProfileLocked: args.threadState !== "newChat",
+        }
+      : {}),
     ...(args.threadState === "newChat" && newChatTarget
       ? {
           newThreadTarget: newChatTarget,
@@ -260,6 +355,17 @@ function buildActions(): ThreadStageActions {
     onCollaborationModeChange: () => { },
     onModelChange: () => { },
     onReasoningEffortChange: () => { },
+    onExecutionProfileChange: () => { },
+    onProviderCredentialSet: async (providerId) => ({
+      providerId,
+      status: "ready",
+      runtimeRestartPending: false,
+    }),
+    onProviderCredentialDelete: async (providerId) => ({
+      providerId,
+      status: "missing",
+      runtimeRestartPending: false,
+    }),
     onPersonalityChange: () => { },
     onPermissionModeChange: () => { },
     onQueueingEnabledChange: () => { },
@@ -408,6 +514,7 @@ const meta = {
     savedGoalState: "none",
     seedPromptHistory: false,
     seedCompletedContext: false,
+    multiProviderCatalog: false,
   },
   argTypes: {
     isQueueingEnabled: {
@@ -466,6 +573,9 @@ const meta = {
       control: "boolean",
     },
     seedCompletedContext: {
+      control: "boolean",
+    },
+    multiProviderCatalog: {
       control: "boolean",
     },
   },
@@ -640,6 +750,21 @@ export const ExpandedModelSubmenu: Story = {
     draftPrompt: "",
     initialServiceTier: "fast",
     modelCatalog: "expanded",
+  },
+};
+
+export const MultiProviderClaudeSetup: Story = {
+  args: {
+    threadState: "newChat",
+    multiProviderCatalog: true,
+    initialServiceTier: "standard",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "New-thread provider and model selection with inline Anthropic credential setup. API keys remain component-local until submitted to the main process.",
+      },
+    },
   },
 };
 

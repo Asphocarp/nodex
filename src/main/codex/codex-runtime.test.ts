@@ -1,38 +1,65 @@
-import { describe, expect, test } from "vitest";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { describe, expect, test } from "vitest";
 import { resolveCodexRuntime } from "./codex-runtime";
 
 function writeRuntime(rootPath: string): void {
   fs.mkdirSync(rootPath, { recursive: true });
   const artifactBodies = new Map([
-    ["codex", "#!/bin/sh\necho codex\n"],
-    ["codex-code-mode-host", "#!/bin/sh\necho host\n"],
+    ["codex-package.json", JSON.stringify({
+      layoutVersion: 1,
+      version: "0.0.34",
+      target: "aarch64-apple-darwin",
+      variant: "open-interpreter",
+      entrypoint: "bin/interpreter",
+      resourcesDir: "codex-resources",
+      pathDir: "codex-path",
+    })],
+    ["bin/interpreter", "#!/bin/sh\necho interpreter\n"],
+    ["bin/codex-code-mode-host", "#!/bin/sh\necho host\n"],
+    ["codex-path/rg", "#!/bin/sh\necho rg\n"],
+    ["codex-resources/zsh/bin/zsh", "#!/bin/sh\necho zsh\n"],
   ]);
   const artifacts = [...artifactBodies].map(([artifactName, body]) => {
-    const artifactPath = path.join(rootPath, artifactName);
+    const artifactPath = path.join(rootPath, ...artifactName.split("/"));
+    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
     fs.writeFileSync(artifactPath, body, "utf8");
-    fs.chmodSync(artifactPath, 0o755);
+    const executable = artifactName !== "codex-package.json";
+    if (executable) fs.chmodSync(artifactPath, 0o755);
     return {
-      executable: true,
+      executable,
       path: artifactName,
       sha256: createHash("sha256").update(body).digest("hex"),
       size: Buffer.byteLength(body),
     };
   });
-  const rgPath = path.join(rootPath, "rg");
-  fs.writeFileSync(rgPath, "#!/bin/sh\necho rg\n", "utf8");
-  fs.chmodSync(rgPath, 0o755);
   fs.writeFileSync(
     path.join(rootPath, "runtime.json"),
     JSON.stringify({
       artifacts,
-      codexVersion: "0.115.0",
-      layoutVersion: 1,
-      searchPathTools: ["rg"],
-      sourcePackage: "@openai/codex-darwin-arm64@0.115.0-darwin-arm64",
+      codexCompatibilityVersion: "0.144.5",
+      entrypoint: "bin/interpreter",
+      layoutVersion: 2,
+      packageManifest: {
+        layoutVersion: 1,
+        version: "0.0.34",
+        target: "aarch64-apple-darwin",
+        variant: "open-interpreter",
+        entrypoint: "bin/interpreter",
+        resourcesDir: "codex-resources",
+        pathDir: "codex-path",
+      },
+      runtimeFamily: "open-interpreter",
+      runtimeVersion: "0.0.34",
+      searchPaths: ["codex-path"],
+      sourceRelease: {
+        archiveSha256: "1".repeat(64),
+        assetName: "runtime.tar.gz",
+        repository: "openinterpreter/openinterpreter",
+        tag: "rust-v0.0.34",
+      },
       targetArch: "arm64",
       targetPlatform: "darwin",
       targetTriple: "aarch64-apple-darwin",
@@ -42,9 +69,8 @@ function writeRuntime(rootPath: string): void {
 }
 
 function makeBundledRuntimeFixture(): { cleanup: () => void; resourcesPath: string } {
-  const resourcesPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-codex-runtime-"));
-  writeRuntime(path.join(resourcesPath, "bin"));
-
+  const resourcesPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-agent-runtime-"));
+  writeRuntime(path.join(resourcesPath, "agent-runtime"));
   return {
     resourcesPath,
     cleanup: () => fs.rmSync(resourcesPath, { recursive: true, force: true }),
@@ -52,9 +78,8 @@ function makeBundledRuntimeFixture(): { cleanup: () => void; resourcesPath: stri
 }
 
 function makeStagedRuntimeFixture(): { cleanup: () => void; projectRootPath: string } {
-  const projectRootPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-codex-project-"));
-  writeRuntime(path.join(projectRootPath, ".generated", "codex-runtime", "bin"));
-
+  const projectRootPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-agent-project-"));
+  writeRuntime(path.join(projectRootPath, ".generated", "codex-runtime", "agent-runtime"));
   return {
     projectRootPath,
     cleanup: () => fs.rmSync(projectRootPath, { recursive: true, force: true }),
@@ -62,41 +87,32 @@ function makeStagedRuntimeFixture(): { cleanup: () => void; projectRootPath: str
 }
 
 describe("codex-runtime", () => {
-  test("resolves the bundled runtime from Electron Resources", () => {
+  test("resolves the bundled Open Interpreter runtime from Electron Resources", () => {
     const fixture = makeBundledRuntimeFixture();
-
     try {
-      const runtime = resolveCodexRuntime({
-        isPackaged: true,
-        resourcesPath: fixture.resourcesPath,
-      });
-
+      const runtime = resolveCodexRuntime({ isPackaged: true, resourcesPath: fixture.resourcesPath });
       expect(runtime.source).toBe("bundled");
-      expect(runtime.binaryPath).toBe(path.join(fixture.resourcesPath, "bin", "codex"));
-      expect(runtime.additionalSearchPaths[0]).toBe(path.join(fixture.resourcesPath, "bin"));
-      expect(runtime.version).toBe("0.115.0");
-      expect(runtime.missingBinaryMessage).toBe("Bundled Codex runtime is missing or corrupted. Reinstall Nodex.");
+      expect(runtime.runtimeFamily).toBe("open-interpreter");
+      expect(runtime.binaryPath).toBe(path.join(fixture.resourcesPath, "agent-runtime", "bin", "interpreter"));
+      expect(runtime.additionalSearchPaths).toEqual([
+        path.join(fixture.resourcesPath, "agent-runtime", "codex-path"),
+      ]);
+      expect(runtime.version).toBe("0.0.34");
+      expect(runtime.codexCompatibilityVersion).toBe("0.144.5");
+      expect(runtime.missingBinaryMessage).toBe("Bundled agent runtime is missing or corrupted. Reinstall Nodex.");
     } finally {
       fixture.cleanup();
     }
   });
 
-  test("throws before startup when the bundled runtime omits the code-mode host", () => {
+  test("throws before startup when the bundled runtime omits a declared artifact", () => {
     const fixture = makeBundledRuntimeFixture();
-    let threw = false;
-
     try {
-      fs.rmSync(path.join(fixture.resourcesPath, "bin", "codex-code-mode-host"));
-      try {
-        resolveCodexRuntime({
-          isPackaged: true,
-          resourcesPath: fixture.resourcesPath,
-        });
-      } catch {
-        threw = true;
-      }
-
-      expect(threw).toBe(true);
+      fs.rmSync(path.join(fixture.resourcesPath, "agent-runtime", "bin", "codex-code-mode-host"));
+      expect(() => resolveCodexRuntime({
+        isPackaged: true,
+        resourcesPath: fixture.resourcesPath,
+      })).toThrow("artifact is missing: bin/codex-code-mode-host");
     } finally {
       fixture.cleanup();
     }
@@ -104,41 +120,38 @@ describe("codex-runtime", () => {
 
   test("throws before startup when a staged runtime artifact was modified", () => {
     const fixture = makeStagedRuntimeFixture();
-
     try {
       fs.appendFileSync(path.join(
         fixture.projectRootPath,
         ".generated",
         "codex-runtime",
+        "agent-runtime",
         "bin",
         "codex-code-mode-host",
       ), "tampered");
-
       expect(() => resolveCodexRuntime({
         isPackaged: false,
         projectRootPath: fixture.projectRootPath,
-      })).toThrow("artifact size does not match metadata: codex-code-mode-host");
+      })).toThrow("artifact size does not match metadata: bin/codex-code-mode-host");
     } finally {
       fixture.cleanup();
     }
   });
 
-  test("throws before startup when the staged runtime omits a search-path tool", () => {
+  test("throws before startup when the staged runtime omits a search path", () => {
     const fixture = makeStagedRuntimeFixture();
-
     try {
       fs.rmSync(path.join(
         fixture.projectRootPath,
         ".generated",
         "codex-runtime",
-        "bin",
-        "rg",
-      ));
-
+        "agent-runtime",
+        "codex-path",
+      ), { recursive: true });
       expect(() => resolveCodexRuntime({
         isPackaged: false,
         projectRootPath: fixture.projectRootPath,
-      })).toThrow("search-path tool is missing: rg");
+      })).toThrow("artifact is missing: codex-path/rg");
     } finally {
       fixture.cleanup();
     }
@@ -146,39 +159,32 @@ describe("codex-runtime", () => {
 
   test("resolves the staged runtime for unpackaged runs", () => {
     const fixture = makeStagedRuntimeFixture();
-
     try {
       const runtime = resolveCodexRuntime({
         isPackaged: false,
         projectRootPath: fixture.projectRootPath,
       });
-
+      const runtimeRoot = path.join(fixture.projectRootPath, ".generated", "codex-runtime", "agent-runtime");
       expect(runtime.source).toBe("staged");
-      expect(runtime.binaryPath).toBe(path.join(fixture.projectRootPath, ".generated", "codex-runtime", "bin", "codex"));
-      expect(runtime.additionalSearchPaths[0]).toBe(path.join(fixture.projectRootPath, ".generated", "codex-runtime", "bin"));
-      expect(runtime.version).toBe("0.115.0");
-      expect(runtime.metadataPath).toBe(path.join(fixture.projectRootPath, ".generated", "codex-runtime", "bin", "runtime.json"));
-      expect(runtime.missingBinaryMessage).toBe("Pinned Codex runtime is missing or incomplete. Run `pnpm run stage:codex-runtime:mac`.");
+      expect(runtime.binaryPath).toBe(path.join(runtimeRoot, "bin", "interpreter"));
+      expect(runtime.additionalSearchPaths).toEqual([path.join(runtimeRoot, "codex-path")]);
+      expect(runtime.version).toBe("0.0.34");
+      expect(runtime.metadataPath).toBe(path.join(runtimeRoot, "runtime.json"));
+      expect(runtime.missingBinaryMessage).toBe(
+        "Pinned agent runtime is missing or incomplete. Run `pnpm run stage:codex-runtime:mac`.",
+      );
     } finally {
       fixture.cleanup();
     }
   });
 
   test("throws when the staged runtime is missing", () => {
-    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-codex-project-missing-"));
-    let threw = false;
-
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-agent-project-missing-"));
     try {
-      try {
-        resolveCodexRuntime({
-          isPackaged: false,
-          projectRootPath: fixture,
-        });
-      } catch {
-        threw = true;
-      }
-
-      expect(threw).toBe(true);
+      expect(() => resolveCodexRuntime({
+        isPackaged: false,
+        projectRootPath: fixture,
+      })).toThrow("Agent runtime is missing or incomplete");
     } finally {
       fs.rmSync(fixture, { recursive: true, force: true });
     }

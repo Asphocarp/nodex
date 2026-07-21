@@ -26,18 +26,6 @@ pub enum AutomationExecutionEnvironment {
     Worktree,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum AutomationReasoningEffort {
-    None,
-    Minimal,
-    Low,
-    Medium,
-    High,
-    Xhigh,
-    Max,
-}
-
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct AutomationDefinitionInput {
     pub kind: AutomationDefinitionKind,
@@ -46,7 +34,10 @@ pub struct AutomationDefinitionInput {
     pub prompt: Option<String>,
     pub rrule: Option<String>,
     pub model: Option<String>,
-    pub reasoning_effort: Option<AutomationReasoningEffort>,
+    pub model_provider: Option<String>,
+    pub harness_id: Option<String>,
+    pub reasoning_effort: Option<String>,
+    pub service_tier: Option<String>,
     pub cwds: Option<Vec<String>>,
     pub execution_environment: Option<AutomationExecutionEnvironment>,
     pub local_environment_config_path: Option<String>,
@@ -63,7 +54,10 @@ pub struct AutomationDefinition {
     pub prompt: String,
     pub rrule: String,
     pub model: Option<String>,
-    pub reasoning_effort: Option<AutomationReasoningEffort>,
+    pub model_provider: Option<String>,
+    pub harness_id: Option<String>,
+    pub reasoning_effort: Option<String>,
+    pub service_tier: Option<String>,
     pub cwds: Vec<String>,
     pub execution_environment: AutomationExecutionEnvironment,
     pub local_environment_config_path: Option<String>,

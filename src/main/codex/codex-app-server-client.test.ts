@@ -25,7 +25,7 @@ function makeMockServerScript(): { scriptPath: string; cleanup: () => void } {
       "rl.on('line', (line) => {",
       "  if (!line.trim()) return;",
       "  const msg = JSON.parse(line);",
-      "  if (msg.method === 'initialize') { send({ id: msg.id, result: { ok: true } }); return; }",
+      "  if (msg.method === 'initialize') { send({ id: msg.id, result: { userAgent: process.env.NODEX_TEST_RUNTIME_ENV || 'mock/0.0.1', codexHome: '/tmp/mock-codex-home', platformFamily: 'unix', platformOs: 'macos' } }); return; }",
       "  if (msg.method === 'initialized') { return; }",
       "  if (msg.method === 'echo') {",
       "    const delay = Number(msg.params?.delay ?? 0);",
@@ -134,6 +134,12 @@ describe("codex-app-server-client", () => {
       });
 
       await client.start();
+      expect(client.getInitializeResponse()).toEqual({
+        userAgent: "mock/0.0.1",
+        codexHome: "/tmp/mock-codex-home",
+        platformFamily: "unix",
+        platformOs: "macos",
+      });
 
       const [first, second] = await Promise.all([
         client.request<{ value: string }>("echo", { value: "first", delay: 40 }),
@@ -147,6 +153,7 @@ describe("codex-app-server-client", () => {
       expect(approval.approved).toBe("accept");
     } finally {
       await client.stop();
+      expect(client.getInitializeResponse()).toBeNull();
       mock.cleanup();
     }
   });
@@ -240,6 +247,31 @@ describe("codex-app-server-client", () => {
       await client.stop();
       mock.cleanup();
       shim.cleanup();
+    }
+  });
+
+  test("resolves the child environment again after a controlled restart", async () => {
+    const mock = makeMockServerScript();
+    let runtimeValue = "first-runtime";
+    const client = new CodexAppServerClient({
+      binaryPath: process.execPath,
+      args: [mock.scriptPath],
+      resolveEnv: () => ({
+        ...process.env,
+        NODEX_TEST_RUNTIME_ENV: runtimeValue,
+      }),
+    });
+
+    try {
+      await client.start();
+      expect(client.getInitializeResponse()?.userAgent).toBe("first-runtime");
+      await client.stop();
+      runtimeValue = "second-runtime";
+      await client.start();
+      expect(client.getInitializeResponse()?.userAgent).toBe("second-runtime");
+    } finally {
+      await client.stop();
+      mock.cleanup();
     }
   });
 

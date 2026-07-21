@@ -1,6 +1,7 @@
 import type { ConfigRequirementsReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigRequirementsReadResponse";
 import type { DynamicToolSpec } from "@nodex/codex-app-server-protocol/v2/DynamicToolSpec";
 import type { ThreadStartParams } from "@nodex/codex-app-server-protocol/v2/ThreadStartParams";
+import type { AgentExecutionProfile } from "../../shared/agent-runtime";
 
 export const CODEX_DYNAMIC_TOOLS_THREAD_START_TIMEOUT_MS = 5_000;
 
@@ -74,6 +75,7 @@ export interface CodexThreadLaunchContextDependencies {
 
 export interface BuildCodexNewConversationParamsInput {
   readonly model: string | null;
+  readonly executionProfile?: AgentExecutionProfile | null;
   readonly serviceTier: string | null;
   readonly serviceName?: string;
   readonly cwd: string;
@@ -317,19 +319,28 @@ export async function buildCodexNewConversationParams(
   input: BuildCodexNewConversationParamsInput,
   dependencies: CodexThreadLaunchContextDependencies,
 ): Promise<ThreadStartParams> {
-  const serviceTier = await resolveCodexLaunchServiceTier(input.serviceTier, dependencies);
+  const profile = input.executionProfile ?? null;
+  const requestedServiceTier = profile?.serviceTier ?? input.serviceTier;
+  const serviceTier = profile && profile.providerId !== "openai"
+    ? requestedServiceTier
+    : await resolveCodexLaunchServiceTier(requestedServiceTier, dependencies);
   const provider = await dependencies.resolveModelProviderConfig?.() ?? null;
   const mcpConfig = await dependencies.buildMcpCodexConfig(input.cwd);
+  const model = profile?.modelId ?? input.model;
   const permissions = input.permissions;
   let params: ThreadStartParams = {
     cwd: input.cwd,
-    model: input.model,
-    modelProvider: provider?.modelProvider ?? null,
+    model,
+    modelProvider: profile?.providerId ?? provider?.modelProvider ?? null,
     serviceTier,
     ...(input.serviceName === undefined ? {} : { serviceName: input.serviceName }),
     config: {
       ...(provider?.config ?? {}),
       ...(mcpConfig ?? {}),
+      ...(profile?.harnessId ? { harness: profile.harnessId } : {}),
+      ...(profile?.reasoningEffort
+        ? { model_reasoning_effort: profile.reasoningEffort }
+        : {}),
     },
     ...(permissions?.approvalsReviewer == null
       ? {}
@@ -383,7 +394,7 @@ export async function buildCodexNewConversationParams(
       developerInstructions: await dependencies.resolveDeveloperInstructions({
         baseInstructions: params.developerInstructions ?? null,
         cwd: params.cwd ?? input.cwd,
-        model: input.model,
+        model,
         threadId: input.threadId ?? null,
         threadToolsEnabled: input.defaultFeatureOverrides?.thread_tools === true,
       }),

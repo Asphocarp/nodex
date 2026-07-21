@@ -20,13 +20,9 @@ export const DEFAULT_WORKBENCH_AUTOMATION_REASONING_EFFORT = "medium";
 function isScheduledAutomationReasoningEffort(
   value: string,
 ): value is CodexScheduledAutomationReasoningEffort {
-  return value === "none"
-    || value === "minimal"
-    || value === "low"
-    || value === "medium"
-    || value === "high"
-    || value === "xhigh"
-    || value === "max";
+  return value.length > 0
+    && value.length <= 64
+    && !/[\u0000-\u001f\u007f-\u009f]/u.test(value);
 }
 
 export interface WorkbenchAutomationDraft {
@@ -38,7 +34,10 @@ export interface WorkbenchAutomationDraft {
   prompt: string;
   rrule: string;
   model: string;
+  modelProvider: string;
+  harnessId: string;
   reasoningEffort: CodexScheduledAutomationReasoningEffort | "";
+  serviceTier: string;
   cwds: string[];
   executionEnvironment: CodexScheduledAutomationExecutionEnvironment;
   localEnvironmentConfigPath: string;
@@ -114,9 +113,12 @@ export function createWorkbenchAutomationDraft(input: {
     prompt: automation?.prompt ?? "",
     rrule: automation?.rrule ?? DEFAULT_WORKBENCH_AUTOMATION_RRULE,
     model: kind === "cron" ? (automation?.model ?? "") : "",
+    modelProvider: kind === "cron" ? (automation?.modelProvider ?? "") : "",
+    harnessId: kind === "cron" ? (automation?.harnessId ?? "") : "",
     reasoningEffort: kind === "cron"
       ? (automation?.reasoningEffort ?? DEFAULT_WORKBENCH_AUTOMATION_REASONING_EFFORT)
       : "",
+    serviceTier: kind === "cron" ? (automation?.serviceTier ?? "") : "",
     cwds: kind === "cron" ? [...(automation?.cwds ?? [])] : [],
     executionEnvironment: normalizeExecutionEnvironment(automation?.executionEnvironment),
     localEnvironmentConfigPath: kind === "cron" ? (automation?.localEnvironmentConfigPath ?? "") : "",
@@ -136,9 +138,12 @@ export function createWorkbenchAutomationDraftFromCreateInput(
     prompt: input.prompt ?? "",
     rrule: input.rrule ?? DEFAULT_WORKBENCH_AUTOMATION_RRULE,
     model: kind === "cron" ? (input.model ?? "") : "",
+    modelProvider: kind === "cron" ? (input.modelProvider ?? "") : "",
+    harnessId: kind === "cron" ? (input.harnessId ?? "") : "",
     reasoningEffort: kind === "cron"
       ? (input.reasoningEffort ?? DEFAULT_WORKBENCH_AUTOMATION_REASONING_EFFORT)
       : "",
+    serviceTier: kind === "cron" ? (input.serviceTier ?? "") : "",
     cwds: kind === "cron" ? [...(input.cwds ?? [])] : [],
     executionEnvironment: normalizeExecutionEnvironment(input.executionEnvironment),
     localEnvironmentConfigPath: kind === "cron" ? (input.localEnvironmentConfigPath ?? "") : "",
@@ -162,9 +167,12 @@ export function createWorkbenchAutomationDraftFromUpdateInput(input: {
     prompt: update.prompt ?? base.prompt,
     rrule: update.rrule ?? base.rrule,
     model: kind === "cron" ? (update.model ?? base.model) : "",
+    modelProvider: kind === "cron" ? (update.modelProvider ?? base.modelProvider) : "",
+    harnessId: kind === "cron" ? (update.harnessId ?? base.harnessId) : "",
     reasoningEffort: kind === "cron"
       ? (update.reasoningEffort ?? base.reasoningEffort ?? DEFAULT_WORKBENCH_AUTOMATION_REASONING_EFFORT)
       : "",
+    serviceTier: kind === "cron" ? (update.serviceTier ?? base.serviceTier) : "",
     cwds: kind === "cron" ? [...(update.cwds ?? base.cwds)] : [],
     executionEnvironment: kind === "cron"
       ? normalizeExecutionEnvironment(update.executionEnvironment ?? base.executionEnvironment)
@@ -180,17 +188,30 @@ export function resolveWorkbenchAutomationDraftModelSettings(input: {
   models: readonly CodexModelOption[];
 }): WorkbenchAutomationDraft {
   if (input.draft.kind !== "cron") {
-    if (input.draft.model === "" && input.draft.reasoningEffort === "") {
+    if (
+      input.draft.model === ""
+      && input.draft.modelProvider === ""
+      && input.draft.harnessId === ""
+      && input.draft.reasoningEffort === ""
+      && input.draft.serviceTier === ""
+    ) {
       return input.draft;
     }
     return {
       ...input.draft,
       model: "",
+      modelProvider: "",
+      harnessId: "",
       reasoningEffort: "",
+      serviceTier: "",
     };
   }
 
   if (getVisibleCodexModels(input.models).length === 0) {
+    return input.draft;
+  }
+
+  if (input.draft.modelProvider && input.draft.modelProvider !== "openai") {
     return input.draft;
   }
 
@@ -206,6 +227,7 @@ export function resolveWorkbenchAutomationDraftModelSettings(input: {
 
   if (
     input.draft.model === selection.model
+    && input.draft.modelProvider === "openai"
     && input.draft.reasoningEffort === reasoningEffort
   ) {
     return input.draft;
@@ -214,6 +236,8 @@ export function resolveWorkbenchAutomationDraftModelSettings(input: {
   return {
     ...input.draft,
     model: selection.model,
+    modelProvider: "openai",
+    harnessId: "",
     reasoningEffort,
   };
 }
@@ -362,7 +386,10 @@ function buildCodexScheduledAutomationDraftPayload(
     prompt,
     rrule,
     model: isHeartbeat ? null : normalizeOptionalText(draft.model),
+    modelProvider: isHeartbeat ? null : normalizeOptionalText(draft.modelProvider),
+    harnessId: isHeartbeat ? null : normalizeOptionalText(draft.harnessId),
     reasoningEffort: isHeartbeat ? null : (draft.reasoningEffort || null),
+    serviceTier: isHeartbeat ? null : normalizeOptionalText(draft.serviceTier),
     cwds: isHeartbeat ? [] : [...draft.cwds],
     executionEnvironment: isHeartbeat ? null : normalizeExecutionEnvironment(draft.executionEnvironment),
     localEnvironmentConfigPath: isHeartbeat ? null : normalizeOptionalText(draft.localEnvironmentConfigPath),
@@ -381,7 +408,10 @@ export function buildCodexScheduledAutomationCreateInput(input: {
     prompt: payload.prompt,
     rrule: payload.rrule,
     model: payload.model,
+    modelProvider: payload.modelProvider,
+    harnessId: payload.harnessId,
     reasoningEffort: payload.reasoningEffort,
+    serviceTier: payload.serviceTier,
     cwds: payload.cwds,
     executionEnvironment: payload.executionEnvironment,
     localEnvironmentConfigPath: payload.localEnvironmentConfigPath,
@@ -416,7 +446,10 @@ export function isWorkbenchAutomationDraftDirty(input: {
     || normalizeOptionalText(draft.prompt) !== existing.prompt
     || normalizeOptionalText(draft.rrule) !== existing.rrule
     || (draft.kind === "cron" ? normalizeOptionalText(draft.model) : null) !== existing.model
+    || (draft.kind === "cron" ? normalizeOptionalText(draft.modelProvider) : null) !== existing.modelProvider
+    || (draft.kind === "cron" ? normalizeOptionalText(draft.harnessId) : null) !== existing.harnessId
     || (draft.kind === "cron" ? (draft.reasoningEffort || null) : null) !== existing.reasoningEffort
+    || (draft.kind === "cron" ? normalizeOptionalText(draft.serviceTier) : null) !== existing.serviceTier
     || (draft.kind === "cron" ? normalizeExecutionEnvironment(draft.executionEnvironment) : existing.executionEnvironment) !== existing.executionEnvironment
     || (draft.kind === "cron" ? normalizeOptionalText(draft.localEnvironmentConfigPath) : null) !== existing.localEnvironmentConfigPath
     || draft.cwds.length !== existing.cwds.length
@@ -435,7 +468,10 @@ export function hasWorkbenchAutomationCreateDraftChanges(
       || normalizeOptionalText(draft.prompt) !== normalizeOptionalText(initialDraft.prompt)
       || normalizeOptionalText(draft.rrule) !== normalizeOptionalText(initialDraft.rrule)
       || normalizeOptionalText(draft.model) !== normalizeOptionalText(initialDraft.model)
+      || normalizeOptionalText(draft.modelProvider) !== normalizeOptionalText(initialDraft.modelProvider)
+      || normalizeOptionalText(draft.harnessId) !== normalizeOptionalText(initialDraft.harnessId)
       || (draft.reasoningEffort || "") !== (initialDraft.reasoningEffort || "")
+      || normalizeOptionalText(draft.serviceTier) !== normalizeOptionalText(initialDraft.serviceTier)
       || draft.cwds.length !== initialDraft.cwds.length
       || draft.cwds.some((cwd, index) => cwd !== initialDraft.cwds[index])
       || normalizeExecutionEnvironment(draft.executionEnvironment) !== normalizeExecutionEnvironment(initialDraft.executionEnvironment)
@@ -449,7 +485,10 @@ export function hasWorkbenchAutomationCreateDraftChanges(
     || normalizeOptionalText(draft.prompt) !== null
     || normalizeOptionalText(draft.rrule) !== DEFAULT_WORKBENCH_AUTOMATION_RRULE
     || normalizeOptionalText(draft.model) !== null
+    || normalizeOptionalText(draft.modelProvider) !== null
+    || normalizeOptionalText(draft.harnessId) !== null
     || (draft.reasoningEffort !== "" && draft.reasoningEffort !== DEFAULT_WORKBENCH_AUTOMATION_REASONING_EFFORT)
+    || normalizeOptionalText(draft.serviceTier) !== null
     || draft.cwds.length > 0
     || normalizeExecutionEnvironment(draft.executionEnvironment) !== "worktree"
     || normalizeOptionalText(draft.localEnvironmentConfigPath) !== null;

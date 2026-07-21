@@ -138,6 +138,48 @@ describe("Codex thread launch context", () => {
     );
   });
 
+  test("projects a provider profile into one thread without mutating global runtime config", async () => {
+    let requirementsRead = false;
+    const params = await buildCodexNewConversationParams({
+      model: "legacy-model",
+      executionProfile: {
+        providerId: "anthropic",
+        modelId: "claude-opus-4-1",
+        harnessId: "fable",
+        reasoningEffort: "Thinking",
+        serviceTier: "priority",
+      },
+      serviceTier: "fast",
+      cwd: "/workspace",
+      permissions: null,
+      defaultFeatureOverrides: null,
+      personality: null,
+      includeDeveloperInstructions: false,
+      skipDynamicTools: true,
+    }, createDependencies({
+      readConfigRequirements: async () => {
+        requirementsRead = true;
+        return noRequirements;
+      },
+      resolveModelProviderConfig: async () => ({
+        modelProvider: "global-provider",
+        config: { provider_only: true, harness: "global-harness" },
+      }),
+      buildMcpCodexConfig: async () => ({ mcp_only: true }),
+    }));
+
+    expect(requirementsRead).toBe(false);
+    expect(params.model).toBe("claude-opus-4-1");
+    expect(params.modelProvider).toBe("anthropic");
+    expect(params.serviceTier).toBe("priority");
+    expect(params.config).toMatchObject({
+      provider_only: true,
+      mcp_only: true,
+      harness: "fable",
+      model_reasoning_effort: "Thinking",
+    });
+  });
+
   test("merges a persisted worktree environment over the effective shell policy", async () => {
     const params = await buildCodexNewConversationParams({
       model: null,

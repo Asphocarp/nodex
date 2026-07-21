@@ -7,7 +7,10 @@ import type {
   CodexAutomationRunsUpdatedEvent,
   CodexHeartbeatAutomationThreadStateChangedInput,
   CodexHeartbeatAutomationsEnabledChangedInput,
+  CodexScheduledAutomation,
+  CodexScheduledAutomationCreateInput,
   CodexScheduledAutomationRunNowInput,
+  CodexScheduledAutomationUpdateInput,
 } from "../shared/types";
 
 export type CodexScheduledAutomationIpcChannel =
@@ -40,6 +43,13 @@ export interface CodexScheduledAutomationIpcRegistration {
     rendererClientId: string | null,
   ) => Promise<void>;
   automationModule?: DesktopAutomationModulePort;
+  prepareCreateInput?: (
+    input: CodexScheduledAutomationCreateInput,
+  ) => Promise<CodexScheduledAutomationCreateInput>;
+  prepareUpdateInput?: (
+    input: CodexScheduledAutomationUpdateInput,
+    current: CodexScheduledAutomation | null,
+  ) => Promise<CodexScheduledAutomationUpdateInput>;
   resolveAutomationArchiveMessages: (
     threadId: string,
   ) => Promise<AutomationArchiveMessages>;
@@ -83,13 +93,22 @@ export function registerCodexScheduledAutomationIpcHandlers(
   }));
 
   options.registerHandle("codex:scheduled-automations:create", async (_, input) => {
-    const automation = await automationModule.createDefinition(input);
+    const preparedInput = options.prepareCreateInput
+      ? await options.prepareCreateInput(input)
+      : input;
+    const automation = await automationModule.createDefinition(preparedInput);
     options.broadcastScheduledAutomationChanged(automation.id, automation.targetThreadId, "upsert");
     return { item: automation };
   });
 
   options.registerHandle("codex:scheduled-automations:update", async (_, input) => {
-    const automation = await automationModule.updateDefinition(input);
+    const current = options.prepareUpdateInput
+      ? await automationModule.getDefinition(input.id)
+      : null;
+    const preparedInput = options.prepareUpdateInput
+      ? await options.prepareUpdateInput(input, current)
+      : input;
+    const automation = await automationModule.updateDefinition(preparedInput);
     if (!automation) throw new Error("Scheduled automation update failed.");
     options.broadcastScheduledAutomationChanged(automation.id, automation.targetThreadId, "upsert");
     return { item: automation };

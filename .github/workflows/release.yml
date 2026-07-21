@@ -121,7 +121,7 @@ jobs:
         fi
         echo "app_path=${app_path}" >> "${GITHUB_OUTPUT}"
 
-    - name: Verify bundled Codex runtime
+    - name: Verify bundled Agent runtime
       run: |
         pnpm exec tsx scripts/verify-codex-runtime.ts \
           --resources-path "${{ steps.fresh_install.outputs.app_path }}/Contents/Resources" \
@@ -251,7 +251,7 @@ jobs:
         fi
         echo "app_path=${app_path}" >> "${GITHUB_OUTPUT}"
 
-    - name: Verify bundled Codex runtime
+    - name: Verify bundled Agent runtime
       run: |
         pnpm exec tsx scripts/verify-codex-runtime.ts \
           --resources-path "${{ steps.fresh_install.outputs.app_path }}/Contents/Resources" \

@@ -39,6 +39,7 @@ import type {
   ProjectSessionUpdateInput,
   ProjectUpdateInput,
 } from "../../shared/types";
+import type { AgentExecutionProfile } from "../../shared/agent-runtime";
 import type { DynamicToolCatalogSelection } from "../codex/dynamic-tool-registry";
 import {
   ProjectSessionPanelActivateInputSchema,
@@ -117,6 +118,7 @@ export interface DesktopProjectWorkspaceThread {
   readonly threadName: string | null;
   readonly threadPreview: string;
   readonly modelProvider: string;
+  readonly executionProfile?: AgentExecutionProfile | null;
   readonly cwd: string | null;
   readonly managedWorktreePath: string | null;
   readonly projectlessOutputDirectory: string | null;
@@ -143,6 +145,7 @@ export interface DesktopProjectWorkspaceThreadPatch {
   readonly agentPath?: string | null;
   readonly threadPreview?: string;
   readonly modelProvider?: string;
+  readonly executionProfile?: AgentExecutionProfile | null;
   readonly cwd?: string | null;
   readonly managedWorktreePath?: string | null;
   readonly projectlessOutputDirectory?: string | null;
@@ -403,6 +406,15 @@ const fromCoreThread = (
   threadName: thread.thread_name ?? undefined,
   threadPreview: thread.thread_preview,
   modelProvider: thread.model_provider,
+  executionProfile: thread.model_id
+    ? {
+        providerId: thread.model_provider,
+        modelId: thread.model_id,
+        harnessId: thread.harness_id ?? null,
+        reasoningEffort: thread.reasoning_effort ?? null,
+        serviceTier: thread.service_tier ?? null,
+      }
+    : null,
   cwd: thread.cwd ?? undefined,
   managedWorktreePath: thread.managed_worktree_path ?? null,
   projectlessOutputDirectory: thread.projectless_output_directory ?? null,
@@ -450,6 +462,15 @@ const fromCoreWorkspaceThread = (
   threadName: thread.thread_name ?? null,
   threadPreview: thread.thread_preview,
   modelProvider: thread.model_provider,
+  executionProfile: thread.model_id
+    ? {
+        providerId: thread.model_provider,
+        modelId: thread.model_id,
+        harnessId: thread.harness_id ?? null,
+        reasoningEffort: thread.reasoning_effort ?? null,
+        serviceTier: thread.service_tier ?? null,
+      }
+    : null,
   cwd: thread.cwd ?? null,
   managedWorktreePath: thread.managed_worktree_path ?? null,
   projectlessOutputDirectory: thread.projectless_output_directory ?? null,
@@ -464,6 +485,23 @@ const fromCoreWorkspaceThread = (
   updatedAt: thread.updated_at,
   linkedAt: thread.linked_at,
 });
+
+const toCoreExecutionProfilePatch = (
+  profile: AgentExecutionProfile | null,
+) => profile
+  ? {
+      model_provider: profile.providerId,
+      model_id: profile.modelId,
+      harness_id: profile.harnessId,
+      reasoning_effort: profile.reasoningEffort,
+      service_tier: profile.serviceTier,
+    }
+  : {
+      model_id: null,
+      harness_id: null,
+      reasoning_effort: null,
+      service_tier: null,
+    };
 
 const toCoreThreadPatch = (
   patch: DesktopProjectWorkspaceThreadPatch,
@@ -501,6 +539,9 @@ const toCoreThreadPatch = (
   ...(patch.modelProvider === undefined
     ? {}
     : { model_provider: patch.modelProvider }),
+  ...(Object.prototype.hasOwnProperty.call(patch, "executionProfile")
+    ? toCoreExecutionProfilePatch(patch.executionProfile ?? null)
+    : {}),
   ...(Object.prototype.hasOwnProperty.call(patch, "cwd")
     ? { cwd: patch.cwd ?? null }
     : {}),
@@ -1523,6 +1564,10 @@ export function createCoreProjectWorkspaceAdapter(
         input,
         "managedWorktreePath",
       );
+      const hasExecutionProfile = Object.prototype.hasOwnProperty.call(
+        input,
+        "executionProfile",
+      );
       await apply({
         kind: "mutate_session",
         session_id: parsed.sessionId,
@@ -1558,8 +1603,13 @@ export function createCoreProjectWorkspaceAdapter(
               : {}),
             thread_preview:
               parsed.threadPreview ?? existing?.thread_preview ?? "",
-            model_provider:
-              parsed.modelProvider ?? existing?.model_provider ?? "",
+            model_provider: parsed.executionProfile?.providerId
+              ?? parsed.modelProvider
+              ?? existing?.model_provider
+              ?? "",
+            ...(hasExecutionProfile
+              ? toCoreExecutionProfilePatch(parsed.executionProfile ?? null)
+              : {}),
             ...(parsed.cwd != null ? { cwd: parsed.cwd } : {}),
             ...(hasManagedWorktreePath
               ? { managed_worktree_path: parsed.managedWorktreePath ?? null }

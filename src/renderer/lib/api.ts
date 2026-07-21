@@ -93,7 +93,7 @@ export async function invoke(
   const transport = resolveInvokeTransport(channel);
 
   if (
-    channel.startsWith("codex:") &&
+    (channel.startsWith("codex:") || channel.startsWith("agent-runtime:")) &&
     transport.kind !== "electron" &&
     !BROWSER_CODEX_INVOKE_CHANNELS.has(channel)
   ) {

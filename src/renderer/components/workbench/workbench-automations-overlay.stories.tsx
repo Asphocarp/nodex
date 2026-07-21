@@ -12,6 +12,7 @@ import type {
   WorktreeEnvironmentOption,
 } from "@/lib/types";
 import { NODEX_QUERY_DEFAULT_OPTIONS } from "@/lib/query-client";
+import type { AgentProviderCatalog } from "../../../shared/agent-runtime";
 import { WorkbenchAutomationsRouteShell } from "./workbench-automations-overlay";
 import { buildAutomationsPath } from "./workbench-automations-routes";
 
@@ -26,7 +27,10 @@ const AUTOMATIONS: CodexScheduledAutomation[] = [
     prompt: "Check the daily engineering standup thread.",
     rrule: "FREQ=DAILY",
     model: null,
+    modelProvider: null,
+    harnessId: null,
     reasoningEffort: null,
+    serviceTier: null,
     cwds: [],
     executionEnvironment: "worktree",
     localEnvironmentConfigPath: null,
@@ -45,7 +49,10 @@ const AUTOMATIONS: CodexScheduledAutomation[] = [
     prompt: "Review active project threads.",
     rrule: "FREQ=WEEKLY;BYDAY=MO,WE,FR",
     model: null,
+    modelProvider: null,
+    harnessId: null,
     reasoningEffort: null,
+    serviceTier: null,
     cwds: [],
     executionEnvironment: "worktree",
     localEnvironmentConfigPath: null,
@@ -64,7 +71,10 @@ const AUTOMATIONS: CodexScheduledAutomation[] = [
     prompt: "Triage inbox updates.",
     rrule: "FREQ=DAILY;INTERVAL=2",
     model: null,
+    modelProvider: null,
+    harnessId: null,
     reasoningEffort: null,
+    serviceTier: null,
     cwds: [],
     executionEnvironment: "worktree",
     localEnvironmentConfigPath: null,
@@ -85,7 +95,10 @@ const HISTORY_AUTOMATION: CodexScheduledAutomation = {
   prompt: "Summarize repository health and open follow-ups.",
   rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
   model: "gpt-5",
+  modelProvider: "openai",
+  harnessId: null,
   reasoningEffort: "low",
+  serviceTier: null,
   cwds: ["/Users/asc/repo/nodex"],
   executionEnvironment: "local",
   localEnvironmentConfigPath: null,
@@ -226,6 +239,86 @@ const CODEX_MODELS: CodexModelOption[] = [
   },
 ];
 
+const AGENT_PROVIDER_CATALOG: AgentProviderCatalog = {
+  providers: [
+    {
+      id: "openai",
+      displayName: "OpenAI",
+      description: "Codex Responses models.",
+      wireApi: "responses",
+      credentialStatus: "runtimeManaged",
+      supportedByNodex: true,
+      isDefault: true,
+      credentialEnvKey: null,
+      recommendedHarnessId: null,
+      models: [{
+        providerId: "openai",
+        modelId: "gpt-5.5",
+        displayName: "GPT-5.5",
+        description: "Default Codex coding model.",
+        hidden: false,
+        isDefault: true,
+        recommendedHarnessId: null,
+        supportedReasoningEfforts: [{ value: "high", description: "Deep reasoning." }],
+        defaultReasoningEffort: "high",
+        inputCapabilities: ["text", "image"],
+        switchPolicy: "same-thread",
+      }],
+    },
+    {
+      id: "anthropic",
+      displayName: "Anthropic",
+      description: "Claude Messages models.",
+      wireApi: "messages",
+      credentialStatus: "missing",
+      supportedByNodex: true,
+      isDefault: false,
+      credentialEnvKey: "ANTHROPIC_API_KEY",
+      recommendedHarnessId: "claude-code",
+      models: [{
+        providerId: "anthropic",
+        modelId: "claude-fable-5",
+        displayName: "Claude Fable 5",
+        description: "Claude coding model exposed by the pinned runtime.",
+        hidden: false,
+        isDefault: true,
+        recommendedHarnessId: "claude-code",
+        supportedReasoningEfforts: [{ value: "high", description: "Extended thinking." }],
+        defaultReasoningEffort: "high",
+        inputCapabilities: ["text", "image"],
+        switchPolicy: "new-thread",
+      }],
+    },
+    {
+      id: "kimi-for-coding",
+      displayName: "Kimi For Coding",
+      description: "Kimi coding endpoint.",
+      wireApi: "chat",
+      credentialStatus: "ready",
+      supportedByNodex: true,
+      isDefault: false,
+      credentialEnvKey: "KIMI_API_KEY",
+      recommendedHarnessId: "kimi-code",
+      models: [{
+        providerId: "kimi-for-coding",
+        modelId: "kimi-k3",
+        displayName: "Kimi K3",
+        description: "Kimi coding agent model.",
+        hidden: false,
+        isDefault: true,
+        recommendedHarnessId: "kimi-code",
+        supportedReasoningEfforts: [
+          { value: "Thinking", description: "Reason before responding." },
+          { value: "Instant", description: "Respond directly." },
+        ],
+        defaultReasoningEffort: "Thinking",
+        inputCapabilities: ["text"],
+        switchPolicy: "new-thread",
+      }],
+    },
+  ],
+};
+
 type StoryModelListState = "loaded" | "loading";
 
 function createStoryQueryClient(): QueryClient {
@@ -269,7 +362,10 @@ function storyAutomationFromInput(
     prompt: input.prompt ?? "",
     rrule: input.rrule ?? null,
     model: input.model ?? null,
+    modelProvider: input.modelProvider ?? null,
+    harnessId: input.harnessId ?? null,
     reasoningEffort: input.reasoningEffort ?? null,
+    serviceTier: input.serviceTier ?? null,
     cwds: input.cwds ?? [],
     executionEnvironment: input.executionEnvironment ?? "worktree",
     localEnvironmentConfigPath: input.localEnvironmentConfigPath ?? null,
@@ -286,12 +382,14 @@ function installAutomationsStoryApi({
   automationRuns,
   setAutomationRuns,
   modelListState,
+  multiProviderCatalog,
 }: {
   automations: CodexScheduledAutomation[];
   setAutomations: (automations: CodexScheduledAutomation[]) => void;
   automationRuns: CodexAutomationInboxItem[];
   setAutomationRuns: (items: CodexAutomationInboxItem[]) => void;
   modelListState: StoryModelListState;
+  multiProviderCatalog: boolean;
 }) {
   if (typeof window === "undefined") return;
   window.api = {
@@ -300,6 +398,9 @@ function installAutomationsStoryApi({
       if (channel === "codex:model:list") {
         if (modelListState === "loading") return new Promise<never>(() => undefined);
         return CODEX_MODELS;
+      }
+      if (channel === "agent-runtime:catalog:get") {
+        return multiProviderCatalog ? AGENT_PROVIDER_CATALOG : null;
       }
       if (channel === "worktrees:environments:list") {
         const projectId = String(args[0] ?? "");
@@ -421,6 +522,7 @@ function AutomationsRouteShellStory({
   autoSearchTemplatesQuery,
   autoSelectTemplateId,
   modelListState = "loaded",
+  multiProviderCatalog = false,
 }: {
   initialPath: string;
   automations?: CodexScheduledAutomation[];
@@ -436,6 +538,7 @@ function AutomationsRouteShellStory({
   autoSearchTemplatesQuery?: string;
   autoSelectTemplateId?: string;
   modelListState?: StoryModelListState;
+  multiProviderCatalog?: boolean;
 }) {
   const [automationState, setAutomationState] = useState(automations);
   const [automationRunState, setAutomationRunState] = useState(automationRuns);
@@ -446,6 +549,7 @@ function AutomationsRouteShellStory({
     automationRuns: automationRunState,
     setAutomationRuns: setAutomationRunState,
     modelListState,
+    multiProviderCatalog,
   });
   const [path, setPath] = useState(initialPath);
   const queryClient = useMemo(createStoryQueryClient, []);
@@ -680,6 +784,14 @@ export const CreateTaskModelDropdown: Story = {
   args: {
     initialPath: buildAutomationsPath({ automationMode: "create" }),
     autoOpenModelDropdown: true,
+  },
+};
+
+export const CreateTaskMultiProviderDropdown: Story = {
+  args: {
+    initialPath: buildAutomationsPath({ automationMode: "create" }),
+    autoOpenModelDropdown: true,
+    multiProviderCatalog: true,
   },
 };
 

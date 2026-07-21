@@ -326,6 +326,13 @@ export const ProjectSessionThreadLinkInputSchema = z.object({
   threadName: z.string().nullable().optional(),
   threadPreview: z.string().optional(),
   modelProvider: z.string().optional(),
+  executionProfile: z.object({
+    providerId: z.string().trim().min(1).max(512),
+    modelId: z.string().trim().min(1).max(512),
+    harnessId: z.string().trim().min(1).max(512).nullable(),
+    reasoningEffort: z.string().trim().min(1).max(64).nullable(),
+    serviceTier: z.string().trim().min(1).max(64).nullable(),
+  }).nullable().optional(),
   cwd: z.string().nullable().optional(),
   managedWorktreePath: z.string().nullable().optional(),
   projectlessOutputDirectory: z.string().nullable().optional(),

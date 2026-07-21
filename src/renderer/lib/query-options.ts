@@ -30,6 +30,7 @@ import type { GitBranchState } from "../../shared/ipc-api";
 import type { CommandKeymapState } from "../../shared/command-keybindings";
 import type { ProtocolMcpResourceReadParams } from "../../shared/types";
 import type { CodexHooksListInput, CodexHooksListResponse } from "../../shared/codex-hooks";
+import type { AgentProviderCatalog } from "../../shared/agent-runtime";
 
 const MCP_CATALOG_STALE_TIME_MS = 5 * 60_000;
 
@@ -109,6 +110,14 @@ export function codexModelsListQueryOptions() {
     queryKey: queryKeys.codexModels.list(),
     queryFn: () => invoke("codex:model:list") as Promise<CodexModelOption[]>,
     staleTime: 60_000,
+  });
+}
+
+export function agentProviderCatalogQueryOptions() {
+  return queryOptions({
+    queryKey: queryKeys.agentProviderCatalog.current(),
+    queryFn: () => invoke("agent-runtime:catalog:get") as Promise<AgentProviderCatalog>,
+    staleTime: 5 * 60_000,
   });
 }
 

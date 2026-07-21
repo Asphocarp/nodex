@@ -1,5 +1,7 @@
 import { EventEmitter } from "node:events";
+import { mkdirSync, realpathSync } from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import type {
   ClientRequest,
@@ -84,10 +86,13 @@ export interface CodexAppServerClientOptions {
   binaryPath?: string;
   args?: string[];
   env?: NodeJS.ProcessEnv;
+  resolveEnv?: () => NodeJS.ProcessEnv | Promise<NodeJS.ProcessEnv>;
   additionalSearchPaths?: string[];
   missingBinaryMessage?: string;
   initializeTimeoutMs?: number;
   requestTimeoutMs?: number;
+  logStderr?: boolean;
+  expectedCodexHome?: string;
   clientInfo?: {
     name: string;
     title: string;
@@ -284,10 +289,13 @@ export class CodexAppServerClient extends EventEmitter {
   private readonly binaryPath: string;
   private readonly args: string[];
   private readonly env: NodeJS.ProcessEnv;
+  private readonly resolveEnv: (() => NodeJS.ProcessEnv | Promise<NodeJS.ProcessEnv>) | null;
   private readonly additionalSearchPaths: string[];
   private readonly missingBinaryMessage: string;
   private readonly initializeTimeoutMs: number;
   private readonly requestTimeoutMs: number;
+  private readonly logStderr: boolean;
+  private readonly expectedCodexHome: string | null;
   private readonly clientInfo: { name: string; title: string; version: string };
 
   private child: ChildProcessWithoutNullStreams | null = null;
@@ -300,6 +308,7 @@ export class CodexAppServerClient extends EventEmitter {
   private isStopping = false;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectAttempts = 0;
+  private initializeResponse: InitializeResponse | null = null;
   private connectionState: CodexConnectionState = {
     status: "disconnected",
     retries: 0,
@@ -311,10 +320,15 @@ export class CodexAppServerClient extends EventEmitter {
     this.binaryPath = options?.binaryPath ?? "codex";
     this.args = options?.args ?? ["app-server", "--listen", "stdio://"];
     this.env = { ...(options?.env ?? process.env) };
+    this.resolveEnv = options?.resolveEnv ?? null;
     this.additionalSearchPaths = options?.additionalSearchPaths ?? [];
-    this.missingBinaryMessage = options?.missingBinaryMessage ?? "Configured Codex runtime is missing or unavailable.";
+    this.missingBinaryMessage = options?.missingBinaryMessage ?? "Configured Agent runtime is missing or unavailable.";
     this.initializeTimeoutMs = options?.initializeTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
     this.requestTimeoutMs = options?.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    this.logStderr = options?.logStderr ?? true;
+    this.expectedCodexHome = options?.expectedCodexHome
+      ? path.resolve(options.expectedCodexHome)
+      : null;
     this.clientInfo = options?.clientInfo ?? {
       name: "nodex",
       title: "Nodex",
@@ -325,6 +339,10 @@ export class CodexAppServerClient extends EventEmitter {
 
   getState(): CodexConnectionState {
     return this.connectionState;
+  }
+
+  getInitializeResponse(): InitializeResponse | null {
+    return this.initializeResponse;
   }
 
   setServerRequestHandler(handler: (request: CodexServerRequest) => Promise<unknown>): void {
@@ -365,6 +383,7 @@ export class CodexAppServerClient extends EventEmitter {
 
     this.child = null;
     this.initialized = false;
+    this.initializeResponse = null;
     this.rejectAllPending(new Error("Codex app-server client stopped"));
     this.resetReadyDeferred();
     this.setConnectionState({ status: "disconnected", retries: this.reconnectAttempts });
@@ -413,7 +432,12 @@ export class CodexAppServerClient extends EventEmitter {
     this.stderrBuffer = "";
     this.resetReadyDeferred();
     this.initialized = false;
-    const spawnEnv = createSpawnEnv(this.env, this.additionalSearchPaths);
+    this.initializeResponse = null;
+    if (this.expectedCodexHome) {
+      mkdirSync(this.expectedCodexHome, { recursive: true, mode: 0o700 });
+    }
+    const resolvedEnv = this.resolveEnv ? await this.resolveEnv() : this.env;
+    const spawnEnv = createSpawnEnv(resolvedEnv, this.additionalSearchPaths);
     const startedAt = Date.now();
 
     const probe = spawnSync(this.binaryPath, ["--version"], {
@@ -543,7 +567,14 @@ export class CodexAppServerClient extends EventEmitter {
       throw new Error(`Codex app-server initialize timed out after ${this.initializeTimeoutMs}ms`);
     });
 
-    await Promise.race([initializePromise, timeoutPromise]);
+    this.initializeResponse = await Promise.race([initializePromise, timeoutPromise]);
+    if (this.expectedCodexHome) {
+      const actualHome = realpathSync(this.initializeResponse.codexHome);
+      const expectedHome = realpathSync(this.expectedCodexHome);
+      if (actualHome !== expectedHome) {
+        throw new Error(`Agent runtime initialized with ${actualHome}; expected ${expectedHome}`);
+      }
+    }
     this.writeMessage({ method: "initialized" } satisfies JsonRpcNotificationEnvelope);
     this.initialized = true;
   }
@@ -637,7 +668,7 @@ export class CodexAppServerClient extends EventEmitter {
       const line = this.stderrBuffer.slice(0, newlineIndex).trim();
       this.stderrBuffer = this.stderrBuffer.slice(newlineIndex + 1);
       if (!line) continue;
-      logCodexStderrLine(line);
+      if (this.logStderr) logCodexStderrLine(line);
     }
   }
 
@@ -700,7 +731,7 @@ export class CodexAppServerClient extends EventEmitter {
         method: pending.method,
         durationMs,
         errorCode: response.error.code,
-        errorMessage: response.error.message,
+        errorMessage: truncatePreview(response.error.message, 600),
       });
       pending.reject(
         new CodexRpcError(response.error.message, response.error.code, response.error.data),
@@ -771,6 +802,7 @@ export class CodexAppServerClient extends EventEmitter {
   private handleChildExit(code: number | null, signal: NodeJS.Signals | null): void {
     this.child = null;
     this.initialized = false;
+    this.initializeResponse = null;
     this.rejectAllPending(new Error(`Codex app-server exited (code=${code ?? "null"}, signal=${signal ?? "null"})`));
     logger.warn("Codex app-server process exited", {
       code,

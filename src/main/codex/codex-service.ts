@@ -490,6 +490,20 @@ import {
   convertImmerPatchesToCodexConversationStateUpdates,
 } from "../../shared/codex-conversation-patches";
 import { resolveCodexRuntime, type ResolvedCodexRuntime } from "./codex-runtime";
+import type {
+  AgentExecutionProfile,
+  AgentProviderCatalog,
+  AgentProviderCredentialDeleteInput,
+  AgentProviderCredentialMutationInput,
+  AgentProviderCredentialMutationResult,
+} from "../../shared/agent-runtime";
+import {
+  discoverAgentProviderCatalog,
+  resolveAgentExecutionProfileFromCatalog,
+  type AgentProviderCatalogClient,
+} from "./agent-provider-catalog";
+import { createElectronProviderCredentialStore } from "./electron-provider-credential-store";
+import { ProviderCredentialStore } from "./provider-credential-store";
 import { CodexManualCompactionTracker } from "./codex-manual-compaction-tracker";
 import {
   cleanCodexAutoTitlePrompt,
@@ -705,6 +719,7 @@ const CODEX_DYNAMIC_TOOL_SPECS = [
 interface ThreadRef {
   projectId: string | null;
   cwd: string | null;
+  executionProfile?: AgentExecutionProfile | null;
   managedWorktreePath?: string | null;
   projectlessOutputDirectory?: string | null;
   projectlessWorkspaceBrowserRoot?: string | null;
@@ -723,6 +738,7 @@ interface CodexDynamicDirectConversationLaunchInput {
   readonly managedWorktreePath?: string | null;
   readonly memoryPreferences?: CodexThreadStartMemoryPreferences | null;
   readonly modelProjection: CodexDynamicCreateModelProjection;
+  readonly executionProfile?: AgentExecutionProfile | null;
   readonly mode?: string;
   readonly onThreadCreated?: (threadId: string) => void;
   readonly permissionSelection: CodexDynamicCreatePermissionSelection | null;
@@ -1320,6 +1336,8 @@ interface InternalThreadMetadata {
 
 type CodexServiceOptions = {
   runtime?: ResolvedCodexRuntime;
+  runtimeStateHome?: string;
+  providerCredentialStore?: ProviderCredentialStore;
   rateLimitsPollIntervalMs?: number;
   inactiveRendererOwnerRetentionMs?: number;
   inactiveRendererOwnerMaxRetained?: number;
@@ -1405,6 +1423,7 @@ interface SideChatDetailInput {
   forkResponse: ThreadForkResponse;
   resolvedCwd: string | null;
   latestCollaborationMode: CodexCollaborationModeState;
+  executionProfile: AgentExecutionProfile | null;
 }
 
 interface CodexAutomationArchiveMessages {
@@ -1754,18 +1773,6 @@ function parseTurnDiff(value: unknown): string | undefined {
   return typeof diff === "string" ? diff : undefined;
 }
 
-function resolveHomeDir(): string {
-  const envHome = process.env.HOME?.trim();
-  if (envHome) return envHome;
-  return homedir();
-}
-
-function resolveCodexHomeDir(): string {
-  const envCodexHome = process.env.CODEX_HOME?.trim();
-  if (envCodexHome) return envCodexHome;
-  return path.join(resolveHomeDir(), ".codex");
-}
-
 function buildThreadRuntimeStatus(
   statusType: CodexThreadStatusType,
   statusActiveFlags: CodexThreadActiveFlag[],
@@ -1900,8 +1907,23 @@ function isPotentialAutoReviewReviewerPreview(value: unknown): boolean {
   return AUTO_REVIEW_REVIEWER_PROMPT_PREFIXES.some((prefix) => trimmed.startsWith(prefix));
 }
 
-function isConfirmedAutoReviewReviewerMetadata(threadId: string): boolean {
-  const metadata = readCodexSessionThreadMetadata(threadId);
+function resolveLegacyCodexHomeDir(): string {
+  const configured = process.env.CODEX_HOME?.trim();
+  if (configured) return path.resolve(configured);
+  return path.join(homedir(), ".codex");
+}
+
+function resolveSessionHistoryHomes(runtimeStateHome: string): string[] {
+  const legacyCodexHome = resolveLegacyCodexHomeDir();
+  return legacyCodexHome === runtimeStateHome
+    ? [runtimeStateHome]
+    : [runtimeStateHome, legacyCodexHome];
+}
+
+function isConfirmedAutoReviewReviewerMetadata(threadId: string, runtimeStateHome: string): boolean {
+  const metadata = resolveSessionHistoryHomes(runtimeStateHome)
+    .map((candidate) => readCodexSessionThreadMetadata(threadId, candidate))
+    .find((candidate) => candidate !== null) ?? null;
   if (!metadata) return false;
   const threadSource = parseThreadSourceValue(metadata.threadSource);
   return threadSource === "subagent" && isGuardianSubagentSource(metadata.source);
@@ -2332,33 +2354,37 @@ function resolveDefaultCodexRuntime(): ResolvedCodexRuntime {
     if (!options.isPackaged) {
       const projectRootPath = options.projectRootPath?.trim();
       if (!projectRootPath) {
-        throw new Error("Unpackaged Codex runtime resolution requires a project root path");
+        throw new Error("Unpackaged Agent runtime resolution requires a project root path");
       }
 
-      const runtimeRoot = path.join(projectRootPath, ".generated", "codex-runtime", "bin");
+      const runtimeRoot = path.join(projectRootPath, ".generated", "codex-runtime", "agent-runtime");
       return {
         source: "staged",
-        binaryPath: path.join(runtimeRoot, "codex"),
-        additionalSearchPaths: [runtimeRoot],
+        binaryPath: path.join(runtimeRoot, "bin", "interpreter"),
+        additionalSearchPaths: [path.join(runtimeRoot, "codex-path")],
+        codexCompatibilityVersion: null,
+        runtimeFamily: "open-interpreter",
         version: null,
         metadataPath: path.join(runtimeRoot, "runtime.json"),
-        missingBinaryMessage: "Pinned Codex runtime is missing or incomplete. Run `pnpm run stage:codex-runtime:mac`.",
+        missingBinaryMessage: "Pinned agent runtime is missing or incomplete. Run `pnpm run stage:codex-runtime:mac`.",
       };
     }
 
     const resourcesPath = options.resourcesPath?.trim();
     if (!resourcesPath) {
-      throw new Error("Packaged Codex runtime resolution requires process.resourcesPath");
+      throw new Error("Packaged Agent runtime resolution requires process.resourcesPath");
     }
 
-    const runtimeRoot = path.join(resourcesPath, "bin");
+    const runtimeRoot = path.join(resourcesPath, "agent-runtime");
     return {
       source: "bundled",
-      binaryPath: path.join(runtimeRoot, "codex"),
-      additionalSearchPaths: [runtimeRoot],
+      binaryPath: path.join(runtimeRoot, "bin", "interpreter"),
+      additionalSearchPaths: [path.join(runtimeRoot, "codex-path")],
+      codexCompatibilityVersion: null,
+      runtimeFamily: "open-interpreter",
       version: null,
       metadataPath: path.join(runtimeRoot, "runtime.json"),
-      missingBinaryMessage: "Bundled Codex runtime is missing or corrupted. Reinstall Nodex.",
+      missingBinaryMessage: "Bundled agent runtime is missing or corrupted. Reinstall Nodex.",
     };
   };
 
@@ -2370,7 +2396,7 @@ function resolveDefaultCodexRuntime(): ResolvedCodexRuntime {
     return runtime;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("Codex runtime is missing or incomplete under")) {
+    if (message.includes("Agent runtime is missing or incomplete under")) {
       return buildDeferredRuntime(runtimeOptions);
     }
     throw error;
@@ -2592,19 +2618,11 @@ function parseAccountIdentity(value: unknown): CodexAccountIdentity | null {
 }
 
 function parseReasoningEffort(value: unknown): CodexReasoningEffort | null {
-  if (
-    value === "none" ||
-    value === "minimal" ||
-    value === "low" ||
-    value === "medium" ||
-    value === "high" ||
-    value === "xhigh" ||
-    value === "max" ||
-    value === "ultra"
-  ) {
-    return value;
-  }
-  return null;
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  if (!normalized || normalized.length > 64) return null;
+  if (/[\u0000-\u001f\u007f-\u009f]/u.test(normalized)) return null;
+  return normalized;
 }
 
 function parseCollaborationModeKind(value: unknown): CodexCollaborationModeKind | null {
@@ -2717,8 +2735,8 @@ function parseModelOption(value: unknown): CodexModelOption | null {
 
   const defaultReasoningEffort =
     parseReasoningEffort(candidate.defaultReasoningEffort ?? candidate.default_reasoning_effort) ??
-    supportedReasoningEfforts[0]?.reasoningEffort ??
-    "high";
+    supportedReasoningEfforts[0]?.reasoningEffort;
+  if (!defaultReasoningEffort) return null;
 
   return {
     id: candidate.id,
@@ -2747,6 +2765,8 @@ const unconfiguredAuthority = <Port extends object>(name: string): Port =>
 export class CodexService extends EventEmitter {
   private readonly logger = codexLogger;
   private readonly client: CodexAppServerClient;
+  private readonly runtimeStateHome: string;
+  private readonly providerCredentialStore: ProviderCredentialStore;
   private readonly rateLimitsPollIntervalMs: number;
   private readonly inactiveRendererOwnerRetentionMs: number;
   private readonly inactiveRendererOwnerMaxRetained: number;
@@ -2901,6 +2921,9 @@ export class CodexService extends EventEmitter {
   private sidebarThreadListRepairTimer: ReturnType<typeof setTimeout> | null = null;
   private sidebarUseStateDbOnlyThreadList = true;
   private sidebarSnapshotRevision = 0;
+  private agentProviderCatalog: AgentProviderCatalog | null = null;
+  private runtimeRestartPending = false;
+  private runtimeRestartInFlight: Promise<void> | null = null;
   private readonly sidebarSnapshotCacheByIncludeArchived = new Map<boolean, {
     revision: number;
     snapshot: CodexSidebarSnapshot;
@@ -2914,6 +2937,12 @@ export class CodexService extends EventEmitter {
     super();
 
     const runtime = options?.runtime ?? resolveDefaultCodexRuntime();
+    this.runtimeStateHome = path.resolve(
+      options?.runtimeStateHome
+        ?? path.join(getNodexHome(), "agent-runtime", "openinterpreter"),
+    );
+    this.providerCredentialStore = options?.providerCredentialStore
+      ?? createElectronProviderCredentialStore();
     this.rateLimitsPollIntervalMs = options?.rateLimitsPollIntervalMs ?? RATE_LIMITS_POLL_INTERVAL_MS;
     this.inactiveRendererOwnerRetentionMs = Math.max(
       0,
@@ -2939,7 +2968,7 @@ export class CodexService extends EventEmitter {
     this.resolveThreadGoalAttachmentsRoot = async () => {
       const configuredRoot = options?.resolveThreadGoalAttachmentsRoot?.();
       if (configuredRoot !== undefined) return await configuredRoot;
-      return getThreadGoalAttachmentsRoot(resolveCodexHomeDir());
+      return getThreadGoalAttachmentsRoot(this.runtimeStateHome);
     };
     void this.getPastedTextAttachmentManager().catch(() => undefined);
     this.loadWorktreeSetupBaseEnvironment = options?.loadWorktreeSetupBaseEnvironment;
@@ -2956,6 +2985,12 @@ export class CodexService extends EventEmitter {
     this.client = new CodexAppServerClient({
       binaryPath: runtime.binaryPath,
       additionalSearchPaths: runtime.additionalSearchPaths,
+      resolveEnv: async () => ({
+        ...process.env,
+        ...await this.providerCredentialStore.buildRuntimeEnvOverlay(),
+        INTERPRETER_HOME: this.runtimeStateHome,
+      }),
+      expectedCodexHome: this.runtimeStateHome,
       missingBinaryMessage: runtime.missingBinaryMessage,
       clientInfo: {
         name: "nodex",
@@ -5778,6 +5813,7 @@ export class CodexService extends EventEmitter {
           threadName: null,
           threadPreview: "",
           modelProvider: "",
+          executionProfile: null,
           cwd: null,
           statusType: "idle",
           statusActiveFlags: [],
@@ -6326,7 +6362,7 @@ export class CodexService extends EventEmitter {
         config: configResult.config,
         origins: configResult.origins,
         requirements: requirementsResult.requirements,
-        defaultUserConfigPath: path.join(resolveCodexHomeDir(), "config.toml"),
+        defaultUserConfigPath: path.join(this.runtimeStateHome, "config.toml"),
         workspaceRoots,
       });
       const nextState = await this.applyPersistedPermissionModeSelection(
@@ -6354,7 +6390,7 @@ export class CodexService extends EventEmitter {
   ): CodexPermissionState {
     const configTarget = previous?.configTarget ?? {
       source: "user" as const,
-      filePath: path.join(resolveCodexHomeDir(), "config.toml"),
+      filePath: path.join(this.runtimeStateHome, "config.toml"),
     };
 
     if (mode === "custom") {
@@ -6455,7 +6491,7 @@ export class CodexService extends EventEmitter {
       config: context.config,
       origins: context.origins,
       requirements: context.requirements,
-      defaultUserConfigPath: path.join(resolveCodexHomeDir(), "config.toml"),
+      defaultUserConfigPath: path.join(this.runtimeStateHome, "config.toml"),
       workspaceRoots,
     });
   }
@@ -7581,6 +7617,7 @@ export class CodexService extends EventEmitter {
       threadName: thread.threadName,
       threadPreview: thread.threadPreview,
       modelProvider: thread.modelProvider,
+      executionProfile: thread.executionProfile,
       cwd: thread.cwd,
       managedWorktreePath: thread.managedWorktreePath,
       projectlessOutputDirectory: thread.projectlessOutputDirectory,
@@ -8368,7 +8405,7 @@ export class CodexService extends EventEmitter {
     const threadSource = parseThreadSourceValue(summary.threadSource);
     if (isInternalThreadSourceValue(threadSource)) return true;
     if (!isPotentialAutoReviewReviewerPreview(summary.threadPreview)) return false;
-    return isConfirmedAutoReviewReviewerMetadata(summary.threadId);
+    return isConfirmedAutoReviewReviewerMetadata(summary.threadId, this.runtimeStateHome);
   }
 
   private async createSidebarThreadSessionFromSummary(
@@ -8388,6 +8425,7 @@ export class CodexService extends EventEmitter {
         threadName: summary.threadName,
         threadPreview: summary.threadPreview,
         modelProvider: summary.modelProvider,
+        executionProfile: summary.executionProfile,
         cwd: summary.cwd,
         managedWorktreePath: summary.managedWorktreePath ?? null,
         projectlessOutputDirectory: summary.projectlessOutputDirectory ?? null,
@@ -8624,6 +8662,7 @@ export class CodexService extends EventEmitter {
       threadName: thread.threadName,
       threadPreview: thread.threadPreview,
       modelProvider: thread.modelProvider,
+      executionProfile: thread.executionProfile,
       cwd: thread.cwd,
       managedWorktreePath: thread.managedWorktreePath,
       projectlessOutputDirectory: thread.projectlessOutputDirectory,
@@ -9102,6 +9141,143 @@ export class CodexService extends EventEmitter {
       .filter((option): option is CodexModelOption => option !== null);
   }
 
+  async listAgentProviderCatalog(options?: { refresh?: boolean }): Promise<AgentProviderCatalog> {
+    await this.ensureClientReady();
+    if (this.agentProviderCatalog && options?.refresh !== true) {
+      return this.agentProviderCatalog;
+    }
+    const client: AgentProviderCatalogClient = {
+      request: async (method, params) => await this.client.request(method, params),
+    };
+    const catalog = await discoverAgentProviderCatalog({
+      client,
+      credentialStatusReader: this.providerCredentialStore,
+    });
+    this.agentProviderCatalog = catalog;
+    return catalog;
+  }
+
+  private async resolveAgentExecutionProfile(
+    requested: AgentExecutionProfile | null | undefined,
+  ): Promise<AgentExecutionProfile | null> {
+    if (!requested) return null;
+    const catalog = await this.listAgentProviderCatalog();
+    const client: AgentProviderCatalogClient = {
+      request: async (method, params) => await this.client.request(method, params),
+    };
+    return await resolveAgentExecutionProfileFromCatalog({
+      client,
+      catalog,
+      requested,
+    });
+  }
+
+  async prepareScheduledAutomationInput<
+    Input extends CodexScheduledAutomationCreateInput | CodexScheduledAutomationUpdateInput,
+  >(
+    input: Input,
+    current?: CodexScheduledAutomation | null,
+  ): Promise<Input> {
+    const providerId = input.modelProvider?.trim() || current?.modelProvider?.trim();
+    if (!providerId) return input;
+    const requestedModelId = input.model?.trim();
+    const modelId = requestedModelId || current?.model?.trim();
+    if (!modelId) {
+      throw new Error("A scheduled automation provider requires a model");
+    }
+    const modelChanged = Boolean(current?.model && requestedModelId && requestedModelId !== current.model);
+    const profile = await this.resolveAgentExecutionProfile({
+      providerId,
+      modelId,
+      harnessId: modelChanged ? null : input.harnessId ?? current?.harnessId ?? null,
+      reasoningEffort: input.reasoningEffort ?? (modelChanged ? null : current?.reasoningEffort) ?? null,
+      serviceTier: input.serviceTier ?? current?.serviceTier ?? null,
+    });
+    if (!profile) throw new Error("Scheduled automation execution profile is unavailable");
+    return {
+      ...input,
+      model: profile.modelId,
+      modelProvider: profile.providerId,
+      harnessId: profile.harnessId,
+      reasoningEffort: profile.reasoningEffort,
+      serviceTier: profile.serviceTier,
+    };
+  }
+
+  async setAgentProviderCredential(
+    input: AgentProviderCredentialMutationInput,
+  ): Promise<AgentProviderCredentialMutationResult> {
+    await this.providerCredentialStore.setApiKey(input.providerId, input.apiKey);
+    this.agentProviderCatalog = null;
+    const runtimeRestartPending = await this.restartAgentRuntimeAfterCredentialChange();
+    return {
+      providerId: input.providerId,
+      status: await this.providerCredentialStore.status(input.providerId),
+      runtimeRestartPending,
+    };
+  }
+
+  async deleteAgentProviderCredential(
+    input: AgentProviderCredentialDeleteInput,
+  ): Promise<AgentProviderCredentialMutationResult> {
+    await this.providerCredentialStore.delete(input.providerId);
+    this.agentProviderCatalog = null;
+    const runtimeRestartPending = await this.restartAgentRuntimeAfterCredentialChange();
+    return {
+      providerId: input.providerId,
+      status: await this.providerCredentialStore.status(input.providerId),
+      runtimeRestartPending,
+    };
+  }
+
+  private hasActiveAgentRuntimeWork(): boolean {
+    for (const record of this.conversationRecords.values()) {
+      if (record.detail?.statusType === "active") return true;
+      if (record.detail?.turns.some((turn) => turn.status === "inProgress")) return true;
+    }
+    return false;
+  }
+
+  private async ensureAgentRuntimeCredentialReloaded(): Promise<void> {
+    if (!this.runtimeRestartPending) return;
+    if (this.hasActiveAgentRuntimeWork()) {
+      throw new Error("Agent credentials will be reloaded after the active turn finishes");
+    }
+    await this.restartAgentRuntimeNow();
+  }
+
+  private async restartAgentRuntimeAfterCredentialChange(): Promise<boolean> {
+    this.runtimeRestartPending = true;
+    if (this.hasActiveAgentRuntimeWork()) return true;
+    await this.restartAgentRuntimeNow();
+    return false;
+  }
+
+  private async restartAgentRuntimeNow(): Promise<void> {
+    if (this.runtimeRestartInFlight) return await this.runtimeRestartInFlight;
+    const restart = (async () => {
+      await this.client.stop();
+      await this.client.start();
+      this.agentProviderCatalog = null;
+      this.runtimeRestartPending = false;
+    })();
+    this.runtimeRestartInFlight = restart;
+    try {
+      await restart;
+    } finally {
+      this.runtimeRestartInFlight = null;
+    }
+  }
+
+  private restartPendingAgentRuntimeWhenIdle(): void {
+    if (!this.runtimeRestartPending || this.hasActiveAgentRuntimeWork()) return;
+    void this.restartAgentRuntimeNow().catch((error) => {
+      this.logger.error("Could not restart agent runtime after credential change", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
   private assertDefaultCodexHost(hostId: string): void {
     if (hostId === DEFAULT_CODEX_HOST_ID) return;
     throw new Error(`Codex host is unavailable: ${hostId}`);
@@ -9506,9 +9682,9 @@ export class CodexService extends EventEmitter {
       input: [createTextUserInput(prompt)],
       cwd: resumedThread.cwd,
       ...permissionOverrides,
-      model: null,
-      effort: null,
-      serviceTier: null,
+      model: input.targetThread.executionProfile?.modelId ?? null,
+      effort: input.targetThread.executionProfile?.reasoningEffort ?? null,
+      serviceTier: input.targetThread.executionProfile?.serviceTier ?? null,
       summary: "auto",
       personality: null,
       outputSchema: null,
@@ -9608,16 +9784,26 @@ export class CodexService extends EventEmitter {
     thread: CodexThreadDetail,
     rolloutPath: string | null,
   ): Promise<{ threadId: string; cwd: string }> {
+    const executionProfile = thread.executionProfile ?? null;
     const result = await this.client.request<"thread/resume", ThreadResumeResponse>("thread/resume", {
         threadId: thread.threadId,
         history: null,
         path: rolloutPath,
-        model: null,
-        modelProvider: null,
+        model: executionProfile?.modelId ?? null,
+        modelProvider: executionProfile?.providerId ?? null,
+        serviceTier: executionProfile?.serviceTier ?? null,
         cwd: thread.cwd,
         approvalPolicy: null,
         sandbox: null,
-        config: buildCodexThreadConfigOverrides(),
+        config: {
+          ...buildCodexThreadConfigOverrides(),
+          ...(executionProfile?.harnessId
+            ? { harness: executionProfile.harnessId }
+            : {}),
+          ...(executionProfile?.reasoningEffort
+            ? { model_reasoning_effort: executionProfile.reasoningEffort }
+            : {}),
+        },
         personality: null,
         excludeTurns: true,
       });
@@ -9754,6 +9940,15 @@ export class CodexService extends EventEmitter {
     let managedWorktreePath: string | null = null;
     let projectlessOutputDirectory: string | null = null;
     try {
+      const executionProfile = input.automation.modelProvider && input.model
+        ? await this.resolveAgentExecutionProfile({
+            providerId: input.automation.modelProvider,
+            modelId: input.model,
+            harnessId: input.automation.harnessId,
+            reasoningEffort: input.reasoningEffort,
+            serviceTier: input.automation.serviceTier,
+          })
+        : null;
       const runLocation = await this.resolveCronScheduledAutomationRunLocation({
         automation: input.automation,
         sourceCwd: input.cwd,
@@ -9801,8 +9996,16 @@ export class CodexService extends EventEmitter {
       const threadStartParams: ThreadStartParams = {
         cwd: runLocation.cwd,
         model: input.model,
-        modelProvider: null,
-        config: await this.buildMcpCodexConfig(runLocation.cwd),
+        modelProvider: executionProfile?.providerId ?? null,
+        config: {
+          ...(await this.buildMcpCodexConfig(runLocation.cwd) ?? {}),
+          ...(executionProfile?.harnessId
+            ? { harness: executionProfile.harnessId }
+            : {}),
+          ...(executionProfile?.reasoningEffort
+            ? { model_reasoning_effort: executionProfile.reasoningEffort }
+            : {}),
+        },
         developerInstructions,
         personality: null,
         ephemeral: null,
@@ -9810,7 +10013,7 @@ export class CodexService extends EventEmitter {
         dynamicTools: CODEX_DYNAMIC_TOOL_SPECS,
         experimentalRawEvents: THREAD_START_EXPERIMENTAL_RAW_EVENTS,
         mockExperimentalField: null,
-        serviceTier: null,
+        serviceTier: executionProfile?.serviceTier ?? null,
         ...threadPermissionOverrides,
       };
       let effectiveCwd = runLocation.cwd;
@@ -9834,6 +10037,12 @@ export class CodexService extends EventEmitter {
         }, effectiveCwd);
         if (!link) {
           throw new Error("Codex thread/start returned an invalid thread payload");
+        }
+        if (executionProfile) {
+          link = await this.updateWorkspaceThreadSummary(link.threadId, {
+            modelProvider: executionProfile.providerId,
+            executionProfile,
+          }) ?? link;
         }
         threadStart = await this.reconcileThreadStartWritableRoots(
           threadStart,
@@ -9911,7 +10120,7 @@ export class CodexService extends EventEmitter {
         ...turnPermissionOverrides,
         model: input.model,
         effort: input.reasoningEffort,
-        serviceTier: null,
+        serviceTier: executionProfile?.serviceTier ?? null,
         summary: "auto",
         personality: null,
         outputSchema: null,
@@ -10160,6 +10369,7 @@ export class CodexService extends EventEmitter {
   private async buildNewConversationParams(
     input: BuildCodexNewConversationParamsInput,
   ): Promise<ThreadStartParams> {
+    await this.ensureAgentRuntimeCredentialReloaded();
     return await buildCodexNewConversationParams(input, {
       readConfigRequirements: async () =>
         await this.client.request<"configRequirements/read", ConfigRequirementsReadResponse>(
@@ -10232,7 +10442,7 @@ export class CodexService extends EventEmitter {
 
     const roots = [
       input.runLocation.cwd,
-      path.join(resolveCodexHomeDir(), "automations", input.automationId),
+      path.join(this.runtimeStateHome, "automations", input.automationId),
       ...input.runLocation.workspaceRoots,
       input.sourceCwd,
     ];
@@ -10542,6 +10752,7 @@ export class CodexService extends EventEmitter {
     return {
       projectId: source.projectId,
       cwd: source.cwd,
+      executionProfile: source.executionProfile,
       projectlessOutputDirectory: source.projectlessOutputDirectory ?? null,
       projectlessWorkspaceBrowserRoot: source.projectlessWorkspaceBrowserRoot ?? null,
     };
@@ -12566,6 +12777,7 @@ export class CodexService extends EventEmitter {
       threadName: detail.threadName,
       threadPreview: detail.threadPreview,
       modelProvider: detail.modelProvider,
+      executionProfile: detail.executionProfile,
       cwd: detail.cwd,
       managedWorktreePath: detail.managedWorktreePath ?? null,
       projectlessOutputDirectory: detail.projectlessOutputDirectory ?? null,
@@ -12595,7 +12807,12 @@ export class CodexService extends EventEmitter {
     }
 
     const persistedLink = this.getThreadLinkSafely(threadId);
-    const sessionMetadata = persistedLink ? null : readCodexSessionThreadMetadata(threadId);
+    const historyHomes = resolveSessionHistoryHomes(this.runtimeStateHome);
+    const sessionMetadata = persistedLink
+      ? null
+      : historyHomes
+          .map((candidate) => readCodexSessionThreadMetadata(threadId, candidate))
+          .find((candidate) => candidate !== null) ?? null;
     const link: CodexThreadSummary = persistedLink ?? {
       threadId,
       projectId: null,
@@ -12605,6 +12822,7 @@ export class CodexService extends EventEmitter {
       threadName: null,
       threadPreview: "",
       modelProvider: "",
+      executionProfile: null,
       cwd: sessionMetadata?.cwd ?? null,
       statusType: "notLoaded",
       statusActiveFlags: [],
@@ -12614,10 +12832,13 @@ export class CodexService extends EventEmitter {
       linkedAt: new Date(0).toISOString(),
     };
 
-    const sessionDetail = readCodexSessionThreadDetail({
-      threadId,
-      link,
-    });
+    const sessionDetail = historyHomes
+      .map((candidate) => readCodexSessionThreadDetail({
+        threadId,
+        link,
+        codexHome: candidate,
+      }))
+      .find((candidate) => candidate !== null) ?? null;
     if (!sessionDetail) return null;
 
     const reconciledDetail = this.reconcileDetailTranscriptToTerminalTurnStatus(sessionDetail);
@@ -13004,6 +13225,7 @@ export class CodexService extends EventEmitter {
       threadName: typeof thread.name === "string" ? thread.name : null,
       threadPreview: typeof thread.preview === "string" ? thread.preview : "",
       modelProvider: typeof thread.modelProvider === "string" ? thread.modelProvider : input.forkResponse.modelProvider,
+      executionProfile: input.executionProfile,
       cwd: input.resolvedCwd,
       projectlessOutputDirectory: input.projectlessOutputDirectory,
       projectlessWorkspaceBrowserRoot: input.projectlessWorkspaceBrowserRoot,
@@ -13204,6 +13426,9 @@ export class CodexService extends EventEmitter {
         : {}),
       threadPreview: typeof candidate.preview === "string" ? candidate.preview : "",
       modelProvider: typeof candidate.modelProvider === "string" ? candidate.modelProvider : "",
+      ...(existing?.executionProfile
+        ? { executionProfile: existing.executionProfile }
+        : {}),
       ...(resolvedCwd === null ? {} : { cwd: resolvedCwd }),
       managedWorktreePath,
       projectlessOutputDirectory,
@@ -13329,6 +13554,8 @@ export class CodexService extends EventEmitter {
       threadName: patch.threadName ?? existing?.threadName ?? null,
       threadPreview: patch.threadPreview ?? existing?.threadPreview ?? "",
       modelProvider: patch.modelProvider ?? existing?.modelProvider ?? "",
+      executionProfile:
+        patch.executionProfile ?? existing?.executionProfile ?? null,
       cwd: materialization.resolvedCwd,
       managedWorktreePath: materialization.managedWorktreePath,
       projectlessOutputDirectory: materialization.projectlessOutputDirectory,
@@ -13832,6 +14059,7 @@ export class CodexService extends EventEmitter {
     readonly effectiveModel: string | null;
     readonly effectiveReasoningEffort: CodexReasoningEffort | undefined;
     readonly effectiveCollaborationMode: CodexCollaborationModeKind | undefined;
+    readonly executionProfile: AgentExecutionProfile | null;
     readonly explicitThreadName: string | null;
     readonly signal?: AbortSignal;
   }): Promise<Extract<CodexThreadStartForSessionResult, { readonly kind: "pending" }>> {
@@ -13938,7 +14166,9 @@ export class CodexService extends EventEmitter {
         permissionProfileId: input.request.permissionProfileId,
         shouldSendPermissionOverrides,
         model: null,
-        serviceTier: normalizeCodexServiceTier(input.request.serviceTier),
+        executionProfile: input.executionProfile,
+        serviceTier: input.executionProfile?.serviceTier
+          ?? normalizeCodexServiceTier(input.request.serviceTier),
         reasoningEffort: frozenReasoningEffort,
         collaborationMode,
         config: destinationSnapshot.expandedConfig,
@@ -14139,6 +14369,9 @@ export class CodexService extends EventEmitter {
       if (input.projectId !== null && input.projectlessWorkspace !== undefined) {
         throw new Error("Project threads cannot use a projectless workspace");
       }
+      const executionProfile = await this.resolveAgentExecutionProfile(
+        input.executionProfile,
+      );
 
       const preparedPrompt = await this.preparePromptForTurn(
         input.prompt,
@@ -14150,9 +14383,12 @@ export class CodexService extends EventEmitter {
       const prompt = preparedPrompt.promptText;
       const materializedGoalObjective = input.threadGoalMaterializedDraft?.objective.trim() ?? "";
       const effectiveModel =
-        normalizeThreadSettingsModel(preparedPrompt.agentConfigOverrides.model)
+        executionProfile?.modelId
+        ?? normalizeThreadSettingsModel(preparedPrompt.agentConfigOverrides.model)
         ?? normalizeThreadSettingsModel(input.model);
-      const effectiveReasoningEffort = preparedPrompt.agentConfigOverrides.reasoningEffort ?? input.reasoningEffort;
+      const effectiveReasoningEffort = executionProfile?.reasoningEffort
+        ?? preparedPrompt.agentConfigOverrides.reasoningEffort
+        ?? input.reasoningEffort;
       const effectiveCollaborationMode = preparedPrompt.agentConfigOverrides.collaborationMode ?? input.collaborationMode;
       const explicitThreadName = input.threadName
         ? normalizeCodexManualThreadTitle(input.threadName)
@@ -14168,6 +14404,7 @@ export class CodexService extends EventEmitter {
           effectiveModel,
           effectiveReasoningEffort,
           effectiveCollaborationMode,
+          executionProfile,
           explicitThreadName,
           ...(options.signal ? { signal: options.signal } : {}),
         });
@@ -14269,7 +14506,9 @@ export class CodexService extends EventEmitter {
       const threadStartParams: ThreadStartParams = {
         ...await this.buildNewConversationParams({
           model: effectiveModel ?? null,
-          serviceTier: normalizeCodexServiceTier(input.serviceTier),
+          executionProfile,
+          serviceTier: executionProfile?.serviceTier
+            ?? normalizeCodexServiceTier(input.serviceTier),
           cwd: runLocation.cwd,
           permissions: launchPermissions,
           defaultFeatureOverrides: CODEX_DEFAULT_FEATURE_OVERRIDES,
@@ -14308,6 +14547,12 @@ export class CodexService extends EventEmitter {
 
         if (!link) {
           throw new Error("Codex thread/start returned an invalid thread payload");
+        }
+        if (executionProfile) {
+          link = await this.updateWorkspaceThreadSummary(link.threadId, {
+            modelProvider: executionProfile.providerId,
+            executionProfile,
+          }) ?? link;
         }
         threadStart = await this.reconcileThreadStartWritableRoots(
           threadStart,
@@ -15133,6 +15378,7 @@ export class CodexService extends EventEmitter {
     });
     const resumeLaunchParams = await this.buildNewConversationParams({
       model: preResumeModel.trim() || null,
+      executionProfile: threadRef?.executionProfile ?? null,
       serviceTier: latestServiceTier,
       cwd: resumeCwd,
       permissions: launchPermissionParams,
@@ -15145,7 +15391,7 @@ export class CodexService extends EventEmitter {
       threadId,
       history: null,
       path: metadataThread?.path ?? record.canonicalState?.protocol.path ?? null,
-      model: null,
+      model: threadRef?.executionProfile?.modelId ?? null,
       modelProvider: resumeLaunchParams.modelProvider,
       serviceTier: resumeLaunchParams.serviceTier,
       cwd: resumeLaunchParams.cwd,
@@ -15895,15 +16141,30 @@ export class CodexService extends EventEmitter {
       response: ThreadForkResponse,
     ) => CodexPersistentForkMaterialization | Promise<CodexPersistentForkMaterialization>;
   }): Promise<CodexPersistentForkResult> {
+    const sourceExecutionProfile = this.getThreadLinkSafely(
+      input.sourceThreadId,
+    )?.executionProfile ?? null;
     const mcpConfig = await this.buildMcpCodexConfig(
       input.requestedCwd ?? input.workspaceRoots[0] ?? null,
     );
+    const config = {
+      ...(mcpConfig ?? {}),
+      ...(sourceExecutionProfile?.harnessId
+        ? { harness: sourceExecutionProfile.harnessId }
+        : {}),
+      ...(sourceExecutionProfile?.reasoningEffort
+        ? { model_reasoning_effort: sourceExecutionProfile.reasoningEffort }
+        : {}),
+    };
     const forkResponse = await this.client.request<"thread/fork", ThreadForkResponse>("thread/fork", {
       threadId: input.sourceThreadId,
       path: null,
+      model: sourceExecutionProfile?.modelId ?? null,
+      modelProvider: sourceExecutionProfile?.providerId ?? null,
+      serviceTier: sourceExecutionProfile?.serviceTier ?? null,
       cwd: input.requestedCwd,
       threadSource: input.threadSource,
-      config: mcpConfig ?? undefined,
+      config: Object.keys(config).length > 0 ? config : undefined,
     });
     const threadId = forkResponse.thread.id;
     if (typeof threadId !== "string" || threadId.length === 0) {
@@ -15920,11 +16181,25 @@ export class CodexService extends EventEmitter {
     const projectedThread = resolvedCwd === null
       ? forkResponse.thread
       : { ...forkResponse.thread, cwd: resolvedCwd };
-    const materialized = await input.materialize(
+    let materialized = await input.materialize(
       projectedThread,
       resolvedCwd,
       forkResponse,
     );
+    if (sourceExecutionProfile) {
+      const summary = await this.updateWorkspaceThreadSummary(threadId, {
+        modelProvider: sourceExecutionProfile.providerId,
+        executionProfile: sourceExecutionProfile,
+      });
+      materialized = {
+        summary: summary ?? materialized.summary,
+        detail: {
+          ...materialized.detail,
+          modelProvider: sourceExecutionProfile.providerId,
+          executionProfile: sourceExecutionProfile,
+        },
+      };
+    }
     const sourceExecutionContext =
       await this.projectWorkspace.readThreadExecutionContext(
         input.sourceThreadId,
@@ -16412,13 +16687,28 @@ export class CodexService extends EventEmitter {
     const developerInstructions = projectAwareDeveloperInstructions.trim()
       ? `${projectAwareDeveloperInstructions}\n\n${SIDE_CHAT_DEVELOPER_INSTRUCTIONS}`
       : SIDE_CHAT_DEVELOPER_INSTRUCTIONS;
-    const mcpConfig = await this.buildMcpCodexConfig(cwd);
-    const config = input.reasoningEffort
+    const executionProfile = parentDetail.executionProfile
       ? {
-          ...(mcpConfig ?? {}),
-          model_reasoning_effort: input.reasoningEffort,
+          ...parentDetail.executionProfile,
+          modelId: input.model ?? parentDetail.executionProfile.modelId,
+          reasoningEffort:
+            input.reasoningEffort ?? parentDetail.executionProfile.reasoningEffort,
+          serviceTier: input.serviceTier ?? parentDetail.executionProfile.serviceTier,
         }
-      : mcpConfig ?? undefined;
+      : null;
+    const mcpConfig = await this.buildMcpCodexConfig(cwd);
+    const config = {
+      ...(mcpConfig ?? {}),
+      ...(executionProfile?.harnessId
+        ? { harness: executionProfile.harnessId }
+        : {}),
+      ...(input.reasoningEffort || executionProfile?.reasoningEffort
+        ? {
+            model_reasoning_effort:
+              input.reasoningEffort ?? executionProfile?.reasoningEffort,
+          }
+        : {}),
+    };
     const latestCollaborationMode = this.buildCollaborationModeState({
       collaborationMode: input.collaborationMode,
       model: input.model ?? null,
@@ -16448,7 +16738,15 @@ export class CodexService extends EventEmitter {
       developerInstructions,
       ephemeral: true,
       excludeTurns: true,
-      ...(input.model ? { model: input.model } : {}),
+      ...(input.model || executionProfile?.modelId
+        ? { model: input.model ?? executionProfile?.modelId }
+        : {}),
+      ...(executionProfile
+        ? {
+            modelProvider: executionProfile.providerId,
+            serviceTier: executionProfile.serviceTier,
+          }
+        : {}),
     };
     const forkResult = await this.client.request<"thread/fork", ThreadForkResponse>("thread/fork", forkParams);
     const forkedThreadId = forkResult.thread.id;
@@ -16490,6 +16788,7 @@ export class CodexService extends EventEmitter {
       forkResponse: forkResult,
       resolvedCwd,
       latestCollaborationMode,
+      executionProfile,
     });
     this.setConversationRecordDetail(detail);
     this.setConversationResumeState(forkedThreadId, "resumed");
@@ -17162,6 +17461,7 @@ export class CodexService extends EventEmitter {
     options: MainOwnedStartTurnOptions | RendererOwnedStartTurnOptions = {},
   ): Promise<CodexTurnSummary | TurnStartResponse | null> {
     await this.ensureClientReady();
+    await this.ensureAgentRuntimeCredentialReloaded();
     const rendererOwnsState = options.stateOwner === "renderer";
     const syncDormantConversationUpdates = rendererOwnsState
       ? false
@@ -18905,8 +19205,16 @@ export class CodexService extends EventEmitter {
 
       if (parsed.mode === "update") {
         if (!parsed.id) throw new Error("id is required");
-        const automation = await this.automationModule.updateDefinition(
+        const current = await this.automationModule.getDefinition(parsed.id);
+        if (!current) {
+          throw new Error("Automation does not exist in the app and could not be updated. It may have been deleted manually by the user.");
+        }
+        const updateInput = await this.prepareScheduledAutomationInput(
           this.buildAutomationUpdateInput({ ...parsed, id: parsed.id }, params.threadId),
+          current,
+        );
+        const automation = await this.automationModule.updateDefinition(
+          updateInput,
         );
         if (!automation) {
           throw new Error("Automation does not exist in the app and could not be updated. It may have been deleted manually by the user.");
@@ -18998,6 +19306,7 @@ export class CodexService extends EventEmitter {
         threadName: detail.threadName,
         threadPreview: detail.threadPreview,
         modelProvider: detail.modelProvider,
+        executionProfile: detail.executionProfile,
         cwd: detail.cwd,
         approvalPolicy: detail.approvalPolicy,
         approvalsReviewer: detail.approvalsReviewer,
@@ -19499,6 +19808,7 @@ export class CodexService extends EventEmitter {
       permissionProfileId: input.permissionSelection.sourcePermissionProfileId,
       shouldSendPermissionOverrides: true,
       model: null,
+      executionProfile: null,
       serviceTier: input.serviceTier,
       reasoningEffort: null,
       collaborationMode: input.modelProjection.collaborationMode,
@@ -19882,7 +20192,8 @@ export class CodexService extends EventEmitter {
         ...(params.memoryPreferences === undefined
           ? {}
           : { memoryPreferences: params.memoryPreferences }),
-        modelProjection,
+      modelProjection,
+        executionProfile: params.executionProfile,
         ...(params.mode === undefined ? {} : { mode: params.mode }),
         onThreadCreated: (threadId) => {
           coreCreated = true;
@@ -20109,7 +20420,7 @@ export class CodexService extends EventEmitter {
     }
 
     const visualizationDirectory = input.responseContext.sandboxPolicy.type === "workspaceWrite"
-      ? resolveCodexThreadVisualizationDirectory(resolveCodexHomeDir(), input.threadId)
+      ? resolveCodexThreadVisualizationDirectory(this.runtimeStateHome, input.threadId)
       : null;
     if (visualizationDirectory) {
       await mkdir(visualizationDirectory, { recursive: true });
@@ -20333,6 +20644,7 @@ export class CodexService extends EventEmitter {
     const baseThreadStartParams = await this.buildNewConversationParams({
       cwd: input.target.cwd,
       model: input.modelProjection.collaborationMode?.settings.model ?? null,
+      executionProfile: input.executionProfile ?? null,
       serviceTier: input.serviceTier,
       permissions: input.permissionSelection?.launchParams ?? null,
       defaultFeatureOverrides: threadStartProjection.defaultFeatureOverrides,
@@ -20392,6 +20704,17 @@ export class CodexService extends EventEmitter {
         fallbackRef,
         effectiveCwd,
       ));
+      if (input.executionProfile) {
+        await this.updateWorkspaceThreadSummary(detail.threadId, {
+          modelProvider: input.executionProfile.providerId,
+          executionProfile: input.executionProfile,
+        });
+        detail = {
+          ...detail,
+          modelProvider: input.executionProfile.providerId,
+          executionProfile: input.executionProfile,
+        };
+      }
       if (input.permissionSelection) {
         threadStart = await this.reconcileThreadStartWritableRoots(
           threadStart,
@@ -20440,8 +20763,11 @@ export class CodexService extends EventEmitter {
         })
       : null;
     const collaborationMode = input.modelProjection.collaborationMode;
-    const effectiveModel = collaborationMode?.settings.model ?? threadStart.model;
-    const effectiveReasoningEffort = collaborationMode?.settings.reasoning_effort
+    const effectiveModel = input.executionProfile?.modelId
+      ?? collaborationMode?.settings.model
+      ?? threadStart.model;
+    const effectiveReasoningEffort = input.executionProfile?.reasoningEffort
+      ?? collaborationMode?.settings.reasoning_effort
       ?? parseReasoningEffort(threadStart.reasoningEffort);
     const previousPermissionContext: CodexCanonicalHydratedPermissionContext = {
       activePermissionProfile: responsePermissionContext.activePermissionProfile,
@@ -22593,6 +22919,7 @@ export class CodexService extends EventEmitter {
     if (commandOnlyThreadId && this.isCommandOnlyAutomationThread(commandOnlyThreadId)) {
       if (method === "turn/completed") {
         await this.recordAutomationTurnCompleted(commandOnlyThreadId, params.turn);
+        this.restartPendingAgentRuntimeWhenIdle();
       }
       if (method === "serverRequest/resolved") {
         const requestId = params.requestId;
@@ -22734,6 +23061,7 @@ export class CodexService extends EventEmitter {
       if (!ownerRouted && effects.some((effect) => effect.type === "continueGoalIfIdle")) {
         void this.maybeContinueActiveThreadGoal(payload.threadId);
       }
+      this.restartPendingAgentRuntimeWhenIdle();
       return;
     }
 
@@ -23050,6 +23378,7 @@ export class CodexService extends EventEmitter {
         this.maybeDispatchQueuedFollowUp(threadId);
       }
       this.syncInactiveRendererOwnerCleanup(threadId);
+      if (method === "turn/completed") this.restartPendingAgentRuntimeWhenIdle();
       return;
     }
 

@@ -559,6 +559,15 @@ function ConnectedThreadStageFooter({
       selectedCollaborationMode,
       selectedModel,
       availableModels: input.availableModels,
+      agentProviderCatalog: input.agentProviderCatalog ?? null,
+      agentProviderCatalogLoading: input.agentProviderCatalogLoading ?? false,
+      executionProfile:
+        input.activeThreadSummary?.executionProfile
+        ?? input.selectedExecutionProfile
+        ?? null,
+      executionProfileLocked: Boolean(
+        activeThreadId && input.activeThreadSummary?.executionProfile,
+      ),
       selectedReasoningEffort,
       selectedPersonality:
         liveThreadSettings?.personality ?? input.selectedPersonality ?? "friendly",
@@ -588,9 +597,12 @@ function ConnectedThreadStageFooter({
       composerShell,
       cwd,
       input.availableModels,
+      input.agentProviderCatalog,
+      input.agentProviderCatalogLoading,
       input.collaborationModes,
       input.composerEnterBehavior,
       input.activeThreadSummary,
+      input.selectedExecutionProfile,
       input.isNewThreadTab,
       input.isQueueingEnabled,
       input.newThreadProjectSelector,

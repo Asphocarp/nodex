@@ -3,12 +3,10 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  parseBundledCodexRuntimeMetadata,
-  type BundledCodexRuntimeMetadata,
+  parseBundledAgentRuntimeMetadata,
+  type BundledAgentRuntimeMetadata,
 } from "../src/shared/codex-runtime-metadata";
 import { resolveCodexRuntime } from "../src/main/codex/codex-runtime";
-
-const OPENAI_TEAM_IDENTIFIER = "2DC432GLL2";
 
 function readOption(argv: string[], option: string): string | null {
   const index = argv.indexOf(option);
@@ -20,7 +18,7 @@ function readOption(argv: string[], option: string): string | null {
   return value;
 }
 
-function verifyMacosSignature(artifactPath: string): void {
+function readMacosTeamIdentifier(artifactPath: string): string {
   const verification = spawnSync("codesign", ["--verify", "--strict", "--verbose=2", artifactPath], {
     encoding: "utf8",
   });
@@ -44,23 +42,22 @@ function verifyMacosSignature(artifactPath: string): void {
     throw new Error(`Could not inspect code signature for ${artifactPath}: ${output.trim()}`);
   }
   const teamIdentifier = /^TeamIdentifier=(.+)$/mu.exec(output)?.[1]?.trim();
-  if (teamIdentifier !== OPENAI_TEAM_IDENTIFIER) {
-    throw new Error(
-      `Expected ${artifactPath} to retain the OpenAI signature (${OPENAI_TEAM_IDENTIFIER}); found ${teamIdentifier ?? "no team identifier"}`,
-    );
+  if (!teamIdentifier || teamIdentifier === "not set") {
+    throw new Error(`Expected ${artifactPath} to have a Developer ID team identifier`);
   }
+  return teamIdentifier;
 }
 
-function readRuntimeMetadata(metadataPath: string): BundledCodexRuntimeMetadata {
+function readRuntimeMetadata(metadataPath: string): BundledAgentRuntimeMetadata {
   let value: unknown;
   try {
     value = JSON.parse(readFileSync(metadataPath, "utf8"));
   } catch {
-    throw new Error(`Invalid bundled Codex runtime metadata at ${metadataPath}`);
+    throw new Error(`Invalid bundled Agent runtime metadata at ${metadataPath}`);
   }
-  const metadata = parseBundledCodexRuntimeMetadata(value);
+  const metadata = parseBundledAgentRuntimeMetadata(value);
   if (!metadata) {
-    throw new Error(`Invalid bundled Codex runtime metadata at ${metadataPath}`);
+    throw new Error(`Invalid bundled Agent runtime metadata at ${metadataPath}`);
   }
   return metadata;
 }
@@ -75,29 +72,38 @@ export function verifyCodexRuntime(input: {
   });
   const versionResult = spawnSync(runtime.binaryPath, ["--version"], { encoding: "utf8" });
   if (versionResult.error) {
-    throw new Error(`Could not execute bundled Codex: ${versionResult.error.message}`);
+    throw new Error(`Could not execute bundled agent runtime: ${versionResult.error.message}`);
   }
   if (versionResult.status !== 0) {
-    throw new Error(`Bundled Codex failed to report its version: ${versionResult.stderr.trim()}`);
+    throw new Error(`Bundled agent runtime failed to report its version: ${versionResult.stderr.trim()}`);
   }
   if (!runtime.version || !versionResult.stdout.includes(runtime.version)) {
     throw new Error(
-      `Bundled Codex version ${versionResult.stdout.trim()} did not match runtime metadata ${runtime.version ?? "<missing>"}`,
+      `Bundled agent runtime version ${versionResult.stdout.trim()} did not match runtime metadata ${runtime.version ?? "<missing>"}`,
     );
   }
 
   if (input.verifyMacosSignatures) {
     if (!runtime.metadataPath) {
-      throw new Error("Bundled Codex runtime metadata path is unavailable");
+      throw new Error("Bundled agent runtime metadata path is unavailable");
     }
     const metadata = readRuntimeMetadata(runtime.metadataPath);
+    const appPath = resolve(input.resourcesPath, "..", "..");
+    const appTeamIdentifier = readMacosTeamIdentifier(appPath);
+    const runtimeRoot = join(input.resourcesPath, "agent-runtime");
     for (const artifact of metadata.artifacts) {
       if (!artifact.executable) continue;
-      verifyMacosSignature(join(input.resourcesPath, "bin", ...artifact.path.split("/")));
+      const artifactPath = join(runtimeRoot, ...artifact.path.split("/"));
+      const artifactTeamIdentifier = readMacosTeamIdentifier(artifactPath);
+      if (artifactTeamIdentifier !== appTeamIdentifier) {
+        throw new Error(
+          `Expected ${artifactPath} to use the enclosing app team ${appTeamIdentifier}; found ${artifactTeamIdentifier}`,
+        );
+      }
     }
   }
 
-  process.stdout.write(`Verified Codex runtime ${runtime.version}\n`);
+  process.stdout.write(`Verified Open Interpreter runtime ${runtime.version}\n`);
 }
 
 function main(): void {

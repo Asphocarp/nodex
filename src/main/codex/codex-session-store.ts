@@ -27,6 +27,7 @@ interface SessionFileMatch {
 interface SessionThreadMaterializationInput {
   threadId: string;
   link: CodexThreadSummary;
+  codexHome?: string;
 }
 
 export interface CodexSessionThreadMetadata {
@@ -66,13 +67,15 @@ function resolveHomeDir(): string {
 }
 
 function resolveCodexHomeDir(): string {
+  const envInterpreterHome = process.env.INTERPRETER_HOME?.trim();
+  if (envInterpreterHome) return envInterpreterHome;
   const envCodexHome = process.env.CODEX_HOME?.trim();
   if (envCodexHome) return envCodexHome;
   return path.join(resolveHomeDir(), ".codex");
 }
 
-function loadSessionIndexIfNeeded(): void {
-  const indexPath = path.join(resolveCodexHomeDir(), "session_index.jsonl");
+function loadSessionIndexIfNeeded(codexHome?: string): void {
+  const indexPath = path.join(codexHome ?? resolveCodexHomeDir(), "session_index.jsonl");
   if (sessionIndexLoadedFromPath === indexPath) return;
 
   sessionIndexCache.clear();
@@ -90,13 +93,12 @@ function loadSessionIndexIfNeeded(): void {
   }
 }
 
-function readSessionIndexEntry(threadId: string): CodexSessionIndexEntry | null {
-  loadSessionIndexIfNeeded();
+function readSessionIndexEntry(threadId: string, codexHome?: string): CodexSessionIndexEntry | null {
+  loadSessionIndexIfNeeded(codexHome);
   return sessionIndexCache.get(threadId) ?? null;
 }
 
-function resolveSessionSearchRoots(): SessionFileMatch[] {
-  const codexHome = resolveCodexHomeDir();
+function resolveSessionSearchRoots(codexHome: string): SessionFileMatch[] {
   if (sessionFileCacheHome !== codexHome) {
     sessionFileCache.clear();
     sessionFileCacheHome = codexHome;
@@ -129,12 +131,17 @@ function findSessionFileInDirectory(directoryPath: string, threadId: string, arc
   return null;
 }
 
-function resolveSessionFile(threadId: string): SessionFileMatch | null {
+function resolveSessionFile(threadId: string, configuredCodexHome?: string): SessionFileMatch | null {
+  const codexHome = configuredCodexHome ?? resolveCodexHomeDir();
+  if (sessionFileCacheHome !== codexHome) {
+    sessionFileCache.clear();
+    sessionFileCacheHome = codexHome;
+  }
   if (sessionFileCache.has(threadId)) {
     return sessionFileCache.get(threadId) ?? null;
   }
 
-  for (const root of resolveSessionSearchRoots()) {
+  for (const root of resolveSessionSearchRoots(codexHome)) {
     const match = findSessionFileInDirectory(root.filePath, threadId, root.archived);
     if (!match) continue;
     sessionFileCache.set(threadId, match);
@@ -145,8 +152,8 @@ function resolveSessionFile(threadId: string): SessionFileMatch | null {
   return null;
 }
 
-export function hasCodexSessionMaterialized(threadId: string): boolean {
-  const match = resolveSessionFile(threadId);
+export function hasCodexSessionMaterialized(threadId: string, codexHome?: string): boolean {
+  const match = resolveSessionFile(threadId, codexHome);
   if (!match) return false;
 
   try {
@@ -351,7 +358,7 @@ function parseSessionJsonl(
 
   const turnsById = new Map<string, MutableTurnRecord>();
   const transcript: CodexTranscriptEntry[] = [];
-  const sessionIndexEntry = readSessionIndexEntry(input.threadId);
+  const sessionIndexEntry = readSessionIndexEntry(input.threadId, input.codexHome);
 
   let currentTurnId = `turn-${input.threadId}`;
   let sessionTimestamp = fallbackTimestamp;
@@ -598,7 +605,7 @@ function parseSessionJsonl(
 export function readCodexSessionThreadDetail(
   input: SessionThreadMaterializationInput,
 ): CodexThreadDetail | null {
-  const match = resolveSessionFile(input.threadId);
+  const match = resolveSessionFile(input.threadId, input.codexHome);
   if (!match) return null;
 
   try {
@@ -614,11 +621,14 @@ export function readCodexSessionThreadDetail(
   }
 }
 
-export function readCodexSessionThreadMetadata(threadId: string): CodexSessionThreadMetadata | null {
+export function readCodexSessionThreadMetadata(
+  threadId: string,
+  codexHome?: string,
+): CodexSessionThreadMetadata | null {
   const normalizedThreadId = threadId.trim();
   if (!normalizedThreadId) return null;
 
-  const match = resolveSessionFile(normalizedThreadId);
+  const match = resolveSessionFile(normalizedThreadId, codexHome);
   if (!match) return null;
 
   try {

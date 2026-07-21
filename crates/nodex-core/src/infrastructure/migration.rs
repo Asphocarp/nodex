@@ -265,7 +265,7 @@ pub fn prepare_profile_store(
     )?;
     if version == 0 && object_count == 0 {
         let now = unix_time_millis()?;
-        create_fresh_v85(connection, profile_home, now)?;
+        create_fresh_store(connection, profile_home, now)?;
         validate_store(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
@@ -285,8 +285,8 @@ pub fn prepare_profile_store(
         ));
     }
     if version == CORE_SCHEMA_VERSION {
-        validate_v85_metadata(connection)?;
-        validate_exact_v85_schema(connection)?;
+        validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
+        validate_exact_current_schema(connection)?;
         validate_store(connection)?;
         let validated_yjs_documents: i64 = connection.query_row(
             "SELECT count(*) FROM document_engine_fingerprints",
@@ -306,6 +306,10 @@ pub fn prepare_profile_store(
                 )
             })?,
         });
+    }
+
+    if version == 85 {
+        return upgrade_v85_store(connection, profile_home);
     }
 
     validate_store(connection)?;
@@ -331,7 +335,7 @@ pub fn prepare_profile_store(
                 false,
             )
         })?;
-    publish_v85(
+    publish_current_store(
         connection,
         profile_home,
         Some(source_version),
@@ -340,13 +344,62 @@ pub fn prepare_profile_store(
         &fingerprints,
     )?;
     validate_store(connection)?;
-    validate_v85_metadata(connection)?;
+    validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
         migrated_from_version: Some(source_version),
         migration_backup_path: Some(backup_path),
         validated_yjs_documents: fingerprints.len(),
+    })
+}
+
+fn upgrade_v85_store(
+    connection: &mut Connection,
+    profile_home: &Path,
+) -> Result<StorePreparation, StoreError> {
+    validate_store(connection)?;
+    validate_core_metadata(connection, 85)?;
+    validate_exact_v85_schema(connection)?;
+
+    let now = unix_time_millis()?;
+    let backup_path = create_migration_backup(connection, profile_home, now, 85)?;
+    let validated_yjs_documents: i64 = connection.query_row(
+        "SELECT count(*) FROM document_engine_fingerprints",
+        [],
+        |row| row.get(0),
+    )?;
+    with_immediate_transaction(connection, |transaction| {
+        ensure_v86_execution_profile_schema(transaction)?;
+        let updated = transaction.execute(
+            "UPDATE core_store_metadata SET store_format_version = ?1 \
+             WHERE id = 1 AND schema_owner = ?2 AND store_format_version = 85",
+            params![CORE_SCHEMA_VERSION, CORE_SCHEMA_OWNER],
+        )?;
+        if updated != 1 {
+            return Err(corrupt(
+                "Rust Core ownership marker changed during v85 migration",
+            ));
+        }
+        transaction.pragma_update(None, "user_version", CORE_SCHEMA_VERSION)?;
+        Ok(())
+    })?;
+
+    validate_store(connection)?;
+    validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
+    validate_exact_current_schema(connection)?;
+    Ok(StorePreparation {
+        schema_version: CORE_SCHEMA_VERSION,
+        created_fresh: false,
+        migrated_from_version: Some(85),
+        migration_backup_path: Some(backup_path),
+        validated_yjs_documents: usize::try_from(validated_yjs_documents).map_err(|_| {
+            StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Document fingerprint count is invalid",
+                false,
+            )
+        })?,
     })
 }
 
@@ -414,7 +467,7 @@ fn validate_live_yjs_documents(
 }
 
 pub(crate) fn validate_v85_restore_documents(connection: &Connection) -> Result<usize, StoreError> {
-    validate_v85_metadata(connection)?;
+    validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
     validate_live_yjs_documents(connection).map(|fingerprints| fingerprints.len())
 }
 
@@ -549,7 +602,7 @@ fn assert_persisted_materialization(
     )))
 }
 
-fn publish_v85(
+fn publish_current_store(
     connection: &mut Connection,
     profile_home: &Path,
     migrated_from: Option<i64>,
@@ -562,13 +615,14 @@ fn publish_v85(
         transaction.execute_batch(V85_EXECUTION_SCHEMA_SQL)?;
         ensure_automation_definition_revision(transaction)?;
         ensure_automation_run_revision(transaction)?;
+        ensure_v86_execution_profile_schema(transaction)?;
         write_v85_metadata(transaction, migrated_from, backup_name, now, fingerprints)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
 }
 
-fn create_fresh_v85(
+fn create_fresh_store(
     connection: &mut Connection,
     profile_home: &Path,
     now: u64,
@@ -579,6 +633,7 @@ fn create_fresh_v85(
         transaction.execute_batch(V85_EXECUTION_SCHEMA_SQL)?;
         ensure_automation_definition_revision(transaction)?;
         ensure_automation_run_revision(transaction)?;
+        ensure_v86_execution_profile_schema(transaction)?;
         write_v85_metadata(transaction, None, None, now, &[])?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
@@ -595,6 +650,114 @@ fn has_core_ownership_marker(connection: &Connection) -> Result<bool, StoreError
         )
         .optional()?
         .is_some())
+}
+
+fn ensure_v86_execution_profile_schema(connection: &Connection) -> Result<(), StoreError> {
+    for column in ["model_id", "harness_id", "reasoning_effort", "service_tier"] {
+        ensure_optional_text_column(connection, "codex_threads", column)?;
+    }
+    ensure_v86_automation_execution_profile_schema(connection)
+}
+
+fn ensure_optional_text_column(
+    connection: &Connection,
+    table: &str,
+    column: &str,
+) -> Result<(), StoreError> {
+    let count: i64 = connection.query_row(
+        &format!("SELECT count(*) FROM pragma_table_info('{table}') WHERE name = ?1"),
+        [column],
+        |row| row.get(0),
+    )?;
+    if count == 1 {
+        return Ok(());
+    }
+    if count != 0 {
+        return Err(corrupt(format!("{table}.{column} schema is ambiguous")));
+    }
+    connection.execute(&format!("ALTER TABLE {table} ADD COLUMN {column} TEXT"), [])?;
+    Ok(())
+}
+
+fn ensure_v86_automation_execution_profile_schema(
+    connection: &Connection,
+) -> Result<(), StoreError> {
+    let expected_columns = ["model_provider", "harness_id", "service_tier"];
+    let present = expected_columns
+        .iter()
+        .map(|column| {
+            connection.query_row(
+                "SELECT count(*) FROM pragma_table_info('codex_scheduled_automations') \
+                 WHERE name = ?1",
+                [column],
+                |row| row.get::<_, i64>(0),
+            )
+        })
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if present.iter().all(|count| *count == 1) {
+        return Ok(());
+    }
+    if present.iter().any(|count| *count != 0) {
+        return Err(corrupt(
+            "Scheduled Automation execution profile schema is ambiguous",
+        ));
+    }
+
+    connection.execute_batch(
+        "CREATE TEMP TABLE v86_automation_leases AS
+           SELECT * FROM core_automation_leases;
+         DROP INDEX IF EXISTS idx_codex_scheduled_automations_active_heartbeat;
+         CREATE TABLE codex_scheduled_automations_v86 (
+           automation_id TEXT PRIMARY KEY,
+           kind TEXT NOT NULL,
+           status TEXT NOT NULL,
+           target_thread_id TEXT,
+           name TEXT NOT NULL,
+           prompt TEXT NOT NULL DEFAULT '',
+           rrule TEXT,
+           model TEXT,
+           model_provider TEXT,
+           harness_id TEXT,
+           reasoning_effort TEXT,
+           service_tier TEXT,
+           cwds_json TEXT NOT NULL DEFAULT '[]',
+           execution_environment TEXT NOT NULL DEFAULT 'worktree',
+           local_environment_config_path TEXT,
+           next_run_at INTEGER,
+           last_run_at INTEGER,
+           created_at INTEGER NOT NULL,
+           updated_at INTEGER NOT NULL,
+           definition_revision INTEGER NOT NULL DEFAULT 1 CHECK (definition_revision >= 1),
+           CHECK (kind IN ('cron', 'heartbeat')),
+           CHECK (status IN ('ACTIVE', 'PAUSED', 'DELETED')),
+           CHECK (execution_environment IN ('local', 'worktree')),
+           CHECK (model_provider IS NULL OR length(trim(model_provider)) BETWEEN 1 AND 512),
+           CHECK (model IS NULL OR length(trim(model)) BETWEEN 1 AND 512),
+           CHECK (harness_id IS NULL OR length(trim(harness_id)) BETWEEN 1 AND 512),
+           CHECK (reasoning_effort IS NULL OR length(trim(reasoning_effort)) BETWEEN 1 AND 64),
+           CHECK (service_tier IS NULL OR length(trim(service_tier)) BETWEEN 1 AND 64)
+         ) WITHOUT ROWID;
+         INSERT INTO codex_scheduled_automations_v86 (
+           automation_id, kind, status, target_thread_id, name, prompt, rrule, model,
+           model_provider, harness_id, reasoning_effort, service_tier, cwds_json,
+           execution_environment, local_environment_config_path, next_run_at, last_run_at,
+           created_at, updated_at, definition_revision
+         ) SELECT
+           automation_id, kind, status, target_thread_id, name, prompt, rrule, model,
+           NULL, NULL, reasoning_effort, NULL, cwds_json, execution_environment,
+           local_environment_config_path, next_run_at, last_run_at, created_at, updated_at,
+           definition_revision
+         FROM codex_scheduled_automations;
+         DROP TABLE codex_scheduled_automations;
+         ALTER TABLE codex_scheduled_automations_v86 RENAME TO codex_scheduled_automations;
+         INSERT INTO core_automation_leases
+           SELECT * FROM v86_automation_leases;
+         DROP TABLE v86_automation_leases;
+         CREATE UNIQUE INDEX idx_codex_scheduled_automations_active_heartbeat
+           ON codex_scheduled_automations(target_thread_id)
+           WHERE kind = 'heartbeat' AND status = 'ACTIVE' AND target_thread_id IS NOT NULL;",
+    )?;
+    Ok(())
 }
 
 fn ensure_automation_definition_revision(connection: &Connection) -> Result<(), StoreError> {
@@ -896,7 +1059,10 @@ fn write_v85_metadata(
     Ok(())
 }
 
-fn validate_v85_metadata(connection: &Connection) -> Result<(), StoreError> {
+fn validate_core_metadata(
+    connection: &Connection,
+    expected_version: i64,
+) -> Result<(), StoreError> {
     let metadata = connection
         .query_row(
             "SELECT schema_owner, store_format_version FROM core_store_metadata WHERE id = 1",
@@ -904,21 +1070,36 @@ fn validate_v85_metadata(connection: &Connection) -> Result<(), StoreError> {
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
         )
         .optional()?;
-    if metadata == Some((CORE_SCHEMA_OWNER.to_owned(), CORE_SCHEMA_VERSION)) {
+    if metadata == Some((CORE_SCHEMA_OWNER.to_owned(), expected_version)) {
         return Ok(());
     }
-    Err(corrupt(
-        "v85 store does not contain the Rust Core ownership marker",
-    ))
+    Err(corrupt(format!(
+        "v{expected_version} store does not contain the Rust Core ownership marker"
+    )))
 }
 
 fn validate_exact_v85_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, false, 85)
+}
+
+fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, CORE_SCHEMA_VERSION)
+}
+
+fn validate_exact_core_schema(
+    connection: &Connection,
+    include_execution_profiles: bool,
+    schema_version: i64,
+) -> Result<(), StoreError> {
     let expected = Connection::open_in_memory()?;
     expected.execute_batch(v84_schema_objects_sql())?;
     expected.execute_batch(V85_SCHEMA_SQL)?;
     expected.execute_batch(V85_EXECUTION_SCHEMA_SQL)?;
     ensure_automation_definition_revision(&expected)?;
     ensure_automation_run_revision(&expected)?;
+    if include_execution_profiles {
+        ensure_v86_execution_profile_schema(&expected)?;
+    }
 
     let expected_inventory = read_schema_inventory(&expected)?;
     let actual_inventory = read_schema_inventory(connection)?;
@@ -943,7 +1124,7 @@ fn validate_exact_v85_schema(connection: &Connection) -> Result<(), StoreError> 
         })
         .count();
     Err(corrupt(format!(
-        "v85 physical schema does not match the frozen Rust Core schema ({missing} missing, {unexpected} unexpected, {changed} changed objects)"
+        "v{schema_version} physical schema does not match the frozen Rust Core schema ({missing} missing, {unexpected} unexpected, {changed} changed objects)"
     )))
 }
 
@@ -1145,7 +1326,7 @@ mod tests {
     }
 
     #[test]
-    fn fresh_profiles_publish_v85_and_hold_the_store_lock() {
+    fn fresh_profiles_publish_current_schema_and_hold_the_store_lock() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
         let kernel = SqliteStoreKernel::open(&home).expect("fresh Core store");
@@ -1175,12 +1356,129 @@ mod tests {
             })
             .expect("read Codex Thread agent path schema");
         assert_eq!(agent_path_columns, 1);
+        let execution_profile_columns = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT count(*) FROM pragma_table_info('codex_threads') \
+                         WHERE name IN ('model_id', 'harness_id', 'reasoning_effort', 'service_tier')",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("read execution profile schema");
+        assert_eq!(execution_profile_columns, 4);
 
         let second = open_error(&home);
         assert_eq!(second.code, StoreErrorCode::AlreadyOwned);
         drop(kernel);
-        let reopened = SqliteStoreKernel::open(&home).expect("reopen v85");
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen current store");
         assert!(!reopened.preparation().created_fresh);
+    }
+
+    #[test]
+    fn v85_execution_profiles_upgrade_with_backup_and_preserve_automation_leases() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v85 Core writer");
+        install_v84_schema(&connection).expect("v84 schema");
+        with_immediate_transaction(&mut connection, |transaction| {
+            transaction.execute_batch(V85_SCHEMA_SQL)?;
+            transaction.execute_batch(V85_EXECUTION_SCHEMA_SQL)?;
+            ensure_automation_definition_revision(transaction)?;
+            ensure_automation_run_revision(transaction)?;
+            transaction.execute(
+                "INSERT INTO core_store_metadata(\
+                   id, schema_owner, store_format_version, migrated_from_version, \
+                   migration_backup_name, migrated_at_unix_ms\
+                 ) VALUES (1, ?1, 85, NULL, NULL, 1)",
+                [CORE_SCHEMA_OWNER],
+            )?;
+            transaction.execute_batch(
+                "INSERT INTO codex_scheduled_automations(\
+                   automation_id, kind, status, name, prompt, model, reasoning_effort, \
+                   cwds_json, execution_environment, created_at, updated_at, definition_revision\
+                 ) VALUES (\
+                   'legacy-automation', 'cron', 'ACTIVE', 'Legacy', '', 'claude-opus-4-1', \
+                   'high', '[]', 'worktree', 1, 1, 1\
+                 );
+                 INSERT INTO core_automation_leases(\
+                   lease_id, automation_id, scheduled_for_ms, attempt, status, claimed_at_ms, \
+                   expires_at_ms\
+                 ) VALUES ('legacy-lease', 'legacy-automation', 10, 1, 'claimed', 1, 20);",
+            )?;
+            transaction.pragma_update(None, "user_version", 85)?;
+            Ok(())
+        })
+        .expect("seed v85 store");
+        drop(connection);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v85 Core store");
+        assert_eq!(upgraded.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(85));
+        let backup_path = upgraded
+            .preparation()
+            .migration_backup_path
+            .as_ref()
+            .expect("v85 migration backup");
+        let backup = open_immutable_reader(backup_path).expect("backup opens");
+        let backup_version: i64 = backup
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .expect("backup version");
+        assert_eq!(backup_version, 85);
+        upgraded
+            .writer()
+            .call(|connection| {
+                let profile_columns: i64 = connection.query_row(
+                    "SELECT count(*) FROM pragma_table_info('codex_threads') \
+                     WHERE name IN ('model_id', 'harness_id', 'reasoning_effort', 'service_tier')",
+                    [],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(profile_columns, 4);
+                let legacy = connection.query_row(
+                    "SELECT model, model_provider, harness_id, reasoning_effort, service_tier \
+                     FROM codex_scheduled_automations WHERE automation_id = 'legacy-automation'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, Option<String>>(0)?,
+                            row.get::<_, Option<String>>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                            row.get::<_, Option<String>>(3)?,
+                            row.get::<_, Option<String>>(4)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    legacy,
+                    (
+                        Some("claude-opus-4-1".to_owned()),
+                        None,
+                        None,
+                        Some("high".to_owned()),
+                        None,
+                    )
+                );
+                let leases: i64 = connection.query_row(
+                    "SELECT count(*) FROM core_automation_leases \
+                     WHERE lease_id = 'legacy-lease' AND automation_id = 'legacy-automation'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(leases, 1);
+                connection.execute(
+                    "UPDATE codex_scheduled_automations SET \
+                       model_provider = 'anthropic', harness_id = 'fable', \
+                       reasoning_effort = 'Thinking', service_tier = 'priority' \
+                     WHERE automation_id = 'legacy-automation'",
+                    [],
+                )?;
+                Ok::<_, StoreError>(())
+            })
+            .expect("verify v86 profile schema");
     }
 
     #[test]
@@ -1305,13 +1603,13 @@ mod tests {
     }
 
     #[test]
-    fn v85_schema_drift_fails_closed_instead_of_repairing() {
+    fn current_schema_drift_fails_closed_instead_of_repairing() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh v85 store");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh current store");
         drop(kernel);
 
-        let connection = Connection::open(home.join("nodex.db")).expect("v85 store");
+        let connection = Connection::open(home.join("nodex.db")).expect("current store");
         connection
             .execute("DROP TABLE core_reminder_leases", [])
             .expect("schema damage");
@@ -1319,7 +1617,7 @@ mod tests {
 
         let error = open_error(&home);
         assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
-        let connection = Connection::open(home.join("nodex.db")).expect("damaged v85 store");
+        let connection = Connection::open(home.join("nodex.db")).expect("damaged current store");
         let missing: i64 = connection
             .query_row(
                 "SELECT count(*) FROM sqlite_schema WHERE name = 'core_reminder_leases'",
@@ -1517,7 +1815,7 @@ mod tests {
 
     #[test]
     fn unsupported_store_versions_fail_before_publication() {
-        for version in [83, 86] {
+        for version in [83, CORE_SCHEMA_VERSION + 1] {
             let directory = tempdir().expect("Profile");
             let home = directory.path().canonicalize().expect("absolute Profile");
             let connection = Connection::open(home.join("nodex.db")).expect("store");

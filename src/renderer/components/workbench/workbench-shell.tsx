@@ -12734,6 +12734,9 @@ function SessionThreadPage({
         activeThreadId={summary?.threadId ?? null}
         activeThreadSummary={summary}
         availableModels={codexControl.availableModels}
+        agentProviderCatalog={codexControl.agentProviderCatalog}
+        agentProviderCatalogLoading={codexControl.agentProviderCatalogLoading}
+        selectedExecutionProfile={codexControl.executionProfile}
         collaborationModes={collaborationModes}
         selectedCollaborationMode={selectedCollaborationMode}
         selectedModel={codexControl.threadSettings.model ?? ""}
@@ -12991,6 +12994,9 @@ function BackgroundAgentSessionTab({
         activeThreadSummary={conversation}
         backgroundAgentDetail={true}
         availableModels={codexControl.availableModels}
+        agentProviderCatalog={codexControl.agentProviderCatalog}
+        agentProviderCatalogLoading={codexControl.agentProviderCatalogLoading}
+        selectedExecutionProfile={codexControl.executionProfile}
         collaborationModes={collaborationModes}
         selectedCollaborationMode={selectedCollaborationMode}
         selectedModel={codexControl.threadSettings.model ?? ""}
@@ -13246,6 +13252,9 @@ function SideChatSessionTab({
         activeThreadId={tab.threadId}
         activeThreadSummary={conversation}
         availableModels={codexControl.availableModels}
+        agentProviderCatalog={codexControl.agentProviderCatalog}
+        agentProviderCatalogLoading={codexControl.agentProviderCatalogLoading}
+        selectedExecutionProfile={codexControl.executionProfile}
         collaborationModes={collaborationModes}
         selectedCollaborationMode={selectedCollaborationMode}
         selectedModel={codexControl.threadSettings.model ?? ""}

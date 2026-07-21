@@ -19,6 +19,7 @@ use super::session_mutation::sqlite_now;
 const MAX_ID_BYTES: usize = 512;
 const MAX_THREAD_NAME_UTF16: usize = 2_000;
 const MAX_SHORT_TEXT_BYTES: usize = 4_096;
+const MAX_REASONING_EFFORT_BYTES: usize = 64;
 const MAX_PATH_BYTES: usize = 16_384;
 const MAX_PREVIEW_BYTES: usize = 1024 * 1024;
 const MAX_CATALOGS: usize = 64;
@@ -39,6 +40,10 @@ const THREAD_COLUMNS: &str = "
   thread.agent_path,
   thread.thread_preview,
   thread.model_provider,
+  thread.model_id,
+  thread.harness_id,
+  thread.reasoning_effort,
+  thread.service_tier,
   thread.cwd,
   thread.managed_worktree_path,
   thread.projectless_output_directory,
@@ -67,6 +72,10 @@ struct ThreadRow {
     agent_path: Option<String>,
     thread_preview: String,
     model_provider: String,
+    model_id: Option<String>,
+    harness_id: Option<String>,
+    reasoning_effort: Option<String>,
+    service_tier: Option<String>,
     cwd: Option<String>,
     managed_worktree_path: Option<String>,
     projectless_output_directory: Option<String>,
@@ -363,6 +372,36 @@ pub(super) fn upsert_thread_records(
         MAX_SHORT_TEXT_BYTES,
         true,
     )?;
+    let model_id = merge_nullable_text(
+        existing.as_ref().and_then(|row| row.model_id.clone()),
+        &patch.model_id,
+        "model_id",
+        MAX_SHORT_TEXT_BYTES,
+        true,
+    )?;
+    let harness_id = merge_nullable_text(
+        existing.as_ref().and_then(|row| row.harness_id.clone()),
+        &patch.harness_id,
+        "harness_id",
+        MAX_SHORT_TEXT_BYTES,
+        true,
+    )?;
+    let reasoning_effort = merge_nullable_text(
+        existing
+            .as_ref()
+            .and_then(|row| row.reasoning_effort.clone()),
+        &patch.reasoning_effort,
+        "reasoning_effort",
+        MAX_REASONING_EFFORT_BYTES,
+        true,
+    )?;
+    let service_tier = merge_nullable_text(
+        existing.as_ref().and_then(|row| row.service_tier.clone()),
+        &patch.service_tier,
+        "service_tier",
+        MAX_REASONING_EFFORT_BYTES,
+        true,
+    )?;
     let status = match &patch.status {
         Some(status) => validate_status(status.clone())?,
         None => existing.as_ref().map(thread_status).transpose()?.unwrap_or(
@@ -419,20 +458,23 @@ pub(super) fn upsert_thread_records(
     connection.execute(
         "INSERT INTO codex_threads (\
            thread_id, project_id, parent_thread_id, thread_name, thread_source, service_name, \
-           agent_nickname, agent_role, agent_path, thread_preview, model_provider, cwd, \
+           agent_nickname, agent_role, agent_path, thread_preview, model_provider, model_id, \
+           harness_id, reasoning_effort, service_tier, cwd, \
            managed_worktree_path, projectless_output_directory, \
            projectless_workspace_browser_root, status_type, status_active_flags_json, archived, \
            created_at, updated_at, linked_at, forked_from_id\
          ) VALUES (\
            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, \
-           ?18, ?19, ?20, ?21, ?22\
+           ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26\
          ) ON CONFLICT(thread_id) DO UPDATE SET \
            project_id = excluded.project_id, parent_thread_id = excluded.parent_thread_id, \
            thread_name = excluded.thread_name, thread_source = excluded.thread_source, \
            service_name = excluded.service_name, agent_nickname = excluded.agent_nickname, \
            agent_role = excluded.agent_role, agent_path = excluded.agent_path, \
            thread_preview = excluded.thread_preview, \
-           model_provider = excluded.model_provider, cwd = excluded.cwd, \
+           model_provider = excluded.model_provider, model_id = excluded.model_id, \
+           harness_id = excluded.harness_id, reasoning_effort = excluded.reasoning_effort, \
+           service_tier = excluded.service_tier, cwd = excluded.cwd, \
            managed_worktree_path = excluded.managed_worktree_path, \
            projectless_output_directory = excluded.projectless_output_directory, \
            projectless_workspace_browser_root = excluded.projectless_workspace_browser_root, \
@@ -452,6 +494,10 @@ pub(super) fn upsert_thread_records(
             agent_path,
             thread_preview,
             model_provider,
+            model_id,
+            harness_id,
+            reasoning_effort,
+            service_tier,
             cwd,
             managed_worktree_path,
             projectless_output_directory,
@@ -1003,6 +1049,10 @@ fn project_workspace_thread(
         agent_path: row.agent_path,
         thread_preview: row.thread_preview,
         model_provider: row.model_provider,
+        model_id: row.model_id,
+        harness_id: row.harness_id,
+        reasoning_effort: row.reasoning_effort,
+        service_tier: row.service_tier,
         cwd: row.cwd,
         managed_worktree_path: row.managed_worktree_path,
         projectless_output_directory: row.projectless_output_directory,
@@ -1033,18 +1083,22 @@ fn thread_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadRow> {
         agent_path: row.get(9)?,
         thread_preview: row.get(10)?,
         model_provider: row.get(11)?,
-        cwd: row.get(12)?,
-        managed_worktree_path: row.get(13)?,
-        projectless_output_directory: row.get(14)?,
-        projectless_workspace_browser_root: row.get(15)?,
-        status_type: row.get(16)?,
-        status_active_flags_json: row.get(17)?,
-        archived: row.get(18)?,
-        pinned_order: row.get(19)?,
-        has_unread_turn: row.get(20)?,
-        created_at: row.get(21)?,
-        updated_at: row.get(22)?,
-        linked_at: row.get(23)?,
+        model_id: row.get(12)?,
+        harness_id: row.get(13)?,
+        reasoning_effort: row.get(14)?,
+        service_tier: row.get(15)?,
+        cwd: row.get(16)?,
+        managed_worktree_path: row.get(17)?,
+        projectless_output_directory: row.get(18)?,
+        projectless_workspace_browser_root: row.get(19)?,
+        status_type: row.get(20)?,
+        status_active_flags_json: row.get(21)?,
+        archived: row.get(22)?,
+        pinned_order: row.get(23)?,
+        has_unread_turn: row.get(24)?,
+        created_at: row.get(25)?,
+        updated_at: row.get(26)?,
+        linked_at: row.get(27)?,
     })
 }
 
@@ -1301,6 +1355,22 @@ fn validate_stored_thread(row: &ThreadRow) -> Result<(), StoreError> {
             MAX_SHORT_TEXT_BYTES,
         ),
         ("agent_path", row.agent_path.as_deref(), MAX_PATH_BYTES),
+        ("model_id", row.model_id.as_deref(), MAX_SHORT_TEXT_BYTES),
+        (
+            "harness_id",
+            row.harness_id.as_deref(),
+            MAX_SHORT_TEXT_BYTES,
+        ),
+        (
+            "reasoning_effort",
+            row.reasoning_effort.as_deref(),
+            MAX_REASONING_EFFORT_BYTES,
+        ),
+        (
+            "service_tier",
+            row.service_tier.as_deref(),
+            MAX_REASONING_EFFORT_BYTES,
+        ),
         ("cwd", row.cwd.as_deref(), MAX_PATH_BYTES),
         (
             "managed_worktree_path",
@@ -1772,7 +1842,11 @@ mod tests {
                     agent_role: Some(Some("worker".to_owned())),
                     agent_path: Some(Some("agents/nash".to_owned())),
                     thread_preview: Some("Persisted execution context".to_owned()),
-                    model_provider: Some("openai".to_owned()),
+                    model_provider: Some("anthropic".to_owned()),
+                    model_id: Some(Some("claude-opus-4-1".to_owned())),
+                    harness_id: Some(Some("fable".to_owned())),
+                    reasoning_effort: Some(Some("Thinking".to_owned())),
+                    service_tier: Some(Some("priority".to_owned())),
                     cwd: Some(Some("/workspace/root".to_owned())),
                     managed_worktree_path: Some(Some("/workspace/worktree".to_owned())),
                     status: Some(ProjectWorkspaceThreadStatus {
@@ -1932,6 +2006,23 @@ mod tests {
         assert_eq!(
             execution_context.thread.agent_path.as_deref(),
             Some("agents/nash")
+        );
+        assert_eq!(execution_context.thread.model_provider, "anthropic");
+        assert_eq!(
+            execution_context.thread.model_id.as_deref(),
+            Some("claude-opus-4-1")
+        );
+        assert_eq!(
+            execution_context.thread.harness_id.as_deref(),
+            Some("fable")
+        );
+        assert_eq!(
+            execution_context.thread.reasoning_effort.as_deref(),
+            Some("Thinking")
+        );
+        assert_eq!(
+            execution_context.thread.service_tier.as_deref(),
+            Some("priority")
         );
         assert_eq!(
             execution_context.thread.status.status_type,

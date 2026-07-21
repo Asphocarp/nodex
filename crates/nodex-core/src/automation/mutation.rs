@@ -24,9 +24,7 @@ use crate::infrastructure::module_receipts::{
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
 use crate::infrastructure::writer::StoreWriter;
 
-use super::read::{
-    environment_string, kind_string, read_definition, read_lease, reasoning_string, status_string,
-};
+use super::read::{environment_string, kind_string, read_definition, read_lease, status_string};
 use super::schedule::{ScheduleError, next_run_at, normalize_rrule};
 use super::{AutomationApplyOutcome, assert_identity};
 
@@ -37,6 +35,7 @@ const MAX_PROMPT_BYTES: usize = 1024 * 1024;
 const MAX_CWDS: usize = 128;
 const MAX_PATH_BYTES: usize = 16 * 1024;
 const MAX_MODEL_BYTES: usize = 512;
+const MAX_REASONING_EFFORT_BYTES: usize = 64;
 const MAX_REASON_CODE_BYTES: usize = 128;
 const MAX_CLAIM_LIMIT: u32 = 100;
 const MIN_LEASE_DURATION_MS: u64 = 1_000;
@@ -50,7 +49,10 @@ struct NormalizedDefinition {
     prompt: String,
     rrule: String,
     model: Option<String>,
-    reasoning_effort: Option<nodex_core_contracts::automation::AutomationReasoningEffort>,
+    model_provider: Option<String>,
+    harness_id: Option<String>,
+    reasoning_effort: Option<String>,
+    service_tier: Option<String>,
     cwds: Vec<String>,
     execution_environment: AutomationExecutionEnvironment,
     local_environment_config_path: Option<String>,
@@ -576,9 +578,11 @@ fn create_definition(
     connection.execute(
         "INSERT INTO codex_scheduled_automations(\
            automation_id, kind, status, target_thread_id, name, prompt, rrule, model, \
-           reasoning_effort, cwds_json, execution_environment, local_environment_config_path, \
-           next_run_at, last_run_at, created_at, updated_at, definition_revision\
-         ) VALUES (?1, ?2, 'ACTIVE', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, NULL, ?13, ?13, 1)",
+           model_provider, harness_id, reasoning_effort, service_tier, cwds_json, \
+           execution_environment, local_environment_config_path, next_run_at, last_run_at, \
+           created_at, updated_at, definition_revision\
+         ) VALUES (?1, ?2, 'ACTIVE', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, \
+           ?15, NULL, ?16, ?16, 1)",
         params![
             automation_id,
             kind_string(definition.kind),
@@ -587,7 +591,10 @@ fn create_definition(
             definition.prompt,
             definition.rrule,
             definition.model,
-            definition.reasoning_effort.map(reasoning_string),
+            definition.model_provider,
+            definition.harness_id,
+            definition.reasoning_effort,
+            definition.service_tier,
             cwds_json,
             environment_string(definition.execution_environment),
             definition.local_environment_config_path,
@@ -676,10 +683,11 @@ fn update_definition(
     let changed = connection.execute(
         "UPDATE codex_scheduled_automations SET \
            kind = ?1, status = ?2, target_thread_id = ?3, name = ?4, prompt = ?5, rrule = ?6, \
-           model = ?7, reasoning_effort = ?8, cwds_json = ?9, execution_environment = ?10, \
-           local_environment_config_path = ?11, next_run_at = ?12, updated_at = ?13, \
+           model = ?7, model_provider = ?8, harness_id = ?9, reasoning_effort = ?10, \
+           service_tier = ?11, cwds_json = ?12, execution_environment = ?13, \
+           local_environment_config_path = ?14, next_run_at = ?15, updated_at = ?16, \
            definition_revision = definition_revision + 1 \
-         WHERE automation_id = ?14 AND definition_revision = ?15",
+         WHERE automation_id = ?17 AND definition_revision = ?18",
         params![
             kind_string(definition.kind),
             status_string(status),
@@ -688,7 +696,10 @@ fn update_definition(
             definition.prompt,
             definition.rrule,
             definition.model,
-            definition.reasoning_effort.map(reasoning_string),
+            definition.model_provider,
+            definition.harness_id,
+            definition.reasoning_effort,
+            definition.service_tier,
             cwds_json,
             environment_string(definition.execution_environment),
             definition.local_environment_config_path,
@@ -1261,6 +1272,23 @@ fn normalize_definition(
     }
     let rrule = normalize_rrule(input.rrule.as_deref()).map_err(schedule_invalid)?;
     let model = normalize_optional_string(input.model.as_deref(), MAX_MODEL_BYTES, "model")?;
+    let model_provider = normalize_optional_string(
+        input.model_provider.as_deref(),
+        MAX_MODEL_BYTES,
+        "model_provider",
+    )?;
+    let harness_id =
+        normalize_optional_string(input.harness_id.as_deref(), MAX_MODEL_BYTES, "harness_id")?;
+    let reasoning_effort = normalize_optional_string(
+        input.reasoning_effort.as_deref(),
+        MAX_REASONING_EFFORT_BYTES,
+        "reasoning_effort",
+    )?;
+    let service_tier = normalize_optional_string(
+        input.service_tier.as_deref(),
+        MAX_REASONING_EFFORT_BYTES,
+        "service_tier",
+    )?;
     let target_thread_id = normalize_optional_string(
         input.target_thread_id.as_deref(),
         MAX_ID_LENGTH,
@@ -1317,7 +1345,10 @@ fn normalize_definition(
         prompt: prompt.to_owned(),
         rrule,
         model,
-        reasoning_effort: input.reasoning_effort,
+        model_provider,
+        harness_id,
+        reasoning_effort,
+        service_tier,
         cwds,
         execution_environment,
         local_environment_config_path: if input.kind == AutomationDefinitionKind::Cron {
@@ -1737,8 +1768,11 @@ mod tests {
             name: "Daily report".to_owned(),
             prompt: Some("Prepare the report".to_owned()),
             rrule: Some("FREQ=MINUTELY;INTERVAL=5".to_owned()),
-            model: None,
-            reasoning_effort: None,
+            model: Some("claude-opus-4-1".to_owned()),
+            model_provider: Some("anthropic".to_owned()),
+            harness_id: Some("fable".to_owned()),
+            reasoning_effort: Some("Thinking".to_owned()),
+            service_tier: Some("priority".to_owned()),
             cwds: Some(vec!["/workspace/report".to_owned()]),
             execution_environment: None,
             local_environment_config_path: None,
@@ -2051,6 +2085,12 @@ mod tests {
             panic!("definitions snapshot");
         };
         assert_eq!(items, created.committed.value.definitions);
+        let definition = &items[0];
+        assert_eq!(definition.model_provider.as_deref(), Some("anthropic"));
+        assert_eq!(definition.model.as_deref(), Some("claude-opus-4-1"));
+        assert_eq!(definition.harness_id.as_deref(), Some("fable"));
+        assert_eq!(definition.reasoning_effort.as_deref(), Some("Thinking"));
+        assert_eq!(definition.service_tier.as_deref(), Some("priority"));
     }
 
     #[test]
