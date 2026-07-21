@@ -65,24 +65,12 @@ pub(super) fn page_file(
             validators.body_etag = Some(body);
         }
         Some(LibraryPagePrepareKind::PageDelete) => {
-            validators.page_etag = Some(
-                mint_etag(
-                    connection,
-                    "page_shell",
-                    &storage.project_id,
-                    store_epoch,
-                    &[page_id],
-                    json!({
-                        "lifecycle": storage.lifecycle,
-                        "locationRevision": storage.location_revision,
-                        "parentKind": storage.parent_kind,
-                        "parentId": storage.parent_id,
-                        "parentRevision": storage.parent_revision,
-                        "metadataRevision": page.metadata_revision,
-                    }),
-                )
-                .map_err(etag_error)?,
-            );
+            validators.page_etag = Some(mint_page_shell_etag(
+                connection,
+                library_id,
+                store_epoch,
+                page_id,
+            )?);
         }
         None => {}
     }
@@ -155,6 +143,32 @@ struct PageStorageAuthority {
     parent_kind: String,
     parent_id: String,
     parent_revision: i64,
+    metadata_revision: i64,
+}
+
+pub(super) fn mint_page_shell_etag(
+    connection: &Connection,
+    library_id: &str,
+    store_epoch: &str,
+    page_id: &str,
+) -> Result<String, StoreError> {
+    let storage = page_storage_authority(connection, library_id, page_id)?;
+    mint_etag(
+        connection,
+        "page_shell",
+        &storage.project_id,
+        store_epoch,
+        &[page_id],
+        json!({
+            "lifecycle": storage.lifecycle,
+            "locationRevision": storage.location_revision,
+            "parentKind": storage.parent_kind,
+            "parentId": storage.parent_id,
+            "parentRevision": storage.parent_revision,
+            "metadataRevision": storage.metadata_revision,
+        }),
+    )
+    .map_err(etag_error)
 }
 
 fn page_storage_authority(
@@ -165,7 +179,7 @@ fn page_storage_authority(
     connection
         .query_row(
             "SELECT block.project_id, page.lifecycle, block.location_revision, \
-               page.parent_kind, page.parent_id, page.parent_revision \
+               page.parent_kind, page.parent_id, page.parent_revision, page.metadata_revision \
              FROM pages page JOIN blocks block ON block.id = page.block_id AND block.type = 'page' \
              WHERE page.block_id = ?1 AND page.library_id = ?2 \
                AND page.lifecycle <> 'deleted' AND block.lifecycle <> 'deleted'",
@@ -178,6 +192,7 @@ fn page_storage_authority(
                     parent_kind: row.get(3)?,
                     parent_id: row.get(4)?,
                     parent_revision: row.get(5)?,
+                    metadata_revision: row.get(6)?,
                 })
             },
         )

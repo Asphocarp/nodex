@@ -16,7 +16,8 @@ use crate::database::{
 };
 use crate::document::{
     BlockDocumentSchema, DocumentMaterialization, PersistYjsGenesis, clone_canvas_genesis,
-    decode_block_document, persist_yjs_genesis, prepare_yjs_clone_genesis, read_document_authority,
+    decode_block_document, materialize_decoded_document, mint_document_semantic_etags,
+    persist_yjs_genesis, prepare_yjs_clone_genesis, read_document_authority,
     reconstruct_yjs_engine, sha256,
 };
 use crate::domain::block_materialization::MaterializedBlockNode;
@@ -542,6 +543,26 @@ pub(super) fn execute_page_copy(
         }
     }
     persisted_documents.commits.extend(parent_commit);
+    let target_authority = read_document_authority(connection, &target_document_id)?
+        .ok_or_else(|| corrupt("Copied Page Document authority is unavailable"))?;
+    let target_schema = BlockDocumentSchema::from_identity(
+        &target_authority.head.schema_key,
+        target_authority.head.schema_version,
+    )
+    .ok_or_else(|| corrupt("Copied Page Document schema is unsupported"))?;
+    let target_engine = reconstruct_yjs_engine(connection, &target_authority.head)?;
+    let target_decoded = decode_block_document(target_engine.document(), target_schema)
+        .map_err(|error| corrupt(format!("Copied Page schema is invalid: {error}")))?;
+    let target_materialization = materialize_decoded_document(&target_decoded)
+        .map_err(|error| corrupt(format!("Copied Page cannot materialize: {error}")))?;
+    let (title_etag, body_etag) = mint_document_semantic_etags(
+        connection,
+        requesting_project_id,
+        store_epoch,
+        &target_document_id,
+        &target_materialization,
+    )
+    .map_err(|error| internal(format!("Copied Page ETags could not be minted: {error:?}")))?;
     Ok(PageCopyExecution {
         project_id: resolved_parent.project_id,
         parent_key: resolved_parent.parent_key,
@@ -562,6 +583,10 @@ pub(super) fn execute_page_copy(
             document_id: target_document_id,
             block_ids: plan.block_ids,
             document_ids: plan.document_ids,
+            document_generation: target_authority.head.generation,
+            document_head_seq: target_authority.head.head_seq,
+            title_etag,
+            body_etag,
         },
         document_commits: std::mem::take(&mut persisted_documents.commits),
         committed_at: now,

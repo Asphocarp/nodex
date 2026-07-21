@@ -124,6 +124,33 @@ pub fn execute(cli: Cli) -> Result<CommandOutput, CliError> {
             cli.json,
         ),
         Command::Page(PageArgs {
+            command: PageCommand::Move(arguments),
+        }) => crate::page_lifecycle::move_page(
+            &client,
+            cli.project.as_deref(),
+            &cwd,
+            arguments,
+            cli.json,
+        ),
+        Command::Page(PageArgs {
+            command: PageCommand::Duplicate(arguments),
+        }) => crate::page_lifecycle::duplicate_page(
+            &client,
+            cli.project.as_deref(),
+            &cwd,
+            arguments,
+            cli.json,
+        ),
+        Command::Page(PageArgs {
+            command: PageCommand::Delete(arguments),
+        }) => crate::page_lifecycle::delete_page(
+            &client,
+            cli.project.as_deref(),
+            &cwd,
+            arguments,
+            cli.json,
+        ),
+        Command::Page(PageArgs {
             command: PageCommand::Insert(arguments),
         }) => crate::page_mutation::insert_page_content(
             &client,
@@ -1053,7 +1080,7 @@ pub(crate) fn unwrap_library(
     }
 }
 
-fn unwrap_database(
+pub(crate) fn unwrap_database(
     result: Result<DatabaseReadResponse, ClientError>,
 ) -> Result<nodex_core_contracts::ModuleReadSnapshot<DatabaseReadValue>, CliError> {
     match result.map_err(map_client_error)?.0 {

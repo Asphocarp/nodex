@@ -528,6 +528,7 @@ fn apply_with_authority(
         final_location_revisions: final_location_revisions.clone(),
         document_commits: public_commits,
         affected_database_ids: Vec::new(),
+        page_etags: BTreeMap::new(),
     };
     let now = sqlite_now(connection)?;
     let affected_page_ids = affected_page_ids(&prepared);
@@ -1707,6 +1708,18 @@ fn apply_page_ownership_transfer(
         read_final_locations(connection, &result_block_ids)?;
     let affected_database_ids = affected_database_ids.into_iter().collect::<Vec<_>>();
     let affected_view_ids = affected_view_ids.into_iter().collect::<Vec<_>>();
+    let page_etags = result_block_ids
+        .iter()
+        .map(|page_id| {
+            super::page_projection::mint_page_shell_etag(
+                connection,
+                library_id,
+                store_epoch,
+                page_id,
+            )
+            .map(|etag| (page_id.clone(), etag))
+        })
+        .collect::<Result<BTreeMap<_, _>, _>>()?;
     let result = LibraryBlockTransferResult {
         mode: LibraryBlockTransferMode::Move,
         source_root_block_ids: intent.root_block_ids.clone(),
@@ -1720,6 +1733,7 @@ fn apply_page_ownership_transfer(
             .map(|commit| commit.public.clone())
             .collect(),
         affected_database_ids: affected_database_ids.clone(),
+        page_etags,
     };
     committed_revisions.extend(
         final_location_revisions
@@ -1933,6 +1947,7 @@ fn apply_page_ownership_copy(
         final_location_revisions: final_location_revisions.clone(),
         document_commits: document_commits.clone(),
         affected_database_ids: affected_database_ids.clone(),
+        page_etags: BTreeMap::new(),
     };
     let target_project_id = target_project_id
         .ok_or_else(|| corrupt("Page copy produced no target Project authority"))?;
@@ -2487,6 +2502,7 @@ fn apply_page_parent_transfer(
             .map(|commit| commit.public.clone())
             .collect(),
         affected_database_ids: affected_database_ids.clone(),
+        page_etags: BTreeMap::new(),
     };
     let mut committed_revisions = final_location_revisions
         .iter()

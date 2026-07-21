@@ -144,7 +144,7 @@ impl CoreClient {
         self.connected_request(
             "/core/v1/modules/database/read",
             &DatabaseReadRequest(nodex_core_contracts::ModuleReadRequest {
-                version: nodex_core_contracts::database::DATABASE_CONTRACT_VERSION,
+                version: nodex_core_contracts::CORE_CONTRACT_VERSION,
                 read,
             }),
             ScopeHeaders::database(project_id),

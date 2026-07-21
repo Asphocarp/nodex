@@ -1581,6 +1581,9 @@ export interface components {
                 readonly [key: string]: components["schemas"]["LibraryBlockLocation"];
             };
             readonly mode: components["schemas"]["LibraryBlockTransferMode"];
+            readonly page_etags: {
+                readonly [key: string]: string;
+            };
             readonly result_root_block_ids: readonly string[];
             readonly source_root_block_ids: readonly string[];
             readonly transformation_evidence: readonly unknown[];
@@ -1832,12 +1835,18 @@ export interface components {
             readonly block_ids: {
                 readonly [key: string]: string;
             };
+            readonly body_etag: string;
+            /** Format: int64 */
+            readonly document_generation: number;
+            /** Format: int64 */
+            readonly document_head_seq: number;
             readonly document_id: string;
             readonly document_ids: {
                 readonly [key: string]: string;
             };
             readonly page_id: string;
             readonly source_page_id: string;
+            readonly title_etag: string;
         };
         readonly LibraryPageCopyValue: {
             readonly property_id: string;
@@ -2267,6 +2276,21 @@ export interface components {
         };
         /** @enum {string} */
         readonly LibraryPageWorkflowStatus: "triage" | "plan" | "build" | "review" | "ship";
+        readonly LibraryPageWriteDestination: {
+            readonly at?: null | components["schemas"]["LibraryAgentSiblingAnchor"];
+            /** @enum {string} */
+            readonly kind: "library";
+        } | {
+            readonly at?: null | components["schemas"]["LibraryAgentSiblingAnchor"];
+            /** @enum {string} */
+            readonly kind: "page";
+            readonly page_id: string;
+        } | {
+            readonly at?: null | components["schemas"]["LibraryAgentSiblingAnchor"];
+            readonly data_source_id: string;
+            /** @enum {string} */
+            readonly kind: "data_source";
+        };
         readonly LibraryPlacementAnchor: {
             readonly block_id: string;
             /** Format: int64 */
@@ -2548,6 +2572,21 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "copy_page";
                 readonly source_page_id: string;
+            } | {
+                readonly destination: components["schemas"]["LibraryPageWriteDestination"];
+                /** @enum {string} */
+                readonly kind: "duplicate_page";
+                readonly source_page_id: string;
+            } | {
+                readonly destination: components["schemas"]["LibraryPageWriteDestination"];
+                /** @enum {string} */
+                readonly kind: "move_page";
+                readonly page_id: string;
+            } | {
+                readonly expected_etag: string;
+                /** @enum {string} */
+                readonly kind: "delete_page";
+                readonly page_id: string;
             } | {
                 /** Format: int64 */
                 readonly expected_location_revision: number;

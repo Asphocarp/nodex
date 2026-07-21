@@ -106,6 +106,22 @@ pub enum LibraryAgentSiblingAnchor {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryPageWriteDestination {
+    Library {
+        at: Option<LibraryAgentSiblingAnchor>,
+    },
+    Page {
+        page_id: String,
+        at: Option<LibraryAgentSiblingAnchor>,
+    },
+    DataSource {
+        data_source_id: String,
+        at: Option<LibraryAgentSiblingAnchor>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LibraryAgentPageDestination {
     Library {
         at: Option<LibraryAgentSiblingAnchor>,
@@ -399,6 +415,7 @@ pub struct LibraryBlockTransferResult {
     pub final_location_revisions: std::collections::BTreeMap<String, i64>,
     pub document_commits: Vec<LibraryBlockTransferDocumentCommit>,
     pub affected_database_ids: Vec<String>,
+    pub page_etags: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -1570,6 +1587,18 @@ pub enum LibraryIntent {
         expected_document_head_seq: i64,
         destination: LibraryPageCopyDestination,
     },
+    DuplicatePage {
+        source_page_id: String,
+        destination: LibraryPageWriteDestination,
+    },
+    MovePage {
+        page_id: String,
+        destination: LibraryPageWriteDestination,
+    },
+    DeletePage {
+        page_id: String,
+        expected_etag: String,
+    },
     MoveBlock {
         target: LibraryResourceTarget,
         expected_location_revision: i64,
@@ -1670,6 +1699,10 @@ pub struct LibraryPageCopyResult {
     pub document_id: String,
     pub block_ids: std::collections::BTreeMap<String, String>,
     pub document_ids: std::collections::BTreeMap<String, String>,
+    pub document_generation: i64,
+    pub document_head_seq: i64,
+    pub title_etag: String,
+    pub body_etag: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

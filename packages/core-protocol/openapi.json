@@ -6106,7 +6106,8 @@
           "final_locations",
           "final_location_revisions",
           "document_commits",
-          "affected_database_ids"
+          "affected_database_ids",
+          "page_etags"
         ],
         "properties": {
           "affected_database_ids": {
@@ -6151,6 +6152,15 @@
           },
           "mode": {
             "$ref": "#/components/schemas/LibraryBlockTransferMode"
+          },
+          "page_etags": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
           },
           "result_root_block_ids": {
             "type": "array",
@@ -7176,7 +7186,11 @@
           "page_id",
           "document_id",
           "block_ids",
-          "document_ids"
+          "document_ids",
+          "document_generation",
+          "document_head_seq",
+          "title_etag",
+          "body_etag"
         ],
         "properties": {
           "block_ids": {
@@ -7187,6 +7201,17 @@
             "propertyNames": {
               "type": "string"
             }
+          },
+          "body_etag": {
+            "type": "string"
+          },
+          "document_generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "document_head_seq": {
+            "type": "integer",
+            "format": "int64"
           },
           "document_id": {
             "type": "string"
@@ -7204,6 +7229,9 @@
             "type": "string"
           },
           "source_page_id": {
+            "type": "string"
+          },
+          "title_etag": {
             "type": "string"
           }
         }
@@ -9010,6 +9038,90 @@
           "ship"
         ]
       },
+      "LibraryPageWriteDestination": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "at": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LibraryAgentSiblingAnchor"
+                  }
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "kind"
+            ],
+            "properties": {
+              "at": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LibraryAgentSiblingAnchor"
+                  }
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data_source_id",
+              "kind"
+            ],
+            "properties": {
+              "at": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LibraryAgentSiblingAnchor"
+                  }
+                ]
+              },
+              "data_source_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "data_source"
+                ]
+              }
+            }
+          }
+        ]
+      },
       "LibraryPlacementAnchor": {
         "type": "object",
         "required": [
@@ -10149,6 +10261,72 @@
                     ]
                   },
                   "source_page_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "source_page_id",
+                  "destination",
+                  "kind"
+                ],
+                "properties": {
+                  "destination": {
+                    "$ref": "#/components/schemas/LibraryPageWriteDestination"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "duplicate_page"
+                    ]
+                  },
+                  "source_page_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "page_id",
+                  "destination",
+                  "kind"
+                ],
+                "properties": {
+                  "destination": {
+                    "$ref": "#/components/schemas/LibraryPageWriteDestination"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "move_page"
+                    ]
+                  },
+                  "page_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "page_id",
+                  "expected_etag",
+                  "kind"
+                ],
+                "properties": {
+                  "expected_etag": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "delete_page"
+                    ]
+                  },
+                  "page_id": {
                     "type": "string"
                   }
                 }

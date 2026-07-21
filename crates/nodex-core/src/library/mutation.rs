@@ -152,7 +152,10 @@ pub(super) fn apply(
                 }
                 _ => {
                     let fingerprint = serde_json::to_vec(&(
-                        &context,
+                        &context.profile_id,
+                        &context.library_id,
+                        &context.project_id,
+                        &context.adapter,
                         request.version,
                         &request.store_epoch,
                         &request.intent,
@@ -273,6 +276,47 @@ pub(super) fn apply(
                     *expected_document_head_seq,
                     destination,
                     &assets_root,
+                ),
+                LibraryIntent::DuplicatePage {
+                    source_page_id,
+                    destination,
+                } => super::page_write_semantic::duplicate_page(
+                    transaction,
+                    &context,
+                    &store_epoch,
+                    &library_id,
+                    &request.operation_id,
+                    &request_hash,
+                    source_page_id,
+                    destination,
+                    &assets_root,
+                ),
+                LibraryIntent::MovePage {
+                    page_id,
+                    destination,
+                } => super::page_write_semantic::move_page(
+                    transaction,
+                    &context,
+                    &store_epoch,
+                    &library_id,
+                    &request.operation_id,
+                    &request_hash,
+                    page_id,
+                    destination,
+                    &assets_root,
+                ),
+                LibraryIntent::DeletePage {
+                    page_id,
+                    expected_etag,
+                } => super::page_lifecycle_mutation::delete_with_etag(
+                    transaction,
+                    &context,
+                    &store_epoch,
+                    &library_id,
+                    &request.operation_id,
+                    &request_hash,
+                    page_id,
+                    expected_etag,
                 ),
                 LibraryIntent::ArchiveResource {
                     target,
@@ -2394,7 +2438,8 @@ fn internal(message: &str) -> StoreError {
 #[cfg(test)]
 mod tests {
     use nodex_core_contracts::library::{
-        LibraryNavigationParent, LibraryPageFileKind, LibraryRead, LibraryReadValue,
+        LibraryAgentSiblingAnchor, LibraryNavigationParent, LibraryPageFileKind,
+        LibraryPagePrepareKind, LibraryPageWriteDestination, LibraryRead, LibraryReadValue,
     };
     use nodex_core_contracts::{AdapterKind, LibraryId, ModuleReadRequest, ProfileId, ProjectId};
     use tempfile::tempdir;
@@ -3309,8 +3354,13 @@ mod tests {
         assert!(created.title_etag.starts_with("nxe1."));
         assert!(created.body_etag.starts_with("nxe1."));
 
+        let mut retry_context = context();
+        retry_context.connection_id = "connection:native-cli-create-retry".to_owned();
         let replay = module
-            .apply(&context(), request("## Runtime\n\nCore starts on demand."))
+            .apply(
+                &retry_context,
+                request("## Runtime\n\nCore starts on demand."),
+            )
             .expect("exact semantic Page replay");
         assert!(replay.committed.receipt.mutation.duplicate);
         assert_eq!(replay.committed.value.page_create, Some(created.clone()));
@@ -3358,6 +3408,225 @@ mod tests {
         assert_eq!(
             metadata.metadata.expect("typed metadata").title_markdown,
             "Native **Page**"
+        );
+    }
+
+    #[test]
+    fn semantic_page_duplicate_move_and_guarded_delete_are_atomic_and_replayable() {
+        let (_directory, _kernel, module) = seeded_library();
+        let mut retry_context = context();
+        retry_context.connection_id = "connection:native-cli-retry".to_owned();
+        let create = |operation_id: &str, title: &str| ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: operation_id.to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::CreatePageFromNfm {
+                title_markdown: title.to_owned(),
+                nfm: "## Body\n\nDurable content.".to_owned(),
+                parent: LibraryWriteParent::Library { before: None },
+            },
+        };
+        let parent = module
+            .apply(&context(), create("native-cli:create-parent", "Parent"))
+            .expect("create destination Page")
+            .committed
+            .value
+            .page_create
+            .expect("parent result");
+        let source = module
+            .apply(&context(), create("native-cli:create-source", "Source"))
+            .expect("create source Page")
+            .committed
+            .value
+            .page_create
+            .expect("source result");
+        module
+            .apply(
+                &context(),
+                create_database_request("native-cli:create-destination-database"),
+            )
+            .expect("create Data Source destination");
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "native-cli:grant-destination-database".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::GrantProjectAccess {
+                        project_id: "project-1".to_owned(),
+                        target: LibraryResourceTarget::Database {
+                            database_id: "018f0000-0000-7000-8000-000000000001".to_owned(),
+                        },
+                        access: LibraryAccess::ReadWrite,
+                    },
+                },
+            )
+            .expect("grant destination Database write access");
+        let duplicate_request = ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: "native-cli:duplicate-page".to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::DuplicatePage {
+                source_page_id: source.page_id.clone(),
+                destination: LibraryPageWriteDestination::Page {
+                    page_id: parent.page_id.clone(),
+                    at: Some(LibraryAgentSiblingAnchor::End),
+                },
+            },
+        };
+        let duplicated = module
+            .apply(&context(), duplicate_request.clone())
+            .expect("duplicate Page into Page")
+            .committed;
+        let copied = duplicated
+            .value
+            .page_copy
+            .clone()
+            .expect("exact duplicate result");
+        assert_eq!(copied.source_page_id, source.page_id);
+        assert_eq!(copied.document_generation, 1);
+        assert_eq!(copied.document_head_seq, 1);
+        assert!(copied.title_etag.starts_with("nxe1."));
+        assert!(copied.body_etag.starts_with("nxe1."));
+        let duplicate_replay = module
+            .apply(&retry_context, duplicate_request)
+            .expect("duplicate replay");
+        assert!(duplicate_replay.committed.receipt.mutation.duplicate);
+        assert_eq!(
+            duplicate_replay.committed.value.page_copy,
+            Some(copied.clone())
+        );
+
+        let before_move = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PageFile {
+                        page_id: copied.page_id.clone(),
+                        file_kind: LibraryPageFileKind::MetaYaml,
+                        prepare: Some(LibraryPagePrepareKind::PageDelete),
+                    },
+                },
+            )
+            .expect("prepare delete before move");
+        let LibraryReadValue::PageFile { value: before_move } = before_move.value else {
+            panic!("Page file")
+        };
+        let stale_delete_etag = before_move.validators.page_etag.expect("Page ETag");
+
+        let move_request = ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: "native-cli:move-page".to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::MovePage {
+                page_id: copied.page_id.clone(),
+                destination: LibraryPageWriteDestination::Library {
+                    at: Some(LibraryAgentSiblingAnchor::Start),
+                },
+            },
+        };
+        let moved = module
+            .apply(&context(), move_request.clone())
+            .expect("move Page to Library")
+            .committed;
+        let transfer = moved
+            .value
+            .block_transfer
+            .clone()
+            .expect("exact transfer result");
+        let moved_page_etag = transfer
+            .page_etags
+            .get(&copied.page_id)
+            .cloned()
+            .expect("post-move Page ETag");
+        assert!(moved_page_etag.starts_with("nxe1."));
+        let move_replay = module
+            .apply(&retry_context, move_request)
+            .expect("move replay across a new connection");
+        assert!(move_replay.committed.receipt.mutation.duplicate);
+        assert_eq!(move_replay.committed.value.block_transfer, Some(transfer));
+
+        let moved_to_data_source = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "native-cli:move-page-to-data-source".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::MovePage {
+                        page_id: copied.page_id.clone(),
+                        destination: LibraryPageWriteDestination::DataSource {
+                            data_source_id: "018f0000-0000-7000-8000-000000000002".to_owned(),
+                            at: Some(LibraryAgentSiblingAnchor::End),
+                        },
+                    },
+                },
+            )
+            .expect("move Page into the default Data Source View")
+            .committed
+            .value
+            .block_transfer
+            .expect("Data Source transfer result");
+        let moved_page_etag = moved_to_data_source
+            .page_etags
+            .get(&copied.page_id)
+            .cloned()
+            .expect("post-Data-Source Page ETag");
+        assert_eq!(
+            moved_to_data_source.affected_database_ids,
+            vec!["018f0000-0000-7000-8000-000000000001".to_owned()]
+        );
+
+        let stale_delete = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "native-cli:delete-stale-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::DeletePage {
+                        page_id: copied.page_id.clone(),
+                        expected_etag: stale_delete_etag,
+                    },
+                },
+            )
+            .expect_err("stale pre-move Page ETag must fail");
+        assert_eq!(
+            stale_delete.code,
+            nodex_core_contracts::CoreErrorCode::RevisionConflict
+        );
+
+        let delete_request = ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: "native-cli:delete-page".to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::DeletePage {
+                page_id: copied.page_id.clone(),
+                expected_etag: moved_page_etag,
+            },
+        };
+        let deleted = module
+            .apply(&context(), delete_request.clone())
+            .expect("guarded Page delete");
+        assert_eq!(
+            deleted
+                .committed
+                .value
+                .page_lifecycle
+                .as_ref()
+                .expect("delete receipt")
+                .lifecycle,
+            nodex_core_contracts::library::LibraryPageLifecycleState::Deleted
+        );
+        let delete_replay = module
+            .apply(&retry_context, delete_request)
+            .expect("delete replay after tombstone across a new connection");
+        assert!(delete_replay.committed.receipt.mutation.duplicate);
+        assert_eq!(
+            delete_replay.committed.value.page_lifecycle,
+            deleted.committed.value.page_lifecycle
         );
     }
 }

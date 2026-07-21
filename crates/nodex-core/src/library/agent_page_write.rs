@@ -19,11 +19,7 @@ use nodex_core_contracts::{
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
-use crate::document::{
-    BlockDocumentSchema, decode_block_document, materialize_decoded_document,
-    mint_document_semantic_etags, read_document_authority, read_store_epoch,
-    reconstruct_yjs_engine, sha256,
-};
+use crate::document::{read_store_epoch, sha256};
 use crate::infrastructure::agent_operations::{
     PreparedAgentOperationBinding, PreparedAgentOperationRegistry,
 };
@@ -340,14 +336,7 @@ pub(super) fn execute_page_copy(
             &assets_root,
         )?;
         let result = agent_result(
-            &transaction,
             &library_id,
-            &store_epoch,
-            &authorization
-                .authorization
-                .provenance
-                .authority
-                .actor_project_id,
             &copy_request,
             preflight.body_block_count,
             &execution,
@@ -862,10 +851,7 @@ pub(super) fn read_location_anchor(
 }
 
 fn agent_result(
-    connection: &Connection,
     library_id: &str,
-    store_epoch: &str,
-    actor_project_id: &str,
     request: &LibraryAgentPageCopyRequest,
     body_block_count: u32,
     execution: &super::page_copy::PageCopyExecution,
@@ -877,27 +863,10 @@ fn agent_result(
         .cloned()
         .ok_or_else(|| corrupt("Agent Page copy omitted its root identity"))?;
     let etags = if request.include_etags {
-        let authority = read_document_authority(connection, &execution.result.document_id)?
-            .ok_or_else(|| corrupt("Copied Page Document authority is unavailable"))?;
-        let schema = BlockDocumentSchema::from_identity(
-            &authority.head.schema_key,
-            authority.head.schema_version,
-        )
-        .ok_or_else(|| corrupt("Copied Page Document schema is unsupported"))?;
-        let engine = reconstruct_yjs_engine(connection, &authority.head)?;
-        let decoded = decode_block_document(engine.document(), schema)
-            .map_err(|error| corrupt(format!("Copied Page schema is invalid: {error}")))?;
-        let materialization = materialize_decoded_document(&decoded)
-            .map_err(|error| corrupt(format!("Copied Page cannot materialize: {error}")))?;
-        let (title, body) = mint_document_semantic_etags(
-            connection,
-            actor_project_id,
-            store_epoch,
-            &execution.result.document_id,
-            &materialization,
-        )
-        .map_err(|error| internal(format!("Copied Page ETags could not be minted: {error:?}")))?;
-        Some(LibraryAgentPageEtags { title, body })
+        Some(LibraryAgentPageEtags {
+            title: execution.result.title_etag.clone(),
+            body: execution.result.body_etag.clone(),
+        })
     } else {
         None
     };
@@ -1060,8 +1029,4 @@ fn invalid(message: impl Into<String>) -> StoreError {
 
 fn corrupt(message: impl Into<String>) -> StoreError {
     StoreError::new(StoreErrorCode::StoreCorrupt, message, false)
-}
-
-fn internal(message: impl Into<String>) -> StoreError {
-    StoreError::new(StoreErrorCode::Internal, message, false)
 }

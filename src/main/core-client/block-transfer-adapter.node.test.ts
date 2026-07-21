@@ -63,6 +63,7 @@ const coreResult = () => ({
     state_vector: [8, 9],
   }],
   affected_database_ids: [],
+  page_etags: {},
 });
 
 const preparedSnapshot = (): LibraryReadSnapshot => ({

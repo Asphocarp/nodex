@@ -551,6 +551,39 @@ mod tests {
     }
 
     #[test]
+    fn page_transfer_parses_one_stable_placement_mode() {
+        let cli = Cli::try_parse_from([
+            "nodex",
+            "page",
+            "duplicate",
+            "@page_1",
+            "--to",
+            "database",
+            "--after",
+            "@page_2",
+            "--idempotency-key",
+            "duplicate-page-1",
+        ])
+        .expect("semantic Page transfer");
+        let Command::Page(PageArgs {
+            command: PageCommand::Duplicate(arguments),
+        }) = cli.command
+        else {
+            panic!("expected Page duplicate command")
+        };
+        assert_eq!(arguments.page, "@page_1");
+        assert_eq!(arguments.to, "database");
+        assert_eq!(arguments.after.as_deref(), Some("@page_2"));
+
+        let error = Cli::try_parse_from([
+            "nodex", "page", "move", "@page_1", "--to", "library", "--at", "start", "--before",
+            "@page_2",
+        ])
+        .expect_err("placement modes are exclusive");
+        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
     fn machine_help_is_versioned_and_effect_aware() {
         let help = machine_help(&["page".into(), "delete".into()]);
         assert_eq!(help.version, 1);

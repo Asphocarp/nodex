@@ -226,6 +226,55 @@ pub(super) fn apply(
 }
 
 #[allow(clippy::too_many_arguments)]
+pub(super) fn delete_with_etag(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    library_id: &str,
+    operation_id: &str,
+    request_hash: &str,
+    page_id: &str,
+    expected_etag: &str,
+) -> Result<LibraryApplyOutcome, StoreError> {
+    let project_id = context
+        .project_id
+        .as_ref()
+        .map(|project_id| project_id.0.as_str())
+        .ok_or_else(|| unauthorized("Page deletion requires a bound Project"))?;
+    require_project_in_library(connection, project_id, library_id)?;
+    let page = read_page(connection, library_id, page_id)?;
+    authorize_page_write(connection, context, library_id, &page)?;
+    let current_etag =
+        super::page_projection::mint_page_shell_etag(connection, library_id, store_epoch, page_id)?;
+    if !constant_time_equal(expected_etag.as_bytes(), current_etag.as_bytes()) {
+        return Err(conflict("Page shell ETag changed"));
+    }
+    delete_page(
+        connection,
+        context,
+        store_epoch,
+        library_id,
+        operation_id,
+        request_hash,
+        page_id,
+        page.metadata_revision,
+        page.parent_revision,
+    )
+}
+
+fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.iter()
+        .zip(right)
+        .fold(0_u8, |difference, (left, right)| {
+            difference | (left ^ right)
+        })
+        == 0
+}
+
+#[allow(clippy::too_many_arguments)]
 fn create_page(
     connection: &Connection,
     context: &BoundModuleContext,
