@@ -70,4 +70,32 @@ describe("codex-service runtime bootstrap", () => {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  test("isolates writable Agent state under the active Nodex Profile", async () => {
+    const previousNodexHome = process.env.NODEX_HOME;
+    const nodexHome = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-agent-state-home-"));
+    process.env.NODEX_HOME = nodexHome;
+
+    try {
+      const service = new CodexService() as unknown as {
+        client: {
+          expectedCodexHome: string;
+        };
+        runtimeStateHome: string;
+        shutdown: () => Promise<void>;
+      };
+
+      try {
+        const expectedAgentHome = path.join(nodexHome, "agent");
+        expect(service.runtimeStateHome).toBe(expectedAgentHome);
+        expect(service.client.expectedCodexHome).toBe(expectedAgentHome);
+      } finally {
+        await service.shutdown();
+      }
+    } finally {
+      if (previousNodexHome === undefined) delete process.env.NODEX_HOME;
+      else process.env.NODEX_HOME = previousNodexHome;
+      fs.rmSync(nodexHome, { recursive: true, force: true });
+    }
+  });
 });

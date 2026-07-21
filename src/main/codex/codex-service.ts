@@ -2939,7 +2939,7 @@ export class CodexService extends EventEmitter {
     const runtime = options?.runtime ?? resolveDefaultCodexRuntime();
     this.runtimeStateHome = path.resolve(
       options?.runtimeStateHome
-        ?? path.join(getNodexHome(), "agent-runtime", "openinterpreter"),
+        ?? path.join(getNodexHome(), "agent"),
     );
     this.providerCredentialStore = options?.providerCredentialStore
       ?? createElectronProviderCredentialStore();
