@@ -809,6 +809,7 @@ pub struct ProjectWorkspaceReceipt {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct ProjectWorkspaceEvent {
     pub kind: ProjectWorkspaceEventKind,
+    pub project_catalog_changed: bool,
     pub project_ids: Vec<String>,
     pub session_ids: Vec<String>,
     pub thread_ids: Vec<String>,

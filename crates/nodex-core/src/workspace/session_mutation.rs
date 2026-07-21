@@ -1797,6 +1797,7 @@ pub(super) fn finish_session_mutation(
         request_hash,
         WorkspaceMutationEffects {
             operation_kind,
+            project_catalog_changed: false,
             change_project_id,
             project_ids,
             session_ids: vec![session_id.to_owned()],

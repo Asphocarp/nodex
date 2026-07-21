@@ -816,6 +816,7 @@ fn finish_execution_mutation(
         request_hash,
         WorkspaceMutationEffects {
             operation_kind,
+            project_catalog_changed: false,
             change_project_id,
             project_ids: project_id.into_iter().map(str::to_owned).collect(),
             session_ids: Vec::new(),

@@ -101,6 +101,7 @@ describe("Core Project Workspace adapter", () => {
           module: "project_workspace",
           event: {
             kind: "workspace_changed",
+            project_catalog_changed: false,
             project_ids: ["project:one"],
             session_ids: ["session:one"],
             thread_ids: ["thread:one"],
@@ -108,6 +109,7 @@ describe("Core Project Workspace adapter", () => {
         },
       },
     })).toEqual({
+      projectCatalogChanged: false,
       projectIds: ["project:one"],
       sessionIds: ["session:one"],
       threadIds: ["thread:one"],

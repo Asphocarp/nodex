@@ -91,6 +91,7 @@ struct DatabaseMetadata {
 struct WorkspaceMetadata {
     module: String,
     kind: String,
+    project_catalog_changed: bool,
     project_ids: Vec<String>,
     session_ids: Vec<String>,
     thread_ids: Vec<String>,
@@ -259,6 +260,7 @@ fn reconstruct_event(
             validate_strings(&metadata.thread_ids, "Project Workspace Thread")?;
             CoreModuleEventPayload::ProjectWorkspace(ProjectWorkspaceEvent {
                 kind: ProjectWorkspaceEventKind::WorkspaceChanged,
+                project_catalog_changed: metadata.project_catalog_changed,
                 project_ids: metadata.project_ids,
                 session_ids: metadata.session_ids,
                 thread_ids: metadata.thread_ids,

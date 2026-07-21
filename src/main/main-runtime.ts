@@ -1148,7 +1148,9 @@ function publishCoreModuleEvent(envelope: CoreEventEnvelope): void {
   const projectId = workspaceEvent.projectIds.length === 1
     ? workspaceEvent.projectIds[0]
     : undefined;
-  dbNotifier.notifyProjectsChanged("update", projectId);
+  if (workspaceEvent.projectCatalogChanged) {
+    dbNotifier.notifyProjectsChanged("update", projectId);
+  }
   const sessionProjectId = projectId ?? null;
   if (workspaceEvent.sessionIds.length === 0) {
     if (workspaceEvent.threadIds.length > 0) {

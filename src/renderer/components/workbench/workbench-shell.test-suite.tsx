@@ -2707,10 +2707,12 @@ function renderWorkbench({
   let requestSidebarToggle: (source: WorkbenchSidebarToggleCommandSource) => void = () => undefined;
   let requestWorkbenchCommand: (source: WorkbenchCommandSource) => void = () => undefined;
   let openCommandPalette: (mode?: "root" | "chats" | "pages" | "files", initialQuery?: string) => void = () => undefined;
+  let replaceProjects: (projects: Project[]) => void = () => undefined;
   type TestSidebarState = NonNullable<ComponentProps<typeof WorkbenchShell>["sidebar"]>;
 
   function WorkbenchShellTestHarness() {
     const [dbProjectId, setDbProjectId] = useState(projects[0]?.id ?? "alpha");
+    const [renderedProjects, setRenderedProjects] = useState(projects);
     const [sidebarState, setSidebarState] = useState<TestSidebarState>(() => ({
       collapsed: false,
       width: 300,
@@ -2771,10 +2773,11 @@ function renderWorkbench({
         initialQuery,
       }));
     };
+    replaceProjects = (nextProjects) => setRenderedProjects(nextProjects);
     return (
       <WorkbenchShell
         libraryWorkspaceEnabled={libraryWorkspaceEnabled}
-        projects={projects}
+        projects={renderedProjects}
         dbProjectId={dbProjectId}
         initialActiveProjectSessionId={initialActiveProjectSessionId}
         activeView="kanban"
@@ -2782,7 +2785,7 @@ function renderWorkbench({
         activeDbViewPrefs={null}
         searchByProject={searchByProject}
         dbViewPrefsByProject={dbViewPrefsByProject}
-        projectRefs={projects.map((project) => ({
+        projectRefs={renderedProjects.map((project) => ({
           projectId: project.id,
           colorToken: "var(--accent-blue)",
           initial: project.name.slice(0, 1).toUpperCase(),
@@ -2800,9 +2803,9 @@ function renderWorkbench({
         onCreateProject={async () => null}
         onUpdateProject={async () => null}
         onDeleteProject={async () => false}
-        onReorderProjects={async () => projects}
+        onReorderProjects={async () => renderedProjects}
         onSetProjectPinned={async () => null}
-        onSetPinnedProjectOrder={async () => projects}
+        onSetPinnedProjectOrder={async () => renderedProjects}
         onRequestProjectPickerOpen={() => undefined}
         threadSearchOpenTick={0}
         commandPaletteOpenTick={commandPaletteRequest.tick}
@@ -2854,6 +2857,7 @@ function renderWorkbench({
     ...result,
     setDbProjectCalls,
     navigationStateChanges,
+    replaceProjects,
     openCommandPalette: (mode?: "root" | "chats" | "pages" | "files", initialQuery?: string) => {
       openCommandPalette(mode, initialQuery);
     },
@@ -3259,6 +3263,34 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "alpha")).toBe(false);
     expect(invokeCalls.some((call) => call[0] === "project-sessions:list-summaries" && call[1] === "alpha")).toBe(true);
     expect(invokeCalls.some((call) => call[0] === "project-sessions:get" && call[1] === "session:alpha:database-view")).toBe(true);
+  });
+
+  test("does not reload session scopes when Project objects change without membership changes", async () => {
+    const initialProjects = [makeProject()];
+    const screen = renderWorkbench({ projects: initialProjects });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const initialSummaryCallCount = invokeCalls.filter(
+      (call) => call[0] === "project-sessions:list-summaries",
+    ).length;
+    expect(screen.getByText("No projectless chats") !== null).toBe(true);
+
+    await act(async () => {
+      screen.replaceProjects(initialProjects.map((project) => ({
+        ...project,
+        created: new Date(project.created),
+        updated: new Date(project.updated),
+      })));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(invokeCalls.filter(
+      (call) => call[0] === "project-sessions:list-summaries",
+    ).length).toBe(initialSummaryCallCount);
+    expect(screen.getByText("No projectless chats") !== null).toBe(true);
+    expect(screen.queryByText("Loading chats...")).toBe(null);
   });
 
   test("consumes a staged fork side-panel snapshot only after a real target session enters", async () => {

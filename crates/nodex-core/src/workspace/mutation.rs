@@ -60,6 +60,7 @@ struct CreatedProjectAggregate {
 
 pub(super) struct WorkspaceMutationEffects {
     pub(super) operation_kind: &'static str,
+    pub(super) project_catalog_changed: bool,
     pub(super) change_project_id: String,
     pub(super) project_ids: Vec<String>,
     pub(super) session_ids: Vec<String>,
@@ -615,6 +616,7 @@ fn create_project(
         request_hash,
         WorkspaceMutationEffects {
             operation_kind: "create_project",
+            project_catalog_changed: true,
             change_project_id: project_id.to_owned(),
             project_ids: vec![project_id.to_owned()],
             session_ids: vec![created.identities.session_id],
@@ -642,6 +644,7 @@ pub(super) fn finish_mutation(
         "module": MODULE_NAME,
         "operationKind": effects.operation_kind,
         "kind": "workspace_changed",
+        "projectCatalogChanged": effects.project_catalog_changed,
         "projectIds": effects.project_ids,
         "sessionIds": effects.session_ids,
         "threadIds": effects.thread_ids,
@@ -710,6 +713,7 @@ pub(super) fn finish_mutation(
             committed_at: effects.committed_at,
             payload: CoreModuleEventPayload::ProjectWorkspace(ProjectWorkspaceEvent {
                 kind: ProjectWorkspaceEventKind::WorkspaceChanged,
+                project_catalog_changed: effects.project_catalog_changed,
                 project_ids: effects.project_ids,
                 session_ids: effects.session_ids,
                 thread_ids: effects.thread_ids,
@@ -931,6 +935,7 @@ fn reorder_projects(
         request_hash,
         WorkspaceMutationEffects {
             operation_kind: "reorder_projects",
+            project_catalog_changed: true,
             change_project_id,
             project_ids: project_ids.to_vec(),
             session_ids: Vec::new(),
@@ -1050,6 +1055,7 @@ fn reorder_pinned_projects(
         request_hash,
         WorkspaceMutationEffects {
             operation_kind: "reorder_pinned_projects",
+            project_catalog_changed: true,
             change_project_id,
             project_ids: project_ids.to_vec(),
             session_ids: Vec::new(),
@@ -1081,6 +1087,7 @@ fn finish_project_mutation(
         request_hash,
         WorkspaceMutationEffects {
             operation_kind,
+            project_catalog_changed: true,
             change_project_id: project_id.to_owned(),
             project_ids: vec![project_id.to_owned()],
             session_ids: Vec::new(),
@@ -1490,8 +1497,9 @@ mod tests {
         ProjectWorkspaceReadValue, ProjectWorkspaceThreadPatch, ProjectWorkspaceThreadStatus,
     };
     use nodex_core_contracts::{
-        AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CoreErrorCode, LibraryId,
-        ModuleApplyRequest, ModuleReadRequest, ProfileId, ProjectId, StoreEpoch,
+        AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CoreErrorCode,
+        CoreModuleEventPayload, LibraryId, ModuleApplyRequest, ModuleReadRequest, ProfileId,
+        ProjectId, StoreEpoch,
     };
     use serde_json::json;
     use tempfile::{TempDir, tempdir};
@@ -1636,7 +1644,13 @@ mod tests {
         assert_eq!(outcome.committed.value.affected_session_ids.len(), 1);
         assert!(outcome.committed.value.affected_thread_ids.is_empty());
         assert!(!outcome.committed.receipt.mutation.duplicate);
-        assert!(outcome.event.is_some());
+        let Some(event) = outcome.event.as_ref() else {
+            panic!("Project creation must publish a Workspace event");
+        };
+        let CoreModuleEventPayload::ProjectWorkspace(event) = &event.payload else {
+            panic!("Project creation must publish a Project Workspace event");
+        };
+        assert!(event.project_catalog_changed);
 
         let replay = module.apply(&context(), request).expect("exact replay");
         assert!(replay.committed.receipt.mutation.duplicate);
@@ -2001,6 +2015,13 @@ mod tests {
             renamed.committed.value.affected_session_ids.as_slice(),
             std::slice::from_ref(&session_id)
         );
+        let Some(event) = renamed.event.as_ref() else {
+            panic!("Session rename must publish a Workspace event");
+        };
+        let CoreModuleEventPayload::ProjectWorkspace(event) = &event.payload else {
+            panic!("Session rename must publish a Project Workspace event");
+        };
+        assert!(!event.project_catalog_changed);
         let replay = module
             .apply(&context(), rename)
             .expect("replay Session rename");

@@ -3794,6 +3794,7 @@ export interface components {
         };
         readonly ProjectWorkspaceEvent: {
             readonly kind: components["schemas"]["ProjectWorkspaceEventKind"];
+            readonly project_catalog_changed: boolean;
             readonly project_ids: readonly string[];
             readonly session_ids: readonly string[];
             readonly thread_ids: readonly string[];

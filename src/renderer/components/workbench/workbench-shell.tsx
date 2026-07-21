@@ -3432,13 +3432,17 @@ export function WorkbenchShell({
     });
   }, []);
 
+  const projectSessionScopeKey = projects
+    .map((project) => project.id)
+    .toSorted()
+    .join("\u0000");
   const refreshAllSessions = useCallback(async () => {
     if (projects.length === 0) {
       setSessionsReady(true);
       return;
     }
-    setSessionsReady(false);
-    setLoadingSessions(true);
+    const initialLoad = !sessionsReady;
+    if (initialLoad) setLoadingSessions(true);
     setSessionError(null);
     try {
       await Promise.all([
@@ -3448,14 +3452,15 @@ export function WorkbenchShell({
     } catch (error) {
       setSessionError(error instanceof Error ? error.message : "Unable to load project sessions");
     } finally {
-      setLoadingSessions(false);
+      if (initialLoad) setLoadingSessions(false);
       setSessionsReady(true);
     }
-  }, [projects, refreshProjectSessionSummaries]);
+  }, [projects, refreshProjectSessionSummaries, sessionsReady]);
+  const refreshSessionsForProjectScopeChange = useEffectEvent(refreshAllSessions);
 
   useEffect(() => {
-    void refreshAllSessions();
-  }, [refreshAllSessions]);
+    void refreshSessionsForProjectScopeChange();
+  }, [projectSessionScopeKey]);
 
   useEffect(() => {
     const measure = () => rootFontSize.set(readCodexRootFontSize());

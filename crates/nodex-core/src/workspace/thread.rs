@@ -1665,6 +1665,7 @@ pub(super) fn finish_thread_mutation(
         request_hash,
         WorkspaceMutationEffects {
             operation_kind,
+            project_catalog_changed: false,
             change_project_id,
             project_ids,
             session_ids,

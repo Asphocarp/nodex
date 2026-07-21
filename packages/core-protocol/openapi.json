@@ -15337,6 +15337,7 @@
         "type": "object",
         "required": [
           "kind",
+          "project_catalog_changed",
           "project_ids",
           "session_ids",
           "thread_ids"
@@ -15344,6 +15345,9 @@
         "properties": {
           "kind": {
             "$ref": "#/components/schemas/ProjectWorkspaceEventKind"
+          },
+          "project_catalog_changed": {
+            "type": "boolean"
           },
           "project_ids": {
             "type": "array",

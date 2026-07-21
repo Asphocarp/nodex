@@ -162,6 +162,7 @@ export function createDesktopProjectWorkspaceBridge(
 }
 
 export interface CoreProjectWorkspaceInvalidation {
+  readonly projectCatalogChanged: boolean;
   readonly projectIds: readonly string[];
   readonly sessionIds: readonly string[];
   readonly threadIds: readonly string[];
@@ -173,6 +174,7 @@ export function mapCoreProjectWorkspaceEvent(
   const payload = envelope.event.payload;
   if (payload.module !== "project_workspace") return null;
   return {
+    projectCatalogChanged: payload.event.project_catalog_changed,
     projectIds: payload.event.project_ids,
     sessionIds: payload.event.session_ids,
     threadIds: payload.event.thread_ids,

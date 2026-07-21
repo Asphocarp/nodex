@@ -523,6 +523,7 @@ export type ProjectWorkspaceModule = DeepCoreModule<
 
 export interface ProjectWorkspaceEvent {
   readonly kind: "workspace_changed";
+  readonly projectCatalogChanged: boolean;
   readonly projectIds: readonly string[];
   readonly sessionIds: readonly string[];
   readonly threadIds: readonly string[];
