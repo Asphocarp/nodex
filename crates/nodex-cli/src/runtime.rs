@@ -34,6 +34,7 @@ use serde_json::{Value, json};
 use crate::cli::{
     BackupCommand, BlockArgs, BlockCommand, Cli, Command, DraftArgs, DraftCommand, HistoryArgs,
     PageArgs, PageCommand, PageTitleArgs, PageTitleCommand, PrepareKind, ReadArgs, RgArgs, SedArgs,
+    ServiceArgs,
 };
 use crate::error::{CliError, CliErrorCode};
 
@@ -125,6 +126,11 @@ pub fn execute(cli: Cli) -> Result<CommandOutput, CliError> {
         _ => {}
     }
     let home = resolve_home(&cwd)?;
+    if let Command::Service(ServiceArgs { command }) = &cli.command {
+        return serde_json::to_value(crate::service::execute(*command, &home))
+            .map(CommandOutput::Json)
+            .map_err(internal);
+    }
     let client =
         connect_or_launch(&home, env!("CARGO_PKG_VERSION"), None).map_err(map_client_error)?;
     validate_profile_selector(cli.profile.as_deref(), &client)?;
@@ -135,6 +141,7 @@ pub fn execute(cli: Cli) -> Result<CommandOutput, CliError> {
             cli.project.as_deref(),
             cli.database.as_deref(),
             cli.page.as_deref(),
+            &home,
             &cwd,
         ),
         Command::Read(arguments) => {
@@ -1277,6 +1284,7 @@ fn context(
     explicit_project: Option<&str>,
     explicit_database: Option<&str>,
     explicit_page: Option<&str>,
+    home: &Path,
     cwd: &Path,
 ) -> Result<CommandOutput, CliError> {
     let startup = unwrap_workspace(client.workspace_read(None, ProjectWorkspaceRead::Startup))?;
@@ -1311,6 +1319,7 @@ fn context(
             id: primary_database_id.clone(),
         }
     };
+    let background_registration = crate::service::status(home);
     let value = serde_json::to_value(ContextOutput {
         profile: ContextProfile {
             id: client.handshake.profile_id.clone(),
@@ -1329,7 +1338,7 @@ fn context(
             store_epoch: client.handshake.store_epoch.clone(),
             readiness: format!("{:?}", health.status).to_ascii_lowercase(),
         },
-        background_registration: "not_configured",
+        background_registration: background_registration.status,
     })
     .map_err(internal)?;
     Ok(CommandOutput::Json(value))
@@ -1701,7 +1710,7 @@ struct ContextOutput {
     primary_database_id: String,
     scope: ContextScope,
     core: ContextCore,
-    background_registration: &'static str,
+    background_registration: String,
 }
 
 #[derive(Serialize)]

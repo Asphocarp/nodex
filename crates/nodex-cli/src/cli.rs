@@ -401,7 +401,7 @@ pub fn machine_help(path: &[String]) -> MachineHelp {
             name.as_str(),
             "patch" | "page" | "block" | "draft" | "backup"
         )
-    });
+    }) || matches!(path, [service, action] if service == "service" && matches!(action.as_str(), "enable" | "disable"));
     MachineHelp {
         version: 1,
         command,
@@ -590,5 +590,8 @@ mod tests {
         assert_eq!(help.command, "nodex page delete");
         assert_eq!(help.effect, "mutation_or_local_write");
         assert!(help.validators.contains(&"narrow_etag_when_destructive"));
+
+        let service = machine_help(&["service".into(), "enable".into()]);
+        assert_eq!(service.effect, "mutation_or_local_write");
     }
 }

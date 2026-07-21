@@ -6,6 +6,7 @@ import {
   lstatSync,
   mkdirSync,
   readFileSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -26,6 +27,9 @@ const TARGETS: Readonly<Record<TargetArchitecture, string>> = {
 
 const expectedFileArchitecture = (architecture: TargetArchitecture): string =>
   architecture === "arm64" ? "arm64" : "x86_64";
+
+const swiftTarget = (architecture: TargetArchitecture): string =>
+  `${architecture === "arm64" ? "arm64" : "x86_64"}-apple-macos12.0`;
 
 const parseArguments = (argv: readonly string[]): Arguments => {
   let targetArch: TargetArchitecture | null = null;
@@ -92,11 +96,34 @@ const stage = ({ targetArch, outputRoot, signIdentity }: Arguments): void => {
   assertNotSymlink(binDirectory);
   mkdirSync(binDirectory, { recursive: true, mode: 0o755 });
 
-  const binaries = ["nodex-core", "nodex"] as const;
-  const entries = binaries.map((name) => {
-    const source = path.join(repositoryRoot, "target", target, "release", name);
+  const serviceSource = path.join(repositoryRoot, "resources", "macos", "nodex-service.swift");
+  const serviceBuild = path.join(resolvedOutput, ".nodex-service.build");
+  assertNotSymlink(serviceBuild);
+  execFileSync("xcrun", [
+    "swiftc",
+    "-O",
+    "-parse-as-library",
+    "-target",
+    swiftTarget(targetArch),
+    serviceSource,
+    "-o",
+    serviceBuild,
+  ]);
+
+  const binaries = [
+    {
+      name: "nodex-core",
+      source: path.join(repositoryRoot, "target", target, "release", "nodex-core"),
+    },
+    {
+      name: "nodex",
+      source: path.join(repositoryRoot, "target", target, "release", "nodex"),
+    },
+    { name: "nodex-service", source: serviceBuild },
+  ] as const;
+  const entries = binaries.map(({ name, source }) => {
     const sourceStats = statSync(source);
-    if (!sourceStats.isFile()) throw new Error(`Missing Rust binary: ${source}`);
+    if (!sourceStats.isFile()) throw new Error(`Missing native binary: ${source}`);
 
     const fileDescription = execFileSync("file", ["-b", source], {
       encoding: "utf8",
@@ -140,6 +167,7 @@ const stage = ({ targetArch, outputRoot, signIdentity }: Arguments): void => {
       signed: signIdentity !== null,
     };
   });
+  rmSync(serviceBuild, { force: true });
 
   const manifest = {
     schemaVersion: 1,

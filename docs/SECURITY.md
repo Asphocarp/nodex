@@ -25,6 +25,7 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   only after acquiring the lifetime lock and proving the existing entry is the
   current user's Unix socket. Runtime cleanup similarly removes only the exact
   start-nonce generation after validating every target.
+- Optional background registration uses a signed nested application and its bundled macOS 13+ `SMAppService` LaunchAgent; it never installs a root helper or writes a launchd plist outside the signed bundle. The selected absolute Profile path is the only persisted input, stored as a private regular file below the current user's Application Support directory. The controller rejects symlinked configuration and executable entries, bounds configuration and control output, and executes the fixed sibling Core without a shell.
 - Every native-Core HTTP request is authenticated by a fresh per-start
   capability and same-UID Unix peer credentials. Handshake registers the
   logical connection against peer PID/UID, client build, protocol, Adapter

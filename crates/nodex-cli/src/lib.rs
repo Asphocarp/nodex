@@ -15,6 +15,7 @@ pub mod patch;
 mod ripgrep;
 pub mod runtime;
 pub mod sed;
+mod service;
 
 use cli::Cli;
 use error::{CliError, CliErrorCode};
