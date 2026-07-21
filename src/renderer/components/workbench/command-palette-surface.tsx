@@ -28,8 +28,9 @@ import {
 import type { CommandPaletteThreadSearchIndex } from "../../lib/command-palette-thread-search";
 import {
   selectCommandPaletteChatResults,
-  type CommandPaletteThreadContentSearchBatch,
-  useCommandPaletteThreadContentSearch,
+  getCommandPaletteThreadSearchPlan,
+  type CommandPaletteThreadSearchBatch,
+  useCommandPaletteThreadSearch,
 } from "../../lib/command-palette-chat-search";
 import {
   buildCommandPalettePageDescriptionSearchScopeKey,
@@ -76,6 +77,7 @@ interface CommandPaletteSurfaceProps {
   loading: boolean;
   pagesLoading: boolean;
   chatsLoading: boolean;
+  threadSearchBatch?: CommandPaletteThreadSearchBatch;
   onChangeMode: (mode: CommandMenuMode) => void;
   onRequestClose: () => void;
   onExecute: (item: PaletteItem) => void;
@@ -104,7 +106,7 @@ function getModePlaceholder(mode: CommandMenuMode): string {
   if (mode === "chats") return "Search chats";
   if (mode === "pages") return "Search pages";
   if (mode === "files") return "Search files";
-  return "Type command";
+  return "Search commands and chats";
 }
 
 function getEmptyMessage(mode: CommandMenuMode, query: string, loading: boolean): string {
@@ -150,7 +152,7 @@ interface CommandPaletteSectionsInput {
   threadSearchIndex?: CommandPaletteThreadSearchIndex | null;
   pageDescriptionSearchBatch?: CommandPalettePageDescriptionSearchBatch | null;
   pageDescriptionSearchScopeKey?: string | null;
-  threadContentSearchBatch?: CommandPaletteThreadContentSearchBatch | null;
+  threadSearchBatch?: CommandPaletteThreadSearchBatch | null;
 }
 
 interface CommandPaletteSectionsModel {
@@ -170,7 +172,7 @@ function buildCommandPaletteSectionsModel({
   threadSearchIndex,
   pageDescriptionSearchBatch,
   pageDescriptionSearchScopeKey,
-  threadContentSearchBatch,
+  threadSearchBatch,
 }: CommandPaletteSectionsInput): CommandPaletteSectionsModel {
   const results = filterCommandPaletteItems({
     query,
@@ -191,20 +193,31 @@ function buildCommandPaletteSectionsModel({
     pageDescriptionSearchBatch,
     pageDescriptionSearchScopeKey,
   });
-  const visibleThreads = selectCommandPaletteChatResults({
-    query,
-    threads,
-    threadSearchIndex,
-    threadContentSearchBatch,
-  });
+  const threadSearchPlan = getCommandPaletteThreadSearchPlan(mode, query);
+  const currentSearchLoading = Boolean(
+    threadSearchPlan?.includeContentResults
+    && threadSearchBatch?.loading
+    && normalizeCommandPaletteSearchText(threadSearchBatch.query) === normalizeCommandPaletteSearchText(query),
+  );
+  const visibleThreads = threadSearchPlan
+    ? selectCommandPaletteChatResults({
+        query,
+        threads,
+        threadSearchIndex,
+        threadSearchBatch,
+        threadLimit: Math.max(threadSearchPlan.maxResults - (currentSearchLoading ? 1 : 0), 0),
+      })
+    : [];
   const sections: PaletteSectionModel[] = (() => {
     if (mode === "root") {
-      return COMMAND_GROUP_ORDER
+      const commandSections = COMMAND_GROUP_ORDER
         .map((title) => ({
           title,
           items: results.commands.filter((item) => item.group === title),
         }))
         .filter((section) => section.items.length > 0);
+      if (!threadSearchPlan || visibleThreads.length === 0) return commandSections;
+      return [...commandSections, { title: "Chats", items: visibleThreads }];
     }
 
     if (mode === "chats") {
@@ -293,7 +306,11 @@ function CommandRow({
       )} />
       <div className="min-w-0 flex-1 leading-tight">
         <div className="flex min-w-0 items-center gap-1.5">
-          <div className="min-w-0 truncate text-token-foreground">{item.title}</div>
+          <div className="min-w-0 truncate text-token-foreground">
+            {item.searchTitleSegments
+              ? renderSegments(item.searchTitleSegments, `${item.id}:title`)
+              : item.title}
+          </div>
           {isMock ? (
             <span
               title={item.mockReason}
@@ -343,7 +360,9 @@ function renderSegments(
   return segments.map((segment, index) => (
     <span
       key={`${keyPrefix}:${index}`}
-      className={segment.highlight ? "rounded-[3px] bg-token-foreground/8 px-0.5 text-token-foreground" : undefined}
+      className={segment.highlight
+        ? "font-medium text-token-foreground"
+        : "text-token-description-foreground/75"}
     >
       {segment.text}
     </span>
@@ -456,6 +475,14 @@ function ThreadRow({
                 : cwdLabel}
             </>
           ) : null}
+          {item.gitBranch ? (
+            <>
+              {" / "}
+              {decorations?.gitBranchSegments
+                ? renderSegments(decorations.gitBranchSegments, `${item.id}:branch`)
+                : item.gitBranch}
+            </>
+          ) : null}
           {updatedLabel ? ` / ${updatedLabel}` : ""}
         </div>
         {item.searchPreview ? (
@@ -550,6 +577,7 @@ export function CommandPaletteSurface({
   loading,
   pagesLoading,
   chatsLoading,
+  threadSearchBatch: injectedThreadSearchBatch,
   onChangeMode,
   onRequestClose,
   onExecute,
@@ -564,10 +592,17 @@ export function CommandPaletteSurface({
   const [pageFilters, setPageFilters] = useState<CommandPalettePageFilters>(() => readCommandPalettePageFilters());
   const [filterOpen, setFilterOpen] = useState(false);
   const deferredQuery = useDeferredValue(query);
-  const threadContentSearchBatch = useCommandPaletteThreadContentSearch({
-    enabled: mode === "chats" && open,
+  const threadSearchPlan = getCommandPaletteThreadSearchPlan(mode, deferredQuery);
+  const fetchedThreadSearchBatch = useCommandPaletteThreadSearch({
+    enabled: open && threadSearchPlan?.includeContentResults === true,
     query: deferredQuery,
+    limit: threadSearchPlan?.maxResults ?? 9,
   });
+  const threadSearchBatch = injectedThreadSearchBatch ?? fetchedThreadSearchBatch;
+  const currentThreadSearchBatch = normalizeCommandPaletteSearchText(threadSearchBatch.query)
+    === normalizeCommandPaletteSearchText(deferredQuery)
+      ? threadSearchBatch
+      : null;
   const availableTags = useMemo(
     () => Array.from(new Set(pages.flatMap((item) => item.page.tags))).sort((left, right) => left.localeCompare(right)),
     [pages],
@@ -628,7 +663,7 @@ export function CommandPaletteSurface({
       threadSearchIndex,
       pageDescriptionSearchBatch: descriptionSearchBatch,
       pageDescriptionSearchScopeKey,
-      threadContentSearchBatch,
+      threadSearchBatch,
     }),
     [
       pageDescriptionSearchScopeKey,
@@ -639,7 +674,7 @@ export function CommandPaletteSurface({
       descriptionSearchBatch,
       mode,
       normalizedPageFilters,
-      threadContentSearchBatch,
+      threadSearchBatch,
       threadSearchIndex,
       threads,
     ],
@@ -738,7 +773,7 @@ export function CommandPaletteSurface({
       threadSearchIndex,
       pageDescriptionSearchBatch: descriptionSearchBatch,
       pageDescriptionSearchScopeKey,
-      threadContentSearchBatch,
+      threadSearchBatch,
     }).flatItems
   ), [
     pageDescriptionSearchScopeKey,
@@ -748,7 +783,7 @@ export function CommandPaletteSurface({
     descriptionSearchBatch,
     mode,
     normalizedPageFilters,
-    threadContentSearchBatch,
+    threadSearchBatch,
     threadSearchIndex,
     threads,
   ]);
@@ -757,12 +792,14 @@ export function CommandPaletteSurface({
     rowsQuery: deferredQuery,
     normalizeQuery: normalizeCommandPaletteSearchText,
   });
-  const modeCanWaitForFreshRows = mode === "pages" || mode === "chats";
+  const modeCanWaitForFreshRows = mode === "pages" || mode === "chats" || mode === "root";
   const visibleRowsLoading = mode === "pages"
     ? pagesLoading || descriptionSearchBatch.loading
     : mode === "chats"
-      ? chatsLoading || threadContentSearchBatch.loading
-      : loading;
+      ? chatsLoading || currentThreadSearchBatch?.loading === true
+      : mode === "root"
+        ? loading || currentThreadSearchBatch?.loading === true
+        : loading;
 
   useEffect(() => {
     if (rowsStale) return;
@@ -1041,6 +1078,16 @@ export function CommandPaletteSurface({
             />
           );
         })}
+        {threadSearchPlan?.includeContentResults && currentThreadSearchBatch?.loading ? (
+          <div className="px-[calc(var(--spacing)*2.5)] py-[calc(var(--spacing)*1.5)] text-sm text-token-description-foreground" role="status">
+            Searching chat history...
+          </div>
+        ) : null}
+        {threadSearchPlan?.includeContentResults && currentThreadSearchBatch?.error ? (
+          <div className="px-[calc(var(--spacing)*2.5)] py-[calc(var(--spacing)*1.5)] text-sm text-token-description-foreground" role="status">
+            Chat content search is unavailable. Local matches are still shown.
+          </div>
+        ) : null}
         {flatItems.length === 0 ? (
           <div data-cmdk-empty className="flex min-h-[calc(var(--spacing)*8)] items-center justify-center px-[calc(var(--spacing)*2.5)] py-[calc(var(--spacing)*1.5)] text-center text-sm text-token-description-foreground">
             {rowsStale ? "Updating..." : getEmptyMessage(mode, visibleModel.query, mode === "chats" ? chatsLoading : mode === "pages" ? pagesLoading : loading)}

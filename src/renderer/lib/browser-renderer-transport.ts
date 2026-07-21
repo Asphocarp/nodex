@@ -2714,15 +2714,6 @@ function subscribeCommandKeymapChanges(
   return () => {};
 }
 
-function subscribeCommandPaletteThreadIndexUpdates(
-  callback: (
-    event: import("./types").CommandPaletteThreadIndexUpdatedEvent,
-  ) => void,
-): () => void {
-  void callback;
-  return () => {};
-}
-
 function subscribeCodexScheduledAutomationChanges(
   callback: (
     event: import("./types").CodexScheduledAutomationChangedEvent,
@@ -3089,7 +3080,6 @@ export const browserRendererTransport = {
   subscribeGitReviewLiveQueries,
   subscribeAppUpdateStatus,
   subscribeCommandKeymapChanges,
-  subscribeCommandPaletteThreadIndexUpdates,
   subscribeCodexScheduledAutomationChanges,
   subscribeCodexAutomationRunsUpdates,
   subscribeCodexHooksChanged,

@@ -8,6 +8,7 @@ import type {
 } from "@/lib/command-palette";
 import { createCommandPalettePageSearchIndex } from "@/lib/command-palette-page-search";
 import { createCommandPaletteThreadSearchIndex } from "@/lib/command-palette-thread-search";
+import type { CommandPaletteThreadSearchBatch } from "@/lib/command-palette-chat-search";
 import { buildCommandPaletteCommands } from "@/lib/command-palette-commands";
 import type { DatabasePageSummary } from "@/lib/types";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
@@ -66,6 +67,7 @@ function makePaletteThread(overrides: Partial<CommandPaletteThread> = {}): Comma
     title: overrides.title ?? "Command palette thread search",
     preview: overrides.preview ?? "Investigate fuzzy thread search and content snippets in the launcher.",
     cwd: overrides.cwd ?? "/Users/asc/nodex",
+    gitBranch: overrides.gitBranch ?? null,
     projectless: overrides.projectless ?? false,
     pinned: overrides.pinned ?? false,
     pinnedOrder: overrides.pinnedOrder ?? null,
@@ -73,7 +75,6 @@ function makePaletteThread(overrides: Partial<CommandPaletteThread> = {}): Comma
     statusActiveFlags: overrides.statusActiveFlags ?? [],
     createdAt: overrides.createdAt ?? 1_781_990_400,
     updatedAt: overrides.updatedAt ?? 1_781_990_400,
-    linkedAt: overrides.linkedAt ?? "2026-06-20T00:00:00.000Z",
     inActiveProject: overrides.inActiveProject ?? true,
     searchPreview: overrides.searchPreview,
     searchDecorations: overrides.searchDecorations,
@@ -84,10 +85,12 @@ function CommandPaletteStory({
   initialQuery,
   mode,
   includeThreads = false,
+  threadSearchBatch,
 }: {
   initialQuery: string;
   mode: CommandMenuMode;
   includeThreads?: boolean;
+  threadSearchBatch?: CommandPaletteThreadSearchBatch;
 }) {
   const [open, setOpen] = useState(true);
   const pages = useMemo<CommandPalettePage[]>(() => [
@@ -133,7 +136,7 @@ function CommandPaletteStory({
     },
   ], []);
   const threads = useMemo<CommandPaletteThread[]>(() => includeThreads ? [
-    makePaletteThread(),
+    makePaletteThread({ pinned: true, pinnedOrder: 0 }),
     makePaletteThread({
       id: "thread:thr-content-snippet",
       threadId: "thr-content-snippet",
@@ -141,7 +144,7 @@ function CommandPaletteStory({
       projectId: "codex",
       projectName: "Codex app",
       title: "Thread transcript search",
-      preview: "Review how local indexed history search returns bounded snippets.",
+      preview: "Review how chat history search returns bounded snippets.",
       cwd: "/Users/asc/codex-app",
       inActiveProject: false,
       searchPreview: {
@@ -166,6 +169,13 @@ function CommandPaletteStory({
       cwd: "/tmp/codex-scratch",
       inActiveProject: false,
     }),
+    makePaletteThread({
+      id: "thread:thr-unicode-highlight",
+      threadId: "thr-unicode-highlight",
+      title: "修复 😀 search highlighting",
+      preview: "验证中文、emoji 与 fuzzy command 的连续字符高亮。",
+      gitBranch: "修复/unicode-search",
+    }),
   ] : [], [includeThreads]);
   const pageSearchIndex = useMemo(() => createCommandPalettePageSearchIndex(pages), [pages]);
   const threadSearchIndex = useMemo(() => createCommandPaletteThreadSearchIndex(threads), [threads]);
@@ -183,6 +193,7 @@ function CommandPaletteStory({
           threads={threads}
           pageSearchIndex={pageSearchIndex}
           threadSearchIndex={threadSearchIndex}
+          threadSearchBatch={threadSearchBatch}
           loading={false}
           pagesLoading={false}
           chatsLoading={false}
@@ -210,12 +221,86 @@ export const RootCommands: Story = {
   render: () => <CommandPaletteStory mode="root" initialQuery="" />,
 };
 
+export const RootMetadataChats: Story = {
+  render: () => <CommandPaletteStory mode="root" initialQuery="pa" includeThreads />,
+};
+
+export const RootCommandsAndHistory: Story = {
+  render: () => (
+    <CommandPaletteStory
+      mode="root"
+      initialQuery="open"
+      includeThreads
+      threadSearchBatch={{
+        query: "open",
+        loading: false,
+        error: null,
+        results: [{
+          thread: {
+            threadId: "thr-server-only-open",
+            sessionId: null,
+            projectId: "nodex",
+            projectName: "Nodex",
+            title: "Open task from history",
+            preview: "This task is not in the current sidebar snapshot.",
+            cwd: "/Users/asc/nodex-archive",
+            gitBranch: "archive/search",
+            projectless: false,
+            pinned: false,
+            pinnedOrder: null,
+            statusType: "notLoaded",
+            statusActiveFlags: [],
+            createdAt: 1_781_000_000,
+            updatedAt: 1_781_990_500,
+          },
+          snippet: "Open the archived rollout and compare its search behavior.",
+        }],
+      }}
+    />
+  ),
+};
+
+export const RootHistoryLoading: Story = {
+  render: () => (
+    <CommandPaletteStory
+      mode="root"
+      initialQuery="search"
+      includeThreads
+      threadSearchBatch={{ query: "search", loading: true, error: null, results: [] }}
+    />
+  ),
+};
+
+export const RootHistoryFailureFallback: Story = {
+  render: () => (
+    <CommandPaletteStory
+      mode="root"
+      initialQuery="thread"
+      includeThreads
+      threadSearchBatch={{
+        query: "thread",
+        loading: false,
+        error: "app-server unavailable",
+        results: [],
+      }}
+    />
+  ),
+};
+
 export const PageSearch: Story = {
   render: () => <CommandPaletteStory mode="pages" initialQuery="palette" />,
 };
 
 export const ChatSearch: Story = {
   render: () => <CommandPaletteStory mode="chats" initialQuery="thread search" includeThreads />,
+};
+
+export const ChatsPinnedAndRecent: Story = {
+  render: () => <CommandPaletteStory mode="chats" initialQuery="" includeThreads />,
+};
+
+export const UnicodeHighlight: Story = {
+  render: () => <CommandPaletteStory mode="chats" initialQuery="😀" includeThreads />,
 };
 
 export const ChatContentSnippet: Story = {

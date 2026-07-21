@@ -483,11 +483,6 @@ function moveCodexProjectThreadMembership(
     targetProjectId,
     patch: input.threadMetadataPatch,
   });
-  database.prepare(`
-    UPDATE thread_search_units
-    SET project_id = ?
-    WHERE thread_id = ?
-  `).run(targetProjectId, threadId);
   return { threadId, sessionId, sourceProjectId, targetProjectId };
 }
 

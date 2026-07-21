@@ -102,6 +102,7 @@ function makeSendToThreadItem(overrides: Partial<CommandPaletteThread> = {}): Co
     title: overrides.title ?? "Existing implementation",
     preview: overrides.preview ?? "Continue from selected notes",
     cwd: overrides.cwd ?? "/repo",
+    gitBranch: overrides.gitBranch ?? null,
     projectless: overrides.projectless ?? false,
     pinned: overrides.pinned ?? false,
     pinnedOrder: overrides.pinnedOrder ?? null,
@@ -109,7 +110,6 @@ function makeSendToThreadItem(overrides: Partial<CommandPaletteThread> = {}): Co
     statusActiveFlags: overrides.statusActiveFlags ?? [],
     createdAt: overrides.createdAt ?? 1,
     updatedAt: overrides.updatedAt ?? 2,
-    linkedAt: overrides.linkedAt ?? "2026-01-01T00:00:00.000Z",
     inActiveProject: overrides.inActiveProject ?? true,
     searchPreview: overrides.searchPreview,
     searchDecorations: overrides.searchDecorations,
@@ -133,7 +133,7 @@ function makePreferredThreadFromItem(
     archived: overrides.archived ?? false,
     createdAt: overrides.createdAt ?? item.createdAt,
     updatedAt: overrides.updatedAt ?? item.updatedAt,
-    linkedAt: overrides.linkedAt ?? item.linkedAt,
+    linkedAt: overrides.linkedAt ?? new Date(item.updatedAt).toISOString(),
     ...(overrides.ephemeral !== undefined ? { ephemeral: overrides.ephemeral } : {}),
   };
 }
@@ -318,7 +318,7 @@ describe("nfm text action menu surface", () => {
         <NfmSendToThreadMenuSurface
           {...props}
           threadItems={SEND_TO_THREAD_THREADS}
-          enableThreadContentSearch={false}
+          enableThreadSearch={false}
         />
       ),
     });
@@ -417,7 +417,7 @@ describe("nfm text action menu surface", () => {
               updatedAt: 5,
             },
           ]}
-          enableThreadContentSearch={false}
+          enableThreadSearch={false}
           projectNameById={{ default: "Default" }}
           preferredTarget={{
             kind: "thread",
@@ -451,22 +451,32 @@ describe("nfm text action menu surface", () => {
         <NfmSendToThreadMenuSurface
           projectId="default"
           threadItems={SEND_TO_THREAD_THREADS}
-          enableThreadContentSearch={false}
+          enableThreadSearch={false}
           initialQuery="handoff"
-          threadContentSearchBatch={{
+          threadSearchBatch={{
             query: "handoff",
             loading: false,
+            error: null,
             results: [
               {
-                threadId: existingThread.threadId,
+                thread: {
+                  threadId: existingThread.threadId,
+                  sessionId: existingThread.sessionId,
+                  projectId: existingThread.projectId,
+                  projectName: existingThread.projectName,
+                  title: existingThread.title,
+                  preview: existingThread.preview,
+                  cwd: existingThread.cwd,
+                  gitBranch: existingThread.gitBranch,
+                  projectless: existingThread.projectless,
+                  pinned: existingThread.pinned,
+                  pinnedOrder: existingThread.pinnedOrder,
+                  statusType: existingThread.statusType,
+                  statusActiveFlags: existingThread.statusActiveFlags,
+                  createdAt: existingThread.createdAt,
+                  updatedAt: existingThread.updatedAt,
+                },
                 snippet: "Review handoff notes before sending.",
-                score: 1,
-                matchKind: "fts",
-                snippetSegments: [
-                  { text: "Review ", highlight: false },
-                  { text: "handoff", highlight: true },
-                  { text: " notes before sending.", highlight: false },
-                ],
               },
             ],
           }}
@@ -504,7 +514,7 @@ describe("nfm text action menu surface", () => {
               updatedAt: 5,
             },
           ]}
-          enableThreadContentSearch={false}
+          enableThreadSearch={false}
           projectNameById={{ default: "Default" }}
           preferredTarget={{
             kind: "new-thread",
@@ -559,7 +569,7 @@ describe("nfm text action menu surface", () => {
         <NfmSendToThreadMenuSurface
           projectId="default"
           threadItems={[sessionThread, sectionThread]}
-          enableThreadContentSearch={false}
+          enableThreadSearch={false}
           projectNameById={{ default: "Default" }}
           preferredTarget={{
             kind: "thread",
@@ -601,7 +611,7 @@ describe("nfm text action menu surface", () => {
               updatedAt: 10,
             },
           ]}
-          enableThreadContentSearch={false}
+          enableThreadSearch={false}
           projectNameById={{ default: "Default" }}
           preferredTarget={{
             kind: "new-thread",
@@ -629,7 +639,7 @@ describe("nfm text action menu surface", () => {
         <NfmSendToThreadMenuSurface
           projectId="default"
           threadItems={SEND_TO_THREAD_THREADS}
-          enableThreadContentSearch={false}
+          enableThreadSearch={false}
           initialQuery="nothing matches"
           onAccept={() => undefined}
           onClose={() => undefined}
@@ -652,7 +662,7 @@ describe("nfm text action menu surface", () => {
         <NfmSendToThreadMenuSurface
           projectId="default"
           threadItems={SEND_TO_THREAD_THREADS}
-          enableThreadContentSearch={false}
+          enableThreadSearch={false}
           onAccept={() => undefined}
           onClose={() => undefined}
         />
@@ -750,7 +760,7 @@ describe("nfm text action menu surface", () => {
           <NfmSendToThreadMenuSurface
             {...props}
             threadItems={SEND_TO_THREAD_THREADS}
-            enableThreadContentSearch={false}
+            enableThreadSearch={false}
           />
         ),
       });
@@ -834,7 +844,7 @@ describe("nfm text action menu surface", () => {
           <NfmSendToThreadMenuSurface
             {...props}
             threadItems={SEND_TO_THREAD_THREADS}
-            enableThreadContentSearch={false}
+            enableThreadSearch={false}
           />
         ),
       });
@@ -880,7 +890,7 @@ describe("nfm text action menu surface", () => {
         <NfmSendToThreadMenuSurface
           {...props}
           threadItems={SEND_TO_THREAD_THREADS}
-          enableThreadContentSearch={false}
+          enableThreadSearch={false}
         />
       ),
       renderMoveToMenu: (props) => (

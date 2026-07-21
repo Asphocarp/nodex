@@ -1843,31 +1843,6 @@ describe("Electron native data authority", () => {
         agentRole: "launcher",
         agentPath: "agents/session-launcher",
       });
-      if (
-        !attachedSessionThread
-        || !workspace.replaceThreadSearchProjection
-        || !workspace.searchThreadContent
-      ) {
-        throw new Error("Native Thread search authority is unavailable");
-      }
-      await workspace.replaceThreadSearchProjection(
-        attachedSessionThread.threadId,
-        attachedSessionThread.updatedAt,
-        [{
-          turnId: "turn:electron-search",
-          itemId: "item:electron-search",
-          role: "user",
-          text: "Electron native authority search evidence",
-        }],
-      );
-      await expect(
-        workspace.searchThreadContent("native authority", 10),
-      ).resolves.toEqual([
-        expect.objectContaining({
-          threadId: attachedSessionThread.threadId,
-          matchKind: "fts",
-        }),
-      ]);
       await expect(workspace.replaceThreadDynamicToolCatalogs(
         "thread:electron-session",
         [

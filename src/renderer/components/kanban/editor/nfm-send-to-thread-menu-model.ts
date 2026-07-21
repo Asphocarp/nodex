@@ -115,6 +115,7 @@ function createPreferredThreadItem(
     title: resolveNfmSendToThreadTitle(thread),
     preview: thread.threadPreview,
     cwd: thread.cwd,
+    gitBranch: null,
     projectless: projectId === null,
     pinned: false,
     pinnedOrder: null,
@@ -122,7 +123,6 @@ function createPreferredThreadItem(
     statusActiveFlags: thread.statusActiveFlags,
     createdAt: thread.createdAt,
     updatedAt: thread.updatedAt,
-    linkedAt: thread.linkedAt,
     inActiveProject: false,
   };
 }

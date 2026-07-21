@@ -44,10 +44,6 @@ export default defineConfig({
       rollupOptions: {
         input: {
           bootstrap: resolve(__dirname, "src/main/bootstrap.ts"),
-          "command-palette-thread-search-worker": resolve(
-            __dirname,
-            "src/main/codex/command-palette-thread-search-worker.ts",
-          ),
           "block-mutation-worker": resolve(__dirname, "src/main/block-mutation-worker.ts"),
         },
         output: {

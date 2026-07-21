@@ -1,5 +1,5 @@
--- Generated from the TypeScript-authoritative Nodex v83 schema.
--- Historical migration input; current TypeScript schema generation targets v84.
+-- Generated from the TypeScript-authoritative Nodex v84 schema.
+-- Regenerate with: pnpm core:schema:v84:generate
 PRAGMA foreign_keys = OFF;
 BEGIN IMMEDIATE;
 
@@ -279,43 +279,6 @@ CREATE TABLE codex_pinned_threads (
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     ) WITHOUT ROWID;
-
-CREATE TABLE thread_search_units (
-      rowid INTEGER PRIMARY KEY AUTOINCREMENT,
-      unit_key TEXT NOT NULL UNIQUE,
-      thread_id TEXT NOT NULL REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
-      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
-      session_id TEXT REFERENCES project_sessions(id) ON DELETE SET NULL,
-      turn_id TEXT NOT NULL,
-      item_id TEXT NOT NULL,
-      role TEXT NOT NULL,
-      text TEXT NOT NULL,
-      text_hash TEXT NOT NULL,
-      source_updated_at INTEGER NOT NULL,
-      indexed_at INTEGER NOT NULL,
-      CHECK (role IN ('user', 'assistant'))
-    );
-
-CREATE TABLE thread_search_thread_state (
-      thread_id TEXT PRIMARY KEY REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
-      source_updated_at INTEGER NOT NULL,
-      indexed_at INTEGER NOT NULL,
-      index_version INTEGER NOT NULL DEFAULT 1,
-      unit_count INTEGER NOT NULL,
-      status TEXT NOT NULL,
-      last_error TEXT,
-      failed_at INTEGER,
-      retry_after INTEGER,
-      CHECK (status IN ('ready', 'stale', 'failed'))
-    ) WITHOUT ROWID;
-
-CREATE VIRTUAL TABLE thread_search_units_fts USING fts5(
-      text,
-      content='thread_search_units',
-      content_rowid='rowid',
-      tokenize="unicode61 remove_diacritics 2 tokenchars '-_/@.:#'",
-      prefix='2 3 4'
-    );
 
 CREATE TABLE block_store_metadata (
       id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -1490,15 +1453,6 @@ CREATE INDEX idx_project_sessions_project_sidebar
 CREATE INDEX idx_codex_pinned_threads_order
       ON codex_pinned_threads(pinned_order, created_at);
 
-CREATE INDEX idx_thread_search_units_thread
-      ON thread_search_units(thread_id);
-
-CREATE INDEX idx_thread_search_units_project
-      ON thread_search_units(project_id);
-
-CREATE INDEX idx_thread_search_units_session
-      ON thread_search_units(session_id);
-
 CREATE INDEX idx_block_properties_project_key
       ON block_properties(project_id, property_key, block_id);
 
@@ -1793,29 +1747,6 @@ CREATE TRIGGER library_content_relocation_members_cannot_delete
     BEGIN
       SELECT RAISE(ABORT, 'Library content relocation members are immutable');
     END;
-
-CREATE TRIGGER thread_search_units_ai
-      AFTER INSERT ON thread_search_units
-      BEGIN
-        INSERT INTO thread_search_units_fts(rowid, text)
-        VALUES (new.rowid, new.text);
-      END;
-
-CREATE TRIGGER thread_search_units_ad
-      AFTER DELETE ON thread_search_units
-      BEGIN
-        INSERT INTO thread_search_units_fts(thread_search_units_fts, rowid, text)
-        VALUES ('delete', old.rowid, old.text);
-      END;
-
-CREATE TRIGGER thread_search_units_au
-      AFTER UPDATE ON thread_search_units
-      BEGIN
-        INSERT INTO thread_search_units_fts(thread_search_units_fts, rowid, text)
-        VALUES ('delete', old.rowid, old.text);
-        INSERT INTO thread_search_units_fts(rowid, text)
-        VALUES (new.rowid, new.text);
-      END;
 
 CREATE TRIGGER top_level_block_placements_require_space
       BEFORE INSERT ON top_level_block_placements
@@ -3206,6 +3137,6 @@ CREATE TRIGGER canvas_scene_mutation_receipts_validate_result_hash_insert
         SELECT RAISE(ABORT, 'Canvas scene mutation result hash is invalid');
       END;
 
-PRAGMA user_version = 83;
+PRAGMA user_version = 84;
 COMMIT;
 PRAGMA foreign_keys = ON;

@@ -382,9 +382,9 @@ with the Core process.
 Native failure recovery is promoted through one executable Gate D matrix, not
 an informal inference from the full suite. The matrix binds named behavior
 tests for each deep transaction aggregate and for pre-transaction rejection,
-post-commit Document cache/publication recovery, v83 migration, online backup,
+post-commit Document cache/publication recovery, v83/v84 migration, online backup,
 restore journaling/runtime reset, and abrupt WAL exit. It also starts from a
-fresh restricted `.generated` Profile and reports the reopened v84 Store's
+fresh restricted `.generated` Profile and reports the reopened v85 Store's
 durable head, integrity result, and foreign-key result. The Electron loopback
 test in the same gate proves that private Core health/lifecycle/Store
 Administration UDS paths remain unreachable over the public HTTP adapter.
@@ -402,21 +402,21 @@ Library receipt and event represent the operation.
 The Project Workspace read boundary returns active Project execution contexts
 and non-archived startup Sessions, or resolves an exact Project, normalized
 Session panel/tab aggregate, complete Codex Thread descriptor, persisted Thread
-execution context, root/child Thread collection, managed-worktree set, durable
-sidebar snapshot, transcript-search results, or bounded search-backfill work.
+execution context, root/child Thread collection, managed-worktree set, or durable
+sidebar snapshot.
 Profile/Library Adapter identity, Project lifecycle, primary Database bindings,
 JSON bounds, store epoch, and event head are validated by the Module; incomplete
 bindings and cross-Library rows fail closed.
 Automation now
 owns its accepted definition, lease, run, reminder, and Scheduled Page
-occurrence surface. Store Administration owns v84 readiness, backup listing,
+occurrence surface. Store Administration owns v85 readiness, backup listing,
 online SQLite backup creation, and whole-store restore through the same
 generated `read`/`apply` boundary. A backup uses a deterministic operation-owned
 directory, publishes a v2-compatible manifest last, validates the immutable
 snapshot, fsyncs database, assets, manifest, and directories, then commits its
 receipt/event. A retry after filesystem publication but before the SQLite
 receipt adopts only an exact operation/request-fingerprint match. Restore
-semantically validates the complete v84 Document/Canvas/projection/managed-asset
+semantically validates the complete v85 Document/Canvas/projection/managed-asset
 closure, optionally creates a safety backup inside one maintenance generation,
 installs through the Core-owned journal, rotates `storeEpoch`, resets Document
 cache and realtime state, republishes the runtime descriptor, and clears the
@@ -560,7 +560,7 @@ and bounds each Thread identity, preserves restart time according to the
 semantic intent, and prunes the global durable collection atomically with its
 receipt/event.
 
-Workspace also owns the durable sidebar/search projection around those Threads.
+Workspace owns the durable sidebar metadata projection around those Threads.
 One snapshot returns eligible root Threads together with Project-lane and
 projectless manual identity order. Project order set and clear are distinct
 intents, projectless reorder replaces only the caller's visible slots, and a
@@ -572,20 +572,19 @@ same-Project lane changes use one native pin intent with optional start/end or
 before-anchor placement; the same transaction updates the attached Session pin
 mirror and invalidates both Thread and Session projections. A
 cross-Project Thread move atomically updates Thread and Session ownership,
-browser-tab ownership, metadata, search-unit scope, and every affected Project
+browser-tab ownership, metadata, and every affected Project
 manual order. Project and projectless lanes are explicit contract variants, so
-absence never doubles as an ownership coordinate. Electron continues to observe
-Codex app-server content and extracts only bounded user/assistant transcript
-units; Core admits that projection only at the exact current Thread
-`updated_at`, owns the FTS5 index, retry clock, stale-work selection, eligibility,
-and snippets, and emits the normal Workspace invalidation event after commit.
-Project Thread catalogs, command-palette metadata, native content queries,
-live transcript indexing, stale rollout backfill, and managed-worktree catalogs
-all enter through the authority-selected Workspace port. The TypeScript worker
-remains only behind the oracle selection; the Rust Host reads rollout files and
-submits bounded search units without opening the legacy database. Managed
-worktree removal remains a Host filesystem action, then deletes every owning
-Thread through native lifecycle commands.
+absence never doubles as an ownership coordinate. Transcript search remains
+owned by Codex app-server. Electron exposes one bounded `thread/search` Adapter,
+filters non-root/internal/ephemeral results, guards cursor progress, and enriches
+each result from Workspace metadata when available; neither the TypeScript
+oracle nor Rust Core stores transcript units, FTS tables, indexing state, or a
+backfill queue. Renderer MiniSearch covers the small local metadata catalog and
+merges query-fenced server hits, including server-only Threads. Project Thread
+catalogs, command-palette metadata, and managed-worktree catalogs enter through
+the authority-selected Workspace port. Managed worktree removal remains a Host
+filesystem action, then deletes every owning Thread through native lifecycle
+commands.
 Codex Host keeps a bounded in-memory Workspace Thread projection only so its
 synchronous protocol and renderer serializers can resolve already-observed
 metadata without blocking. That projection is never durable authority: resume,
@@ -837,7 +836,7 @@ or the Electron client from reaching the local store.
 
 Block-first migration foundation:
 
-1. Current v81 stores extend the Block-first foundation with one persisted Profile-owned Library, stable Project-to-Database bindings and lifecycle, independently identified Database Containers, Data Sources, and Views, Source-scoped compact Property/option identities, Source-owned schema/membership/value tables, explicit View-to-Source targets, Page View coordinates, canonical Page records with exclusive `library | page | data_source` parents, Library top-level placements, recursive Project resource-grant authorization, immutable Database Module receipts, exact-Turn Nodex authority provenance, and actor/source/target Library content relocation evidence. The old Project-shaped Database capability, Property, membership, value, and position tables are migration input only. The persisted Page literals are `page` and `nodex.page`; active relational projections use `page_read_model`, `scheduled_page_index`, `canvas_page_references`, and Page-named key columns. Physical `blocks.location_kind` retains `space | document | database` only as the storage adapter compiled from canonical parents. Schema v81 rewrites v1 Property/option coordinates and their coupled mutation/history evidence, rotates the store epoch, rebuilds canonical View dependencies, and removes the duplicate Database authority. Shipped v26/v57 and earlier release schemas remain import inputs, never runtime alternatives.
+1. Current TypeScript v84 stores extend the Block-first foundation with one persisted Profile-owned Library, stable Project-to-Database bindings and lifecycle, independently identified Database Containers, Data Sources, and Views, Source-scoped compact Property/option identities, Source-owned schema/membership/value tables, explicit View-to-Source targets, Page View coordinates, canonical Page records with exclusive `library | page | data_source` parents, Library top-level placements, recursive Project resource-grant authorization, immutable Database Module receipts, exact-Turn Nodex authority provenance, and actor/source/target Library content relocation evidence. The old Project-shaped Database capability, Property, membership, value, and position tables are migration input only. The persisted Page literals are `page` and `nodex.page`; active relational projections use `page_read_model`, `scheduled_page_index`, `canvas_page_references`, and Page-named key columns. Physical `blocks.location_kind` retains `space | document | database` only as the storage adapter compiled from canonical parents. Schema v81 rewrites v1 Property/option coordinates and their coupled mutation/history evidence, rotates the store epoch, rebuilds canonical View dependencies, and removes the duplicate Database authority; v82-v83 add workflow and subagent routing state; v84 removes Nodex's duplicate transcript-search projection. Shipped v26/v57 and earlier release schemas remain import inputs, never runtime alternatives.
 2. A successful Document apply tentatively reconstructs and validates a Y.Doc, derives the changed title/Block identities from before/after state, reconciles the registry/index, and writes the binary update, immutable receipt, exact-blob checksum, state vector, reconstruction fingerprint, and new head under one immediate SQLite transaction. Receipts remain independently of update payload retention; compaction verifies a full snapshot at the current head, advances the physical reconstruction fingerprint, then atomically removes only its covered payload tail. Store epoch, Document generation, update identity, `headSeq`, Yjs state vector, exact-blob integrity, and non-canonical reconstruction fingerprint remain separate concepts.
 3. Production Page Stage prepares the exact owned descriptor before rendering content. Only a ready `yjs`/`block_tree` descriptor enters the Page editor: it mounts one independent Y.Doc surface, completes state-vector sync before resolving `Y.Text("title")` / `Y.XmlFragment("body")`, and binds BlockNote through its collaboration extension without projection-based initialization. Every active BlockNote-backed Document contains at least one registered application Block; a semantically blank Page is one stable-ID empty paragraph whose NFM/plain-text projections remain blank.
 4. A writable Block Document runtime normally belongs to one visible React effect incarnation. A durable PageTab is the explicit exception: its ProjectSession/tab-keyed model session retains the Y.Doc/provider, BlockNote editor, and UndoManager while the inactive React body and EditorView are absent. Switching away removes local Awareness and backgrounds a bounded persist without disconnecting the provider; returning mounts a fresh EditorView, reconciles current CRDT state, restores the selection from Yjs-relative positions plus PageTab-local scroll, and reactivates the main NFM editor only when it owned the Page's last focus intent. Tab close, ProjectSession archive, store-epoch/Document-generation/schema/owner identity replacement, or terminal reload destroys the retained model and provider exactly once; renderer close flushes every ready retained session before acknowledging shutdown. An unpromoted preview disposes on final view teardown, while promotion keeps its stable model identity. This is a deep runtime Module, never hidden DOM or Maitai state. Normal durable ACKs are quiet; sustained pending/offline/error/reset states are the only Page Stage sync chrome.

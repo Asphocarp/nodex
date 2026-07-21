@@ -8,7 +8,6 @@ mod sidebar;
 #[cfg(test)]
 mod test_support;
 mod thread;
-mod thread_search;
 
 pub(crate) use execution::validate_persisted_turn_authority;
 

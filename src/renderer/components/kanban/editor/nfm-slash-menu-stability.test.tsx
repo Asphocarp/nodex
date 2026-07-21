@@ -64,6 +64,7 @@ function makeThread(): CommandPaletteThread {
     title: "Mention thread",
     preview: "Mention thread preview.",
     cwd: "/tmp/project",
+    gitBranch: null,
     projectless: false,
     pinned: false,
     pinnedOrder: null,
@@ -71,7 +72,6 @@ function makeThread(): CommandPaletteThread {
     statusActiveFlags: [],
     createdAt: 1,
     updatedAt: 2,
-    linkedAt: "2026-06-24T00:00:00.000Z",
     inActiveProject: true,
   };
 }
@@ -94,7 +94,7 @@ function makeLoaders(
   options: {
     listThreadItems?: NfmMentionGetItemsLoaders["listThreadItems"];
     searchPageDescriptions?: NfmMentionGetItemsLoaders["searchPageDescriptions"];
-    searchThreadContent?: NfmMentionGetItemsLoaders["searchThreadContent"];
+    searchThreads?: NfmMentionGetItemsLoaders["searchThreads"];
     selectPageResults?: NfmMentionGetItemsLoaders["selectPageResults"];
     selectChatResults?: NfmMentionGetItemsLoaders["selectChatResults"];
   } = {},
@@ -108,7 +108,7 @@ function makeLoaders(
       threadListCalls += 1;
       return [makeThread()];
     }),
-    searchThreadContent: options.searchThreadContent ?? (async () => []),
+    searchThreads: options.searchThreads ?? (async () => []),
     selectPageResults: options.selectPageResults ?? (({ pages }) => pages),
     selectChatResults: options.selectChatResults ?? (({ threads }) => threads),
     createThreadSearchIndex: () => ({ search: () => [] }),
@@ -213,11 +213,11 @@ describe("useNfmMentionGetItems", () => {
     const getItemsSnapshots: GetItems[] = [];
     const threadList = createDeferred<CommandPaletteThread[]>();
     const pageDescriptionSearch = createDeferred<[]>();
-    const threadContentSearch = createDeferred<[]>();
+    const threadSearch = createDeferred<[]>();
     const loaders = makeLoaders({
       listThreadItems: async () => threadList.promise,
       searchPageDescriptions: async () => pageDescriptionSearch.promise,
-      searchThreadContent: async () => threadContentSearch.promise,
+      searchThreads: async () => threadSearch.promise,
     });
 
     render(
@@ -249,7 +249,7 @@ describe("useNfmMentionGetItems", () => {
       searchPageDescriptions: async ({ query }) => (
         query === "old" ? oldPageSearch.promise : nowPageSearch.promise
       ),
-      searchThreadContent: async () => new Promise<[]>(() => undefined),
+      searchThreads: async () => new Promise<[]>(() => undefined),
       selectPageResults: ({ pageDescriptionSearchBatch }) => (
         (pageDescriptionSearchBatch?.results.length ?? 0) > 0
           ? [{

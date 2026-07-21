@@ -354,6 +354,7 @@ export interface CommandPaletteThreadSummary {
   title: string;
   preview: string;
   cwd: string | null;
+  gitBranch: string | null;
   projectless: boolean;
   pinned: boolean;
   pinnedOrder: number | null;
@@ -361,35 +362,20 @@ export interface CommandPaletteThreadSummary {
   statusActiveFlags: CodexThreadActiveFlag[];
   createdAt: number;
   updatedAt: number;
-  linkedAt: string;
 }
 
 export interface CommandPaletteThreadListInput {
   scope: "sidebar";
 }
 
-export interface CommandPaletteThreadContentSearchInput {
-  scope: "sidebar";
+export interface CommandPaletteThreadSearchInput {
   query: string;
   limit?: number;
 }
 
-export interface CommandPaletteThreadIndexUpdatedEvent {
-  generation: number;
-  reason: "backfill";
-}
-
-export interface CommandPaletteSearchSnippetSegment {
-  text: string;
-  highlight: boolean;
-}
-
-export interface CommandPaletteThreadContentSearchResult {
-  threadId: string;
+export interface CommandPaletteThreadSearchResult {
+  thread: CommandPaletteThreadSummary;
   snippet: string;
-  score: number;
-  matchKind: "fts";
-  snippetSegments?: CommandPaletteSearchSnippetSegment[];
 }
 
 export type PageCreatePlacement =

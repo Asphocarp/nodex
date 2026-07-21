@@ -108,7 +108,7 @@ import {
 import { libraryContentAccess } from "../../shared/content-access-context";
 import { requireLocalProfileLibraryInDatabase } from "./local-profile-library";
 
-const CANONICAL_DATABASE_SCHEMA_VERSION = 83;
+const CANONICAL_DATABASE_SCHEMA_VERSION = 84;
 
 interface ProjectRow {
   readonly id: string;

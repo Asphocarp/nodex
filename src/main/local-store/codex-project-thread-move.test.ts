@@ -126,11 +126,6 @@ function snapshotMoveState(threadId: string): string {
       FROM project_session_tabs
       ORDER BY id
     `).all(),
-    search: database.prepare(`
-      SELECT unit_key, thread_id, project_id, session_id
-      FROM thread_search_units
-      ORDER BY unit_key
-    `).all(),
     customOrders: database.prepare(`
       SELECT project_id, ordered_thread_ids_json, updated_at
       FROM codex_project_thread_orders
@@ -177,24 +172,6 @@ describe("Codex project thread move storage", () => {
         },
       });
       const originalTabConfig = JSON.stringify(movedTab.config);
-      getDb().prepare(`
-        INSERT INTO thread_search_units (
-          unit_key, thread_id, project_id, session_id, turn_id, item_id, role,
-          text, text_hash, source_updated_at, indexed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        "thread-moved:turn-1:item-1",
-        "thread-moved",
-        source.id,
-        movedSession,
-        "turn-1",
-        "item-1",
-        "user",
-        "move me",
-        "hash",
-        1,
-        1,
-      );
       getDb().prepare(`
         UPDATE codex_threads
         SET
@@ -279,10 +256,6 @@ describe("Codex project thread move storage", () => {
         "SELECT config_json AS value FROM project_session_tabs WHERE id = ?",
         movedTab.id,
       )).toBe(originalTabConfig);
-      expect(readScalar<string>(
-        "SELECT project_id AS value FROM thread_search_units WHERE thread_id = ?",
-        "thread-moved",
-      )).toBe(target.id);
       const movedMetadata = getDb().prepare(`
         SELECT
           cwd,
@@ -523,24 +496,6 @@ describe("Codex project thread move storage", () => {
           terminalSessionId: "terminal:chats-move",
         },
       });
-      getDb().prepare(`
-        INSERT INTO thread_search_units (
-          unit_key, thread_id, project_id, session_id, turn_id, item_id, role,
-          text, text_hash, source_updated_at, indexed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        "thread-chats-move:turn:item",
-        "thread-chats-move",
-        source.id,
-        movedSession,
-        "turn",
-        "item",
-        "assistant",
-        "move through chats",
-        "hash-chats",
-        1,
-        1,
-      );
       setCodexProjectThreadOrder(source.id, ["thread-chats-move"]);
 
       moveCodexProjectThread({
@@ -566,10 +521,6 @@ describe("Codex project thread move storage", () => {
         "SELECT project_id AS value FROM project_session_tabs WHERE id = ?",
         movedTab.id,
       )).toBe(source.id);
-      expect(readScalar<string>(
-        "SELECT project_id AS value FROM thread_search_units WHERE thread_id = ?",
-        "thread-chats-move",
-      )).toBe(null);
       expect(JSON.stringify(getCodexProjectThreadOrder(source.id))).toBe("[]");
 
       moveCodexProjectThread({
@@ -595,10 +546,6 @@ describe("Codex project thread move storage", () => {
       expect(readScalar<string>(
         "SELECT project_id AS value FROM project_session_tabs WHERE id = ?",
         movedTab.id,
-      )).toBe(target.id);
-      expect(readScalar<string>(
-        "SELECT project_id AS value FROM thread_search_units WHERE thread_id = ?",
-        "thread-chats-move",
       )).toBe(target.id);
     });
 

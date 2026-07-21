@@ -4,7 +4,7 @@ use std::sync::mpsc;
 use std::thread;
 
 use nodex_core::document::{create_compatible_document, has_pending_dependencies};
-use nodex_core::infrastructure::schema::{install_v83_schema, read_schema_inventory};
+use nodex_core::infrastructure::schema::{install_v84_schema, read_schema_inventory};
 use nodex_core::infrastructure::sqlite::StoreError;
 use nodex_core::infrastructure::store::SqliteStoreKernel;
 use rusqlite::types::ValueRef;
@@ -14,8 +14,8 @@ use tempfile::tempdir;
 use yrs::updates::decoder::Decode;
 use yrs::{ReadTxn, StateVector, Transact, Update};
 
-const FIXTURE_MARKER: &str = ".nodex-rust-core-v83-fixture";
-const FIXTURE_MARKER_CONTENTS: &str = "Nodex disposable Rust Core v83 compatibility fixture\n";
+const FIXTURE_MARKER: &str = ".nodex-rust-core-v84-fixture";
+const FIXTURE_MARKER_CONTENTS: &str = "Nodex disposable Rust Core v84 compatibility fixture\n";
 
 #[derive(Debug)]
 struct DocumentHead {
@@ -44,8 +44,8 @@ struct PreservationEvidence {
 }
 
 fn fixture_home() -> PathBuf {
-    let configured = std::env::var_os("NODEX_V83_FIXTURE")
-        .expect("NODEX_V83_FIXTURE must point at the generated TypeScript profile");
+    let configured = std::env::var_os("NODEX_V84_FIXTURE")
+        .expect("NODEX_V84_FIXTURE must point at the generated TypeScript profile");
     let configured = PathBuf::from(configured);
     let repository_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let configured = if configured.is_absolute() {
@@ -55,22 +55,22 @@ fn fixture_home() -> PathBuf {
     };
     let canonical = configured
         .canonicalize()
-        .expect("v83 fixture directory must exist");
-    assert!(canonical.is_dir(), "v83 fixture path must be a directory");
+        .expect("v84 fixture directory must exist");
+    assert!(canonical.is_dir(), "v84 fixture path must be a directory");
     let generated_root = repository_root
         .join(".generated/rust-core-migration")
         .canonicalize()
         .expect("generated Rust Core migration directory must exist");
     assert!(
         canonical.starts_with(generated_root),
-        "v83 fixture must remain under .generated/rust-core-migration"
+        "v84 fixture must remain under .generated/rust-core-migration"
     );
 
     let marker = canonical.join(FIXTURE_MARKER);
     assert_eq!(
-        fs::read_to_string(marker).expect("v83 fixture marker must be readable"),
+        fs::read_to_string(marker).expect("v84 fixture marker must be readable"),
         FIXTURE_MARKER_CONTENTS,
-        "v83 probe only accepts its disposable generated fixture"
+        "v84 probe only accepts its disposable generated fixture"
     );
     canonical
 }
@@ -92,7 +92,7 @@ fn assert_search_and_json_projections(connection: &Connection) {
     let fts_match_count: i64 = connection
         .query_row(
             "SELECT count(*) FROM block_search_units_fts \
-             WHERE block_search_units_fts MATCH 'rustcorev83token'",
+             WHERE block_search_units_fts MATCH 'rustcorev84token'",
             [],
             |row| row.get(0),
         )
@@ -301,10 +301,10 @@ fn copy_fixture_database(fixture: &Path, target: &Path) {
 }
 
 #[test]
-#[ignore = "requires a TypeScript-generated v83 profile"]
-fn opens_and_reconstructs_a_typescript_created_v83_profile() {
+#[ignore = "requires a TypeScript-generated v84 profile"]
+fn opens_and_reconstructs_a_typescript_created_v84_profile() {
     let fixture = fixture_home();
-    let temporary = tempdir().expect("disposable v83 probe directory");
+    let temporary = tempdir().expect("disposable v84 probe directory");
     let source_path = temporary.path().join("source.db");
     let backup_path = temporary.path().join("backup.db");
     let restored_path = temporary.path().join("restored.db");
@@ -317,17 +317,17 @@ fn opens_and_reconstructs_a_typescript_created_v83_profile() {
     let user_version: i64 = source
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("user_version reads");
-    assert_eq!(user_version, 83);
+    assert_eq!(user_version, 84);
     assert_store_is_valid(&source);
     assert_search_and_json_projections(&source);
 
     let artifact_path = temporary.path().join("artifact.db");
     let artifact = Connection::open(&artifact_path).expect("artifact database opens");
-    install_v83_schema(&artifact).expect("checked-in v83 schema installs");
+    install_v84_schema(&artifact).expect("checked-in v84 schema installs");
     assert_eq!(
         read_schema_inventory(&artifact).expect("artifact inventory"),
         read_schema_inventory(&source).expect("TypeScript inventory"),
-        "checked-in Rust schema artifact must exactly match TypeScript v83"
+        "checked-in Rust schema artifact must exactly match TypeScript v84"
     );
 
     let heads = load_document_heads(&source);
@@ -378,9 +378,9 @@ fn opens_and_reconstructs_a_typescript_created_v83_profile() {
     let migrated_home = temporary.path().join("migrated-profile");
     fs::create_dir(&migrated_home).expect("migrated Profile directory");
     copy_fixture_database(&fixture, &migrated_home.join("nodex.db"));
-    let kernel = SqliteStoreKernel::open(&migrated_home).expect("v83 migrates to v84");
-    assert_eq!(kernel.preparation().schema_version, 84);
-    assert_eq!(kernel.preparation().migrated_from_version, Some(83));
+    let kernel = SqliteStoreKernel::open(&migrated_home).expect("v84 migrates to v85");
+    assert_eq!(kernel.preparation().schema_version, 85);
+    assert_eq!(kernel.preparation().migrated_from_version, Some(84));
     assert_eq!(
         kernel.preparation().validated_yjs_documents,
         live_yjs_documents
@@ -406,7 +406,7 @@ fn opens_and_reconstructs_a_typescript_created_v83_profile() {
             assert_store_is_valid(connection);
             assert_search_and_json_projections(connection);
             let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-            assert_eq!(version, 84);
+            assert_eq!(version, 85);
             Ok::<_, StoreError>(())
         })
         .expect("migrated store remains queryable");

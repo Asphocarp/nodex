@@ -36,6 +36,7 @@ import {
   migrateSchema78To79,
   migrateSchema79To80,
   migrateSchema82To83,
+  migrateSchema83To84,
   ensureBlockFoundationForProject,
   primaryDatabaseBlockId,
 } from "./schema";
@@ -484,11 +485,11 @@ const createSchema58MigrationFixture = (
   database.pragma(`user_version = ${SHIPPED_SCHEMA_VERSION}`);
 };
 
-describe("schema v83 release boundary", () => {
+describe("schema v84 release boundary", () => {
   test("derives supported versions and targets from one ordered release chain", () => {
     const releaseVersions = getReleaseSchemaVersions();
     expect(releaseVersions).toEqual([
-      58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83,
+      58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84,
     ]);
     for (const [index, version] of releaseVersions.entries()) {
       expect(getSchemaMigrationTargets(version)).toEqual(
@@ -556,6 +557,11 @@ describe("schema v83 release boundary", () => {
     for (const tableName of LEGACY_BLOCK_FIRST_TABLES_IN_DROP_ORDER) {
       expect(names.has(tableName)).toBe(false);
     }
+    expect(names.has("thread_search_units")).toBe(false);
+    expect(names.has("thread_search_thread_state")).toBe(false);
+    expect(
+      [...names].some((name) => name.startsWith("thread_search_units_fts")),
+    ).toBe(false);
     const tabColumns = database.pragma(
       "table_info(project_session_tabs)",
     ) as Array<{ name: string; notnull: number }>;
@@ -1423,11 +1429,19 @@ describe("schema v83 release boundary", () => {
   test("rejects the Rust Core v84 ownership schema without mutating it", async () => {
     useTempStore();
     const database = new Database(getDatabasePath());
+    database.exec(`
+      CREATE TABLE core_store_metadata (
+        id INTEGER PRIMARY KEY,
+        schema_owner TEXT NOT NULL,
+        store_format_version INTEGER NOT NULL
+      );
+      INSERT INTO core_store_metadata VALUES (1, 'rust_core', 84);
+    `);
     database.pragma("user_version = 84");
     database.close();
 
     await expect(initializeDatabase()).rejects.toThrow(
-      "Unsupported Nodex database schema version 84",
+      "Unsupported Nodex Rust Core-owned schema version 84",
     );
     const unchanged = new Database(getDatabasePath(), { readonly: true });
     expect(unchanged.pragma("user_version", { simple: true })).toBe(84);
@@ -1510,6 +1524,86 @@ describe("schema v83 release boundary", () => {
 
     expect(database.pragma("user_version", { simple: true })).toBe(83);
     expect(hasColumn(database, "codex_threads", "agent_path")).toBe(true);
+    database.close();
+  });
+
+  test("retires the duplicate chat search projection at v84", () => {
+    const database = new Database(":memory:");
+    createHistoricalReleaseSchemaFixture(database, 83);
+    const project = database.prepare(
+      "SELECT id FROM projects ORDER BY created, id LIMIT 1",
+    ).get() as { readonly id: string };
+    database.prepare(`
+      INSERT INTO codex_threads (
+        thread_id, project_id, thread_name, thread_preview, model_provider,
+        created_at, updated_at, linked_at
+      ) VALUES ('thread:search-retirement', ?, 'Retained task', 'Retained metadata',
+        'openai', 10, 20, '2026-07-21T00:00:00.000Z')
+    `).run(project.id);
+    database.prepare(`
+      INSERT INTO thread_search_units (
+        unit_key, thread_id, project_id, turn_id, item_id, role, text,
+        text_hash, source_updated_at, indexed_at
+      ) VALUES ('unit:search-retirement', 'thread:search-retirement', ?,
+        'turn:1', 'item:1', 'user', 'retired transcript copy', 'hash', 20, 21)
+    `).run(project.id);
+    database.prepare(`
+      INSERT INTO thread_search_thread_state (
+        thread_id, source_updated_at, indexed_at, unit_count, status
+      ) VALUES ('thread:search-retirement', 20, 21, 1, 'ready')
+    `).run();
+
+    expect(tableNames(database).has("thread_search_units")).toBe(true);
+    expect(tableNames(database).has("thread_search_thread_state")).toBe(true);
+    expect(tableNames(database).has("thread_search_units_fts")).toBe(true);
+
+    migrateSchema83To84(database);
+
+    const names = tableNames(database);
+    expect(database.pragma("user_version", { simple: true })).toBe(84);
+    expect(names.has("thread_search_units")).toBe(false);
+    expect(names.has("thread_search_thread_state")).toBe(false);
+    expect(
+      [...names].some((name) => name.startsWith("thread_search_units_fts")),
+    ).toBe(false);
+    expect(database.prepare(`
+      SELECT project_id AS projectId, thread_name AS threadName, updated_at AS updatedAt
+      FROM codex_threads WHERE thread_id = 'thread:search-retirement'
+    `).get()).toEqual({
+      projectId: project.id,
+      threadName: "Retained task",
+      updatedAt: 20,
+    });
+    expect(database.pragma("foreign_key_check")).toEqual([]);
+    database.close();
+  });
+
+  test("rolls back the v84 retirement when a schema statement fails", () => {
+    const database = new Database(":memory:");
+    createHistoricalReleaseSchemaFixture(database, 83, { seedDefaultProject: false });
+    const executeSql = database.exec.bind(database);
+    Object.defineProperty(database, "exec", {
+      configurable: true,
+      value: (sql: string) => {
+        if (!sql.includes("DROP TRIGGER IF EXISTS thread_search_units_ai")) {
+          return executeSql(sql);
+        }
+        executeSql("DROP TRIGGER thread_search_units_ai");
+        throw new Error("injected schema retirement failure");
+      },
+    });
+
+    expect(() => migrateSchema83To84(database)).toThrow(
+      "injected schema retirement failure",
+    );
+    delete (database as unknown as { exec?: unknown }).exec;
+
+    expect(database.pragma("user_version", { simple: true })).toBe(83);
+    expect(tableNames(database).has("thread_search_units")).toBe(true);
+    expect(database.prepare(`
+      SELECT 1 AS present FROM sqlite_schema
+      WHERE type = 'trigger' AND name = 'thread_search_units_ai'
+    `).get()).toEqual({ present: 1 });
     database.close();
   });
 

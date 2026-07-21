@@ -46,7 +46,7 @@ import { readLocalProfileLibraryInDatabase } from "./local-profile-library";
 export const COLUMNS = WORKFLOW_STATUS_COLUMNS;
 
 export const SHIPPED_SCHEMA_VERSION = 58;
-export const CURRENT_SCHEMA_VERSION = 83;
+export const CURRENT_SCHEMA_VERSION = 84;
 
 interface ReleaseSchemaMigrationStep {
   readonly fromVersion: number;
@@ -95,6 +95,11 @@ const RELEASE_SCHEMA_MIGRATION_STEPS = [
     fromVersion: 82,
     toVersion: 83,
     migrate: migrateSchema82To83,
+  },
+  {
+    fromVersion: 83,
+    toVersion: 84,
+    migrate: migrateSchema83To84,
   },
 ] satisfies readonly ReleaseSchemaMigrationStep[];
 
@@ -158,9 +163,6 @@ const RESETTABLE_TABLES = [
   "block_store_metadata",
   "card_search_units_fts",
   "card_search_units",
-  "thread_search_units_fts",
-  "thread_search_thread_state",
-  "thread_search_units",
   "project_session_threads",
   "project_session_tabs",
   "project_sessions",
@@ -181,6 +183,10 @@ const RESETTABLE_TABLES = [
   "codex_thread_dynamic_tool_catalogs",
   "codex_project_permission_mode_selections",
   "codex_threads",
+  // Legacy v83 projection tables remain resettable for versionless local files.
+  "thread_search_units_fts",
+  "thread_search_thread_state",
+  "thread_search_units",
   "nodex_agent_token_keys",
   "nodex_agent_turn_authorities",
   "nodex_agent_call_receipts",
@@ -3766,73 +3772,6 @@ function createShippedV57Schema(
     CREATE INDEX IF NOT EXISTS idx_codex_pinned_threads_order
       ON codex_pinned_threads(pinned_order, created_at);
 
-    CREATE TABLE IF NOT EXISTS thread_search_units (
-      rowid INTEGER PRIMARY KEY AUTOINCREMENT,
-      unit_key TEXT NOT NULL UNIQUE,
-      thread_id TEXT NOT NULL REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
-      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
-      session_id TEXT REFERENCES project_sessions(id) ON DELETE SET NULL,
-      turn_id TEXT NOT NULL,
-      item_id TEXT NOT NULL,
-      role TEXT NOT NULL,
-      text TEXT NOT NULL,
-      text_hash TEXT NOT NULL,
-      source_updated_at INTEGER NOT NULL,
-      indexed_at INTEGER NOT NULL,
-      CHECK (role IN ('user', 'assistant'))
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_thread_search_units_thread
-      ON thread_search_units(thread_id);
-    CREATE INDEX IF NOT EXISTS idx_thread_search_units_project
-      ON thread_search_units(project_id);
-    CREATE INDEX IF NOT EXISTS idx_thread_search_units_session
-      ON thread_search_units(session_id);
-
-    CREATE TABLE IF NOT EXISTS thread_search_thread_state (
-      thread_id TEXT PRIMARY KEY REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
-      source_updated_at INTEGER NOT NULL,
-      indexed_at INTEGER NOT NULL,
-      index_version INTEGER NOT NULL DEFAULT 1,
-      unit_count INTEGER NOT NULL,
-      status TEXT NOT NULL,
-      last_error TEXT,
-      failed_at INTEGER,
-      retry_after INTEGER,
-      CHECK (status IN ('ready', 'stale', 'failed'))
-    ) WITHOUT ROWID;
-
-    CREATE VIRTUAL TABLE IF NOT EXISTS thread_search_units_fts USING fts5(
-      text,
-      content='thread_search_units',
-      content_rowid='rowid',
-      tokenize="unicode61 remove_diacritics 2 tokenchars '-_/@.:#'",
-      prefix='2 3 4'
-    );
-
-    CREATE TRIGGER IF NOT EXISTS thread_search_units_ai
-      AFTER INSERT ON thread_search_units
-      BEGIN
-        INSERT INTO thread_search_units_fts(rowid, text)
-        VALUES (new.rowid, new.text);
-      END;
-
-    CREATE TRIGGER IF NOT EXISTS thread_search_units_ad
-      AFTER DELETE ON thread_search_units
-      BEGIN
-        INSERT INTO thread_search_units_fts(thread_search_units_fts, rowid, text)
-        VALUES ('delete', old.rowid, old.text);
-      END;
-
-    CREATE TRIGGER IF NOT EXISTS thread_search_units_au
-      AFTER UPDATE ON thread_search_units
-      BEGIN
-        INSERT INTO thread_search_units_fts(thread_search_units_fts, rowid, text)
-        VALUES ('delete', old.rowid, old.text);
-        INSERT INTO thread_search_units_fts(rowid, text)
-        VALUES (new.rowid, new.text);
-      END;
-
     CREATE TABLE IF NOT EXISTS history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -3946,11 +3885,79 @@ function createShippedV57BehaviorAndCanvasSchema(
   `);
 }
 
+function createLegacyThreadSearchProjectionSchema(
+  db: Database.Database,
+): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS thread_search_units (
+      rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+      unit_key TEXT NOT NULL UNIQUE,
+      thread_id TEXT NOT NULL REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      session_id TEXT REFERENCES project_sessions(id) ON DELETE SET NULL,
+      turn_id TEXT NOT NULL,
+      item_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      text TEXT NOT NULL,
+      text_hash TEXT NOT NULL,
+      source_updated_at INTEGER NOT NULL,
+      indexed_at INTEGER NOT NULL,
+      CHECK (role IN ('user', 'assistant'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_thread_search_units_thread
+      ON thread_search_units(thread_id);
+    CREATE INDEX IF NOT EXISTS idx_thread_search_units_project
+      ON thread_search_units(project_id);
+    CREATE INDEX IF NOT EXISTS idx_thread_search_units_session
+      ON thread_search_units(session_id);
+
+    CREATE TABLE IF NOT EXISTS thread_search_thread_state (
+      thread_id TEXT PRIMARY KEY REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
+      source_updated_at INTEGER NOT NULL,
+      indexed_at INTEGER NOT NULL,
+      index_version INTEGER NOT NULL DEFAULT 1,
+      unit_count INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      last_error TEXT,
+      failed_at INTEGER,
+      retry_after INTEGER,
+      CHECK (status IN ('ready', 'stale', 'failed'))
+    ) WITHOUT ROWID;
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS thread_search_units_fts USING fts5(
+      text,
+      content='thread_search_units',
+      content_rowid='rowid',
+      tokenize="unicode61 remove_diacritics 2 tokenchars '-_/@.:#'",
+      prefix='2 3 4'
+    );
+    CREATE TRIGGER IF NOT EXISTS thread_search_units_ai
+      AFTER INSERT ON thread_search_units
+      BEGIN
+        INSERT INTO thread_search_units_fts(rowid, text) VALUES (new.rowid, new.text);
+      END;
+    CREATE TRIGGER IF NOT EXISTS thread_search_units_ad
+      AFTER DELETE ON thread_search_units
+      BEGIN
+        INSERT INTO thread_search_units_fts(thread_search_units_fts, rowid, text)
+        VALUES ('delete', old.rowid, old.text);
+      END;
+    CREATE TRIGGER IF NOT EXISTS thread_search_units_au
+      AFTER UPDATE ON thread_search_units
+      BEGIN
+        INSERT INTO thread_search_units_fts(thread_search_units_fts, rowid, text)
+        VALUES ('delete', old.rowid, old.text);
+        INSERT INTO thread_search_units_fts(rowid, text) VALUES (new.rowid, new.text);
+      END;
+  `);
+}
+
 /** Test fixture builder for the shipped v57 migration input. */
 export function createShippedV57SchemaFixture(
   db: Database.Database,
 ): void {
   createShippedV57Schema(db);
+  createLegacyThreadSearchProjectionSchema(db);
   createShippedV57BehaviorAndCanvasSchema(db);
   setUserVersion(db, 57);
 }
@@ -3960,8 +3967,12 @@ export function createShippedV57SchemaFixture(
  */
 export function createBlockFirstPreFinalizationSchema(
   db: Database.Database,
+  options: { readonly includeLegacyThreadSearch?: boolean } = {},
 ): void {
   createShippedV57Schema(db);
+  if (options.includeLegacyThreadSearch !== false) {
+    createLegacyThreadSearchProjectionSchema(db);
+  }
   createBlockFoundationSchema(db);
   createRetiredBlockIdentitySchema(db);
   createCardBehaviorRecordSchema(db);
@@ -9446,6 +9457,41 @@ export function migrateSchema82To83(db: Database.Database): void {
   migrate.immediate();
 }
 
+/**
+ * v84 retires Nodex's duplicate chat-content projection. Search content is
+ * owned by codex app-server; SQLite keeps only local task metadata used to
+ * enrich and rank those results.
+ */
+export function migrateSchema83To84(db: Database.Database): void {
+  const sourceVersion = getUserVersion(db);
+  if (sourceVersion !== 83) {
+    throw new Error(
+      `Schema v83 to v84 migration requires v83, received v${sourceVersion}`,
+    );
+  }
+
+  const migrate = db.transaction(() => {
+    db.exec(`
+      DROP TRIGGER IF EXISTS thread_search_units_ai;
+      DROP TRIGGER IF EXISTS thread_search_units_ad;
+      DROP TRIGGER IF EXISTS thread_search_units_au;
+      DROP TABLE IF EXISTS thread_search_units_fts;
+      DROP TABLE IF EXISTS thread_search_thread_state;
+      DROP TABLE IF EXISTS thread_search_units;
+    `);
+    setUserVersion(db, 84);
+  });
+  migrate.immediate();
+
+  // auto_vacuum=INCREMENTAL is configured when Nodex creates the database.
+  // Reclaim retired projection pages without a blocking full VACUUM rewrite.
+  try {
+    db.pragma("incremental_vacuum");
+  } catch {
+    // Logical migration already committed; later maintenance may retry space reclamation.
+  }
+}
+
 function migrateReleaseSchemaToCurrent(
   db: Database.Database,
   sourceVersion: number,
@@ -9508,7 +9554,7 @@ function resetDatabaseToLatestSchema(db: Database.Database): void {
       db.exec(`DROP TABLE IF EXISTS ${tableName}`);
     }
     db.pragma("auto_vacuum = INCREMENTAL");
-    createBlockFirstPreFinalizationSchema(db);
+    createBlockFirstPreFinalizationSchema(db, { includeLegacyThreadSearch: false });
     dropLegacyBlockFirstTables(db);
     db.exec("DROP TABLE IF EXISTS canvas_scene_materializations");
     ensureDocumentEngineColumns(db);
@@ -9569,7 +9615,7 @@ export function createHistoricalReleaseSchemaFixture(
   }
 
   const seedBeforeDatabaseIdentityCutover =
-    targetVersion === 81 && options.seedDefaultProject !== false;
+    targetVersion >= 81 && options.seedDefaultProject !== false;
   const migrationTarget = seedBeforeDatabaseIdentityCutover ? 80 : targetVersion;
   let version = SHIPPED_SCHEMA_VERSION;
   for (const step of RELEASE_SCHEMA_MIGRATION_STEPS) {
@@ -9612,7 +9658,12 @@ export function createHistoricalReleaseSchemaFixture(
   ensureBlockFoundationForProject(db, projectId, now);
 
   if (!seedBeforeDatabaseIdentityCutover) return;
-  migrateDatabaseIdentityAuthorityV80ToV81(db);
+  for (const step of RELEASE_SCHEMA_MIGRATION_STEPS) {
+    if (version === targetVersion) break;
+    if (step.fromVersion !== version || step.toVersion > targetVersion) continue;
+    step.migrate(db);
+    version = getUserVersion(db);
+  }
   if (getUserVersion(db) !== targetVersion) {
     throw new Error(
       `Historical release fixture stopped at v${getUserVersion(db)}, expected v${targetVersion}`,
@@ -9681,6 +9732,11 @@ export function ensureDatabase(): void {
 
   try {
     const currentVersion = getUserVersion(db);
+    if (sqliteSchemaObjectExists(db, "table", "core_store_metadata")) {
+      throw new Error(
+        `Unsupported Nodex Rust Core-owned schema version ${currentVersion}`,
+      );
+    }
     if (currentVersion === 0) {
       resetDatabaseToLatestSchema(db);
     } else {

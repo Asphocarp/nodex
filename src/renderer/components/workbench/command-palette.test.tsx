@@ -38,22 +38,12 @@ vi.mock("./toggle-list-icon", () => ({
 
 const apiMock: {
   invokeImplementation: (...args: unknown[]) => Promise<unknown>;
-  threadIndexUpdateCallbacks: Array<() => void>;
 } = vi.hoisted(() => ({
   invokeImplementation: async () => [],
-  threadIndexUpdateCallbacks: [] as Array<() => void>,
 }));
 
 vi.mock("../../lib/api", () => ({
   invoke: (...args: unknown[]) => apiMock.invokeImplementation(...args),
-  subscribeCommandPaletteThreadIndexUpdates: (callback: () => void) => {
-    apiMock.threadIndexUpdateCallbacks.push(callback);
-    return () => {
-      apiMock.threadIndexUpdateCallbacks = apiMock.threadIndexUpdateCallbacks.filter(
-        (entry) => entry !== callback,
-      );
-    };
-  },
 }));
 
 function makeCommandContext(
@@ -258,6 +248,7 @@ function makePaletteThread(overrides: Partial<CommandPaletteThread> = {}): Comma
     title: overrides.title ?? "Thread transcript search",
     preview: overrides.preview ?? "Search previous assistant messages from the command palette.",
     cwd: overrides.cwd ?? "/tmp/default",
+    gitBranch: overrides.gitBranch ?? null,
     projectless: overrides.projectless ?? false,
     pinned: overrides.pinned ?? false,
     pinnedOrder: overrides.pinnedOrder ?? null,
@@ -265,7 +256,6 @@ function makePaletteThread(overrides: Partial<CommandPaletteThread> = {}): Comma
     statusActiveFlags: overrides.statusActiveFlags ?? [],
     createdAt: overrides.createdAt ?? 1_781_990_400,
     updatedAt: overrides.updatedAt ?? 1_781_990_400,
-    linkedAt: overrides.linkedAt ?? "2026-06-20T00:00:00.000Z",
     inActiveProject: overrides.inActiveProject ?? true,
     searchPreview: overrides.searchPreview,
     searchDecorations: overrides.searchDecorations,
@@ -484,7 +474,7 @@ describe("CommandPaletteSurface", () => {
     expect(textContent(container).includes("Thread transcript page")).toBe(true);
   });
 
-  test("renders backend-provided chat content snippet segments", async () => {
+  test("renders and highlights an app-server chat content snippet", async () => {
     const { CommandPaletteSurface } = await import("./command-palette-surface");
     const threads = [
       makePaletteThread({
@@ -495,16 +485,26 @@ describe("CommandPaletteSurface", () => {
       }),
     ];
     apiMock.invokeImplementation = async (channel: unknown) => {
-      if (channel === "codex:threads:palette:search-content") {
+      if (channel === "codex:threads:palette:search") {
         return [{
-          threadId: "thr-content-hit",
+          thread: {
+            threadId: "thr-content-hit",
+            sessionId: null,
+            projectId: "default",
+            projectName: "Default",
+            title: "Content hit",
+            preview: "",
+            cwd: "/tmp/default",
+            gitBranch: null,
+            projectless: false,
+            pinned: false,
+            pinnedOrder: null,
+            statusType: "notLoaded",
+            statusActiveFlags: [],
+            createdAt: 1,
+            updatedAt: 1,
+          },
           snippet: "backend snippet",
-          score: 10,
-          matchKind: "fts",
-          snippetSegments: [
-            { text: "backend ", highlight: false },
-            { text: "snippet", highlight: true },
-          ],
         }];
       }
       return [];
@@ -530,51 +530,30 @@ describe("CommandPaletteSurface", () => {
       />,
     );
 
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 240));
+    });
     await settleAsyncRender();
 
     expect(textContent(container).includes("backend snippet")).toBe(true);
     apiMock.invokeImplementation = async () => [];
   });
 
-  test("reruns chat content search when the thread index updates", async () => {
+  test("keeps commands and metadata chats together in root mode", async () => {
     const { CommandPaletteSurface } = await import("./command-palette-surface");
-    const threads = [
-      makePaletteThread({
-        threadId: "thr-refresh-hit",
-        id: "thread:thr-refresh-hit",
-        title: "Refresh hit",
-        preview: "",
-      }),
-    ];
-    const searchedQueries: string[] = [];
-    apiMock.threadIndexUpdateCallbacks = [];
-    apiMock.invokeImplementation = async (channel: unknown, input: unknown) => {
-      if (channel === "codex:threads:palette:search-content") {
-        const query = typeof input === "object" && input !== null && "query" in input
-          ? String((input as { query?: unknown }).query ?? "")
-          : "";
-        searchedQueries.push(query);
-        return [{
-          threadId: "thr-refresh-hit",
-          snippet: `snippet ${searchedQueries.length}`,
-          score: 10,
-          matchKind: "fts",
-        }];
-      }
-      return [];
-    };
-
-    render(
+    const threads = [makePaletteThread({ title: "Open historical chat" })];
+    const { container } = render(
       <CommandPaletteSurface
         open
-        openTriggerTick={8}
-        mode="chats"
-        initialQuery="refresh"
-        commands={[]}
+        openTriggerTick={71}
+        mode="root"
+        initialQuery="open"
+        commands={[makePaletteCommand({ title: "Open settings", keywords: ["open"] })]}
         pages={[]}
         threads={threads}
         pageSearchIndex={createCommandPalettePageSearchIndex([])}
         threadSearchIndex={createCommandPaletteThreadSearchIndex(threads)}
+        threadSearchBatch={{ query: "open", results: [], loading: false, error: null }}
         loading={false}
         pagesLoading={false}
         chatsLoading={false}
@@ -585,15 +564,102 @@ describe("CommandPaletteSurface", () => {
     );
 
     await settleAsyncRender();
-    await act(async () => {
-      for (const callback of apiMock.threadIndexUpdateCallbacks) callback();
-      await new Promise((resolve) => setTimeout(resolve, 280));
-    });
+
+    expect(textContent(container)).toContain("Open settings");
+    expect(textContent(container)).toContain("Open historical chat");
+    expect(textContent(container)).toContain("Chats");
+  });
+
+  test("reserves the ninth root chat slot for current-query loading state", async () => {
+    const { CommandPaletteSurface } = await import("./command-palette-surface");
+    const threads = Array.from({ length: 9 }, (_, index) => makePaletteThread({
+      id: `thread:common-${index}`,
+      threadId: `common-${index}`,
+      title: `Common chat ${index}`,
+    }));
+    const { container } = render(
+      <CommandPaletteSurface
+        open
+        openTriggerTick={72}
+        mode="root"
+        initialQuery="common"
+        commands={[]}
+        pages={[]}
+        threads={threads}
+        pageSearchIndex={createCommandPalettePageSearchIndex([])}
+        threadSearchIndex={createCommandPaletteThreadSearchIndex(threads)}
+        threadSearchBatch={{ query: "common", results: [], loading: true, error: null }}
+        loading={false}
+        pagesLoading={false}
+        chatsLoading={false}
+        onChangeMode={() => undefined}
+        onRequestClose={() => undefined}
+        onExecute={() => undefined}
+      />,
+    );
+
     await settleAsyncRender();
 
-    expect(searchedQueries.join(",")).toBe("refresh,refresh");
+    expect(container.querySelectorAll("button[cmdk-item]")).toHaveLength(8);
+    expect(textContent(container)).toContain("Searching chat history");
+  });
+
+  test("keeps local chat matches visible when app-server search fails", async () => {
+    const { CommandPaletteSurface } = await import("./command-palette-surface");
+    const threads = [makePaletteThread({ title: "Fallback metadata chat" })];
+    const { container } = render(
+      <CommandPaletteSurface
+        open
+        openTriggerTick={73}
+        mode="root"
+        initialQuery="fallback"
+        commands={[]}
+        pages={[]}
+        threads={threads}
+        pageSearchIndex={createCommandPalettePageSearchIndex([])}
+        threadSearchIndex={createCommandPaletteThreadSearchIndex(threads)}
+        threadSearchBatch={{ query: "fallback", results: [], loading: false, error: "offline" }}
+        loading={false}
+        pagesLoading={false}
+        chatsLoading={false}
+        onChangeMode={() => undefined}
+        onRequestClose={() => undefined}
+        onExecute={() => undefined}
+      />,
+    );
+
+    await settleAsyncRender();
+
+    expect(textContent(container)).toContain("Fallback metadata chat");
+    expect(textContent(container)).toContain("Local matches are still shown");
+  });
+
+  test("deduplicates concurrent app-server searches and reuses the short-lived cache", async () => {
+    const {
+      clearCommandPaletteThreadSearchCacheForTests,
+      searchCommandPaletteThreads,
+    } = await import("../../lib/command-palette-chat-search");
+    const searchedQueries: string[] = [];
+    apiMock.invokeImplementation = async (channel: unknown, input: unknown) => {
+      if (channel === "codex:threads:palette:search") {
+        const query = typeof input === "object" && input !== null && "query" in input
+          ? String((input as { query?: unknown }).query ?? "")
+          : "";
+        searchedQueries.push(query);
+        return [];
+      }
+      return [];
+    };
+    clearCommandPaletteThreadSearchCacheForTests();
+
+    await Promise.all([
+      searchCommandPaletteThreads({ query: "refresh" }),
+      searchCommandPaletteThreads({ query: "refresh" }),
+    ]);
+    await searchCommandPaletteThreads({ query: "refresh" });
+
+    expect(searchedQueries).toEqual(["refresh"]);
     apiMock.invokeImplementation = async () => [];
-    apiMock.threadIndexUpdateCallbacks = [];
   });
 
   test("skips disabled commands and updates aria-activedescendant during keyboard navigation", async () => {

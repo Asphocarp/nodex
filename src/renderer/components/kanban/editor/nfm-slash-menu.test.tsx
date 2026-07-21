@@ -186,6 +186,7 @@ function makePaletteThread(overrides: Partial<CommandPaletteThread> = {}): Comma
     title: overrides.title ?? "Mention search thread",
     preview: overrides.preview ?? "Shared picker search.",
     cwd: overrides.cwd ?? "/tmp/project",
+    gitBranch: overrides.gitBranch ?? null,
     projectless: overrides.projectless ?? false,
     pinned: overrides.pinned ?? false,
     pinnedOrder: overrides.pinnedOrder ?? null,
@@ -193,7 +194,6 @@ function makePaletteThread(overrides: Partial<CommandPaletteThread> = {}): Comma
     statusActiveFlags: overrides.statusActiveFlags ?? [],
     createdAt: overrides.createdAt ?? 1,
     updatedAt: overrides.updatedAt ?? 2,
-    linkedAt: overrides.linkedAt ?? "2026-06-20T00:00:00.000Z",
     inActiveProject: overrides.inActiveProject ?? true,
     searchPreview: overrides.searchPreview,
     searchDecorations: overrides.searchDecorations,
@@ -366,6 +366,29 @@ describe("NfmSlashMenu", () => {
     expect(items[1]?.subtext?.includes("Only page description")).toBe(true);
     expect(items[2]?.title).toBe("Today");
     expect(items[3]?.title).toBe("Now");
+  });
+
+  test("maps an app-server-only chat into a thread mention suggestion", () => {
+    const items = buildNfmMentionSuggestionItems({
+      editor: {},
+      threadResults: [makePaletteThread({
+        id: "thread:server-only-mention",
+        threadId: "server-only-mention",
+        sessionId: null,
+        title: "Historical mention target",
+        searchPreview: {
+          source: "content",
+          excerpt: "Mention evidence from app-server history.",
+          segments: [{ text: "Mention evidence", highlight: true }],
+        },
+      })],
+      pageResults: [],
+    });
+
+    expect(items[0]).toMatchObject({
+      title: "Historical mention target",
+      group: "Current project",
+    });
   });
 
   test("date mention suggestions are first for date-like queries and insert inline content", () => {

@@ -174,11 +174,6 @@ export interface RendererTransport {
   subscribeCommandKeymapChanges: (
     callback: (state: CommandKeymapState) => void,
   ) => () => void;
-  subscribeCommandPaletteThreadIndexUpdates: (
-    callback: (
-      event: import("../../shared/types").CommandPaletteThreadIndexUpdatedEvent,
-    ) => void,
-  ) => () => void;
   subscribeCodexScheduledAutomationChanges: (
     callback: (
       event: import("../../shared/types").CodexScheduledAutomationChangedEvent,

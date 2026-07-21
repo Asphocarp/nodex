@@ -37,7 +37,7 @@ import type {
   CodexThreadOwnerStreamStatePublishInput,
   CodexThreadSummary,
   CodexTurnSummary,
-  CommandPaletteThreadContentSearchResult,
+  CommandPaletteThreadSearchResult,
   CommandPaletteThreadSummary,
   ManagedWorktreeRecord,
   ProjectSessionForkResult,
@@ -142,11 +142,6 @@ import { removeManagedWorktree } from "./git-worktree-service";
 import type { PastedTextAttachmentManager } from "../thread-goal-attachments";
 import { getCodexClientThreadId } from "./codex-client-thread-identity";
 import {
-  createInlineCommandPaletteThreadSearchClient,
-  type CommandPaletteThreadSearchClient,
-} from "./command-palette-thread-search-coordinator";
-import { CommandPaletteThreadSearchService } from "./command-palette-thread-search-service";
-import {
   CODEX_THREAD_TITLE_CONFIG,
   CODEX_THREAD_TITLE_MODEL,
   CODEX_THREAD_TITLE_OUTPUT_SCHEMA,
@@ -215,11 +210,10 @@ interface TestableCodexService {
   listCommandPaletteThreads: (
     input: { scope: "sidebar" },
   ) => Promise<CommandPaletteThreadSummary[]>;
-  searchCommandPaletteThreadContent: (input: {
-    scope: "sidebar";
+  searchCommandPaletteThreads: (input: {
     query: string;
     limit?: number;
-  }) => Promise<CommandPaletteThreadContentSearchResult[]>;
+  }) => Promise<CommandPaletteThreadSearchResult[]>;
   requestConversationSnapshot: (threadId: string) => Promise<CodexConversationSnapshot | null>;
   requestConversationResume: (
     threadId: string,
@@ -890,7 +884,6 @@ function createService(options?: {
   inactiveRendererOwnerMaxRetained?: number;
   inactiveRendererOwnerRetryMs?: number;
   supportsChatGptApps?: boolean;
-  commandPaletteThreadSearchClient?: CommandPaletteThreadSearchClient;
   gitSettingsResolver?: () => CodexGitSettings;
   projectAwareDeveloperInstructionsResolver?: (input: {
     baseInstructions?: string | null;
@@ -930,8 +923,6 @@ function createService(options?: {
     browserTransferStateReader:
       options?.browserTransferStateReader ?? EMPTY_TEST_BROWSER_TRANSFER_STATE_READER,
     forkSidePanelTransferLifecycle: options?.forkSidePanelTransferLifecycle,
-    commandPaletteThreadSearchClient:
-      options?.commandPaletteThreadSearchClient ?? createInlineCommandPaletteThreadSearchClient(),
   }) as unknown as TestableCodexService;
   const internals = service as unknown as {
     getMaybeConversationRecord: (threadId: string) => {
@@ -9031,106 +9022,140 @@ describe("codex-service readThread fallback", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("searches command-palette content across sidebar chats without leaking archived rows", async () => {
+  test("searches app-server tasks, paginates filtered pages, and keeps server-only matches", async () => {
     const ran = await withTempDatabase(async () => {
+      const inferredProject = createProject({
+        name: "Inferred search owner",
+        sources: ["/workspace/inferred"],
+      });
       upsertCodexThread({
         projectId: defaultProjectId,
-        threadId: "thr_content_sessionless",
-        threadName: "Content sessionless",
-        threadPreview: "Visible sessionless preview",
+        threadId: "thr_search_local",
+        threadName: "Local search task",
+        threadPreview: "Local metadata",
         modelProvider: "openai",
         updatedAt: 200,
-      });
-
-      upsertCodexThread({
-        threadId: "thr_content_projectless",
-        threadName: "Content projectless",
-        threadPreview: "Visible projectless preview",
-        modelProvider: "openai",
-        updatedAt: 300,
-      });
-
-      upsertCodexThread({
-        threadId: "thr_content_archived",
-        threadName: "Content archived",
-        threadPreview: "Archived preview",
-        modelProvider: "openai",
-        archived: true,
-        updatedAt: 400,
-      });
-
-      const service = createService();
-      const searchIndexer = new CommandPaletteThreadSearchService();
-      try {
-        const summaries = await service.listCommandPaletteThreads({ scope: "sidebar" });
-        for (const summary of summaries) {
-          const thread = getCodexThread(summary.threadId);
-          if (!thread) continue;
-          searchIndexer.indexThreadDetail(summary, {
-            ...thread,
-            turns: [],
-            transcript: [{
-              threadId: summary.threadId,
-              turnId: "turn_1",
-              itemId: `item_${summary.threadId}`,
-              type: "userMessage",
-              kind: "userMessage",
-              semanticKind: "userMessage",
-              role: "user",
-              markdownText: `Visible transcript needle from ${summary.threadId}`,
-              createdAt: summary.updatedAt,
-              updatedAt: summary.updatedAt,
-            }],
-          });
-        }
-
-        const results = await service.searchCommandPaletteThreadContent({
-          scope: "sidebar",
-          query: "needle",
-          limit: 60,
-        });
-        const ids = results.map((result) => result.threadId).join(",");
-
-        expect(ids.includes("thr_content_sessionless")).toBe(true);
-        expect(ids.includes("thr_content_projectless")).toBe(true);
-        expect(ids.includes("thr_content_archived")).toBe(false);
-      } finally {
-        searchIndexer.shutdown();
-        await service.shutdown();
-      }
-    });
-
-    if (!ran) expect(true).toBe(true);
-  });
-
-  test("does not call app-server thread search for command-palette content", async () => {
-    const ran = await withTempDatabase(async () => {
-      upsertCodexThread({
-        projectId: defaultProjectId,
-        threadId: "thr_content_local_only",
-        threadName: "Content local only",
-        threadPreview: "Visible preview",
-        modelProvider: "openai",
       });
 
       const service = createService();
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
-        request: () => Promise<never>;
+        request: (method: string, params: unknown) => Promise<unknown>;
       };
+      const requests: Array<{ method: string; params: unknown }> = [];
       client.start = async () => undefined;
-      client.request = async () => {
-        throw new Error("app-server should not be called");
+      client.request = async (method, params) => {
+        requests.push({ method, params });
+        const cursor = (params as { cursor?: string | null }).cursor;
+        if (method !== "thread/search") throw new Error(`Unexpected method: ${method}`);
+
+        if (cursor === null) {
+          return {
+            data: [
+              {
+                thread: {
+                  ...makeProtocolThread("thr_search_local", "/tmp/codex"),
+                  name: "App-server title",
+                  preview: "Local content match",
+                  gitInfo: { sha: "abc", branch: "feature/search", originUrl: null },
+                },
+                snippet: "Matched local transcript",
+              },
+              {
+                thread: {
+                  ...makeProtocolThread("thr_search_ephemeral", "/tmp/codex"),
+                  ephemeral: true,
+                },
+                snippet: "Must stay hidden",
+              },
+              {
+                thread: {
+                  ...makeProtocolThread("thr_search_child", "/tmp/codex"),
+                  parentThreadId: "thr_parent",
+                },
+                snippet: "Must stay hidden",
+              },
+              {
+                thread: {
+                  ...makeProtocolThread("thr_search_internal", "/tmp/codex"),
+                  threadSource: "system",
+                },
+                snippet: "Must stay hidden",
+              },
+            ],
+            nextCursor: "page-2",
+            backwardsCursor: null,
+          };
+        }
+
+        return {
+          data: [{
+            thread: {
+              ...makeProtocolThread("thr_search_server_only", "/workspace/inferred/repo"),
+              name: "Server-only task",
+              preview: "Not materialized in Nodex",
+              status: { type: "idle" },
+            },
+            snippet: "Matched server-only transcript",
+          }],
+          nextCursor: null,
+          backwardsCursor: "backwards",
+        };
       };
 
       try {
-        const results = await service.searchCommandPaletteThreadContent({
-          scope: "sidebar",
+        const results = await service.searchCommandPaletteThreads({
           query: "transcript",
-          limit: 60,
+          limit: 2,
         });
 
-        expect(results.length).toBe(0);
+        expect(results).toHaveLength(2);
+        expect(results[0]).toMatchObject({
+          thread: {
+            threadId: "thr_search_local",
+            title: "App-server title",
+            gitBranch: "feature/search",
+            projectId: defaultProjectId,
+            updatedAt: 1_711_278_060_000,
+          },
+          snippet: "Matched local transcript",
+        });
+        expect(results[1]).toMatchObject({
+          thread: {
+            threadId: "thr_search_server_only",
+            title: "Server-only task",
+            projectId: inferredProject.id,
+            projectName: "Inferred search owner",
+            projectless: false,
+          },
+          snippet: "Matched server-only transcript",
+        });
+        expect(requests).toEqual([
+          {
+            method: "thread/search",
+            params: {
+              cursor: null,
+              limit: 2,
+              sortKey: "updated_at",
+              sortDirection: "desc",
+              sourceKinds: [],
+              archived: false,
+              searchTerm: "transcript",
+            },
+          },
+          {
+            method: "thread/search",
+            params: {
+              cursor: "page-2",
+              limit: 1,
+              sortKey: "updated_at",
+              sortDirection: "desc",
+              sourceKinds: [],
+              archived: false,
+              searchTerm: "transcript",
+            },
+          },
+        ]);
       } finally {
         await service.shutdown();
       }
@@ -9139,88 +9164,59 @@ describe("codex-service readThread fallback", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("does not enqueue command-palette content backfill from search", async () => {
-    const ran = await withTempDatabase(async () => {
-      upsertCodexThread({
-        projectId: defaultProjectId,
-        threadId: "thr_content_no_search_backfill",
-        threadName: "Content no search backfill",
-        threadPreview: "Visible preview",
-        modelProvider: "openai",
-      });
-
-      let enqueueCalls = 0;
-      let searchCalls = 0;
-      let eligibleCount = 0;
-      const countingClient: CommandPaletteThreadSearchClient = {
-        enqueueBackfill: () => {
-          enqueueCalls += 1;
-        },
-        search: async (_input, eligibleSummaries) => {
-          searchCalls += 1;
-          eligibleCount = eligibleSummaries.length;
-          return [];
-        },
-        indexConversation: () => undefined,
-        removeThread: () => undefined,
-        shutdown: () => undefined,
+  test("bounds app-server task search when pagination repeats a cursor", async () => {
+    const service = createService();
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const cursors: Array<string | null | undefined> = [];
+    client.start = async () => undefined;
+    client.request = async (_method, params) => {
+      cursors.push((params as { cursor?: string | null }).cursor);
+      return {
+        data: [{
+          thread: {
+            ...makeProtocolThread(`thr_internal_${cursors.length}`, "/tmp/codex"),
+            threadSource: "system",
+          },
+          snippet: "Filtered internal task",
+        }],
+        nextCursor: "repeated-cursor",
+        backwardsCursor: null,
       };
-      const service = createService({ commandPaletteThreadSearchClient: countingClient });
+    };
 
-      try {
-        const results = await service.searchCommandPaletteThreadContent({
-          scope: "sidebar",
-          query: "visible",
-          limit: 60,
-        });
-
-        expect(results.length).toBe(0);
-        expect(enqueueCalls).toBe(0);
-        expect(searchCalls).toBe(1);
-        expect(eligibleCount).toBe(1);
-      } finally {
-        await service.shutdown();
-      }
-    });
-
-    if (!ran) expect(true).toBe(true);
+    try {
+      await expect(service.searchCommandPaletteThreads({ query: "internal", limit: 5 }))
+        .resolves.toEqual([]);
+      expect(cursors).toEqual([null, "repeated-cursor"]);
+    } finally {
+      await service.shutdown();
+    }
   });
 
-  test("fails closed when command-palette content search worker is unavailable", async () => {
-    const ran = await withTempDatabase(async () => {
-      upsertCodexThread({
-        projectId: defaultProjectId,
-        threadId: "thr_content_worker_unavailable",
-        threadName: "Worker unavailable",
-        threadPreview: "Visible preview",
-        modelProvider: "openai",
-      });
+  test("skips app-server task search for blank queries and surfaces request failures", async () => {
+    const service = createService();
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: () => Promise<never>;
+    };
+    let requestCalls = 0;
+    client.start = async () => undefined;
+    client.request = async () => {
+      requestCalls += 1;
+      throw new Error("search unavailable");
+    };
 
-      const failingClient: CommandPaletteThreadSearchClient = {
-        enqueueBackfill: () => undefined,
-        search: async () => {
-          throw new Error("worker unavailable");
-        },
-        indexConversation: () => undefined,
-        removeThread: () => undefined,
-        shutdown: () => undefined,
-      };
-      const service = createService({ commandPaletteThreadSearchClient: failingClient });
-
-      try {
-        const results = await service.searchCommandPaletteThreadContent({
-          scope: "sidebar",
-          query: "visible",
-          limit: 60,
-        });
-
-        expect(results.length).toBe(0);
-      } finally {
-        await service.shutdown();
-      }
-    });
-
-    if (!ran) expect(true).toBe(true);
+    try {
+      await expect(service.searchCommandPaletteThreads({ query: "   " })).resolves.toEqual([]);
+      await expect(service.searchCommandPaletteThreads({ query: "needle" }))
+        .rejects.toThrow("search unavailable");
+      expect(requestCalls).toBe(1);
+    } finally {
+      await service.shutdown();
+    }
   });
 
   test("materializes fileChange patch rows and turn-level unified diff as separate transcript items", async () => {
@@ -27045,25 +27041,10 @@ describe("codex-service approval fallback", () => {
     }
   });
 
-  test("routes Thread catalogs and content search through the selected Workspace authority", async () => {
-    let legacyBackfillCalls = 0;
-    let legacySearchCalls = 0;
-    const legacySearchClient: CommandPaletteThreadSearchClient = {
-      enqueueBackfill: () => {
-        legacyBackfillCalls += 1;
-      },
-      search: async () => {
-        legacySearchCalls += 1;
-        return [];
-      },
-      indexConversation: () => undefined,
-      removeThread: () => undefined,
-      shutdown: () => undefined,
-    };
-    const service = createService({
-      commandPaletteThreadSearchClient: legacySearchClient,
-    });
+  test("routes Thread catalogs through Workspace while task search stays app-server-owned", async () => {
+    const service = createService();
     const calls: string[] = [];
+    const appServerRequests: Array<{ method: string; params: unknown }> = [];
     const thread = makeDesktopWorkspaceThread({
       threadId: "thread-authority-catalog",
       projectId: "project-authority",
@@ -27100,30 +27081,28 @@ describe("codex-service approval fallback", () => {
           updated: new Date(0),
         }];
       },
-      listThreadSearchBackfillCandidates: async (limit, force) => {
-        calls.push(`backfill:${limit}:${String(force)}`);
-        return [];
-      },
-      replaceThreadSearchProjection: async () => undefined,
-      failThreadSearchProjection: async () => undefined,
-      searchThreadContent: async (query, limit) => {
-        calls.push(`search:${query}:${limit ?? "default"}`);
-        return [
-          {
-            threadId: thread.threadId,
-            snippet: "Native match",
-            score: 10,
-            matchKind: "fts",
-          },
-          {
-            threadId: "thread-outside-sidebar",
-            snippet: "Hidden match",
-            score: 9,
-            matchKind: "fts",
-          },
-        ];
-      },
     });
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    client.start = async () => undefined;
+    client.request = async (method, params) => {
+      appServerRequests.push({ method, params });
+      if (method !== "thread/search") throw new Error(`Unexpected method: ${method}`);
+      return {
+        data: [{
+          thread: {
+            ...makeProtocolThread(thread.threadId, thread.cwd ?? "/workspace/authority"),
+            name: thread.threadName,
+            preview: thread.threadPreview,
+          },
+          snippet: "App-server match",
+        }],
+        nextCursor: null,
+        backwardsCursor: null,
+      };
+    };
 
     try {
       await expect(service.listProjectThreads(
@@ -27135,22 +27114,32 @@ describe("codex-service approval fallback", () => {
         threadId: thread.threadId,
         projectName: "Authority Project",
       }]);
-      await expect(service.searchCommandPaletteThreadContent({
-        scope: "sidebar",
+      await expect(service.searchCommandPaletteThreads({
         query: "native",
         limit: 20,
-      })).resolves.toEqual([{
-        threadId: thread.threadId,
-        snippet: "Native match",
-        score: 10,
-        matchKind: "fts",
+      })).resolves.toMatchObject([{
+        thread: {
+          threadId: thread.threadId,
+          projectId: "project-authority",
+          projectName: "Authority Project",
+        },
+        snippet: "App-server match",
       }]);
-      await Promise.resolve();
 
-      expect(calls).toContain("backfill:2:false");
-      expect(calls).toContain("search:native:20");
-      expect(legacyBackfillCalls).toBe(0);
-      expect(legacySearchCalls).toBe(0);
+      expect(calls).toContain("sidebar:false");
+      expect(calls).toContain("projects");
+      expect(appServerRequests).toEqual([{
+        method: "thread/search",
+        params: {
+          cursor: null,
+          limit: 20,
+          sortKey: "updated_at",
+          sortDirection: "desc",
+          sourceKinds: [],
+          archived: false,
+          searchTerm: "native",
+        },
+      }]);
     } finally {
       await service.shutdown();
     }

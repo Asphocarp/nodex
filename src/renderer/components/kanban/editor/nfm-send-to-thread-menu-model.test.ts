@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { CommandPaletteThread } from "@/lib/command-palette";
 import {
-  type CommandPaletteThreadContentSearchBatch,
+  type CommandPaletteThreadSearchBatch,
   selectCommandPaletteChatResults,
 } from "@/lib/command-palette-chat-search";
 import { createCommandPaletteThreadSearchIndex } from "@/lib/command-palette-thread-search";
@@ -24,6 +24,7 @@ function makeThread(overrides: Partial<CommandPaletteThread> = {}): CommandPalet
     title: overrides.title ?? "Existing implementation",
     preview: overrides.preview ?? "Continue from selected notes",
     cwd: overrides.cwd ?? "/repo",
+    gitBranch: overrides.gitBranch ?? null,
     projectless: overrides.projectless ?? false,
     pinned: overrides.pinned ?? false,
     pinnedOrder: overrides.pinnedOrder ?? null,
@@ -31,7 +32,6 @@ function makeThread(overrides: Partial<CommandPaletteThread> = {}): CommandPalet
     statusActiveFlags: overrides.statusActiveFlags ?? [],
     createdAt: overrides.createdAt ?? 0,
     updatedAt: overrides.updatedAt ?? 0,
-    linkedAt: overrides.linkedAt ?? "2026-01-01T00:00:00.000Z",
     inActiveProject: overrides.inActiveProject ?? true,
     searchPreview: overrides.searchPreview,
     searchDecorations: overrides.searchDecorations,
@@ -61,12 +61,13 @@ function makePreferredThread(
 
 function makeThreadContentBatch(
   query: string,
-  results: CommandPaletteThreadContentSearchBatch["results"],
-): CommandPaletteThreadContentSearchBatch {
+  results: CommandPaletteThreadSearchBatch["results"],
+): CommandPaletteThreadSearchBatch {
   return {
     query,
     results,
     loading: false,
+    error: null,
   };
 }
 
@@ -75,7 +76,7 @@ function searchThreads(query: string, threads: CommandPaletteThread[]): CommandP
     query,
     threads,
     threadSearchIndex: createCommandPaletteThreadSearchIndex(threads),
-    threadContentSearchBatch: makeThreadContentBatch(query, []),
+    threadSearchBatch: makeThreadContentBatch(query, []),
     threadLimit: 24,
   });
 }
@@ -128,16 +129,25 @@ describe("nfm send-to-thread menu model", () => {
       query: "needle",
       threads,
       threadSearchIndex: createCommandPaletteThreadSearchIndex(threads),
-      threadContentSearchBatch: makeThreadContentBatch("needle", [{
-        threadId: "content-hit",
+      threadSearchBatch: makeThreadContentBatch("needle", [{
+        thread: {
+          threadId: "content-hit",
+          sessionId: "session-existing",
+          projectId: "project-1",
+          projectName: "Launch project",
+          title: "General investigation",
+          preview: "",
+          cwd: "/repo",
+          gitBranch: null,
+          projectless: false,
+          pinned: false,
+          pinnedOrder: null,
+          statusType: "idle",
+          statusActiveFlags: [],
+          createdAt: 0,
+          updatedAt: 0,
+        },
         snippet: "backend needle snippet",
-        score: 10,
-        matchKind: "fts",
-        snippetSegments: [
-          { text: "backend ", highlight: false },
-          { text: "needle", highlight: true },
-          { text: " snippet", highlight: false },
-        ],
       }]),
       threadLimit: 24,
     });
@@ -152,6 +162,42 @@ describe("nfm send-to-thread menu model", () => {
     }
     expect(rows[0].searchPreview?.source).toBe("content");
     expect(rows[0].searchPreview?.segments.some((segment) => segment.highlight)).toBe(true);
+  });
+
+  test("offers an app-server-only task as a send target", () => {
+    const visibleThreads = selectCommandPaletteChatResults({
+      query: "handoff",
+      threads: [],
+      threadSearchBatch: makeThreadContentBatch("handoff", [{
+        thread: {
+          threadId: "server-only-target",
+          sessionId: null,
+          projectId: "project-1",
+          projectName: "Launch project",
+          title: "Historical handoff",
+          preview: "Not loaded in the sidebar",
+          cwd: "/repo/archive",
+          gitBranch: "archive/handoff",
+          projectless: false,
+          pinned: false,
+          pinnedOrder: null,
+          statusType: "notLoaded",
+          statusActiveFlags: [],
+          createdAt: 1,
+          updatedAt: 2,
+        },
+        snippet: "The handoff target exists only in app-server history.",
+      }]),
+      activeProjectId: "project-1",
+    });
+
+    const rows = buildNfmSendToThreadRows({ query: "handoff", threads: visibleThreads });
+
+    expect(rows[0]).toMatchObject({
+      id: "thread:server-only-target",
+      kind: "thread",
+      threadId: "server-only-target",
+    });
   });
 
   test("uses project labels and projectless chat metadata", () => {

@@ -1,4 +1,5 @@
 import { matchesSearchTokens, tokenizeSearchQuery } from "./page-search";
+import { buildCommandPaletteCharacterHighlightSegments } from "./command-palette-highlight";
 import {
   createCommandPalettePageSearchIndex,
   normalizeCommandPaletteSearchText,
@@ -34,6 +35,7 @@ export interface CommandPaletteCommand {
   disabled?: boolean;
   mockReason?: string;
   priority: number;
+  searchTitleSegments?: CommandPalettePageSearchPreviewSegment[] | null;
 }
 
 export type CommandMenuMode = "root" | "chats" | "pages" | "files";
@@ -102,6 +104,7 @@ export interface CommandPaletteThreadSearchDecorations {
   titleSegments?: CommandPalettePageSearchPreviewSegment[] | null;
   projectNameSegments?: CommandPalettePageSearchPreviewSegment[] | null;
   cwdSegments?: CommandPalettePageSearchPreviewSegment[] | null;
+  gitBranchSegments?: CommandPalettePageSearchPreviewSegment[] | null;
 }
 
 export interface CommandPaletteThread {
@@ -114,6 +117,7 @@ export interface CommandPaletteThread {
   title: string;
   preview: string;
   cwd: string | null;
+  gitBranch: string | null;
   projectless: boolean;
   pinned: boolean;
   pinnedOrder: number | null;
@@ -121,7 +125,6 @@ export interface CommandPaletteThread {
   statusActiveFlags: CodexThreadActiveFlag[];
   createdAt: number;
   updatedAt: number;
-  linkedAt: string;
   inActiveProject: boolean;
   searchPreview?: CommandPaletteThreadSearchPreview | null;
   searchDecorations?: CommandPaletteThreadSearchDecorations | null;
@@ -454,33 +457,74 @@ function buildCommandSearchText(item: CommandPaletteCommand): string {
   ].join(" "));
 }
 
+function scoreFuzzySubsequence(text: string, query: string): number {
+  if (!text || !query) return Number.NEGATIVE_INFINITY;
+  const textCharacters = Array.from(text);
+  const queryCharacters = Array.from(query);
+  let queryIndex = 0;
+  let firstMatch = -1;
+  let previousMatch = -1;
+  let gapCost = 0;
+
+  for (let index = 0; index < textCharacters.length && queryIndex < queryCharacters.length; index += 1) {
+    if (textCharacters[index] !== queryCharacters[queryIndex]) continue;
+    if (firstMatch < 0) firstMatch = index;
+    if (previousMatch >= 0) gapCost += index - previousMatch - 1;
+    previousMatch = index;
+    queryIndex += 1;
+  }
+
+  if (queryIndex !== queryCharacters.length) return Number.NEGATIVE_INFINITY;
+  const score = 80 - firstMatch * 2 - gapCost * 3;
+  return score >= 40 ? score : Number.NEGATIVE_INFINITY;
+}
+
 function rankCommand(
   item: CommandPaletteCommand,
   query: string,
   tokens: string[],
 ): ScoredCommand | null {
   const searchText = buildCommandSearchText(item);
-  if (tokens.length > 0 && !matchesSearchTokens(searchText, tokens)) {
-    return null;
-  }
+  const tokenMatch = tokens.length === 0 || matchesSearchTokens(searchText, tokens);
 
   const normalizedTitle = normalizeCommandPaletteSearchText(item.title);
   const normalizedSubtitle = normalizeCommandPaletteSearchText(item.subtitle);
   const titleScore = scoreNormalizedText(normalizedTitle, query);
   const subtitleScore = scoreNormalizedText(normalizedSubtitle, query);
   const searchScore = scoreNormalizedText(searchText, query);
+  const fuzzyTitleScore = scoreFuzzySubsequence(normalizedTitle, query);
+  const fuzzySearchScore = scoreFuzzySubsequence(searchText, query);
+  if (
+    query
+    && !tokenMatch
+    && !Number.isFinite(fuzzyTitleScore)
+    && !Number.isFinite(fuzzySearchScore)
+  ) return null;
 
   let score = item.priority;
   if (query) {
     score += Number.isFinite(titleScore) ? titleScore * 5 : 0;
     score += Number.isFinite(subtitleScore) ? subtitleScore * 2 : 0;
     score += Number.isFinite(searchScore) ? searchScore : 0;
+    score += Number.isFinite(fuzzyTitleScore) ? fuzzyTitleScore * 4 : 0;
+    score += Number.isFinite(fuzzySearchScore) ? fuzzySearchScore : 0;
   }
   if (item.active) {
     score += 30;
   }
+  const searchTitleSegments = query
+    ? buildCommandPaletteCharacterHighlightSegments(item.title, query, "fuzzy")
+    : null;
 
-  return { item, score };
+  return {
+    item: {
+      ...item,
+      searchTitleSegments: searchTitleSegments?.some((segment) => segment.highlight)
+        ? searchTitleSegments
+        : null,
+    },
+    score,
+  };
 }
 
 function compareScoredCommands(left: ScoredCommand, right: ScoredCommand): number {

@@ -52,14 +52,6 @@ pub enum ProjectWorkspaceRead {
     Sidebar {
         include_archived: Option<bool>,
     },
-    ThreadSearch {
-        query: String,
-        limit: Option<u32>,
-    },
-    ThreadSearchBackfillCandidates {
-        limit: Option<u32>,
-        force: Option<bool>,
-    },
     ManagedWorktrees {
         project_id: String,
     },
@@ -110,12 +102,6 @@ pub enum ProjectWorkspaceReadValue {
     Sidebar {
         sidebar: Box<ProjectWorkspaceSidebar>,
     },
-    ThreadSearch {
-        results: Vec<ProjectWorkspaceThreadSearchResult>,
-    },
-    ThreadSearchBackfillCandidates {
-        candidates: Vec<ProjectWorkspaceThreadSearchBackfillCandidate>,
-    },
     ManagedWorktrees {
         roots: Vec<String>,
     },
@@ -126,49 +112,6 @@ pub struct ProjectWorkspaceSidebar {
     pub threads: Vec<ProjectWorkspaceThread>,
     pub project_thread_orders: BTreeMap<String, Vec<String>>,
     pub projectless_thread_order: Option<Vec<String>>,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-pub struct ProjectWorkspaceThreadSearchBackfillCandidate {
-    pub thread_id: String,
-    pub source_updated_at: i64,
-    pub pinned_order: Option<i64>,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
-pub struct ProjectWorkspaceThreadSearchResult {
-    pub thread_id: String,
-    pub snippet: String,
-    pub score: i64,
-    pub match_kind: ProjectWorkspaceThreadSearchMatchKind,
-    pub snippet_segments: Vec<ProjectWorkspaceThreadSearchSnippetSegment>,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ProjectWorkspaceThreadSearchMatchKind {
-    Fts,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-pub struct ProjectWorkspaceThreadSearchSnippetSegment {
-    pub text: String,
-    pub highlight: bool,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ProjectWorkspaceThreadSearchRole {
-    User,
-    Assistant,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-pub struct ProjectWorkspaceThreadSearchUnit {
-    pub turn_id: String,
-    pub item_id: String,
-    pub role: ProjectWorkspaceThreadSearchRole,
-    pub text: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -692,16 +635,6 @@ pub enum ProjectWorkspaceIntent {
     UpsertBackgroundProcess {
         process: ProjectWorkspaceBackgroundProcess,
         preserve_started_at: Option<bool>,
-    },
-    ReplaceThreadSearchProjection {
-        thread_id: String,
-        expected_thread_updated_at: i64,
-        units: Vec<ProjectWorkspaceThreadSearchUnit>,
-    },
-    FailThreadSearchProjection {
-        thread_id: String,
-        expected_thread_updated_at: i64,
-        error: String,
     },
     SetProjectPermissionMode {
         project_id: String,

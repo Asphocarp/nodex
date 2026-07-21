@@ -91,6 +91,7 @@ function makePaletteThread(overrides: Partial<CommandPaletteThread> = {}): Comma
     title: overrides.title ?? "Command palette thread search",
     preview: overrides.preview ?? "Add thread search to the launcher.",
     cwd: overrides.cwd ?? "/tmp/default",
+    gitBranch: overrides.gitBranch ?? null,
     projectless: overrides.projectless ?? false,
     pinned: overrides.pinned ?? false,
     pinnedOrder: overrides.pinnedOrder ?? null,
@@ -98,7 +99,6 @@ function makePaletteThread(overrides: Partial<CommandPaletteThread> = {}): Comma
     statusActiveFlags: overrides.statusActiveFlags ?? [],
     createdAt: overrides.createdAt ?? 1_781_990_400,
     updatedAt: overrides.updatedAt ?? 1_781_990_400,
-    linkedAt: overrides.linkedAt ?? "2026-06-20T00:00:00.000Z",
     inActiveProject: overrides.inActiveProject ?? true,
   };
 }
@@ -175,6 +175,24 @@ describe("filterCommandPaletteItems", () => {
     expect(result.commands[0]?.id).toBe("open-settings");
     expect(result.pages.length).toBe(0);
     expect(result.threads.length).toBe(0);
+  });
+
+  test("matches and decorates a bounded fuzzy command subsequence", () => {
+    const result = filterCommandPaletteItems({
+      query: "opnset",
+      mode: "root",
+      commands: [makeCommand()],
+      pages: [],
+    });
+
+    expect(result.commands).toHaveLength(1);
+    expect(
+      result.commands[0]?.searchTitleSegments
+        ?.filter((segment) => segment.highlight)
+        .map((segment) => segment.text)
+        .join("")
+        .toLocaleLowerCase(),
+    ).toBe("opnset");
   });
 
   test("boosts recent pages when the query is otherwise tied", () => {

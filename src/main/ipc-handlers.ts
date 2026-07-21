@@ -845,13 +845,6 @@ export function registerIpcHandlers(
       sendRendererOwnerHostMessage(options.rendererClientRouter, event);
     },
   );
-  codexService.on("threadSearchIndexUpdated", (event) => {
-    safeBroadcastToWindows(
-      BrowserWindow.getAllWindows(),
-      "codex:threads:palette:index-updated",
-      [event],
-    );
-  });
 
   registerCodexPendingWorktreeIpcHandlers({
     registerHandle,
@@ -2963,8 +2956,8 @@ export function registerIpcHandlers(
     codexService.listCommandPaletteThreads(input),
   );
 
-  registerHandle("codex:threads:palette:search-content", (_, input) =>
-    codexService.searchCommandPaletteThreadContent(input),
+  registerHandle("codex:threads:palette:search", (_, input) =>
+    codexService.searchCommandPaletteThreads(input),
   );
 
   registerHandle("codex:thread:summary:get", (_, threadId: string) =>

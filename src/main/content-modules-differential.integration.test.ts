@@ -136,7 +136,6 @@ import {
   setCodexSidebarChatOrder,
 } from "./local-store/codex-sidebar-chat-order";
 import { CodexNodexAgentAuthorityRegistry } from "./codex/codex-nodex-agent-authority";
-import { CommandPaletteThreadSearchService } from "./codex/command-palette-thread-search-service";
 import { CoreClient, CoreModuleResponseError } from "./core-client/core-client";
 import { DuplicatePageV3InputSchema } from "../shared/nodex-agent-tools";
 import {
@@ -467,7 +466,7 @@ describe("TypeScript/Rust content Module differential", () => {
       profile_id: coordinates.profileId,
       library_id: coordinates.libraryId,
       store_epoch: coordinates.storeEpoch,
-      schema_version: 84,
+      schema_version: 85,
     });
 
     const importedAutomations = await stage(
@@ -4640,59 +4639,6 @@ describe("TypeScript/Rust content Module differential", () => {
       }),
     );
 
-    const oracleSidebarSearchService = new CommandPaletteThreadSearchService();
-    const oracleSearchThread = getCodexThread(sidebarMoveThreadId);
-    if (!oracleSearchThread) throw new Error("Gate C sidebar search Thread is missing");
-    const oracleSearchSummary = {
-      threadId: sidebarMoveThreadId,
-      sessionId: oracleMoveSession.id,
-      projectId: oracleCreatedProject.id,
-      projectName: oracleCreatedProject.name,
-      title: "Gate C sidebar move",
-      preview: "Atomic sidebar move and search",
-      cwd: workspaceRoot,
-      projectless: false,
-      pinned: false,
-      pinnedOrder: null,
-      statusType: "idle" as const,
-      statusActiveFlags: [],
-      createdAt: sidebarSearchUpdatedAt,
-      updatedAt: sidebarSearchUpdatedAt,
-      linkedAt: oracleSearchThread.linkedAt,
-    };
-    oracleSidebarSearchService.indexThreadDetail(oracleSearchSummary, {
-      ...oracleSearchThread,
-      turns: [],
-      transcript: [{
-        threadId: sidebarMoveThreadId,
-        turnId: "turn-sidebar-search",
-        itemId: "item-sidebar-search",
-        type: "userMessage",
-        kind: "userMessage",
-        role: "user",
-        markdownText: "sidebarneedle visible transcript",
-        createdAt: sidebarSearchUpdatedAt,
-        updatedAt: sidebarSearchUpdatedAt,
-      }],
-    });
-    await stage(
-      "Project Workspace replace sidebar Thread search projection",
-      candidate.workspaceApply({
-        operationId: "gate-c-workspace-sidebar-search-projection",
-        intent: {
-          kind: "replace_thread_search_projection",
-          thread_id: sidebarMoveThreadId,
-          expected_thread_updated_at: sidebarSearchUpdatedAt,
-          units: [{
-            turn_id: "turn-sidebar-search",
-            item_id: "item-sidebar-search",
-            role: "user",
-            text: "sidebarneedle visible transcript",
-          }],
-        },
-      }),
-    );
-
     moveCodexProjectThread({
       threadId: sidebarMoveThreadId,
       sourceProjectId: oracleCreatedProject.id,
@@ -4779,26 +4725,6 @@ describe("TypeScript/Rust content Module differential", () => {
       cwd: updatedWorkspaceRoot,
       managedWorktreePath: null,
     });
-
-    const oracleSidebarSearch = oracleSidebarSearchService.search(
-      { query: "sidebarneedle", limit: 10 },
-      [oracleSearchSummary],
-    );
-    const candidateSidebarSearch = await stage(
-      "Project Workspace sidebar Thread search",
-      candidate.workspaceRead({
-        kind: "thread_search",
-        query: "sidebarneedle",
-        limit: 10,
-      }),
-    );
-    if (candidateSidebarSearch.value.kind !== "thread_search") {
-      throw new Error("Expected Rust sidebar Thread search");
-    }
-    expect(candidateSidebarSearch.value.results).toEqual(
-      withSnakeCaseKeys(oracleSidebarSearch),
-    );
-    oracleSidebarSearchService.shutdown();
 
     reorderProjects({
       orderedProjectIds: [
@@ -5504,13 +5430,13 @@ describe("TypeScript/Rust content Module differential", () => {
       profile_id: profile.profileId,
       library_id: profile.libraryId,
       store_epoch: profile.storeEpoch,
-      schema_version: 84,
+      schema_version: 85,
     });
     const candidateStatus = await candidate.administrationRead({ kind: "status" });
     expect(candidateStatus.value).toEqual({
       kind: "status",
       readiness: "ready",
-      schema_version: 84,
+      schema_version: 85,
       schema_owner: "rust",
       integrity: "unknown",
     });

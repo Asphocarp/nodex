@@ -13,6 +13,7 @@ function makeThread(overrides: Partial<CommandPaletteThread> = {}): CommandPalet
     title: overrides.title ?? "Command palette thread search",
     preview: overrides.preview ?? "Add thread search and content snippets to the launcher.",
     cwd: overrides.cwd ?? "/Users/asc/nodex",
+    gitBranch: overrides.gitBranch ?? null,
     projectless: overrides.projectless ?? false,
     pinned: overrides.pinned ?? false,
     pinnedOrder: overrides.pinnedOrder ?? null,
@@ -20,7 +21,6 @@ function makeThread(overrides: Partial<CommandPaletteThread> = {}): CommandPalet
     statusActiveFlags: overrides.statusActiveFlags ?? [],
     createdAt: overrides.createdAt ?? 1_781_990_400,
     updatedAt: overrides.updatedAt ?? 1_781_990_400,
-    linkedAt: overrides.linkedAt ?? "2026-06-20T00:00:00.000Z",
     inActiveProject: overrides.inActiveProject ?? true,
   };
 }
@@ -103,5 +103,23 @@ describe("command palette thread search index", () => {
     expect(results.length).toBe(1);
     expect(results[0]?.item.threadId).toBe("thr-projectless");
     expect(results[0]?.item.searchDecorations?.projectNameSegments?.some((segment) => segment.highlight)).toBe(true);
+  });
+
+  test("reports title, preview, branch, and project match priority", () => {
+    const index = createCommandPaletteThreadSearchIndex([
+      makeThread({ id: "thread:title", threadId: "title", title: "Release" }),
+      makeThread({ id: "thread:preview", threadId: "preview", title: "Other", preview: "Release" }),
+      makeThread({ id: "thread:branch", threadId: "branch", title: "Other", preview: "Other", gitBranch: "release" }),
+      makeThread({ id: "thread:project", threadId: "project", title: "Other", preview: "Other", projectName: "Release" }),
+    ]);
+
+    const priorities = new Map(index.search("release").map((hit) => [hit.item.threadId, hit.fieldPriority]));
+
+    expect(priorities).toEqual(new Map([
+      ["title", 0],
+      ["preview", 1],
+      ["branch", 2],
+      ["project", 3],
+    ]));
   });
 });

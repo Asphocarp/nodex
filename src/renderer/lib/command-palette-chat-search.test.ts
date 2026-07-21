@@ -1,11 +1,15 @@
 import { describe, expect, test } from "vitest";
 import type { CommandPaletteThread } from "./command-palette";
 import {
-  type CommandPaletteThreadContentSearchBatch,
+  getCommandPaletteThreadSearchPlan,
+  type CommandPaletteThreadSearchBatch,
   selectCommandPaletteChatResults,
 } from "./command-palette-chat-search";
 import { createCommandPaletteThreadSearchIndex } from "./command-palette-thread-search";
-import type { CommandPaletteThreadContentSearchResult } from "./types";
+import type {
+  CommandPaletteThreadSearchResult,
+  CommandPaletteThreadSummary,
+} from "./types";
 
 function makeThread(overrides: Partial<CommandPaletteThread> = {}): CommandPaletteThread {
   return {
@@ -18,6 +22,7 @@ function makeThread(overrides: Partial<CommandPaletteThread> = {}): CommandPalet
     title: overrides.title ?? "Command palette chat search",
     preview: overrides.preview ?? "Add shared chat search to pickers.",
     cwd: overrides.cwd ?? "/tmp/project",
+    gitBranch: overrides.gitBranch ?? null,
     projectless: overrides.projectless ?? false,
     pinned: overrides.pinned ?? false,
     pinnedOrder: overrides.pinnedOrder ?? null,
@@ -25,36 +30,64 @@ function makeThread(overrides: Partial<CommandPaletteThread> = {}): CommandPalet
     statusActiveFlags: overrides.statusActiveFlags ?? [],
     createdAt: overrides.createdAt ?? 1_781_990_400,
     updatedAt: overrides.updatedAt ?? 1_781_990_400,
-    linkedAt: overrides.linkedAt ?? "2026-06-20T00:00:00.000Z",
     inActiveProject: overrides.inActiveProject ?? true,
   };
 }
 
-function makeContentResult(
-  overrides: Partial<CommandPaletteThreadContentSearchResult> = {},
-): CommandPaletteThreadContentSearchResult {
+function makeSearchSummary(
+  overrides: Partial<CommandPaletteThreadSummary> = {},
+): CommandPaletteThreadSummary {
   return {
     threadId: overrides.threadId ?? "thr-1",
-    snippet: overrides.snippet ?? "Transcript excerpt",
-    score: overrides.score ?? -1,
-    matchKind: "fts",
-    snippetSegments: overrides.snippetSegments,
+    sessionId: overrides.sessionId === undefined ? "session-1" : overrides.sessionId,
+    projectId: overrides.projectId === undefined ? "project-1" : overrides.projectId,
+    projectName: overrides.projectName === undefined ? "Project" : overrides.projectName,
+    title: overrides.title ?? "General chat",
+    preview: overrides.preview ?? "No matching metadata here.",
+    cwd: overrides.cwd ?? "/tmp/project",
+    gitBranch: overrides.gitBranch ?? null,
+    projectless: overrides.projectless ?? false,
+    pinned: overrides.pinned ?? false,
+    pinnedOrder: overrides.pinnedOrder ?? null,
+    statusType: overrides.statusType ?? "notLoaded",
+    statusActiveFlags: overrides.statusActiveFlags ?? [],
+    createdAt: overrides.createdAt ?? 1_781_990_400,
+    updatedAt: overrides.updatedAt ?? 1_781_990_400,
   };
 }
 
-function makeContentBatch(
+function makeSearchResult(
+  thread: Partial<CommandPaletteThreadSummary>,
+  snippet: string,
+): CommandPaletteThreadSearchResult {
+  return { thread: makeSearchSummary(thread), snippet };
+}
+
+function makeSearchBatch(
   query: string,
-  results: readonly CommandPaletteThreadContentSearchResult[],
-): CommandPaletteThreadContentSearchBatch {
-  return {
-    query,
-    results,
-    loading: false,
-  };
+  results: readonly CommandPaletteThreadSearchResult[],
+): CommandPaletteThreadSearchBatch {
+  return { query, results, loading: false, error: null };
 }
 
 describe("command palette chat result selection", () => {
-  test("searches projectless and sessionless sidebar chats through metadata labels", () => {
+  test("switches from commands to metadata and then content at the root thresholds", () => {
+    expect(getCommandPaletteThreadSearchPlan("root", "a")).toBeNull();
+    expect(getCommandPaletteThreadSearchPlan("root", "ab")).toEqual({
+      includeContentResults: false,
+      maxResults: 9,
+    });
+    expect(getCommandPaletteThreadSearchPlan("root", "abc")).toEqual({
+      includeContentResults: true,
+      maxResults: 9,
+    });
+    expect(getCommandPaletteThreadSearchPlan("chats", "a")).toEqual({
+      includeContentResults: true,
+      maxResults: 9,
+    });
+  });
+
+  test("searches projectless and sessionless chats through metadata labels", () => {
     const thread = makeThread({
       threadId: "thr-projectless",
       id: "thread:thr-projectless",
@@ -72,47 +105,54 @@ describe("command palette chat result selection", () => {
       threadSearchIndex: createCommandPaletteThreadSearchIndex(threads),
     });
 
-    expect(results.length).toBe(1);
     expect(results[0]?.threadId).toBe("thr-projectless");
     expect(results[0]?.searchDecorations?.projectNameSegments?.some((segment) => segment.highlight)).toBe(true);
   });
 
-  test("merges content-only transcript hits into chat results", () => {
-    const thread = makeThread({
-      threadId: "thr-content",
-      id: "thread:thr-content",
-      title: "General chat",
-      preview: "No matching metadata here.",
-    });
-    const threads = [thread];
-
+  test("includes content matches that have not been materialized in Nodex", () => {
     const results = selectCommandPaletteChatResults({
       query: "approval heuristic",
-      threads,
-      threadSearchIndex: createCommandPaletteThreadSearchIndex(threads),
-      threadContentSearchBatch: makeContentBatch("approval heuristic", [
-        makeContentResult({
-          threadId: "thr-content",
-          snippet: "Tune the approval heuristic before merging.",
-        }),
+      threads: [],
+      threadSearchBatch: makeSearchBatch("approval heuristic", [
+        makeSearchResult({
+          threadId: "thr-server-only",
+          sessionId: null,
+          title: "Server-only chat",
+          projectId: "project-1",
+        }, "Tune the approval heuristic before merging."),
+      ]),
+      activeProjectId: "project-1",
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      threadId: "thr-server-only",
+      inActiveProject: true,
+      searchPreview: { source: "content" },
+    });
+  });
+
+  test("highlights an exact title match on a server-only chat", () => {
+    const results = selectCommandPaletteChatResults({
+      query: "server",
+      threads: [],
+      threadSearchBatch: makeSearchBatch("server", [
+        makeSearchResult({
+          threadId: "thr-server-title",
+          title: "Server-only chat",
+        }, "Server-only chat"),
       ]),
     });
 
-    expect(results.length).toBe(1);
-    expect(results[0]?.threadId).toBe("thr-content");
-    expect(results[0]?.searchPreview?.source).toBe("content");
-    expect(results[0]?.searchPreview?.excerpt.includes("approval heuristic")).toBe(true);
+    expect(
+      results[0]?.searchDecorations?.titleSegments
+        ?.filter((segment) => segment.highlight)
+        .map((segment) => segment.text)
+        .join(""),
+    ).toBe("Server");
   });
 
-  test("can prioritize active-project content hits before final result limits", () => {
-    const activeProjectThread = makeThread({
-      threadId: "thr-active-content",
-      id: "thread:thr-active-content",
-      title: "General chat",
-      preview: "No matching metadata here.",
-      inActiveProject: true,
-      updatedAt: 100,
-    });
+  test("prioritizes active-project content hits before applying the result limit", () => {
     const otherProjectThread = makeThread({
       threadId: "thr-other-metadata",
       id: "thread:thr-other-metadata",
@@ -122,37 +162,30 @@ describe("command palette chat result selection", () => {
       inActiveProject: false,
       updatedAt: 200,
     });
-    const threads = [otherProjectThread, activeProjectThread];
-    const threadSearchIndex = createCommandPaletteThreadSearchIndex(threads);
-    const threadContentSearchBatch = makeContentBatch("approval heuristic", [
-      makeContentResult({
+    const threads = [otherProjectThread];
+    const batch = makeSearchBatch("approval heuristic", [
+      makeSearchResult({
         threadId: "thr-active-content",
-        snippet: "Approval heuristic appears only in the active transcript.",
-      }),
+        projectId: "project-1",
+        title: "General chat",
+        updatedAt: 100,
+      }, "Approval heuristic appears only in the active transcript."),
     ]);
 
-    const defaultResults = selectCommandPaletteChatResults({
+    const results = selectCommandPaletteChatResults({
       query: "approval heuristic",
       threads,
-      threadSearchIndex,
-      threadContentSearchBatch,
-      threadLimit: 1,
-    });
-    const prioritizedResults = selectCommandPaletteChatResults({
-      query: "approval heuristic",
-      threads,
-      threadSearchIndex,
-      threadContentSearchBatch,
+      threadSearchIndex: createCommandPaletteThreadSearchIndex(threads),
+      threadSearchBatch: batch,
       threadLimit: 1,
       preferActiveProject: true,
+      activeProjectId: "project-1",
     });
 
-    expect(defaultResults[0]?.threadId).toBe("thr-other-metadata");
-    expect(prioritizedResults[0]?.threadId).toBe("thr-active-content");
-    expect(prioritizedResults[0]?.searchPreview?.excerpt.includes("active transcript")).toBe(true);
+    expect(results[0]?.threadId).toBe("thr-active-content");
   });
 
-  test("keeps metadata preview when content search also returns the same chat", () => {
+  test("keeps a stronger metadata preview when content search returns the same chat", () => {
     const thread = makeThread({
       threadId: "thr-preview",
       id: "thread:thr-preview",
@@ -165,41 +198,48 @@ describe("command palette chat result selection", () => {
       query: "retry budget",
       threads,
       threadSearchIndex: createCommandPaletteThreadSearchIndex(threads),
-      threadContentSearchBatch: makeContentBatch("retry budget", [
-        makeContentResult({
-          threadId: "thr-preview",
-          snippet: "Server retry budget transcript snippet.",
-        }),
+      threadSearchBatch: makeSearchBatch("retry budget", [
+        makeSearchResult({ threadId: "thr-preview" }, "Server retry budget transcript snippet."),
       ]),
     });
 
-    expect(results.length).toBe(1);
-    expect(results[0]?.threadId).toBe("thr-preview");
     expect(results[0]?.searchPreview?.source).toBe("metadata");
-    expect(results[0]?.searchPreview?.excerpt.includes("Discuss retry budget")).toBe(true);
+    expect(results[0]?.searchPreview?.excerpt).toContain("Discuss retry budget");
   });
 
-  test("does not merge stale transcript batches from another query", () => {
-    const thread = makeThread({
-      threadId: "thr-content",
-      id: "thread:thr-content",
-      title: "General chat",
-      preview: "No matching metadata here.",
-    });
-    const threads = [thread];
-
+  test("does not merge a stale app-server batch from another query", () => {
     const results = selectCommandPaletteChatResults({
       query: "approval heuristic",
-      threads,
-      threadSearchIndex: createCommandPaletteThreadSearchIndex(threads),
-      threadContentSearchBatch: makeContentBatch("queue recovery", [
-        makeContentResult({
-          threadId: "thr-content",
-          snippet: "Tune the approval heuristic before merging.",
-        }),
+      threads: [],
+      threadSearchBatch: makeSearchBatch("queue recovery", [
+        makeSearchResult({ threadId: "thr-content" }, "Tune the approval heuristic."),
       ]),
     });
 
-    expect(results.length).toBe(0);
+    expect(results).toEqual([]);
+  });
+
+  test("uses recency as the deterministic tie-breaker for equal metadata matches", () => {
+    const older = makeThread({
+      id: "thread:older",
+      threadId: "older",
+      title: "Release review",
+      updatedAt: 10,
+    });
+    const newer = makeThread({
+      id: "thread:newer",
+      threadId: "newer",
+      title: "Release review",
+      updatedAt: 20,
+    });
+    const threads = [older, newer];
+
+    const results = selectCommandPaletteChatResults({
+      query: "release",
+      threads,
+      threadSearchIndex: createCommandPaletteThreadSearchIndex(threads),
+    });
+
+    expect(results.map((thread) => thread.threadId)).toEqual(["newer", "older"]);
   });
 });

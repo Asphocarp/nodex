@@ -73,8 +73,8 @@ const createFixture = async (): Promise<Fixture> => {
   await initializeDatabase();
   const database = getDb();
   const schemaVersion = Number(database.pragma("user_version", { simple: true }));
-  if (schemaVersion !== 83) {
-    throw new Error(`Page Lifecycle v2 fixture requires schema v83, got v${schemaVersion}`);
+  if (schemaVersion !== 84) {
+    throw new Error(`Page Lifecycle v2 fixture requires schema v84, got v${schemaVersion}`);
   }
   const root = database.prepare(`
     SELECT

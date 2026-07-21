@@ -10,7 +10,7 @@
 
 ## Data Durability Model
 - Electron fixes exactly one Profile data authority at bootstrap: native Rust
-  Core. The TypeScript v83 oracle is restricted to independent disposable test
+  Core. The TypeScript v84 oracle is restricted to independent disposable test
   copies and cannot be selected for a normal Profile. The accompanying
   launcher can start or reuse a detached Core and waits for an authenticated
   ready handshake before Electron adapter initialization. The authority cannot
@@ -23,7 +23,7 @@
   can construct a `better-sqlite3` connection.
 - SQLite runs in WAL mode (`local-store/database.ts`) for resilient write/read behavior.
 - SQLite schema version state is tracked in `PRAGMA user_version`.
-- The TypeScript oracle schema is v83 and a Rust-owned Store is v84. They persist one Profile-owned Library, canonical Pages with exclusive `library | page | data_source` parents, Database Containers, deterministic initial Data Sources, Source-owned schema/memberships/values, View-to-Source targets, Project bindings/lifecycle/grants, exact-Turn Nodex authority provenance, authority-bound Agent receipts, and immutable compatibility-owner relocation evidence. Active projections are Page-named (`page_read_model`, `scheduled_page_index`, `canvas_page_references`); old Card names occur only inside ordered migration inputs and compatibility adapters. Block, engine-neutral Document, projection, and immutable evidence writes remain bounded typed transactions.
+- The TypeScript oracle schema is v84 and a Rust-owned Store is v85. They persist one Profile-owned Library, canonical Pages with exclusive `library | page | data_source` parents, Database Containers, deterministic initial Data Sources, Source-owned schema/memberships/values, View-to-Source targets, Project bindings/lifecycle/grants, exact-Turn Nodex authority provenance, authority-bound Agent receipts, and immutable compatibility-owner relocation evidence. Active projections are Page-named (`page_read_model`, `scheduled_page_index`, `canvas_page_references`); old Card names occur only inside ordered migration inputs and compatibility adapters. Block, engine-neutral Document, projection, and immutable evidence writes remain bounded typed transactions. TypeScript v84 retires the duplicate thread transcript/FTS projection. Rust accepts TypeScript v83/v84 only after immutable backup and validation; an already Rust-owned v83/v84 Store preserves its existing cutover evidence and upgrades atomically without creating a second migration backup. Both paths publish v85 and delegate chat history search to Codex app-server.
 - Schema v64-v66 add the Agent dynamic-tool durability plane: each launched task retains its namespace/toolset catalog, one store-local signing key authenticates separately domain-bound short ETags and self-contained cursors across restarts, and content-free call receipts bind thread/call identity, request semantics, deterministic allocations, canonical mutation identity, and compact replay results. Restoring or replacing the store changes the epoch, so validators, cursors, and task grants from the old authority fail closed.
 - Startup supports shipped v26 and v57 stores as direct inputs to v58. It creates a SQLite-consistent snapshot with the online backup API, copies assets into staging, normalizes v26 when needed, converts every Card/Canvas authority and inline image there, then requires current-schema, integrity, ownership, exact-head projection, and asset-hash validation. Only a passing candidate enters the fsynced replacement journal. Any conversion or validation failure deletes staging and leaves the source unchanged; any pre-commit swap interruption restores the complete source DB/WAL/SHM/assets set.
 - The v58 Card model keeps generation and Yjs authority intact while using `nodex.card@2` and canonical portable-rich title projections. The live Adapter registry rejects Card v1; a separate read-only historical inspector exists only inside the shipped-schema importer. A v1 checkpoint remains immutable and restores by compiling a forward rich-title/body mutation into the current v2 Document.
@@ -80,7 +80,7 @@
 - Project rename updates linked Codex rows transactionally with project metadata updates.
 
 ## Backup and Restore
-- The native Rust Core migration lane exposes v84 readiness, backup inventory,
+- The native Rust Core migration lane exposes v85 readiness, backup inventory,
   manual online backup creation, and whole-store restore over its private
   generated Module route.
   Backup identity is derived from Profile plus operation identity; the manifest
@@ -89,7 +89,7 @@
   on collision. Staging and managed-asset trees refuse symlinks and special
   files, the immutable candidate must pass schema-owner, integrity, and foreign
   key validation, and every file plus containing directory is flushed before
-  publication. Restore validates the selected immutable v84 backup plus every
+  publication. Restore validates the selected immutable v85 backup plus every
   reconstructed ready Document, Canvas scene and current projection,
   Profile/Library identity, and referenced managed asset before file movement.
   Delete and automatic-retention pruning persist exact logical deletion
@@ -174,11 +174,11 @@
   is the executable Gate D recovery audit. It refuses nonempty, symlinked, or
   out-of-tree Profiles; verifies the named behavior tests still exist; runs all
   native Module transaction tests plus abrupt-WAL recovery and the Electron
-  loopback isolation test; then seeds and reopens one representative v84
-  Profile to report its final committed sequence, `integrity_check`, and
+  loopback isolation test; then migrates and reopens one representative v84
+  input Profile as v85 to report its final committed sequence, `integrity_check`, and
   `foreign_key_check`. The matrix covers rejection before transaction,
   Library/Database/Workspace/Automation rollback during a transaction,
-  Document commit before cache/event publication, v83 migration publication,
+  Document commit before cache/event publication, v83/v84 migration publication,
   backup publication before receipt, restore rollback/adoption, and process
   exit with a committed WAL.
 - Native global Module events are reconstructed from the durable SQLite change
@@ -213,7 +213,7 @@
 - Native whole-store replacement has a bounded, mode-restricted, atomically
   fsynced journal whose paths are controlled staging/rollback directory names,
   never caller-authored paths. It is inspected under the Profile lock before
-  any SQLite connection opens. A prepared candidate must be a Rust-owned v84
+  any SQLite connection opens. A prepared candidate must be a Rust-owned v85
   Store with a regular no-symlink asset tree. An interruption before file
   movement returns the journal to `prepared`; an interruption during install
   restores DB, WAL, SHM, and assets while moving the candidate back to staging.
@@ -282,7 +282,7 @@
 - Oversized Page payloads return HTTP `413` before DB work.
 - Invalid inputs fail at validation boundary with actionable errors.
 - Not-found resources return `404` from API routes.
-- Current builds accept empty, v26, v57, or release-chain v58-v80 stores. Empty Profiles create the v58 release shape and immediately apply the same ordered migrations used by existing Profiles; every unsupported schema fails before live mutation. v68-v78 establish Library/Page/Data Source authority and Page-named projections; v79 validates the rooted acyclic Page ownership forest; v80 adds exact-Turn authority, Agent receipt provenance, and immutable actor/source/target compatibility-owner relocation ledgers. The v80 migration is one transaction and publishes only after `foreign_key_check`; HTTP, IPC, workers, and schedulers remain stopped until initialization reaches v80.
+- Current TypeScript builds accept empty, v26, v57, or release-chain v58-v83 stores. Empty Profiles create the v58 release shape and immediately apply the same ordered migrations used by existing Profiles; every unsupported schema fails before live mutation. v68-v78 establish Library/Page/Data Source authority and Page-named projections; v79 validates the rooted acyclic Page ownership forest; v80 adds exact-Turn authority, Agent receipt provenance, and immutable actor/source/target compatibility-owner relocation ledgers; v81-v83 complete the current Database/Workflow/subagent path; v84 atomically removes the retired local thread-search projection. HTTP, IPC, workers, and schedulers remain stopped until initialization reaches the selected authority's current schema.
 - Runtime import/startup failures are handled in bootstrap by destroying any windows, writing a bootstrap log entry under `${NODEX_HOME}/logs`, showing a native `Nodex failed to start` dialog, and quitting.
 - Stale Page/property writes with expected revisions return typed conflict payloads (`status: "conflict"`; HTTP `409`) and do not apply partial updates.
 - Backup restore failures surface explicit error responses.

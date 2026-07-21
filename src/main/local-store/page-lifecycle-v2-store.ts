@@ -72,7 +72,7 @@ import { readBlockStoreEpoch } from "./block-store-metadata";
 import { authorizeProjectResourceInDatabase } from "./project-resource-grants";
 import { readDatabaseModuleV2 } from "./database-module-v2-runtime";
 
-const CANONICAL_SCHEMA_VERSION = 83;
+const CANONICAL_SCHEMA_VERSION = 84;
 const MUTATION_KIND = "page_lifecycle";
 
 const REQUIRED_PROPERTIES = {

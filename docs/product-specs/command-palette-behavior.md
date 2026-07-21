@@ -2,9 +2,9 @@
 
 ## Intent
 The command palette is the global launcher for fast workbench navigation.
-It is split into explicit entry modes so command recall, chat search, and Page retrieval do not compete in one result list:
+It has explicit entry modes while keeping root search useful when users type a task title without switching modes first:
 
-- root mode searches command/action rows only
+- root mode searches commands immediately and progressively adds chats as the query becomes specific
 - chats mode searches the current non-archived sidebar chats
 - page mode searches Library Pages and owns the Page filter controls
 - files mode keeps the command-menu shell available for future file-search work, but file search stays a development-only disabled mock until Nodex has a real file-search backend
@@ -21,7 +21,7 @@ The palette is a transient overlay and does not become part of durable navigatio
 - The sidebar `Search` row opens page mode and shows the `Cmd/Ctrl+P` shortcut.
 - A leading `>` is plain query text and no longer switches modes.
 - The palette reads Pages visible through every loaded Project context, not just the active Project.
-- The palette reads chat results from the current non-archived sidebar chat snapshot, including project-backed, projectless, and not-yet-materialized sidebar chats that can be opened through chat session materialization.
+- The palette combines the current non-archived local chat catalog with eligible root chats returned by app-server search. A server-only result is materialized locally only when opened.
 - The palette closes after executing a result.
 - Closing the palette clears the query and resets the selection index.
 - The palette overlays the workbench without dimming the background content.
@@ -31,11 +31,14 @@ The palette is a transient overlay and does not become part of durable navigatio
 ### Root Command Mode
 Root command mode is opened by `Cmd/Ctrl+K` and `Cmd/Ctrl+Shift+P`.
 
-- Root mode shows command/action rows only.
+- Root mode always searches command/action rows.
+- A root query shorter than `2` characters remains command-only.
+- At `2` characters, matching local chat metadata appears in a trailing `Chats` section while commands remain visible.
+- At `3` characters, the same section also merges bounded app-server chat-history results.
 - Chats and Pages are represented as explicit command rows such as `Search chats` and `Search Pages`.
 - Executing `Search chats` switches to chats mode. Executing `Search Pages` switches to page mode.
 - `Search files` appears only in development as a disabled mock row until real file search exists.
-- Pages and chats are hidden entirely in root mode.
+- Pages remain hidden in root mode; chats are progressively disclosed by query length.
 - Disabled commands remain visible so users can understand available affordances, but they are skipped by keyboard selection and cannot be executed.
 - Commands use customized command-keymap shortcut labels where a matching command id exists.
 - Commands are grouped as Suggested, Chat, Navigation, Panels, Project, Configure, Skills, and App.
@@ -49,7 +52,7 @@ Chats mode is opened by `Cmd/Ctrl+G` or the root-mode `Search chats` row.
 - Commands and Pages are hidden entirely in chats mode.
 - Empty query shows recent and pinned sidebar chats when available.
 - User-facing row text uses `chat`; internal data structures may still use `thread`.
-- Chat metadata search is local. Chat content snippets come only from the bounded backend search path described below.
+- Chat metadata search is local and immediate. Transcript discovery and snippets come only from the bounded app-server search path described below.
 
 ### Page Mode
 Page mode is opened by `Cmd/Ctrl+P`, the sidebar `Search` row, or the root-mode `Search Pages` row.
@@ -164,18 +167,19 @@ If a result matched only non-description fields, no description preview is shown
 
 ## Chat Search Model
 
-Chat search indexes sidebar chat metadata in the renderer and treats content search as a bounded main-process supplement.
+Chat search indexes the local chat catalog in the renderer and treats app-server `thread/search` as a bounded supplement and discovery source.
 
 ### Indexed fields
 Chat metadata search indexes:
 
 - title
 - preview
+- git branch
 - project name
 - cwd
 - chat id
 
-Only non-archived chats visible in the sidebar snapshot are included. Project-backed chats, projectless chats, and sessionless snapshot chats are searchable; archived chats, disabled rows, side chats, ephemeral conversations, and internal helper threads are excluded.
+The local index includes non-archived project-backed, projectless, and sessionless chats. The app-server supplement may add eligible root chats that are not local yet. Archived chats, side chats, ephemeral conversations, parent-linked subagents, and internal helper threads are excluded at the main-process boundary.
 
 ### Ranking
 Chat metadata search uses an in-memory MiniSearch index. It is intentionally not persisted in IndexedDB because chat metadata is small and already fetched on palette open.
@@ -184,6 +188,7 @@ Field boosts are:
 
 - title: `8`
 - preview: `4`
+- git branch: `2.5`
 - project name: `3`
 - cwd: `2`
 - chat id: `1`
@@ -195,35 +200,35 @@ Query semantics match Page metadata search:
 - fuzzy matching uses the shared term-length-sensitive thresholds
 
 For empty queries, chat results preserve sidebar ordering: pinned rows first, then the sidebar's recency ordering.
-For non-empty queries, metadata relevance sorts first, then pinned/sidebar ordering and recency tiebreaks.
+For non-empty queries, the best matched field orders results first (`title`, `preview`, `branch`, `project/cwd`, then id), followed by relevance and recency. Pickers may place active-Project results first without changing this shared match order.
 
-### Content search
-For queries with at least `2` characters, the renderer also requests bounded chat content search through `codex:threads:palette:search-content`:
+### App-server search
+The renderer requests bounded chat search through `codex:threads:palette:search`, with a 200 ms debounce:
 
 - the request limit is capped at `60`
-- the main process delegates content search to the local thread-search indexer worker
-- SQLite FTS5 is the only content-search hot path; the search IPC only reads the current FTS index and never triggers transcript backfill, index rebuilds, full-table scans, or app-server `thread/search`
-- sidebar listing can enqueue low-priority backfill, but the worker advances it recent-first in small slices so palette open/search remains responsive
-- `codex:threads:palette:index-updated` is emitted only after actual indexed content changes, throttled by the backend and debounced by the renderer before refreshing the current query
-- returned content hits are intersected with the current sidebar chat id whitelist before they can render
-- local search/index errors fail closed and leave metadata search working
-- content-only hits can appear in the `Chats` section after metadata hits
+- explicit Chats mode searches for every non-empty query; root mode starts at `3` characters
+- main calls paginated app-server `thread/search`, ordered by `updated_at` descending, until it reaches the result limit or exhausts the cursor
+- main drops archived, ephemeral, parent/subagent, and internal-source rows, guards repeated cursors, and enriches hits from local thread/session/Project state when available
+- a normalized query/limit cache lasts 30 seconds and identical in-flight requests are deduplicated
+- renderer results are accepted only for the current normalized query; a stale response cannot replace newer rows
+- app-server errors show a compact fallback status while local metadata matches remain interactive
+- Nodex stores no transcript copy, FTS table, retry state, or backfill queue for this feature
 
 ### Chat Result Presentation
 Each chat result renders:
 
 - chat icon
 - chat title
-- project, cwd basename, and updated date metadata
+- project, cwd basename, branch, and updated date metadata
 - optional preview/snippet row
 
-Metadata matches can highlight fuzzy-matched title, project/Chats context, cwd, and preview spans using MiniSearch match terms.
-Content snippets use backend-provided highlight segments from FTS snippets. Content typo-level fuzzy matching is intentionally not promised; if Nodex adds it later, it should use a bounded trigram/n-gram style index instead of rebuilding a full-content MiniSearch overlay.
+Metadata matches highlight title, project/Chats context, cwd, branch, and preview characters inline without badge-like match chips. App-server snippets are normalized and highlighted against the current query in the renderer. CJK, emoji, and combining marks use one code-point coordinate system so highlighting never corrupts visible text.
 
 ## Command Search Model
 - Commands are matched only in root mode.
 - Command ranking remains lightweight and heuristic rather than MiniSearch-based.
-- Ranking considers title, subtitle, keyword text, explicit command priority, and active-state bonus.
+- Ranking considers exact/prefix/substring and fuzzy subsequence matches across title, subtitle, and keyword text, plus explicit command priority and active-state bonus.
+- Matching command-title characters are highlighted inline; a failed fuzzy attempt leaves the original title untouched.
 - Result limits remain separate from Page limits.
 
 ## Keyboard Behavior
@@ -234,8 +239,8 @@ Content snippets use backend-provided highlight segments from FTS snippets. Cont
 - When the query is empty, standard dialog close behavior applies.
 
 ## Result Limits
-- root mode shows up to `100` command rows; disabled mock rows are discoverable only in development builds because production does not include mock commands in the catalog
-- chats mode shows up to `12` chat rows
+- root mode shows up to `100` command rows plus up to `9` progressive chat rows; one chat slot is reserved for the loading row while server search is pending
+- chats mode shows up to `9` chat rows
 - page mode shows up to `12` Page rows
 - files mode shows only its mock/empty state until real file search exists
 

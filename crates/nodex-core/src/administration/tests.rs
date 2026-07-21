@@ -240,7 +240,7 @@ fn reports_rust_readiness_and_publishes_a_valid_exact_retry_backup() {
         fixture.read(StoreAdministrationRead::Status),
         StoreAdministrationReadValue::Status {
             readiness: StoreReadiness::Ready,
-            schema_version: 84,
+            schema_version: 85,
             schema_owner: SchemaOwner::Rust,
             integrity: StoreIntegrity::Unknown,
         }
@@ -295,7 +295,7 @@ fn reports_rust_readiness_and_publishes_a_valid_exact_retry_backup() {
         fixture.read(StoreAdministrationRead::Status),
         StoreAdministrationReadValue::Status {
             readiness: StoreReadiness::Ready,
-            schema_version: 84,
+            schema_version: 85,
             schema_owner: SchemaOwner::Rust,
             integrity: StoreIntegrity::Ok,
         }
@@ -1063,7 +1063,7 @@ fn runs_supported_maintenance_in_module_owned_order_with_exact_replay() {
         fixture.read(StoreAdministrationRead::Status),
         StoreAdministrationReadValue::Status {
             readiness: StoreReadiness::Ready,
-            schema_version: 84,
+            schema_version: 85,
             schema_owner: SchemaOwner::Rust,
             integrity: StoreIntegrity::Ok,
         }
@@ -1152,7 +1152,7 @@ fn failed_foreign_key_maintenance_marks_integrity_failed_without_a_receipt() {
         fixture.read(StoreAdministrationRead::Status),
         StoreAdministrationReadValue::Status {
             readiness: StoreReadiness::Ready,
-            schema_version: 84,
+            schema_version: 85,
             schema_owner: SchemaOwner::Rust,
             integrity: StoreIntegrity::Failed,
         }

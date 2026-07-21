@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import type {
   CodexBackgroundProcessRecord,
   CodexPermissionMode,
-  CommandPaletteThreadContentSearchResult,
   CodexThreadActiveFlag,
   CodexThreadStatusType,
   CodexThreadSummary,
@@ -188,19 +187,6 @@ export interface DesktopProjectWorkspaceExecutionContext {
   readonly writableRoots: readonly string[];
 }
 
-export interface DesktopProjectWorkspaceThreadSearchUnit {
-  readonly turnId: string;
-  readonly itemId: string;
-  readonly role: "user" | "assistant";
-  readonly text: string;
-}
-
-export interface DesktopProjectWorkspaceThreadSearchBackfillCandidate {
-  readonly threadId: string;
-  readonly sourceUpdatedAt: number;
-  readonly pinnedOrder: number | null;
-}
-
 export interface DesktopProjectWorkspacePort {
   listProjects(): Promise<Project[]>;
   getProject(projectId: string): Promise<Project | null>;
@@ -358,24 +344,6 @@ export interface DesktopProjectWorkspacePort {
     input: CodexBackgroundProcessRecord,
     options?: { readonly preserveStartedAt?: boolean },
   ): Promise<CodexBackgroundProcessRecord>;
-  searchThreadContent?(
-    query: string,
-    limit?: number,
-  ): Promise<CommandPaletteThreadContentSearchResult[]>;
-  listThreadSearchBackfillCandidates?(
-    limit: number,
-    force: boolean,
-  ): Promise<readonly DesktopProjectWorkspaceThreadSearchBackfillCandidate[]>;
-  replaceThreadSearchProjection?(
-    threadId: string,
-    expectedThreadUpdatedAt: number,
-    units: readonly DesktopProjectWorkspaceThreadSearchUnit[],
-  ): Promise<void>;
-  failThreadSearchProjection?(
-    threadId: string,
-    expectedThreadUpdatedAt: number,
-    error: string,
-  ): Promise<void>;
   readSidebar(
     includeArchived: boolean,
   ): Promise<DesktopProjectWorkspaceSidebar>;
@@ -1782,70 +1750,6 @@ export function createCoreProjectWorkspaceAdapter(
         throw new Error(`Updated Core background process not found: ${input.id}`);
       }
       return persisted;
-    },
-    searchThreadContent: async (query, limit) => {
-      const snapshot = await client.workspaceRead({
-        kind: "thread_search",
-        query,
-        ...(limit === undefined ? {} : { limit }),
-      });
-      if (snapshot.value.kind !== "thread_search") {
-        throw new Error("Core returned the wrong Project Workspace read variant");
-      }
-      return snapshot.value.results.map((result) => ({
-        threadId: result.thread_id,
-        snippet: result.snippet,
-        score: result.score,
-        matchKind: result.match_kind,
-        snippetSegments: result.snippet_segments.map((segment) => ({
-          text: segment.text,
-          highlight: segment.highlight,
-        })),
-      }));
-    },
-    listThreadSearchBackfillCandidates: async (limit, force) => {
-      const snapshot = await client.workspaceRead({
-        kind: "thread_search_backfill_candidates",
-        limit,
-        force,
-      });
-      if (snapshot.value.kind !== "thread_search_backfill_candidates") {
-        throw new Error("Core returned the wrong Project Workspace read variant");
-      }
-      return snapshot.value.candidates.map((candidate) => ({
-        threadId: candidate.thread_id,
-        sourceUpdatedAt: candidate.source_updated_at,
-        pinnedOrder: candidate.pinned_order ?? null,
-      }));
-    },
-    replaceThreadSearchProjection: async (
-      threadId,
-      expectedThreadUpdatedAt,
-      units,
-    ) => {
-      await apply({
-        kind: "replace_thread_search_projection",
-        thread_id: threadId,
-        expected_thread_updated_at: expectedThreadUpdatedAt,
-        units: units.map((unit) => ({
-          turn_id: unit.turnId,
-          item_id: unit.itemId,
-          role: unit.role,
-          text: unit.text,
-        })),
-      });
-    },
-    failThreadSearchProjection: async (
-      threadId,
-      expectedThreadUpdatedAt,
-      error,
-    ) => {
-      await apply({
-        kind: "fail_thread_search_projection",
-        thread_id: threadId,
-        expected_thread_updated_at: expectedThreadUpdatedAt,
-        error,
-      });
     },
     readSidebar,
     setProjectThreadOrder: async (projectId, orderedThreadIds) => {

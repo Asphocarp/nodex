@@ -5,9 +5,10 @@ use serde::{Deserialize, Serialize};
 
 use super::sqlite::{StoreError, StoreErrorCode};
 
-pub const TYPESCRIPT_SCHEMA_VERSION: i64 = 83;
-pub const CORE_SCHEMA_VERSION: i64 = 84;
+pub const TYPESCRIPT_SCHEMA_VERSION: i64 = 84;
+pub const CORE_SCHEMA_VERSION: i64 = 85;
 pub const V83_SCHEMA_SQL: &str = include_str!("../../schema/v83.sql");
+pub const V84_SCHEMA_SQL: &str = include_str!("../../schema/v84.sql");
 
 pub fn v83_schema_objects_sql() -> &'static str {
     let start_marker = "BEGIN IMMEDIATE;\n\n";
@@ -20,6 +21,19 @@ pub fn v83_schema_objects_sql() -> &'static str {
         .rfind(end_marker)
         .expect("v83 schema artifact end marker");
     &V83_SCHEMA_SQL[start..end]
+}
+
+pub fn v84_schema_objects_sql() -> &'static str {
+    let start_marker = "BEGIN IMMEDIATE;\n\n";
+    let end_marker = "\nPRAGMA user_version = 84;";
+    let start = V84_SCHEMA_SQL
+        .find(start_marker)
+        .expect("v84 schema artifact start marker")
+        + start_marker.len();
+    let end = V84_SCHEMA_SQL
+        .rfind(end_marker)
+        .expect("v84 schema artifact end marker");
+    &V84_SCHEMA_SQL[start..end]
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -48,10 +62,36 @@ pub fn install_v83_schema(connection: &Connection) -> Result<(), StoreError> {
     }
     connection.execute_batch(V83_SCHEMA_SQL)?;
     let installed: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    if installed != TYPESCRIPT_SCHEMA_VERSION {
+    if installed != 83 {
         return Err(StoreError::new(
             StoreErrorCode::StoreCorrupt,
             format!("v83 schema artifact published v{installed}"),
+            false,
+        ));
+    }
+    Ok(())
+}
+
+pub fn install_v84_schema(connection: &Connection) -> Result<(), StoreError> {
+    let current: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    let object_count: i64 = connection.query_row(
+        "SELECT count(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'",
+        [],
+        |row| row.get(0),
+    )?;
+    if current != 0 || object_count != 0 {
+        return Err(StoreError::new(
+            StoreErrorCode::UnsupportedSchema,
+            "v84 schema installation requires an empty SQLite database",
+            false,
+        ));
+    }
+    connection.execute_batch(V84_SCHEMA_SQL)?;
+    let installed: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    if installed != TYPESCRIPT_SCHEMA_VERSION {
+        return Err(StoreError::new(
+            StoreErrorCode::StoreCorrupt,
+            format!("v84 schema artifact published v{installed}"),
             false,
         ));
     }
@@ -105,13 +145,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn checked_in_v83_artifact_installs_the_complete_physical_schema() {
+    fn checked_in_v84_artifact_installs_the_complete_physical_schema() {
         let directory = tempdir().expect("schema store");
         let connection = open_writer(&directory.path().join("nodex.db")).expect("writer");
-        install_v83_schema(&connection).expect("v83 schema");
+        install_v84_schema(&connection).expect("v84 schema");
         validate_store(&connection).expect("valid fresh schema");
         let inventory = read_schema_inventory(&connection).expect("schema inventory");
-        assert_eq!(inventory.len(), 240);
+        assert_eq!(inventory.len(), 231);
         for (object_type, name) in [
             ("table", "documents"),
             ("table", "document_updates"),
@@ -136,7 +176,7 @@ mod tests {
     fn schema_inventory_ignores_fts_shadow_implementation_objects() {
         let directory = tempdir().expect("schema store");
         let connection = open_writer(&directory.path().join("nodex.db")).expect("writer");
-        install_v83_schema(&connection).expect("v83 schema");
+        install_v84_schema(&connection).expect("v84 schema");
         let inventory = read_schema_inventory(&connection).expect("inventory");
         assert!(
             inventory
@@ -146,7 +186,7 @@ mod tests {
         assert!(
             inventory
                 .keys()
-                .all(|key| !key.name.starts_with("thread_search_units_fts_"))
+                .all(|key| !key.name.starts_with("thread_search"))
         );
     }
 }

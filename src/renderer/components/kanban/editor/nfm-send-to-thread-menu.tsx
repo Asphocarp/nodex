@@ -14,8 +14,8 @@ import { CodexThreadIcon, SpinnerIcon } from "@/components/shared/icons";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import {
   selectCommandPaletteChatResults,
-  type CommandPaletteThreadContentSearchBatch,
-  useCommandPaletteThreadContentSearch,
+  type CommandPaletteThreadSearchBatch,
+  useCommandPaletteThreadSearch,
   useCommandPaletteThreadItems,
 } from "@/lib/command-palette-chat-search";
 import type { CommandPaletteThread } from "@/lib/command-palette";
@@ -56,8 +56,8 @@ export interface NfmSendToThreadMenuSurfaceProps extends NfmSendToThreadMenuProp
   threadItems: readonly CommandPaletteThread[];
   initialQuery?: string;
   threadItemsLoading?: boolean;
-  threadContentSearchBatch?: CommandPaletteThreadContentSearchBatch;
-  enableThreadContentSearch?: boolean;
+  threadSearchBatch?: CommandPaletteThreadSearchBatch;
+  enableThreadSearch?: boolean;
 }
 
 const SEND_TO_THREAD_ERROR = "Could not send";
@@ -271,8 +271,8 @@ export function NfmSendToThreadMenuSurface({
   onAccept,
   onClose,
   showModeSelector = true,
-  threadContentSearchBatch: injectedThreadContentSearchBatch,
-  enableThreadContentSearch = true,
+  threadSearchBatch: injectedThreadSearchBatch,
+  enableThreadSearch = true,
 }: NfmSendToThreadMenuSurfaceProps) {
   const listboxId = useId();
   const comboboxId = useId();
@@ -288,18 +288,20 @@ export function NfmSendToThreadMenuSurface({
     [threadItems],
   );
   const threadSearchIndex = useCommandPaletteThreadSearchIndex(normalizedThreadItems);
-  const fetchedThreadContentSearchBatch = useCommandPaletteThreadContentSearch({
-    enabled: enableThreadContentSearch && Boolean(projectId),
+  const fetchedThreadSearchBatch = useCommandPaletteThreadSearch({
+    enabled: enableThreadSearch && Boolean(projectId),
     query: deferredQuery,
+    limit: SEND_TO_THREAD_RESULT_LIMIT,
   });
-  const threadContentSearchBatch = injectedThreadContentSearchBatch ?? fetchedThreadContentSearchBatch;
+  const threadSearchBatch = injectedThreadSearchBatch ?? fetchedThreadSearchBatch;
   const visibleThreads = useMemo(() => selectCommandPaletteChatResults({
     query: deferredQuery,
     threads: normalizedThreadItems,
     threadSearchIndex,
-    threadContentSearchBatch,
+    threadSearchBatch,
     threadLimit: SEND_TO_THREAD_RESULT_LIMIT,
-  }), [deferredQuery, normalizedThreadItems, threadContentSearchBatch, threadSearchIndex]);
+    activeProjectId: projectId ?? "",
+  }), [deferredQuery, normalizedThreadItems, projectId, threadSearchBatch, threadSearchIndex]);
 
   useEffect(() => {
     setQuery(initialQuery);
@@ -325,8 +327,9 @@ export function NfmSendToThreadMenuSurface({
       query: nextQuery,
       threads: normalizedThreadItems,
       threadSearchIndex,
-      threadContentSearchBatch,
+      threadSearchBatch,
       threadLimit: SEND_TO_THREAD_RESULT_LIMIT,
+      activeProjectId: projectId,
     });
     return buildNfmSendToThreadRows({
       threads,
@@ -339,7 +342,7 @@ export function NfmSendToThreadMenuSurface({
     preferredTarget,
     projectId,
     projectNameById,
-    threadContentSearchBatch,
+    threadSearchBatch,
     threadSearchIndex,
   ]);
   const rowsStale = shouldConsumeStalePickerNavigation({
@@ -348,17 +351,17 @@ export function NfmSendToThreadMenuSurface({
     normalizeQuery: normalizeCommandPaletteSearchText,
   });
   const normalizedLiveQuery = normalizeCommandPaletteSearchText(query);
-  const shouldWaitForThreadContent = enableThreadContentSearch
-    && normalizedLiveQuery.length >= 2
+  const shouldWaitForThreadSearch = enableThreadSearch
+    && normalizedLiveQuery.length > 0
     && (
-      threadContentSearchBatch.loading
-      || normalizeCommandPaletteSearchText(threadContentSearchBatch.query) !== normalizedLiveQuery
+      threadSearchBatch.loading
+      || normalizeCommandPaletteSearchText(threadSearchBatch.query) !== normalizedLiveQuery
     );
   const resolveAcceptableRows = useCallback((candidateRows: readonly NfmSendToThreadRow[]) => (
-    shouldWaitForThreadContent
+    shouldWaitForThreadSearch
       ? candidateRows.filter((row) => row.kind === "thread")
       : candidateRows
-  ), [shouldWaitForThreadContent]);
+  ), [shouldWaitForThreadSearch]);
   const resolvedFocusedRowId = resolveNfmSendToThreadFocusedRowId(
     focusedRowId,
     deferredQuery,
@@ -420,7 +423,7 @@ export function NfmSendToThreadMenuSurface({
       return;
     }
 
-    if (!threadItemsLoading && !shouldWaitForThreadContent) {
+    if (!threadItemsLoading && !shouldWaitForThreadSearch) {
       setPendingAcceptQuery(null);
     }
   }, [
@@ -430,7 +433,7 @@ export function NfmSendToThreadMenuSurface({
     query,
     resolveAcceptableRows,
     rows,
-    shouldWaitForThreadContent,
+    shouldWaitForThreadSearch,
     threadItemsLoading,
   ]);
 
@@ -525,7 +528,7 @@ export function NfmSendToThreadMenuSurface({
         id={listboxId}
         role="listbox"
         aria-labelledby={comboboxId}
-        aria-busy={rowsStale || threadItemsLoading || shouldWaitForThreadContent || pendingAcceptQuery !== null}
+        aria-busy={rowsStale || threadItemsLoading || shouldWaitForThreadSearch || pendingAcceptQuery !== null}
         className="flex h-[340px] min-h-0 flex-col"
       >
         <div className="notion-scroller vertical min-h-0 flex-1 overflow-y-auto pb-1">

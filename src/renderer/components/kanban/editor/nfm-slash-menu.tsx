@@ -50,9 +50,9 @@ import {
 } from "@/lib/command-palette-page-results";
 import {
   listCommandPaletteThreadItems,
-  searchCommandPaletteThreadContent,
+  searchCommandPaletteThreads,
   selectCommandPaletteChatResults,
-  type CommandPaletteThreadContentSearchBatch,
+  type CommandPaletteThreadSearchBatch,
 } from "@/lib/command-palette-chat-search";
 import { createCommandPaletteThreadSearchIndex } from "@/lib/command-palette-thread-search";
 import { useCommandPalettePageSearchIndex } from "@/lib/use-command-palette-page-search-index";
@@ -818,7 +818,7 @@ interface NfmMentionSearchState {
 export interface NfmMentionGetItemsLoaders {
   searchPageDescriptions: typeof searchCommandPalettePageDescriptions;
   listThreadItems: typeof listCommandPaletteThreadItems;
-  searchThreadContent: typeof searchCommandPaletteThreadContent;
+  searchThreads: typeof searchCommandPaletteThreads;
   selectPageResults: typeof selectCommandPalettePageResults;
   selectChatResults: typeof selectCommandPaletteChatResults;
   createThreadSearchIndex: typeof createCommandPaletteThreadSearchIndex;
@@ -836,7 +836,7 @@ interface NfmMentionGetItemsInput {
 const DEFAULT_NFM_MENTION_GET_ITEMS_LOADERS: NfmMentionGetItemsLoaders = {
   searchPageDescriptions: searchCommandPalettePageDescriptions,
   listThreadItems: listCommandPaletteThreadItems,
-  searchThreadContent: searchCommandPaletteThreadContent,
+  searchThreads: searchCommandPaletteThreads,
   selectPageResults: selectCommandPalettePageResults,
   selectChatResults: selectCommandPaletteChatResults,
   createThreadSearchIndex: createCommandPaletteThreadSearchIndex,
@@ -846,14 +846,14 @@ type NfmPageDescriptionSearchResults = Awaited<
   ReturnType<NfmMentionGetItemsLoaders["searchPageDescriptions"]>
 >;
 
-type NfmThreadContentSearchResults = Awaited<
-  ReturnType<NfmMentionGetItemsLoaders["searchThreadContent"]>
+type NfmThreadSearchResults = Awaited<
+  ReturnType<NfmMentionGetItemsLoaders["searchThreads"]>
 >;
 
 interface NfmMentionAsyncSearchResults {
   key: string;
   pageDescriptionSearchResults?: NfmPageDescriptionSearchResults;
-  threadContentSearchResults?: NfmThreadContentSearchResults;
+  threadSearchResults?: NfmThreadSearchResults;
 }
 
 function buildNfmMentionAsyncSearchKey({
@@ -900,7 +900,7 @@ export function useNfmMentionGetItems({
     key: string;
     id: number;
   } | null>(null);
-  const threadContentSearchRequestRef = useRef<{
+  const threadSearchRequestRef = useRef<{
     key: string;
     id: number;
   } | null>(null);
@@ -1064,22 +1064,22 @@ export function useNfmMentionGetItems({
       }
 
       if (
-        currentResults.threadContentSearchResults === undefined &&
-        threadContentSearchRequestRef.current?.key !== requestKey
+        currentResults.threadSearchResults === undefined &&
+        threadSearchRequestRef.current?.key !== requestKey
       ) {
         const requestId = asyncRequestIdRef.current + 1;
         asyncRequestIdRef.current = requestId;
-        threadContentSearchRequestRef.current = {
+        threadSearchRequestRef.current = {
           key: requestKey,
           id: requestId,
         };
 
         void currentLoaders
-          .searchThreadContent({ query })
+          .searchThreads({ query })
           .then((results) => {
             if (
               latestAsyncSearchKeyRef.current !== requestKey ||
-              threadContentSearchRequestRef.current?.id !== requestId
+              threadSearchRequestRef.current?.id !== requestId
             ) {
               return;
             }
@@ -1089,14 +1089,14 @@ export function useNfmMentionGetItems({
                 ? asyncSearchResultsRef.current
                 : { key: requestKey }),
               key: requestKey,
-              threadContentSearchResults: results,
+              threadSearchResults: results,
             };
             bumpAsyncRefresh();
           })
           .catch(() => {
             if (
               latestAsyncSearchKeyRef.current !== requestKey ||
-              threadContentSearchRequestRef.current?.id !== requestId
+              threadSearchRequestRef.current?.id !== requestId
             ) {
               return;
             }
@@ -1106,7 +1106,7 @@ export function useNfmMentionGetItems({
                 ? asyncSearchResultsRef.current
                 : { key: requestKey }),
               key: requestKey,
-              threadContentSearchResults: [],
+              threadSearchResults: [],
             };
             bumpAsyncRefresh();
           });
@@ -1163,13 +1163,14 @@ export function useNfmMentionGetItems({
               loading: false,
             }
           : undefined;
-      const threadContentSearchBatch:
-        CommandPaletteThreadContentSearchBatch | undefined =
-        asyncResults?.threadContentSearchResults
+      const threadSearchBatch:
+        CommandPaletteThreadSearchBatch | undefined =
+        asyncResults?.threadSearchResults
           ? {
               query,
-              results: asyncResults.threadContentSearchResults,
+              results: asyncResults.threadSearchResults,
               loading: false,
+              error: null,
             }
           : undefined;
       const pageResults = currentLoaders.selectPageResults({
@@ -1186,9 +1187,10 @@ export function useNfmMentionGetItems({
         query,
         threads: cachedThreads,
         threadSearchIndex: getThreadSearchIndex(cachedThreads),
-        threadContentSearchBatch,
+        threadSearchBatch,
         threadLimit: 24,
         preferActiveProject: true,
+        activeProjectId,
       });
 
       return buildNfmMentionSuggestionItems({

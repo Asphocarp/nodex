@@ -4,7 +4,6 @@ import type {
   CodexHostMessage,
   CodexProtocolRequestId,
   CodexRendererClientRequestMessage,
-  CommandPaletteThreadIndexUpdatedEvent,
   DesktopNotificationActionPayload,
 } from "./types";
 import {
@@ -381,19 +380,6 @@ export function createElectronRendererTransport(
             !Array.isArray(payload.entries)
           )
             return;
-          callback(payload);
-        },
-      );
-    },
-    subscribeCommandPaletteThreadIndexUpdates(
-      callback: (event: CommandPaletteThreadIndexUpdatedEvent) => void,
-    ) {
-      return bridge.on(
-        "codex:threads:palette:index-updated",
-        (...args: unknown[]) => {
-          const payload = args[0] as
-            CommandPaletteThreadIndexUpdatedEvent | undefined;
-          if (!payload || typeof payload.generation !== "number") return;
           callback(payload);
         },
       );

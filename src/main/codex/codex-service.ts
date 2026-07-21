@@ -54,6 +54,8 @@ import type { ThreadForkResponse } from "@nodex/codex-app-server-protocol/v2/Thr
 import type { ThreadInjectItemsResponse } from "@nodex/codex-app-server-protocol/v2/ThreadInjectItemsResponse";
 import type { ThreadListParams } from "@nodex/codex-app-server-protocol/v2/ThreadListParams";
 import type { ThreadRollbackResponse } from "@nodex/codex-app-server-protocol/v2/ThreadRollbackResponse";
+import type { ThreadSearchParams } from "@nodex/codex-app-server-protocol/v2/ThreadSearchParams";
+import type { ThreadSearchResponse } from "@nodex/codex-app-server-protocol/v2/ThreadSearchResponse";
 import type { ThreadSource } from "@nodex/codex-app-server-protocol/v2/ThreadSource";
 import type { ThreadSourceKind } from "@nodex/codex-app-server-protocol/v2/ThreadSourceKind";
 import type { ThreadItem } from "@nodex/codex-app-server-protocol/v2/ThreadItem";
@@ -83,10 +85,9 @@ import type { TurnSteerResponse } from "@nodex/codex-app-server-protocol/v2/Turn
 import type { ToolRequestUserInputResponse } from "@nodex/codex-app-server-protocol/v2/ToolRequestUserInputResponse";
 import type {
   PageRunInTarget,
-  CommandPaletteThreadContentSearchInput,
-  CommandPaletteThreadContentSearchResult,
-  CommandPaletteThreadIndexUpdatedEvent,
   CommandPaletteThreadListInput,
+  CommandPaletteThreadSearchInput,
+  CommandPaletteThreadSearchResult,
   CommandPaletteThreadSummary,
   CodexAccountIdentity,
   CodexAccountSnapshot,
@@ -662,14 +663,6 @@ import {
   projectCodexPendingThreadStart,
   shouldSendCodexPendingPermissionOverrides,
 } from "./codex-pending-worktree-request";
-import {
-  CommandPaletteThreadSearchCoordinator,
-  type CommandPaletteThreadSearchClient,
-} from "./command-palette-thread-search-coordinator";
-import {
-  extractThreadSearchUnitsFromConversation,
-  extractThreadSearchUnitsFromDetail,
-} from "./command-palette-thread-search-helpers";
 import { captureCodexOrdinaryBrowserTransfer } from "./codex-browser-transfer-capture";
 import {
   CodexForkSidePanelTransferManager,
@@ -693,6 +686,8 @@ const SIDEBAR_THREAD_SYNC_BACKOFF_INITIAL_MS = 2_000;
 const SIDEBAR_THREAD_SYNC_BACKOFF_MAX_MS = 60_000;
 const BACKGROUND_SUBAGENT_METADATA_REPAIR_RETRY_MS = 30_000;
 const CODEX_SIDEBAR_THREAD_SOURCE_KINDS = [] as const satisfies readonly ThreadSourceKind[];
+const COMMAND_PALETTE_THREAD_SEARCH_DEFAULT_LIMIT = 50;
+const COMMAND_PALETTE_THREAD_SEARCH_MAX_LIMIT = 60;
 const AUTO_REVIEW_REVIEWER_PROMPT_PREFIXES = [
   "The following is the Codex agent history",
   "The following is the Codex agent history added since your last approval assessment",
@@ -904,6 +899,14 @@ function resolveSidebarThreadTitle(thread: {
 }): string {
   const title = thread.threadName?.trim() || thread.threadPreview?.trim();
   return title || "New thread";
+}
+
+function normalizeCommandPaletteThreadSearchLimit(limit: number | undefined): number {
+  if (!Number.isFinite(limit)) return COMMAND_PALETTE_THREAD_SEARCH_DEFAULT_LIMIT;
+  return Math.min(
+    COMMAND_PALETTE_THREAD_SEARCH_MAX_LIMIT,
+    Math.max(1, Math.floor(limit ?? COMMAND_PALETTE_THREAD_SEARCH_DEFAULT_LIMIT)),
+  );
 }
 
 function normalizeSidebarSessionFallbackTitle(thread: {
@@ -1329,7 +1332,6 @@ type CodexServiceOptions = {
   inactiveRendererOwnerMaxRetained?: number;
   inactiveRendererOwnerRetryMs?: number;
   supportsChatGptApps?: boolean;
-  commandPaletteThreadSearchClient?: CommandPaletteThreadSearchClient;
   isOpenAIFormElicitationsEnabled?: () => boolean;
   gitSettingsResolver?: () => CodexGitSettings;
   projectAwareDeveloperInstructionsResolver?: (input: {
@@ -2875,13 +2877,6 @@ export class CodexService extends EventEmitter {
   });
   private readonly terminalInputBuffers = new Map<string, string>();
   private readonly manualCompactionTracker = new CodexManualCompactionTracker();
-  private readonly commandPaletteThreadSearchService: CommandPaletteThreadSearchCoordinator;
-  private readonly nativeThreadSearchLiveTimers = new Map<
-    string,
-    ReturnType<typeof setTimeout>
-  >();
-  private nativeThreadSearchBackfillInFlight = false;
-  private nativeThreadSearchGeneration = 0;
   private readonly dictationService = new CodexDictationService({
     readConfig: async () => await this.readConfigForChatGptServices(),
     readAuthStatus: async (input) => await this.readAuthStatusForChatGptServices(input),
@@ -2955,10 +2950,6 @@ export class CodexService extends EventEmitter {
     this.loadWorktreeSetupBaseEnvironment = options?.loadWorktreeSetupBaseEnvironment;
     this.browserTransferStateReader = options?.browserTransferStateReader;
     this.forkSidePanelTransferLifecycle = options?.forkSidePanelTransferLifecycle;
-    this.commandPaletteThreadSearchService = new CommandPaletteThreadSearchCoordinator({
-      client: options?.commandPaletteThreadSearchClient,
-      onIndexUpdated: (event) => this.emit("threadSearchIndexUpdated", event),
-    });
     const notifier = dbNotifier as {
       on?: (event: "project-sessions-changed", listener: () => void) => unknown;
     };
@@ -6697,11 +6688,6 @@ export class CodexService extends EventEmitter {
     this.deferredThreadStartThreadIds.clear();
     this.readyDeferredThreadStartThreadIds.clear();
     this.threadStartNotificationDeferralDepth = 0;
-    this.commandPaletteThreadSearchService.shutdown();
-    for (const timer of this.nativeThreadSearchLiveTimers.values()) {
-      clearTimeout(timer);
-    }
-    this.nativeThreadSearchLiveTimers.clear();
     this.stopRateLimitsPolling();
     if (this.sidebarThreadListRepairTimer !== null) {
       clearTimeout(this.sidebarThreadListRepairTimer);
@@ -7955,10 +7941,6 @@ export class CodexService extends EventEmitter {
       return null;
     }
     const session = await this.ensureWorkspaceSidebarThreadSession(thread);
-    const paletteSummary = await this.getCommandPaletteSidebarChat(normalizedThreadId);
-    if (paletteSummary) {
-      this.enqueueThreadSearchBackfill([paletteSummary], { force: true });
-    }
     return session;
   }
 
@@ -8707,111 +8689,6 @@ export class CodexService extends EventEmitter {
     return result;
   }
 
-  private enqueueThreadSearchBackfill(
-    summaries: CommandPaletteThreadSummary[],
-    options: { readonly force?: boolean } = {},
-  ): void {
-    const listCandidates = this.projectWorkspace.listThreadSearchBackfillCandidates;
-    const replaceProjection = this.projectWorkspace.replaceThreadSearchProjection;
-    const failProjection = this.projectWorkspace.failThreadSearchProjection;
-    if (!listCandidates || !replaceProjection || !failProjection) {
-      this.commandPaletteThreadSearchService.enqueueBackfill(summaries, options);
-      return;
-    }
-    if (this.nativeThreadSearchBackfillInFlight) return;
-
-    this.nativeThreadSearchBackfillInFlight = true;
-    void (async () => {
-      let changed = false;
-      const candidates = await listCandidates(2, options.force === true);
-      for (const candidate of candidates) {
-        const thread = await this.readWorkspaceThread(candidate.threadId);
-        if (!thread || thread.updatedAt !== candidate.sourceUpdatedAt) continue;
-        const summary = this.buildWorkspaceThreadSummary(thread);
-        try {
-          const detail = readCodexSessionThreadDetail({
-            threadId: candidate.threadId,
-            link: summary,
-          });
-          if (!detail) {
-            throw new Error("Codex session transcript is unavailable");
-          }
-          await replaceProjection(
-            candidate.threadId,
-            candidate.sourceUpdatedAt,
-            extractThreadSearchUnitsFromDetail(detail),
-          );
-          changed = true;
-        } catch (error) {
-          await failProjection(
-            candidate.threadId,
-            candidate.sourceUpdatedAt,
-            error instanceof Error ? error.message : String(error),
-          ).catch(() => undefined);
-        }
-      }
-      if (changed) this.emitNativeThreadSearchIndexUpdated();
-    })().catch((error) => {
-      this.logger.debug("Native Thread search backfill skipped", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }).finally(() => {
-      this.nativeThreadSearchBackfillInFlight = false;
-    });
-  }
-
-  private scheduleThreadSearchLiveIndex(threadId: string): void {
-    if (!this.projectWorkspace.replaceThreadSearchProjection) {
-      this.commandPaletteThreadSearchService.scheduleLiveIndex(threadId, {
-        readConversation: (targetThreadId) =>
-          this.serializeConversationSnapshot(targetThreadId),
-        readSummary: (targetThreadId) =>
-          this.getCommandPaletteSidebarChat(targetThreadId),
-      });
-      return;
-    }
-
-    const existing = this.nativeThreadSearchLiveTimers.get(threadId);
-    if (existing) clearTimeout(existing);
-    const timer = setTimeout(() => {
-      this.nativeThreadSearchLiveTimers.delete(threadId);
-      void (async () => {
-        const replaceProjection = this.projectWorkspace.replaceThreadSearchProjection;
-        if (!replaceProjection) return;
-        const [thread, conversation] = await Promise.all([
-          this.readWorkspaceThread(threadId),
-          Promise.resolve(this.serializeConversationSnapshot(threadId)),
-        ]);
-        if (!thread || !conversation) return;
-        await replaceProjection(
-          threadId,
-          thread.updatedAt,
-          extractThreadSearchUnitsFromConversation(conversation),
-        );
-        this.emitNativeThreadSearchIndexUpdated();
-      })().catch((error) => {
-        this.logger.debug("Native live Thread indexing skipped", {
-          error: error instanceof Error ? error.message : String(error),
-          threadId,
-        });
-      });
-    }, 500);
-    this.nativeThreadSearchLiveTimers.set(threadId, timer);
-  }
-
-  private emitNativeThreadSearchIndexUpdated(): void {
-    this.nativeThreadSearchGeneration += 1;
-    this.emit("threadSearchIndexUpdated", {
-      generation: this.nativeThreadSearchGeneration,
-      reason: "backfill",
-    } satisfies CommandPaletteThreadIndexUpdatedEvent);
-  }
-
-  private removeThreadSearchProjection(threadId: string): void {
-    if (this.projectWorkspace.replaceThreadSearchProjection) return;
-    this.commandPaletteThreadSearchService.removeThread(threadId);
-  }
-
   private async listCommandPaletteSidebarChats(): Promise<CommandPaletteThreadSummary[]> {
     const [sidebar, projects] = await Promise.all([
       this.readWorkspaceSidebar(false),
@@ -8843,6 +8720,7 @@ export class CodexService extends EventEmitter {
         title: item.title,
         preview: item.preview,
         cwd: item.cwd,
+        gitBranch: null,
         projectless: item.projectless,
         pinned: item.pinned,
         pinnedOrder: item.pinnedOrder,
@@ -8850,52 +8728,109 @@ export class CodexService extends EventEmitter {
         statusActiveFlags: item.statusActiveFlags,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
-        linkedAt: thread.linkedAt,
       });
     }
 
     return summaries;
   }
 
-  private async getCommandPaletteSidebarChat(
-    threadId: string,
-  ): Promise<CommandPaletteThreadSummary | null> {
-    return (await this.listCommandPaletteSidebarChats())
-      .find((summary) => summary.threadId === threadId) ?? null;
-  }
-
   async listCommandPaletteThreads(
     input: CommandPaletteThreadListInput,
   ): Promise<CommandPaletteThreadSummary[]> {
     if (input.scope !== "sidebar") return [];
-    const summaries = await this.listCommandPaletteSidebarChats();
-    this.enqueueThreadSearchBackfill(summaries);
-    return summaries;
+    return await this.listCommandPaletteSidebarChats();
   }
 
-  async searchCommandPaletteThreadContent(
-    input: CommandPaletteThreadContentSearchInput,
-  ): Promise<CommandPaletteThreadContentSearchResult[]> {
+  async searchCommandPaletteThreads(
+    input: CommandPaletteThreadSearchInput,
+  ): Promise<CommandPaletteThreadSearchResult[]> {
     const query = input.query.trim();
-    if (input.scope !== "sidebar" || query.length === 0) return [];
+    if (!query) return [];
 
-    const summaries = await this.listCommandPaletteSidebarChats();
+    const limit = normalizeCommandPaletteThreadSearchLimit(input.limit);
+    await this.ensureClientReady();
+    const [localThreads, projects] = await Promise.all([
+      this.listCommandPaletteSidebarChats(),
+      this.projectWorkspace.listProjects(),
+    ]);
+    const localByThreadId = new Map(
+      localThreads.map((thread) => [thread.threadId, thread] as const),
+    );
+    const projectNameById = new Map(
+      projects.map((project) => [project.id, project.name] as const),
+    );
+    const results: CommandPaletteThreadSearchResult[] = [];
+    const seenThreadIds = new Set<string>();
+    const seenCursors = new Set<string>();
+    let cursor: string | null = null;
 
-    const nativeSearch = this.projectWorkspace.searchThreadContent;
-    if (nativeSearch) {
-      if (query.length < 2 || summaries.length === 0) return [];
-      const eligibleThreadIds = new Set(
-        summaries.map((summary) => summary.threadId),
-      );
-      return (await nativeSearch(query, input.limit))
-        .filter((result) => eligibleThreadIds.has(result.threadId));
+    try {
+      while (results.length < limit) {
+        const params: ThreadSearchParams = {
+          cursor,
+          limit: limit - results.length,
+          sortKey: "updated_at",
+          sortDirection: "desc",
+          sourceKinds: [...CODEX_SIDEBAR_THREAD_SOURCE_KINDS],
+          archived: false,
+          searchTerm: query,
+        };
+        const response = await this.client.request<"thread/search", ThreadSearchResponse>(
+          "thread/search",
+          params,
+        );
+
+        for (const result of response.data) {
+          const thread = result.thread;
+          if (thread.ephemeral || thread.parentThreadId) continue;
+          if (isNonSidebarThreadWithoutParent(thread as unknown as Record<string, unknown>)) continue;
+          if (seenThreadIds.has(thread.id)) continue;
+          seenThreadIds.add(thread.id);
+
+          const local = localByThreadId.get(thread.id);
+          const inferredProjectId = resolveSidebarProjectIdForCwd(thread.cwd, projects);
+          const projectId = local?.projectId ?? inferredProjectId;
+          const parsedStatus = parseThreadStatus(thread.status);
+          const createdAt = Number(thread.createdAt) * 1_000;
+          const updatedAt = Number(thread.recencyAt ?? thread.updatedAt) * 1_000;
+          const candidate: CommandPaletteThreadSummary = {
+            threadId: thread.id,
+            sessionId: local?.sessionId ?? null,
+            projectId,
+            projectName: projectId ? projectNameById.get(projectId) ?? local?.projectName ?? null : null,
+            title: resolveSidebarThreadTitle({
+              threadName: thread.name,
+              threadPreview: thread.preview,
+            }),
+            preview: thread.preview,
+            cwd: thread.cwd,
+            gitBranch: thread.gitInfo?.branch ?? null,
+            projectless: projectId === null,
+            pinned: local?.pinned ?? false,
+            pinnedOrder: local?.pinnedOrder ?? null,
+            statusType: local?.statusType ?? parsedStatus.statusType,
+            statusActiveFlags: local?.statusActiveFlags ?? parsedStatus.statusActiveFlags,
+            createdAt: Number.isFinite(createdAt) ? createdAt : local?.createdAt ?? 0,
+            updatedAt: Number.isFinite(updatedAt) ? updatedAt : local?.updatedAt ?? 0,
+          };
+          results.push({ thread: candidate, snippet: result.snippet });
+          if (results.length >= limit) break;
+        }
+
+        const nextCursor = response.nextCursor;
+        if (!nextCursor || seenCursors.has(nextCursor)) break;
+        seenCursors.add(nextCursor);
+        cursor = nextCursor;
+      }
+    } catch (error) {
+      this.logger.debug("Codex task search failed", {
+        queryLength: query.length,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     }
 
-    return this.commandPaletteThreadSearchService.search({
-      scope: input.scope,
-      query,
-      limit: input.limit,
-    }, summaries);
+    return results;
   }
 
   async resolveThreadSummary(threadId: string): Promise<CodexThreadSummary | null> {
@@ -12625,7 +12560,6 @@ export class CodexService extends EventEmitter {
     const detail = this.ensureConversationDetail(threadId);
     if (!detail) return;
     detail.transcript = transcript;
-    this.scheduleThreadSearchLiveIndex(threadId);
   }
 
   private async persistThreadDetailSummary(detail: CodexThreadDetail): Promise<void> {
@@ -22842,7 +22776,6 @@ export class CodexService extends EventEmitter {
           broadcast: hadUnreadState,
         });
         await this.deleteHeartbeatAutomationForArchivedThread(payload.threadId);
-        this.removeThreadSearchProjection(payload.threadId);
       }
       if (updated) {
         this.emitEvent({ type: "threadSummary", thread: updated });
@@ -22892,7 +22825,6 @@ export class CodexService extends EventEmitter {
       this.applyCommittedConversationUnreadState(payload.threadId, false, {
         broadcast: hadUnreadState,
       });
-      this.removeThreadSearchProjection(payload.threadId);
       this.forgetThreadLocalState(payload.threadId);
       this.deletedThreadIds.add(payload.threadId);
       if (existingThread?.parentThreadId) {

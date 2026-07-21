@@ -25,7 +25,6 @@ use crate::infrastructure::writer::StoreWriter;
 
 use super::{
     ProjectWorkspaceApplyOutcome, execution, session_lifecycle, session_mutation, sidebar, thread,
-    thread_search,
 };
 
 const MODULE_NAME: &str = "project_workspace";
@@ -548,36 +547,6 @@ pub(super) fn apply(
                     &request_hash,
                     process,
                     preserve_started_at.unwrap_or(true),
-                ),
-                ProjectWorkspaceIntent::ReplaceThreadSearchProjection {
-                    thread_id,
-                    expected_thread_updated_at,
-                    units,
-                } => thread_search::replace_projection(
-                    transaction,
-                    &library_id,
-                    &context,
-                    &store_epoch,
-                    &request.operation_id,
-                    &request_hash,
-                    thread_id,
-                    *expected_thread_updated_at,
-                    units,
-                ),
-                ProjectWorkspaceIntent::FailThreadSearchProjection {
-                    thread_id,
-                    expected_thread_updated_at,
-                    error,
-                } => thread_search::fail_projection(
-                    transaction,
-                    &library_id,
-                    &context,
-                    &store_epoch,
-                    &request.operation_id,
-                    &request_hash,
-                    thread_id,
-                    *expected_thread_updated_at,
-                    error,
                 ),
                 ProjectWorkspaceIntent::SetProjectPermissionMode { project_id, mode } => {
                     thread::set_project_permission_mode(

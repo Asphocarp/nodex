@@ -38,8 +38,8 @@ fn export_schema(database_path: &Path) -> Result<String, Box<dyn std::error::Err
             | OpenFlags::SQLITE_OPEN_URI,
     )?;
     let user_version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    if user_version != 83 {
-        return Err(format!("schema export requires v83, received v{user_version}").into());
+    if user_version != 84 {
+        return Err(format!("schema export requires v84, received v{user_version}").into());
     }
     let shadow_tables = connection
         .prepare("SELECT name FROM pragma_table_list WHERE schema = 'main' AND type = 'shadow'")?
@@ -79,8 +79,8 @@ fn export_schema(database_path: &Path) -> Result<String, Box<dyn std::error::Err
     });
 
     let mut output = String::from(
-        "-- Generated from the TypeScript-authoritative Nodex v83 schema.\n\
-         -- Regenerate with: pnpm core:schema:v83:generate\n\
+        "-- Generated from the TypeScript-authoritative Nodex v84 schema.\n\
+         -- Regenerate with: pnpm core:schema:v84:generate\n\
          PRAGMA foreign_keys = OFF;\n\
          BEGIN IMMEDIATE;\n\n",
     );
@@ -88,14 +88,14 @@ fn export_schema(database_path: &Path) -> Result<String, Box<dyn std::error::Err
         output.push_str(object.sql.trim());
         output.push_str(";\n\n");
     }
-    output.push_str("PRAGMA user_version = 83;\nCOMMIT;\nPRAGMA foreign_keys = ON;\n");
+    output.push_str("PRAGMA user_version = 84;\nCOMMIT;\nPRAGMA foreign_keys = ON;\n");
     Ok(output)
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = env::args_os().collect();
     let [_, database_path, output_path, rest @ ..] = args.as_slice() else {
-        return Err("usage: export_v83_schema <v83-database> <output-sql> [--verify]".into());
+        return Err("usage: export_v84_schema <v84-database> <output-sql> [--verify]".into());
     };
     let verify = match rest {
         [] => false,
@@ -108,7 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let checked_in = fs::read_to_string(output_path)?;
         if checked_in != schema {
             return Err(format!(
-                "{} differs from the deterministic v83 schema export",
+                "{} differs from the deterministic v84 schema export",
                 output_path.display()
             )
             .into());

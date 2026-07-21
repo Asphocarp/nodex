@@ -93,6 +93,7 @@ function storyThreadSummaryToItem(thread: CodexThreadSummary): CommandPaletteThr
     title,
     preview: thread.threadPreview,
     cwd: thread.cwd,
+    gitBranch: null,
     projectless: thread.projectId === null,
     pinned: false,
     pinnedOrder: null,
@@ -100,7 +101,6 @@ function storyThreadSummaryToItem(thread: CodexThreadSummary): CommandPaletteThr
     statusActiveFlags: thread.statusActiveFlags,
     createdAt: thread.createdAt,
     updatedAt: thread.updatedAt,
-    linkedAt: thread.linkedAt,
     inActiveProject: thread.projectId === "default",
   };
 }
@@ -507,7 +507,7 @@ export const WithNodexActions: Story = {
       <NfmSendToThreadMenuSurface
         {...props}
         threadItems={STORY_SEND_TO_THREAD_THREADS}
-        enableThreadContentSearch={false}
+        enableThreadSearch={false}
       />
     ),
     renderMoveToMenu: (props) => (
@@ -539,7 +539,7 @@ export const SendToThreadPicker: Story = {
           <NfmSendToThreadMenuSurface
             projectId="default"
             threadItems={STORY_SEND_TO_THREAD_THREADS}
-            enableThreadContentSearch={false}
+            enableThreadSearch={false}
             projectNameById={{ default: "Default" }}
             preferredTarget={STORY_SEND_TO_THREAD_SUMMARIES[0]
               ? {
@@ -572,7 +572,7 @@ export const SendToThreadPickerEmptySession: Story = {
         <NfmSendToThreadMenuSurface
           projectId="default"
           threadItems={STORY_SEND_TO_THREAD_THREADS}
-          enableThreadContentSearch={false}
+          enableThreadSearch={false}
           projectNameById={{ default: "Default" }}
           preferredTarget={{
             kind: "new-thread",
@@ -601,7 +601,7 @@ export const SendToThreadPickerThreadSection: Story = {
         <NfmSendToThreadMenuSurface
           projectId="default"
           threadItems={STORY_SEND_TO_THREAD_THREADS}
-          enableThreadContentSearch={false}
+          enableThreadSearch={false}
           projectNameById={{ default: "Default" }}
           preferredTarget={STORY_SEND_TO_THREAD_SUMMARIES[1]
             ? {
@@ -633,7 +633,7 @@ export const SendToThreadPickerEmpty: Story = {
         <NfmSendToThreadMenuSurface
           projectId="default"
           threadItems={[]}
-          enableThreadContentSearch={false}
+          enableThreadSearch={false}
           initialQuery="no matches"
           onAccept={() => undefined}
           onClose={() => undefined}

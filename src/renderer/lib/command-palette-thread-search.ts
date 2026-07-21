@@ -21,12 +21,14 @@ interface CommandPaletteThreadSearchDocument {
   preview: string;
   projectName: string;
   cwd: string;
+  gitBranch: string;
   threadId: string;
 }
 
 export interface CommandPaletteThreadSearchHit {
   item: CommandPaletteThread;
   score: number;
+  fieldPriority: number;
 }
 
 export interface CommandPaletteThreadSearchIndex {
@@ -38,6 +40,7 @@ const SEARCH_FIELDS: Array<keyof CommandPaletteThreadSearchDocument> = [
   "preview",
   "projectName",
   "cwd",
+  "gitBranch",
   "threadId",
 ];
 
@@ -46,7 +49,18 @@ const FIELD_BOOSTS: Partial<Record<keyof CommandPaletteThreadSearchDocument, num
   preview: 4,
   projectName: 3,
   cwd: 2,
+  gitBranch: 2.5,
   threadId: 1,
+};
+
+const FIELD_PRIORITIES: Record<keyof CommandPaletteThreadSearchDocument, number> = {
+  id: Number.MAX_SAFE_INTEGER,
+  title: 0,
+  preview: 1,
+  gitBranch: 2,
+  projectName: 3,
+  cwd: 3,
+  threadId: 4,
 };
 
 const EXCERPT_BEFORE = 80;
@@ -63,6 +77,7 @@ function buildSearchDocument(item: CommandPaletteThread): CommandPaletteThreadSe
     preview: normalizeCommandPaletteThreadSearchText(item.preview),
     projectName: normalizeCommandPaletteThreadSearchText(item.projectName ?? "Chats"),
     cwd: normalizeCommandPaletteThreadSearchText(item.cwd ?? ""),
+    gitBranch: normalizeCommandPaletteThreadSearchText(item.gitBranch ?? ""),
     threadId: normalizeCommandPaletteThreadSearchText(item.threadId),
   };
 }
@@ -102,8 +117,12 @@ function buildSearchDecorations(
     item.cwd ?? "",
     collectMatchedTermsForField(result, "cwd"),
   );
+  const gitBranchSegments = buildCommandPaletteHighlightedSegments(
+    item.gitBranch ?? "",
+    collectMatchedTermsForField(result, "gitBranch"),
+  );
 
-  if (!titleSegments && !projectNameSegments && !cwdSegments) {
+  if (!titleSegments && !projectNameSegments && !cwdSegments && !gitBranchSegments) {
     return null;
   }
 
@@ -111,7 +130,16 @@ function buildSearchDecorations(
     titleSegments,
     projectNameSegments,
     cwdSegments,
+    gitBranchSegments,
   };
+}
+
+function resolveMatchedFieldPriority(result: SearchResult): number {
+  return SEARCH_FIELDS.reduce((priority, field) => (
+    collectMatchedTermsForField(result, field).length > 0
+      ? Math.min(priority, FIELD_PRIORITIES[field])
+      : priority
+  ), Number.MAX_SAFE_INTEGER);
 }
 
 function buildPreview(
@@ -185,6 +213,7 @@ export function createCommandPaletteThreadSearchIndex(
               searchDecorations: buildSearchDecorations(item, result),
             },
             score: result.score,
+            fieldPriority: resolveMatchedFieldPriority(result),
           };
         })
         .filter((result): result is CommandPaletteThreadSearchHit => result !== null);

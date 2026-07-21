@@ -642,10 +642,6 @@ fn move_thread_membership(
     if updated != 1 {
         return Err(conflict("Codex Thread changed during Thread move"));
     }
-    connection.execute(
-        "UPDATE thread_search_units SET project_id = ?1 WHERE thread_id = ?2",
-        params![target_project_id, thread_id],
-    )?;
     Ok(())
 }
 
@@ -739,8 +735,7 @@ mod tests {
     use nodex_core_contracts::workspace::{
         ProjectSessionIntent, ProjectSessionPanelId, ProjectSessionTabKind, ProjectWorkspaceIntent,
         ProjectWorkspaceRead, ProjectWorkspaceReadValue, ProjectWorkspaceThreadMoveMetadataPatch,
-        ProjectWorkspaceThreadPlacement, ProjectWorkspaceThreadSearchRole,
-        ProjectWorkspaceThreadSearchUnit,
+        ProjectWorkspaceThreadPlacement,
     };
     use serde_json::json;
 
@@ -955,20 +950,6 @@ mod tests {
         );
         apply(
             &workspace.module,
-            "move-search-projection",
-            ProjectWorkspaceIntent::ReplaceThreadSearchProjection {
-                thread_id: "thread:move".to_owned(),
-                expected_thread_updated_at: 100,
-                units: vec![ProjectWorkspaceThreadSearchUnit {
-                    turn_id: "turn:move".to_owned(),
-                    item_id: "item:move".to_owned(),
-                    role: ProjectWorkspaceThreadSearchRole::Assistant,
-                    text: "moveneedle transcript".to_owned(),
-                }],
-            },
-        );
-        apply(
-            &workspace.module,
             "source-order",
             ProjectWorkspaceIntent::SetProjectThreadOrder {
                 project_id: "project:default".to_owned(),
@@ -1066,30 +1047,6 @@ mod tests {
                 .and_then(|value| value.as_str()),
             Some("project:target")
         );
-        let ProjectWorkspaceReadValue::ThreadSearch { results } = read(
-            &workspace.module,
-            ProjectWorkspaceRead::ThreadSearch {
-                query: "moveneedle".to_owned(),
-                limit: Some(10),
-            },
-        ) else {
-            panic!("Thread search");
-        };
-        assert_eq!(results[0].thread_id, "thread:move");
-        let search_project = workspace
-            .kernel
-            .writer()
-            .call(|connection| {
-                connection
-                    .query_row(
-                        "SELECT project_id FROM thread_search_units WHERE thread_id = ?1",
-                        ["thread:move"],
-                        |row| row.get::<_, Option<String>>(0),
-                    )
-                    .map_err(Into::into)
-            })
-            .expect("search projection Project");
-        assert_eq!(search_project.as_deref(), Some("project:target"));
     }
 
     #[test]

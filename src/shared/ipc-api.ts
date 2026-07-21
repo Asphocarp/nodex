@@ -275,9 +275,8 @@ import type {
   DatabaseRowsDetailsInput,
   PageSearchInput,
   PageSearchResult,
-  CommandPaletteThreadContentSearchInput,
-  CommandPaletteThreadContentSearchResult,
-  CommandPaletteThreadIndexUpdatedEvent,
+  CommandPaletteThreadSearchInput,
+  CommandPaletteThreadSearchResult,
   CommandPaletteThreadListInput,
   CommandPaletteThreadSummary,
   CreateBackupInput,
@@ -1305,9 +1304,9 @@ export interface IpcApi {
     args: [input: CommandPaletteThreadListInput];
     result: CommandPaletteThreadSummary[];
   };
-  "codex:threads:palette:search-content": {
-    args: [input: CommandPaletteThreadContentSearchInput];
-    result: CommandPaletteThreadContentSearchResult[];
+  "codex:threads:palette:search": {
+    args: [input: CommandPaletteThreadSearchInput];
+    result: CommandPaletteThreadSearchResult[];
   };
   "codex:thread:summary:get": {
     args: [threadId: string];
@@ -1786,7 +1785,6 @@ export interface IpcEvents {
   "codex:event": CodexEvent;
   "codex:host-message": CodexHostMessage;
   "codex:renderer-client:request": CodexRendererClientRequestMessage;
-  "codex:threads:palette:index-updated": CommandPaletteThreadIndexUpdatedEvent;
   "codex:scheduled-automations:changed": CodexScheduledAutomationChangedEvent;
   "codex:automation-runs:updated": CodexAutomationRunsUpdatedEvent;
   "codex:hooks:changed": CodexHooksChangedEvent;
