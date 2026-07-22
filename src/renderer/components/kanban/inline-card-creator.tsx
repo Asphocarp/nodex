@@ -1,5 +1,5 @@
 import { useForm, useStore } from "@tanstack/react-form";
-import { useState, useRef, useEffect } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import {
   EstimatePickerIcon,
@@ -20,14 +20,10 @@ interface InlineCardCreatorProps {
   onCancel: () => void;
 }
 
-function isElementTarget(target: EventTarget | null): target is Element {
-  return target instanceof Element;
-}
-
 export function InlineCardCreator({ onSave, onCancel }: InlineCardCreatorProps) {
   const [saving, setSaving] = useState(false);
+  const [interactionBoundary, setInteractionBoundary] = useState<HTMLFormElement | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const containerRef = useRef<HTMLFormElement>(null);
   const form = useForm({
     defaultValues: {
       title: "",
@@ -60,31 +56,23 @@ export function InlineCardCreator({ onSave, onCancel }: InlineCardCreatorProps) 
     inputRef.current?.focus();
   }, []);
 
+  const handleDocumentMouseDown = useEffectEvent((event: MouseEvent) => {
+    if (!interactionBoundary || !(event.target instanceof Node)) return;
+    if (interactionBoundary.contains(event.target)) return;
+
+    if (formValues.title.trim()) {
+      void form.handleSubmit();
+      return;
+    }
+
+    onCancel();
+  });
+
   // Handle click outside to cancel (if empty) or save (if has title)
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (isElementTarget(e.target) && e.target.closest('[data-slot="select-content"]')) {
-        return;
-      }
-
-      if (!containerRef.current || !(e.target instanceof Node)) {
-        return;
-      }
-
-      if (containerRef.current.contains(e.target)) {
-        return;
-      }
-
-      if (formValues.title.trim()) {
-        void form.handleSubmit();
-        return;
-      }
-
-      onCancel();
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [form, formValues.title, onCancel]);
+    document.addEventListener("mousedown", handleDocumentMouseDown);
+    return () => document.removeEventListener("mousedown", handleDocumentMouseDown);
+  }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && formValues.title.trim()) {
@@ -97,7 +85,7 @@ export function InlineCardCreator({ onSave, onCancel }: InlineCardCreatorProps) 
 
   return (
     <form
-      ref={containerRef}
+      ref={setInteractionBoundary}
       className={cn(
         // Match card styling exactly - Notion: border-radius:10px
         "rounded-lg bg-(--card)",
@@ -135,6 +123,7 @@ export function InlineCardCreator({ onSave, onCancel }: InlineCardCreatorProps) 
           <NodexDropdownChoiceMenu
             value=""
             onValueChange={(value) => form.setFieldValue("priority", value as Priority)}
+            portalContainer={interactionBoundary}
             options={KANBAN_PRIORITY_OPTIONS.map((option) => ({
               value: option.value,
               label: option.label,
@@ -161,6 +150,7 @@ export function InlineCardCreator({ onSave, onCancel }: InlineCardCreatorProps) 
           <NodexDropdownChoiceMenu
             value=""
             onValueChange={(value) => form.setFieldValue("estimate", value as Estimate)}
+            portalContainer={interactionBoundary}
             options={estimateOptions.filter((opt) => opt.value !== "none").map((opt) => ({
               value: opt.value,
               label: (
@@ -194,6 +184,7 @@ function PriorityBadge({ priority, onClear }: { priority: Priority; onClear: () 
   const priorityLabel = priorityOption.label.split(" - ")[0] ?? priorityOption.label;
   return (
     <button
+      type="button"
       onClick={onClear}
       className={cn(
         // Match card badge: height:18px, border-radius:3px, padding-inline:6px, line-height:120%, font-size:12px
@@ -211,6 +202,7 @@ function EstimateBadge({ estimate, onClear }: { estimate: Estimate; onClear: () 
   const style = estimateStyles[estimate];
   return (
     <button
+      type="button"
       onClick={onClear}
       className={cn(
         "inline-flex h-4.5 items-center gap-1 rounded-sm px-1.5 text-sm/snug-plus",

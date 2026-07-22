@@ -266,7 +266,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Quick-add with optional priority, estimate, tags
 - Enter to save, Escape to cancel
 - Priority/estimate and other single-choice pickers use the shared Codex dropdown facade rather than a separate shared Select primitive
-- Click-outside save/cancel logic ignores portaled select menus so property selection does not dismiss the creator
+- Property menus portal into the creator's interaction boundary, so choosing a property never dismisses or submits the draft; only an interaction outside that complete boundary invokes click-outside save/cancel
 
 #### 7. Page Stage Editor
 - Notion-style slide-out panel for Page details
