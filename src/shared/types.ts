@@ -488,7 +488,6 @@ export interface ProjectSessionPageStageTabConfig {
 }
 
 export interface ProjectSessionTerminalTabConfig {
-  projectId: string;
   terminalSessionId: string;
 }
 
@@ -503,7 +502,6 @@ export interface TerminalCreateRequest {
   sessionId: string;
   conversationId?: string | null;
   projectSessionId?: string | null;
-  projectId?: string | null;
   cwd?: string | null;
   size: TerminalSize;
   backendKind?: TerminalBackendKind;
@@ -828,7 +826,6 @@ export type ProjectSessionForkResult =
 
 export interface ProjectSessionTabCreateInput {
   sessionId: string;
-  projectId: string | null;
   panelId: PanelId;
   targetLeafId?: string;
   clientTabId?: string;
@@ -1833,7 +1830,6 @@ export type CodexThreadStartForSessionResult =
     };
 
 export interface CodexSideChatStartInput {
-  projectId: string;
   parentThreadId: string;
   parentNavigationPath?: string | null;
   prompt?: string;

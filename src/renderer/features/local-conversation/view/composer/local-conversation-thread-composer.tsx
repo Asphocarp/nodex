@@ -2222,6 +2222,10 @@ function HydratedThreadComposer({
   ]);
 
   useEffect(() => {
+    if (model.projectId === null) {
+      setPermissionState(model.permissionState ?? null);
+      return;
+    }
     let cancelled = false;
 
     void invoke("codex:permission:state:get", model.projectId)
@@ -2237,7 +2241,7 @@ function HydratedThreadComposer({
     return () => {
       cancelled = true;
     };
-  }, [model.permissionMode, model.projectId]);
+  }, [model.permissionMode, model.permissionState, model.projectId]);
 
   const handleInterrupt = useCallback(async () => {
     if (!model.conversation || !model.isThreadRunning) return;

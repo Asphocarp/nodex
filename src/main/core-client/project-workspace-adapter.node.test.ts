@@ -1219,7 +1219,6 @@ describe("Core Project Workspace adapter", () => {
 
     await expect(adapter.createProjectSessionTab({
       sessionId: "session:one",
-      projectId: "project:one",
       panelId: "right",
       clientTabId: "tab:browser",
       browserTabId: "browser:one",

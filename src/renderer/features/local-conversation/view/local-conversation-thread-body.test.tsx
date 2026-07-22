@@ -816,7 +816,7 @@ describe("LocalConversationThreadBody", () => {
   });
 
   test("shows archived thread restore action without rendering transcript content", async () => {
-    const restoreCalls: Array<{ threadId: string; projectId: string }> = [];
+    const restoreCalls: Array<{ threadId: string; projectId: string | null }> = [];
     const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
     const { getByRole, queryByText } = render(
       <TooltipProvider>

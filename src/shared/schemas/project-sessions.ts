@@ -55,7 +55,6 @@ export const ProjectSessionPageStageTabConfigSchema = z.object({
 }) satisfies z.ZodType<ProjectSessionPageStageTabConfig>;
 
 export const ProjectSessionTerminalTabConfigSchema = z.object({
-  projectId: z.string().min(1),
   terminalSessionId: z.string().min(1),
 }) satisfies z.ZodType<ProjectSessionTerminalTabConfig>;
 
@@ -214,7 +213,6 @@ export const ProjectSessionTabKindSchema = z.enum([
 
 export const ProjectSessionTabCreateInputSchema = z.object({
   sessionId: z.string().min(1),
-  projectId: z.string().min(1).nullable(),
   panelId: PanelIdSchema,
   targetLeafId: z.string().min(1).optional(),
   clientTabId: z.string().regex(/^[A-Za-z0-9:_-]{1,160}$/).optional(),

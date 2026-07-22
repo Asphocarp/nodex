@@ -1,5 +1,43 @@
 import { describe, expect, test } from "vitest";
-import { parseProjectSessionTabConfig } from "./project-sessions";
+import {
+  parseProjectSessionTabConfig,
+  ProjectSessionTabCreateInputSchema,
+} from "./project-sessions";
+
+describe("project session Terminal config", () => {
+  test("persists only the stable terminal session identity", () => {
+    expect(parseProjectSessionTabConfig("terminal", {
+      projectId: "legacy-project",
+      terminalSessionId: "terminal:one",
+    })).toEqual({
+      terminalSessionId: "terminal:one",
+    });
+  });
+});
+
+describe("project session tab create input", () => {
+  test("derives ownership from the session instead of accepting a duplicate Project", () => {
+    expect(ProjectSessionTabCreateInputSchema.parse({
+      sessionId: "session:one",
+      projectId: "legacy-project",
+      panelId: "right",
+      kind: "terminal",
+      title: "Terminal",
+      config: {
+        projectId: "legacy-project",
+        terminalSessionId: "terminal:one",
+      },
+    })).toEqual({
+      sessionId: "session:one",
+      panelId: "right",
+      kind: "terminal",
+      title: "Terminal",
+      config: {
+        terminalSessionId: "terminal:one",
+      },
+    });
+  });
+});
 
 describe("project session Page Stage config", () => {
   test("persists only Page identity, access context, and a title snapshot", () => {

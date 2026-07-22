@@ -94,7 +94,7 @@ lifecycle; it is not task state.
 | Preview tabs, overlays, and route-local panel presentation | Thread/Route identity | Renderer memory unless an existing preference contract applies | Thread/Route atoms | Explicit close or scope eviction |
 | Review diff preferences | Renderer application | Renderer memory | App atoms | Renderer shutdown |
 | Review source, tree, selection, expansion, and pending file reveal | Task Route identity | Renderer memory | Route atoms; source data stays in conversation/Query authorities | Successful reveal, explicit source change, or Route eviction |
-| Durable Project-session panels and tabs | Project Session | SQLite + Query | Main/SQLite and TanStack Query | Domain close/delete operation |
+| Durable Project-session panels and tabs | Project Session | Rust Core SQLite + Query | Rust Core Workspace Module and TanStack Query | Domain close/delete operation |
 
 One mounted `ComposerScope` represents one writable form owner. The primary Thread route derives that identity from its promoted session scope so pending-to-attached transitions preserve local composer state. Background-agent and Subagents detail routes are read-only transcript surfaces and must not mount a composer beneath the same route. A writable auxiliary thread surface, such as a side chat, must provide a stable surface-specific composer identity; sharing the primary identity across simultaneous forms is an ownership violation, not a recoverable render collision.
 
@@ -139,9 +139,11 @@ Workbench command-palette visibility, menus, dialogs, resize samples, hover,
 selection gestures, and pending drag/drop confirmations remain component-local.
 Persistent Composer/worktree/summary preferences were removed from the shell and
 now live in `use-workbench-preferences.ts` App atoms with same-window storage
-Adapters. Durable Project-session tabs/layout remain SQLite + Query authority;
-Browser, Terminal, side-chat execution, and Codex streams remain their runtime
-Modules. Panel preview/side-surface controller records stay in the Workbench
+Adapters. Durable Project-session tabs/layout, including projectless exact-file
+Files and portable Browser/Terminal rows, remain Rust Core SQLite + Query
+authority. Browser guests, Terminal PTYs, side-chat execution, and Codex streams
+remain their runtime Modules. Side-chat tab identity and placement remain
+renderer-local and ephemeral. Panel preview/side-surface controller records stay in the Workbench
 panel Adapter because they coordinate imperative open/close/promote commands
 across the two durable panel trees; they are renderer-only and are pruned by
 their explicit close/session cleanup paths, not treated as runtime authority.

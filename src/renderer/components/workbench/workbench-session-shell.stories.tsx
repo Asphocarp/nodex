@@ -15,6 +15,10 @@ import type {
   LibraryModuleReadRequest,
   LibraryReadValue,
 } from "../../../shared/library-module";
+import type {
+  CodexSideChatStartInput,
+  CodexSideChatStartResult,
+} from "../../../shared/types";
 import { buildPageDetailStoryResult } from "../kanban/page-stage/page-stage-story-page-detail";
 import {
   writeWorkbenchShellNavigationHistoryState,
@@ -392,7 +396,7 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
       kind: "terminal",
       title: "Terminal",
       order: 2,
-      config: { projectId: "nodex", terminalSessionId: "story-terminal" },
+      config: { terminalSessionId: "story-terminal" },
     }),
     makeTab({
       id: "tab:browser",
@@ -501,7 +505,7 @@ function makeSecondarySession(args: ShellStoryArgs): ProjectSession {
       kind: "terminal",
       title: "Release terminal",
       order: 0,
-      config: { projectId: "nodex", terminalSessionId: "release-terminal" },
+      config: { terminalSessionId: "release-terminal" },
     }),
     makeTab({
       id: "tab:release-browser",
@@ -529,6 +533,42 @@ function makeSecondarySession(args: ShellStoryArgs): ProjectSession {
       bottomTabIds,
       bottomActiveTabId: "tab:release-terminal",
       bottomCollapsed: false,
+    }),
+  };
+}
+
+function makeAttachedProjectlessSession(args: ShellStoryArgs): ProjectSession {
+  const base = makeSession({
+    ...args,
+    activeTab: "browser",
+    thread: "attached",
+    rightPanel: "regular",
+  });
+  return {
+    ...base,
+    id: "session:projectless-attached",
+    projectId: null,
+    noThreadFallbackTitle: "Projectless chat tools",
+    displayTitle: "Projectless chat tools",
+    thread: base.thread
+      ? {
+          ...base.thread,
+          sessionId: "session:projectless-attached",
+          projectId: null,
+          threadId: "thread-projectless-attached",
+          threadName: "Projectless chat tools",
+          cwd: "/Users/asc/repo/scratch",
+        }
+      : null,
+    tabs: [],
+    panels: makePanels({
+      rightTabIds: [],
+      rightActiveTabId: null,
+      rightCollapsed: false,
+      rightFullWidth: false,
+      bottomTabIds: [],
+      bottomActiveTabId: null,
+      bottomCollapsed: true,
     }),
   };
 }
@@ -582,34 +622,15 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
   const initialSessionsByProject = useMemo<Record<string, ProjectSession[]>>(
     () => {
       if (args.workspace === "projectless-only") {
-        const session = (() => {
-        const session = makeSession({
-          ...args,
-          activeTab: "empty",
-          thread: "attached",
-        });
-        const id = "session:projectless:story";
-          return {
-          ...session,
-          id,
-          projectId: null,
-          noThreadFallbackTitle: "Projectless workspace task",
-          displayTitle: "Projectless workspace task",
-          thread: session.thread
-            ? { ...session.thread, sessionId: id, projectId: null }
-            : null,
-          tabs: [],
-          panels: makePanels({
-            rightTabIds: [],
-            rightActiveTabId: null,
-            rightCollapsed: true,
-            rightFullWidth: false,
-            bottomTabIds: [],
-            bottomActiveTabId: null,
-            bottomCollapsed: true,
-          }),
-          };
-        })();
+        const session = args.thread === "attached"
+          ? makeAttachedProjectlessSession(args)
+          : {
+              ...makeSession({ ...args, activeTab: "empty", thread: "empty" }),
+              id: "session:projectless:blank",
+              projectId: null,
+              noThreadFallbackTitle: "New chat",
+              displayTitle: "New chat",
+            };
         return { __projectless__: [session] } as Record<string, ProjectSession[]>;
       }
       return {
@@ -811,6 +832,58 @@ function LibraryRouteProjectSessionShellStory(args: ShellStoryArgs) {
   return <ProjectSessionShellStory {...args} />;
 }
 
+function buildStorySideChatStartResult(
+  input: CodexSideChatStartInput,
+  sessionsByProject: Record<string, ProjectSession[]>,
+): CodexSideChatStartResult {
+  const parentSession = Object.values(sessionsByProject)
+    .flat()
+    .find((session) => session.thread?.threadId === input.parentThreadId) ?? null;
+  const threadId = `thread-story-side-chat:${input.parentThreadId}`;
+  const now = Date.now();
+
+  return {
+    parentThreadId: input.parentThreadId,
+    threadId,
+    conversation: {
+      threadId,
+      projectId: parentSession?.projectId ?? null,
+      forkedFromId: input.parentThreadId,
+      source: {
+        parentThreadId: input.parentThreadId,
+        sideConversation: true,
+        sideConversationParentNavigationPath: input.parentNavigationPath ?? null,
+      },
+      ephemeral: true,
+      threadName: "Side chat",
+      threadPreview: "",
+      modelProvider: parentSession?.thread?.modelProvider ?? "openai",
+      cwd: parentSession?.thread?.cwd ?? null,
+      projectlessOutputDirectory: null,
+      projectlessWorkspaceBrowserRoot: null,
+      statusType: "notLoaded",
+      statusActiveFlags: [],
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+      linkedAt: CREATED_AT,
+      resumeState: "resumed",
+      turns: [],
+      requests: [],
+      queuedFollowUps: [],
+      pendingSteers: [],
+      backgroundTerminalRows: [],
+      childMemberships: [],
+      capabilityFlags: {
+        canEditLastUserTurn: false,
+        canForkFromTurn: false,
+        canSearch: true,
+        canCollapseTurns: true,
+      },
+    },
+  };
+}
+
 function installStoryApi(
   sessionsByProject: Record<string, ProjectSession[]>,
   setSessionsByProject: Dispatch<SetStateAction<Record<string, ProjectSession[]>>>,
@@ -819,6 +892,15 @@ function installStoryApi(
     configurable: true,
     value: {
       invoke: async (channel: string, ...args: unknown[]) => {
+        if (channel === "codex:thread:side-chat:start") {
+          return buildStorySideChatStartResult(
+            args[0] as CodexSideChatStartInput,
+            sessionsByProject,
+          );
+        }
+        if (channel === "codex:thread:side-chat:discard") {
+          return true;
+        }
         if (channel === "project-sessions:list" || channel === "project-sessions:list-summaries") {
           const scopeKey = args[0] === null ? "__projectless__" : String(args[0]);
           return sessionsByProject[scopeKey] ?? [];
@@ -1068,7 +1150,6 @@ function installStoryApi(
         if (channel === "project-session-tabs:create") {
           const input = args[0] as {
             sessionId: string;
-            projectId: string;
             panelId?: ProjectSessionTab["panelId"];
             kind: ProjectSessionTab["kind"];
             title: string;
@@ -1090,7 +1171,7 @@ function installStoryApi(
           const tab = makeTab({
             id: `tab:${input.kind}:${session.tabs.length + 1}`,
             sessionId: input.sessionId,
-            projectId: input.projectId,
+            projectId: session.projectId,
             kind: input.kind,
             title: input.title,
             order: session.tabs.filter((item) => item.panelId === panelId).length,
@@ -1180,6 +1261,24 @@ export const EmptyRightPanelActions: Story = {
     docs: {
       description: {
         story: "Empty right panel showing the Codex-style new-tab action grid with Database View and Page actions appended.",
+      },
+    },
+  },
+};
+
+export const AttachedProjectlessChatTools: Story = {
+  args: {
+    workspace: "projectless-only",
+    activeTab: "empty",
+    thread: "attached",
+    rightPanel: "regular",
+    bottomPanel: "collapsed",
+    navigationHistory: "disabled",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Attached projectless chat with a workspace cwd. The empty side panel exposes Side chat, Browser, and Terminal in conversation-native order.",
       },
     },
   },
@@ -1284,7 +1383,7 @@ export const ExpandedSidebarParity: Story = {
 export const ProjectlessOnlyWorkspace: Story = {
   args: {
     workspace: "projectless-only",
-    thread: "attached",
+    thread: "empty",
     activeTab: "empty",
     navigationHistory: "disabled",
   },

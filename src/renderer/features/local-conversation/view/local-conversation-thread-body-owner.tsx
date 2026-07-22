@@ -277,7 +277,7 @@ function ThreadStartProgressPanel({
 
 interface LocalConversationThreadBodyOwnerProps {
   body: ThreadBodyModel;
-  projectId: string;
+  projectId: string | null;
   threadId: string | null;
   isSideChat: boolean;
   cwd: string | null;

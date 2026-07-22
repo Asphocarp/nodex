@@ -21,7 +21,7 @@ describe("TerminalPanel", () => {
   test("renders the terminal surface without the redundant session header row", async () => {
     const { TerminalPanel } = await import("./terminal-panel");
     const { queryByText, getByText } = render(
-      <TerminalPanel terminalId="terminal-test" />,
+      <TerminalPanel terminalId="terminal-test" cwd="/Users/asc/repo/nodex" />,
     );
 
     const terminalRoot = document.querySelector("[data-codex-terminal='true']");
@@ -40,7 +40,6 @@ describe("TerminalPanel", () => {
         cwd="  /Users/asc/repo/nodex  "
         conversationId="thread-1"
         projectSessionId="session-1"
-        projectId="project-1"
       />,
     );
 
@@ -50,11 +49,10 @@ describe("TerminalPanel", () => {
       cwd: "/Users/asc/repo/nodex",
       conversationId: "thread-1",
       projectSessionId: "session-1",
-      projectId: "project-1",
     }));
   });
 
-  test("omits blank cwd so the PTY uses its process default", async () => {
+  test("blocks blank cwd instead of attaching a PTY with its process default", async () => {
     const { TerminalPanel } = await import("./terminal-panel");
     render(
       <TerminalPanel
@@ -63,10 +61,7 @@ describe("TerminalPanel", () => {
       />,
     );
 
-    expect(JSON.stringify(useTerminalCalls[0])).toBe(JSON.stringify({
-      terminalId: "terminal-test",
-      visible: true,
-      cwd: null,
-    }));
+    expect(useTerminalCalls).toHaveLength(0);
+    expect(document.body.textContent).toContain("Terminal workspace is unavailable");
   });
 });

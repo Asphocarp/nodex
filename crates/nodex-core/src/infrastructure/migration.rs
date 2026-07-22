@@ -231,6 +231,56 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_codex_scheduled_automations_active_heartbe
   WHERE kind = 'heartbeat' AND status = 'ACTIVE' AND target_thread_id IS NOT NULL;
 "#;
 
+const V87_PROJECT_SESSION_TABS_SCHEMA_SQL: &str = r#"
+DROP INDEX IF EXISTS idx_project_session_tabs_session_order;
+DROP INDEX IF EXISTS idx_project_session_tabs_project;
+DROP INDEX IF EXISTS idx_project_session_tabs_browser_identity;
+
+ALTER TABLE project_session_tabs RENAME TO project_session_tabs_v86;
+
+CREATE TABLE project_session_tabs (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES project_sessions(id) ON DELETE CASCADE,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  browser_tab_id TEXT,
+  panel_id TEXT NOT NULL DEFAULT 'right',
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  config_json TEXT NOT NULL,
+  state_key INTEGER NOT NULL DEFAULT 0,
+  state_json TEXT NOT NULL DEFAULT '{}',
+  "order" INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK (kind IN ('db_view', 'page_stage', 'terminal', 'browser', 'review', 'files')),
+  CHECK (panel_id IN ('right', 'bottom')),
+  CHECK (project_id IS NOT NULL OR kind IN ('browser', 'terminal', 'files')),
+  CHECK (
+    (kind = 'browser' AND browser_tab_id IS NOT NULL AND length(trim(browser_tab_id)) > 0)
+    OR (kind <> 'browser' AND browser_tab_id IS NULL)
+  )
+);
+
+INSERT INTO project_session_tabs(
+  id, session_id, project_id, browser_tab_id, panel_id, kind, title, config_json,
+  state_key, state_json, "order", created_at, updated_at
+)
+SELECT
+  id, session_id, project_id, browser_tab_id, panel_id, kind, title,
+  CASE WHEN kind = 'terminal' THEN json_remove(config_json, '$.projectId') ELSE config_json END,
+  state_key, state_json, "order", created_at, updated_at
+FROM project_session_tabs_v86;
+
+DROP TABLE project_session_tabs_v86;
+
+CREATE INDEX idx_project_session_tabs_session_order
+  ON project_session_tabs(session_id, panel_id, "order", created_at);
+CREATE INDEX idx_project_session_tabs_project
+  ON project_session_tabs(project_id);
+CREATE INDEX idx_project_session_tabs_browser_identity
+  ON project_session_tabs(session_id, browser_tab_id);
+"#;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentEngineFingerprint {
@@ -308,8 +358,8 @@ pub fn prepare_profile_store(
         });
     }
 
-    if version == 85 {
-        return upgrade_v85_store(connection, profile_home);
+    if matches!(version, 85 | 86) {
+        return upgrade_owned_store(connection, profile_home, version);
     }
 
     validate_store(connection)?;
@@ -415,31 +465,39 @@ fn rebuild_legacy_import_document_projections(connection: &Connection) -> Result
     Ok(())
 }
 
-fn upgrade_v85_store(
+fn upgrade_owned_store(
     connection: &mut Connection,
     profile_home: &Path,
+    source_version: i64,
 ) -> Result<StorePreparation, StoreError> {
     validate_store(connection)?;
-    validate_core_metadata(connection, 85)?;
-    validate_exact_v85_schema(connection)?;
+    validate_core_metadata(connection, source_version)?;
+    if source_version == 85 {
+        validate_exact_v85_schema(connection)?;
+    } else {
+        validate_exact_v86_schema(connection)?;
+    }
 
     let now = unix_time_millis()?;
-    let backup_path = create_migration_backup(connection, profile_home, now, 85)?;
+    let backup_path = create_migration_backup(connection, profile_home, now, source_version)?;
     let validated_yjs_documents: i64 = connection.query_row(
         "SELECT count(*) FROM document_engine_fingerprints",
         [],
         |row| row.get(0),
     )?;
     with_immediate_transaction(connection, |transaction| {
-        ensure_v86_execution_profile_schema(transaction)?;
+        if source_version == 85 {
+            ensure_v86_execution_profile_schema(transaction)?;
+        }
+        ensure_v87_project_session_tabs_schema(transaction)?;
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
-             WHERE id = 1 AND schema_owner = ?2 AND store_format_version = 85",
-            params![CORE_SCHEMA_VERSION, CORE_SCHEMA_OWNER],
+             WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
+            params![CORE_SCHEMA_VERSION, CORE_SCHEMA_OWNER, source_version],
         )?;
         if updated != 1 {
             return Err(corrupt(
-                "Rust Core ownership marker changed during v85 migration",
+                "Rust Core ownership marker changed during forward migration",
             ));
         }
         transaction.pragma_update(None, "user_version", CORE_SCHEMA_VERSION)?;
@@ -452,7 +510,7 @@ fn upgrade_v85_store(
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
-        migrated_from_version: Some(85),
+        migrated_from_version: Some(source_version),
         migration_backup_path: Some(backup_path),
         validated_yjs_documents: usize::try_from(validated_yjs_documents).map_err(|_| {
             StoreError::new(
@@ -711,6 +769,7 @@ fn publish_current_store(
         ensure_automation_definition_revision(transaction)?;
         ensure_automation_run_revision(transaction)?;
         ensure_v86_execution_profile_schema(transaction)?;
+        ensure_v87_project_session_tabs_schema(transaction)?;
         write_v85_metadata(transaction, migrated_from, backup_name, now, fingerprints)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
@@ -729,6 +788,7 @@ fn create_fresh_store(
         ensure_automation_definition_revision(transaction)?;
         ensure_automation_run_revision(transaction)?;
         ensure_v86_execution_profile_schema(transaction)?;
+        ensure_v87_project_session_tabs_schema(transaction)?;
         write_v85_metadata(transaction, None, None, now, &[])?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
@@ -752,6 +812,11 @@ fn ensure_v86_execution_profile_schema(connection: &Connection) -> Result<(), St
         ensure_optional_text_column(connection, "codex_threads", column)?;
     }
     ensure_v86_automation_execution_profile_schema(connection)
+}
+
+fn ensure_v87_project_session_tabs_schema(connection: &Connection) -> Result<(), StoreError> {
+    connection.execute_batch(V87_PROJECT_SESSION_TABS_SCHEMA_SQL)?;
+    Ok(())
 }
 
 fn ensure_optional_text_column(
@@ -1174,16 +1239,21 @@ fn validate_core_metadata(
 }
 
 fn validate_exact_v85_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, false, 85)
+    validate_exact_core_schema(connection, false, false, 85)
+}
+
+fn validate_exact_v86_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, false, 86)
 }
 
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, CORE_SCHEMA_VERSION)
+    validate_exact_core_schema(connection, true, true, CORE_SCHEMA_VERSION)
 }
 
 fn validate_exact_core_schema(
     connection: &Connection,
     include_execution_profiles: bool,
+    include_portable_tabs: bool,
     schema_version: i64,
 ) -> Result<(), StoreError> {
     let expected = Connection::open_in_memory()?;
@@ -1194,6 +1264,9 @@ fn validate_exact_core_schema(
     ensure_automation_run_revision(&expected)?;
     if include_execution_profiles {
         ensure_v86_execution_profile_schema(&expected)?;
+    }
+    if include_portable_tabs {
+        ensure_v87_project_session_tabs_schema(&expected)?;
     }
 
     let expected_inventory = read_schema_inventory(&expected)?;
@@ -1413,6 +1486,55 @@ mod tests {
         .expect("seed v84 Page");
     }
 
+    fn seed_owned_v86_store(home: &Path, terminal_config_json: &str) {
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v86 writer");
+        install_v84_schema(&connection).expect("v84 schema");
+        with_immediate_transaction(&mut connection, |transaction| {
+            transaction.execute_batch(V85_SCHEMA_SQL)?;
+            transaction.execute_batch(V85_EXECUTION_SCHEMA_SQL)?;
+            ensure_automation_definition_revision(transaction)?;
+            ensure_automation_run_revision(transaction)?;
+            ensure_v86_execution_profile_schema(transaction)?;
+            transaction.execute(
+                "INSERT INTO core_store_metadata(\
+                   id, schema_owner, store_format_version, migrated_from_version, \
+                   migration_backup_name, migrated_at_unix_ms\
+                 ) VALUES (1, ?1, 86, NULL, NULL, 1)",
+                [CORE_SCHEMA_OWNER],
+            )?;
+            transaction.execute(
+                "INSERT INTO projects(id, name, created, updated) \
+                 VALUES ('migration-project', 'Migration', '2026-07-18', '2026-07-18')",
+                [],
+            )?;
+            transaction.execute(
+                "INSERT INTO project_sessions(\
+                   id, project_id, no_thread_fallback_title, \"order\", panel_state_json, \
+                   created_at, updated_at\
+                 ) VALUES (\
+                   'migration-session', 'migration-project', 'Migration Session', 0, \
+                   '{\"right\":{\"tabIds\":[\"migration-terminal\"]}}', \
+                   '2026-07-18T01:00:00Z', '2026-07-18T02:00:00Z'\
+                 )",
+                [],
+            )?;
+            transaction.execute(
+                "INSERT INTO project_session_tabs(\
+                   id, session_id, project_id, browser_tab_id, panel_id, kind, title, \
+                   config_json, state_key, state_json, \"order\", created_at, updated_at\
+                 ) VALUES (\
+                   'migration-terminal', 'migration-session', 'migration-project', NULL, \
+                   'bottom', 'terminal', 'Legacy terminal', ?1, 7, '{\"cwd\":\"/legacy\"}', 3, \
+                   '2026-07-18T03:00:00Z', '2026-07-18T04:00:00Z'\
+                 )",
+                [terminal_config_json],
+            )?;
+            transaction.pragma_update(None, "user_version", 86)?;
+            Ok(())
+        })
+        .expect("seed v86 store");
+    }
+
     fn open_error(home: &Path) -> StoreError {
         match SqliteStoreKernel::open(home) {
             Ok(_) => panic!("store open unexpectedly succeeded"),
@@ -1574,6 +1696,121 @@ mod tests {
                 Ok::<_, StoreError>(())
             })
             .expect("verify v86 profile schema");
+    }
+
+    #[test]
+    fn v86_portable_tabs_upgrade_with_backup_and_preserve_tab_and_layout_state() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v86_store(
+            &home,
+            r#"{"projectId":"migration-project","terminalSessionId":"terminal:legacy"}"#,
+        );
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v86 Core store");
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(86));
+        let backup_path = upgraded
+            .preparation()
+            .migration_backup_path
+            .as_ref()
+            .expect("v86 migration backup");
+        let backup = open_immutable_reader(backup_path).expect("backup opens");
+        assert_eq!(
+            backup
+                .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .expect("backup version"),
+            86
+        );
+
+        upgraded
+            .writer()
+            .call(|connection| {
+                let tab = connection.query_row(
+                    "SELECT project_id, panel_id, config_json, state_key, state_json, \
+                            \"order\", created_at, updated_at \
+                     FROM project_session_tabs WHERE id = 'migration-terminal'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, Option<String>>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, i64>(3)?,
+                            row.get::<_, String>(4)?,
+                            row.get::<_, i64>(5)?,
+                            row.get::<_, String>(6)?,
+                            row.get::<_, String>(7)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(tab.0.as_deref(), Some("migration-project"));
+                assert_eq!(tab.1, "bottom");
+                assert_eq!(
+                    serde_json::from_str::<serde_json::Value>(&tab.2)
+                        .expect("normalized terminal config"),
+                    serde_json::json!({ "terminalSessionId": "terminal:legacy" })
+                );
+                assert_eq!(
+                    (tab.3, tab.4.as_str(), tab.5),
+                    (7, r#"{"cwd":"/legacy"}"#, 3)
+                );
+                assert_eq!(
+                    (tab.6.as_str(), tab.7.as_str()),
+                    ("2026-07-18T03:00:00Z", "2026-07-18T04:00:00Z")
+                );
+                let layout: String = connection.query_row(
+                    "SELECT panel_state_json FROM project_sessions \
+                     WHERE id = 'migration-session'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(layout, r#"{"right":{"tabIds":["migration-terminal"]}}"#);
+                Ok::<_, StoreError>(())
+            })
+            .expect("verify v87 portable tab migration");
+        drop(upgraded);
+        let reopened = SqliteStoreKernel::open(&home).expect("validate current v87 store exactly");
+        assert_eq!(reopened.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(reopened.preparation().migrated_from_version, None);
+        assert!(reopened.preparation().migration_backup_path.is_none());
+    }
+
+    #[test]
+    fn failed_v87_tab_rebuild_rolls_back_the_live_store_and_keeps_its_backup() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v86_store(&home, "not-json");
+
+        let error = open_error(&home);
+        assert_eq!(error.code, StoreErrorCode::SqliteFailure);
+        let live = open_writer(&home.join("nodex.db")).expect("live v86 store remains readable");
+        assert_eq!(
+            live.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .expect("live version"),
+            86
+        );
+        assert_eq!(
+            live.query_row(
+                "SELECT config_json FROM project_session_tabs \
+                 WHERE id = 'migration-terminal'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("legacy terminal config"),
+            "not-json"
+        );
+        let backups = fs::read_dir(home.join("backups/core-migrations"))
+            .expect("migration backup directory")
+            .map(|entry| entry.expect("backup entry").path())
+            .collect::<Vec<_>>();
+        assert_eq!(backups.len(), 1);
+        let backup = open_immutable_reader(&backups[0]).expect("migration backup opens");
+        assert_eq!(
+            backup
+                .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .expect("backup version"),
+            86
+        );
     }
 
     #[test]

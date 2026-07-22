@@ -1672,7 +1672,6 @@ describe("Electron native data authority", () => {
       );
       const firstBrowserTab = await workspace.createProjectSessionTab({
         sessionId: createdSession.id,
-        projectId: createdProject.id,
         panelId: "right",
         kind: "browser",
         title: "Browser One",
@@ -1680,7 +1679,6 @@ describe("Electron native data authority", () => {
       });
       const secondBrowserTab = await workspace.createProjectSessionTab({
         sessionId: createdSession.id,
-        projectId: createdProject.id,
         panelId: "right",
         kind: "browser",
         title: "Browser Two",
@@ -1843,7 +1841,6 @@ describe("Electron native data authority", () => {
       });
       const moveBrowserTab = await workspace.createProjectSessionTab({
         sessionId: moveSession.id,
-        projectId: createdProject.id,
         panelId: "right",
         kind: "browser",
         title: "Move Browser",

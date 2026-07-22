@@ -162,18 +162,9 @@ pub(super) fn move_session(
             now,
         );
     }
-    if connection
-        .query_row(
-            "SELECT 1 FROM project_session_tabs \
-             WHERE session_id = ?1 AND kind <> 'browser' LIMIT 1",
-            [session_id],
-            |_| Ok(()),
-        )
-        .optional()?
-        .is_some()
-    {
+    if session_has_project_scoped_tabs(connection, session_id)? {
         return Err(invalid(
-            "Only empty or browser-only Sessions can move between Projects",
+            "Only empty Sessions or Sessions with Browser and Terminal tabs can move between Projects",
         ));
     }
     let next_pinned_order = if authority.pinned {
@@ -203,7 +194,7 @@ pub(super) fn move_session(
     if changed != 1 {
         return Err(corrupt("Project Session disappeared during Project move"));
     }
-    rewrite_browser_tab_projects(connection, session_id, project_id, &now)?;
+    rewrite_portable_tab_ownership(connection, session_id, project_id, &now)?;
     connection.execute(
         "UPDATE codex_threads SET project_id = ?1 WHERE thread_id IN (\
            SELECT thread_id FROM project_session_threads WHERE session_id = ?2\
@@ -354,7 +345,22 @@ fn read_ordered_session_ids(
     Ok(rows)
 }
 
-pub(super) fn rewrite_browser_tab_projects(
+pub(super) fn session_has_project_scoped_tabs(
+    connection: &Connection,
+    session_id: &str,
+) -> Result<bool, StoreError> {
+    Ok(connection
+        .query_row(
+            "SELECT 1 FROM project_session_tabs \
+             WHERE session_id = ?1 AND kind NOT IN ('browser', 'terminal') LIMIT 1",
+            [session_id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
+pub(super) fn rewrite_portable_tab_ownership(
     connection: &Connection,
     session_id: &str,
     project_id: Option<&str>,
@@ -362,34 +368,42 @@ pub(super) fn rewrite_browser_tab_projects(
 ) -> Result<(), StoreError> {
     let rows = connection
         .prepare(
-            "SELECT id, config_json FROM project_session_tabs \
-             WHERE session_id = ?1 AND kind = 'browser' ORDER BY id",
+            "SELECT id, kind, config_json FROM project_session_tabs \
+             WHERE session_id = ?1 AND kind IN ('browser', 'terminal') ORDER BY id",
         )?
         .query_map([session_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    for (tab_id, config_json) in rows {
-        let mut config = serde_json::from_str::<Value>(&config_json)
-            .map_err(|_| corrupt("Browser tab config JSON is invalid"))?;
-        let config = config
-            .as_object_mut()
-            .ok_or_else(|| corrupt("Browser tab config must be an object"))?;
-        config.insert(
-            "projectId".to_owned(),
-            project_id.map_or(Value::Null, |project_id| {
-                Value::String(project_id.to_owned())
-            }),
-        );
-        let config_json = serde_json::to_string(config)
-            .map_err(|_| internal("Browser tab config cannot be encoded"))?;
+    for (tab_id, kind, config_json) in rows {
+        let config_json = if kind == "browser" {
+            let mut config = serde_json::from_str::<Value>(&config_json)
+                .map_err(|_| corrupt("Browser tab config JSON is invalid"))?;
+            let config = config
+                .as_object_mut()
+                .ok_or_else(|| corrupt("Browser tab config must be an object"))?;
+            config.insert(
+                "projectId".to_owned(),
+                project_id.map_or(Value::Null, |project_id| {
+                    Value::String(project_id.to_owned())
+                }),
+            );
+            serde_json::to_string(config)
+                .map_err(|_| internal("Browser tab config cannot be encoded"))?
+        } else {
+            config_json
+        };
         let changed = connection.execute(
             "UPDATE project_session_tabs SET project_id = ?1, config_json = ?2, \
                updated_at = ?3 WHERE id = ?4 AND session_id = ?5",
             params![project_id, config_json, now, tab_id, session_id],
         )?;
         if changed != 1 {
-            return Err(corrupt("Browser tab disappeared during Session move"));
+            return Err(corrupt("Portable tab disappeared during Session move"));
         }
     }
     Ok(())

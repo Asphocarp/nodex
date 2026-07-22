@@ -36,7 +36,7 @@ fn native_client_cold_starts_reuses_and_reads_the_authenticated_core() {
     let pid = client.handshake.pid;
     let guard = ProcessGuard(pid);
     assert_eq!(client.descriptor.pid, client.handshake.pid);
-    assert_eq!(client.handshake.schema_version, 86);
+    assert_eq!(client.handshake.schema_version, 87);
 
     let second = CoreClient::connect(&home, "native-client-test").expect("reuse running Core");
     assert_eq!(second.handshake.pid, client.handshake.pid);
@@ -53,7 +53,7 @@ fn native_client_cold_starts_reuses_and_reads_the_authenticated_core() {
     let StoreAdministrationReadValue::Status { schema_version, .. } = snapshot.value else {
         panic!("expected Store status value")
     };
-    assert_eq!(schema_version, 86);
+    assert_eq!(schema_version, 87);
 
     let source = home.join("source");
     fs::create_dir(&source).expect("Project source");

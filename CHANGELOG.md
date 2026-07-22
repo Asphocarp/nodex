@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Projectless chats with an attached thread can now open temporary Side chats and cwd-bound Terminals alongside Browser; exact Output files remain pinnable without enabling the generic Project Files tree.
 - Added an explicit Settings import workflow for Claude Code, Codex, and Open Interpreter history and setup, with selectable previews, independent ThreadStore copies, idempotent session hashes, no-overwrite skills/instructions, sanitized configuration translation, and no runtime fallback to external agent homes.
 - Added provider-aware agent execution through a pinned Open Interpreter runtime, with Anthropic Claude, Kimi K3, Moonshot, OpenRouter, and existing OpenAI model catalogs; per-task provider/model/harness/reasoning persistence across threads, forks, background work, and scheduled tasks; encrypted main-process API-key storage; and deterministic Responses, Chat, Messages, Kimi, and Claude runtime conformance gates.
 - Added a headless native `nodex` CLI with desktop-compatible Profile configuration, deterministic Project and Page/Database scope selection, exact Page body/metadata reads, bounded history/tree inspection, real ripgrep over immutable authorized Page snapshots, explicit one-Page editor drafts with atomic title/body apply and replay, semantic Page create/move/duplicate/delete, guarded title and whole-body replacement, anchored body insertion, exact body patches, stable Block insert/update/move/delete, and optional macOS background prewarming through the same collaborative Core authority used by the desktop app.
@@ -55,7 +56,7 @@ All notable changes to this project will be documented in this file.
 - Added a Page Stage heading rail navigator for rich NFM descriptions, with automatic left-gutter markers for heading-heavy Pages.
 
 ### Changed
-- Nodex now starts every production Profile through the native Rust Core; the former TypeScript/Rust authority selector and JavaScript storage engine are retired, exact published v26, v57, v68, v82, v83, and final v84 Profiles are safely backed up and migrated one way to the Rust-owned v86 store before readiness, and task-history search delegates exclusively to Codex app-server.
+- Nodex now starts every production Profile through the native Rust Core; the former TypeScript/Rust authority selector and JavaScript storage engine are retired, exact published v26, v57, v68, v82, v83, and final v84 Profiles plus native v85/v86 stores are safely backed up and migrated one way to the Rust-owned v87 store before readiness, and task-history search delegates exclusively to Codex app-server.
 - Nodex Profile storage is now configured exclusively through `NODEX_HOME` or `[server].home`; the previous environment variable and TOML key are no longer accepted.
 - Page workflows now use the action-oriented Triage, Plan, Build, Review, and Ship stages; CLI and API callers must use the corresponding `triage`, `plan`, `build`, `review`, and `ship` identifiers.
 - Page mentions now persist only stable Page identity and refresh from membership-independent, identity-keyed events, so renamed or cleared titles cannot fall back to stale insertion-time text and nested Pages update without a Database row.

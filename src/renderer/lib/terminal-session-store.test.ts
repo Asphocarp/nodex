@@ -68,7 +68,6 @@ describe("TerminalSessionStore", () => {
       sessionId: "session:one:terminal:1",
       conversationId: "thread-1",
       projectSessionId: "session-1",
-      projectId: "project-1",
       cwd: "/repo",
       size: { cols: 80, rows: 24 },
     });
@@ -91,7 +90,6 @@ describe("TerminalSessionStore", () => {
           sessionId: "session:one:terminal:1",
           conversationId: "thread-1",
           projectSessionId: "session-1",
-          projectId: "project-1",
           cwd: "/repo",
           size: { cols: 80, rows: 24 },
         },

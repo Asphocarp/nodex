@@ -957,7 +957,14 @@ mod tests {
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .expect("Core metadata");
-            assert_eq!(published, (CORE_SCHEMA_VERSION, "rust_core".to_owned(), 86));
+            assert_eq!(
+                published,
+                (
+                    CORE_SCHEMA_VERSION,
+                    "rust_core".to_owned(),
+                    CORE_SCHEMA_VERSION
+                )
+            );
             drop(connection);
 
             let backups = backup_directories(&home);
@@ -1239,7 +1246,7 @@ mod tests {
         assert!(
             backup_entries[0]
                 .to_string_lossy()
-                .starts_with("v82-to-v86-")
+                .starts_with(&format!("v82-to-v{CORE_SCHEMA_VERSION}-"))
         );
     }
 }

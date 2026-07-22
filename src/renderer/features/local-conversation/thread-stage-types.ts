@@ -182,7 +182,7 @@ export interface ThreadOpenThreadContext {
 }
 
 export interface ThreadStageRouteInput {
-  projectId: string;
+  projectId: string | null;
   sessionId?: string | null;
   threadPinned?: boolean;
   threadActionShortcuts?: ThreadStageHeaderModel["shortcuts"];
@@ -360,7 +360,7 @@ export interface ThreadStageActions {
   onUploadFeedback?: (params: FeedbackUploadParams) => Promise<void>;
   onOpenStatusPanel?: (threadId: string) => void;
   onToggleDesktopPet?: () => void;
-  onUnarchiveThread: (threadId: string, projectId: string) => Promise<void>;
+  onUnarchiveThread: (threadId: string, projectId: string | null) => Promise<void>;
   onOpenTurnDiffReview: (intent: ReviewOpenIntent) => void | Promise<void>;
   onOpenTurnDiffFileInSidePanel?: (target: ThreadTurnDiffFileSidePanelTarget) => void | Promise<void>;
   onConsumeComposerIntent: (threadId: string, focusNonce: number) => void;
@@ -897,7 +897,7 @@ export interface ThreadComposerShellModel {
 }
 
 export interface ThreadStageHeaderModel {
-  projectId: string;
+  projectId: string | null;
   sessionId: string | null;
   threadId: string | null;
   title: string;
@@ -916,7 +916,7 @@ export interface ThreadStageHeaderModel {
 export type ThreadSummaryPanelMode = "hidden" | "pinned" | "popover";
 
 export interface ThreadBodySurfaceModel {
-  projectId: string;
+  projectId: string | null;
   hostId: string;
   sessionId?: string | null;
   threadId: string | null;
@@ -946,7 +946,7 @@ export interface ThreadBodySurfaceModel {
 }
 
 export interface ThreadFooterModel {
-  projectId: string;
+  projectId: string | null;
   projectWorkspacePath?: string | null;
   threadId: string | null;
   cwd: string | null;

@@ -126,6 +126,7 @@ let terminateBackgroundTerminalCalls: unknown[] = [];
 let startSideChatCalls: unknown[] = [];
 let discardSideChatCalls: string[] = [];
 let sideChatConversations: Record<string, Record<string, unknown>> = {};
+let sideChatConversationProjectId: string | null = "alpha";
 let mockThreadStartProgress: unknown = null;
 let codexHostMessageListener: ((message: CodexHostMessage) => void) | null = null;
 let pendingWorktreeWarningListener: ((event: CodexPendingWorktreeWarningEvent) => void) | null = null;
@@ -191,7 +192,7 @@ const mockCodexControl = {
     const threadId = `side-thread-${startSideChatCalls.length}`;
     const conversation = {
       threadId,
-      projectId: "alpha",
+      projectId: sideChatConversationProjectId,
       source: {
         parentThreadId: "thread-alpha",
         sideConversation: true,
@@ -1568,7 +1569,7 @@ function makeBottomPanelTerminalSession(overrides: SessionFixtureOverrides = {})
         kind: "terminal",
         title: "Terminal",
         panelId: "bottom",
-        config: { projectId: "alpha", terminalSessionId: "terminal" },
+        config: { terminalSessionId: "terminal" },
       },
     ],
     ...overrides,
@@ -2460,7 +2461,6 @@ function renderWorkbench({
     if (channel === "project-session-tabs:create") {
       const input = (args[0] ?? {}) as {
         sessionId: string;
-        projectId: string;
         panelId?: ProjectSessionTab["panelId"];
         targetLeafId?: string;
         clientTabId?: string;
@@ -2493,10 +2493,11 @@ function renderWorkbench({
         }
       }
       if (input.kind === "db_view" && "projectId" in input.config) {
+        const inputProjectId = input.config.projectId;
         const existing = session.tabs.find((tab) =>
           tab.kind === "db_view"
           && "projectId" in tab.config
-          && tab.config.projectId === input.config.projectId
+          && tab.config.projectId === inputProjectId
         );
         if (existing) {
           const panel = session.panels[existing.panelId];
@@ -2525,7 +2526,7 @@ function renderWorkbench({
       const tab = {
         id: tabId,
         sessionId: input.sessionId,
-        projectId: input.projectId,
+        projectId: session.projectId,
         browserTabId: input.kind === "browser"
           ? input.browserTabId ?? `browser:${tabId}`
           : null,
@@ -2931,6 +2932,7 @@ beforeEach(() => {
   startSideChatCalls = [];
   discardSideChatCalls = [];
   sideChatConversations = {};
+  sideChatConversationProjectId = "alpha";
   mockThreadStartProgress = null;
   codexHostMessageListener = null;
   pendingWorktreeWarningListener = null;
@@ -7734,7 +7736,7 @@ describe(`workbench session shell / ${scope}`, () => {
           kind: "terminal",
           title: "Terminal",
           panelId: "bottom",
-          config: { projectId: "alpha", terminalSessionId: "terminal" },
+          config: { terminalSessionId: "terminal" },
         },
       ],
       panels: makePanels({
@@ -7974,7 +7976,7 @@ describe(`workbench session shell / ${scope}`, () => {
           kind: "terminal",
           title: "Terminal",
           panelId: "right",
-          config: { projectId: "alpha", terminalSessionId: "terminal" },
+          config: { terminalSessionId: "terminal" },
         },
       ],
       rightLayout: makePanelLayout(["terminal-tab"], "terminal-tab"),
@@ -8703,6 +8705,7 @@ describe(`workbench session shell / ${scope}`, () => {
       rightLayout: makePanelLayout([], null),
     });
     const screen = renderWorkbench({
+      projects: [makeProject("alpha", "Alpha", "/Users/asc/repo/project-workspace")],
       sessionsByProject: { alpha: [emptySession] },
     });
     await settleAsyncRender();
@@ -8715,25 +8718,158 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(actionText.indexOf("Review") < actionText.indexOf("Terminal")).toBe(true);
     expect(actionText.indexOf("Terminal") < actionText.indexOf("Browser")).toBe(true);
     expect(actionText.indexOf("Browser") < actionText.indexOf("Files")).toBe(true);
-    expect(actionText.indexOf("Files") < actionText.indexOf("Side chat")).toBe(true);
     expect(screen.getByRole("button", { name: /Review/ }) !== null).toBe(true);
     expect(screen.getByRole("button", { name: /Terminal/ }) !== null).toBe(true);
     expect(screen.getByRole("button", { name: /Browser/ }) !== null).toBe(true);
     expect(screen.getByRole("button", { name: /Files/ }) !== null).toBe(true);
-    expect(screen.getByRole("button", { name: /Side chat/ }) !== null).toBe(true);
+    expect(screen.queryByRole("button", { name: /Side chat/ })).toBe(null);
     expect(screen.getByRole("button", { name: /DB View/ }) !== null).toBe(true);
     expect(screen.getByRole("button", { name: /Page/ }) !== null).toBe(true);
-    expect(actionText.indexOf("Side chat") < actionText.indexOf("DB View")).toBe(true);
+    expect(actionText.indexOf("Files") < actionText.indexOf("DB View")).toBe(true);
     expect(actionText.indexOf("DB View") < actionText.indexOf("Page")).toBe(true);
     expect(textContent(actionGrid).includes("⌃⇧G")).toBe(true);
     expect(textContent(actionGrid).includes("⌃`")).toBe(true);
     expect(textContent(actionGrid).includes("Ctrl+T")).toBe(true);
     expect(textContent(actionGrid).includes("Ctrl+Shift+E")).toBe(true);
-    expect(textContent(actionGrid).includes("Alt+Ctrl+S")).toBe(true);
+    expect(textContent(actionGrid).includes("Alt+Ctrl+S")).toBe(false);
+  });
+
+  test("attached projectless chats expose and dispatch conversation-native panel tools", async () => {
+    const projectlessSession = makeAttachedSession({
+      id: "session:projectless:tools",
+      projectId: null,
+      title: "Projectless tools",
+      threadId: "thread-projectless-tools",
+      tabs: [],
+      rightCollapsed: false,
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [] },
+      projectlessSessions: [projectlessSession],
+      initialActiveProjectSessionId: projectlessSession.id,
+    });
+    await settleAsyncRender();
+    await act(async () => {
+      fireEvent.click(getThreadRow(screen.container, "Projectless tools"));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    const actionGrid = screen.container.querySelector('[data-thread-side-panel-new-tab-action-grid="true"]');
+    if (!actionGrid) throw new Error("Expected projectless right-panel action grid");
+    const actionText = textContent(actionGrid);
+    expect(actionText.indexOf("Side chat") < actionText.indexOf("Browser")).toBe(true);
+    expect(actionText.indexOf("Browser") < actionText.indexOf("Terminal")).toBe(true);
+    expect(actionText.includes("Files")).toBe(false);
+    expect(actionText.includes("Review")).toBe(false);
+
+    const menu = await openPanelMenu(screen, "Open side panel tab");
+    expect(within(menu).getByText("Side chat") !== null).toBe(true);
+    expect(within(menu).getByText("Browser") !== null).toBe(true);
+    expect(within(menu).getByText("Terminal") !== null).toBe(true);
+    expect(within(menu).queryByText("Files")).toBe(null);
+
+    await clickMenuItem(menu, "Side chat");
+    await waitFor(() => {
+      expect(startSideChatCalls).toHaveLength(1);
+    });
+    const sideChatInput = startSideChatCalls[0] as Record<string, unknown>;
+    expect("projectId" in sideChatInput).toBe(false);
+    expect(sideChatInput.parentNavigationPath).toBe(
+      "session:session:projectless:tools/thread:thread-projectless-tools",
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Close Side chat tab" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.keyDown(document, { key: "Escape" });
+      await Promise.resolve();
+    });
+    await openBottomPanel(screen);
+    const bottomMenu = await openPanelMenu(screen, "Open bottom panel tab");
+    const bottomMenuText = textContent(bottomMenu);
+    expect(bottomMenuText.indexOf("Side chat") < bottomMenuText.indexOf("Browser")).toBe(true);
+    expect(bottomMenuText.indexOf("Browser") < bottomMenuText.indexOf("Terminal")).toBe(true);
+    expect(within(bottomMenu).queryByText("Files")).toBe(null);
+
+    await clickMenuItem(bottomMenu, "Terminal");
+    await settleAsyncRender();
+    const createCall = invokeCalls.find((call) =>
+      call[0] === "project-session-tabs:create"
+      && (call[1] as { kind?: string } | undefined)?.kind === "terminal"
+    );
+    expect(createCall).toBeDefined();
+    const createInput = createCall?.[1] as Record<string, unknown>;
+    expect("projectId" in createInput).toBe(false);
+    expect(Object.keys(createInput.config as Record<string, unknown>)).toEqual(["terminalSessionId"]);
+    expect(getLastTerminalPanelProps()).toMatchObject({
+      cwd: "/Users/asc/repo/nodex",
+      conversationId: "thread-projectless-tools",
+      projectSessionId: "session:projectless:tools",
+    });
+  });
+
+  test("blank projectless chats only expose Browser", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "New projectless chat" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const sideChatShortcut = new KeyboardEvent("keydown", {
+      key: "s",
+      ctrlKey: true,
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    const terminalShortcut = new KeyboardEvent("keydown", {
+      key: "`",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      document.dispatchEvent(sideChatShortcut);
+      document.dispatchEvent(terminalShortcut);
+      await Promise.resolve();
+    });
+    expect(sideChatShortcut.defaultPrevented).toBe(false);
+    expect(terminalShortcut.defaultPrevented).toBe(false);
+    expect(startSideChatCalls).toHaveLength(0);
+    expect(invokeCalls.some((call) => (
+      call[0] === "project-session-tabs:create"
+      && (call[1] as { kind?: string } | undefined)?.kind === "terminal"
+    ))).toBe(false);
+
+    const browserShortcut = new KeyboardEvent("keydown", {
+      key: "t",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      document.dispatchEvent(browserShortcut);
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "Browser" })).toBeDefined();
+    });
+    expect(browserShortcut.defaultPrevented).toBe(true);
+    expect(invokeCalls.some((call) => (
+      call[0] === "project-session-tabs:create"
+      && (call[1] as { kind?: string } | undefined)?.kind === "browser"
+    ))).toBe(false);
   });
 
   test("bottom panel add menu shows Codex-eligible non-default actions", async () => {
-    const screen = renderWorkbench();
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeAttachedSession()] },
+    });
     await settleAsyncRender();
     await settleAsyncRender();
     await openBottomPanel(screen);
@@ -8750,7 +8886,7 @@ describe(`workbench session shell / ${scope}`, () => {
   });
 
   test("right panel keeps Nodex-only actions after Codex actions", async () => {
-    const emptySession = makeSession({
+    const emptySession = makeAttachedSession({
       id: "session:alpha:nodex-actions",
       tabs: [],
       rightLayout: makePanelLayout([], null),
@@ -8990,6 +9126,23 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(discardSideChatCalls[0] ?? "").toBe("side-thread-1");
   });
 
+  test("ready Side chat keeps its explicit projectless conversation context after parent rehome", async () => {
+    sideChatConversationProjectId = null;
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeAttachedSession()] },
+    });
+    await settleAsyncRender();
+    await openBottomPanel(screen);
+
+    const menu = await openPanelMenu(screen, "Open bottom panel tab");
+    await clickMenuItem(menu, "Side chat");
+
+    await waitFor(() => {
+      expect(getConnectedThreadStagePropsByThreadId("side-thread-1")?.projectId).toBe(null);
+    });
+    expect(getConnectedThreadStagePropsByThreadId("side-thread-1")?.projectWorkspacePath).toBe(null);
+  });
+
   test("selected-text side chat drafts prefill the side composer without submitting a prompt", async () => {
     renderWorkbench({
       sessionsByProject: { alpha: [makeAttachedSession()] },
@@ -9218,6 +9371,7 @@ describe(`workbench session shell / ${scope}`, () => {
       rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id, reviewTab.id], "session:alpha:database-view:db"),
     });
     const screen = renderWorkbench({
+      projects: [makeProject("alpha", "Alpha", "/Users/asc/repo/project-workspace")],
       sessionsByProject: { alpha: [session] },
     });
     await settleAsyncRender();
@@ -9254,11 +9408,12 @@ describe(`workbench session shell / ${scope}`, () => {
       order: 2,
       config: { projectId: "alpha" },
     });
-    const session = makeSession({
+    const session = makeAttachedSession({
       tabs: [...makeSession().tabs, browserTab, reviewTab],
       rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id, reviewTab.id], "session:alpha:database-view:db"),
     });
     const screen = renderWorkbench({
+      projects: [makeProject("alpha", "Alpha", "/Users/asc/repo/project-workspace")],
       sessionsByProject: { alpha: [session] },
     });
     await settleAsyncRender();
@@ -10147,7 +10302,7 @@ describe(`workbench session shell / ${scope}`, () => {
           kind: "terminal",
           title: "Terminal",
           panelId: "bottom",
-          config: { projectId: "alpha", terminalSessionId: "terminal-cycle" },
+          config: { terminalSessionId: "terminal-cycle" },
         },
         {
           id: "bottom-browser-tab",
@@ -10655,7 +10810,7 @@ describe(`workbench session shell / ${scope}`, () => {
           kind: "terminal",
           title: "Terminal",
           panelId: "bottom",
-          config: { projectId: "alpha", terminalSessionId: "terminal-close" },
+          config: { terminalSessionId: "terminal-close" },
         },
         {
           id: "bottom-browser-tab",
@@ -10740,7 +10895,7 @@ describe(`workbench session shell / ${scope}`, () => {
           kind: "terminal",
           title: "Terminal",
           panelId: "bottom",
-          config: { projectId: "alpha", terminalSessionId: "terminal-thread" },
+          config: { terminalSessionId: "terminal-thread" },
         },
       ],
     });
@@ -10765,7 +10920,7 @@ describe(`workbench session shell / ${scope}`, () => {
           kind: "terminal",
           title: "Terminal",
           panelId: "bottom",
-          config: { projectId: "alpha", terminalSessionId: "terminal-project" },
+          config: { terminalSessionId: "terminal-project" },
         },
       ],
     });
@@ -10780,7 +10935,8 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(getLastTerminalPanelProps().cwd).toBe("/Users/asc/repo/project-workspace");
   });
 
-  test("terminal tab default cwd stays unset without thread or project cwd", async () => {
+  test("terminal tab does not fall back to the process cwd without a conversation workspace", async () => {
+    delete (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps;
     const terminalSession = makeSession({
       id: "session:alpha:terminal-pty-default",
       title: "Default terminal",
@@ -10790,19 +10946,20 @@ describe(`workbench session shell / ${scope}`, () => {
           kind: "terminal",
           title: "Terminal",
           panelId: "bottom",
-          config: { projectId: "alpha", terminalSessionId: "terminal-default" },
+          config: { terminalSessionId: "terminal-default" },
         },
       ],
     });
 
-    renderWorkbench({
+    const screen = renderWorkbench({
       projects: [makeProject()],
       sessionsByProject: { alpha: [terminalSession] },
     });
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(String(getLastTerminalPanelProps().cwd)).toBe("undefined");
+    expect(screen.getByText("Terminal workspace is unavailable") !== null).toBe(true);
+    expect((globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps).toBeUndefined();
   });
 
   }
@@ -10907,7 +11064,7 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(createCall !== undefined).toBe(true);
     const input = createCall?.[1] as Record<string, unknown> | undefined;
     expect(input?.sessionId).toBe("session:alpha:database-view");
-    expect(input?.projectId).toBe("alpha");
+    expect("projectId" in (input ?? {})).toBe(false);
     expect(input?.panelId).toBe("right");
     expect("targetLeafId" in (input ?? {})).toBe(false);
     expect("clientTabId" in (input ?? {})).toBe(false);
@@ -11001,7 +11158,7 @@ describe(`workbench session shell / ${scope}`, () => {
       expect(createCall !== undefined).toBe(true);
       const input = createCall?.[1] as Record<string, unknown> | undefined;
       expect(input?.sessionId).toBe("session:alpha:database-view");
-      expect(input?.projectId).toBe("alpha");
+      expect("projectId" in (input ?? {})).toBe(false);
       expect(input?.panelId).toBe("right");
       expect(input?.targetLeafId).toBe(previewLeafId);
       expect(input?.clientTabId).toBe(previewTabId);
@@ -11472,7 +11629,7 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(tooltip?.textContent).toBe("Card One");
   });
 
-  test("opens terminals from cross-project card tabs in the card target project", async () => {
+  test("opens terminals from cross-project card tabs in the owning session workspace", async () => {
     const session = makeSession({
       tabs: [
         {
@@ -11505,20 +11662,21 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(invokeCalls.some((call) => {
       const input = call[1] as {
         sessionId?: string;
-        projectId?: string;
         panelId?: string;
         kind?: string;
-        config?: { projectId?: string; terminalSessionId?: string };
+        config?: { terminalSessionId?: string };
       } | undefined;
       return call[0] === "project-session-tabs:create"
         && input?.sessionId === "session:alpha:database-view"
-        && input.projectId === "alpha"
+        && !("projectId" in input)
         && input.panelId === "bottom"
         && input.kind === "terminal"
-        && input.config?.projectId === "beta"
+        && input.config !== undefined
+        && !("projectId" in input.config)
         && typeof input.config.terminalSessionId === "string"
         && input.config.terminalSessionId.startsWith("session:session:alpha:database-view:terminal:");
     })).toBe(true);
+    expect(getLastTerminalPanelProps()?.cwd).toBe("/Users/asc/repo/alpha");
   });
 
   test("shows a page-stage skeleton while card detail hydration is pending", async () => {
@@ -12168,7 +12326,7 @@ describe(`workbench session shell / ${scope}`, () => {
           kind: "terminal",
           title: "Terminal",
           order: 1,
-          config: { projectId: "alpha", terminalSessionId: "terminal-1" },
+          config: { terminalSessionId: "terminal-1" },
           createdAt: "2026-06-07T00:00:00.000Z",
           updatedAt: "2026-06-07T00:00:00.000Z",
         },

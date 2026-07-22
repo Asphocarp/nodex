@@ -1105,14 +1105,11 @@ fn normalize_tab_config(
     let config = config
         .as_object()
         .ok_or_else(|| invalid("Project Session tab config must be an object"))?;
-    if project_id.is_none() && !matches!(tab_kind, ProjectSessionTabKind::Browser) {
-        return Err(invalid("Projectless Sessions can only own browser tabs"));
-    }
     match tab_kind {
         ProjectSessionTabKind::DbView => {
-            validate_config_project(config, project_id)?;
             let project_id =
                 project_id.ok_or_else(|| invalid("Database View tabs require a Project"))?;
+            validate_config_project(config, Some(project_id))?;
             let view = required_enum(
                 config,
                 "view",
@@ -1130,8 +1127,7 @@ fn normalize_tab_config(
             }))
         }
         ProjectSessionTabKind::PageStage => {
-            let _owner_project_id =
-                project_id.ok_or_else(|| invalid("Page tabs require a Project"))?;
+            project_id.ok_or_else(|| invalid("Page tabs require a Project"))?;
             let project_id = required_string(config, "projectId", false)?;
             require_config_project(connection, library_id, &project_id)?;
             let page_id = required_string(config, "pageId", true)?;
@@ -1145,12 +1141,8 @@ fn normalize_tab_config(
             Ok(Value::Object(normalized))
         }
         ProjectSessionTabKind::Terminal => {
-            validate_config_project(config, project_id)?;
-            let project_id =
-                project_id.ok_or_else(|| invalid("Terminal tabs require a Project"))?;
             let terminal_session_id = required_string(config, "terminalSessionId", true)?;
             Ok(json!({
-                "projectId": project_id,
                 "terminalSessionId": terminal_session_id,
             }))
         }
@@ -1175,13 +1167,12 @@ fn normalize_tab_config(
             Ok(Value::Object(normalized))
         }
         ProjectSessionTabKind::Review => {
-            validate_config_project(config, project_id)?;
             let project_id = project_id.ok_or_else(|| invalid("Review tabs require a Project"))?;
+            validate_config_project(config, Some(project_id))?;
             Ok(json!({ "projectId": project_id }))
         }
         ProjectSessionTabKind::Files => {
             validate_config_project(config, project_id)?;
-            let project_id = project_id.ok_or_else(|| invalid("Files tabs require a Project"))?;
             let host_id = config
                 .get("hostId")
                 .map(|value| {
@@ -1192,17 +1183,23 @@ fn normalize_tab_config(
                 })
                 .transpose()?
                 .unwrap_or("local");
-            let workspace_root = optional_string(config, "workspaceRoot", true)?
-                .unwrap_or_default()
-                .trim()
-                .to_owned();
+            let workspace_root = optional_nullable_trimmed_string(config, "workspaceRoot")?;
+            let cwd = optional_nullable_trimmed_string(config, "cwd")?;
+            let path = optional_string(config, "path", false)?.map(|path| path.trim().to_owned());
+            if project_id.is_none() && path.is_none() {
+                return Err(invalid("Projectless Files tabs require an exact path"));
+            }
             let mut normalized = Map::from_iter([
-                ("projectId".to_owned(), json!(project_id)),
+                (
+                    "projectId".to_owned(),
+                    project_id.map_or(Value::Null, |id| json!(id)),
+                ),
                 ("hostId".to_owned(), json!(host_id)),
                 ("workspaceRoot".to_owned(), json!(workspace_root)),
+                ("cwd".to_owned(), json!(cwd)),
             ]);
-            if let Some(path) = optional_string(config, "path", false)? {
-                normalized.insert("path".to_owned(), json!(path.trim()));
+            if let Some(path) = path {
+                normalized.insert("path".to_owned(), json!(path));
             }
             Ok(Value::Object(normalized))
         }
@@ -1393,6 +1390,31 @@ fn optional_string(
         .as_str()
         .ok_or_else(|| invalid(&format!("Project Session tab {key} must be a string")))?;
     validate_config_string(key, value, allow_empty_after_trim)?;
+    Ok(Some(value.to_owned()))
+}
+
+fn optional_nullable_trimmed_string(
+    config: &Map<String, Value>,
+    key: &str,
+) -> Result<Option<String>, StoreError> {
+    let Some(value) = config.get(key) else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+    let value = value
+        .as_str()
+        .ok_or_else(|| {
+            invalid(&format!(
+                "Project Session tab {key} must be a string or null"
+            ))
+        })?
+        .trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    validate_config_string(key, value, false)?;
     Ok(Some(value.to_owned()))
 }
 

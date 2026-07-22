@@ -177,7 +177,9 @@ function LocalConversationThreadBodyComponent(props: LocalConversationThreadBody
     ? `session:${props.model.sessionId.trim()}`
     : props.model.threadId?.trim()
       ? `conversation:${props.model.threadId.trim()}`
-      : `project:${props.model.projectId}:new-thread`;
+      : props.model.projectId
+        ? `project:${props.model.projectId}:new-thread`
+        : "projectless:new-thread";
   return <LocalConversationThreadBodyScopedRoot key={stableBodyIdentity} {...props} />;
 }
 

@@ -11,6 +11,7 @@ import {
 } from "../../shared/window-navigation";
 import { TOGGLE_BOTTOM_PANEL_COMMAND_ID } from "../../shared/workbench-commands";
 import type { CommandPaletteCommand, CommandPaletteCommandGroup } from "./command-palette";
+import type { WorkbenchPanelActionKind } from "./workbench-panel-capabilities";
 
 export const OPEN_DB_VIEW_TAB_COMMAND_ID = "openDbViewTab";
 
@@ -49,6 +50,7 @@ export interface CommandPaletteShellCommandContext {
   hasActiveSession: boolean;
   activeSessionPinned: boolean;
   hasAttachedThread: boolean;
+  panelActionAvailability: Record<WorkbenchPanelActionKind, boolean>;
   canOpenSessionInNewWindow: boolean;
   isMac: boolean;
   commandKeymapState?: CommandKeymapState | null;
@@ -99,7 +101,6 @@ export function buildCommandPaletteCommands(
     formatCommandShortcutLabel(shortcutState, commandId, fallback);
   const sessionCommandDisabled = !context.hasActiveSession;
   const panelCommandDisabled = !context.hasActiveSession;
-  const sideChatDisabled = !context.hasActiveSession || !context.hasAttachedThread;
   const command = (
     id: string,
     group: CommandPaletteCommandGroup,
@@ -187,7 +188,7 @@ export function buildCommandPaletteCommands(
     }),
     command("openSideChat", "Chat", "Open side chat", "Start a side chat for the active chat", ["side", "chat", "thread", "panel", "tab"], 1060, {
       shortcut: shortcutLabel("openSideChat", "CmdOrCtrl+Alt+S"),
-      disabled: sideChatDisabled,
+      disabled: !context.panelActionAvailability.side_chat,
     }),
     ...maybeMockCommand("previousThread", "Navigation", "Previous chat", "Move to the previous chat", ["previous", "chat", "navigation"], 1040),
     ...maybeMockCommand("nextThread", "Navigation", "Next chat", "Move to the next chat", ["next", "chat", "navigation"], 1030),
@@ -219,22 +220,22 @@ export function buildCommandPaletteCommands(
     }),
     command("toggleFileTreePanel", "Panels", "Toggle file tree", "Open project files in the active panel", ["files", "file", "tree", "panel", "tab"], 910, {
       shortcut: shortcutLabel("toggleFileTreePanel", "CmdOrCtrl+Shift+E"),
-      disabled: panelCommandDisabled,
+      disabled: !context.panelActionAvailability.files,
     }),
     command("openBrowserTab", "Panels", "Open browser tab", "Open a Browser tab in the active panel", ["browser", "web", "panel", "tab"], 900, {
       shortcut: shortcutLabel("openBrowserTab", "CmdOrCtrl+T"),
-      disabled: panelCommandDisabled,
+      disabled: !context.panelActionAvailability.browser,
     }),
     command("openReviewTab", "Panels", "Open review tab", "Open or focus code review in the right panel", ["review", "diff", "changes", "git", "panel", "tab"], 880, {
       shortcut: shortcutLabel("openReviewTab", "Ctrl+Shift+G"),
-      disabled: panelCommandDisabled,
+      disabled: !context.panelActionAvailability.review,
     }),
     command("toggleTerminal", "Panels", "Open terminal", "Focus or create a terminal tab", ["terminal", "shell", "panel", "tab"], 870, {
       shortcut: shortcutLabel("toggleTerminal", "Ctrl+`"),
-      disabled: panelCommandDisabled,
+      disabled: !context.panelActionAvailability.terminal,
     }),
     command(OPEN_DB_VIEW_TAB_COMMAND_ID, "Panels", "Open DB View tab", "Open the active project database in the right panel", ["db", "database", "view", "board", "kanban", "panel", "tab"], 860, {
-      disabled: panelCommandDisabled,
+      disabled: !context.panelActionAvailability.db_view,
     }),
     command("newThreadInProject", "Project", "New chat in project", "Start a new chat in the active project", ["new", "chat", "project"], 830, {
       disabled: !context.canStartNewChat,

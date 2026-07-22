@@ -1,11 +1,11 @@
 import { useTerminal } from "@/lib/use-terminal";
+import type { ReactNode } from "react";
 
 interface TerminalPanelProps {
   terminalId: string;
-  cwd?: string | null;
+  cwd: string;
   conversationId?: string | null;
   projectSessionId?: string | null;
-  projectId?: string | null;
   onNewTerminalTab?: () => void;
 }
 
@@ -19,31 +19,49 @@ export function TerminalPanel({
   cwd,
   conversationId,
   projectSessionId,
-  projectId,
+  onNewTerminalTab,
+}: TerminalPanelProps) {
+  const normalizedCwd = normalizeCwd(cwd);
+  if (!normalizedCwd) {
+    return (
+      <TerminalSurface terminalId={terminalId}>
+        <div className="terminal-fallback-surface flex h-full w-full items-center justify-center text-sm text-token-text-secondary">
+          Terminal workspace is unavailable
+        </div>
+      </TerminalSurface>
+    );
+  }
+
+  return (
+    <ConnectedTerminalPanel
+      terminalId={terminalId}
+      cwd={normalizedCwd}
+      conversationId={conversationId}
+      projectSessionId={projectSessionId}
+      onNewTerminalTab={onNewTerminalTab}
+    />
+  );
+}
+
+function ConnectedTerminalPanel({
+  terminalId,
+  cwd,
+  conversationId,
+  projectSessionId,
   onNewTerminalTab,
 }: TerminalPanelProps) {
   const { containerRef, isUnavailable, error, reconnect } = useTerminal({
     terminalId,
     visible: true,
-    cwd: normalizeCwd(cwd),
+    cwd,
     conversationId,
     projectSessionId,
-    projectId,
     onNewTerminalTab,
   });
 
   return (
-    <div
-      id={`terminal-panel-${terminalId}`}
-      data-codex-terminal="true"
-      data-codex-xterm="true"
-      className="app-theme relative flex h-full w-full flex-col"
-      style={{
-        backgroundColor: "var(--vscode-terminal-background)",
-        color: "var(--vscode-terminal-foreground)",
-      }}
-    >
-      <div className="flex-1 overflow-hidden pb-3 pl-4 tracking-normal">
+    <TerminalSurface terminalId={terminalId}>
+      <div className="h-full w-full pb-3 pl-4 tracking-normal">
         {isUnavailable ? (
           <div className="terminal-fallback-surface flex h-full w-full items-center justify-center text-sm text-token-text-secondary">
             Terminal requires the Electron desktop app
@@ -65,6 +83,31 @@ export function TerminalPanel({
             ) : null}
           </div>
         )}
+      </div>
+    </TerminalSurface>
+  );
+}
+
+function TerminalSurface({
+  terminalId,
+  children,
+}: {
+  terminalId: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      id={`terminal-panel-${terminalId}`}
+      data-codex-terminal="true"
+      data-codex-xterm="true"
+      className="app-theme relative flex h-full w-full flex-col"
+      style={{
+        backgroundColor: "var(--vscode-terminal-background)",
+        color: "var(--vscode-terminal-foreground)",
+      }}
+    >
+      <div className="flex-1 overflow-hidden">
+        {children}
       </div>
     </div>
   );

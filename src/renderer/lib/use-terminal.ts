@@ -261,10 +261,9 @@ function fitAndResize(
 export interface UseTerminalOptions {
   terminalId: string;
   visible: boolean;
-  cwd?: string | null;
+  cwd: string;
   conversationId?: string | null;
   projectSessionId?: string | null;
-  projectId?: string | null;
   onNewTerminalTab?: () => void;
 }
 
@@ -284,9 +283,10 @@ export function useTerminal({
   cwd,
   conversationId,
   projectSessionId,
-  projectId,
   onNewTerminalTab,
 }: UseTerminalOptions): UseTerminalReturn {
+  const normalizedCwd = cwd.trim();
+  const hasValidCwd = normalizedCwd.length > 0;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -300,23 +300,21 @@ export function useTerminal({
 
   const latestOptionsRef = useRef({
     terminalId,
-    cwd,
+    cwd: normalizedCwd,
     conversationId,
     projectSessionId,
-    projectId,
   });
   latestOptionsRef.current = {
     terminalId,
-    cwd,
+    cwd: normalizedCwd,
     conversationId,
     projectSessionId,
-    projectId,
   };
 
   const reconnect = useCallback(() => {
     const term = termRef.current;
     const fit = fitRef.current;
-    if (!term || !fit || !isTerminalRuntimeAvailable()) return;
+    if (!term || !fit || !hasValidCwd || !isTerminalRuntimeAvailable()) return;
 
     term.clear();
     setError(null);
@@ -330,14 +328,13 @@ export function useTerminal({
       sessionId: terminalId,
       conversationId: latestOptionsRef.current.conversationId,
       projectSessionId: latestOptionsRef.current.projectSessionId,
-      projectId: latestOptionsRef.current.projectId,
       cwd: latestOptionsRef.current.cwd,
       size,
     });
-  }, [terminalId]);
+  }, [hasValidCwd, terminalId]);
 
   useEffect(() => {
-    if (!visible || !containerRef.current || !isTerminalRuntimeAvailable()) return;
+    if (!visible || !hasValidCwd || !containerRef.current || !isTerminalRuntimeAvailable()) return;
 
     const container = containerRef.current;
     const theme = readTerminalTheme(container);
@@ -458,8 +455,7 @@ export function useTerminal({
         sessionId: terminalId,
         conversationId,
         projectSessionId,
-        projectId,
-        cwd,
+        cwd: normalizedCwd,
         size,
       }).catch((reason: unknown) => {
         if (disposed) return;
@@ -507,8 +503,8 @@ export function useTerminal({
     };
   }, [
     conversationId,
-    cwd,
-    projectId,
+    hasValidCwd,
+    normalizedCwd,
     projectSessionId,
     terminalId,
     visible,

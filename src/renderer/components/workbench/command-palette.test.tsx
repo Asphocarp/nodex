@@ -57,6 +57,15 @@ function makeCommandContext(
     hasActiveSession: true,
     activeSessionPinned: false,
     hasAttachedThread: true,
+    panelActionAvailability: {
+      db_view: true,
+      page_stage: true,
+      terminal: true,
+      browser: true,
+      review: true,
+      files: true,
+      side_chat: true,
+    },
     canOpenSessionInNewWindow: true,
     isMac: true,
     ...overrides,
@@ -174,6 +183,15 @@ describe("buildCommandPaletteCommands", () => {
     const commands = buildCommandPaletteCommands(makeCommandContext({
       hasActiveSession: false,
       hasAttachedThread: false,
+      panelActionAvailability: {
+        db_view: false,
+        page_stage: false,
+        terminal: false,
+        browser: false,
+        review: false,
+        files: false,
+        side_chat: false,
+      },
     }));
     const renameCommand = commands.find((command) => command.id === RENAME_THREAD_COMMAND_ID);
     const archiveCommand = commands.find((command) => command.id === "archiveThread");
@@ -184,6 +202,28 @@ describe("buildCommandPaletteCommands", () => {
     expect(archiveCommand?.disabled).toBe(true);
     expect(sideChatCommand?.disabled).toBe(true);
     expect(dbViewCommand?.disabled).toBe(true);
+  });
+
+  test("uses the shared panel eligibility for attached projectless chats", () => {
+    const commands = buildCommandPaletteCommands(makeCommandContext({
+      panelActionAvailability: {
+        db_view: false,
+        page_stage: false,
+        terminal: true,
+        browser: true,
+        review: false,
+        files: false,
+        side_chat: true,
+      },
+    }));
+
+    const disabledById = Object.fromEntries(commands.map((command) => [command.id, command.disabled]));
+    expect(disabledById.openSideChat).toBe(false);
+    expect(disabledById.openBrowserTab).toBe(false);
+    expect(disabledById.toggleTerminal).toBe(false);
+    expect(disabledById.toggleFileTreePanel).toBe(true);
+    expect(disabledById.openReviewTab).toBe(true);
+    expect(disabledById.openDbViewTab).toBe(true);
   });
 });
 

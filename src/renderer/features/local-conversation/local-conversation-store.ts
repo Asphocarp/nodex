@@ -4230,10 +4230,13 @@ export class CodexAppServerManager {
   }
 
   async startSideChat(input: CodexSideChatStartInput): Promise<CodexSideChatStartResult> {
-    await this.loadPermissionState(input.projectId);
+    const parent = this.readConversation(input.parentThreadId)
+      ?? this.readThreadSummary(input.parentThreadId);
+    const projectId = parent?.projectId ?? null;
+    if (projectId !== null) await this.loadPermissionState(projectId);
     const result = (await invoke("codex:thread:side-chat:start", {
       ...input,
-      permissionMode: input.permissionMode ?? this.readPermissionMode(input.projectId),
+      permissionMode: input.permissionMode ?? this.readPermissionMode(projectId),
     })) as CodexSideChatStartResult;
     const conversation = materializeOwnerCanonicalConversationSnapshot(result.conversation);
     this.applyConversationSnapshot(result.threadId, conversation);
@@ -4267,17 +4270,15 @@ export class CodexAppServerManager {
     }
   }
 
-  async archiveThread(threadId: string, projectId: string): Promise<boolean> {
+  async archiveThread(threadId: string, projectId: string | null): Promise<boolean> {
     const result = (await invoke("codex:thread:archive", threadId)) as boolean;
-    if (result) {
-      await this.loadThreads(projectId);
-    }
+    if (result && projectId !== null) await this.loadThreads(projectId);
     return result;
   }
 
-  async unarchiveThread(threadId: string, projectId: string): Promise<CodexThreadSummary | null> {
+  async unarchiveThread(threadId: string, projectId: string | null): Promise<CodexThreadSummary | null> {
     const result = (await invoke("codex:thread:unarchive", threadId)) as CodexThreadSummary | null;
-    await this.loadThreads(projectId, { includeArchived: true });
+    if (projectId !== null) await this.loadThreads(projectId, { includeArchived: true });
     return result;
   }
 
@@ -10364,10 +10365,8 @@ export function useCodexAppServerControl(activeProjectId: string | null) {
     const resolvedSettings = resolveCodexThreadSettings(storedThreadSettings, availableModels);
     const requestSettings = resolveCodexDraftRequestSettings(input, resolvedSettings);
     const effectiveServiceTier = resolveCodexRequestServiceTier(input, serviceTierSettings.serviceTier);
-    await manager.loadPermissionState(input.projectId);
     return manager.startSideChat({
       ...input,
-      permissionMode: manager.readPermissionMode(input.projectId),
       ...requestSettings,
       ...buildCodexServiceTierRequestOverride(effectiveServiceTier),
     });
@@ -10383,11 +10382,11 @@ export function useCodexAppServerControl(activeProjectId: string | null) {
     [manager],
   );
   const archiveThread = useCallback(
-    async (threadId: string, projectId: string) => manager.archiveThread(threadId, projectId),
+    async (threadId: string, projectId: string | null) => manager.archiveThread(threadId, projectId),
     [manager],
   );
   const unarchiveThread = useCallback(
-    async (threadId: string, projectId: string) => manager.unarchiveThread(threadId, projectId),
+    async (threadId: string, projectId: string | null) => manager.unarchiveThread(threadId, projectId),
     [manager],
   );
 

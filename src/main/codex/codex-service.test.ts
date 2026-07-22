@@ -195,7 +195,6 @@ interface TestableCodexService {
     localEnvironmentConfigPath?: string | null;
   }) => Promise<ProjectSessionForkResult>;
   startSideChat: (input: {
-    projectId: string;
     parentThreadId: string;
     parentNavigationPath?: string | null;
     prompt?: string;
@@ -5898,7 +5897,6 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
 
     try {
       const result = await service.startSideChat({
-        projectId: "project-side-exact",
         parentThreadId: "thr_side_exact_parent",
         reasoningEffort: "xhigh",
       });
@@ -5924,6 +5922,197 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       )).toBe(true);
       expect(result.threadId).toBe("thr_side_exact_child");
       expect(getCanonicalConversationState(service, result.threadId)?.turns.length ?? -1).toBe(0);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test.each([
+    { label: "missing", hasStaleCwd: false },
+    { label: "non-empty but unavailable", hasStaleCwd: true },
+  ])("side chat repairs and persists a $label projectless parent workspace before forking", async ({
+    hasStaleCwd,
+  }) => {
+    const projectlessHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nodex-side-chat-projectless-"),
+    );
+    const staleCwd = hasStaleCwd
+      ? path.join(projectlessHome, "deleted-parent-workspace")
+      : null;
+    const projectWorkspace = createTestProjectWorkspace();
+    await projectWorkspace.upsertThread("thr_side_projectless_parent", {
+      projectId: null,
+      cwd: staleCwd,
+      projectlessOutputDirectory: null,
+      projectlessWorkspaceBrowserRoot: null,
+      threadName: "Repair side chat workspace",
+      threadPreview: "Repair side chat workspace",
+    });
+    const service = createService({
+      projectWorkspace,
+      projectlessHomeDirectory: () => projectlessHome,
+    });
+    await (service as unknown as {
+      readWorkspaceThread: (threadId: string) => Promise<DesktopProjectWorkspaceThread | null>;
+    }).readWorkspaceThread("thr_side_projectless_parent");
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+    client.start = async () => undefined;
+    client.request = async (method, params) => {
+      requests.push({ method, params });
+      if (method === "thread/fork") {
+        const cwd = (params as { cwd: string }).cwd;
+        return makeCanonicalForkResponse({
+          threadId: "thr_side_projectless_child",
+          cwd,
+          turns: [],
+        });
+      }
+      if (method === "thread/inject_items") return {};
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+    service.readThread = async () => ({
+      ...makeThreadDetail("thr_side_projectless_parent"),
+      projectId: null,
+      source: null,
+      cwd: staleCwd,
+      projectlessOutputDirectory: null,
+      projectlessWorkspaceBrowserRoot: null,
+      threadName: "Repair side chat workspace",
+      threadPreview: "Repair side chat workspace",
+      sandbox: {
+        type: "workspaceWrite",
+        writableRoots: [],
+        networkAccess: false,
+        excludeTmpdirEnvVar: false,
+        excludeSlashTmp: false,
+      },
+    });
+
+    try {
+      const result = await service.startSideChat({
+        parentThreadId: "thr_side_projectless_parent",
+        parentNavigationPath:
+          "session:session-projectless/thread:thr_side_projectless_parent",
+      });
+      const forkParams = requests[0]?.params as { cwd?: string };
+      const persistedParent = await projectWorkspace.getThread(
+        "thr_side_projectless_parent",
+      );
+
+      expect(requests.map((request) => request.method).join(",")).toBe(
+        "thread/fork,thread/inject_items",
+      );
+      expect(forkParams.cwd?.startsWith(path.join(projectlessHome, "Documents", "Nodex")))
+        .toBe(true);
+      expect(forkParams.cwd).not.toBe(staleCwd);
+      expect(fs.statSync(forkParams.cwd ?? "").isDirectory()).toBe(true);
+      expect(persistedParent?.cwd).toBe(forkParams.cwd);
+      expect(persistedParent?.projectlessOutputDirectory).toBe(forkParams.cwd);
+      expect(persistedParent?.projectlessWorkspaceBrowserRoot).toBe(
+        path.join(projectlessHome, "Documents", "Nodex"),
+      );
+      expect(result.conversation.projectId).toBeNull();
+      expect(result.conversation.cwd).toBe(forkParams.cwd);
+      expect(result.conversation.projectlessOutputDirectory).toBe(forkParams.cwd);
+      expect(result.conversation.projectlessWorkspaceBrowserRoot).toBe(
+        path.join(projectlessHome, "Documents", "Nodex"),
+      );
+      expect(await projectWorkspace.getThread(result.threadId)).toBeNull();
+    } finally {
+      await service.shutdown();
+      fs.rmSync(projectlessHome, { recursive: true, force: true });
+    }
+  });
+
+  test("thread project assignment re-homes sessions containing only Browser and Terminal tabs", async () => {
+    const baseWorkspace = createTestProjectWorkspace();
+    const moveInputs: Array<Parameters<DesktopProjectWorkspacePort["moveThread"]>[0]> = [];
+    const projectWorkspace = {
+      ...baseWorkspace,
+      getProjectSession: async () => ({
+        id: "session-portable",
+        tabs: [
+          { kind: "browser" },
+          { kind: "terminal" },
+        ],
+      }),
+      moveThread: async (
+        input: Parameters<DesktopProjectWorkspacePort["moveThread"]>[0],
+      ) => {
+        moveInputs.push(input);
+        return await baseWorkspace.moveThread(input);
+      },
+    } as unknown as DesktopProjectWorkspacePort;
+    const service = createService({ projectWorkspace });
+    const internals = service as unknown as {
+      prepareWorkspaceThreadProjectAssignment: (input: {
+        thread: DesktopProjectWorkspaceThread;
+        targetProjectId: string | null;
+        metadata: {
+          cwd: string;
+          managedWorktreePath: null;
+          projectlessOutputDirectory: null;
+          projectlessWorkspaceBrowserRoot: null;
+        };
+      }) => Promise<void>;
+    };
+
+    try {
+      await internals.prepareWorkspaceThreadProjectAssignment({
+        thread: makeDesktopWorkspaceThread({
+          threadId: "thread-portable",
+          projectId: null,
+          sessionId: "session-portable",
+        }),
+        targetProjectId: "project-target",
+        metadata: {
+          cwd: "/workspace/portable",
+          managedWorktreePath: null,
+          projectlessOutputDirectory: null,
+          projectlessWorkspaceBrowserRoot: null,
+        },
+      });
+
+      expect(moveInputs.length).toBe(1);
+      expect(moveInputs[0]?.targetProjectId).toBe("project-target");
+      expect(moveInputs[0]?.threadId).toBe("thread-portable");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("side chat rejects a projectless parent whose workspace cannot be persisted", async () => {
+    const service = createService();
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: string[] = [];
+    client.start = async () => undefined;
+    client.request = async (method) => {
+      requests.push(method);
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+    service.readThread = async () => ({
+      ...makeThreadDetail("thr_side_unpersisted_parent"),
+      projectId: null,
+      source: null,
+      cwd: null,
+      projectlessOutputDirectory: null,
+      projectlessWorkspaceBrowserRoot: null,
+    });
+
+    try {
+      await expect(service.startSideChat({
+        parentThreadId: "thr_side_unpersisted_parent",
+      })).rejects.toThrow(
+        "Projectless side chat requires a workspace, but its parent workspace could not be repaired",
+      );
+      expect(requests.length).toBe(0);
     } finally {
       await service.shutdown();
     }
@@ -5961,7 +6150,6 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       let message = "";
       try {
         await service.startSideChat({
-          projectId: "project-side-failure",
           parentThreadId: "thr_side_failure_parent",
         });
       } catch (error) {

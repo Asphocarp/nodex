@@ -475,7 +475,10 @@ import {
   setManagedWorktreeOwnerThread,
 } from "./git-worktree-service";
 import { buildCodexDesktopDeveloperInstructions } from "./codex-developer-instructions";
-import { resolveCodexForkWorkspaceInheritance } from "./codex-fork-workspace-inheritance";
+import {
+  resolveCodexForkWorkspaceInheritance,
+  type CodexForkWorkspaceInheritance,
+} from "./codex-fork-workspace-inheritance";
 import {
   applyLiveTranscriptMutation,
   buildTranscriptFromBootstrapEvents,
@@ -1440,6 +1443,12 @@ interface SideChatDetailInput {
   resolvedCwd: string | null;
   latestCollaborationMode: CodexCollaborationModeState;
   executionProfile: AgentExecutionProfile | null;
+}
+
+interface SideChatParentWorkspace {
+  readonly cwd: string;
+  readonly inheritance: CodexForkWorkspaceInheritance;
+  readonly workspaceRoots: readonly string[];
 }
 
 interface CodexAutomationArchiveMessages {
@@ -7181,7 +7190,6 @@ export class CodexService extends EventEmitter {
           },
           kind: "browser",
           panelId: panel,
-          projectId: targetProjectSession.projectId,
           sessionId: targetProjectSession.id,
           title: "Browser",
         });
@@ -13438,6 +13446,84 @@ export class CodexService extends EventEmitter {
     }, thread as unknown as Record<string, unknown>);
   }
 
+  private async resolveSideChatParentWorkspace(
+    parentThreadId: string,
+    parentDetail: CodexThreadDetail,
+  ): Promise<SideChatParentWorkspace> {
+    const inheritedWorkspace = resolveCodexForkWorkspaceInheritance(parentDetail);
+    const parentCwd = parentDetail.cwd?.trim() ?? "";
+    const sandboxWritableRoots = parentDetail.sandbox?.type === "workspaceWrite"
+      ? parentDetail.sandbox.writableRoots
+        .map((root) => root.trim())
+        .filter((root) => root.length > 0 && root !== "~")
+      : [];
+    if (parentDetail.projectId) {
+      if (parentCwd) {
+        return {
+          cwd: parentCwd,
+          inheritance: inheritedWorkspace,
+          workspaceRoots: [
+            parentCwd,
+            ...sandboxWritableRoots.filter((root) => root !== parentCwd),
+          ],
+        };
+      }
+      const projectContext = await this.resolveLocalProjectThreadRoot(
+        parentDetail.projectId,
+      );
+      return {
+        cwd: projectContext.cwd,
+        inheritance: inheritedWorkspace,
+        workspaceRoots: projectContext.workspaceRoots,
+      };
+    }
+
+    let repairedParent: ThreadRef | null;
+    try {
+      const persistedWritableRoots = await this.readThreadWritableRoots(parentThreadId);
+      repairedParent = await this.repairPersistedProjectlessWorkspaceForResume({
+        browserRoot: parentDetail.projectlessWorkspaceBrowserRoot ?? null,
+        cwd: parentDetail.cwd,
+        outputDirectory: parentDetail.projectlessOutputDirectory ?? null,
+        prompt: parentDetail.threadName?.trim()
+          || parentDetail.threadPreview.trim()
+          || "new chat",
+        threadId: parentThreadId,
+        writableRoots: [
+          ...persistedWritableRoots,
+          ...sandboxWritableRoots.filter(
+            (root) => !persistedWritableRoots.includes(root),
+          ),
+        ],
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Projectless side chat workspace repair failed: ${message}`,
+      );
+    }
+
+    const repairedCwd = repairedParent?.cwd?.trim() ?? "";
+    if (!repairedCwd) {
+      throw new Error(
+        "Projectless side chat requires a workspace, but its parent workspace could not be repaired",
+      );
+    }
+
+    const repairedInheritance = resolveCodexForkWorkspaceInheritance({
+      projectId: null,
+      projectlessOutputDirectory:
+        repairedParent?.projectlessOutputDirectory ?? null,
+      projectlessWorkspaceBrowserRoot:
+        repairedParent?.projectlessWorkspaceBrowserRoot ?? null,
+    });
+    return {
+      cwd: repairedCwd,
+      inheritance: repairedInheritance,
+      workspaceRoots: [repairedCwd],
+    };
+  }
+
   private async prepareWorkspaceThreadProjectAssignment(input: {
     readonly thread: DesktopProjectWorkspaceThread;
     readonly targetProjectId: string | null;
@@ -13455,7 +13541,11 @@ export class CodexService extends EventEmitter {
     const session = await this.projectWorkspace.getProjectSession(
       input.thread.sessionId,
     );
-    if (session?.tabs.every((tab) => tab.kind === "browser")) {
+    if (
+      session?.tabs.every(
+        (tab) => tab.kind === "browser" || tab.kind === "terminal",
+      )
+    ) {
       const moved = await this.projectWorkspace.moveThread({
         threadId: input.thread.threadId,
         sourceProjectId: input.thread.projectId,
@@ -13480,7 +13570,7 @@ export class CodexService extends EventEmitter {
     await this.projectWorkspace.detachProjectSessionThread(
       input.thread.sessionId,
     );
-    this.logger.info("Archived non-browser Session before Thread re-home", {
+    this.logger.info("Archived non-portable Session before Thread re-home", {
       threadId: input.thread.threadId,
       sessionId: input.thread.sessionId,
       fromProjectId: input.thread.projectId,
@@ -16856,15 +16946,11 @@ export class CodexService extends EventEmitter {
     if (parentDetail.source?.sideConversation === true) {
       throw new Error("Side chats cannot be started from another side chat");
     }
-    const parentWorkspaceInheritance = resolveCodexForkWorkspaceInheritance(parentDetail);
-
-    const fallbackContext = parentDetail.cwd?.trim()
-      ? null
-      : await this.resolveLocalProjectThreadRoot(input.projectId);
-    const cwd = parentDetail.cwd?.trim() || fallbackContext?.cwd || "";
-    const workspaceRoots = parentDetail.cwd?.trim()
-      ? [cwd]
-      : fallbackContext?.workspaceRoots ?? [];
+    const parentWorkspace = await this.resolveSideChatParentWorkspace(
+      parentThreadId,
+      parentDetail,
+    );
+    const { cwd, workspaceRoots } = parentWorkspace;
     const projectAwareDeveloperInstructions = await this.resolveProjectAwareDeveloperInstructions({
       cwd,
       model: input.model ?? parentDetail.latestCollaborationMode?.settings.model ?? null,
@@ -16905,7 +16991,7 @@ export class CodexService extends EventEmitter {
 
     this.logger.info("Starting Codex side chat", {
       parentThreadId,
-      projectId: input.projectId,
+      projectId: parentWorkspace.inheritance.projectId,
       cwd,
       model: input.model ?? null,
       serviceTier: formatServiceTierForReporting(input.serviceTier),
@@ -16969,7 +17055,7 @@ export class CodexService extends EventEmitter {
 
     const detail = this.buildSideChatDetailFromForkPayload({
       parentThreadId,
-      ...parentWorkspaceInheritance,
+      ...parentWorkspace.inheritance,
       parentNavigationPath: input.parentNavigationPath?.trim() || null,
       forkResponse: forkResult,
       resolvedCwd,

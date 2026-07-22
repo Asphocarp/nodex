@@ -2394,6 +2394,26 @@ mod tests {
                 ),
             )
             .expect("create projectless browser tab");
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-create-projectless-terminal",
+                    "session-projectless",
+                    ProjectSessionIntent::CreateTab {
+                        tab_id: "projectless-terminal".to_owned(),
+                        panel_id: ProjectSessionPanelId::Bottom,
+                        target_leaf_id: None,
+                        browser_tab_id: None,
+                        tab_kind: ProjectSessionTabKind::Terminal,
+                        title: "Projectless terminal".to_owned(),
+                        config: json!({
+                            "terminalSessionId": "projectless-terminal-owner"
+                        }),
+                    },
+                ),
+            )
+            .expect("create projectless terminal tab");
         let moved = module
             .apply(
                 &context(),
@@ -2425,6 +2445,50 @@ mod tests {
             ]
         );
         assert_eq!(moved_event.session_detail_ids, vec!["session-projectless"]);
+        let moved_back = module
+            .apply(
+                &context(),
+                request(
+                    "workspace-session-move-projectless-back",
+                    ProjectWorkspaceIntent::MoveSession {
+                        session_id: "session-projectless".to_owned(),
+                        project_id: None,
+                    },
+                ),
+            )
+            .expect("move Browser and Terminal Session back to projectless");
+        assert_eq!(
+            moved_back.committed.value.affected_thread_ids,
+            ["thread-projectless"]
+        );
+        let projectless_snapshot = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: ProjectWorkspaceRead::Session {
+                        session_id: "session-projectless".to_owned(),
+                    },
+                },
+            )
+            .expect("read rehomed projectless Session");
+        let ProjectWorkspaceReadValue::Session { tabs, .. } = projectless_snapshot.value else {
+            panic!("rehomed projectless Session snapshot");
+        };
+        assert!(tabs.iter().all(|tab| tab.project_id.is_none()));
+        let browser = tabs
+            .iter()
+            .find(|tab| tab.id == "projectless-browser")
+            .expect("rehomed projectless Browser tab");
+        assert_eq!(browser.config["projectId"], serde_json::Value::Null);
+        let terminal = tabs
+            .iter()
+            .find(|tab| tab.id == "projectless-terminal")
+            .expect("rehomed projectless Terminal tab");
+        assert_eq!(
+            terminal.config,
+            json!({ "terminalSessionId": "projectless-terminal-owner" })
+        );
 
         module
             .apply(
@@ -2440,13 +2504,30 @@ mod tests {
                         tab_kind: ProjectSessionTabKind::Terminal,
                         title: "Terminal".to_owned(),
                         config: json!({
-                            "projectId": "project-native",
                             "terminalSessionId": "session-a-terminal-owner"
                         }),
                     },
                 ),
             )
-            .expect("create non-browser tab");
+            .expect("create portable Terminal tab");
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-create-review-a",
+                    "session-a",
+                    ProjectSessionIntent::CreateTab {
+                        tab_id: "session-a-review".to_owned(),
+                        panel_id: ProjectSessionPanelId::Right,
+                        target_leaf_id: None,
+                        browser_tab_id: None,
+                        tab_kind: ProjectSessionTabKind::Review,
+                        title: "Review".to_owned(),
+                        config: json!({ "projectId": "project-native" }),
+                    },
+                ),
+            )
+            .expect("create Project-scoped Review tab");
         let invalid_move = module
             .apply(
                 &context(),
@@ -2458,7 +2539,7 @@ mod tests {
                     },
                 ),
             )
-            .expect_err("reject moving a non-browser Session");
+            .expect_err("reject moving a Session with a Project-scoped tab");
         assert_eq!(invalid_move.code, CoreErrorCode::InvalidInput);
 
         let deleted = module
@@ -2506,6 +2587,8 @@ mod tests {
                         WHERE id = 'session-projectless'), \
                        (SELECT count(*) FROM project_session_tabs \
                         WHERE id = 'projectless-browser'), \
+                       (SELECT count(*) FROM project_session_tabs \
+                        WHERE id = 'projectless-terminal'), \
                        (SELECT count(*) FROM project_session_threads \
                         WHERE thread_id = 'thread-projectless'), \
                        (SELECT count(*) FROM core_module_receipts \
@@ -2522,7 +2605,8 @@ mod tests {
                             row.get::<_, i64>(2)?,
                             row.get::<_, i64>(3)?,
                             row.get::<_, i64>(4)?,
-                            row.get::<_, Option<String>>(5)?,
+                            row.get::<_, i64>(5)?,
+                            row.get::<_, Option<String>>(6)?,
                         ))
                     },
                 )?;
@@ -2545,13 +2629,159 @@ mod tests {
         assert_eq!((session_b.1, session_b.2, session_b.3), (1, 0, None));
         assert_eq!(session_b.4, 0);
         assert_eq!(session_b.5, None);
-        assert_eq!(stored.1, (0, 0, 0, 0, 0, Some("project-native".to_owned())));
+        assert_eq!(stored.1, (0, 0, 0, 0, 0, 0, None));
         let initial = stored
             .0
             .iter()
             .find(|row| row.0 == initial_session_id)
             .expect("initial Project Session");
         assert_eq!((initial.1, initial.2, initial.3), (3, 1, Some(0)));
+    }
+
+    #[test]
+    fn owns_projectless_terminal_and_exact_file_tab_boundaries() {
+        let (_directory, _kernel, module) = seeded_module();
+        module
+            .apply(
+                &context(),
+                request(
+                    "workspace-create-projectless-tab-owner",
+                    ProjectWorkspaceIntent::CreateSession {
+                        session_id: "session:projectless-tabs".to_owned(),
+                        project_id: None,
+                        title: "Projectless tools".to_owned(),
+                    },
+                ),
+            )
+            .expect("create projectless Session");
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-create-projectless-terminal",
+                    "session:projectless-tabs",
+                    ProjectSessionIntent::CreateTab {
+                        tab_id: "tab:projectless-terminal".to_owned(),
+                        panel_id: ProjectSessionPanelId::Bottom,
+                        target_leaf_id: None,
+                        browser_tab_id: None,
+                        tab_kind: ProjectSessionTabKind::Terminal,
+                        title: "Terminal".to_owned(),
+                        config: json!({ "terminalSessionId": "terminal:projectless" }),
+                    },
+                ),
+            )
+            .expect("create projectless Terminal tab");
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-create-projectless-file",
+                    "session:projectless-tabs",
+                    ProjectSessionIntent::CreateTab {
+                        tab_id: "tab:projectless-file".to_owned(),
+                        panel_id: ProjectSessionPanelId::Right,
+                        target_leaf_id: None,
+                        browser_tab_id: None,
+                        tab_kind: ProjectSessionTabKind::Files,
+                        title: "notes.md".to_owned(),
+                        config: json!({
+                            "projectId": null,
+                            "hostId": "local",
+                            "workspaceRoot": "/workspace",
+                            "cwd": "/workspace/nodex",
+                            "path": "/workspace/nodex/notes.md"
+                        }),
+                    },
+                ),
+            )
+            .expect("create projectless exact-file tab");
+
+        for (operation_id, tab_id, tab_kind, config) in [
+            (
+                "workspace-reject-projectless-files-tree",
+                "tab:projectless-files-tree",
+                ProjectSessionTabKind::Files,
+                json!({
+                    "projectId": null,
+                    "hostId": "local",
+                    "workspaceRoot": "/workspace",
+                    "cwd": "/workspace/nodex"
+                }),
+            ),
+            (
+                "workspace-reject-projectless-db",
+                "tab:projectless-db",
+                ProjectSessionTabKind::DbView,
+                json!({ "projectId": null, "view": "kanban" }),
+            ),
+            (
+                "workspace-reject-projectless-page",
+                "tab:projectless-page",
+                ProjectSessionTabKind::PageStage,
+                json!({ "projectId": "project:default", "pageId": "page:default" }),
+            ),
+            (
+                "workspace-reject-projectless-review",
+                "tab:projectless-review",
+                ProjectSessionTabKind::Review,
+                json!({ "projectId": null }),
+            ),
+        ] {
+            let error = module
+                .apply(
+                    &context(),
+                    session_request(
+                        operation_id,
+                        "session:projectless-tabs",
+                        ProjectSessionIntent::CreateTab {
+                            tab_id: tab_id.to_owned(),
+                            panel_id: ProjectSessionPanelId::Right,
+                            target_leaf_id: None,
+                            browser_tab_id: None,
+                            tab_kind,
+                            title: "Unavailable".to_owned(),
+                            config,
+                        },
+                    ),
+                )
+                .expect_err("reject Project-scoped projectless tab");
+            assert_eq!(error.code, CoreErrorCode::InvalidInput);
+        }
+
+        let snapshot = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: ProjectWorkspaceRead::Session {
+                        session_id: "session:projectless-tabs".to_owned(),
+                    },
+                },
+            )
+            .expect("read projectless tabs");
+        let ProjectWorkspaceReadValue::Session { tabs, .. } = snapshot.value else {
+            panic!("projectless Session snapshot");
+        };
+        assert_eq!(tabs.len(), 2);
+        assert!(tabs.iter().all(|tab| tab.project_id.is_none()));
+        let terminal = tabs
+            .iter()
+            .find(|tab| tab.id == "tab:projectless-terminal")
+            .expect("projectless Terminal tab");
+        assert_eq!(
+            terminal.config,
+            json!({ "terminalSessionId": "terminal:projectless" })
+        );
+        let file = tabs
+            .iter()
+            .find(|tab| tab.id == "tab:projectless-file")
+            .expect("projectless file tab");
+        assert_eq!(file.config["projectId"], serde_json::Value::Null);
+        assert_eq!(file.config["hostId"], "local");
+        assert_eq!(file.config["workspaceRoot"], "/workspace");
+        assert_eq!(file.config["cwd"], "/workspace/nodex");
+        assert_eq!(file.config["path"], "/workspace/nodex/notes.md");
     }
 
     #[test]
@@ -2634,7 +2864,6 @@ mod tests {
                         tab_kind: ProjectSessionTabKind::Terminal,
                         title: "  Terminal  ".to_owned(),
                         config: json!({
-                            "projectId": "project-native",
                             "terminalSessionId": "terminal-session-1"
                         }),
                     },
@@ -2772,14 +3001,11 @@ mod tests {
                         browser_tab_id: None,
                         tab_kind: ProjectSessionTabKind::Terminal,
                         title: "Invalid".to_owned(),
-                        config: json!({
-                            "projectId": "project:default",
-                            "terminalSessionId": "wrong-owner"
-                        }),
+                        config: json!({ "projectId": "project:default" }),
                     },
                 ),
             )
-            .expect_err("reject mismatched tab Project");
+            .expect_err("reject Terminal config without a Session identity");
         assert_eq!(invalid.code, CoreErrorCode::InvalidInput);
         let rollback_counts = kernel
             .writer()
@@ -2847,7 +3073,6 @@ mod tests {
                         tab_id: "terminal-tab".to_owned(),
                         title: Some("  Updated shell  ".to_owned()),
                         config: Some(json!({
-                            "projectId": "project-native",
                             "terminalSessionId": "terminal-session-2"
                         })),
                         state_key: Some(4),
@@ -2952,16 +3177,13 @@ mod tests {
                     ProjectSessionIntent::UpdateTab {
                         tab_id: "terminal-tab".to_owned(),
                         title: None,
-                        config: Some(json!({
-                            "projectId": "project:default",
-                            "terminalSessionId": "wrong-owner"
-                        })),
+                        config: Some(json!({ "projectId": "project:default" })),
                         state_key: None,
                         state: None,
                     },
                 ),
             )
-            .expect_err("reject mismatched terminal Project");
+            .expect_err("reject Terminal update without a Session identity");
         assert_eq!(invalid_config.code, CoreErrorCode::InvalidInput);
 
         let final_snapshot = module

@@ -245,6 +245,7 @@ import {
   type ThreadSummaryPanelLayoutMode,
 } from "@/lib/codex-panel-motion";
 import { resolvePanelTabCloseReplacement } from "@/lib/panel-tab-close-routing";
+import { resolveSideChatProjectId } from "@/lib/side-chat-conversation-context";
 import {
   findNearestProjectSessionPanelLeafToRight,
   findProjectSessionPanelLeaf,
@@ -270,7 +271,6 @@ import {
 } from "../../../shared/browser-sidebar";
 import { resolveSameLeafInsertionIndex } from "./panel-tab-dnd";
 import { useWorkbenchPreferences } from "./use-workbench-preferences";
-import { PROJECT_SESSION_SINGLETON_TAB_KINDS } from "@/lib/types";
 import type {
   DatabasePage,
   PageRunInTarget,
@@ -404,6 +404,10 @@ import {
   SidebarExpandedHeader,
 } from "./sidebar-new-chat-controls";
 import { useCodexAccountActions } from "@/lib/use-codex-account-actions";
+import {
+  resolveWorkbenchPanelCapabilities,
+  type WorkbenchPanelActionKind,
+} from "@/lib/workbench-panel-capabilities";
 import {
   CodexProjectRow,
   CodexProjectSessionList,
@@ -552,7 +556,6 @@ const ELECTRON_STABLE_WORKTREE_STATUS_TRANSPORT: StableWorktreeStatusDialogTrans
   retry: (hostId, pendingWorktreeId) =>
     invoke("codex:pending-worktree:retry", hostId, pendingWorktreeId),
 };
-const PROJECT_SESSION_SINGLETON_TAB_KIND_SET = new Set<string>(PROJECT_SESSION_SINGLETON_TAB_KINDS);
 type SidebarResizePhase = "live" | "end" | "reset";
 type SidebarResizeSurface = "inline" | "floating";
 const PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET = new Set<ProjectSessionTab["kind"]>([
@@ -561,15 +564,8 @@ const PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET = new Set<ProjectSessionTab["kind
 ]);
 const PANEL_ACTION_ROW_CLASS = "cursor-interaction flex min-h-10 w-full items-center gap-2 rounded-md bg-token-bg-secondary px-2.5 py-2 text-left hover:bg-token-list-hover-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-token-border-xstrong";
 const PANEL_ACTION_KBD_CLASS = "inline-flex !rounded-md !border-0 !bg-current/10 !font-sans !text-xs !text-current !shadow-none !px-1.5 !py-0.5 !leading-none";
-type PanelNewTabActionKind = ProjectSessionTab["kind"] | "side_chat";
+type PanelNewTabActionKind = WorkbenchPanelActionKind;
 
-const CODEX_PANEL_OPTION_ACTION_ORDER: PanelNewTabActionKind[] = [
-  "review",
-  "terminal",
-  "browser",
-  "files",
-  "side_chat",
-];
 const NODEX_PANEL_OPTION_ACTION_ORDER: ProjectSessionTab["kind"][] = [
   "db_view",
   "page_stage",
@@ -627,7 +623,6 @@ interface SideChatPanelTab {
   sideChat: true;
   id: string;
   sessionId: string;
-  projectId: string;
   panelId: PanelId;
   leafId?: string;
   parentThreadId: string;
@@ -1278,24 +1273,24 @@ function filterAvailablePanelActions(
   tabs: readonly ProjectSessionTab[],
   panelId: PanelId,
   projectId: string | null,
+  hasAttachedThread: boolean,
+  cwd: string | null | undefined,
+  projectWorkspaceRoot?: string | null,
 ): PanelNewTabAction[] {
   const actionsByKind = new Map(actions.map((action) => [action.kind, action]));
-  const orderedKinds = [
-    ...CODEX_PANEL_OPTION_ACTION_ORDER,
-    ...NODEX_PANEL_OPTION_ACTION_ORDER,
-  ];
-  return orderedKinds.flatMap((kind) => {
+  const capabilities = resolveWorkbenchPanelCapabilities({
+    panelId,
+    hasSession: true,
+    projectId,
+    hasAttachedThread,
+    cwd,
+    projectWorkspaceRoot,
+    existingTabKinds: tabs.map((tab) => tab.kind),
+  });
+  return capabilities.availableActionKinds.flatMap((kind) => {
     const action = actionsByKind.get(kind);
     if (!action) return [];
     if (!isPanelActionTargetAllowed(action, panelId)) return [];
-    if (projectId === null && action.kind !== "browser") return [];
-    if (
-      isProjectSessionTabKind(action.kind)
-      && PROJECT_SESSION_SINGLETON_TAB_KIND_SET.has(action.kind)
-      && tabs.some((tab) => tab.kind === action.kind)
-    ) {
-      return [];
-    }
     return [action];
   });
 }
@@ -1994,7 +1989,10 @@ function getSideChatTabTitle(index: number): string {
 }
 
 function buildSideChatParentNavigationPath(session: ProjectSession, parentThreadId: string): string {
-  return `project:${session.projectId}/session:${session.id}/thread:${parentThreadId}`;
+  const sessionPath = `session:${session.id}/thread:${parentThreadId}`;
+  return session.projectId === null
+    ? sessionPath
+    : `project:${session.projectId}/${sessionPath}`;
 }
 
 function resolveProjectBoundSessionId(session: ProjectSession): string | null {
@@ -2016,6 +2014,19 @@ function makeProjectSessionTabDraft(
       kind,
       title: "Browser",
       config: { projectId },
+    };
+  }
+
+  if (kind === "terminal") {
+    if (projectId === null && (!session.thread || !normalizeOptionalPath(session.thread.cwd))) {
+      return null;
+    }
+    return {
+      kind,
+      title: "Terminal",
+      config: {
+        terminalSessionId: makeTerminalSessionId(session.id),
+      },
     };
   }
 
@@ -2045,17 +2056,6 @@ function makeProjectSessionTabDraft(
     };
   }
 
-  if (kind === "terminal") {
-    return {
-      kind,
-      title: "Terminal",
-      config: {
-        projectId,
-        terminalSessionId: makeTerminalSessionId(session.id),
-      },
-    };
-  }
-
   return null;
 }
 
@@ -2065,7 +2065,7 @@ function makePreviewProjectSessionTab(
   draft: ProjectSessionTabDraft,
 ): ProjectSessionPreviewTab {
   const projectId = resolveProjectBoundSessionId(session);
-  if (projectId === null && draft.kind !== "browser") {
+  if (projectId === null && draft.kind !== "browser" && draft.kind !== "terminal") {
     throw new Error("Projectless sessions cannot own project-scoped tabs");
   }
   const now = new Date().toISOString();
@@ -5322,7 +5322,6 @@ export function WorkbenchShell({
         : previewTab.config;
       const createInput: ProjectSessionTabCreateInput = {
         sessionId: activeSession.id,
-        projectId,
         panelId,
         targetLeafId,
         ...(previewTab.kind === "browser"
@@ -5484,12 +5483,10 @@ export function WorkbenchShell({
       collaborationMode?: CodexCollaborationModeKind;
     } = {},
   ) => {
-    if (!activeSession?.thread || activeSession.projectId === null) {
+    if (!activeSession?.thread) {
       toast.danger("Failed to open side chat", { id: "side-chat-open-failed" });
       return;
     }
-    const projectId = activeSession.projectId;
-
     const panelId = input.targetPanelId ?? "right";
     const leafId = input.targetLeafId ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
     const parentThreadId = activeSession.thread.threadId;
@@ -5504,7 +5501,6 @@ export function WorkbenchShell({
       sideChat: true,
       id: loadingTabId,
       sessionId: activeSession.id,
-      projectId,
       panelId,
       leafId,
       parentThreadId,
@@ -5550,7 +5546,6 @@ export function WorkbenchShell({
     try {
       const draftPrompt = input.kind === "draft" ? input.draftPrompt.trim() : "";
       const result = await workbenchCodexControl.startSideChat({
-        projectId,
         parentThreadId,
         parentNavigationPath,
         ...(input.kind === "draft" ? {} : {
@@ -5918,7 +5913,6 @@ export function WorkbenchShell({
 
     try {
       const result = await workbenchCodexControl.startSideChat({
-        projectId: existingTab.projectId,
         parentThreadId: existingTab.parentThreadId,
         parentNavigationPath: existingTab.parentNavigationPath,
       });
@@ -6104,7 +6098,6 @@ export function WorkbenchShell({
 
     await invoke("project-session-tabs:create", {
       sessionId: activeSession.id,
-      projectId: sessionProjectId,
       panelId: "right",
       ...(targetLeafId ? { targetLeafId } : {}),
       kind: "page_stage",
@@ -6321,12 +6314,6 @@ export function WorkbenchShell({
         return;
       }
 
-      if (matchesKeyboardEventToCommand(event, shortcutState, "openSideChat")) {
-        event.preventDefault();
-        void openSideChat({ targetPanelId: "right" });
-        return;
-      }
-
       if (matchesKeyboardEventToCommand(event, shortcutState, "openProcessManager")) {
         event.preventDefault();
         setProcessManagerOpen(true);
@@ -6370,7 +6357,6 @@ export function WorkbenchShell({
     archiveSession,
     commandKeymapState,
     onOpenProjectSessionInNewWindow,
-    openSideChat,
     startNewChatInProject,
     toggleSessionPin,
   ]);
@@ -6388,7 +6374,6 @@ export function WorkbenchShell({
 
     const createInput: ProjectSessionTabCreateInput = {
       sessionId: activeSession.id,
-      projectId: sessionProjectId,
       panelId,
       ...(targetLeafId ? { targetLeafId } : {}),
       ...(draft.kind === "terminal" && "terminalSessionId" in draft.config
@@ -6884,7 +6869,6 @@ export function WorkbenchShell({
       : { projectId: sessionProjectId };
     const created = await invoke("project-session-tabs:create", {
       sessionId: activeSession.id,
-      projectId: sessionProjectId,
       panelId,
       kind: "browser",
       title: duplicate ? sourceTab.title || "Browser" : "Browser",
@@ -6993,7 +6977,6 @@ export function WorkbenchShell({
 
     await invoke("project-session-tabs:create", {
       sessionId: activeSession.id,
-      projectId: sessionProjectId,
       panelId,
       targetLeafId: leafId,
       kind: "db_view",
@@ -7042,7 +7025,6 @@ export function WorkbenchShell({
 
     await invoke("project-session-tabs:create", {
       sessionId: activeSession.id,
-      projectId: sessionProjectId,
       panelId,
       targetLeafId: leafId,
       kind: "page_stage",
@@ -7084,6 +7066,56 @@ export function WorkbenchShell({
 
     await openPageStageFromPanelPicker(destination, panelId, leafId);
   }, [activatePanelGroup, openPageStageFromPanelPicker, openDbViewFromPanelPicker]);
+
+  const resolveActivePanelCapabilities = useCallback((panelId: PanelId) => {
+    const project = activeSession?.projectId === null
+      ? null
+      : projects.find((candidate) => candidate.id === activeSession?.projectId) ?? null;
+    return resolveWorkbenchPanelCapabilities({
+      panelId,
+      hasSession: Boolean(activeSession),
+      projectId: activeSession?.projectId ?? null,
+      hasAttachedThread: Boolean(activeSession?.thread),
+      cwd: activeSession?.thread?.cwd,
+      projectWorkspaceRoot: projectWorkspaceRootOrNull(project),
+      existingTabKinds: activeSession?.tabs.map((tab) => tab.kind) ?? [],
+    });
+  }, [activeSession, projects]);
+
+  const dispatchPanelAction = useCallback(async (
+    kind: PanelNewTabActionKind,
+    options: {
+      panelId?: PanelId;
+      leafId?: string;
+      terminalBehavior?: "create" | "focus_or_create";
+    } = {},
+  ): Promise<boolean> => {
+    const action = PANEL_NEW_TAB_ACTIONS.find((candidate) => candidate.kind === kind);
+    const panelId = options.panelId ?? action?.defaultPanelId ?? "right";
+    if (!resolveActivePanelCapabilities(panelId).actions[kind].available) return false;
+
+    if (kind === "side_chat") {
+      await openSideChat({ targetPanelId: panelId, targetLeafId: options.leafId });
+      return true;
+    }
+    if (kind === "terminal" && options.terminalBehavior === "focus_or_create") {
+      await focusOrCreateSessionTerminalTab();
+      return true;
+    }
+    if (!isProjectSessionTabKind(kind)) return false;
+    if (isPreviewableProjectSessionTabKind(kind)) {
+      await openPreviewTab(kind, panelId, options.leafId);
+      return true;
+    }
+    await createManualTab(kind, panelId, options.leafId);
+    return true;
+  }, [
+    createManualTab,
+    focusOrCreateSessionTerminalTab,
+    openPreviewTab,
+    openSideChat,
+    resolveActivePanelCapabilities,
+  ]);
 
   const rememberFocusedPanelGroup = useCallback((panelId: PanelId, leafId: string) => {
     focusedPanelGroupRef.current = { panelId, leafId };
@@ -7183,25 +7215,13 @@ export function WorkbenchShell({
       matchesPanelActionShortcut(event, candidate, isMacPlatform, commandKeymapState),
     );
     if (!action) return false;
-
-    if (action.kind === "terminal") {
-      void focusOrCreateSessionTerminalTab();
-      return true;
+    if (!resolveActivePanelCapabilities(action.defaultPanelId).actions[action.kind].available) {
+      return false;
     }
-
-    if (action.kind === "side_chat") {
-      void openSideChat({ targetPanelId: action.defaultPanelId });
-      return true;
-    }
-
-    if (!isProjectSessionTabKind(action.kind)) return true;
-
-    if (isPreviewableProjectSessionTabKind(action.kind)) {
-      void openPreviewTab(action.kind, action.defaultPanelId);
-      return true;
-    }
-
-    void createManualTab(action.kind, action.defaultPanelId);
+    void dispatchPanelAction(action.kind, {
+      panelId: action.defaultPanelId,
+      terminalBehavior: "focus_or_create",
+    });
     return true;
   });
 
@@ -8676,6 +8696,11 @@ export function WorkbenchShell({
       session.tabs,
       panelId,
       session.projectId,
+      Boolean(session.thread),
+      session.thread?.cwd,
+      session.projectId === null
+        ? null
+        : projectWorkspaceRootOrNull(projects.find((project) => project.id === session.projectId)),
     );
     const title = panelId === "right" ? "Open side panel tab" : "Open bottom panel tab";
     const menuKey = `${session.id}:${panelId}:${leafId}:new-tab`;
@@ -8757,20 +8782,7 @@ export function WorkbenchShell({
                 leftSlot={<Icon className="icon-sm" />}
                 keyboardShortcut={resolvePanelActionShortcutLabel(action, isMacPlatform, commandKeymapState)}
                 onSelect={() => {
-                  if (action.kind === "side_chat") {
-                    void openSideChat({ targetPanelId: panelId, targetLeafId: leafId });
-                    return;
-                  }
-                  if (!isProjectSessionTabKind(action.kind)) return;
-                  if (isPreviewableProjectSessionTabKind(action.kind)) {
-                    void openPreviewTab(action.kind, panelId, leafId);
-                    return;
-                  }
-                  const durableKind = action.kind;
-                  void (async () => {
-                    await activatePanelGroup(panelId, leafId);
-                    await createManualTab(durableKind, panelId);
-                  })();
+                  void dispatchPanelAction(action.kind, { panelId, leafId });
                 }}
               >
                 {action.label}
@@ -9086,6 +9098,7 @@ export function WorkbenchShell({
     />
   );
   const commandPaletteProjectId = activeProject?.id ?? activeProjectId;
+  const commandPanelCapabilities = resolveActivePanelCapabilities("right");
   const commandPaletteCommandContext: Omit<CommandPaletteShellCommandContext, "isMac" | "showMockCommands"> = {
     canGoBack: shellCanNavigateBack,
     canGoForward: shellCanNavigateForward,
@@ -9093,6 +9106,12 @@ export function WorkbenchShell({
     hasActiveSession: Boolean(activeSession),
     activeSessionPinned: activeSession?.pinned ?? false,
     hasAttachedThread: Boolean(activeSession?.thread),
+    panelActionAvailability: Object.fromEntries(
+      Object.entries(commandPanelCapabilities.actions).map(([kind, capability]) => [
+        kind,
+        capability.available,
+      ]),
+    ) as Record<PanelNewTabActionKind, boolean>,
     canOpenSessionInNewWindow: Boolean(onOpenProjectSessionInNewWindow),
     commandKeymapState,
   };
@@ -9146,22 +9165,25 @@ export function WorkbenchShell({
       });
     },
     toggleFileTreePanel: () => {
-      void openPreviewTab("files", "right");
+      void dispatchPanelAction("files", { panelId: "right" });
     },
     openBrowserTab: () => {
-      void openPreviewTab("browser", "right");
+      void dispatchPanelAction("browser", { panelId: "right" });
     },
     openReviewTab: () => {
-      void createManualTab("review", "right");
+      void dispatchPanelAction("review", { panelId: "right" });
     },
     toggleTerminal: () => {
-      void focusOrCreateSessionTerminalTab();
+      void dispatchPanelAction("terminal", {
+        panelId: "bottom",
+        terminalBehavior: "focus_or_create",
+      });
     },
     openDbViewTab: () => {
-      void createManualTab("db_view", "right");
+      void dispatchPanelAction("db_view", { panelId: "right" });
     },
     openSideChat: () => {
-      void openSideChat({ targetPanelId: "right" });
+      void dispatchPanelAction("side_chat", { panelId: "right" });
     },
     findInThread: () => {
       setCommandPaletteOpen(false);
@@ -9227,7 +9249,7 @@ export function WorkbenchShell({
     const sessionFrameBorderVisible = appShellMainContentFrameBorderVisible;
     const sessionProject = session.projectId
       ? projects.find((project) => project.id === session.projectId) ?? activeProject
-      : activeProject;
+      : null;
     const sessionThreadSummaryPanelMounted = threadSummaryPanelMounted;
     const sessionThreadSummaryPanelOpen = threadSummaryPanelOpen;
     const sessionThreadSummaryPanelHideImmediately = threadSummaryPanelHideImmediately;
@@ -9239,12 +9261,18 @@ export function WorkbenchShell({
       session.tabs,
       "right",
       session.projectId,
+      Boolean(session.thread),
+      session.thread?.cwd,
+      projectWorkspaceRootOrNull(sessionProject),
     );
     const sessionAvailableBottomPanelActions = filterAvailablePanelActions(
       PANEL_NEW_TAB_ACTIONS,
       session.tabs,
       "bottom",
       session.projectId,
+      Boolean(session.thread),
+      session.thread?.cwd,
+      projectWorkspaceRootOrNull(sessionProject),
     );
     const sessionPanelTabScrollEndPaddingPx = panelTabScrollEndPaddingPx;
     const threadScopeDescriptor = resolveProjectSessionThreadScopeDescriptor(
@@ -9341,7 +9369,9 @@ export function WorkbenchShell({
                       onToggleSummaryComputerUsePip={remoteHostedPipSummaryControl.onToggleSummaryComputerUsePip}
                       rightPanelComposerOverlayEnabled={sessionRightPanelComposerOverlayEnabled}
                       rightPanelComposerOverlayTarget={rightPanelComposerOverlayTarget}
-                      onOpenSideChat={(input) => openSideChat({ ...input, targetPanelId: "right" })}
+                      onOpenSideChat={sessionAvailableRightPanelActions.some((action) => action.kind === "side_chat")
+                        ? (input) => openSideChat({ ...input, targetPanelId: "right" })
+                        : undefined}
                       onOpenMcpAppSidePanel={openMcpAppSidePanel}
                       onOpenPlanInSidePanel={openPlanSidePanel}
                       onClosePlanSidePanel={closePlanSidePanel}
@@ -9425,19 +9455,7 @@ export function WorkbenchShell({
                             && Boolean(findDbViewTabForProject(session, session.projectId))
                           }
                           onAction={(kind) => {
-                            if (kind === "side_chat") {
-                              void openSideChat({ targetPanelId: "right", targetLeafId: leafId });
-                              return;
-                            }
-                            if (!isProjectSessionTabKind(kind)) return;
-                            if (isPreviewableProjectSessionTabKind(kind)) {
-                              void openPreviewTab(kind, "right", leafId);
-                              return;
-                            }
-                            void (async () => {
-                              await activatePanelGroup("right", leafId);
-                              await createManualTab(kind, "right", leafId);
-                            })();
+                            void dispatchPanelAction(kind, { panelId: "right", leafId });
                           }}
                           onOpenDestination={async (destination) => {
                             await openPanelDestinationFromPicker(destination, "right", leafId);
@@ -9528,19 +9546,7 @@ export function WorkbenchShell({
                         currentProjectId={session.projectId}
                         currentProjectDbViewExists={false}
                         onAction={(kind) => {
-                          if (kind === "side_chat") {
-                            void openSideChat({ targetPanelId: "bottom", targetLeafId: leafId });
-                            return;
-                          }
-                          if (!isProjectSessionTabKind(kind)) return;
-                          if (isPreviewableProjectSessionTabKind(kind)) {
-                            void openPreviewTab(kind, "bottom", leafId);
-                            return;
-                          }
-                          void (async () => {
-                            await activatePanelGroup("bottom", leafId);
-                            await createManualTab(kind, "bottom", leafId);
-                          })();
+                          void dispatchPanelAction(kind, { panelId: "bottom", leafId });
                         }}
                         onOpenDestination={async (destination) => {
                           await openPanelDestinationFromPicker(destination, "bottom", leafId);
@@ -12298,7 +12304,7 @@ function SessionThreadPage({
   onToggleSummaryComputerUsePip: NonNullable<ThreadStageActions["onToggleSummaryComputerUsePip"]>;
   rightPanelComposerOverlayEnabled: boolean;
   rightPanelComposerOverlayTarget: HTMLElement | null;
-  onOpenSideChat: (input?: ThreadOpenSideChatInput & {
+  onOpenSideChat?: (input?: ThreadOpenSideChatInput & {
     collaborationMode?: CodexCollaborationModeKind;
   }) => Promise<void>;
   onOpenMcpAppSidePanel: ThreadStageActions["onOpenMcpAppSidePanel"];
@@ -12311,7 +12317,6 @@ function SessionThreadPage({
   commandKeymapState?: CommandKeymapState | null;
   isMac: boolean;
 }) {
-  const fallbackProjectId = project?.id ?? projects[0]?.id ?? "default";
   const summary = session.thread ? makeThreadSummary(session.thread) : null;
   const [selectedNewThreadProjectId, setSelectedNewThreadProjectId] = useState<string | null>(
     session.projectId,
@@ -12327,7 +12332,6 @@ function SessionThreadPage({
   const startInSelectorProject = summary ? project : selectedNewThreadProject;
   const newThreadEnvironmentWorkspaceRoot = projectWorkspaceRootOrNull(startInSelectorProject);
   const effectiveProjectId = summary ? session.projectId : selectedNewThreadProject?.id ?? null;
-  const surfaceProjectId = effectiveProjectId ?? fallbackProjectId;
   const codexControl = useCodexAppServerControl(effectiveProjectId);
   const loadModels = codexControl.loadModels;
   const listCollaborationModes = codexControl.listCollaborationModes;
@@ -12480,12 +12484,14 @@ function SessionThreadPage({
       onRefreshNewThreadStartInEnvironments: refreshNewThreadEnvironments,
       onOpenNewThreadLocalEnvironmentsSettings: onOpenLocalEnvironmentsSettings,
       onOpenHooksSettings,
-      onOpenSideChat: async (input) => {
-        await onOpenSideChat({
-          ...input,
-          collaborationMode: selectedCollaborationMode,
-        });
-      },
+      ...(onOpenSideChat ? {
+        onOpenSideChat: async (input: ThreadOpenSideChatInput = {}) => {
+          await onOpenSideChat({
+            ...input,
+            collaborationMode: selectedCollaborationMode,
+          });
+        },
+      } : {}),
       onOpenMcpAppSidePanel,
       onOpenPlanInSidePanel,
       onClosePlanSidePanel,
@@ -12545,7 +12551,7 @@ function SessionThreadPage({
   return (
     <div className="h-full min-h-0">
       <ConnectedThreadStage
-        projectId={surfaceProjectId}
+        projectId={effectiveProjectId}
         sessionId={session.id}
         threadPinned={session.pinned ?? false}
         threadActionShortcuts={threadActionShortcuts}
@@ -13003,7 +13009,7 @@ function SideChatSessionTab({
   tab: SideChatPanelTab;
   activeSession: ProjectSession;
   projects: Project[];
-  onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
+  onRefreshSessions: (projectId: string | null) => Promise<ProjectSession[]>;
   onRecreateSideChat: () => void;
   onOpenMcpAppSidePanel: ThreadStageActions["onOpenMcpAppSidePanel"];
   onOpenHooksSettings: NonNullable<ThreadStageActions["onOpenHooksSettings"]>;
@@ -13015,9 +13021,14 @@ function SideChatSessionTab({
   onOpenTurnDiffFileInSidePanel: NonNullable<ThreadStageActions["onOpenTurnDiffFileInSidePanel"]>;
   turnDiffHoverPreviewDisabled: boolean;
 }) {
-  const project = projects.find((candidate) => candidate.id === tab.projectId) ?? null;
   const conversation = useConversation(tab.threadId);
-  const codexControl = useCodexAppServerControl(tab.projectId);
+  const projectId = resolveSideChatProjectId({
+    ready: tab.status === "ready",
+    conversationProjectId: conversation?.projectId,
+    parentProjectId: activeSession.projectId,
+  });
+  const project = projects.find((candidate) => candidate.id === projectId) ?? null;
+  const codexControl = useCodexAppServerControl(projectId);
   const loadModels = codexControl.loadModels;
   const listCollaborationModes = codexControl.listCollaborationModes;
   const [collaborationModes, setCollaborationModes] = useState<CodexCollaborationModePreset[]>([]);
@@ -13035,15 +13046,13 @@ function SideChatSessionTab({
     activeThreadId: tab.threadId,
     codexControl,
     onEnsureBlankSessionForProject: async () => activeSession,
-    onRefreshProjectSessions: (projectId) => projectId === null
-      ? Promise.resolve([])
-      : onRefreshSessions(projectId),
+    onRefreshProjectSessions: onRefreshSessions,
     onQueueingEnabledChange,
     onOpenThread,
     onOpenTurnDiffReview,
     onOpenTurnDiffFileInSidePanel,
-    currentSessionProjectId: activeSession.projectId ?? tab.projectId,
-    projectId: tab.projectId,
+    currentSessionProjectId: activeSession.projectId,
+    projectId,
     onNewThreadProjectChange: () => undefined,
     onRequestNewChatProjectCreate: () => undefined,
     onNewThreadStartInTargetChange: () => undefined,
@@ -13065,7 +13074,7 @@ function SideChatSessionTab({
     onQueueingEnabledChange,
     onRefreshSessions,
     selectedCollaborationMode,
-    tab.projectId,
+    projectId,
     tab.threadId,
   ]);
 
@@ -13080,7 +13089,7 @@ function SideChatSessionTab({
   return (
     <div className="h-full min-h-0 bg-token-main-surface-primary">
       <ConnectedThreadStage
-        projectId={tab.projectId}
+        projectId={projectId}
         composerScopeIdentity={`side-chat:${tab.id}`}
         projectWorkspacePath={projectWorkspaceRootOrNull(project)}
         isNewThreadTab={false}
@@ -13285,13 +13294,11 @@ function ProjectSessionTabPanel({
           const terminalSessionId = makeTerminalSessionId(activeSession.id);
           await invoke("project-session-tabs:create", {
             sessionId: activeSession.id,
-            projectId: sessionProjectId,
             panelId: "bottom",
             clientTabId: makeClientTerminalTabId(terminalSessionId),
             kind: "terminal",
             title: "Terminal",
             config: {
-              projectId: pageTab.config.projectId,
               terminalSessionId,
             },
           });
@@ -13318,6 +13325,13 @@ function ProjectSessionTabPanel({
   if (tab.kind === "terminal" && "terminalSessionId" in tab.config) {
     const cwd = resolveSessionTerminalCwd(activeSession, tab, projects);
     const leafId = resolveLeafIdForPanelTab(activeSession, tab.panelId, tab.id);
+    if (!cwd) {
+      return (
+        <div className="flex h-full min-h-0 items-center justify-center bg-token-main-surface-primary px-3 text-sm text-token-text-secondary">
+          Terminal workspace is unavailable
+        </div>
+      );
+    }
     return (
       <div className="h-full min-h-0 bg-token-main-surface-primary">
         <TerminalPanel
@@ -13325,7 +13339,6 @@ function ProjectSessionTabPanel({
           cwd={cwd}
           conversationId={activeSession.thread?.threadId ?? activeSession.id}
           projectSessionId={activeSession.id}
-          projectId={tab.config.projectId}
           onNewTerminalTab={() => {
             void onCreateTerminalTab(tab.panelId, leafId);
           }}
