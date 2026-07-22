@@ -1,15 +1,15 @@
-export type ProjectBoardChangeListener = () => void;
+export type ProjectEventListener = () => void;
 
 type SubscribeToProject = (
   projectId: string,
-  listener: ProjectBoardChangeListener,
+  listener: ProjectEventListener,
 ) => () => void;
 
 type ScheduleFlush = (flush: () => void) => void;
 
 interface ConsumerRegistration {
   readonly id: number;
-  readonly listener: ProjectBoardChangeListener;
+  readonly listener: ProjectEventListener;
 }
 
 interface ProjectSubscription {
@@ -18,11 +18,11 @@ interface ProjectSubscription {
   flushScheduled: boolean;
 }
 
-export interface ProjectBoardChangeSubscriptionHub {
+export interface ProjectEventSubscriptionHub {
   subscribe: (
     projectId: string,
     consumerKey: string,
-    listener: ProjectBoardChangeListener,
+    listener: ProjectEventListener,
   ) => () => void;
 }
 
@@ -31,17 +31,17 @@ const scheduleMicrotask: ScheduleFlush = (flush) => {
 };
 
 /**
- * Multiplexes the project-wide board change stream into distinct query refreshes.
- * A query key is the consumer identity: multiple mounted observers of the same
- * query share one refresh, while different queries refresh independently.
+ * Multiplexes a project-wide domain stream into distinct consumer refreshes.
+ * A consumer key shares one callback across mounted observers while different
+ * consumers remain independently refreshable.
  */
-export const createProjectBoardChangeSubscriptionHub = ({
+export const createProjectEventSubscriptionHub = ({
   subscribeToProject,
   schedule = scheduleMicrotask,
 }: {
   readonly subscribeToProject: SubscribeToProject;
   readonly schedule?: ScheduleFlush;
-}): ProjectBoardChangeSubscriptionHub => {
+}): ProjectEventSubscriptionHub => {
   const projects = new Map<string, ProjectSubscription>();
   let nextRegistrationId = 0;
 
@@ -68,7 +68,7 @@ export const createProjectBoardChangeSubscriptionHub = ({
         try {
           listener();
         } catch {
-          // A failed query refresh must not starve the other query consumers.
+          // A failed consumer refresh must not starve other consumers.
         }
       }
     });
@@ -93,7 +93,7 @@ export const createProjectBoardChangeSubscriptionHub = ({
   const subscribe = (
     projectId: string,
     consumerKey: string,
-    listener: ProjectBoardChangeListener,
+    listener: ProjectEventListener,
   ): (() => void) => {
     const project = ensureProject(projectId);
     const registrationId = nextRegistrationId;

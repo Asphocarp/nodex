@@ -19,7 +19,10 @@ import type {
 
 const MAX_JSON_REQUEST_BYTES = 64 * 1024;
 const MAX_JSON_RESPONSE_BYTES = 512 * 1024;
-const MAX_EVENT_FRAME_BYTES = 512 * 1024;
+// A committed event may contain one bounded 1 MiB module payload and one
+// bounded 1 MiB projection impact. Keep the authenticated wire envelope itself
+// bounded while leaving room for cursor and SSE framing overhead.
+const MAX_EVENT_FRAME_BYTES = (2 * 1024 * 1024) + (256 * 1024);
 const REQUEST_TIMEOUT_MS = 5_000;
 const MAX_CONFIGURED_JSON_RESPONSE_BYTES = 64 * 1024 * 1024;
 const MAX_CONFIGURED_REQUEST_TIMEOUT_MS = 120_000;

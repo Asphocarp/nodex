@@ -1,5 +1,5 @@
-import { useEffect, useEffectEvent, useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo } from "react";
+import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Database, LayoutList } from "lucide-react";
 
 import type { LibraryRouteTarget } from "../../../shared/library-module";
@@ -11,12 +11,13 @@ import type { DatabaseViewId } from "../../../shared/database-identities";
 import {
   readLibraryDatabaseModule,
   readDatabaseModule,
-  subscribeAuthorityResync,
-  subscribeDatabaseChanges,
-  subscribeLibraryChanges,
-  subscribePageTargetChanges,
 } from "../../lib/api";
-import { invalidateExactQuery } from "../../lib/query-invalidation";
+import {
+  invalidateExactQuery,
+  projectionCursorForSnapshots,
+} from "../../lib/query-invalidation";
+import { queryKeys } from "../../lib/query-keys";
+import { useProjectionInvalidationRegistry } from "../../lib/projection-invalidation-context";
 
 type DatabaseRouteTarget = Extract<
   LibraryRouteTarget,
@@ -59,15 +60,15 @@ export function LibraryDatabaseRoute({
   onOpenPage: (pageId: string, title: string) => void;
 }) {
   const queryClient = useQueryClient();
+  const projectionRegistry = useProjectionInvalidationRegistry();
   const databaseId = target.kind === "database" ? target.databaseId : null;
   const directViewId = target.kind === "view" ? target.viewId : null;
   const descriptorKey = useMemo(
-    () => [
-      "library-database-descriptor",
-      accessProjectId ?? "library",
+    () => queryKeys.libraryDatabases.descriptor(
+      accessProjectId,
       databaseId,
       directViewId,
-    ] as const,
+    ),
     [accessProjectId, databaseId, directViewId],
   );
   const descriptor = useQuery({
@@ -85,16 +86,17 @@ export function LibraryDatabaseRoute({
       }
       const viewId = result.value.value.value.database.defaultViewId;
       if (!viewId) throw new Error("Database has no default View");
-      return { viewId } as const;
+      return {
+        viewId,
+        libraryId: result.value.libraryId,
+        storeEpoch: result.value.storeEpoch,
+        changeLogSeq: result.value.changeLogSeq,
+      } as const;
     },
   });
   const viewId = descriptor.data?.viewId ?? null;
   const queryKey = useMemo(
-    () => [
-      "library-database-view",
-      accessProjectId ?? "library",
-      viewId,
-    ] as const,
+    () => queryKeys.libraryDatabases.view(accessProjectId, viewId),
     [accessProjectId, viewId],
   );
   const query = useQuery({
@@ -109,62 +111,67 @@ export function LibraryDatabaseRoute({
       if (result.value.value.kind !== "query") {
         throw new Error("Library View read returned the wrong resource kind");
       }
-      return result.value.value.value;
+      return {
+        libraryId: result.value.libraryId,
+        storeEpoch: result.value.storeEpoch,
+        changeLogSeq: result.value.changeLogSeq,
+        query: result.value.value.value,
+      };
     },
   });
 
-  const invalidate = useEffectEvent((event: {
-    readonly affectedDatabaseIds: readonly string[];
-    readonly affectedViewIds?: readonly string[];
-  }) => {
-    const value = query.data;
-    const affected = databaseId
-      ? event.affectedDatabaseIds.includes(databaseId)
-      : directViewId
-        ? (event.affectedViewIds ?? []).includes(directViewId)
-        : false;
-    const affectsLoadedDatabase = value
-      ? event.affectedDatabaseIds.includes(value.database.databaseId)
-      : false;
-    const unresolvedDirectView = directViewId !== null && !value;
-    if (!affected && !affectsLoadedDatabase && !unresolvedDirectView) return;
-    void invalidateExactQuery(queryClient, descriptorKey);
-    void invalidateExactQuery(queryClient, queryKey);
-  });
-  const refreshAuthority = useEffectEvent(() => {
-    void invalidateExactQuery(queryClient, descriptorKey);
-    void invalidateExactQuery(queryClient, queryKey);
-  });
-
   useEffect(() => {
-    const unsubscribeAuthorityResync = subscribeAuthorityResync(
-      accessProjectId ?? null,
-      refreshAuthority,
-    );
-    if (accessProjectId) {
-      const unsubscribeDatabase = subscribeDatabaseChanges(
-        accessProjectId,
-        invalidate,
-      );
-      const unsubscribePageTarget = subscribePageTargetChanges(
-        accessProjectId,
-        invalidate,
-      );
-      return () => {
-        unsubscribeDatabase();
-        unsubscribePageTarget();
-        unsubscribeAuthorityResync();
-      };
-    }
-    const unsubscribeLibrary = subscribeLibraryChanges(invalidate);
-    return () => {
-      unsubscribeLibrary();
-      unsubscribeAuthorityResync();
-    };
-  }, [accessProjectId]);
+    const authority = query.data;
+    if (!authority) return;
+    const value = authority.query;
+    return projectionRegistry.register({
+      scope: accessProjectId
+        ? {
+            kind: "project",
+            libraryId: authority.libraryId,
+            projectId: accessProjectId,
+          }
+        : { kind: "library", libraryId: authority.libraryId },
+      consumerKey: hashKey(["projection", descriptorKey, queryKey]),
+      getDependencies: () => {
+        const current = queryClient.getQueryData<typeof authority>(queryKey)?.query
+          ?? value;
+        return {
+          databaseIds: [current.database.databaseId],
+          dataSourceIds: [current.dataSource.dataSourceId],
+          viewIds: [current.view.viewId],
+          pageIds: current.rows.map((row) => row.page.pageId),
+        };
+      },
+      getCursor: () => {
+        const snapshots: unknown[] = [
+          queryClient.getQueryData<typeof authority>(queryKey),
+        ];
+        if (!directViewId) {
+          snapshots.push(queryClient.getQueryData(descriptorKey));
+        }
+        return projectionCursorForSnapshots(snapshots);
+      },
+      invalidate: async () => {
+        await Promise.all([
+          invalidateExactQuery(queryClient, descriptorKey),
+          invalidateExactQuery(queryClient, queryKey),
+        ]);
+      },
+    });
+  }, [
+    accessProjectId,
+    descriptorKey,
+    directViewId,
+    projectionRegistry,
+    query.data,
+    queryClient,
+    queryKey,
+    viewId,
+  ]);
 
   const error = descriptor.error ?? query.error;
-  const value = query.data;
+  const value = query.data?.query;
   const visibleProperties = value?.properties.filter(
     (property) =>
       property.lifecycle === "active" &&

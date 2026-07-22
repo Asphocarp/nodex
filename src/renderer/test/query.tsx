@@ -1,6 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { NODEX_QUERY_DEFAULT_OPTIONS } from "@/lib/query-client";
+import { ProjectionInvalidationProvider } from "@/lib/projection-invalidation-context";
+import { ProjectionInvalidationRegistry } from "@/lib/projection-invalidation-registry";
 
 export function createTestQueryClient(): QueryClient {
   return new QueryClient({
@@ -21,14 +23,22 @@ export function createTestQueryClient(): QueryClient {
 export function TestQueryProvider({
   children,
   client = createTestQueryClient(),
+  projectionRegistry: providedProjectionRegistry,
 }: {
   children: ReactNode;
   client?: QueryClient;
+  projectionRegistry?: ProjectionInvalidationRegistry;
 }) {
+  const [projectionRegistry] = useState(
+    () => new ProjectionInvalidationRegistry(() => () => {}),
+  );
   return (
     <QueryClientProvider client={client}>
-      {children}
+      <ProjectionInvalidationProvider
+        registry={providedProjectionRegistry ?? projectionRegistry}
+      >
+        {children}
+      </ProjectionInvalidationProvider>
     </QueryClientProvider>
   );
 }
-

@@ -42,7 +42,7 @@ pub struct DocumentSubscriptionAck {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DocumentRealtimeEvent {
-    Committed(CommittedCoreModuleEvent),
+    Committed(Box<CommittedCoreModuleEvent>),
     Awareness {
         document_id: String,
         store_epoch: StoreEpoch,
@@ -305,7 +305,7 @@ impl OwnedDocumentRealtimeAdapter {
                 events: events
                     .into_iter()
                     .filter(|event| event_document_id(event) == Some(document_id.as_str()))
-                    .map(DocumentRealtimeEvent::Committed)
+                    .map(|event| DocumentRealtimeEvent::Committed(Box::new(event)))
                     .collect(),
                 next_after,
                 event_head,

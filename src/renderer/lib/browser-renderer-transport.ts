@@ -26,6 +26,10 @@ import type {
   PageOccurrenceUpdateInput,
 } from "../../shared/types";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
+import type {
+  ProjectionScope,
+  ProjectionStreamMessage,
+} from "../../shared/projection-stream";
 import {
   createHttpDocumentSyncAdapter,
   createHttpLibraryDocumentSyncAdapter,
@@ -2405,11 +2409,10 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
 
 type ProjectEventName =
   | "board-changed"
-  | "page-target-changed"
-  | "authority-resync"
   | "page-ownership-paths-changed"
   | "database-changed"
-  | "project-sessions-changed";
+  | "project-sessions-changed"
+  | "projection-stream";
 
 type ProjectEventListener = (
   event: Readonly<Record<string, unknown>>,
@@ -2458,31 +2461,13 @@ const ensureBrowserProjectEventStream = (
         return;
       }
       const eventName = event.event;
-      if (eventName === "connected") {
-        const resync = {
-          version: 1,
-          reason: "transport_reconnected",
-          storeEpoch: null,
-          changeLogSeq: null,
-        } as const;
-        for (const listener of [
-          ...(stream.listeners.get("authority-resync") ?? []),
-        ]) {
-          try {
-            listener(resync);
-          } catch {
-            // One consumer cannot starve the other Project event consumers.
-          }
-        }
-        return;
-      }
+      if (eventName === "connected") return;
       if (
         eventName !== "board-changed" &&
-        eventName !== "page-target-changed" &&
-        eventName !== "authority-resync" &&
         eventName !== "page-ownership-paths-changed" &&
         eventName !== "database-changed" &&
-        eventName !== "project-sessions-changed"
+        eventName !== "project-sessions-changed" &&
+        eventName !== "projection-stream"
       ) {
         return;
       }
@@ -2537,32 +2522,38 @@ function subscribeBoardChanges(
   });
 }
 
-function subscribePageTargetChanges(
-  projectId: string,
-  callback: (event: import("../../shared/page-target-events").PageTargetChangedEvent) => void,
+function subscribeProjectionStream(
+  scope: ProjectionScope,
+  listener: (message: ProjectionStreamMessage) => void,
 ): () => void {
-  return subscribeBrowserProjectEvent(
-    projectId,
-    "page-target-changed",
-    (event) => callback(event as unknown as import("../../shared/page-target-events").PageTargetChangedEvent),
-  );
-}
-
-function subscribeAuthorityResync(
-  projectId: string | null,
-  callback: (
-    event: import("../../shared/authority-resync-events").AuthorityResyncEvent,
-  ) => void,
-): () => void {
-  if (projectId === null) {
-    return subscribeBrowserLibraryAuthorityResync(callback);
-  }
-  return subscribeBrowserProjectEvent(
-    projectId,
-    "authority-resync",
-    (event) => callback(event as unknown as
-      import("../../shared/authority-resync-events").AuthorityResyncEvent),
-  );
+  const deliver = (envelope: Readonly<Record<string, unknown>>): void => {
+    const message = envelope.message as ProjectionStreamMessage | undefined;
+    if (!message || message.scope.kind !== scope.kind) return;
+    if (message.scope.libraryId !== scope.libraryId) return;
+    if (
+      scope.kind === "project"
+      && message.scope.kind === "project"
+      && message.scope.projectId !== scope.projectId
+    ) return;
+    listener(message);
+  };
+  if (scope.kind === "project") {
+    return subscribeBrowserProjectEvent(
+      scope.projectId,
+      "projection-stream",
+      deliver,
+    );
+  };
+  if (typeof EventSource === "undefined") return () => {};
+  browserLibraryProjectionEventListeners.add(deliver);
+  ensureBrowserLibraryEventSource();
+  let active = true;
+  return () => {
+    if (!active) return;
+    active = false;
+    browserLibraryProjectionEventListeners.delete(deliver);
+    closeBrowserLibraryEventSourceIfUnused();
+  };
 }
 
 function subscribePageOwnershipPathChanges(
@@ -2596,9 +2587,8 @@ let browserLibraryEventSource: EventSource | null = null;
 const browserLibraryEventListeners = new Set<(
   event: import("../../shared/library-events").LibraryNavigationChangedEvent,
 ) => void>();
-const browserLibraryAuthorityResyncListeners = new Set<(
-  event: import("../../shared/authority-resync-events").AuthorityResyncEvent,
-) => void>();
+const browserLibraryProjectionEventListeners =
+  new Set<ProjectEventListener>();
 
 const ensureBrowserLibraryEventSource = (): void => {
   if (browserLibraryEventSource || typeof EventSource === "undefined") return;
@@ -2609,27 +2599,11 @@ const ensureBrowserLibraryEventSource = (): void => {
     try {
       const event = JSON.parse(message.data) as unknown;
       if (!isEventRecord(event)) return;
-      if (event.event === "connected") {
-        const resync = {
-          version: 1,
-          reason: "transport_reconnected",
-          storeEpoch: null,
-          changeLogSeq: null,
-        } as const;
-        for (const listener of [...browserLibraryAuthorityResyncListeners]) {
+      if (event.event === "connected") return;
+      if (event.event === "projection-stream") {
+        for (const listener of [...browserLibraryProjectionEventListeners]) {
           try {
-            listener(resync);
-          } catch {
-            // One consumer cannot starve the other Library event consumers.
-          }
-        }
-        return;
-      }
-      if (event.event === "authority-resync") {
-        for (const listener of [...browserLibraryAuthorityResyncListeners]) {
-          try {
-            listener(event as unknown as
-              import("../../shared/authority-resync-events").AuthorityResyncEvent);
+            listener(event);
           } catch {
             // One consumer cannot starve the other Library event consumers.
           }
@@ -2658,7 +2632,7 @@ const ensureBrowserLibraryEventSource = (): void => {
 const closeBrowserLibraryEventSourceIfUnused = (): void => {
   if (
     browserLibraryEventListeners.size > 0
-    || browserLibraryAuthorityResyncListeners.size > 0
+    || browserLibraryProjectionEventListeners.size > 0
   ) return;
   browserLibraryEventSource?.close();
   browserLibraryEventSource = null;
@@ -2677,23 +2651,6 @@ function subscribeLibraryChanges(
     if (!active) return;
     active = false;
     browserLibraryEventListeners.delete(callback);
-    closeBrowserLibraryEventSourceIfUnused();
-  };
-}
-
-function subscribeBrowserLibraryAuthorityResync(
-  callback: (
-    event: import("../../shared/authority-resync-events").AuthorityResyncEvent,
-  ) => void,
-): () => void {
-  if (typeof EventSource === "undefined") return () => {};
-  browserLibraryAuthorityResyncListeners.add(callback);
-  ensureBrowserLibraryEventSource();
-  let active = true;
-  return () => {
-    if (!active) return;
-    active = false;
-    browserLibraryAuthorityResyncListeners.delete(callback);
     closeBrowserLibraryEventSourceIfUnused();
   };
 }
@@ -3175,8 +3132,7 @@ export const browserRendererTransport = {
   },
   invoke,
   subscribeBoardChanges,
-  subscribePageTargetChanges,
-  subscribeAuthorityResync,
+  subscribeProjectionStream,
   subscribePageOwnershipPathChanges,
   subscribeDatabaseChanges,
   subscribeLibraryChanges,

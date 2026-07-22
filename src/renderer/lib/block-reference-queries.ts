@@ -1,9 +1,8 @@
 import { useEffect, useEffectEvent } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PageTargetReadModel } from "../../shared/page-targets";
 import type { PageOwnershipPathReadModel } from "../../shared/page-ownership-paths";
 import type { DatabaseViewReadModel } from "../../shared/database-views";
-import type { PageTargetChangedEvent } from "../../shared/page-target-events";
 import {
   readDatabaseViewReference,
   resolvePageOwnershipPath,
@@ -11,9 +10,12 @@ import {
 } from "./api";
 import { queryKeys } from "./query-keys";
 import { resolveRendererTransport } from "./renderer-transport";
-import { createProjectBoardChangeSubscriptionHub } from "./project-board-change-subscription-hub";
-import { createProjectPageTargetChangeSubscriptionHub } from "./project-page-target-change-subscription-hub";
+import { createProjectEventSubscriptionHub } from "./project-event-subscription-hub";
 import { invalidateExactQuery } from "./query-invalidation";
+import { useProjectionInvalidationRegistry } from "./projection-invalidation-context";
+import type { ProjectionDependencies } from "./projection-invalidation-registry";
+import type { ProjectionCursor, ProjectionScope } from "../../shared/projection-stream";
+import { useLibraryMetadata } from "./use-library-navigation";
 
 export interface ReferenceQueryResult<T> {
   readonly data: T | null;
@@ -26,31 +28,14 @@ const toError = (error: unknown): Error | null => {
   return error instanceof Error ? error : new Error(String(error));
 };
 
-const boardChangeSubscriptions = createProjectBoardChangeSubscriptionHub({
-  subscribeToProject: (projectId, listener) =>
-    resolveRendererTransport().subscribeBoardChanges(projectId, listener),
-});
-
-const pageTargetChangeSubscriptions =
-  createProjectPageTargetChangeSubscriptionHub({
-    subscribeToProject: (projectId, listener) =>
-      resolveRendererTransport().subscribePageTargetChanges(projectId, listener),
-  });
-
 const pageOwnershipPathChangeSubscriptions =
-  createProjectBoardChangeSubscriptionHub({
+  createProjectEventSubscriptionHub({
     subscribeToProject: (projectId, listener) =>
       resolveRendererTransport().subscribePageOwnershipPathChanges(
         projectId,
         listener,
       ),
   });
-
-interface PageTargetChangeSubscription {
-  readonly requestingProjectId: string;
-  readonly targetBlockId: string;
-  readonly queryKey: readonly unknown[];
-}
 
 const pageTargetQueryOptions = (
   requestingProjectId: string,
@@ -66,59 +51,46 @@ const pageTargetQueryOptions = (
   refetchOnWindowFocus: true,
 });
 
-const usePageTargetChangeRefresh = (
-  targets: readonly PageTargetChangeSubscription[],
-): void => {
+const useProjectionQueryRefresh = (input: {
+  readonly scope: ProjectionScope | null;
+  readonly dependencies: ProjectionDependencies;
+  readonly cursor: ProjectionCursor | null;
+  readonly queryKey: readonly unknown[];
+}): void => {
   const queryClient = useQueryClient();
-  const subscriptionFingerprint = JSON.stringify(targets);
-  const subscribeToTargets = useEffectEvent(() => {
-    const targetUnsubscribers = targets.map((target) => {
-      return pageTargetChangeSubscriptions.subscribe(
-        target.requestingProjectId,
-        target.targetBlockId,
-        JSON.stringify(target.queryKey),
-        () => {
-          void invalidateExactQuery(queryClient, target.queryKey);
-        },
-      );
-    });
-    const projectUnsubscribers = [...new Set(
-      targets.map((target) => target.requestingProjectId),
-    )].map((projectId) =>
-      resolveRendererTransport().subscribeAuthorityResync(projectId, () => {
-        for (const target of targets) {
-          if (target.requestingProjectId !== projectId) continue;
-          void invalidateExactQuery(queryClient, target.queryKey);
+  const registry = useProjectionInvalidationRegistry();
+  const consumerKey = hashKey(input.queryKey);
+  const scopeKey = hashKey(["projection-scope", input.scope]);
+  const getDependencies = useEffectEvent(() => input.dependencies);
+  const getCursor = useEffectEvent(() => {
+    const current = queryClient.getQueryData<{
+      readonly storeEpoch: string;
+      readonly changeLogSeq: number;
+    }>(input.queryKey);
+    return current
+      ? {
+          storeEpoch: current.storeEpoch,
+          changeLogSeq: current.changeLogSeq,
         }
-      })
-    );
-    return () => {
-      for (const unsubscribe of [
-        ...targetUnsubscribers,
-        ...projectUnsubscribers,
-      ]) unsubscribe();
-    };
+      : input.cursor;
   });
-
-  useEffect(() => subscribeToTargets(), [subscriptionFingerprint]);
-};
-
-const useBoardChangeRefresh = (
-  projectId: string | null,
-  consumerKey: string,
-  queryKey: readonly unknown[],
-): void => {
-  const queryClient = useQueryClient();
-  const refreshQuery = useEffectEvent(() => {
-    void invalidateExactQuery(queryClient, queryKey);
+  const invalidate = useEffectEvent(() =>
+    invalidateExactQuery(queryClient, input.queryKey),
+  );
+  const subscribe = useEffectEvent(() => {
+    if (!input.scope) return;
+    return registry.register({
+      scope: input.scope,
+      consumerKey,
+      getDependencies,
+      getCursor,
+      invalidate,
+    });
   });
 
   useEffect(() => {
-    if (!projectId) return;
-    return boardChangeSubscriptions.subscribe(projectId, consumerKey, () => {
-      refreshQuery();
-    });
-  }, [consumerKey, projectId]);
+    return subscribe();
+  }, [consumerKey, scopeKey]);
 };
 
 export const usePageTargetReadModel = (
@@ -126,12 +98,24 @@ export const usePageTargetReadModel = (
   targetBlockId: string,
 ): ReferenceQueryResult<PageTargetReadModel> => {
   const enabled = requestingProjectId.length > 0 && targetBlockId.length > 0;
+  const library = useLibraryMetadata(enabled);
   const query = useQuery(pageTargetQueryOptions(requestingProjectId, targetBlockId));
-  usePageTargetChangeRefresh(enabled ? [{
-    requestingProjectId,
-    targetBlockId,
-    queryKey: queryKeys.pageTargets.byId(requestingProjectId, targetBlockId),
-  }] : []);
+  const libraryId = library.data?.libraryId ?? query.data?.libraryId ?? null;
+  const queryKey = queryKeys.pageTargets.byId(requestingProjectId, targetBlockId);
+  useProjectionQueryRefresh({
+    scope: enabled && libraryId
+      ? {
+          kind: "project",
+          libraryId,
+          projectId: requestingProjectId,
+        }
+      : null,
+    dependencies: { pageIds: [targetBlockId] },
+    cursor: query.data
+      ? { storeEpoch: query.data.storeEpoch, changeLogSeq: query.data.changeLogSeq }
+      : null,
+    queryKey,
+  });
   return {
     data: query.data ?? null,
     loading: enabled && query.status === "pending",
@@ -145,6 +129,7 @@ export const usePageOwnershipPathReadModel = (
 ): ReferenceQueryResult<PageOwnershipPathReadModel> => {
   const queryClient = useQueryClient();
   const enabled = requestingProjectId.length > 0 && targetPageId.length > 0;
+  const library = useLibraryMetadata(enabled);
   const queryKey = queryKeys.pageOwnershipPaths.byPage(
     requestingProjectId,
     targetPageId,
@@ -159,14 +144,24 @@ export const usePageOwnershipPathReadModel = (
     staleTime: 5_000,
     refetchOnWindowFocus: true,
   });
+  const libraryId = library.data?.libraryId ?? query.data?.libraryId ?? null;
   const observedPageIds = query.data?.status === "available"
     ? [targetPageId, ...query.data.ancestors.map((ancestor) => ancestor.pageId)]
     : [targetPageId];
-  usePageTargetChangeRefresh((enabled ? observedPageIds : []).map((targetBlockId) => ({
-    requestingProjectId,
-    targetBlockId,
+  useProjectionQueryRefresh({
+    scope: enabled && libraryId
+      ? {
+          kind: "project",
+          libraryId,
+          projectId: requestingProjectId,
+        }
+      : null,
+    dependencies: { pageIds: observedPageIds },
+    cursor: query.data
+      ? { storeEpoch: query.data.storeEpoch, changeLogSeq: query.data.changeLogSeq }
+      : null,
     queryKey,
-  })));
+  });
 
   useEffect(() => {
     if (!enabled) return;
@@ -194,7 +189,7 @@ export const useDatabaseViewReadModel = (
   hostBlockId?: string,
 ): ReferenceQueryResult<DatabaseViewReadModel> => {
   const enabled = requestingProjectId.length > 0 && databaseViewId.length > 0;
-  const queryClient = useQueryClient();
+  const library = useLibraryMetadata(enabled);
   const queryKey = queryKeys.blockReferences.databaseView(
     requestingProjectId,
     databaseViewId,
@@ -211,42 +206,26 @@ export const useDatabaseViewReadModel = (
     staleTime: 5_000,
     refetchOnWindowFocus: true,
   });
-  useBoardChangeRefresh(
-    data?.view.projectId ?? null,
-    JSON.stringify(queryKey),
+  const libraryId = library.data?.libraryId ?? data?.libraryId ?? null;
+  useProjectionQueryRefresh({
+    scope: enabled && libraryId
+      ? {
+          kind: "project",
+          libraryId,
+          projectId: requestingProjectId,
+        }
+      : null,
+    dependencies: {
+      databaseIds: data ? [data.view.databaseBlockId] : [],
+      dataSourceIds: data ? [data.dataSourceId] : [],
+      viewIds: [databaseViewId],
+      pageIds: data?.rows.map((row) => row.page.id) ?? [],
+    },
+    cursor: data
+      ? { storeEpoch: data.storeEpoch, changeLogSeq: data.changeLogSeq }
+      : null,
     queryKey,
-  );
-  const pageEventAffectsView = useEffectEvent((
-    event: PageTargetChangedEvent,
-  ): boolean => {
-    if (!data) return true;
-    if (event.affectedDatabaseIds.includes(data.view.databaseBlockId)) {
-      return true;
-    }
-    return data.rows.some((row) => row.page.id === event.targetPageId);
   });
-  const refreshView = useEffectEvent(() => {
-    void invalidateExactQuery(queryClient, queryKey);
-  });
-  useEffect(() => {
-    if (!enabled) return;
-    const transport = resolveRendererTransport();
-    const unsubscribePageTarget = transport.subscribePageTargetChanges(
-      requestingProjectId,
-      (event) => {
-        if (!pageEventAffectsView(event)) return;
-        refreshView();
-      },
-    );
-    const unsubscribeAuthorityResync = transport.subscribeAuthorityResync(
-      requestingProjectId,
-      refreshView,
-    );
-    return () => {
-      unsubscribePageTarget();
-      unsubscribeAuthorityResync();
-    };
-  }, [enabled, requestingProjectId]);
   return {
     data: data ?? null,
     loading: enabled && status === "pending",

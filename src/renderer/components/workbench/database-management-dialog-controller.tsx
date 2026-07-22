@@ -20,7 +20,7 @@ import {
   readDatabaseManagementAuthority,
   type DatabaseManagementAuthority,
 } from "@/lib/database-management-runtime";
-import { subscribeDatabaseChanges } from "@/lib/api";
+import { useProjectionInvalidationRegistry } from "@/lib/projection-invalidation-context";
 import {
   emptyDatabaseViewConfig,
   readDatabasePropertyOptions,
@@ -51,6 +51,7 @@ export function DatabaseManagementDialogController({
   onOpenChange,
 }: DatabaseManagementDialogControllerProps) {
   const clientSessionId = useMutationAuditSessionId();
+  const projectionRegistry = useProjectionInvalidationRegistry();
   const [authority, setAuthority] =
     useState<DatabaseManagementAuthority | null>(null);
   const [selectedDatabaseId, setSelectedDatabaseId] =
@@ -58,12 +59,14 @@ export function DatabaseManagementDialogController({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const readSequence = useRef(0);
+  const authorityRef = useRef<DatabaseManagementAuthority | null>(null);
   const selectedDatabaseIdRef = useRef(selectedDatabaseId);
   selectedDatabaseIdRef.current = selectedDatabaseId;
 
   const applyAuthority = useCallback((next: DatabaseManagementAuthority) => {
     const nextDatabaseId = next.selectedDatabase.database.databaseId;
     selectedDatabaseIdRef.current = nextDatabaseId;
+    authorityRef.current = next;
     startTransition(() => {
       setAuthority(next);
       setSelectedDatabaseId(nextDatabaseId);
@@ -93,10 +96,41 @@ export function DatabaseManagementDialogController({
     setSelectedDatabaseId(initialDatabaseId);
     selectedDatabaseIdRef.current = initialDatabaseId;
     void refresh(initialDatabaseId);
-    return subscribeDatabaseChanges(projectId, () => {
-      void refresh();
-    });
   }, [initialDatabaseId, open, projectId, refresh]);
+
+  useEffect(() => {
+    if (!open || !authority) return;
+    return projectionRegistry.register({
+      scope: {
+        kind: "project",
+        libraryId: authority.snapshot.libraryId,
+        projectId,
+      },
+      consumerKey: `database-management:${projectId}`,
+      getDependencies: () => {
+        const current = authorityRef.current;
+        const databases = current?.databases ?? [];
+        return {
+          aggregate: true,
+          databaseIds: databases.map((item) => item.database.databaseId),
+          dataSourceIds: databases.flatMap((item) =>
+            item.dataSources.map((source) => source.dataSourceId)),
+          viewIds: databases.flatMap((item) =>
+            item.views.map((view) => view.viewId)),
+        };
+      },
+      getCursor: () => {
+        const current = authorityRef.current?.snapshot;
+        return current
+          ? {
+              storeEpoch: current.storeEpoch,
+              changeLogSeq: current.changeLogSeq,
+            }
+          : null;
+      },
+      invalidate: () => refresh(),
+    });
+  }, [authority, open, projectId, projectionRegistry, refresh]);
 
   const selectDatabase = (databaseId: string): void => {
     selectedDatabaseIdRef.current = databaseId;

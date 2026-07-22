@@ -2,7 +2,7 @@ import { queryOptions } from "@tanstack/react-query";
 import { invoke } from "./api";
 import { queryKeys } from "./query-keys";
 import type {
-  BoardSummary,
+  BoardSummarySnapshot,
   CodexAutomationRunsInboxResponse,
   CodexModelOption,
   CodexScheduledAutomationListResponse,
@@ -44,7 +44,7 @@ export function projectsListQueryOptions() {
 export function boardByProjectQueryOptions(projectId: string) {
   return queryOptions({
     queryKey: queryKeys.boards.byProject(projectId),
-    queryFn: () => invoke("board:summary:get", projectId) as Promise<BoardSummary>,
+    queryFn: () => invoke("board:summary:get", projectId) as Promise<BoardSummarySnapshot>,
   });
 }
 

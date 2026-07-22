@@ -1,23 +1,22 @@
 import { act, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { PageTargetChangedEvent } from "../../shared/page-target-events";
 import type { PageOwnershipPathsChangedEvent } from "../../shared/page-ownership-path-events";
+import type { ProjectionStreamMessage } from "../../shared/projection-stream";
 import { render } from "../test/dom";
 import { TestQueryProvider } from "../test/query";
 import { usePageOwnershipPathReadModel } from "./block-reference-queries";
+import { ProjectionInvalidationRegistry } from "./projection-invalidation-registry";
 
 const mocks = vi.hoisted(() => ({
+  readLibraryModule: vi.fn(),
   resolvePageOwnershipPath: vi.fn(),
-  projectListeners: new Map<
-    string,
-    (event: PageTargetChangedEvent) => void
-  >(),
   ownershipPathChangeListener: null as (
     (event: PageOwnershipPathsChangedEvent) => void
   ) | null,
 }));
 
 vi.mock("./api", () => ({
+  readLibraryModule: mocks.readLibraryModule,
   resolvePageOwnershipPath: mocks.resolvePageOwnershipPath,
   readDatabaseViewReference: vi.fn(),
 }));
@@ -25,18 +24,6 @@ vi.mock("./api", () => ({
 vi.mock("./renderer-transport", () => ({
   resolveRendererTransport: () => ({
     subscribeBoardChanges: () => () => undefined,
-    subscribeAuthorityResync: () => () => undefined,
-    subscribePageTargetChanges: (
-      projectId: string,
-      listener: (event: PageTargetChangedEvent) => void,
-    ) => {
-      mocks.projectListeners.set(projectId, listener);
-      return () => {
-        if (mocks.projectListeners.get(projectId) === listener) {
-          mocks.projectListeners.delete(projectId);
-        }
-      };
-    },
     subscribePageOwnershipPathChanges: (
       _projectId: string,
       listener: (event: PageOwnershipPathsChangedEvent) => void,
@@ -63,15 +50,35 @@ function OwnershipPathHarness() {
 }
 
 describe("Page reference queries", () => {
+  let projectionListeners: Set<(message: ProjectionStreamMessage) => void>;
+  let projectionRegistry: ProjectionInvalidationRegistry;
+
   beforeEach(() => {
-    mocks.projectListeners.clear();
+    mocks.readLibraryModule.mockReset();
+    mocks.readLibraryModule.mockResolvedValue({
+      ok: true,
+      value: {
+        libraryId: "library-1",
+        storeEpoch: "epoch-1",
+        changeLogSeq: 0,
+        value: { kind: "metadata" },
+      },
+    });
     mocks.resolvePageOwnershipPath.mockReset();
     mocks.ownershipPathChangeListener = null;
+    projectionListeners = new Set();
+    projectionRegistry = new ProjectionInvalidationRegistry((_scope, listener) => {
+      projectionListeners.add(listener);
+      return () => projectionListeners.delete(listener);
+    });
   });
 
   test("refreshes the canonical ownership path when an observed Page moves", async () => {
     let parentTitle = "Parent before move";
     mocks.resolvePageOwnershipPath.mockImplementation(async () => ({
+      libraryId: "library-1",
+      storeEpoch: "epoch-1",
+      changeLogSeq: mocks.resolvePageOwnershipPath.mock.calls.length,
       status: "available",
       targetPageId: "nested-page",
       ancestors: [{
@@ -82,7 +89,7 @@ describe("Page reference queries", () => {
     }));
 
     const view = render(
-      <TestQueryProvider>
+      <TestQueryProvider projectionRegistry={projectionRegistry}>
         <OwnershipPathHarness />
       </TestQueryProvider>,
     );
@@ -94,16 +101,26 @@ describe("Page reference queries", () => {
 
     parentTitle = "Parent after move";
     await act(async () => {
-      mocks.projectListeners.get("host-project")?.({
-        version: 1,
-        libraryId: "library-1",
-        storeEpoch: "epoch-1",
-        changeLogSeq: 2,
-        targetPageId: "parent-page",
-        changeKind: "location",
-        affectedDatabaseIds: [],
-        affectedDataSourceIds: [],
-      });
+      for (const listener of projectionListeners) {
+        listener({
+          version: 1,
+          kind: "changed",
+          scope: {
+            kind: "project",
+            libraryId: "library-1",
+            projectId: "host-project",
+          },
+          cursor: { storeEpoch: "epoch-1", changeLogSeq: 2 },
+          impact: {
+            kind: "resources",
+            page_ids: ["parent-page"],
+            database_ids: [],
+            data_source_ids: [],
+            view_ids: [],
+            document_heads: [],
+          },
+        });
+      }
       await Promise.resolve();
     });
 

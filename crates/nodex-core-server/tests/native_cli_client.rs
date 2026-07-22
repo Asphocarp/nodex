@@ -4,6 +4,7 @@ use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use nodex_core::infrastructure::schema::CORE_SCHEMA_VERSION;
 use nodex_core_contracts::administration::{StoreAdministrationRead, StoreAdministrationReadValue};
 use nodex_core_contracts::library::{
     LibraryAccess, LibraryIntent, LibraryPageFileKind, LibraryPagePrepareKind, LibraryRead,
@@ -33,10 +34,12 @@ fn native_client_cold_starts_reuses_and_reads_the_authenticated_core() {
 
     let client = connect_or_launch(&home, "native-client-test", Some(executable))
         .expect("cold native client launch");
+    let expected_schema_version =
+        u32::try_from(CORE_SCHEMA_VERSION).expect("Core schema version fits the wire contract");
     let pid = client.handshake.pid;
     let guard = ProcessGuard(pid);
     assert_eq!(client.descriptor.pid, client.handshake.pid);
-    assert_eq!(client.handshake.schema_version, 87);
+    assert_eq!(client.handshake.schema_version, expected_schema_version);
 
     let second = CoreClient::connect(&home, "native-client-test").expect("reuse running Core");
     assert_eq!(second.handshake.pid, client.handshake.pid);
@@ -53,7 +56,7 @@ fn native_client_cold_starts_reuses_and_reads_the_authenticated_core() {
     let StoreAdministrationReadValue::Status { schema_version, .. } = snapshot.value else {
         panic!("expected Store status value")
     };
-    assert_eq!(schema_version, 87);
+    assert_eq!(schema_version, expected_schema_version);
 
     let source = home.join("source");
     fs::create_dir(&source).expect("Project source");

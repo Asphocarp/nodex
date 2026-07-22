@@ -32,6 +32,10 @@ const makeCard = (
 });
 
 const VIEW: DatabaseViewReadModel = {
+  libraryId: "library:test",
+  storeEpoch: "epoch:test",
+  changeLogSeq: 1,
+  dataSourceId: "data-source:test",
   view: {
     id: "database-view:inline:story",
     databaseBlockId: "database:primary",

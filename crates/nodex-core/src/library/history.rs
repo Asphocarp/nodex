@@ -1324,8 +1324,9 @@ mod tests {
         connection.execute(
             "INSERT INTO change_log( \
                project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
-               database_block_ids_json, payload_json, committed_at \
-             ) VALUES (?1, ?2, 'block_mutation', ?3, ?4, ?5, '[]', ?6, ?7)",
+               database_block_ids_json, payload_json, projection_impact_json, committed_at \
+             ) VALUES (?1, ?2, 'block_mutation', ?3, ?4, ?5, '[]', ?6, \
+               '{\"kind\":\"none\"}', ?7)",
             params![
                 PROJECT,
                 STORE_EPOCH,

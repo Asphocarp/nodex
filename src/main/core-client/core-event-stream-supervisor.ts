@@ -11,8 +11,10 @@ export interface CoreEventStreamSupervisorInput {
     onEvent: (event: CoreEventEnvelope) => void,
     onResyncRequired: (event: CoreEventReplayRequired) => void,
   ) => Promise<CoreEventSubscription>;
-  readonly onEvent: (event: CoreEventEnvelope) => void;
-  readonly onResyncRequired: (event: CoreEventReplayRequired) => void;
+  readonly onEvent: (event: CoreEventEnvelope) => unknown;
+  readonly onResyncRequired: (
+    event: CoreEventReplayRequired,
+  ) => unknown;
   readonly onInterrupted?: (error: unknown | null) => void;
   readonly retryDelayMs?: number;
   readonly maxRetryDelayMs?: number;
@@ -35,17 +37,32 @@ export function superviseCoreEventStream(
     while (!closed) {
       let resyncRequested = false;
       let interruption: unknown | null = null;
+      let delivery = Promise.resolve();
+      let deliveryError: unknown | null = null;
+      const enqueue = (work: () => void | Promise<void>): void => {
+        delivery = delivery.then(async () => {
+          if (deliveryError !== null) return;
+          await work();
+        }).catch((error) => {
+          deliveryError ??= error;
+          active?.close();
+        });
+      };
       try {
         const subscription = await input.open(
           after,
           (envelope) => {
-            after = Math.max(after, envelope.event.sequence);
-            input.onEvent(envelope);
+            enqueue(async () => {
+              await input.onEvent(envelope);
+              after = Math.max(after, envelope.event.sequence);
+            });
           },
           (boundary) => {
-            after = boundary.event_head;
             resyncRequested = true;
-            input.onResyncRequired(boundary);
+            enqueue(async () => {
+              await input.onResyncRequired(boundary);
+              after = boundary.event_head;
+            });
             active?.close();
           },
         );
@@ -53,6 +70,8 @@ export function superviseCoreEventStream(
         retryDelayMs = initialRetryDelayMs;
         if (closed || resyncRequested) subscription.close();
         await subscription.done;
+        await delivery;
+        if (deliveryError !== null) throw deliveryError;
       } catch (error) {
         interruption = error;
       } finally {

@@ -634,6 +634,7 @@ export interface components {
             readonly committed_at: string;
             readonly operation_id?: string | null;
             readonly payload: components["schemas"]["CoreModuleEventPayload"];
+            readonly projection_impact: components["schemas"]["ProjectionImpact"];
             /** Format: int64 */
             readonly sequence: number;
             readonly store_epoch: components["schemas"]["StoreEpoch"];
@@ -1721,6 +1722,7 @@ export interface components {
             readonly kind: components["schemas"]["LibraryEventKind"];
             readonly page_ids: readonly string[];
             readonly parent_keys: readonly string[];
+            readonly view_ids: readonly string[];
         };
         /** @enum {string} */
         readonly LibraryEventKind: "library_changed";
@@ -3256,6 +3258,11 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "metadata";
             } | {
+                readonly impact: components["schemas"]["ProjectionImpact"];
+                /** @enum {string} */
+                readonly kind: "filter_projection_impact_for_project";
+                readonly project_id: string;
+            } | {
                 readonly cursor?: string | null;
                 readonly force_include_target?: null | components["schemas"]["LibraryRouteTarget"];
                 /** @enum {string} */
@@ -3540,7 +3547,6 @@ export interface components {
             readonly head_seq: number;
             /** @enum {string} */
             readonly kind: "document_updated";
-            readonly page_impact?: null | components["schemas"]["OwnedDocumentPageImpact"];
             readonly update: readonly number[];
         } | {
             /** Format: int64 */
@@ -3558,20 +3564,18 @@ export interface components {
             readonly document_id: string;
             /** @enum {string} */
             readonly kind: "document_invalidated";
-            readonly page_impact?: null | components["schemas"]["OwnedDocumentPageImpact"];
             readonly reason: components["schemas"]["DocumentInvalidationReason"];
-        };
-        readonly OwnedDocumentPageDatabaseImpact: {
-            readonly data_source_id: string;
-            readonly database_id: string;
-        };
-        readonly OwnedDocumentPageImpact: {
-            readonly database?: null | components["schemas"]["OwnedDocumentPageDatabaseImpact"];
-            readonly library_id: string;
-            readonly page_id: string;
         };
         readonly OwnedDocumentReadRequest: components["schemas"]["ModuleReadRequest_OwnedDocumentRead"];
         readonly OwnedDocumentReadResponse: components["schemas"]["ResponseEnvelope_ModuleReadSnapshot_OwnedDocumentReadValue"];
+        readonly PageDocumentHeadImpact: {
+            readonly document_id: string;
+            /** Format: int64 */
+            readonly generation: number;
+            /** Format: int64 */
+            readonly head_seq: number;
+            readonly page_id: string;
+        };
         readonly PageMetaProjectionV1: {
             readonly id: string;
             readonly properties: readonly components["schemas"]["ProjectedPropertyV1"][];
@@ -3675,6 +3679,21 @@ export interface components {
             readonly end: string;
             readonly start: string;
             readonly timezone?: string | null;
+        };
+        readonly ProjectionImpact: {
+            /** @enum {string} */
+            readonly kind: "none";
+        } | {
+            /** @enum {string} */
+            readonly kind: "all";
+        } | {
+            readonly data_source_ids: readonly string[];
+            readonly database_ids: readonly string[];
+            readonly document_heads: readonly components["schemas"]["PageDocumentHeadImpact"][];
+            /** @enum {string} */
+            readonly kind: "resources";
+            readonly page_ids: readonly string[];
+            readonly view_ids: readonly string[];
         };
         /** @enum {string} */
         readonly ProjectLifecycle: "active" | "inactive" | "archived";
@@ -4353,6 +4372,10 @@ export interface components {
                     readonly kind: "metadata";
                     readonly library_id: string;
                     readonly profile_id: string;
+                } | {
+                    readonly impact: components["schemas"]["ProjectionImpact"];
+                    /** @enum {string} */
+                    readonly kind: "projection_impact";
                 } | {
                     readonly has_more: boolean;
                     readonly items: readonly components["schemas"]["LibraryNavigationNode"][];

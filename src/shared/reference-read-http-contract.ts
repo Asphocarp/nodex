@@ -128,23 +128,32 @@ const PageContentSummaryHttpSchema = z.object({
 const ActivePageContentSummaryHttpSchema = PageContentSummaryHttpSchema.extend({
   lifecycle: z.enum(["active", "archived"]),
 });
+const ProjectionAuthorityHttpShape = {
+  libraryId: z.string(),
+  storeEpoch: z.string(),
+  changeLogSeq: z.number().int().nonnegative(),
+} as const;
 
 const PageTargetReadModelHttpSchema = z.discriminatedUnion("status", [
   z.object({
+    ...ProjectionAuthorityHttpShape,
     status: z.literal("missing"),
     targetPageId: z.string(),
   }),
   z.object({
+    ...ProjectionAuthorityHttpShape,
     status: z.literal("invalid_target"),
     targetPageId: z.string(),
     actualBlockType: z.string(),
   }),
   z.object({
+    ...ProjectionAuthorityHttpShape,
     status: z.literal("deleted"),
     targetPageId: z.string(),
     libraryId: z.string(),
   }),
   z.object({
+    ...ProjectionAuthorityHttpShape,
     status: z.literal("available"),
     targetPageId: z.string(),
     page: ActivePageContentSummaryHttpSchema,
@@ -158,10 +167,12 @@ const PageTargetReadModelHttpSchema = z.discriminatedUnion("status", [
 
 const PageOwnershipPathReadModelHttpSchema = z.discriminatedUnion("status", [
   z.object({
+    ...ProjectionAuthorityHttpShape,
     status: z.literal("missing"),
     targetPageId: z.string(),
   }),
   z.object({
+    ...ProjectionAuthorityHttpShape,
     status: z.literal("available"),
     targetPageId: z.string(),
     ancestors: z.array(z.object({
@@ -184,6 +195,8 @@ const DatabaseViewJsonValueSchema: z.ZodType<DatabaseViewJsonValue> = z.lazy(
 );
 
 const DatabaseViewReadModelHttpSchema = z.object({
+  ...ProjectionAuthorityHttpShape,
+  dataSourceId: z.string(),
   view: z.object({
     id: z.string(),
     databaseBlockId: z.string(),

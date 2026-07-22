@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { components } from "@nodex/core-protocol";
+import type { ProjectionImpact } from "../../shared/projection-stream";
 import {
   decodeDocumentApplyHttpAck,
   decodeDocumentSyncHttpResponse,
@@ -71,8 +72,9 @@ import type {
 } from "./types";
 import { UdsHttpTransport } from "./uds-http";
 
-const PROTOCOL_MIN = 1;
-const PROTOCOL_MAX = 1;
+const CORE_PROTOCOL_MIN = 2;
+const CORE_PROTOCOL_MAX = 2;
+const MODULE_CONTRACT_VERSION = 1;
 const DOCUMENT_FRAME_OVERHEAD_BYTES = MAX_DOCUMENT_HTTP_METADATA_BYTES + 8;
 
 type ClientKind = components["schemas"]["ClientKind"];
@@ -128,8 +130,8 @@ export class CoreClient implements CoreClientPort {
       "POST",
       "/core/v1/handshake",
       {
-        protocol_min: PROTOCOL_MIN,
-        protocol_max: PROTOCOL_MAX,
+        protocol_min: CORE_PROTOCOL_MIN,
+        protocol_max: CORE_PROTOCOL_MAX,
         client: {
           kind: input.clientKind,
           build_id: input.buildId,
@@ -165,7 +167,7 @@ export class CoreClient implements CoreClientPort {
     const response = await this.#transport.requestJson<LibraryReadResponse>(
       "POST",
       "/core/v1/modules/library/read",
-      { version: PROTOCOL_MAX, read },
+      { version: MODULE_CONTRACT_VERSION, read },
       this.#moduleHeaders(),
     );
     if (response.status === "ok") return response.payload;
@@ -177,7 +179,7 @@ export class CoreClient implements CoreClientPort {
       "POST",
       "/core/v1/modules/library/apply",
       {
-        version: PROTOCOL_MAX,
+        version: MODULE_CONTRACT_VERSION,
         operation_id: input.operationId,
         store_epoch: this.handshake.store_epoch,
         intent: input.intent,
@@ -188,11 +190,26 @@ export class CoreClient implements CoreClientPort {
     throw new CoreModuleResponseError(response.payload);
   }
 
+  async filterProjectionImpactForProject(
+    projectId: string,
+    impact: ProjectionImpact,
+  ): Promise<ProjectionImpact> {
+    const snapshot = await this.forProject(projectId).libraryRead({
+      kind: "filter_projection_impact_for_project",
+      project_id: projectId,
+      impact,
+    });
+    if (snapshot.value.kind === "projection_impact") {
+      return snapshot.value.impact;
+    }
+    throw new Error("Core returned an invalid Projection impact authorization result");
+  }
+
   async databaseRead(read: DatabaseRead): Promise<DatabaseReadSnapshot> {
     const response = await this.#transport.requestJson<DatabaseReadResponse>(
       "POST",
       "/core/v1/modules/database/read",
-      { version: PROTOCOL_MAX, read },
+      { version: MODULE_CONTRACT_VERSION, read },
       this.#databaseHeaders(),
     );
     if (response.status === "ok") return response.payload;
@@ -204,7 +221,7 @@ export class CoreClient implements CoreClientPort {
       "POST",
       "/core/v1/modules/database/apply",
       {
-        version: PROTOCOL_MAX,
+        version: MODULE_CONTRACT_VERSION,
         operation_id: input.operationId,
         store_epoch: this.handshake.store_epoch,
         intent: input.intent,
@@ -221,7 +238,7 @@ export class CoreClient implements CoreClientPort {
     const response = await this.#transport.requestJson<ProjectWorkspaceReadResponse>(
       "POST",
       "/core/v1/modules/workspace/read",
-      { version: PROTOCOL_MAX, read },
+      { version: MODULE_CONTRACT_VERSION, read },
       this.#moduleHeaders(),
     );
     if (response.status === "ok") return response.payload;
@@ -235,7 +252,7 @@ export class CoreClient implements CoreClientPort {
       "POST",
       "/core/v1/modules/workspace/apply",
       {
-        version: PROTOCOL_MAX,
+        version: MODULE_CONTRACT_VERSION,
         operation_id: input.operationId,
         store_epoch: this.handshake.store_epoch,
         intent: input.intent,
@@ -250,7 +267,7 @@ export class CoreClient implements CoreClientPort {
     const response = await this.#transport.requestJson<AutomationReadResponse>(
       "POST",
       "/core/v1/modules/automation/read",
-      { version: PROTOCOL_MAX, read },
+      { version: MODULE_CONTRACT_VERSION, read },
       this.#moduleHeaders(),
     );
     if (response.status === "ok") return response.payload;
@@ -264,7 +281,7 @@ export class CoreClient implements CoreClientPort {
       "POST",
       "/core/v1/modules/automation/apply",
       {
-        version: PROTOCOL_MAX,
+        version: MODULE_CONTRACT_VERSION,
         operation_id: input.operationId,
         store_epoch: this.handshake.store_epoch,
         intent: input.intent,
@@ -282,7 +299,7 @@ export class CoreClient implements CoreClientPort {
       await this.#transport.requestJson<StoreAdministrationReadResponse>(
         "POST",
         "/core/v1/modules/administration/read",
-        { version: PROTOCOL_MAX, read },
+        { version: MODULE_CONTRACT_VERSION, read },
         this.#moduleHeaders(),
       );
     if (response.status === "ok") return response.payload;
@@ -297,7 +314,7 @@ export class CoreClient implements CoreClientPort {
         "POST",
         "/core/v1/modules/administration/apply",
         {
-          version: PROTOCOL_MAX,
+          version: MODULE_CONTRACT_VERSION,
           operation_id: input.operationId,
           store_epoch: this.handshake.store_epoch,
           intent: input.intent,
@@ -315,7 +332,7 @@ export class CoreClient implements CoreClientPort {
     const response = await this.#transport.requestJson<OwnedDocumentReadResponse>(
       "POST",
       "/core/v1/modules/document/read",
-      { version: PROTOCOL_MAX, read },
+      { version: MODULE_CONTRACT_VERSION, read },
       this.#documentHeaders(clientSessionId),
     );
     if (response.status === "ok") return response.payload;
@@ -329,7 +346,7 @@ export class CoreClient implements CoreClientPort {
       "POST",
       "/core/v1/modules/document/apply",
       {
-        version: PROTOCOL_MAX,
+        version: MODULE_CONTRACT_VERSION,
         operation_id: input.operationId,
         store_epoch: this.handshake.store_epoch,
         intent: input.intent,
@@ -483,8 +500,8 @@ const assertHandshake = (
   handshake: CoreHandshakeResponse,
 ): void => {
   if (
-    handshake.protocol_version < PROTOCOL_MIN ||
-    handshake.protocol_version > PROTOCOL_MAX
+    handshake.protocol_version < CORE_PROTOCOL_MIN ||
+    handshake.protocol_version > CORE_PROTOCOL_MAX
   ) {
     throw new Error("Core selected an unsupported protocol version");
   }

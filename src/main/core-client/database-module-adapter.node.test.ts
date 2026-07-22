@@ -501,13 +501,14 @@ describe("Core Database Module Adapter", () => {
 
   test("maps Database Core events into resource-scoped renderer invalidations", () => {
     expect(mapCoreDatabaseEvent({
-      protocol_version: 1,
+      protocol_version: 2,
       event: {
-        version: 1,
+        version: 2,
         sequence: 42,
         store_epoch: identity.storeEpoch,
         operation_id: "operation:database",
         committed_at: "2026-07-20T00:00:00.000Z",
+        projection_impact: { kind: "none" },
         payload: {
           module: "database",
           event: {
@@ -537,13 +538,14 @@ describe("Core Database Module Adapter", () => {
 
   test("maps Library Database events without a compatibility Project", () => {
     expect(mapCoreLibraryDatabaseEvent({
-      protocol_version: 1,
+      protocol_version: 2,
       event: {
-        version: 1,
+        version: 2,
         sequence: 53,
         store_epoch: identity.storeEpoch,
         operation_id: "operation:library-database",
         committed_at: "2026-07-20T00:11:00.000Z",
+        projection_impact: { kind: "none" },
         payload: {
           module: "database",
           event: {

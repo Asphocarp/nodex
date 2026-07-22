@@ -37,6 +37,55 @@ const serveReplayBoundary = async (): Promise<string> => {
   return socketPath;
 };
 
+const serveLargeCommittedEvent = async (): Promise<string> => {
+  const directory = mkdtempSync(path.join(tmpdir(), "nodex-core-uds-test-"));
+  directories.push(directory);
+  const socketPath = path.join(directory, "core.sock");
+  const event = {
+    protocol_version: 2,
+    event: {
+      version: 2,
+      sequence: 1,
+      store_epoch: "epoch-1",
+      operation_id: null,
+      committed_at: "2026-07-22T00:00:00.000Z",
+      projection_impact: {
+        kind: "resources",
+        page_ids: Array.from(
+          { length: 1_400 },
+          (_, index) => `page-${index.toString().padStart(4, "0")}-${"p".repeat(480)}`,
+        ),
+        database_ids: [],
+        data_source_ids: [],
+        view_ids: [],
+        document_heads: [],
+      },
+      payload: {
+        module: "project_workspace",
+        event: {
+          kind: "project_workspace_changed",
+          project_ids: [],
+          catalog_change: "none",
+          session_invalidation: "none",
+        },
+      },
+    },
+  };
+  const server = createServer((_request, response) => {
+    response.writeHead(200, {
+      "content-type": "text/event-stream",
+      connection: "close",
+    });
+    response.end(`event: module\ndata: ${JSON.stringify(event)}\n\n`);
+  });
+  servers.push(server);
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+  return socketPath;
+};
+
 afterEach(async () => {
   await Promise.all(
     servers.splice(0).map(
@@ -91,5 +140,19 @@ describe("UDS Core event replay boundaries", () => {
     await expect(subscription.done).rejects.toEqual(
       new CoreEventReplayError(replayBoundary),
     );
+  });
+
+  test("accepts a legal committed event larger than the old 512 KiB budget", async () => {
+    const transport = new UdsHttpTransport(
+      await serveLargeCommittedEvent(),
+      "test-capability",
+    );
+    let sequence: number | undefined;
+    const subscription = await transport.openEventStream(0, (envelope) => {
+      sequence = envelope.event.sequence;
+    });
+
+    await expect(subscription.done).resolves.toBeUndefined();
+    expect(sequence).toBe(1);
   });
 });

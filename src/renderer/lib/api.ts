@@ -348,20 +348,6 @@ export function subscribeDatabaseChanges(
   );
 }
 
-export function subscribePageTargetChanges(
-  projectId: string,
-  callback: (event: import("../../shared/page-target-events").PageTargetChangedEvent) => void,
-): () => void {
-  return resolveRendererTransport().subscribePageTargetChanges(projectId, callback);
-}
-
-export function subscribeAuthorityResync(
-  projectId: string | null,
-  callback: (event: import("../../shared/authority-resync-events").AuthorityResyncEvent) => void,
-): () => void {
-  return resolveRendererTransport().subscribeAuthorityResync(projectId, callback);
-}
-
 export function subscribeLibraryChanges(
   callback: (
     event: import("../../shared/library-events").LibraryNavigationChangedEvent,

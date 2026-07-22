@@ -1,3 +1,4 @@
+pub(crate) mod authorization;
 mod genesis;
 mod mutation;
 pub(crate) mod read;
@@ -249,7 +250,7 @@ mod tests {
     };
     use nodex_core_contracts::{
         AdapterKind, CoreModuleEventPayload, LibraryId, ModuleApplyRequest, ProfileId, ProjectId,
-        StoreEpoch,
+        ProjectionImpact, StoreEpoch,
     };
     use rusqlite::params;
     use serde_json::{Value, json};
@@ -589,7 +590,7 @@ mod tests {
         assert_eq!(value["rows"][0]["page"]["pageId"], "page:database-row-2");
         assert!(!has_more);
         assert!(next_cursor.is_none());
-        module
+        let transfer = module
             .apply(
                 &context(),
                 ModuleApplyRequest {
@@ -607,6 +608,10 @@ mod tests {
                 },
             )
             .expect("remove second Agent query row from the shared fixture");
+        assert!(matches!(
+            transfer.event.expect("transfer event").projection_impact,
+            ProjectionImpact::All
+        ));
         let stale_cursor = module
             .read(
                 &context(),

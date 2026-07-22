@@ -122,13 +122,14 @@ describe("Desktop Store Administration bridge", () => {
 
   test("maps Store Administration events", () => {
     expect(mapCoreStoreAdministrationEvent({
-      protocol_version: 1,
+      protocol_version: 2,
       event: {
-        version: 1,
+        version: 2,
         sequence: 5,
         store_epoch: "epoch:test",
         operation_id: "operation:backup",
         committed_at: "2026-07-19T20:00:00.000Z",
+        projection_impact: { kind: "none" },
         payload: {
           module: "store_administration",
           event: {

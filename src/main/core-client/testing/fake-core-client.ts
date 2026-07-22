@@ -38,6 +38,7 @@ import type {
   DocumentSyncRequest,
   DocumentSyncResponse,
 } from "../../../shared/block-documents/document-sync";
+import type { ProjectionImpact } from "../../../shared/projection-stream";
 
 export class FakeCoreClient implements CoreClientPort {
   readonly automationReads: AutomationRead[] = [];
@@ -77,6 +78,21 @@ export class FakeCoreClient implements CoreClientPort {
 
   enqueueRead(result: LibraryReadSnapshot): void {
     this.#readResults.push(result);
+  }
+
+  async filterProjectionImpactForProject(
+    projectId: string,
+    impact: ProjectionImpact,
+  ): Promise<ProjectionImpact> {
+    const snapshot = await this.libraryRead({
+      kind: "filter_projection_impact_for_project",
+      project_id: projectId,
+      impact,
+    });
+    if (snapshot.value.kind !== "projection_impact") {
+      throw new Error("Fake Core returned the wrong Projection impact read");
+    }
+    return snapshot.value.impact;
   }
 
   enqueueAutomationRead(result: AutomationReadSnapshot): void {

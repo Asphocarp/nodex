@@ -16,14 +16,16 @@ use nodex_core_contracts::document::{
     DocumentCommitOutcome, DocumentInvalidationReason, DocumentMutationCoordination,
     DocumentMutationEffect, DocumentOptionalValue, DocumentOwnerCommand, DocumentRevisionKind,
     DocumentSemanticAnchor, DocumentSemanticBlockEtags, DocumentSemanticCommand,
-    DocumentSemanticEtags, OwnedDocumentCommitValue, OwnedDocumentEvent, OwnedDocumentIntent,
-    OwnedDocumentRead, OwnedDocumentReadValue, OwnedDocumentReceipt,
+    DocumentSemanticEtags, OwnedDocumentCommitValue, OwnedDocumentIntent, OwnedDocumentRead,
+    OwnedDocumentReadValue, OwnedDocumentReceipt,
 };
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent,
-    CommittedModuleValue, CoreError, CoreErrorCode, CoreErrorRecovery, CoreModuleEventPayload,
-    ModuleApplyRequest, ModuleMutationReceipt, ModuleReadRequest, ModuleReadSnapshot, StoreEpoch,
+    CommittedModuleValue, CoreError, CoreErrorCode, CoreErrorRecovery, ModuleApplyRequest,
+    ModuleMutationReceipt, ModuleReadRequest, ModuleReadSnapshot, StoreEpoch,
 };
+#[cfg(test)]
+use nodex_core_contracts::{CoreModuleEventPayload, document::OwnedDocumentEvent};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -39,6 +41,7 @@ use crate::infrastructure::agent_operations::{
 use crate::infrastructure::document_repository::{
     DocumentAuthority, DocumentReadiness, DocumentSyncEngine,
 };
+use crate::infrastructure::event_log::load_committed_event_by_sequence;
 use crate::infrastructure::metrics::DurationMetricSnapshot;
 use crate::infrastructure::module_receipts::{
     NewModuleReceipt, insert_module_receipt, read_module_receipt,
@@ -1406,22 +1409,10 @@ impl OwnedDocumentModule {
                                 DocumentCommitOutcome::Committed,
                                 persisted.event_sequence,
                             );
-                            let event = CommittedCoreModuleEvent {
-                                version: CORE_CONTRACT_VERSION,
-                                sequence: persisted.event_sequence,
-                                store_epoch: StoreEpoch(store_epoch.clone()),
-                                operation_id: Some(operation_id.clone()),
-                                committed_at: persisted.committed_at.clone(),
-                                payload: CoreModuleEventPayload::OwnedDocument(
-                                    OwnedDocumentEvent::DocumentUpdated {
-                                        document_id: authority.head.id.clone(),
-                                        generation: authority.head.generation,
-                                        head_seq: persisted.head_seq,
-                                        update: prepared.update_v1.clone(),
-                                        page_impact: persisted.page_impact.clone(),
-                                    },
-                                ),
-                            };
+                            let event = load_committed_event_by_sequence(
+                                &transaction,
+                                persisted.event_sequence,
+                            )?;
                             let mut next_head = authority.head.clone();
                             next_head.head_seq = persisted.head_seq;
                             next_head.state_vector = persisted.state_vector;
@@ -1515,22 +1506,10 @@ impl OwnedDocumentModule {
                                 DocumentCommitOutcome::Committed,
                                 persisted.event_sequence,
                             );
-                            let event = CommittedCoreModuleEvent {
-                                version: CORE_CONTRACT_VERSION,
-                                sequence: persisted.event_sequence,
-                                store_epoch: StoreEpoch(store_epoch.clone()),
-                                operation_id: Some(operation_id.clone()),
-                                committed_at: persisted.committed_at.clone(),
-                                payload: CoreModuleEventPayload::OwnedDocument(
-                                    OwnedDocumentEvent::DocumentUpdated {
-                                        document_id: authority.head.id.clone(),
-                                        generation: authority.head.generation,
-                                        head_seq: persisted.head_seq,
-                                        update: prepared.update_v1,
-                                        page_impact: persisted.page_impact.clone(),
-                                    },
-                                ),
-                            };
+                            let event = load_committed_event_by_sequence(
+                                &transaction,
+                                persisted.event_sequence,
+                            )?;
                             engine.commit_candidate(candidate).map_err(engine_error)?;
                             let mut next_head = authority.head.clone();
                             next_head.head_seq = persisted.head_seq;
@@ -1718,6 +1697,13 @@ impl OwnedDocumentModule {
                         .as_ref()
                         .map(|_| persisted.event_sequence),
                 )?;
+                let event = persisted
+                    .event_delta
+                    .as_ref()
+                    .map(|_| {
+                        load_committed_event_by_sequence(&transaction, persisted.event_sequence)
+                    })
+                    .transpose()?;
                 transaction.commit()?;
                 if fail_after_commit.swap(false, Ordering::AcqRel) {
                     return Err(StoreError::new(
@@ -1726,25 +1712,6 @@ impl OwnedDocumentModule {
                         true,
                     ));
                 }
-                let event = persisted
-                    .event_delta
-                    .map(|mutation| CommittedCoreModuleEvent {
-                        version: CORE_CONTRACT_VERSION,
-                        sequence: persisted.event_sequence,
-                        store_epoch: StoreEpoch(store_epoch),
-                        operation_id: Some(operation_id),
-                        committed_at: persisted.committed_at,
-                        payload: CoreModuleEventPayload::OwnedDocument(
-                            OwnedDocumentEvent::CanvasUpdated {
-                                document_id,
-                                generation,
-                                base_head_seq: persisted.event_base_head_seq,
-                                head_seq: persisted.head_seq,
-                                scene_hash: persisted.scene_hash,
-                                mutation,
-                            },
-                        ),
-                    });
                 Ok(OwnedDocumentApplyOutcome {
                     committed,
                     events: event.into_iter().collect(),
@@ -2699,6 +2666,8 @@ impl OwnedDocumentModule {
                     &committed,
                     Some(persisted.event_sequence),
                 )?;
+                let event =
+                    load_committed_event_by_sequence(&transaction, persisted.event_sequence)?;
                 transaction.commit()?;
                 if fail_after_commit.swap(false, Ordering::AcqRel) {
                     return Err(StoreError::new(
@@ -2709,20 +2678,7 @@ impl OwnedDocumentModule {
                 }
                 Ok(OwnedDocumentApplyOutcome {
                     committed,
-                    events: vec![CommittedCoreModuleEvent {
-                        version: CORE_CONTRACT_VERSION,
-                        sequence: persisted.event_sequence,
-                        store_epoch: StoreEpoch(store_epoch),
-                        operation_id: Some(operation_id),
-                        committed_at: persisted.committed_at,
-                        payload: CoreModuleEventPayload::OwnedDocument(
-                            OwnedDocumentEvent::DocumentInvalidated {
-                                document_id,
-                                reason: DocumentInvalidationReason::Restored,
-                                page_impact: None,
-                            },
-                        ),
-                    }],
+                    events: vec![event],
                 })
             })
             .map_err(core_error)
@@ -3109,6 +3065,10 @@ impl OwnedDocumentModule {
                     &committed,
                     Some(persisted.event_sequence),
                 )?;
+                let event = load_committed_event_by_sequence(
+                    &transaction,
+                    persisted.event_sequence,
+                )?;
                 transaction.commit()?;
                 consume_prepared_agent_lease(&mut prepared_agent_lease)?;
                 if fail_after_commit.swap(false, Ordering::AcqRel) {
@@ -3131,34 +3091,6 @@ impl OwnedDocumentModule {
                     .lock()
                     .map_err(|_| internal("Document cache lock failed"))?
                     .install(&next_head, engine);
-                let payload = match job.publication {
-                    UpdatePublication::Updated => {
-                        CoreModuleEventPayload::OwnedDocument(OwnedDocumentEvent::DocumentUpdated {
-                            document_id: job.document_id.clone(),
-                            generation: job.generation,
-                            head_seq: persisted.head_seq,
-                            update,
-                            page_impact: persisted.page_impact.clone(),
-                        })
-                    }
-                    UpdatePublication::Invalidated(reason) => {
-                        CoreModuleEventPayload::OwnedDocument(
-                            OwnedDocumentEvent::DocumentInvalidated {
-                                document_id: job.document_id.clone(),
-                                reason,
-                                page_impact: persisted.page_impact.clone(),
-                            },
-                        )
-                    }
-                };
-                let event = CommittedCoreModuleEvent {
-                    version: CORE_CONTRACT_VERSION,
-                    sequence: persisted.event_sequence,
-                    store_epoch: StoreEpoch(store_epoch.clone()),
-                    operation_id: Some(job.operation_id),
-                    committed_at: persisted.committed_at,
-                    payload,
-                };
                 Ok(OwnedDocumentApplyOutcome {
                     committed,
                     events: vec![event],
@@ -4704,15 +4636,15 @@ mod tests {
         DocumentBlockUpdatePatch as ContractDocumentBlockUpdatePatch, DocumentCommitOutcome,
         DocumentHeadRevision, DocumentMutationCoordination, DocumentOptionalValue,
         DocumentOwnerCommand, DocumentOwnerRevision, DocumentSemanticBlockDraft,
-        DocumentSemanticCommand, DocumentVersionCursor, OwnedDocumentIntent,
-        OwnedDocumentPageDatabaseImpact, OwnedDocumentPageImpact, OwnedDocumentRead,
+        DocumentSemanticCommand, DocumentVersionCursor, OwnedDocumentIntent, OwnedDocumentRead,
     };
     use nodex_core_contracts::workspace::{
         ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch, ProjectWorkspaceTurnAuthority,
         ProjectWorkspaceTurnAuthorityScope, ProjectWorkspaceTurnAuthoritySource,
     };
     use nodex_core_contracts::{
-        AdapterKind, LibraryId, ModuleApplyRequest, ModuleReadRequest, ProfileId, ProjectId,
+        AdapterKind, LibraryId, ModuleApplyRequest, ModuleReadRequest, PageDocumentHeadImpact,
+        ProfileId, ProjectId, ProjectionImpact,
     };
     use rusqlite::params;
     use tempfile::tempdir;
@@ -4734,6 +4666,8 @@ mod tests {
     const DATABASE_ID: &str = "019bf52d-6870-7000-8000-000000000020";
     const DATA_SOURCE_ID: &str = "019bf52d-6870-7000-8000-000000000021";
     const MEMBERSHIP_ID: &str = "019bf52d-6870-7000-8000-000000000022";
+    const VIEW_ID_A: &str = "019bf52d-6870-7000-8000-000000000023";
+    const VIEW_ID_B: &str = "019bf52d-6870-7000-8000-000000000024";
     const TARGET_PAGE_BLOCK_ID: &str = "019bf52d-6870-7000-8000-000000000002";
     const STORE_EPOCH: &str = "epoch:test";
     const NOW: &str = "2026-07-18T00:00:00.000Z";
@@ -5017,6 +4951,15 @@ mod tests {
                            'active', 'a', ?4, ?4)",
                         params![DATA_SOURCE_ID, LIBRARY_ID, DATABASE_ID, NOW],
                     )?;
+                    for (view_id, rank_key) in [(VIEW_ID_A, "a"), (VIEW_ID_B, "b")] {
+                        transaction.execute(
+                            "INSERT INTO database_views(\
+                               id, database_block_id, data_source_id, name, kind, config_json, \
+                               rank_key, created_at, updated_at\
+                             ) VALUES (?1, ?2, ?3, 'Document test View', 'list', '{}', ?4, ?5, ?5)",
+                            params![view_id, DATABASE_ID, DATA_SOURCE_ID, rank_key, NOW],
+                        )?;
+                    }
                     transaction.execute(
                         "UPDATE blocks SET location_kind = 'database', \
                            containing_database_id = ?1, updated_at = ?2 WHERE id = ?3",
@@ -6555,14 +6498,10 @@ mod tests {
         assert!(!applied.committed.receipt.mutation.duplicate);
         let event_json =
             serde_json::to_value(&applied.events[0].payload).expect("Document event JSON");
-        assert_eq!(
-            event_json["event"]["page_impact"],
-            json!({
-                "library_id": LIBRARY_ID,
-                "page_id": OWNER_BLOCK_ID,
-            })
-        );
-
+        assert!(event_json["event"].get("page_impact").is_none());
+        for projection_field in ["title", "summary", "propertyValues", "page"] {
+            assert!(event_json["event"].get(projection_field).is_none());
+        }
         seeded
             .kernel
             .readers()
@@ -6630,16 +6569,21 @@ mod tests {
             .expect("Page update");
         let event_json =
             serde_json::to_value(&applied.events[0].payload).expect("Document event JSON");
+        assert!(event_json["event"].get("page_impact").is_none());
         assert_eq!(
-            event_json["event"]["page_impact"],
-            json!({
-                "library_id": LIBRARY_ID,
-                "page_id": OWNER_BLOCK_ID,
-                "database": {
-                    "database_id": DATABASE_ID,
-                    "data_source_id": DATA_SOURCE_ID,
-                },
-            })
+            applied.events[0].projection_impact,
+            ProjectionImpact::Resources {
+                page_ids: vec![OWNER_BLOCK_ID.to_owned()],
+                database_ids: vec![DATABASE_ID.to_owned()],
+                data_source_ids: vec![DATA_SOURCE_ID.to_owned()],
+                view_ids: vec![VIEW_ID_A.to_owned(), VIEW_ID_B.to_owned()],
+                document_heads: vec![PageDocumentHeadImpact {
+                    page_id: OWNER_BLOCK_ID.to_owned(),
+                    document_id: DOCUMENT_ID.to_owned(),
+                    generation: 1,
+                    head_seq: 2,
+                }],
+            }
         );
         seeded
             .kernel
@@ -6651,44 +6595,36 @@ mod tests {
                     [],
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )?;
-                assert_eq!(
-                    serde_json::from_str::<Value>(&payload_json).expect("event payload")
-                        ["pageImpact"],
-                    json!({
-                        "library_id": LIBRARY_ID,
-                        "page_id": OWNER_BLOCK_ID,
-                        "database": {
-                            "database_id": DATABASE_ID,
-                            "data_source_id": DATA_SOURCE_ID,
-                        },
-                    })
+                assert!(
+                    serde_json::from_str::<Value>(&payload_json)
+                        .expect("event payload")
+                        .get("pageImpact")
+                        .is_none()
                 );
                 assert_eq!(
-                    serde_json::from_str::<Value>(&database_ids_json)
-                        .expect("Database impact IDs"),
+                    serde_json::from_str::<Value>(&database_ids_json).expect("Database impact IDs"),
                     json!([DATABASE_ID])
                 );
-                let projection: (String, String, i64, String, String, i64) = connection
-                    .query_row(
-                        "SELECT page.title, page.description_preview, \
+                let projection: (String, String, i64, String, String, i64) = connection.query_row(
+                    "SELECT page.title, page.description_preview, \
                                 page.document_projected_seq, materialization.title, \
                                 materialization.preview, materialization.projected_seq \
                          FROM page_read_model page \
                          JOIN document_materializations materialization \
                            ON materialization.document_id = page.document_id \
                          WHERE page.page_block_id = ?1",
-                        [OWNER_BLOCK_ID],
-                        |row| {
-                            Ok((
-                                row.get(0)?,
-                                row.get(1)?,
-                                row.get(2)?,
-                                row.get(3)?,
-                                row.get(4)?,
-                                row.get(5)?,
-                            ))
-                        },
-                    )?;
+                    [OWNER_BLOCK_ID],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                        ))
+                    },
+                )?;
                 assert_eq!(projection.0, "Database projection impact");
                 assert_eq!(projection.0, projection.3);
                 assert_eq!(projection.1, projection.4);
@@ -7319,24 +7255,12 @@ mod tests {
         assert!(restored.committed.value.committed_at.is_some());
         let CoreModuleEventPayload::OwnedDocument(OwnedDocumentEvent::DocumentInvalidated {
             reason,
-            page_impact,
             ..
         }) = &restored.events[0].payload
         else {
             panic!("expected restored Page Document invalidation")
         };
         assert_eq!(*reason, DocumentInvalidationReason::Restored);
-        assert_eq!(
-            page_impact,
-            &Some(OwnedDocumentPageImpact {
-                library_id: LIBRARY_ID.to_owned(),
-                page_id: OWNER_BLOCK_ID.to_owned(),
-                database: Some(OwnedDocumentPageDatabaseImpact {
-                    database_id: DATABASE_ID.to_owned(),
-                    data_source_id: DATA_SOURCE_ID.to_owned(),
-                }),
-            })
-        );
         let mut replay_request = restore_request;
         let OwnedDocumentIntent::RestoreVersion { actor, .. } = &mut replay_request.intent else {
             unreachable!()

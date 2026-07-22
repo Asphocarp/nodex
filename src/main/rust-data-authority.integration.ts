@@ -1005,7 +1005,7 @@ describe("Electron native data authority", () => {
         },
       });
       const nativeBoard = await desktopDatabase.getBoardSummary(projectId);
-      expect(nativeBoard.columns.find((column) => column.id === "ship")?.cards)
+      expect(nativeBoard.board.columns.find((column) => column.id === "ship")?.cards)
         .toEqual(expect.arrayContaining([
           expect.objectContaining({
             id: copiedDataSourcePageId,
@@ -1023,14 +1023,23 @@ describe("Electron native data authority", () => {
       );
       expect(boardHttpResponse.status).toBe(200);
       await expect(boardHttpResponse.json()).resolves.toMatchObject({
-        columns: expect.arrayContaining([
-          expect.objectContaining({
-            id: "ship",
-            cards: expect.arrayContaining([
-              expect.objectContaining({ id: copiedDataSourcePageId }),
-            ]),
-          }),
-        ]),
+        projectId,
+        libraryId: nativeBoard.libraryId,
+        databaseId: nativeBoard.databaseId,
+        dataSourceId: nativeBoard.dataSourceId,
+        viewId: nativeBoard.viewId,
+        storeEpoch: nativeBoard.storeEpoch,
+        changeLogSeq: nativeBoard.changeLogSeq,
+        board: {
+          columns: expect.arrayContaining([
+            expect.objectContaining({
+              id: "ship",
+              cards: expect.arrayContaining([
+                expect.objectContaining({ id: copiedDataSourcePageId }),
+              ]),
+            }),
+          ]),
+        },
       });
       const columnHttpResponse = await getHttpServerOptions(51_284).fetch(
         new Request(
@@ -2663,7 +2672,10 @@ describe("Electron native data authority", () => {
       await expect(library.resolvePageOwnershipPath({
         requestingProjectId: projectId,
         targetPageId: "page:electron-library-adapter",
-      })).resolves.toEqual({
+      })).resolves.toMatchObject({
+        libraryId: runtime.rootClient.handshake.library_id,
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+        changeLogSeq: expect.any(Number),
         status: "available",
         targetPageId: "page:electron-library-adapter",
         ancestors: [],

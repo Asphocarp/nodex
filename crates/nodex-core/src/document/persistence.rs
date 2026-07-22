@@ -4,10 +4,12 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
-use nodex_core_contracts::document::{OwnedDocumentPageDatabaseImpact, OwnedDocumentPageImpact};
-
 use crate::domain::derived_records::{BlockDocumentAssetKind, BlockDocumentReference};
 use crate::infrastructure::document_repository::{DocumentHeadRow, DocumentReadRepository};
+use crate::infrastructure::event_log::{NewChangeLogEntry, append_change_log};
+use crate::infrastructure::projection_impact::{
+    PageProjectionCoordinates, PageProjectionDatabaseCoordinates, impact_for_page_document,
+};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::{DocumentMaterialization, DocumentSearchMarkerKind};
@@ -29,13 +31,13 @@ pub(crate) struct DocumentAuthorityRow {
     pub owner_lifecycle: String,
     pub page_library_id: Option<String>,
     pub page_lifecycle: Option<String>,
-    pub page_database: Option<OwnedDocumentPageDatabaseImpact>,
+    pub page_database: Option<PageProjectionDatabaseCoordinates>,
 }
 
 impl DocumentAuthorityRow {
-    pub(crate) fn page_impact(&self) -> Option<OwnedDocumentPageImpact> {
-        Some(OwnedDocumentPageImpact {
-            library_id: self.page_library_id.clone()?,
+    pub(crate) fn page_impact(&self) -> Option<PageProjectionCoordinates> {
+        self.page_library_id.as_ref()?;
+        Some(PageProjectionCoordinates {
             page_id: self.owner_block_id.clone(),
             database: self.page_database.clone(),
         })
@@ -52,7 +54,6 @@ pub(crate) struct PersistedDocumentCommit {
     /// when the owning aggregate publishes one.
     pub event_sequence: i64,
     pub committed_at: String,
-    pub page_impact: Option<OwnedDocumentPageImpact>,
 }
 
 pub(crate) struct PersistYjsCommit<'a> {
@@ -164,14 +165,30 @@ pub(crate) fn read_document_authority(
         return Err(corrupt("Non-Page Document has Page authority"));
     }
     let page_database = match page_parent_kind.as_deref() {
-        Some("data_source") => Some(OwnedDocumentPageDatabaseImpact {
-            database_id: page_database_id
+        Some("data_source") => {
+            let database_id = page_database_id
                 .filter(|database_id| !database_id.is_empty())
-                .ok_or_else(|| corrupt("Page Data Source has no home Database"))?,
-            data_source_id: page_parent_id
+                .ok_or_else(|| corrupt("Page Data Source has no home Database"))?;
+            let data_source_id = page_parent_id
                 .filter(|data_source_id| !data_source_id.is_empty())
-                .ok_or_else(|| corrupt("Page Data Source identity is invalid"))?,
-        }),
+                .ok_or_else(|| corrupt("Page Data Source identity is invalid"))?;
+            let view_ids = connection
+                .prepare(
+                    "SELECT id FROM database_views \
+                     WHERE data_source_id = ?1 AND database_block_id = ?2 \
+                       AND lifecycle = 'active' ORDER BY id",
+                )?
+                .query_map(params![data_source_id, database_id], |row| {
+                    row.get::<_, String>(0)
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|_| corrupt("Page Data Source View identities are invalid"))?;
+            Some(PageProjectionDatabaseCoordinates {
+                database_id,
+                data_source_id,
+                view_ids,
+            })
+        }
         Some("library" | "page") | None => {
             if page_database_id.is_some() {
                 return Err(corrupt("Non-Database Page has Database authority"));
@@ -378,34 +395,40 @@ pub(crate) fn persist_yjs_commit(
         "updateId": input.update_id,
         "updateHash": update_hash,
         "updateByteLength": input.update.len(),
-        "pageImpact": input.authority.page_impact(),
     });
     let page_impact = input.authority.page_impact();
+    let projection_impact = impact_for_page_document(
+        page_impact.as_ref(),
+        Some((
+            &input.authority.head.id,
+            input.authority.head.generation,
+            next_head_seq,
+        )),
+    )?;
     let database_ids = page_impact
         .as_ref()
         .and_then(|impact| impact.database.as_ref())
-        .map(|database| vec![database.database_id.as_str()])
+        .map(|database| vec![database.database_id.clone()])
         .unwrap_or_default();
-    connection.execute(
-        "INSERT INTO change_log (\
-           project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
-           database_block_ids_json, payload_json, committed_at\
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params![
-            input.authority.head.project_id,
-            input.store_epoch,
-            format!("owned_document.{}", input.event_kind),
-            input.operation_id,
-            derived_touched_json,
-            serde_json::to_string(&[&input.authority.head.id])
-                .map_err(|_| internal("Document event IDs"))?,
-            serde_json::to_string(&database_ids)
-                .map_err(|_| internal("Document event Database IDs"))?,
-            serde_json::to_string(&payload).map_err(|_| internal("Document event payload"))?,
-            now,
-        ],
+    let document_ids = vec![input.authority.head.id.clone()];
+    let payload_json =
+        serde_json::to_string(&payload).map_err(|_| internal("Document event payload"))?;
+    let kind = format!("owned_document.{}", input.event_kind);
+    let event_sequence = append_change_log(
+        connection,
+        NewChangeLogEntry {
+            project_id: &input.authority.head.project_id,
+            store_epoch: input.store_epoch,
+            kind: &kind,
+            operation_id: Some(input.operation_id),
+            block_ids: &derived_touched_block_ids,
+            document_ids: &document_ids,
+            database_block_ids: &database_ids,
+            payload_json: &payload_json,
+            projection_impact: &projection_impact,
+            committed_at: &now,
+        },
     )?;
-    let event_sequence = connection.last_insert_rowid();
     Ok(PersistedDocumentCommit {
         head_seq: next_head_seq,
         state_vector: input.state_vector.to_vec(),
@@ -413,7 +436,6 @@ pub(crate) fn persist_yjs_commit(
         derived_touched_block_ids,
         event_sequence,
         committed_at: now,
-        page_impact,
     })
 }
 
@@ -563,33 +585,35 @@ pub(crate) fn persist_yjs_genesis(
             "updateId": input.update_id,
             "updateHash": update_hash,
             "updateByteLength": input.update.len(),
-            "pageImpact": input.authority.page_impact(),
         });
         let page_impact = input.authority.page_impact();
+        let projection_impact = impact_for_page_document(
+            page_impact.as_ref(),
+            Some((&input.authority.head.id, input.authority.head.generation, 1)),
+        )?;
         let database_ids = page_impact
             .as_ref()
             .and_then(|impact| impact.database.as_ref())
-            .map(|database| vec![database.database_id.as_str()])
+            .map(|database| vec![database.database_id.clone()])
             .unwrap_or_default();
-        connection.execute(
-            "INSERT INTO change_log (\
-               project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
-               database_block_ids_json, payload_json, committed_at\
-             ) VALUES (?1, ?2, 'owned_document.document_initialized', ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![
-                input.authority.head.project_id,
-                input.store_epoch,
-                input.operation_id,
-                derived_touched_json,
-                serde_json::to_string(&[&input.authority.head.id])
-                    .map_err(|_| internal("Genesis Document event IDs"))?,
-                serde_json::to_string(&database_ids)
-                    .map_err(|_| internal("Genesis Document event Database IDs"))?,
-                serde_json::to_string(&payload).map_err(|_| internal("Genesis event payload"))?,
-                now,
-            ],
-        )?;
-        connection.last_insert_rowid()
+        let document_ids = vec![input.authority.head.id.clone()];
+        let payload_json =
+            serde_json::to_string(&payload).map_err(|_| internal("Genesis event payload"))?;
+        append_change_log(
+            connection,
+            NewChangeLogEntry {
+                project_id: &input.authority.head.project_id,
+                store_epoch: input.store_epoch,
+                kind: "owned_document.document_initialized",
+                operation_id: Some(input.operation_id),
+                block_ids: &derived_touched_block_ids,
+                document_ids: &document_ids,
+                database_block_ids: &database_ids,
+                payload_json: &payload_json,
+                projection_impact: &projection_impact,
+                committed_at: &now,
+            },
+        )?
     } else {
         connection.query_row("SELECT COALESCE(MAX(seq), 0) FROM change_log", [], |row| {
             row.get(0)
@@ -602,7 +626,6 @@ pub(crate) fn persist_yjs_genesis(
         derived_touched_block_ids,
         event_sequence,
         committed_at: now,
-        page_impact: input.authority.page_impact(),
     })
 }
 

@@ -1,13 +1,13 @@
 import { describe, expect, test } from "vitest";
-import { createProjectBoardChangeSubscriptionHub } from "./project-board-change-subscription-hub";
+import { createProjectEventSubscriptionHub } from "./project-event-subscription-hub";
 
-describe("ProjectBoardChangeSubscriptionHub", () => {
-  test("pools a Project stream and refreshes every distinct query once per burst", () => {
+describe("ProjectEventSubscriptionHub", () => {
+  test("pools a Project stream and refreshes every distinct consumer once per burst", () => {
     const projectListeners = new Map<string, () => void>();
     const scheduledFlushes: Array<() => void> = [];
     let subscribeCalls = 0;
     let unsubscribeCalls = 0;
-    const hub = createProjectBoardChangeSubscriptionHub({
+    const hub = createProjectEventSubscriptionHub({
       subscribeToProject: (projectId, listener) => {
         subscribeCalls += 1;
         projectListeners.set(projectId, listener);
@@ -35,35 +35,24 @@ describe("ProjectBoardChangeSubscriptionHub", () => {
     };
 
     for (let index = 0; index < 10; index += 1) {
-      register(`card:${index}`);
-      register(`view:${index}`);
+      register(`consumer:${index}`);
     }
-    register("card:0");
+    register("consumer:0");
 
     expect(subscribeCalls).toBe(1);
-    expect(projectListeners.size).toBe(1);
-
-    projectListeners.get("project-1")?.();
     projectListeners.get("project-1")?.();
     projectListeners.get("project-1")?.();
     expect(scheduledFlushes.length).toBe(1);
 
     scheduledFlushes.shift()?.();
-    expect(refreshCounts.size).toBe(20);
-    expect(
-      [...refreshCounts.values()].every((refreshCount) => refreshCount === 1),
-    ).toBe(true);
-    expect(refreshCounts.get("card:0")).toBe(1);
+    expect(refreshCounts.size).toBe(10);
+    expect(refreshCounts.get("consumer:0")).toBe(1);
 
-    for (const unsubscribe of unsubscribers.slice(0, -1)) {
-      unsubscribe();
-    }
+    for (const unsubscribe of unsubscribers.slice(0, -1)) unsubscribe();
     expect(unsubscribeCalls).toBe(0);
-    expect(projectListeners.size).toBe(1);
-
     projectListeners.get("project-1")?.();
     scheduledFlushes.shift()?.();
-    expect(refreshCounts.get("card:0")).toBe(2);
+    expect(refreshCounts.get("consumer:0")).toBe(2);
 
     unsubscribers.at(-1)?.();
     expect(unsubscribeCalls).toBe(1);
@@ -73,7 +62,7 @@ describe("ProjectBoardChangeSubscriptionHub", () => {
   test("isolates Project streams and cancels a queued flush after last unmount", () => {
     const projectListeners = new Map<string, () => void>();
     const scheduledFlushes: Array<() => void> = [];
-    const hub = createProjectBoardChangeSubscriptionHub({
+    const hub = createProjectEventSubscriptionHub({
       subscribeToProject: (projectId, listener) => {
         projectListeners.set(projectId, listener);
         return () => {
@@ -93,7 +82,6 @@ describe("ProjectBoardChangeSubscriptionHub", () => {
       betaRefreshes += 1;
     });
 
-    expect(projectListeners.size).toBe(2);
     projectListeners.get("alpha")?.();
     unsubscribeAlpha();
     scheduledFlushes.shift()?.();

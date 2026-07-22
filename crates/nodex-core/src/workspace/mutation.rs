@@ -4,12 +4,11 @@ use std::sync::LazyLock;
 
 use nodex_core_contracts::workspace::{
     ProjectCatalogChangeKind, ProjectLifecycle, ProjectSessionInvalidationScope,
-    ProjectWorkspaceCommitValue, ProjectWorkspaceEvent, ProjectWorkspaceEventKind,
-    ProjectWorkspaceIntent, ProjectWorkspaceReceipt,
+    ProjectWorkspaceCommitValue, ProjectWorkspaceIntent, ProjectWorkspaceReceipt,
 };
 use nodex_core_contracts::{
-    BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue,
-    CoreModuleEventPayload, ModuleApplyRequest, ModuleMutationReceipt, StoreEpoch,
+    BoundModuleContext, CommittedModuleValue, ModuleApplyRequest, ModuleMutationReceipt,
+    ProjectionImpact, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
@@ -18,9 +17,13 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::database::create_database_authority_records;
 use crate::document::{PrimaryCanvasIdentity, create_primary_canvas, read_store_epoch, sha256};
 use crate::domain::identity::stable_uuid_v7;
+use crate::infrastructure::event_log::{
+    NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
+};
 use crate::infrastructure::module_receipts::{
     NewModuleReceipt, insert_module_receipt, read_module_receipt,
 };
+use crate::infrastructure::projection_impact::expand_database_coordinates;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
 use crate::infrastructure::writer::StoreWriter;
 
@@ -666,27 +669,33 @@ pub(super) fn finish_mutation(
         "sessionSummaryScopes": effects.session_summary_scopes,
         "sessionDetailIds": effects.session_detail_ids,
     });
-    connection.execute(
-        "INSERT INTO change_log(\
-           project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
-           database_block_ids_json, payload_json, committed_at\
-        ) VALUES (?1, ?2, 'project_workspace.changed', ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![
-            effects.change_project_id,
-            store_epoch,
-            operation_id,
-            serde_json::to_string(&effects.block_ids)
-                .map_err(|_| internal("Project Workspace affected Blocks"))?,
-            serde_json::to_string(&effects.document_ids)
-                .map_err(|_| internal("Project Workspace affected Documents"))?,
-            serde_json::to_string(&effects.database_ids)
-                .map_err(|_| internal("Project Workspace affected Databases"))?,
-            serde_json::to_string(&payload)
-                .map_err(|_| internal("Project Workspace event payload"))?,
-            effects.committed_at,
-        ],
+    let projection_impact = expand_database_coordinates(
+        connection,
+        ProjectionImpact::Resources {
+            page_ids: Vec::new(),
+            database_ids: effects.database_ids.clone(),
+            data_source_ids: Vec::new(),
+            view_ids: Vec::new(),
+            document_heads: Vec::new(),
+        },
     )?;
-    let event_sequence = connection.last_insert_rowid();
+    let payload_json =
+        serde_json::to_string(&payload).map_err(|_| internal("Project Workspace event payload"))?;
+    let event_sequence = append_change_log(
+        connection,
+        NewChangeLogEntry {
+            project_id: &effects.change_project_id,
+            store_epoch,
+            kind: "project_workspace.changed",
+            operation_id: Some(operation_id),
+            block_ids: &effects.block_ids,
+            document_ids: &effects.document_ids,
+            database_block_ids: &effects.database_ids,
+            payload_json: &payload_json,
+            projection_impact: &projection_impact,
+            committed_at: &effects.committed_at,
+        },
+    )?;
     let committed = CommittedModuleValue {
         value: ProjectWorkspaceCommitValue {
             affected_project_ids: effects.project_ids.clone(),
@@ -720,24 +729,10 @@ pub(super) fn finish_mutation(
             committed_at: &effects.committed_at,
         },
     )?;
+    let event = load_committed_event_by_sequence(connection, event_sequence)?;
     Ok(ProjectWorkspaceApplyOutcome {
         committed,
-        event: Some(CommittedCoreModuleEvent {
-            version: CORE_CONTRACT_VERSION,
-            sequence: event_sequence,
-            store_epoch: StoreEpoch(store_epoch.to_owned()),
-            operation_id: Some(operation_id.to_owned()),
-            committed_at: effects.committed_at,
-            payload: CoreModuleEventPayload::ProjectWorkspace(ProjectWorkspaceEvent {
-                kind: ProjectWorkspaceEventKind::WorkspaceChanged,
-                project_catalog_change: effects.project_catalog_change,
-                project_ids: effects.project_ids,
-                session_ids: effects.session_ids,
-                thread_ids: effects.thread_ids,
-                session_summary_scopes: effects.session_summary_scopes,
-                session_detail_ids: effects.session_detail_ids,
-            }),
-        }),
+        event: Some(event),
     })
 }
 
@@ -1533,7 +1528,7 @@ mod tests {
     use nodex_core_contracts::{
         AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CoreErrorCode,
         CoreModuleEventPayload, LibraryId, ModuleApplyRequest, ModuleReadRequest, ProfileId,
-        ProjectId, StoreEpoch,
+        ProjectId, ProjectionImpact, StoreEpoch,
     };
     use serde_json::json;
     use tempfile::{TempDir, tempdir};
@@ -1688,6 +1683,22 @@ mod tests {
             event.project_catalog_change,
             Some(ProjectCatalogChangeKind::Created)
         );
+        let ProjectionImpact::Resources {
+            database_ids,
+            data_source_ids,
+            view_ids,
+            ..
+        } = &outcome
+            .event
+            .as_ref()
+            .expect("Workspace event")
+            .projection_impact
+        else {
+            panic!("Project creation must invalidate its Database projection");
+        };
+        assert_eq!(database_ids.len(), 1);
+        assert_eq!(data_source_ids.len(), 1);
+        assert_eq!(view_ids.len(), 1);
 
         let replay = module.apply(&context(), request).expect("exact replay");
         assert!(replay.committed.receipt.mutation.duplicate);

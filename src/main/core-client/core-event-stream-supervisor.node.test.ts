@@ -18,12 +18,13 @@ function deferred(): {
 
 function envelope(sequence: number): CoreEventEnvelope {
   return {
-    protocol_version: 1,
+    protocol_version: 2,
     event: {
-      version: 1,
+      version: 2,
       sequence,
       store_epoch: "epoch:test",
       committed_at: "2026-07-22T00:00:00.000Z",
+      projection_impact: { kind: "none" },
       payload: {
         module: "project_workspace",
         event: {
@@ -63,6 +64,41 @@ test("reconnects from the last delivered sequence after a stream ends", async ()
   streams[0]!.done.resolve();
   await expect.poll(() => streams.length).toBe(2);
   expect(afterValues).toEqual([2, 7]);
+  supervisor.close();
+  await supervisor.done;
+});
+
+test("replays from the old cursor when ordered delivery fails", async () => {
+  const afterValues: number[] = [];
+  const streams: Array<{
+    readonly done: ReturnType<typeof deferred>;
+    readonly onEvent: (event: CoreEventEnvelope) => void;
+  }> = [];
+  let deliveries = 0;
+  const supervisor = superviseCoreEventStream({
+    initialAfter: 0,
+    retryDelayMs: 0,
+    open: async (after, onEvent) => {
+      afterValues.push(after);
+      const done = deferred();
+      streams.push({ done, onEvent });
+      return { done: done.promise, close: done.resolve };
+    },
+    onEvent: async () => {
+      deliveries += 1;
+      if (deliveries === 1) throw new Error("router rejected delivery");
+    },
+    onResyncRequired: () => undefined,
+  });
+
+  await expect.poll(() => streams.length).toBe(1);
+  streams[0]!.onEvent(envelope(1));
+  await expect.poll(() => streams.length).toBe(2);
+  expect(afterValues).toEqual([0, 0]);
+  streams[1]!.onEvent(envelope(1));
+  streams[1]!.done.resolve();
+  await expect.poll(() => streams.length).toBe(3);
+  expect(afterValues).toEqual([0, 0, 1]);
   supervisor.close();
   await supervisor.done;
 });

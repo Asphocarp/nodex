@@ -598,12 +598,21 @@ const mapPageHistory = (
   nextCursor: page.next_cursor ? mapPageHistoryCursor(page.next_cursor) : null,
 });
 
-const mapPageTarget = (value: CorePageTarget): PageTargetReadModel => {
+const mapPageTarget = (
+  value: CorePageTarget,
+  authority: {
+    readonly libraryId: string;
+    readonly storeEpoch: string;
+    readonly changeLogSeq: number;
+  },
+): PageTargetReadModel => {
+  const base = authority;
   if (value.status === "missing") {
-    return { status: value.status, targetPageId: value.target_page_id };
+    return { ...base, status: value.status, targetPageId: value.target_page_id };
   }
   if (value.status === "invalid_target") {
     return {
+      ...base,
       status: value.status,
       targetPageId: value.target_page_id,
       actualBlockType: value.actual_block_type,
@@ -611,6 +620,7 @@ const mapPageTarget = (value: CorePageTarget): PageTargetReadModel => {
   }
   if (value.status === "deleted") {
     return {
+      ...base,
       status: value.status,
       targetPageId: value.target_page_id,
       libraryId: value.library_id,
@@ -629,6 +639,7 @@ const mapPageTarget = (value: CorePageTarget): PageTargetReadModel => {
     throw new Error("Core Page target returned invalid Document readiness");
   }
   return {
+    ...base,
     status: value.status,
     targetPageId: value.target_page_id,
     page: { ...page, lifecycle: page.lifecycle },
@@ -642,11 +653,17 @@ const mapPageTarget = (value: CorePageTarget): PageTargetReadModel => {
 
 const mapPageOwnershipPath = (
   value: CorePageOwnershipPath,
+  authority: {
+    readonly libraryId: string;
+    readonly storeEpoch: string;
+    readonly changeLogSeq: number;
+  },
 ): PageOwnershipPathReadModel => {
   if (value.status === "missing") {
-    return { status: value.status, targetPageId: value.target_page_id };
+    return { ...authority, status: value.status, targetPageId: value.target_page_id };
   }
   return {
+    ...authority,
     status: value.status,
     targetPageId: value.target_page_id,
     ancestors: value.ancestors.map((ancestor) => ({
@@ -1385,7 +1402,11 @@ export const createCoreLibraryModuleAdapter = (
       if (value.target_page_id !== request.targetPageId) {
         throw new Error("Core Page target escaped its requested identity");
       }
-      return mapPageTarget(value);
+      return mapPageTarget(value, {
+        libraryId: input.libraryId,
+        storeEpoch: snapshot.store_epoch,
+        changeLogSeq: snapshot.event_head,
+      });
     },
     resolvePageOwnershipPath: async (request) => {
       const snapshot = await input.client.libraryRead({
@@ -1400,7 +1421,11 @@ export const createCoreLibraryModuleAdapter = (
       if (value.target_page_id !== request.targetPageId) {
         throw new Error("Core Page ownership path escaped its requested identity");
       }
-      return mapPageOwnershipPath(value);
+      return mapPageOwnershipPath(value, {
+        libraryId: input.libraryId,
+        storeEpoch: snapshot.store_epoch,
+        changeLogSeq: snapshot.event_head,
+      });
     },
     findPageLocation: async (pageId) => {
       const snapshot = await input.client.libraryRead({

@@ -31,6 +31,9 @@ const page: Page & { readonly lifecycle: "active" } = {
 };
 
 const available: Extract<PageTargetReadModel, { readonly status: "available" }> = {
+  libraryId: "library:target",
+  storeEpoch: "epoch:test",
+  changeLogSeq: 1,
   status: "available",
   targetPageId: page.pageId,
   page,

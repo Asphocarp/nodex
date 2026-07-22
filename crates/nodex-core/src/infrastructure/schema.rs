@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::sqlite::{StoreError, StoreErrorCode};
 
 pub const TYPESCRIPT_SCHEMA_VERSION: i64 = 84;
-pub const CORE_SCHEMA_VERSION: i64 = 87;
+pub const CORE_SCHEMA_VERSION: i64 = 88;
 pub const V84_SCHEMA_SQL: &str = include_str!("../../schema/v84.sql");
 
 pub fn v84_schema_objects_sql() -> &'static str {

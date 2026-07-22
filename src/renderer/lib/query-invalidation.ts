@@ -3,6 +3,7 @@ import {
   type QueryClient,
   type QueryKey,
 } from "@tanstack/react-query";
+import type { ProjectionCursor } from "../../shared/projection-stream";
 
 const trailingRefreshes = new WeakMap<
   QueryClient,
@@ -44,4 +45,70 @@ export const invalidateExactQuery = (
     });
   clientRefreshes.set(queryHash, refresh);
   return refresh;
+};
+
+/** Invalidates each materialized member of a query family as an exact key. */
+export const invalidateQueryFamilyExactly = async (
+  queryClient: QueryClient,
+  familyKey: QueryKey,
+): Promise<void> => {
+  const queries = queryClient.getQueryCache().findAll({ queryKey: familyKey });
+  await Promise.all(
+    queries.map((query) => invalidateExactQuery(queryClient, query.queryKey)),
+  );
+};
+
+interface CursorBearingSnapshot {
+  readonly storeEpoch: string;
+  readonly changeLogSeq: number;
+}
+
+const snapshotCursor = (data: unknown): ProjectionCursor | null => {
+  if (!data || typeof data !== "object") return null;
+  if ("storeEpoch" in data && "changeLogSeq" in data) {
+    const snapshot = data as CursorBearingSnapshot;
+    if (
+      typeof snapshot.storeEpoch !== "string"
+      || !snapshot.storeEpoch
+      || !Number.isSafeInteger(snapshot.changeLogSeq)
+      || snapshot.changeLogSeq < 0
+    ) {
+      return null;
+    }
+    return {
+      storeEpoch: snapshot.storeEpoch,
+      changeLogSeq: snapshot.changeLogSeq,
+    };
+  }
+  if (!("pages" in data) || !Array.isArray(data.pages) || data.pages.length === 0) {
+    return null;
+  }
+  return commonCursor(data.pages.map(snapshotCursor));
+};
+
+const commonCursor = (
+  cursors: readonly (ProjectionCursor | null)[],
+): ProjectionCursor | null => {
+  if (cursors.length === 0 || cursors.some((cursor) => cursor === null)) return null;
+  const present = cursors as readonly ProjectionCursor[];
+  const storeEpoch = present[0]?.storeEpoch;
+  if (!storeEpoch || present.some((cursor) => cursor.storeEpoch !== storeEpoch)) return null;
+  return {
+    storeEpoch,
+    changeLogSeq: Math.min(...present.map((cursor) => cursor.changeLogSeq)),
+  };
+};
+
+/** Cursor satisfied by every supplied canonical snapshot. */
+export const projectionCursorForSnapshots = (
+  snapshots: readonly unknown[],
+): ProjectionCursor | null => commonCursor(snapshots.map(snapshotCursor));
+
+/** Cursor satisfied by every materialized member of a canonical query family. */
+export const queryFamilyProjectionCursor = (
+  queryClient: QueryClient,
+  familyKey: QueryKey,
+): ProjectionCursor | null => {
+  const queries = queryClient.getQueryCache().findAll({ queryKey: familyKey });
+  return projectionCursorForSnapshots(queries.map((query) => query.state.data));
 };

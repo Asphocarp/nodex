@@ -141,6 +141,7 @@ const model = (): DatabaseViewRenderModel => {
     }),
   );
   return {
+    libraryId: "library-1",
     projectId: "project-1",
     databaseViewId: view.viewId,
     databaseId: database.databaseId,

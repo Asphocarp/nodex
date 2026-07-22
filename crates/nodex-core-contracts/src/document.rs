@@ -507,20 +507,6 @@ pub struct OwnedDocumentReceipt {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-pub struct OwnedDocumentPageDatabaseImpact {
-    pub database_id: String,
-    pub data_source_id: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-pub struct OwnedDocumentPageImpact {
-    pub library_id: String,
-    pub page_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub database: Option<OwnedDocumentPageDatabaseImpact>,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum OwnedDocumentEvent {
     DocumentUpdated {
@@ -528,8 +514,6 @@ pub enum OwnedDocumentEvent {
         generation: i64,
         head_seq: i64,
         update: Vec<u8>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        page_impact: Option<OwnedDocumentPageImpact>,
     },
     CanvasUpdated {
         document_id: String,
@@ -542,8 +526,6 @@ pub enum OwnedDocumentEvent {
     DocumentInvalidated {
         document_id: String,
         reason: DocumentInvalidationReason,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        page_impact: Option<OwnedDocumentPageImpact>,
     },
 }
 

@@ -48,6 +48,10 @@ export interface DatabaseViewPageRow {
 }
 
 export interface DatabaseViewReadModel {
+  readonly libraryId: string;
+  readonly storeEpoch: string;
+  readonly changeLogSeq: number;
+  readonly dataSourceId: string;
   readonly view: DatabaseViewDefinition;
   readonly rows: readonly DatabaseViewPageRow[];
 }

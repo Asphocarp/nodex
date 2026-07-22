@@ -8,18 +8,21 @@ use nodex_core_contracts::library::{
     LibraryReadValue, LibraryReceipt, LibraryResourceTarget,
 };
 use nodex_core_contracts::{
-    BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue,
-    CoreError, CoreErrorCode, CoreErrorRecovery, CoreModuleEventPayload, ModuleApplyRequest,
-    ModuleMutationReceipt, ModuleReadRequest, ModuleReadSnapshot, StoreEpoch,
+    BoundModuleContext, CORE_CONTRACT_VERSION, CORE_EVENT_VERSION, CommittedCoreModuleEvent,
+    CommittedModuleValue, CoreError, CoreErrorCode, CoreErrorRecovery, CoreModuleEventPayload,
+    ModuleApplyRequest, ModuleMutationReceipt, ModuleReadRequest, ModuleReadSnapshot,
+    ProjectionImpact, StoreEpoch,
 };
 use rusqlite::OptionalExtension;
 
 use crate::infrastructure::agent_operations::PreparedAgentOperationRegistry;
+use crate::infrastructure::projection_impact::impact_for_payload;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 
 mod page_projection;
+mod projection_authorization;
 mod search_snapshot;
 
 #[derive(Clone, Debug)]
@@ -373,6 +376,17 @@ impl LibraryModule {
                             library_id,
                             change_log_seq: event_head,
                         },
+                        LibraryRead::FilterProjectionImpactForProject { project_id, impact } => {
+                            LibraryReadValue::ProjectionImpact {
+                                impact: projection_authorization::filter_for_project(
+                                    &transaction,
+                                    &library_id,
+                                    &context,
+                                    &project_id,
+                                    impact,
+                                )?,
+                            }
+                        }
                         LibraryRead::PlanBlockTransfer {
                             operation_id,
                             store_epoch,
@@ -654,18 +668,30 @@ impl LibraryModule {
             event_sequence,
             store_epoch: self.store_epoch.clone(),
         };
+        let event_payload = CoreModuleEventPayload::Library(LibraryEvent {
+            kind: LibraryEventKind::LibraryChanged,
+            page_ids: affected_page_ids,
+            database_ids: affected_database_ids,
+            view_ids: Vec::new(),
+            parent_keys: Vec::new(),
+        });
+        let projection_impact = match target {
+            LibraryResourceTarget::Page { .. } => {
+                impact_for_payload(&event_payload).map_err(core_error)?
+            }
+            // The in-memory adapter has no Database/Data Source/View catalog from
+            // which to enumerate the complete projection closure. Broad invalidation
+            // is the only truthful impact for this test authority.
+            LibraryResourceTarget::Database { .. } => ProjectionImpact::All,
+        };
         let event = CommittedCoreModuleEvent {
-            version: CORE_CONTRACT_VERSION,
+            version: CORE_EVENT_VERSION,
             sequence: event_sequence,
             store_epoch: self.store_epoch.clone(),
             operation_id: Some(request.operation_id.clone()),
             committed_at,
-            payload: CoreModuleEventPayload::Library(LibraryEvent {
-                kind: LibraryEventKind::LibraryChanged,
-                page_ids: affected_page_ids,
-                database_ids: affected_database_ids,
-                parent_keys: Vec::new(),
-            }),
+            projection_impact,
+            payload: event_payload,
         };
         state.operations.insert(
             request.operation_id,
@@ -2563,8 +2589,9 @@ mod tests {
                 connection.execute(
                     "INSERT INTO change_log( \
                        project_id, store_epoch, kind, block_ids_json, document_ids_json, \
-                       database_block_ids_json, payload_json, committed_at \
-                     ) VALUES ('project-1', 'epoch-1', 'library_changed', '[]', '[]', '[]', '{}', ?1)",
+                       database_block_ids_json, payload_json, projection_impact_json, committed_at \
+                     ) VALUES ('project-1', 'epoch-1', 'library_changed', '[]', '[]', '[]', '{}', \
+                       '{\"kind\":\"none\"}', ?1)",
                     [NOW],
                 )?;
                 Ok(())

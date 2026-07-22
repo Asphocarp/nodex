@@ -90,13 +90,14 @@ const thread = {
 describe("Core Project Workspace adapter", () => {
   test("maps Workspace events into authority-neutral invalidations", () => {
     expect(mapCoreProjectWorkspaceEvent({
-      protocol_version: 1,
+      protocol_version: 2,
       event: {
-        version: 1,
+        version: 2,
         sequence: 3,
         store_epoch: "epoch:test",
         operation_id: "operation:workspace",
         committed_at: "2026-07-19T15:02:00.000Z",
+        projection_impact: { kind: "none" },
         payload: {
           module: "project_workspace",
           event: {

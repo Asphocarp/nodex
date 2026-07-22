@@ -21,7 +21,18 @@ fn read_ready_descriptor(child: &mut Child) -> RuntimeDescriptor {
     let stdout = child.stdout.take().expect("captured stdout");
     let mut reader = BufReader::new(stdout);
     let mut line = String::new();
-    reader.read_line(&mut line).expect("ready line");
+    let bytes = reader.read_line(&mut line).expect("ready line");
+    if bytes == 0 {
+        let status = child.wait().expect("wait for failed Core startup");
+        let mut stderr = String::new();
+        child
+            .stderr
+            .take()
+            .expect("captured stderr")
+            .read_to_string(&mut stderr)
+            .expect("failed Core stderr");
+        panic!("Core exited before readiness ({status}): {stderr}");
+    }
     serde_json::from_str(line.trim()).expect("runtime descriptor JSON")
 }
 
@@ -515,7 +526,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
         &auth,
         "POST",
         "/core/v1/admin/shutdown",
-        &version_handoff_request(expected, 2, 2),
+        &version_handoff_request(expected, 1, 1),
     );
     assert!(handoff.starts_with("HTTP/1.1 200"));
     let handoff = response_json(&handoff);
@@ -530,7 +541,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
         &auth,
         "POST",
         "/core/v1/admin/shutdown",
-        &version_handoff_request(&forged_descriptor, 2, 2),
+        &version_handoff_request(&forged_descriptor, 1, 1),
     );
     assert!(forged_handoff.starts_with("HTTP/1.1 409"));
 
@@ -756,7 +767,7 @@ fn incompatible_idle_core_drains_before_a_replacement_starts() {
         &auth,
         "POST",
         "/core/v1/admin/shutdown",
-        &version_handoff_request(&incumbent_descriptor, 2, 2),
+        &version_handoff_request(&incumbent_descriptor, 1, 1),
     );
     assert!(handoff.starts_with("HTTP/1.1 200"));
     assert_eq!(response_json(&handoff)["status"], "draining");
@@ -810,7 +821,7 @@ fn incompatible_idle_core_drains_before_a_replacement_starts() {
         &replacement_auth,
         "POST",
         "/core/v1/admin/shutdown",
-        &version_handoff_request(replacement_descriptor, 2, 2),
+        &version_handoff_request(replacement_descriptor, 1, 1),
     );
     assert_eq!(response_json(&replacement_handoff)["status"], "draining");
     let replacement = replacements
@@ -872,7 +883,7 @@ fn moved_or_deleted_old_app_core_is_reused_then_drained_without_a_second_writer(
         &auth,
         "POST",
         "/core/v1/admin/shutdown",
-        &version_handoff_request(&incumbent_descriptor, 2, 2),
+        &version_handoff_request(&incumbent_descriptor, 1, 1),
     );
     assert!(handoff.starts_with("HTTP/1.1 200"));
     assert_eq!(response_json(&handoff)["status"], "draining");

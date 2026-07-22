@@ -929,7 +929,7 @@ fn binary_document_apply(
                     &context,
                     &metadata.client_session_id,
                     nodex_core_contracts::ModuleApplyRequest {
-                        version: PROTOCOL_MAX,
+                        version: nodex_core_contracts::CORE_CONTRACT_VERSION,
                         operation_id: metadata.update_id.clone(),
                         store_epoch: StoreEpoch(metadata.store_epoch),
                         intent: OwnedDocumentIntent::ApplyYjsUpdate {
@@ -1066,7 +1066,7 @@ async fn events(
             match event {
                 DocumentRealtimeEvent::Committed(event) => committed.push(EventEnvelope {
                     protocol_version: PROTOCOL_MAX,
-                    event,
+                    event: *event,
                 }),
                 DocumentRealtimeEvent::ResyncRequired {
                     document_id,
@@ -1478,7 +1478,7 @@ fn json_document_apply_error(error: CoreError) -> Response {
 }
 
 fn require_wire_version(version: u32) -> Result<(), CoreError> {
-    if version == PROTOCOL_MAX {
+    if version == nodex_core_contracts::CORE_CONTRACT_VERSION {
         return Ok(());
     }
     Err(invalid("Document binary frame version is unsupported"))

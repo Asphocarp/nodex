@@ -32,6 +32,7 @@ const ESTIMATES = new Set<Estimate>(["xs", "s", "m", "l", "xl"]);
 
 export interface DatabaseViewRenderModel {
   readonly projectId: string;
+  readonly libraryId: string;
   readonly databaseViewId: DatabaseViewId;
   readonly databaseId: DatabaseId;
   readonly dataSourceId: DataSourceId;
@@ -307,6 +308,7 @@ export const buildDatabaseViewRenderModel = (
 
   return {
     projectId: snapshot.projectId,
+    libraryId: snapshot.libraryId,
     databaseViewId: query.view.viewId,
     databaseId: query.database.databaseId,
     dataSourceId: query.dataSource.dataSourceId,

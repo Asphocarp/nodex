@@ -9,18 +9,21 @@ use nodex_core_contracts::automation::{
     ReminderLease, ReminderSnooze,
 };
 use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent,
-    CommittedModuleValue, CoreModuleEventPayload, ModuleApplyRequest, ModuleMutationReceipt,
-    StoreEpoch,
+    AdapterKind, BoundModuleContext, CommittedModuleValue, CoreModuleEventPayload,
+    ModuleApplyRequest, ModuleMutationReceipt, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
 use crate::document::sha256;
+use crate::infrastructure::event_log::{
+    NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
+};
 use crate::infrastructure::module_receipts::{
     NewModuleReceipt, insert_module_receipt, read_module_receipt,
 };
+use crate::infrastructure::projection_impact::{expand_database_coordinates, impact_for_payload};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
 use crate::infrastructure::writer::StoreWriter;
 
@@ -1093,27 +1096,36 @@ fn finish_mutation(
         "documentIds": effects.document_ids,
         "databaseIds": effects.database_ids,
     });
-    connection.execute(
-        "INSERT INTO change_log(\
-           project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
-           database_block_ids_json, payload_json, committed_at\
-         ) VALUES (?1, ?2, 'automation.changed', ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![
-            project_id,
+    let event_payload = CoreModuleEventPayload::Automation(AutomationEvent {
+        kind: AutomationEventKind::AutomationChanged,
+        automation_ids: effects.automation_ids.clone(),
+        lease_ids: effects.lease_ids.clone(),
+        run_ids: effects.run_ids.clone(),
+        reminder_lease_ids: effects.reminder_lease_ids.clone(),
+        snooze_ids: effects.snooze_ids.clone(),
+        page_ids: effects.page_ids.clone(),
+        document_ids: effects.document_ids.clone(),
+        database_ids: effects.database_ids.clone(),
+    });
+    let projection_impact =
+        expand_database_coordinates(connection, impact_for_payload(&event_payload)?)?;
+    let payload_json = serde_json::to_string(&payload)
+        .map_err(|_| internal("Automation event payload cannot be encoded"))?;
+    let event_sequence = append_change_log(
+        connection,
+        NewChangeLogEntry {
+            project_id: &project_id,
             store_epoch,
-            operation_id,
-            serde_json::to_string(&effects.page_ids)
-                .map_err(|_| internal("Automation affected Page IDs cannot be encoded"))?,
-            serde_json::to_string(&effects.document_ids)
-                .map_err(|_| internal("Automation affected Document IDs cannot be encoded"))?,
-            serde_json::to_string(&effects.database_ids)
-                .map_err(|_| internal("Automation affected Database IDs cannot be encoded"))?,
-            serde_json::to_string(&payload)
-                .map_err(|_| internal("Automation event payload cannot be encoded"))?,
-            effects.committed_at,
-        ],
+            kind: "automation.changed",
+            operation_id: Some(operation_id),
+            block_ids: &effects.page_ids,
+            document_ids: &effects.document_ids,
+            database_block_ids: &effects.database_ids,
+            payload_json: &payload_json,
+            projection_impact: &projection_impact,
+            committed_at: &effects.committed_at,
+        },
     )?;
-    let event_sequence = connection.last_insert_rowid();
     if let Some(result) = effects.page_occurrence_mutation.as_mut() {
         result.change_log_seq = Some(event_sequence);
     }
@@ -1162,26 +1174,10 @@ fn finish_mutation(
             committed_at: &effects.committed_at,
         },
     )?;
+    let event = load_committed_event_by_sequence(connection, event_sequence)?;
     Ok(AutomationApplyOutcome {
         committed,
-        event: Some(CommittedCoreModuleEvent {
-            version: CORE_CONTRACT_VERSION,
-            sequence: event_sequence,
-            store_epoch: StoreEpoch(store_epoch.to_owned()),
-            operation_id: Some(operation_id.to_owned()),
-            committed_at: effects.committed_at,
-            payload: CoreModuleEventPayload::Automation(AutomationEvent {
-                kind: AutomationEventKind::AutomationChanged,
-                automation_ids: effects.automation_ids,
-                lease_ids: effects.lease_ids,
-                run_ids: effects.run_ids,
-                reminder_lease_ids: effects.reminder_lease_ids,
-                snooze_ids: effects.snooze_ids,
-                page_ids: effects.page_ids,
-                document_ids: effects.document_ids,
-                database_ids: effects.database_ids,
-            }),
-        }),
+        event: Some(event),
     })
 }
 

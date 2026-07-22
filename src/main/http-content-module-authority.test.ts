@@ -9,7 +9,6 @@ import type { LibraryModuleApplyResult } from "../shared/library-module";
 import {
   __resetHttpServerDependenciesForTests,
   __setHttpContentModuleDependenciesForTests,
-  canPublishProjectPageTargetEvent,
   getHttpServerOptions,
 } from "./http-server";
 
@@ -62,7 +61,17 @@ describe("HTTP content Module authority", () => {
   });
 
   test("routes Board projections through the configured Database authority", async () => {
-    const getBoardSummary = vi.fn(async () => ({ columns: [] }));
+    const snapshot = {
+      projectId: "project-native",
+      libraryId: "library-native",
+      databaseId: "database-native",
+      dataSourceId: "data-source-native",
+      viewId: "view-native",
+      storeEpoch: "epoch-native",
+      changeLogSeq: 42,
+      board: { columns: [] },
+    };
+    const getBoardSummary = vi.fn(async () => snapshot);
     __setHttpContentModuleDependenciesForTests({
       databaseProjections: { getBoardSummary } as never,
     });
@@ -73,7 +82,7 @@ describe("HTTP content Module authority", () => {
 
     expect(response.status).toBe(200);
     expect(getBoardSummary).toHaveBeenCalledWith("project-native");
-    await expect(response.json()).resolves.toEqual({ columns: [] });
+    await expect(response.json()).resolves.toEqual(snapshot);
   });
 
   test("routes Page search through the configured Library authority", async () => {
@@ -137,29 +146,6 @@ describe("HTTP content Module authority", () => {
     expect(response.status).toBe(200);
     expect(listBackups).toHaveBeenCalledOnce();
     await expect(response.json()).resolves.toEqual({ backups: [] });
-  });
-
-  test("authorizes Project Page events through the configured reference read", async () => {
-    const resolvePageTarget = vi.fn(async () => ({
-      status: "deleted" as const,
-      targetPageId: "page-native",
-      libraryId: "library-native",
-    }));
-
-    await expect(canPublishProjectPageTargetEvent(
-      { resolvePageTarget },
-      "project-native",
-      { libraryId: "library-native", targetPageId: "page-native" },
-    )).resolves.toBe(true);
-    await expect(canPublishProjectPageTargetEvent(
-      { resolvePageTarget },
-      "project-native",
-      { libraryId: "library-other", targetPageId: "page-native" },
-    )).resolves.toBe(false);
-    expect(resolvePageTarget).toHaveBeenNthCalledWith(1, {
-      requestingProjectId: "project-native",
-      targetPageId: "page-native",
-    });
   });
 
   test("does not expose arbitrary SQL inspection", async () => {

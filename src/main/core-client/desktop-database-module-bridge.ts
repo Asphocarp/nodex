@@ -1,5 +1,5 @@
 import type {
-  BoardSummary,
+  BoardSummarySnapshot,
   Column,
   DatabasePage,
   DatabaseRowsDetailsInput,
@@ -15,6 +15,8 @@ import {
   type DatabaseApplyV2,
   type DatabaseModuleReadRequestV2,
   type DatabaseModuleReadResultV2,
+  type DatabaseModuleReadSnapshotV2,
+  type DatabaseViewQueryResultV2,
   type LibraryDatabaseApplyResultV2,
   type LibraryDatabaseApplyV2,
   type LibraryDatabaseModuleReadRequestV2,
@@ -71,7 +73,7 @@ export interface DesktopDatabaseModuleBridge {
       accessActor: "app_window" | "http_loopback";
     }>,
   ): Promise<LibraryDatabaseApplyResultV2>;
-  getBoardSummary(projectId: string): Promise<BoardSummary>;
+  getBoardSummary(projectId: string): Promise<BoardSummarySnapshot>;
   getDatabaseColumn(
     projectId: string,
     columnId: WorkflowStatus,
@@ -90,17 +92,26 @@ export interface DesktopDatabaseModuleBridge {
   ): Promise<DatabaseViewReadModel | null>;
 }
 
+type DatabaseQuerySnapshot = Omit<DatabaseModuleReadSnapshotV2, "value"> & {
+  readonly value: {
+    readonly kind: "query";
+    readonly value: DatabaseViewQueryResultV2;
+  };
+};
+
 const requireQuerySnapshot = async (
   adapter: CoreDatabaseModuleAdapter,
   request: DatabaseModuleReadRequestV2,
-) => {
+): Promise<DatabaseQuerySnapshot> => {
   const result = await adapter.read(request);
   if (!result.ok) {
     throw new Error(
       `Database Core read failed (${result.error.code}): ${result.error.message}`,
     );
   }
-  if (result.value.value.kind === "query") return result.value.value.value;
+  if (result.value.value.kind === "query") {
+    return result.value as DatabaseQuerySnapshot;
+  }
   throw new Error("Database Core returned a non-query snapshot");
 };
 
@@ -155,7 +166,7 @@ export const createDesktopDatabaseModuleBridge = (
     },
     getBoardSummary: async (projectId) => {
       const runtime = await input.authority;
-      const query = await requireQuerySnapshot(
+      const snapshot = await requireQuerySnapshot(
         coreAdapterFor(runtime, projectId),
         {
           version: DATABASE_MODULE_V2_CONTRACT_VERSION,
@@ -163,11 +174,21 @@ export const createDesktopDatabaseModuleBridge = (
           read: { target: { kind: "project_default" }, mode: "query" },
         },
       );
-      return projectBoardSummary(query);
+      const query = snapshot.value.value;
+      return {
+        projectId: snapshot.projectId,
+        libraryId: snapshot.libraryId,
+        databaseId: query.database.databaseId,
+        dataSourceId: query.dataSource.dataSourceId,
+        viewId: query.view.viewId,
+        storeEpoch: snapshot.storeEpoch,
+        changeLogSeq: snapshot.changeLogSeq,
+        board: projectBoardSummary(query),
+      };
     },
     getDatabaseColumn: async (projectId, columnId) => {
       const runtime = await input.authority;
-      const query = await requireQuerySnapshot(
+      const snapshot = await requireQuerySnapshot(
         coreAdapterFor(runtime, projectId),
         {
           version: DATABASE_MODULE_V2_CONTRACT_VERSION,
@@ -175,7 +196,7 @@ export const createDesktopDatabaseModuleBridge = (
           read: { target: { kind: "project_default" }, mode: "query" },
         },
       );
-      return projectDatabaseColumn(query, columnId);
+      return projectDatabaseColumn(snapshot.value.value, columnId);
     },
     getDatabaseRowsDetails: async (projectId, detailsInput) => {
       const runtime = await input.authority;
@@ -183,7 +204,7 @@ export const createDesktopDatabaseModuleBridge = (
         detailsInput.pageIds.map((pageId) => pageId.trim()).filter(Boolean),
       ));
       if (pageIds.length === 0) return [];
-      const query = await requireQuerySnapshot(
+      const snapshot = await requireQuerySnapshot(
         coreAdapterFor(runtime, projectId),
         {
           version: DATABASE_MODULE_V2_CONTRACT_VERSION,
@@ -192,7 +213,7 @@ export const createDesktopDatabaseModuleBridge = (
         },
       );
       const pagesById = new Map(
-        projectDatabaseQueryPages(query).map((page) => [page.id, page]),
+        projectDatabaseQueryPages(snapshot.value.value).map((page) => [page.id, page]),
       );
       return pageIds.flatMap((pageId) => {
         const page = pagesById.get(pageId);
@@ -259,6 +280,11 @@ export const createDesktopDatabaseModuleBridge = (
       return projectDatabaseViewReference(
         result.value.value.value,
         referenceInput,
+        {
+          libraryId: result.value.libraryId,
+          storeEpoch: result.value.storeEpoch,
+          changeLogSeq: result.value.changeLogSeq,
+        },
       );
     },
   };

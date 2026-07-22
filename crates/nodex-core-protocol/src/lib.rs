@@ -27,8 +27,8 @@ use nodex_core_contracts::{
 use serde::{Deserialize, Serialize};
 use utoipa::{OpenApi, ToSchema};
 
-pub const PROTOCOL_MIN: u32 = 1;
-pub const PROTOCOL_MAX: u32 = 1;
+pub const PROTOCOL_MIN: u32 = 2;
+pub const PROTOCOL_MAX: u32 = 2;
 /// Maximum decoded UTF-8 size of one JSON string on the Document transport.
 ///
 /// This is also the public Page body input bound: JSON escaping may make the

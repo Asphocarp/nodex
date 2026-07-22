@@ -51,6 +51,10 @@ const makeReadModel = (includeHostCard: boolean): DatabaseViewReadModel => {
     },
   });
   return {
+    libraryId: "library:test",
+    storeEpoch: "epoch:test",
+    changeLogSeq: 1,
+    dataSourceId: "data-source-query",
     view: {
       id: "view-query",
       databaseBlockId: "database-query",

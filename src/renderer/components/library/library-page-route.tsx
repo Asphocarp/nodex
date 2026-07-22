@@ -1,15 +1,15 @@
 import { useEffect, useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { PageStage } from "../workbench/workbench-page-stage";
 import {
   createLibraryDocumentSyncAdapter,
   prepareLibraryOwnedBlockDocument,
   readLibraryPageDetail,
-  subscribeLibraryChanges,
 } from "../../lib/api";
 import {
   LIBRARY_DOCUMENT_SURFACE_SCOPE_ID,
+  type ReadyPageBlockDocumentDescriptor,
   toLibraryDocumentSurfaceDescriptor,
   unwrapLibraryOwnedBlockDocumentPreparationResult,
   validateLibraryOwnedBlockDocumentDescriptor,
@@ -17,6 +17,9 @@ import {
 import { projectPageDetailToStageModel } from "../../lib/page-stage-page";
 import { commitLibraryPageDetailMetadataPatch } from "../../lib/page-detail-metadata-runtime";
 import type { DatabaseId } from "../../../shared/database-identities";
+import { queryKeys } from "../../lib/query-keys";
+import { invalidateExactQuery } from "../../lib/query-invalidation";
+import { useProjectionInvalidationRegistry } from "../../lib/projection-invalidation-context";
 
 const libraryDocumentSurfaceDependencies = {
   createAdapter: () => createLibraryDocumentSyncAdapter(),
@@ -32,12 +35,13 @@ export function LibraryPageRoute({
   onOpenDatabase: (databaseId: DatabaseId) => void;
 }) {
   const queryClient = useQueryClient();
+  const projectionRegistry = useProjectionInvalidationRegistry();
   const detailQueryKey = useMemo(
-    () => ["library-page-detail", pageId] as const,
+    () => queryKeys.library.pageDetail(pageId),
     [pageId],
   );
   const documentQueryKey = useMemo(
-    () => ["library-page-document", pageId] as const,
+    () => queryKeys.library.pageDocument(pageId),
     [pageId],
   );
   const detail = useQuery({
@@ -64,10 +68,52 @@ export function LibraryPageRoute({
     return projectPageDetailToStageModel(detail.data);
   }, [detail.data]);
 
-  useEffect(() => subscribeLibraryChanges((event) => {
-    if (!event.affectedPageIds.includes(pageId)) return;
-    void queryClient.invalidateQueries({ queryKey: detailQueryKey });
-  }), [detailQueryKey, pageId, queryClient]);
+  useEffect(() => {
+    const authority = detail.data;
+    if (!authority) return;
+    return projectionRegistry.register({
+      scope: { kind: "library", libraryId: authority.libraryId },
+      consumerKey: hashKey(["projection", detailQueryKey, documentQueryKey]),
+      getDependencies: () => {
+        const currentDocument =
+          queryClient.getQueryData<ReadyPageBlockDocumentDescriptor>(
+            documentQueryKey,
+          );
+        return {
+          pageIds: [pageId],
+          documentIds: currentDocument ? [currentDocument.documentId] : [],
+        };
+      },
+      getCursor: () => {
+        const currentDetail = queryClient.getQueryData<typeof authority>(detailQueryKey);
+        const currentDocument =
+          queryClient.getQueryData<ReadyPageBlockDocumentDescriptor>(documentQueryKey);
+        if (!currentDetail || !currentDocument) return null;
+        if (
+          currentDetail.storeEpoch !== currentDocument.storeEpoch
+          || currentDetail.page.documentGeneration !== currentDocument.generation
+          || currentDetail.page.documentHeadSeq !== currentDocument.headSeq
+        ) return null;
+        return {
+          storeEpoch: currentDetail.storeEpoch,
+          changeLogSeq: currentDetail.changeLogSeq,
+        };
+      },
+      invalidate: async () => {
+        await Promise.all([
+          invalidateExactQuery(queryClient, detailQueryKey),
+          invalidateExactQuery(queryClient, documentQueryKey),
+        ]);
+      },
+    });
+  }, [
+    detail.data,
+    detailQueryKey,
+    documentQueryKey,
+    pageId,
+    projectionRegistry,
+    queryClient,
+  ]);
 
   if (detail.isPending || document.isPending) {
     return (

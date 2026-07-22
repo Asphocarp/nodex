@@ -1,7 +1,11 @@
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, test, vi } from "vitest";
 
-import { invalidateExactQuery } from "./query-invalidation";
+import {
+  invalidateExactQuery,
+  queryFamilyProjectionCursor,
+} from "./query-invalidation";
+import { queryKeys } from "./query-keys";
 
 const deferred = <T,>() => {
   let resolve!: (value: T) => void;
@@ -52,5 +56,44 @@ describe("exact query invalidation", () => {
       unsubscribe();
       queryClient.clear();
     }
+  });
+
+  test("uses the oldest cursor satisfied by every materialized family member", () => {
+    const queryClient = new QueryClient();
+    const familyKey = queryKeys.library.all();
+    queryClient.setQueryData(queryKeys.library.metadata(), {
+      storeEpoch: "epoch-1",
+      changeLogSeq: 8,
+    });
+    queryClient.setQueryData(queryKeys.library.children("library", {}), {
+      storeEpoch: "epoch-1",
+      changeLogSeq: 5,
+    });
+    queryClient.setQueryData(queryKeys.library.pageDocument("page-1"), {
+      storeEpoch: "epoch-1",
+      headSeq: 12,
+    });
+
+    expect(queryFamilyProjectionCursor(queryClient, familyKey)).toEqual({
+      storeEpoch: "epoch-1",
+      changeLogSeq: 5,
+    });
+    queryClient.clear();
+  });
+
+  test("does not claim a family cursor while any member lacks canonical data", () => {
+    const queryClient = new QueryClient();
+    const familyKey = queryKeys.library.all();
+    queryClient.setQueryData(queryKeys.library.metadata(), {
+      storeEpoch: "epoch-1",
+      changeLogSeq: 8,
+    });
+    queryClient.getQueryCache().build(queryClient, {
+      queryKey: queryKeys.library.children("library", {}),
+      queryFn: () => Promise.resolve({}),
+    });
+
+    expect(queryFamilyProjectionCursor(queryClient, familyKey)).toBeNull();
+    queryClient.clear();
   });
 });

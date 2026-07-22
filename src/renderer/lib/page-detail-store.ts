@@ -1,14 +1,11 @@
 import { useEffect, useSyncExternalStore } from "react";
 
 import type { PageDetail } from "../../shared/page-detail";
+import type { ProjectionStreamMessage } from "../../shared/projection-stream";
 import {
   readPageDetail,
-  subscribeAuthorityResync,
-  subscribeBoardChanges,
-  subscribeDatabaseChanges,
-  subscribePageTargetChanges,
 } from "./api";
-import type { PageTargetChangedEvent } from "../../shared/page-target-events";
+import { useProjectionInvalidationRegistry } from "./projection-invalidation-context";
 
 export interface PageDetailSnapshot {
   readonly detail: PageDetail | null;
@@ -28,7 +25,7 @@ const entries = new Map<string, PageDetailSnapshot>();
 const listeners = new Map<string, Set<Listener>>();
 const versions = new Map<string, number>();
 const inFlight = new Map<string, Promise<PageDetail | null>>();
-const pendingRefreshes = new Set<string>();
+let storeGeneration = 0;
 
 const detailKey = (projectId: string, pageId: string): string =>
   `${projectId}:${pageId}`;
@@ -108,10 +105,10 @@ export const invalidatePageDetail = (
 };
 
 export const resetPageDetailStoreForTests = (): void => {
+  storeGeneration += 1;
   const subscribedKeys = [...listeners.keys()];
   entries.clear();
   inFlight.clear();
-  pendingRefreshes.clear();
   versions.clear();
   for (const key of subscribedKeys) emit(key);
 };
@@ -132,9 +129,11 @@ export const fetchPageDetail = async (
   });
   emit(key);
 
+  const requestGeneration = storeGeneration;
   const request = (async (): Promise<PageDetail | null> => {
     try {
       const result = await readPageDetail(projectId, pageId);
+      if (requestGeneration !== storeGeneration) return null;
       if (!result.ok) {
         entries.set(key, {
           detail: null,
@@ -158,6 +157,7 @@ export const fetchPageDetail = async (
       setPageDetail(result.value, { acceptEqualFreshness: true });
       return result.value;
     } catch (error) {
+      if (requestGeneration !== storeGeneration) return null;
       entries.set(key, {
         detail: null,
         loading: false,
@@ -166,9 +166,8 @@ export const fetchPageDetail = async (
       emit(key);
       return null;
     } finally {
-      inFlight.delete(key);
-      if (pendingRefreshes.delete(key) && listeners.has(key)) {
-        void fetchPageDetail(projectId, pageId);
+      if (requestGeneration === storeGeneration) {
+        inFlight.delete(key);
       }
     }
   })();
@@ -179,32 +178,31 @@ export const fetchPageDetail = async (
 const requestPageDetailRefresh = (
   projectId: string,
   pageId: string,
-): void => {
+  cause: ProjectionStreamMessage,
+): Promise<void> => {
   const key = detailKey(projectId, pageId);
-  if (inFlight.has(key)) {
-    pendingRefreshes.add(key);
-    return;
-  }
-  void fetchPageDetail(projectId, pageId);
-};
-
-const pageEventRequiresRefresh = (
-  detail: PageDetail | null,
-  event: PageTargetChangedEvent,
-): boolean => {
-  if (!event.document || !detail) return true;
-  if (event.storeEpoch && event.storeEpoch !== detail.storeEpoch) return true;
-  if (event.document.id !== detail.page.documentId) return true;
-  if (event.document.generation !== detail.page.documentGeneration) {
-    return event.document.generation > detail.page.documentGeneration;
-  }
-  return event.document.headSeq > detail.page.documentHeadSeq;
+  return (async () => {
+    const current = inFlight.get(key);
+    if (current) await current;
+    if (!listeners.has(key)) return;
+    const detail = getPageDetail(projectId, pageId);
+    if (
+      cause.kind !== "resync" &&
+      detail?.storeEpoch === cause.cursor.storeEpoch &&
+      detail.changeLogSeq >= cause.cursor.changeLogSeq
+    ) {
+      return;
+    }
+    await fetchPageDetail(projectId, pageId);
+  })();
 };
 
 export const usePageDetail = (
+  libraryId: string | null,
   projectId: string | null,
   pageId: string | null,
 ): PageDetailSnapshot => {
+  const registry = useProjectionInvalidationRegistry();
   const key = projectId && pageId ? detailKey(projectId, pageId) : null;
   useSyncExternalStore(
     (listener) => subscribe(key, listener),
@@ -215,32 +213,31 @@ export const usePageDetail = (
   useEffect(() => {
     if (!projectId || !pageId) return;
     void fetchPageDetail(projectId, pageId);
-    const refresh = (): void => requestPageDetailRefresh(projectId, pageId);
-    const unsubscribeDatabase = subscribeDatabaseChanges(projectId, refresh);
-    const unsubscribeAuthorityResync = subscribeAuthorityResync(
-      projectId,
-      refresh,
-    );
-    const unsubscribeBoard = subscribeBoardChanges(projectId, (event) => {
-      if (!event.pageId || event.pageId === pageId) refresh();
-    });
-    const unsubscribePageTarget = subscribePageTargetChanges(
-      projectId,
-      (event) => {
-        if (event.targetPageId !== pageId) return;
-        if (!pageEventRequiresRefresh(getPageDetail(projectId, pageId), event)) {
-          return;
-        }
-        refresh();
-      },
-    );
-    return () => {
-      unsubscribeDatabase();
-      unsubscribeAuthorityResync();
-      unsubscribeBoard();
-      unsubscribePageTarget();
-    };
   }, [pageId, projectId]);
 
-  return key ? (entries.get(key) ?? EMPTY_DETAIL) : EMPTY_DETAIL;
+  const snapshot = key ? (entries.get(key) ?? EMPTY_DETAIL) : EMPTY_DETAIL;
+  const documentId = snapshot.detail?.page.documentId ?? null;
+  useEffect(() => {
+    if (!projectId || !pageId || !libraryId) return;
+    return registry.register({
+      scope: { kind: "project", libraryId, projectId },
+      consumerKey: `page-detail:${projectId}:${pageId}`,
+      getDependencies: () => ({
+        pageIds: [pageId],
+        documentIds: documentId ? [documentId] : [],
+      }),
+      getCursor: () => {
+        const detail = getPageDetail(projectId, pageId);
+        return detail
+          ? {
+              storeEpoch: detail.storeEpoch,
+              changeLogSeq: detail.changeLogSeq,
+            }
+          : null;
+      },
+      invalidate: (cause) => requestPageDetailRefresh(projectId, pageId, cause),
+    });
+  }, [documentId, libraryId, pageId, projectId, registry]);
+
+  return snapshot;
 };

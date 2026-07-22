@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 pub const CORE_CONTRACT_VERSION: u32 = 1;
+pub const CORE_EVENT_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(transparent)]
@@ -166,7 +167,9 @@ pub mod events;
 pub mod library;
 pub mod workspace;
 
-pub use events::{CommittedCoreModuleEvent, CoreModuleEventPayload};
+pub use events::{
+    CommittedCoreModuleEvent, CoreModuleEventPayload, PageDocumentHeadImpact, ProjectionImpact,
+};
 
 #[cfg(test)]
 mod tests {

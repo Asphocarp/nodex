@@ -59,6 +59,51 @@ export const queryKeys = {
       normalizeNullable(hostBlockId),
     ] as const,
   },
+  libraryDatabases: {
+    all: () => ["libraryDatabases"] as const,
+    descriptor: (
+      accessProjectId: string | undefined,
+      databaseId: string | null,
+      viewId: string | null,
+    ) => [
+      "libraryDatabases",
+      "descriptor",
+      normalizeNullable(accessProjectId),
+      normalizeNullable(databaseId),
+      normalizeNullable(viewId),
+    ] as const,
+    view: (accessProjectId: string | undefined, viewId: string | null) => [
+      "libraryDatabases",
+      "view",
+      normalizeNullable(accessProjectId),
+      normalizeNullable(viewId),
+    ] as const,
+  },
+  library: {
+    all: () => ["libraryNavigation"] as const,
+    metadata: () => ["libraryNavigation", "metadata"] as const,
+    children: (parentKey: string, input: unknown) => [
+      "libraryNavigation",
+      "children",
+      parentKey,
+      input,
+    ] as const,
+    childrenPages: (parentKey: string, input: unknown) => [
+      "libraryNavigation",
+      "childrenPages",
+      parentKey,
+      input,
+    ] as const,
+    catalog: (input: unknown) => ["libraryNavigation", "catalog", input] as const,
+    catalogPages: (input: unknown) => [
+      "libraryNavigation",
+      "catalogPages",
+      input,
+    ] as const,
+    path: (target: unknown) => ["libraryNavigation", "path", target] as const,
+    pageDetail: (pageId: string) => ["libraryPages", "detail", pageId] as const,
+    pageDocument: (pageId: string) => ["libraryPages", "document", pageId] as const,
+  },
   projectSessions: {
     all: () => ["projectSessions"] as const,
     summaries: (projectId: string | null) => ["projectSessions", "summaries", normalizeNullable(projectId)] as const,

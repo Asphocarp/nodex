@@ -14,6 +14,7 @@ import {
   updateThreadNotificationSettings,
 } from "./local-store/config";
 import { dbNotifier } from "./local-store/notifier";
+import { requireProjectionInvalidationRouter } from "./projection-invalidation-runtime";
 import {
   checkoutGitBranch,
   createAndCheckoutGitBranch,
@@ -825,25 +826,6 @@ function normalizePageBody(body: Record<string, unknown>): Record<string, unknow
 const projectWorkspaceAuthority = (): DesktopProjectWorkspacePort =>
   httpServerDependencies.contentModules.projectWorkspace;
 
-export const canPublishProjectPageTargetEvent = async (
-  referenceReads: Pick<ReferenceReadHttpDependencies, "resolvePageTarget">,
-  projectId: string,
-  event: { readonly libraryId: string; readonly targetPageId: string },
-): Promise<boolean> => {
-  const target = await referenceReads.resolvePageTarget({
-    requestingProjectId: projectId,
-    targetPageId: event.targetPageId,
-  });
-  if (!target) return false;
-  if (target.status === "available") {
-    return target.page.libraryId === event.libraryId;
-  }
-  if (target.status === "deleted") {
-    return target.libraryId === event.libraryId;
-  }
-  return false;
-};
-
 // === Project routes ===
 
 app.get("/api/projects", async (c) => {
@@ -1468,7 +1450,7 @@ app.get("/api/projects/:projectId/board-summary", async (c) => {
   logger.info("board summary payload served", {
     channel: "GET /api/projects/:projectId/board-summary",
     projectId: c.req.param("projectId"),
-    cardCount: boardCardCount(board),
+    cardCount: boardCardCount(board.board),
     approxPayloadBytes: approximatePayloadBytes(board),
     durationMs: Date.now() - startedAt,
   });
@@ -1769,14 +1751,16 @@ app.get("/api/library-module/events", (c) => {
         controller.enqueue(encoder.encode(`data: ${data}\n\n`));
       };
       send(JSON.stringify({ event: "connected" }));
+      const projectionRelease = requireProjectionInvalidationRouter().subscribe({
+        kind: "library",
+        libraryId: requireProjectionInvalidationRouter().libraryId,
+      }, (message) => {
+        send(JSON.stringify({ event: "projection-stream", message }));
+      });
       const handler = (
         event: import("../shared/library-events").LibraryNavigationChangedEvent,
       ) => send(JSON.stringify({ event: "library-navigation-changed", ...event }));
-      const authorityResyncHandler = (
-        event: import("../shared/authority-resync-events").AuthorityResyncEvent,
-      ) => send(JSON.stringify({ event: "authority-resync", ...event }));
       dbNotifier.on("library-navigation-changed", handler);
-      dbNotifier.on("authority-resync", authorityResyncHandler);
       const pingInterval = setInterval(() => {
         try {
           send(JSON.stringify({ event: "ping" }));
@@ -1785,8 +1769,8 @@ app.get("/api/library-module/events", (c) => {
         }
       }, SSE_PING_INTERVAL_MS);
       c.req.raw.signal.addEventListener("abort", () => {
+        projectionRelease();
         dbNotifier.removeListener("library-navigation-changed", handler);
-        dbNotifier.removeListener("authority-resync", authorityResyncHandler);
         clearInterval(pingInterval);
       });
     },
@@ -1861,31 +1845,21 @@ app.get("/api/projects/:projectId/events", async (c) => {
 
       // Send initial connection event
       send(JSON.stringify({ event: "connected" }));
+      const projectionRelease = project
+        ? requireProjectionInvalidationRouter().subscribe({
+            kind: "project",
+            libraryId: project.libraryId,
+            projectId,
+          }, (message) => {
+            send(JSON.stringify({ event: "projection-stream", message }));
+          })
+        : () => undefined;
 
       const handler = (event: { projectId: string }) => {
         if (event.projectId === projectId) {
           send(JSON.stringify({ event: "board-changed", ...event }));
         }
       };
-      const pageTargetHandler = (event: { libraryId: string; targetPageId: string }) => {
-        void canPublishProjectPageTargetEvent(
-          httpServerDependencies.contentModules.referenceReads,
-          projectId,
-          event,
-        ).then((allowed) => {
-          if (!allowed) return;
-          send(JSON.stringify({ event: "page-target-changed", ...event }));
-        }).catch((error) => {
-          logger.warn("Failed to authorize Project Page target event", {
-            projectId,
-            targetPageId: event.targetPageId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
-      };
-      const authorityResyncHandler = (
-        event: import("../shared/authority-resync-events").AuthorityResyncEvent,
-      ) => send(JSON.stringify({ event: "authority-resync", ...event }));
       const pageOwnershipPathsHandler = (event: {
         libraryId: string;
         projectId?: string;
@@ -1905,8 +1879,6 @@ app.get("/api/projects/:projectId/events", async (c) => {
       };
 
       dbNotifier.on("board-changed", handler);
-      dbNotifier.on("page-target-changed", pageTargetHandler);
-      dbNotifier.on("authority-resync", authorityResyncHandler);
       dbNotifier.on("page-ownership-paths-changed", pageOwnershipPathsHandler);
       dbNotifier.on("database-changed", databaseHandler);
 
@@ -1921,9 +1893,8 @@ app.get("/api/projects/:projectId/events", async (c) => {
 
       // Cleanup when stream is cancelled
       c.req.raw.signal.addEventListener("abort", () => {
+        projectionRelease();
         dbNotifier.removeListener("board-changed", handler);
-        dbNotifier.removeListener("page-target-changed", pageTargetHandler);
-        dbNotifier.removeListener("authority-resync", authorityResyncHandler);
         dbNotifier.removeListener("page-ownership-paths-changed", pageOwnershipPathsHandler);
         dbNotifier.removeListener("database-changed", databaseHandler);
         clearInterval(pingInterval);

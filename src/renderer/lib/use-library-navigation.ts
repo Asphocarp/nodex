@@ -1,4 +1,5 @@
 import {
+  hashKey,
   queryOptions,
   useInfiniteQuery,
   useMutation,
@@ -21,11 +22,17 @@ import {
   subscribeLibraryChanges,
 } from "./api";
 import { createUuidV7 } from "../../shared/uuid-v7";
+import { queryKeys } from "./query-keys";
+import {
+  invalidateQueryFamilyExactly,
+  queryFamilyProjectionCursor,
+} from "./query-invalidation";
+import { useProjectionInvalidationRegistry } from "./projection-invalidation-context";
 
-export const libraryModuleQueryKey = ["library-module"] as const;
+export const libraryModuleQueryKey = queryKeys.library.all();
 
 export const libraryMetadataQueryOptions = () => queryOptions({
-  queryKey: [...libraryModuleQueryKey, "metadata"] as const,
+  queryKey: queryKeys.library.metadata(),
   queryFn: async () => {
     const result = await readLibraryModule({
       version: LIBRARY_MODULE_CONTRACT_VERSION,
@@ -40,13 +47,26 @@ export const libraryMetadataQueryOptions = () => queryOptions({
 const requireReadValue = async <Kind extends LibraryReadValue["kind"]>(
   request: LibraryModuleReadRequest,
   kind: Kind,
-): Promise<Extract<LibraryReadValue, { kind: Kind }>> => {
+): Promise<Extract<LibraryReadValue, { kind: Kind }> & {
+  readonly libraryId: string;
+  readonly storeEpoch: string;
+  readonly changeLogSeq: number;
+}> => {
   const result = await readLibraryModule(request);
   if (!result.ok) throw new Error(result.error.message);
   if (result.value.value.kind !== kind) {
     throw new Error(`Library read returned ${result.value.value.kind}, expected ${kind}`);
   }
-  return result.value.value as Extract<LibraryReadValue, { kind: Kind }>;
+  return {
+    ...result.value.value,
+    libraryId: result.value.libraryId,
+    storeEpoch: result.value.storeEpoch,
+    changeLogSeq: result.value.changeLogSeq,
+  } as Extract<LibraryReadValue, { kind: Kind }> & {
+    readonly libraryId: string;
+    readonly storeEpoch: string;
+    readonly changeLogSeq: number;
+  };
 };
 
 const parentKey = (parent: LibraryNavigationParent): string => {
@@ -66,15 +86,7 @@ export const libraryChildrenQueryOptions = (
     >["forceIncludeTarget"];
   }> = {},
 ) => queryOptions({
-  queryKey: [
-    ...libraryModuleQueryKey,
-    "children",
-    parentKey(parent),
-    input,
-    input.cursor ?? null,
-    input.limit ?? null,
-    input.forceIncludeTarget ?? null,
-  ] as const,
+  queryKey: queryKeys.library.children(parentKey(parent), input),
   queryFn: () => requireReadValue({
     version: LIBRARY_MODULE_CONTRACT_VERSION,
     read: {
@@ -92,7 +104,7 @@ export const libraryCatalogQueryOptions = (
     "mode"
   > = {},
 ) => queryOptions({
-  queryKey: [...libraryModuleQueryKey, "catalog", input] as const,
+  queryKey: queryKeys.library.catalog(input),
   queryFn: () => requireReadValue({
     version: LIBRARY_MODULE_CONTRACT_VERSION,
     read: { mode: "catalog", ...input },
@@ -102,7 +114,7 @@ export const libraryCatalogQueryOptions = (
 
 export const libraryPathQueryOptions = (target: LibraryRouteTarget) =>
   queryOptions({
-    queryKey: [...libraryModuleQueryKey, "path", target] as const,
+    queryKey: queryKeys.library.path(target),
     queryFn: () => requireReadValue({
       version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: { mode: "path", target },
@@ -112,9 +124,28 @@ export const libraryPathQueryOptions = (target: LibraryRouteTarget) =>
 
 export const useLibraryNavigationInvalidation = (): void => {
   const queryClient = useQueryClient();
+  const registry = useProjectionInvalidationRegistry();
+  const metadata = useQuery(libraryMetadataQueryOptions());
   useEffect(() => subscribeLibraryChanges(() => {
-    void queryClient.resetQueries({ queryKey: libraryModuleQueryKey });
+    void invalidateQueryFamilyExactly(queryClient, libraryModuleQueryKey);
   }), [queryClient]);
+  useEffect(() => {
+    const snapshot = metadata.data;
+    if (!snapshot) return;
+    return registry.register({
+      scope: { kind: "library", libraryId: snapshot.libraryId },
+      consumerKey: hashKey(libraryModuleQueryKey),
+      getDependencies: () => ({ aggregate: true }),
+      getCursor: () => queryFamilyProjectionCursor(
+        queryClient,
+        libraryModuleQueryKey,
+      ),
+      invalidate: () => invalidateQueryFamilyExactly(
+        queryClient,
+        libraryModuleQueryKey,
+      ),
+    });
+  }, [metadata.data, queryClient, registry]);
 };
 
 export const useLibraryMetadata = (enabled = true) => useQuery({
@@ -162,14 +193,7 @@ export const useInfiniteLibraryChildren = (
   > = {},
   enabled = true,
 ) => useInfiniteQuery({
-  queryKey: [
-    ...libraryModuleQueryKey,
-    "children-pages",
-    parentKey(parent),
-    input,
-    input.limit ?? null,
-    input.forceIncludeTarget ?? null,
-  ] as const,
+  queryKey: queryKeys.library.childrenPages(parentKey(parent), input),
   initialPageParam: undefined as string | undefined,
   queryFn: ({ pageParam }) => requireReadValue({
     version: LIBRARY_MODULE_CONTRACT_VERSION,
@@ -201,7 +225,7 @@ export const useInfiniteLibraryCatalog = (
     "cursor"
   > = {},
 ) => useInfiniteQuery({
-  queryKey: [...libraryModuleQueryKey, "catalog-pages", input] as const,
+  queryKey: queryKeys.library.catalogPages(input),
   initialPageParam: undefined as string | undefined,
   queryFn: ({ pageParam }) => requireReadValue({
     version: LIBRARY_MODULE_CONTRACT_VERSION,

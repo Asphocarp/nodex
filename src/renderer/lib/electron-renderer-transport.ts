@@ -17,8 +17,10 @@ import type {
   ProjectsChangeEvent,
 } from "../../shared/ipc-api";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
-import type { PageTargetChangedEvent } from "../../shared/page-target-events";
-import type { AuthorityResyncEvent } from "../../shared/authority-resync-events";
+import type {
+  ProjectionScope,
+  ProjectionStreamMessage,
+} from "../../shared/projection-stream";
 import {
   createElectronDocumentSyncAdapter,
   createElectronLibraryDocumentSyncAdapter,
@@ -197,25 +199,33 @@ export function createElectronRendererTransport(
         callback(payload);
       });
     },
-    subscribePageTargetChanges(
-      projectId: string,
-      callback: (event: PageTargetChangedEvent) => void,
+    subscribeProjectionStream(
+      scope: ProjectionScope,
+      callback: (message: ProjectionStreamMessage) => void,
     ) {
-      return bridge.on("page-target-changed", (...args: unknown[]) => {
-        const payload = args[0] as PageTargetChangedEvent | undefined;
-        if (!payload) return;
-        callback(payload);
-      });
-    },
-    subscribeAuthorityResync(
-      _projectId: string | null,
-      callback: (event: AuthorityResyncEvent) => void,
-    ) {
-      return bridge.on("authority-resync", (...args: unknown[]) => {
-        const payload = args[0] as AuthorityResyncEvent | undefined;
-        if (!payload) return;
-        callback(payload);
-      });
+      let active = true;
+      const removeListener = bridge.on(
+        "projection-stream:message",
+        (...args: unknown[]) => {
+          const message = args[0] as ProjectionStreamMessage | undefined;
+          if (!active || !message) return;
+          if (message.scope.kind !== scope.kind) return;
+          if (message.scope.libraryId !== scope.libraryId) return;
+          if (
+            scope.kind === "project"
+            && message.scope.kind === "project"
+            && message.scope.projectId !== scope.projectId
+          ) return;
+          callback(message);
+        },
+      );
+      void bridge.invoke("projection-stream:subscribe", scope);
+      return () => {
+        if (!active) return;
+        active = false;
+        removeListener();
+        void bridge.invoke("projection-stream:unsubscribe", scope);
+      };
     },
     subscribePageOwnershipPathChanges(
       _projectId: string,

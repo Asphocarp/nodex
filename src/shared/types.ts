@@ -281,6 +281,17 @@ export interface BoardSummary {
   columns: BoardSummaryColumn[];
 }
 
+export interface BoardSummarySnapshot {
+  readonly projectId: string;
+  readonly libraryId: string;
+  readonly databaseId: string;
+  readonly dataSourceId: string;
+  readonly viewId: string;
+  readonly storeEpoch: string;
+  readonly changeLogSeq: number;
+  readonly board: BoardSummary;
+}
+
 export interface PageInput {
   status?: WorkflowStatus;
   title: string;

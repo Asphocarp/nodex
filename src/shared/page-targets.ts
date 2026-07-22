@@ -9,27 +9,32 @@ export interface ResolvePageTargetInput {
   readonly targetPageId: string;
 }
 
+interface PageTargetAuthority {
+  readonly libraryId: string;
+  readonly storeEpoch: string;
+  readonly changeLogSeq: number;
+}
+
 /**
  * Membership-independent read model for opening or previewing a Page.
  * Database properties and View position deliberately do not participate: a
  * Page may live in the Library, another Page, or a Data Source.
  */
 export type PageTargetReadModel =
-  | {
+  | (PageTargetAuthority & {
       readonly status: "missing";
       readonly targetPageId: string;
-    }
-  | {
+    })
+  | (PageTargetAuthority & {
       readonly status: "invalid_target";
       readonly targetPageId: string;
       readonly actualBlockType: string;
-    }
-  | {
+    })
+  | (PageTargetAuthority & {
       readonly status: "deleted";
       readonly targetPageId: string;
-      readonly libraryId: string;
-    }
-  | {
+    })
+  | (PageTargetAuthority & {
       readonly status: "available";
       readonly targetPageId: string;
       readonly page: Page & {
@@ -40,4 +45,4 @@ export type PageTargetReadModel =
         readonly schemaKey: string;
         readonly schemaVersion: number;
       };
-    };
+    });

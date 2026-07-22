@@ -358,7 +358,7 @@ pub fn prepare_profile_store(
         });
     }
 
-    if matches!(version, 85 | 86) {
+    if matches!(version, 85..=87) {
         return upgrade_owned_store(connection, profile_home, version);
     }
 
@@ -472,10 +472,11 @@ fn upgrade_owned_store(
 ) -> Result<StorePreparation, StoreError> {
     validate_store(connection)?;
     validate_core_metadata(connection, source_version)?;
-    if source_version == 85 {
-        validate_exact_v85_schema(connection)?;
-    } else {
-        validate_exact_v86_schema(connection)?;
+    match source_version {
+        85 => validate_exact_v85_schema(connection)?,
+        86 => validate_exact_v86_schema(connection)?,
+        87 => validate_exact_v87_schema(connection)?,
+        _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
     let now = unix_time_millis()?;
@@ -490,6 +491,7 @@ fn upgrade_owned_store(
             ensure_v86_execution_profile_schema(transaction)?;
         }
         ensure_v87_project_session_tabs_schema(transaction)?;
+        ensure_v88_projection_impact_schema(transaction)?;
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
              WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
@@ -771,6 +773,7 @@ fn publish_current_store(
         ensure_v86_execution_profile_schema(transaction)?;
         ensure_v87_project_session_tabs_schema(transaction)?;
         write_v85_metadata(transaction, migrated_from, backup_name, now, fingerprints)?;
+        ensure_v88_projection_impact_schema(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -790,6 +793,7 @@ fn create_fresh_store(
         ensure_v86_execution_profile_schema(transaction)?;
         ensure_v87_project_session_tabs_schema(transaction)?;
         write_v85_metadata(transaction, None, None, now, &[])?;
+        ensure_v88_projection_impact_schema(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -816,6 +820,65 @@ fn ensure_v86_execution_profile_schema(connection: &Connection) -> Result<(), St
 
 fn ensure_v87_project_session_tabs_schema(connection: &Connection) -> Result<(), StoreError> {
     connection.execute_batch(V87_PROJECT_SESSION_TABS_SCHEMA_SQL)?;
+    Ok(())
+}
+
+fn ensure_v88_projection_impact_schema(connection: &Connection) -> Result<(), StoreError> {
+    let impact_column_count: i64 = connection.query_row(
+        "SELECT count(*) FROM pragma_table_info('change_log') \
+         WHERE name = 'projection_impact_json'",
+        [],
+        |row| row.get(0),
+    )?;
+    if impact_column_count == 0 {
+        connection
+            .execute_batch("ALTER TABLE change_log ADD COLUMN projection_impact_json TEXT;")?;
+    } else if impact_column_count != 1 {
+        return Err(corrupt("Projection impact ledger column is ambiguous"));
+    }
+
+    let floor_column_count: i64 = connection.query_row(
+        "SELECT count(*) FROM pragma_table_info('core_store_metadata') \
+         WHERE name = 'projection_event_v2_floor'",
+        [],
+        |row| row.get(0),
+    )?;
+    if floor_column_count == 0 {
+        connection.execute_batch(
+            "ALTER TABLE core_store_metadata \
+             ADD COLUMN projection_event_v2_floor INTEGER;",
+        )?;
+        connection.execute(
+            "UPDATE core_store_metadata SET projection_event_v2_floor = \
+               (SELECT COALESCE(MAX(seq), 0) + 1 FROM change_log) \
+             WHERE id = 1 AND projection_event_v2_floor IS NULL",
+            [],
+        )?;
+    } else if floor_column_count != 1 {
+        return Err(corrupt("Projection event replay-floor column is ambiguous"));
+    }
+    connection.execute(
+        "UPDATE core_store_metadata SET projection_event_v2_floor = \
+           (SELECT COALESCE(MAX(seq), 0) + 1 FROM change_log) \
+         WHERE id = 1 AND projection_event_v2_floor IS NULL",
+        [],
+    )?;
+
+    connection.execute_batch(
+        "CREATE TRIGGER IF NOT EXISTS validate_change_log_projection_impact_insert \
+           BEFORE INSERT ON change_log \
+           WHEN NEW.projection_impact_json IS NULL \
+             OR NOT json_valid(NEW.projection_impact_json) \
+             OR json_type(NEW.projection_impact_json) != 'object' \
+           BEGIN \
+             SELECT RAISE(ABORT, 'change_log projection impact is required'); \
+           END; \
+         CREATE TRIGGER IF NOT EXISTS prevent_change_log_projection_impact_update \
+           BEFORE UPDATE OF projection_impact_json ON change_log \
+           BEGIN \
+             SELECT RAISE(ABORT, 'change_log projection impact is immutable'); \
+           END;",
+    )?;
     Ok(())
 }
 
@@ -1230,30 +1293,48 @@ fn validate_core_metadata(
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
         )
         .optional()?;
-    if metadata == Some((CORE_SCHEMA_OWNER.to_owned(), expected_version)) {
+    if metadata != Some((CORE_SCHEMA_OWNER.to_owned(), expected_version)) {
+        return Err(corrupt(format!(
+            "v{expected_version} store does not contain the Rust Core ownership marker"
+        )));
+    }
+    if expected_version < 88 {
         return Ok(());
     }
-    Err(corrupt(format!(
-        "v{expected_version} store does not contain the Rust Core ownership marker"
-    )))
+    let (floor, event_head) = connection.query_row(
+        "SELECT metadata.projection_event_v2_floor, \
+                (SELECT COALESCE(MAX(seq), 0) FROM change_log) \
+         FROM core_store_metadata metadata WHERE metadata.id = 1",
+        [],
+        |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, i64>(1)?)),
+    )?;
+    if floor.is_some_and(|floor| floor >= 1 && floor <= event_head + 1) {
+        return Ok(());
+    }
+    Err(corrupt("Projection event replay floor is invalid"))
 }
 
 fn validate_exact_v85_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, false, false, 85)
+    validate_exact_core_schema(connection, false, false, false, 85)
 }
 
 fn validate_exact_v86_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, false, 86)
+    validate_exact_core_schema(connection, true, false, false, 86)
+}
+
+fn validate_exact_v87_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, false, 87)
 }
 
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, CORE_SCHEMA_VERSION)
+    validate_exact_core_schema(connection, true, true, true, CORE_SCHEMA_VERSION)
 }
 
 fn validate_exact_core_schema(
     connection: &Connection,
     include_execution_profiles: bool,
     include_portable_tabs: bool,
+    include_projection_impact: bool,
     schema_version: i64,
 ) -> Result<(), StoreError> {
     let expected = Connection::open_in_memory()?;
@@ -1267,6 +1348,9 @@ fn validate_exact_core_schema(
     }
     if include_portable_tabs {
         ensure_v87_project_session_tabs_schema(&expected)?;
+    }
+    if include_projection_impact {
+        ensure_v88_projection_impact_schema(&expected)?;
     }
 
     let expected_inventory = read_schema_inventory(&expected)?;
@@ -1773,6 +1857,67 @@ mod tests {
         assert_eq!(reopened.preparation().schema_version, CORE_SCHEMA_VERSION);
         assert_eq!(reopened.preparation().migrated_from_version, None);
         assert!(reopened.preparation().migration_backup_path.is_none());
+    }
+
+    #[test]
+    fn v87_projection_upgrade_sets_a_non_invented_replay_floor() {
+        use crate::infrastructure::event_log::{CoreEventLog, CoreEventReplay};
+
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v86_store(
+            &home,
+            r#"{"projectId":"migration-project","terminalSessionId":"terminal:legacy"}"#,
+        );
+        let mut legacy = open_writer(&home.join("nodex.db")).expect("v86 writer");
+        with_immediate_transaction(&mut legacy, |transaction| {
+            ensure_v87_project_session_tabs_schema(transaction)?;
+            transaction.execute(
+                "INSERT INTO change_log( \
+                   project_id, store_epoch, kind, operation_id, payload_json, committed_at \
+                 ) VALUES ( \
+                   'migration-project', 'epoch:legacy', 'project_workspace.changed', \
+                   'legacy:event', \
+                   '{\"module\":\"project_workspace\",\"kind\":\"workspace_changed\",\
+                     \"projectIds\":[],\"sessionIds\":[],\"threadIds\":[],\
+                     \"sessionSummaryScopes\":[],\"sessionDetailIds\":[]}', \
+                   '2026-07-22T00:00:00Z')",
+                [],
+            )?;
+            transaction.execute(
+                "UPDATE core_store_metadata SET store_format_version = 87 WHERE id = 1",
+                [],
+            )?;
+            transaction.pragma_update(None, "user_version", 87)?;
+            Ok(())
+        })
+        .expect("seed v87 ledger");
+        drop(legacy);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v87 Core store");
+        let floor = upgraded
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT projection_event_v2_floor FROM core_store_metadata WHERE id = 1",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("projection replay floor");
+        assert_eq!(floor, 2);
+        assert!(matches!(
+            CoreEventLog::new(upgraded.readers())
+                .replay(0, None)
+                .expect("legacy replay boundary"),
+            CoreEventReplay::ResyncRequired {
+                oldest_available: 2,
+                event_head: 1,
+                ..
+            }
+        ));
     }
 
     #[test]

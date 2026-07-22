@@ -1294,8 +1294,9 @@ mod tests {
             .call(|connection| {
                 connection.execute(
                     "INSERT INTO change_log( \
-                       project_id, store_epoch, kind, block_ids_json, committed_at \
-                     ) VALUES (?1, 'epoch:test', 'block_deleted', '[\"block:collectible\"]', ?2)",
+                       project_id, store_epoch, kind, block_ids_json, projection_impact_json, committed_at \
+                     ) VALUES (?1, 'epoch:test', 'block_deleted', '[\"block:collectible\"]', \
+                       '{\"kind\":\"none\"}', ?2)",
                     params![PROJECT_ID, "2026-01-01T00:00:00.000Z"],
                 )?;
                 let summary = run_block_retention_pass(connection, 0)?;

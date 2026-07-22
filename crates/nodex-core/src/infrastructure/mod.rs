@@ -7,6 +7,7 @@ pub(crate) mod legacy_migration;
 pub mod metrics;
 pub mod migration;
 pub mod module_receipts;
+pub mod projection_impact;
 pub mod schema;
 pub mod sqlite;
 pub mod store;

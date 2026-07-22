@@ -6,6 +6,7 @@ export type {
   DatabasePageSummary,
   PageRunInTarget,
   BoardSummary,
+  BoardSummarySnapshot,
   BoardSummaryColumn,
   ClipboardPasteInspectionResult,
   PageInput,

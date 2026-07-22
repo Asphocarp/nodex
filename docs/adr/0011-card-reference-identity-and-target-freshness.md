@@ -1,9 +1,13 @@
 # ADR 0011: Card references persist identity and refresh from Card target events
 
-- Status: Accepted (revised 2026-07-15)
+- Status: Superseded by ADR 0024 (2026-07-22)
 - Date: 2026-07-15
 - Owners: Nodex maintainers
 - Extends: ADR 0002, ADR 0006, ADR 0007, and ADR 0010
+
+ADR 0024 retains this decision's stable-identity and canonical-reread model, but
+replaces the best-effort Page-target event and renderer hub with the durable,
+resource-complete projection invalidation stream used by every canonical read.
 
 ## Context
 

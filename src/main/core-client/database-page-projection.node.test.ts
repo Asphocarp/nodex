@@ -310,6 +310,11 @@ describe("native Database Page projections", () => {
         databaseViewId: viewId,
         hostBlockId: "page:host",
       },
+      {
+        libraryId: "library:test",
+        storeEpoch: "epoch:test",
+        changeLogSeq: 1,
+      },
     );
 
     expect(model.view).toMatchObject({

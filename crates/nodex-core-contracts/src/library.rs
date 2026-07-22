@@ -435,6 +435,10 @@ pub enum LibraryBlockTransferPlan {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LibraryRead {
     Metadata,
+    FilterProjectionImpactForProject {
+        project_id: String,
+        impact: crate::ProjectionImpact,
+    },
     Children {
         parent: LibraryNavigationParent,
         cursor: Option<String>,
@@ -1597,6 +1601,9 @@ pub enum LibraryReadValue {
         library_id: String,
         change_log_seq: i64,
     },
+    ProjectionImpact {
+        impact: crate::ProjectionImpact,
+    },
     Children {
         parent: LibraryNavigationParent,
         items: Vec<LibraryNavigationNode>,
@@ -1833,6 +1840,7 @@ pub struct LibraryEvent {
     pub kind: LibraryEventKind,
     pub page_ids: Vec<String>,
     pub database_ids: Vec<String>,
+    pub view_ids: Vec<String>,
     pub parent_keys: Vec<String>,
 }
 

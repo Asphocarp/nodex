@@ -1,15 +1,17 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+#[cfg(test)]
+use nodex_core_contracts::CORE_CONTRACT_VERSION;
 use nodex_core_contracts::library::{
     LibraryAccess, LibraryBlockPropertyMutationReceipt, LibraryBlockTransferDocumentCommit,
-    LibraryBlockTransferResult, LibraryCommitValue, LibraryEvent, LibraryEventKind, LibraryIntent,
-    LibraryPageCopyResult, LibraryPageCreateResult, LibraryPageLifecycleMutationReceipt,
-    LibraryReceipt, LibraryResourceTarget, LibraryWriteParent,
+    LibraryBlockTransferResult, LibraryCommitValue, LibraryIntent, LibraryPageCopyResult,
+    LibraryPageCreateResult, LibraryPageLifecycleMutationReceipt, LibraryReceipt,
+    LibraryResourceTarget, LibraryWriteParent,
 };
 use nodex_core_contracts::{
-    BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue,
-    CoreModuleEventPayload, ModuleApplyRequest, ModuleMutationReceipt, StoreEpoch,
+    BoundModuleContext, CommittedModuleValue, ModuleApplyRequest, ModuleMutationReceipt,
+    ProjectionImpact, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
@@ -31,9 +33,13 @@ use crate::domain::fractional_rank::{
     FractionalRankErrorCode, RankedItem, plan as plan_fractional_rank,
 };
 use crate::domain::identity::stable_uuid_v7;
+use crate::infrastructure::event_log::{
+    NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
+};
 use crate::infrastructure::module_receipts::{
     NewModuleReceipt, insert_module_receipt, read_module_receipt,
 };
+use crate::infrastructure::projection_impact::expand_database_coordinates;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
 use crate::infrastructure::writer::StoreWriter;
 
@@ -1971,7 +1977,7 @@ pub(super) fn finish_mutation(
         .chain(&effects.affected_database_ids)
         .cloned()
         .collect::<Vec<_>>();
-    let payload = effects.change_payload.clone().unwrap_or_else(|| {
+    let mut payload = effects.change_payload.clone().unwrap_or_else(|| {
         json!({
             "module": MODULE_NAME,
             "operationKind": effects.operation_kind,
@@ -1982,26 +1988,63 @@ pub(super) fn finish_mutation(
             "affectedViewIds": effects.affected_view_ids,
         })
     });
-    connection.execute(
-        "INSERT INTO change_log(\
-           project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
-           database_block_ids_json, payload_json, committed_at\
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params![
-            effects.project_id,
+    let payload_object = payload
+        .as_object_mut()
+        .ok_or_else(|| internal("Library event payload must be an object"))?;
+    payload_object.insert("module".to_owned(), json!(MODULE_NAME));
+    payload_object.insert(
+        "affectedPageIds".to_owned(),
+        json!(effects.affected_page_ids),
+    );
+    payload_object.insert(
+        "affectedDatabaseIds".to_owned(),
+        json!(effects.affected_database_ids),
+    );
+    payload_object.insert(
+        "affectedViewIds".to_owned(),
+        json!(effects.affected_view_ids),
+    );
+    payload_object.insert(
+        "affectedParentKeys".to_owned(),
+        json!(effects.affected_parent_keys),
+    );
+    let data_source_ids = effects
+        .affected_parent_keys
+        .iter()
+        .filter_map(|key| key.strip_prefix("data_source:"))
+        .map(str::to_owned)
+        .collect();
+    let projection_impact = if changes_project_visibility(effects.operation_kind) {
+        ProjectionImpact::All
+    } else {
+        expand_database_coordinates(
+            connection,
+            ProjectionImpact::Resources {
+                page_ids: effects.affected_page_ids.clone(),
+                database_ids: effects.affected_database_ids.clone(),
+                data_source_ids,
+                view_ids: effects.affected_view_ids.clone(),
+                document_heads: Vec::new(),
+            },
+        )?
+    };
+    let payload_json =
+        serde_json::to_string(&payload).map_err(|_| internal("Library event payload"))?;
+    let event_sequence = append_change_log(
+        connection,
+        NewChangeLogEntry {
+            project_id: &effects.project_id,
             store_epoch,
-            effects.change_kind,
-            operation_id,
-            serde_json::to_string(&block_ids).map_err(|_| internal("Library Block IDs"))?,
-            serde_json::to_string(&effects.affected_document_ids)
-                .map_err(|_| internal("Library Document IDs"))?,
-            serde_json::to_string(&effects.affected_database_ids)
-                .map_err(|_| internal("Library Database IDs"))?,
-            serde_json::to_string(&payload).map_err(|_| internal("Library event payload"))?,
-            effects.committed_at,
-        ],
+            kind: effects.change_kind,
+            operation_id: Some(operation_id),
+            block_ids: &block_ids,
+            document_ids: &effects.affected_document_ids,
+            database_block_ids: &effects.affected_database_ids,
+            payload_json: &payload_json,
+            projection_impact: &projection_impact,
+            committed_at: &effects.committed_at,
+        },
     )?;
-    let event_sequence = connection.last_insert_rowid();
     let receipt = LibraryReceipt {
         mutation: ModuleMutationReceipt {
             operation_id: operation_id.to_owned(),
@@ -2013,7 +2056,7 @@ pub(super) fn finish_mutation(
         affected_parent_keys: effects.affected_parent_keys.clone(),
         affected_page_ids: effects.affected_page_ids.clone(),
         affected_database_ids: effects.affected_database_ids.clone(),
-        affected_view_ids: effects.affected_view_ids,
+        affected_view_ids: effects.affected_view_ids.clone(),
         committed_revisions: effects.committed_revisions,
         change_log_seq: event_sequence,
         committed_at: effects.committed_at.clone(),
@@ -2050,23 +2093,22 @@ pub(super) fn finish_mutation(
             committed_at: &effects.committed_at,
         },
     )?;
-    let event = CommittedCoreModuleEvent {
-        version: CORE_CONTRACT_VERSION,
-        sequence: event_sequence,
-        store_epoch: StoreEpoch(store_epoch.to_owned()),
-        operation_id: Some(operation_id.to_owned()),
-        committed_at: effects.committed_at,
-        payload: CoreModuleEventPayload::Library(LibraryEvent {
-            kind: LibraryEventKind::LibraryChanged,
-            page_ids: effects.affected_page_ids,
-            database_ids: effects.affected_database_ids,
-            parent_keys: effects.affected_parent_keys,
-        }),
-    };
+    let event = load_committed_event_by_sequence(connection, event_sequence)?;
     Ok(LibraryApplyOutcome {
         committed,
         event: Some(event),
     })
+}
+
+fn changes_project_visibility(operation_kind: &str) -> bool {
+    matches!(
+        operation_kind,
+        "move_block"
+            | "transfer_blocks"
+            | "agent_move_pages"
+            | "grant_project_access"
+            | "persist_agent_project_resource_grants"
+    )
 }
 
 pub(super) fn assert_identity(
@@ -2484,6 +2526,21 @@ mod tests {
     use super::*;
 
     const NOW: &str = "2026-07-18T23:59:00.000Z";
+
+    #[test]
+    fn project_visibility_changes_require_broad_projection_invalidation() {
+        for operation in [
+            "move_block",
+            "transfer_blocks",
+            "agent_move_pages",
+            "grant_project_access",
+            "persist_agent_project_resource_grants",
+        ] {
+            assert!(changes_project_visibility(operation), "{operation}");
+        }
+        assert!(!changes_project_visibility("create_page"));
+        assert!(!changes_project_visibility("mutate_block_properties"));
+    }
 
     fn context() -> BoundModuleContext {
         BoundModuleContext {

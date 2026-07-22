@@ -13798,6 +13798,7 @@ function PageStageSessionTab({
   const titleStoreKey = makePageStageTabTitleKey(sessionId, tab.id);
 
   const detailSnapshot = usePageDetail(
+    project?.libraryId ?? null,
     tab.config.projectId,
     tab.config.pageId,
   );

@@ -47,6 +47,9 @@ describe("canonical reference HTTP reads", () => {
       resolvePageTarget: (input) => {
         capturedScope = input.requestingProjectId;
         return {
+          libraryId: "library:target",
+          storeEpoch: "epoch:test",
+          changeLogSeq: 1,
           status: "available",
           targetPageId: input.targetPageId,
           page: pageTarget(input.targetPageId, "Cross-project Page"),
@@ -58,6 +61,9 @@ describe("canonical reference HTTP reads", () => {
         };
       },
       resolvePageOwnershipPath: (input) => ({
+        libraryId: "library:target",
+        storeEpoch: "epoch:test",
+        changeLogSeq: 1,
         status: "available",
         targetPageId: input.targetPageId,
         ancestors: [{
@@ -99,6 +105,10 @@ describe("canonical reference HTTP reads", () => {
       readDatabaseViewReference: (input) => {
         capturedHostBlockId = input.hostBlockId ?? "";
         return {
+          libraryId: "library:target",
+          storeEpoch: "epoch:test",
+          changeLogSeq: 1,
+          dataSourceId: "data-source:source:primary",
           view: {
             id: input.databaseViewId,
             databaseBlockId: "database:source:primary",

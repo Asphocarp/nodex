@@ -129,7 +129,7 @@ import type {
   HistorySettings,
   AppUpdateSettings,
   AppUpdateStatus,
-  BoardSummary,
+  BoardSummarySnapshot,
   CodexAccountSnapshot,
   CodexRateLimitResetInput,
   CodexRateLimitResetResult,
@@ -426,6 +426,8 @@ export interface ComposerPickedFile {
 
 export interface BoardChangeEvent {
   projectId: string;
+  storeEpoch?: string;
+  changeLogSeq?: number;
   changeType: string;
   columnId: DatabasePage["status"];
   status: DatabasePage["status"];
@@ -524,6 +526,14 @@ export interface RendererDiagnosticsLogInput {
 }
 
 export interface IpcApi {
+  "projection-stream:subscribe": {
+    args: [scope: import("./projection-stream").ProjectionScope];
+    result: void;
+  };
+  "projection-stream:unsubscribe": {
+    args: [scope: import("./projection-stream").ProjectionScope];
+    result: void;
+  };
   "pages:detail:get": {
     args: [projectId: string, pageId: string];
     result: PageDetailResult;
@@ -856,7 +866,7 @@ export interface IpcApi {
     args: [sessionId: string];
     result: boolean;
   };
-  "board:summary:get": { args: [projectId: string]; result: BoardSummary };
+  "board:summary:get": { args: [projectId: string]; result: BoardSummarySnapshot };
   "database-rows:details:get": {
     args: [projectId: string, input: DatabaseRowsDetailsInput];
     result: DatabasePage[];
@@ -1796,9 +1806,8 @@ export interface IpcEvents {
   "git:live-query:event": GitReviewLiveEvent;
   "document-sync:event": DocumentSyncRealtimeEvent;
   "persisted-atom:updated": PersistedAtomEvent;
+  "projection-stream:message": import("./projection-stream").ProjectionStreamMessage;
   "board-changed": BoardChangeEvent;
-  "page-target-changed": import("./page-target-events").PageTargetChangedEvent;
-  "authority-resync": import("./authority-resync-events").AuthorityResyncEvent;
   "page-ownership-paths-changed": import("./page-ownership-path-events").PageOwnershipPathsChangedEvent;
   "database-changed": DatabaseChangeEvent;
   "library-navigation-changed": import("./library-events").LibraryNavigationChangedEvent;

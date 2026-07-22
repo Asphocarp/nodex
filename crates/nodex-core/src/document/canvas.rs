@@ -2,13 +2,14 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-use nodex_core_contracts::BoundModuleContext;
+use nodex_core_contracts::{BoundModuleContext, ProjectionImpact};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Map, Value, json};
 
 use crate::infrastructure::document_repository::{
     DocumentAuthority, DocumentReadiness, DocumentSyncEngine,
 };
+use crate::infrastructure::event_log::{NewChangeLogEntry, append_change_log};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::canvas_scene::{
@@ -377,25 +378,25 @@ pub(crate) fn persist_canvas_mutation(
             "removedFileIds": applied.removed_file_ids,
             "eventDelta": applied.event_delta,
         });
-        connection.execute(
-            "INSERT INTO change_log (\
-               project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
-               database_block_ids_json, payload_json, committed_at\
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, '[]', ?7, ?8)",
-            params![
-                authority.head.project_id,
+        let block_ids = vec![authority.owner_block_id.clone()];
+        let document_ids = vec![authority.head.id.clone()];
+        let payload_json = canonical_json(&payload)?;
+        let kind = format!("owned_document.{durable_event_kind}");
+        append_change_log(
+            connection,
+            NewChangeLogEntry {
+                project_id: &authority.head.project_id,
                 store_epoch,
-                format!("owned_document.{durable_event_kind}"),
-                operation_id,
-                serde_json::to_string(&[&authority.owner_block_id])
-                    .map_err(|_| internal("Canvas event Block IDs"))?,
-                serde_json::to_string(&[&authority.head.id])
-                    .map_err(|_| internal("Canvas event Document IDs"))?,
-                canonical_json(&payload)?,
-                now,
-            ],
-        )?;
-        connection.last_insert_rowid()
+                kind: &kind,
+                operation_id: Some(operation_id),
+                block_ids: &block_ids,
+                document_ids: &document_ids,
+                database_block_ids: &[],
+                payload_json: &payload_json,
+                projection_impact: &ProjectionImpact::None,
+                committed_at: &now,
+            },
+        )?
     } else {
         read_event_head(connection)?
     };

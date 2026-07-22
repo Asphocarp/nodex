@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { browserRendererTransport } from "./browser-renderer-transport";
+import { createElectronRendererTransport } from "./electron-renderer-transport";
 
 describe("Database event renderer transport", () => {
   test("keeps global Session invalidations separate from multiplexed Project events", () => {
@@ -22,16 +23,14 @@ describe("Database event renderer transport", () => {
     let secondWindowEvents = 0;
     let boardEvents = 0;
     let sessionEvents = 0;
-    let pageTargetEvents = 0;
-    let authorityResyncEvents = 0;
     let ownershipPathEvents = 0;
+    let projectionEvents = 0;
     let unsubscribeFirst = () => {};
     let unsubscribeSecond = () => {};
     let unsubscribeBoard = () => {};
     let unsubscribeSessions = () => {};
-    let unsubscribePageTarget = () => {};
-    let unsubscribeAuthorityResync = () => {};
     let unsubscribeOwnershipPath = () => {};
+    let unsubscribeProjection = () => {};
     try {
       unsubscribeFirst =
         browserRendererTransport.subscribeDatabaseChanges(
@@ -53,20 +52,6 @@ describe("Database event renderer transport", () => {
           boardEvents += 1;
         },
       );
-      unsubscribePageTarget =
-        browserRendererTransport.subscribePageTargetChanges(
-          "project-1",
-          () => {
-            pageTargetEvents += 1;
-          },
-        );
-      unsubscribeAuthorityResync =
-        browserRendererTransport.subscribeAuthorityResync(
-          "project-1",
-          () => {
-            authorityResyncEvents += 1;
-          },
-        );
       unsubscribeOwnershipPath =
         browserRendererTransport.subscribePageOwnershipPathChanges(
           "project-1",
@@ -74,6 +59,16 @@ describe("Database event renderer transport", () => {
             ownershipPathEvents += 1;
           },
         );
+      unsubscribeProjection = browserRendererTransport.subscribeProjectionStream(
+        {
+          kind: "project",
+          libraryId: "library-1",
+          projectId: "project-1",
+        },
+        () => {
+          projectionEvents += 1;
+        },
+      );
       unsubscribeSessions =
         browserRendererTransport.subscribeProjectSessionChanges(
           () => {
@@ -84,7 +79,6 @@ describe("Database event renderer transport", () => {
       FakeEventSource.instances[0]?.onmessage?.({
         data: JSON.stringify({ event: "connected" }),
       } as MessageEvent<string>);
-      expect(authorityResyncEvents).toBe(1);
       const sessionSource = FakeEventSource.instances.find((source) =>
         String(source.url).includes("/api/project-sessions/events")
       );
@@ -109,7 +103,6 @@ describe("Database event renderer transport", () => {
       expect(secondWindowEvents).toBe(1);
       expect(boardEvents).toBe(0);
       expect(sessionEvents).toBe(1);
-      expect(pageTargetEvents).toBe(0);
       expect(ownershipPathEvents).toBe(0);
 
       FakeEventSource.instances[0]?.onmessage?.({
@@ -120,19 +113,6 @@ describe("Database event renderer transport", () => {
           columnId: "ship",
           status: "ship",
           pageId: "card-1",
-        }),
-      } as MessageEvent<string>);
-      FakeEventSource.instances[0]?.onmessage?.({
-        data: JSON.stringify({
-          event: "page-target-changed",
-          version: 1,
-          libraryId: "library-1",
-          storeEpoch: "epoch-1",
-          changeLogSeq: 1,
-          targetPageId: "card-1",
-          changeKind: "content",
-          affectedDatabaseIds: ["database-1"],
-          affectedDataSourceIds: ["source-1"],
         }),
       } as MessageEvent<string>);
       FakeEventSource.instances[0]?.onmessage?.({
@@ -154,8 +134,23 @@ describe("Database event renderer transport", () => {
       } as MessageEvent<string>);
       expect(boardEvents).toBe(1);
       expect(sessionEvents).toBe(2);
-      expect(pageTargetEvents).toBe(1);
       expect(ownershipPathEvents).toBe(1);
+      FakeEventSource.instances[0]?.onmessage?.({
+        data: JSON.stringify({
+          event: "projection-stream",
+          message: {
+            version: 1,
+            kind: "checkpoint",
+            scope: {
+              kind: "project",
+              libraryId: "library-1",
+              projectId: "project-1",
+            },
+            cursor: { storeEpoch: "epoch-1", changeLogSeq: 4 },
+          },
+        }),
+      } as MessageEvent<string>);
+      expect(projectionEvents).toBe(1);
 
       const wrongProject = JSON.stringify({
         ...JSON.parse(payload),
@@ -170,21 +165,134 @@ describe("Database event renderer transport", () => {
       unsubscribeSecond();
       expect(FakeEventSource.instances[0]?.closed).toBe(false);
       unsubscribeBoard();
-      unsubscribePageTarget();
-      unsubscribeAuthorityResync();
       unsubscribeOwnershipPath();
+      unsubscribeProjection();
       unsubscribeSessions();
       expect(FakeEventSource.instances.every((source) => source.closed)).toBe(true);
     } finally {
       unsubscribeFirst();
       unsubscribeSecond();
       unsubscribeBoard();
-      unsubscribePageTarget();
-      unsubscribeAuthorityResync();
       unsubscribeOwnershipPath();
+      unsubscribeProjection();
       unsubscribeSessions();
       globalThis.EventSource = originalEventSource;
     }
+  });
+
+  test("delivers the same scoped projection message contract over browser SSE", () => {
+    const originalEventSource = globalThis.EventSource;
+    class FakeEventSource {
+      static readonly instances: FakeEventSource[] = [];
+      onmessage: ((event: MessageEvent<string>) => void) | null = null;
+      closed = false;
+
+      constructor(readonly url: string | URL) {
+        FakeEventSource.instances.push(this);
+      }
+
+      close(): void {
+        this.closed = true;
+      }
+    }
+    globalThis.EventSource = FakeEventSource as unknown as typeof EventSource;
+    const messages: unknown[] = [];
+    let release = () => {};
+    try {
+      release = browserRendererTransport.subscribeProjectionStream({
+        kind: "project",
+        libraryId: "library-1",
+        projectId: "project-1",
+      }, (message) => messages.push(message));
+      const source = FakeEventSource.instances[0];
+      expect(String(source?.url)).toContain("/api/projects/project-1/events");
+      const message = {
+        version: 1 as const,
+        kind: "changed" as const,
+        scope: {
+          kind: "project" as const,
+          libraryId: "library-1",
+          projectId: "project-1",
+        },
+        cursor: { storeEpoch: "epoch-1", changeLogSeq: 7 },
+        impact: {
+          kind: "resources" as const,
+          page_ids: ["page-1"],
+          database_ids: [],
+          data_source_ids: [],
+          view_ids: [],
+          document_heads: [],
+        },
+      };
+      source?.onmessage?.({
+        data: JSON.stringify({ event: "projection-stream", message }),
+      } as MessageEvent<string>);
+      source?.onmessage?.({
+        data: JSON.stringify({
+          event: "projection-stream",
+          message: {
+            ...message,
+            scope: { ...message.scope, projectId: "project-2" },
+          },
+        }),
+      } as MessageEvent<string>);
+
+      expect(messages).toEqual([message]);
+      release();
+      expect(source?.closed).toBe(true);
+    } finally {
+      release();
+      globalThis.EventSource = originalEventSource;
+    }
+  });
+
+  test("subscribes and filters the equivalent scoped projection contract over Electron IPC", async () => {
+    const projection = {
+      listener: null as ((...args: unknown[]) => void) | null,
+    };
+    const invocations: Array<{ channel: string; args: unknown[] }> = [];
+    const bridge = {
+      invoke: async (channel: string, ...args: unknown[]) => {
+        invocations.push({ channel, args });
+      },
+      on: (channel: string, listener: (...args: unknown[]) => void) => {
+        if (channel === "projection-stream:message") projection.listener = listener;
+        return () => {
+          projection.listener = null;
+        };
+      },
+    };
+    const transport = createElectronRendererTransport(bridge as never);
+    const scope = {
+      kind: "project" as const,
+      libraryId: "library-1",
+      projectId: "project-1",
+    };
+    const messages: unknown[] = [];
+    const release = transport.subscribeProjectionStream(
+      scope,
+      (message) => messages.push(message),
+    );
+    await Promise.resolve();
+    const message = {
+      version: 1 as const,
+      kind: "checkpoint" as const,
+      scope,
+      cursor: { storeEpoch: "epoch-1", changeLogSeq: 7 },
+    };
+    projection.listener?.(message);
+    projection.listener?.({
+      ...message,
+      scope: { ...scope, projectId: "project-2" },
+    });
+    release();
+    await Promise.resolve();
+
+    expect(messages).toEqual([message]);
+    expect(invocations).toEqual([
+      { channel: "projection-stream:subscribe", args: [scope] },
+      { channel: "projection-stream:unsubscribe", args: [scope] },
+    ]);
   });
 
 });

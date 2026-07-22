@@ -12,11 +12,15 @@ import {
   systemPreferences,
   type IpcMainInvokeEvent,
   type MenuItemConstructorOptions,
+  type WebContents,
 } from "electron";
 import { join, resolve } from "path";
 import type { AppInitializationStep } from "../shared/app-startup";
 import type { AppUpdateStatus } from "../shared/types";
-import { AUTHORITY_RESYNC_EVENT_VERSION } from "../shared/authority-resync-events";
+import {
+  projectionScopeKey,
+  type ProjectionScope,
+} from "../shared/projection-stream";
 import { registerIpcHandlers } from "./ipc-handlers";
 import {
   configureHttpContentModuleAuthorities,
@@ -123,7 +127,6 @@ import {
   mapCoreDatabaseEvent,
   mapCoreLibraryDatabaseEvent,
   mapCoreLibraryEvent,
-  mapCorePageProjectionEvents,
   mapCoreProjectWorkspaceEvent,
   mapCoreStoreAdministrationEvent,
   type CoreEventEnvelope,
@@ -135,6 +138,11 @@ import {
 } from "./core-client";
 import { createDesktopNodexAgentV3DynamicService } from "./core-client/desktop-nodex-agent-dynamic-service";
 import { superviseCoreEventStream } from "./core-client/core-event-stream-supervisor";
+import { ProjectionInvalidationRouter } from "./core-client/projection-invalidation-router";
+import {
+  requireProjectionInvalidationRouter,
+  setProjectionInvalidationRouter,
+} from "./projection-invalidation-runtime";
 import {
   allProjectSessionInvalidation,
   planCoreWorkspaceNotifications,
@@ -577,6 +585,62 @@ function registerInitializationIpcHandlers(): void {
   });
 }
 
+interface ProjectionIpcSenderSubscriptions {
+  readonly sender: WebContents;
+  readonly releases: Map<string, () => void>;
+  readonly onDestroyed: () => void;
+}
+
+const projectionIpcSubscriptions =
+  new Map<number, ProjectionIpcSenderSubscriptions>();
+
+function registerProjectionStreamIpcHandlers(): void {
+  const releaseSender = (senderId: number): void => {
+    const state = projectionIpcSubscriptions.get(senderId);
+    if (!state) return;
+    projectionIpcSubscriptions.delete(senderId);
+    state.sender.removeListener("destroyed", state.onDestroyed);
+    for (const release of state.releases.values()) release();
+    state.releases.clear();
+  };
+  const ensureSender = (sender: WebContents): ProjectionIpcSenderSubscriptions => {
+    const existing = projectionIpcSubscriptions.get(sender.id);
+    if (existing) return existing;
+    const state: ProjectionIpcSenderSubscriptions = {
+      sender,
+      releases: new Map(),
+      onDestroyed: () => releaseSender(sender.id),
+    };
+    projectionIpcSubscriptions.set(sender.id, state);
+    sender.once("destroyed", state.onDestroyed);
+    return state;
+  };
+  const unsubscribe = (senderId: number, scope: ProjectionScope) => {
+    const state = projectionIpcSubscriptions.get(senderId);
+    if (!state) return;
+    const key = projectionScopeKey(scope);
+    state.releases.get(key)?.();
+    state.releases.delete(key);
+    if (state.releases.size === 0) releaseSender(senderId);
+  };
+
+  ipcMain.removeHandler("projection-stream:subscribe");
+  ipcMain.handle("projection-stream:subscribe", (event, scope: ProjectionScope) => {
+    unsubscribe(event.sender.id, scope);
+    const state = ensureSender(event.sender);
+    const key = projectionScopeKey(scope);
+    const release = requireProjectionRouter().subscribe(scope, (message) => {
+      safeSendToWebContents(event.sender, "projection-stream:message", [message]);
+    });
+    state.releases.set(key, release);
+  });
+
+  ipcMain.removeHandler("projection-stream:unsubscribe");
+  ipcMain.handle("projection-stream:unsubscribe", (event, scope: ProjectionScope) => {
+    unsubscribe(event.sender.id, scope);
+  });
+}
+
 function sendReminderOpenEvent(payload: {
   projectId: string;
   pageId: string;
@@ -1014,12 +1078,6 @@ function registerDatabaseNotifierBridges(): void {
   dbNotifier.on("board-changed", (event) => {
     broadcastToWindows("board-changed", event);
   });
-  dbNotifier.on("page-target-changed", (event) => {
-    broadcastToWindows("page-target-changed", event);
-  });
-  dbNotifier.on("authority-resync", (event) => {
-    broadcastToWindows("authority-resync", event);
-  });
   dbNotifier.on("page-ownership-paths-changed", (event) => {
     broadcastToWindows("page-ownership-paths-changed", event);
   });
@@ -1050,14 +1108,14 @@ function registerDatabaseNotifierBridges(): void {
   });
 }
 
-function publishAuthorityResync(eventHead: number): void {
+async function publishCoreResync(eventHead: number): Promise<void> {
   const runtime = desktopDataAuthorityRuntime;
-  dbNotifier.notifyAuthorityResync({
-    version: AUTHORITY_RESYNC_EVENT_VERSION,
-    reason: "event_gap",
-    storeEpoch: runtime?.rootClient.handshake.store_epoch ?? null,
-    changeLogSeq: eventHead,
-  });
+  if (runtime) {
+    await requireProjectionRouter().resync({
+      storeEpoch: runtime.rootClient.handshake.store_epoch,
+      changeLogSeq: eventHead,
+    }, "event_gap");
+  }
   dbNotifier.notifyLibraryNavigationChanged({
     version: 1,
     libraryId: runtime?.rootClient.handshake.library_id ?? "",
@@ -1082,6 +1140,27 @@ async function initializeDesktopApp(
   desktopDataAuthorityRuntime = await authority;
   registerDatabaseNotifierBridges();
   const coreClient = desktopDataAuthorityRuntime.rootClient;
+  setProjectionInvalidationRouter(new ProjectionInvalidationRouter({
+    libraryId: coreClient.handshake.library_id,
+    initialCursor: {
+      storeEpoch: coreClient.handshake.store_epoch,
+      changeLogSeq: coreClient.handshake.event_head,
+    },
+    filterForProject: async (projectId, impact) =>
+      await coreClient.filterProjectionImpactForProject(projectId, impact),
+    onListenerError: (error, scope) => {
+      logger.warn("Projection stream listener failed", {
+        scope,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    },
+    onAuthorizationError: (error, scope) => {
+      logger.warn("Projection impact authorization failed closed", {
+        scope,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    },
+  }));
 
   coreEventSubscription = superviseCoreEventStream({
     initialAfter: coreClient.handshake.event_head,
@@ -1092,11 +1171,15 @@ async function initializeDesktopApp(
         onResyncRequired,
       ),
     onEvent: publishCoreModuleEvent,
-    onResyncRequired: (resync) => {
-      publishAuthorityResync(resync.event_head);
+    onResyncRequired: async (resync) => {
+      await publishCoreResync(resync.event_head);
     },
     onInterrupted: (error) => {
       if (runtimeShutdownStarted) return;
+      void requireProjectionRouter().resync({
+        storeEpoch: coreClient.handshake.store_epoch,
+        changeLogSeq: requireProjectionRouter().cursor.changeLogSeq,
+      }, "reconnect");
       logger.warn("Native Core event stream interrupted; reconnecting", {
         error: error instanceof Error
           ? error.message
@@ -1120,8 +1203,13 @@ async function initializeDesktopApp(
   maybeStartAutomaticAppUpdateChecks();
 }
 
-function publishCoreModuleEvent(envelope: CoreEventEnvelope): void {
+function requireProjectionRouter(): ProjectionInvalidationRouter {
+  return requireProjectionInvalidationRouter();
+}
+
+async function publishCoreModuleEvent(envelope: CoreEventEnvelope): Promise<void> {
   if (!desktopDataAuthorityRuntime) return;
+  await requireProjectionRouter().accept(envelope);
   publishCoreModuleEventToNotifiers(
     envelope,
     desktopDataAuthorityRuntime.rootClient.handshake.library_id,
@@ -1134,15 +1222,6 @@ function publishCoreModuleEventToNotifiers(
 ): void {
   const administrationEvent = mapCoreStoreAdministrationEvent(envelope);
   if (administrationEvent) return;
-  const pageProjectionEvents = mapCorePageProjectionEvents(envelope, libraryId);
-  const modulePublishesLibraryNavigation =
-    envelope.event.payload.module === "library"
-    || envelope.event.payload.module === "database";
-  for (const pageEvent of pageProjectionEvents) {
-    dbNotifier.notifyPageTargetChanged(pageEvent, {
-      notifyLibraryNavigation: !modulePublishesLibraryNavigation,
-    });
-  }
   const automationEvent = mapCoreAutomationEvent(envelope);
   if (automationEvent) {
     void codexService.synchronizeAutomationRuntime().catch((error) => {
@@ -1340,6 +1419,12 @@ function beginMainRuntimeShutdown(): void {
   logger.info("Nodex before-quit");
   coreEventSubscription?.close();
   coreEventSubscription = null;
+  for (const state of projectionIpcSubscriptions.values()) {
+    state.sender.removeListener("destroyed", state.onDestroyed);
+    for (const release of state.releases.values()) release();
+  }
+  projectionIpcSubscriptions.clear();
+  setProjectionInvalidationRouter(null);
   storeAdministrationBackupScheduler?.dispose();
   storeAdministrationBackupScheduler = null;
   if (stopReminderScheduler) {
@@ -1648,6 +1733,7 @@ export async function runMainAppStartup(
   serverUrlForWindows = serverUrl;
   configureApplicationMenus();
   registerInitializationIpcHandlers();
+  registerProjectionStreamIpcHandlers();
   rendererClientRouter = new RendererClientRouter();
   codexService.setNodexAgentAuthorizationBroker(new NodexAgentAuthorizationBroker({
     rendererClientRouter,

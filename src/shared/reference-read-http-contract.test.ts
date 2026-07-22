@@ -34,6 +34,9 @@ const makePageSummaryWire = () => ({
 });
 
 const makeAvailablePageTargetWire = () => ({
+  libraryId: "library:target",
+  storeEpoch: "epoch:1",
+  changeLogSeq: 9,
   status: "available",
   targetPageId: "card-1",
   page: {
@@ -61,6 +64,10 @@ const makeAvailablePageTargetWire = () => ({
 });
 
 const makeDatabaseViewWire = () => ({
+  libraryId: "library:target",
+  storeEpoch: "epoch:1",
+  changeLogSeq: 9,
+  dataSourceId: "data-source-1",
   view: {
     id: "view-1",
     databaseBlockId: "database-1",

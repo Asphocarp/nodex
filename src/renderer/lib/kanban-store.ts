@@ -1,12 +1,15 @@
 import {
   invoke,
   readDatabaseModule,
-  subscribeAuthorityResync,
   subscribeBoardChanges,
-  subscribeDatabaseChanges,
-  subscribePageTargetChanges,
 } from "./api";
-import type { BoardSummary, DatabasePage, PageInput, DatabasePageSummary } from "./types";
+import type {
+  BoardSummary,
+  BoardSummarySnapshot,
+  DatabasePage,
+  PageInput,
+  DatabasePageSummary,
+} from "./types";
 import {
   buildPatchPageTransform,
   conflictKeysForPatch,
@@ -16,8 +19,6 @@ import {
 import { toDatabasePageSummary } from "../../shared/page-summary";
 import { applyBoardChangeEventToBoard, upsertCardSummaryInBoard } from "./board-summary-events";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
-import type { DatabaseChangeEvent } from "../../shared/database-events";
-import type { PageTargetChangedEvent } from "../../shared/page-target-events";
 import {
   DATABASE_MODULE_V2_CONTRACT_VERSION,
   type DatabaseModuleReadRequestV2,
@@ -28,6 +29,8 @@ import {
   buildDatabaseViewRenderModel,
   type DatabaseViewRenderModel,
 } from "./database-view-render-model";
+import { getActiveProjectionInvalidationRegistry } from "./projection-invalidation-context";
+import type { ProjectionInvalidationRegistry } from "./projection-invalidation-registry";
 
 const MUTATION_COOLDOWN_MS = 500;
 const DEFAULT_BOARD_FRESHNESS_MS = 30_000;
@@ -64,18 +67,13 @@ type ReadDatabaseModuleFn = (
   request: DatabaseModuleReadRequestV2,
 ) => Promise<DatabaseModuleReadResultV2>;
 type SubscribeBoardChangesFn = (projectId: string, callback: (event: BoardChangeEvent) => void) => () => void;
-type SubscribeDatabaseChangesFn = (projectId: string, callback: (event: DatabaseChangeEvent) => void) => () => void;
-type SubscribePageTargetChangesFn = (projectId: string, callback: (event: PageTargetChangedEvent) => void) => () => void;
-type SubscribeAuthorityResyncFn = (projectId: string, callback: () => void) => () => void;
 type NowFn = () => number;
 
 export interface KanbanStoreDependencies {
   invoke: InvokeFn;
   readDatabaseModule: ReadDatabaseModuleFn;
   subscribeBoardChanges: SubscribeBoardChangesFn;
-  subscribeDatabaseChanges: SubscribeDatabaseChangesFn;
-  subscribePageTargetChanges: SubscribePageTargetChangesFn;
-  subscribeAuthorityResync: SubscribeAuthorityResyncFn;
+  getProjectionInvalidationRegistry: () => ProjectionInvalidationRegistry | null;
   now: NowFn;
 }
 
@@ -121,9 +119,7 @@ const defaultDependencies: KanbanStoreDependencies = {
   invoke,
   readDatabaseModule,
   subscribeBoardChanges,
-  subscribeDatabaseChanges,
-  subscribePageTargetChanges,
-  subscribeAuthorityResync,
+  getProjectionInvalidationRegistry: getActiveProjectionInvalidationRegistry,
   now: () => Date.now(),
 };
 
@@ -172,6 +168,8 @@ class KanbanProjectStore {
 
   private baseBoard: BoardSummary | null = null;
 
+  private baseBoardAuthority: BoardSummarySnapshot | null = null;
+
   private baseDatabaseView: DatabaseViewRenderModel | null = null;
 
   private optimisticEntries: OptimisticEntry[] = [];
@@ -182,11 +180,7 @@ class KanbanProjectStore {
 
   private unsubscribeBoardChanges: (() => void) | null = null;
 
-  private unsubscribeDatabaseChanges: (() => void) | null = null;
-
-  private unsubscribePageTargetChanges: (() => void) | null = null;
-
-  private unsubscribeAuthorityResync: (() => void) | null = null;
+  private unsubscribeProjectionInvalidation: (() => void) | null = null;
 
   private refreshRequestedWhileFetching = false;
 
@@ -254,16 +248,32 @@ class KanbanProjectStore {
         const databaseView = result
           ? buildDatabaseViewRenderModel(result.value)
           : null;
-        const board = databaseView && !databaseView.primaryWriteCompatible
+        const boardAuthority = databaseView && !databaseView.primaryWriteCompatible
           ? null
           : (await this.dependencies.invoke(
               "board:summary:get",
               this.projectId,
-            )) as BoardSummary;
+            )) as BoardSummarySnapshot;
+        const incomingAuthority = databaseView ?? boardAuthority;
+        const currentAuthority = this.baseDatabaseView ?? this.baseBoardAuthority;
+        if (
+          incomingAuthority
+          && currentAuthority
+          && incomingAuthority.storeEpoch === currentAuthority.storeEpoch
+          && incomingAuthority.changeLogSeq < currentAuthority.changeLogSeq
+        ) {
+          this.lastFetchedAt = this.dependencies.now();
+          this.stale = false;
+          this.ensureProjectionSubscription();
+          this.recomputeSnapshot({ loading: false, error: null });
+          return;
+        }
         this.baseDatabaseView = databaseView;
-        this.baseBoard = board;
+        this.baseBoardAuthority = boardAuthority;
+        this.baseBoard = boardAuthority?.board ?? null;
         this.lastFetchedAt = this.dependencies.now();
         this.stale = false;
+        this.ensureProjectionSubscription();
         this.recomputeSnapshot({
           loading: false,
           error: null,
@@ -273,6 +283,7 @@ class KanbanProjectStore {
         if (this.databaseViewId) {
           this.baseDatabaseView = null;
           this.baseBoard = null;
+          this.baseBoardAuthority = null;
         }
         this.recomputeSnapshot({
           loading: false,
@@ -610,6 +621,13 @@ class KanbanProjectStore {
     void this.fetchBoard();
   }
 
+  private refreshFromProjection = async (): Promise<void> => {
+    this.stale = true;
+    if (this.inFlightFetch) await this.inFlightFetch;
+    if (this.listeners.size === 0) return;
+    await this.fetchBoard();
+  };
+
   private ensureRealtimeSubscription(): void {
     if (!this.unsubscribeBoardChanges) {
       this.unsubscribeBoardChanges = this.dependencies.subscribeBoardChanges(
@@ -621,6 +639,18 @@ class KanbanProjectStore {
             this.requestRealtimeRefresh();
             return;
           }
+          const authority = this.baseBoardAuthority;
+          if (
+            !authority
+            || !event.storeEpoch
+            || event.changeLogSeq === undefined
+            || event.storeEpoch !== authority.storeEpoch
+            || event.changeLogSeq < authority.changeLogSeq
+          ) {
+            if (this.shouldSkipRealtimeRefresh()) return;
+            this.requestRealtimeRefresh();
+            return;
+          }
           const nextBoard = applyBoardChangeEventToBoard(
             this.baseBoard ?? undefined,
             event,
@@ -628,6 +658,11 @@ class KanbanProjectStore {
           if (nextBoard) {
             if (nextBoard !== this.baseBoard) {
               this.baseBoard = nextBoard;
+              this.baseBoardAuthority = {
+                ...authority,
+                board: nextBoard,
+                changeLogSeq: event.changeLogSeq,
+              };
               this.lastFetchedAt = this.dependencies.now();
               this.stale = false;
               this.recomputeSnapshot();
@@ -639,46 +674,50 @@ class KanbanProjectStore {
         },
       );
     }
-    if (!this.unsubscribeDatabaseChanges) {
-      this.unsubscribeDatabaseChanges =
-        this.dependencies.subscribeDatabaseChanges(this.projectId, () => {
-          this.requestRealtimeRefresh();
-        });
-    }
-    if (!this.unsubscribePageTargetChanges) {
-      this.unsubscribePageTargetChanges =
-        this.dependencies.subscribePageTargetChanges(this.projectId, (event) => {
-          const loadedDatabaseId = this.baseDatabaseView?.databaseId;
-          const affectsLoadedDatabase = loadedDatabaseId
-            ? event.affectedDatabaseIds.includes(loadedDatabaseId)
-            : false;
-          const affectsLoadedPage = this.snapshot.pageIndex.has(event.targetPageId);
-          const initialReadInFlight = this.inFlightFetch !== null
-            && this.baseBoard === null
-            && this.baseDatabaseView === null;
-          if (!affectsLoadedDatabase && !affectsLoadedPage && !initialReadInFlight) {
-            return;
-          }
-          this.requestRealtimeRefresh();
-        });
-    }
-    if (!this.unsubscribeAuthorityResync) {
-      this.unsubscribeAuthorityResync =
-        this.dependencies.subscribeAuthorityResync(this.projectId, () => {
-          this.requestRealtimeRefresh();
-        });
-    }
+    this.ensureProjectionSubscription();
+  }
+
+  private ensureProjectionSubscription(): void {
+    if (this.unsubscribeProjectionInvalidation) return;
+    const authority = this.baseDatabaseView ?? this.baseBoardAuthority;
+    const registry = this.dependencies.getProjectionInvalidationRegistry();
+    if (!authority || !registry) return;
+    this.unsubscribeProjectionInvalidation = registry.register({
+      scope: {
+        kind: "project",
+        libraryId: authority.libraryId,
+        projectId: this.projectId,
+      },
+      consumerKey: `kanban:${this.projectId}:${this.databaseViewId ?? "primary"}`,
+      getDependencies: () => {
+        const current = this.baseDatabaseView ?? this.baseBoardAuthority;
+        return {
+          databaseIds: current ? [current.databaseId] : [],
+          dataSourceIds: current ? [current.dataSourceId] : [],
+          viewIds: current
+            ? ["databaseViewId" in current ? current.databaseViewId : current.viewId]
+            : [],
+          pageIds: [...this.snapshot.pageIndex.keys()],
+        };
+      },
+      getCursor: () => {
+        const current = this.baseDatabaseView ?? this.baseBoardAuthority;
+        return current
+          ? {
+              storeEpoch: current.storeEpoch,
+              changeLogSeq: current.changeLogSeq,
+            }
+          : null;
+      },
+      invalidate: this.refreshFromProjection,
+    });
   }
 
   private teardownRealtimeSubscription(): void {
     this.unsubscribeBoardChanges?.();
-    this.unsubscribeDatabaseChanges?.();
-    this.unsubscribePageTargetChanges?.();
-    this.unsubscribeAuthorityResync?.();
+    this.unsubscribeProjectionInvalidation?.();
     this.unsubscribeBoardChanges = null;
-    this.unsubscribeDatabaseChanges = null;
-    this.unsubscribePageTargetChanges = null;
-    this.unsubscribeAuthorityResync = null;
+    this.unsubscribeProjectionInvalidation = null;
     this.refreshRequestedWhileFetching = false;
   }
 }

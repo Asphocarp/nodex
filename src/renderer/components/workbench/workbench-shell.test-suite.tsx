@@ -422,8 +422,6 @@ vi.mock("@/lib/api", () => ({
   },
   subscribeBoardChanges: () => () => undefined,
   subscribeDatabaseChanges: () => () => undefined,
-  subscribePageTargetChanges: () => () => undefined,
-  subscribeAuthorityResync: () => () => undefined,
   subscribeLibraryChanges: () => () => undefined,
   readLibraryModule: async (request: unknown) => {
     invokeCalls.push(["library-module:read", request]);
@@ -2088,16 +2086,58 @@ function renderWorkbench({
       const projectId = String(args[0] ?? "alpha");
       if (projectId === "beta") {
         return {
+          projectId,
+          libraryId: "library:test",
+          databaseId: "database:test:primary",
+          dataSourceId: "data-source:beta",
+          viewId: "view:beta",
+          storeEpoch: "epoch:test",
+          changeLogSeq: 1,
+          board: {
+            columns: [
+              {
+                id: "build",
+                name: "Build",
+                cards: [
+                  {
+                    id: "card-beta",
+                    projectId: "beta",
+                    status: "build",
+                    title: "Beta Card",
+                    tags: [],
+                    archived: false,
+                    created: new Date("2026-06-07T00:00:00.000Z"),
+                    order: 0,
+                    revision: 1,
+                    descriptionPreview: "",
+                    descriptionLength: 0,
+                    hasDescription: false,
+                  },
+                ],
+              },
+            ],
+          },
+        };
+      }
+      return {
+        projectId,
+        libraryId: "library:test",
+        databaseId: "database:test:primary",
+        dataSourceId: "data-source:alpha",
+        viewId: "view:alpha",
+        storeEpoch: "epoch:test",
+        changeLogSeq: 1,
+        board: {
           columns: [
             {
               id: "build",
               name: "Build",
               cards: [
                 {
-                  id: "card-beta",
-                  projectId: "beta",
+                  id: "card-1",
+                  projectId: "alpha",
                   status: "build",
-                  title: "Beta Card",
+                  title: "Card One",
                   tags: [],
                   archived: false,
                   created: new Date("2026-06-07T00:00:00.000Z"),
@@ -2107,48 +2147,24 @@ function renderWorkbench({
                   descriptionLength: 0,
                   hasDescription: false,
                 },
+                {
+                  id: "card-2",
+                  projectId: "alpha",
+                  status: "build",
+                  title: "Card Two",
+                  tags: [],
+                  archived: false,
+                  created: new Date("2026-06-07T00:00:00.000Z"),
+                  order: 1,
+                  revision: 1,
+                  descriptionPreview: "",
+                  descriptionLength: 0,
+                  hasDescription: false,
+                },
               ],
             },
           ],
-        };
-      }
-      return {
-        columns: [
-          {
-            id: "build",
-            name: "Build",
-            cards: [
-              {
-                id: "card-1",
-                projectId: "alpha",
-                status: "build",
-                title: "Card One",
-                tags: [],
-                archived: false,
-                created: new Date("2026-06-07T00:00:00.000Z"),
-                order: 0,
-                revision: 1,
-                descriptionPreview: "",
-                descriptionLength: 0,
-                hasDescription: false,
-              },
-              {
-                id: "card-2",
-                projectId: "alpha",
-                status: "build",
-                title: "Card Two",
-                tags: [],
-                archived: false,
-                created: new Date("2026-06-07T00:00:00.000Z"),
-                order: 1,
-                revision: 1,
-                descriptionPreview: "",
-                descriptionLength: 0,
-                hasDescription: false,
-              },
-            ],
-          },
-        ],
+        },
       };
     }
     if (channel === "pages:detail:get") {
@@ -11706,7 +11722,9 @@ describe(`workbench session shell / ${scope}`, () => {
     });
     await settleAsyncRender();
 
-    const loadingShell = screen.getByRole("status", { name: "Loading Card One" });
+    const loadingShell = await screen.findByRole("status", {
+      name: "Loading Card One",
+    });
     expect(loadingShell !== null).toBe(true);
     expect(within(loadingShell).queryByRole("button", { name: "Close" })).toBeNull();
     expect(within(loadingShell).getByRole("button", { name: "Page actions" }).hasAttribute("disabled")).toBe(true);

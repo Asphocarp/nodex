@@ -4,12 +4,8 @@ use std::path::Path;
 use nodex_core_contracts::document::{
     DeletableOwnedSourceKind, DocumentHeadRevision, DocumentInvalidationReason,
     DocumentOwnerCommand, DocumentOwnerEffect, DocumentOwnerRevision, DocumentSpaceAnchor,
-    OwnedDocumentEvent,
 };
-use nodex_core_contracts::{
-    BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CoreModuleEventPayload,
-    StoreEpoch,
-};
+use nodex_core_contracts::{BoundModuleContext, CommittedCoreModuleEvent};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 use yrs::{ReadTxn, Transact};
@@ -17,6 +13,10 @@ use yrs::{ReadTxn, Transact};
 use crate::domain::block_materialization::MaterializedBlockNode;
 use crate::domain::subtree::BlockSubtreeInsertionTarget;
 use crate::infrastructure::document_repository::DocumentSyncEngine;
+use crate::infrastructure::event_log::{
+    NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
+};
+use crate::infrastructure::projection_impact::impact_for_page_document;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::canvas::ensure_canvas_scene;
@@ -340,19 +340,8 @@ fn promote_synced_source(
             emit_event: true,
         },
     )?;
-    let source_event = committed_event(
-        source_persisted.event_sequence,
-        store_epoch,
-        Some(source_operation_id),
-        &source_persisted.committed_at,
-        OwnedDocumentEvent::DocumentUpdated {
-            document_id: source_document_id.to_owned(),
-            generation: 1,
-            head_seq: source_persisted.head_seq,
-            update: source_prepared.update_v1,
-            page_impact: source_persisted.page_impact.clone(),
-        },
-    );
+    let source_event =
+        load_committed_event_by_sequence(connection, source_persisted.event_sequence)?;
     let mut events = vec![host_persisted.event, source_event];
     events.sort_by_key(|event| event.sequence);
     Ok(OwnerCommandExecution {
@@ -752,19 +741,7 @@ fn persist_prepared_update(
         &context.connection_id,
         &persisted.committed_at,
     )?;
-    let event = committed_event(
-        persisted.event_sequence,
-        store_epoch,
-        Some(operation_id.to_owned()),
-        &persisted.committed_at,
-        OwnedDocumentEvent::DocumentUpdated {
-            document_id: loaded.authority.head.id.clone(),
-            generation: loaded.authority.head.generation,
-            head_seq: persisted.head_seq,
-            update: prepared.update_v1,
-            page_impact: persisted.page_impact.clone(),
-        },
-    );
+    let event = load_committed_event_by_sequence(connection, persisted.event_sequence)?;
     let mut authority = loaded.authority;
     authority.head.head_seq = persisted.head_seq;
     authority.head.state_vector = persisted.state_vector;
@@ -991,19 +968,7 @@ fn create_yjs_owner(
             emit_event: true,
         },
     )?;
-    let event = committed_event(
-        persisted.event_sequence,
-        store_epoch,
-        Some(update_id),
-        &persisted.committed_at,
-        OwnedDocumentEvent::DocumentUpdated {
-            document_id: input.document_id.to_owned(),
-            generation: 1,
-            head_seq: persisted.head_seq,
-            update: prepared.update_v1,
-            page_impact: persisted.page_impact.clone(),
-        },
-    );
+    let event = load_committed_event_by_sequence(connection, persisted.event_sequence)?;
     let mut created_block_ids = vec![input.block_id.to_owned()];
     created_block_ids.extend(block_ids);
     created_block_ids.sort();
@@ -1508,7 +1473,7 @@ fn persist_invalidation(
     let database_ids = page_impact
         .as_ref()
         .and_then(|impact| impact.database.as_ref())
-        .map(|database| vec![database.database_id.as_str()])
+        .map(|database| vec![database.database_id.clone()])
         .unwrap_or_default();
     let payload = json!({
         "module": "owned_document",
@@ -1517,53 +1482,27 @@ fn persist_invalidation(
         "generation": head.generation,
         "headSeq": head.head_seq,
         "reason": reason_name,
-        "pageImpact": page_impact,
     });
-    connection.execute(
-        "INSERT INTO change_log (\
-           project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
-           database_block_ids_json, payload_json, committed_at\
-         ) VALUES (?1, ?2, 'owned_document.document_invalidated', ?3, '[]', ?4, ?5, ?6, ?7)",
-        params![
+    let projection_impact = impact_for_page_document(page_impact.as_ref(), None)?;
+    let document_ids = vec![head.document_id.clone()];
+    let payload_json =
+        serde_json::to_string(&payload).map_err(|_| internal("Invalidation event payload"))?;
+    let sequence = append_change_log(
+        connection,
+        NewChangeLogEntry {
             project_id,
             store_epoch,
-            operation_id,
-            serde_json::to_string(&[&head.document_id])
-                .map_err(|_| internal("Invalidation Document IDs"))?,
-            serde_json::to_string(&database_ids)
-                .map_err(|_| internal("Invalidation Database IDs"))?,
-            serde_json::to_string(&payload).map_err(|_| internal("Invalidation event payload"))?,
-            now,
-        ],
-    )?;
-    Ok(committed_event(
-        connection.last_insert_rowid(),
-        store_epoch,
-        Some(operation_id.to_owned()),
-        now,
-        OwnedDocumentEvent::DocumentInvalidated {
-            document_id: head.document_id.clone(),
-            reason,
-            page_impact,
+            kind: "owned_document.document_invalidated",
+            operation_id: Some(operation_id),
+            block_ids: &[],
+            document_ids: &document_ids,
+            database_block_ids: &database_ids,
+            payload_json: &payload_json,
+            projection_impact: &projection_impact,
+            committed_at: now,
         },
-    ))
-}
-
-fn committed_event(
-    sequence: i64,
-    store_epoch: &str,
-    operation_id: Option<String>,
-    committed_at: &str,
-    event: OwnedDocumentEvent,
-) -> CommittedCoreModuleEvent {
-    CommittedCoreModuleEvent {
-        version: CORE_CONTRACT_VERSION,
-        sequence,
-        store_epoch: StoreEpoch(store_epoch.to_owned()),
-        operation_id,
-        committed_at: committed_at.to_owned(),
-        payload: CoreModuleEventPayload::OwnedDocument(event),
-    }
+    )?;
+    load_committed_event_by_sequence(connection, sequence)
 }
 
 fn parse_initial_blocks(values: &[Value]) -> Result<Vec<MaterializedBlockNode>, StoreError> {

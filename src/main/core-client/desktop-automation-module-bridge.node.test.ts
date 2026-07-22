@@ -159,13 +159,14 @@ const createInput: CodexScheduledAutomationCreateInput = {
 describe("Desktop Automation Module bridge", () => {
   test("maps Automation events into authority-neutral invalidations", () => {
     expect(mapCoreAutomationEvent({
-      protocol_version: 1,
+      protocol_version: 2,
       event: {
-        version: 1,
+        version: 2,
         sequence: 8,
         store_epoch: "epoch:test",
         operation_id: "operation:automation",
         committed_at: "2026-07-19T15:02:00.000Z",
+        projection_impact: { kind: "none" },
         payload: {
           module: "automation",
           event: {

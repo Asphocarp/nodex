@@ -18,6 +18,7 @@ const statusPropertyId = parseDataSourcePropertyId("status");
 const tagsPropertyId = parseDataSourcePropertyId("tags");
 
 const model: DatabaseViewRenderModel = {
+  libraryId,
   projectId: "nodex",
   databaseViewId: viewId,
   databaseId,

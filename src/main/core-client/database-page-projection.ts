@@ -443,9 +443,16 @@ export const projectDatabasePageSummaries = (
 export const projectDatabaseViewReference = (
   query: DatabaseViewQueryResultV2,
   input: ReadDatabaseViewReferenceInput,
+  authority: {
+    readonly libraryId: string;
+    readonly storeEpoch: string;
+    readonly changeLogSeq: number;
+  },
 ): DatabaseViewReadModel => {
   const summaries = projectDatabasePageSummaries(query);
   const model: DatabaseViewReadModel = {
+    ...authority,
+    dataSourceId: query.dataSource.dataSourceId,
     view: {
       id: query.view.viewId,
       databaseBlockId: query.view.databaseId,

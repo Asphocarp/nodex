@@ -88,13 +88,14 @@ const committedMutation = (): OwnedDocumentCommittedValue => ({
 });
 
 const committedEvent = (): CoreEventEnvelope => ({
-  protocol_version: 1,
+  protocol_version: 2,
   event: {
-    version: 1,
+    version: 2,
     sequence: 1,
     store_epoch: STORE_EPOCH,
     operation_id: mutationResult.mutationId,
     committed_at: COMMITTED_AT,
+    projection_impact: { kind: "none" },
     payload: {
       module: "owned_document",
       event: {

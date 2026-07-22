@@ -1773,7 +1773,7 @@ export function registerIpcHandlers(
     ipcPayloadLogger.info("board summary payload served", {
       channel: "board:summary:get",
       projectId,
-      cardCount: boardCardCount(board),
+      cardCount: boardCardCount(board.board),
       approxPayloadBytes: approximateJsonPayloadBytes(board),
       durationMs: Math.round(performance.now() - startedAt),
     });

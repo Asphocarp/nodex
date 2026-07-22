@@ -2031,6 +2031,7 @@
           "sequence",
           "store_epoch",
           "committed_at",
+          "projection_impact",
           "payload"
         ],
         "properties": {
@@ -2045,6 +2046,9 @@
           },
           "payload": {
             "$ref": "#/components/schemas/CoreModuleEventPayload"
+          },
+          "projection_impact": {
+            "$ref": "#/components/schemas/ProjectionImpact"
           },
           "sequence": {
             "type": "integer",
@@ -6728,6 +6732,7 @@
           "kind",
           "page_ids",
           "database_ids",
+          "view_ids",
           "parent_keys"
         ],
         "properties": {
@@ -6747,6 +6752,12 @@
             }
           },
           "parent_keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "view_ids": {
             "type": "array",
             "items": {
               "type": "string"
@@ -13162,6 +13173,28 @@
               {
                 "type": "object",
                 "required": [
+                  "project_id",
+                  "impact",
+                  "kind"
+                ],
+                "properties": {
+                  "impact": {
+                    "$ref": "#/components/schemas/ProjectionImpact"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "filter_projection_impact_for_project"
+                    ]
+                  },
+                  "project_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "parent",
                   "kind"
                 ],
@@ -14471,16 +14504,6 @@
                   "document_updated"
                 ]
               },
-              "page_impact": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/OwnedDocumentPageImpact"
-                  }
-                ]
-              },
               "update": {
                 "type": "array",
                 "items": {
@@ -14547,16 +14570,6 @@
                   "document_invalidated"
                 ]
               },
-              "page_impact": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/OwnedDocumentPageImpact"
-                  }
-                ]
-              },
               "reason": {
                 "$ref": "#/components/schemas/DocumentInvalidationReason"
               }
@@ -14564,51 +14577,36 @@
           }
         ]
       },
-      "OwnedDocumentPageDatabaseImpact": {
-        "type": "object",
-        "required": [
-          "database_id",
-          "data_source_id"
-        ],
-        "properties": {
-          "data_source_id": {
-            "type": "string"
-          },
-          "database_id": {
-            "type": "string"
-          }
-        }
-      },
-      "OwnedDocumentPageImpact": {
-        "type": "object",
-        "required": [
-          "library_id",
-          "page_id"
-        ],
-        "properties": {
-          "database": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/OwnedDocumentPageDatabaseImpact"
-              }
-            ]
-          },
-          "library_id": {
-            "type": "string"
-          },
-          "page_id": {
-            "type": "string"
-          }
-        }
-      },
       "OwnedDocumentReadRequest": {
         "$ref": "#/components/schemas/ModuleReadRequest_OwnedDocumentRead"
       },
       "OwnedDocumentReadResponse": {
         "$ref": "#/components/schemas/ResponseEnvelope_ModuleReadSnapshot_OwnedDocumentReadValue"
+      },
+      "PageDocumentHeadImpact": {
+        "type": "object",
+        "required": [
+          "page_id",
+          "document_id",
+          "generation",
+          "head_seq"
+        ],
+        "properties": {
+          "document_id": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "page_id": {
+            "type": "string"
+          }
+        }
       },
       "PageMetaProjectionV1": {
         "type": "object",
@@ -16587,6 +16585,87 @@
           }
         }
       },
+      "ProjectionImpact": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "none"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "all"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_ids",
+              "database_ids",
+              "data_source_ids",
+              "view_ids",
+              "document_heads",
+              "kind"
+            ],
+            "properties": {
+              "data_source_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "database_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "document_heads": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PageDocumentHeadImpact"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "resources"
+                ]
+              },
+              "page_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "view_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ]
+      },
       "ReminderLease": {
         "type": "object",
         "required": [
@@ -18202,6 +18281,24 @@
                           },
                           "profile_id": {
                             "type": "string"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "impact",
+                          "kind"
+                        ],
+                        "properties": {
+                          "impact": {
+                            "$ref": "#/components/schemas/ProjectionImpact"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "projection_impact"
+                            ]
                           }
                         }
                       },

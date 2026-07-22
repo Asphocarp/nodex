@@ -4,10 +4,16 @@ import { render, settleAsyncRender } from "@/test/dom";
 import { createTestQueryClient, TestQueryProvider } from "@/test/query";
 import { installWindowApi } from "@/test/browser-globals";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
-import type { PageTargetChangedEvent } from "../../shared/page-target-events";
 import { plainTextToPortableRichText } from "../../shared/block-documents";
-import type { BoardSummary, DatabasePageSummary, Project } from "./types";
+import type {
+  BoardSummary,
+  BoardSummarySnapshot,
+  DatabasePageSummary,
+  Project,
+} from "./types";
 import { useAllBoards, useBoardsForProjects } from "./use-all-boards";
+import { ProjectionInvalidationRegistry } from "./projection-invalidation-registry";
+import type { ProjectionStreamMessage } from "../../shared/projection-stream";
 
 let invokeCalls: unknown[][] = [];
 
@@ -38,6 +44,23 @@ const BOARD: BoardSummary = {
     },
   ],
 };
+
+function boardSnapshot(
+  projectId: string,
+  board: BoardSummary = BOARD,
+  changeLogSeq = 1,
+): BoardSummarySnapshot {
+  return {
+    projectId,
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    dataSourceId: "data-source:test:primary",
+    viewId: "view:test:primary",
+    storeEpoch: "epoch:test",
+    changeLogSeq,
+    board,
+  };
+}
 
 function makeProject(id: string): Project {
   return {
@@ -95,7 +118,7 @@ beforeEach(() => {
     invoke: async (channel: string, ...args: unknown[]) => {
       invokeCalls.push([channel, ...args]);
       if (channel === "board:summary:get") {
-        return BOARD;
+        return boardSnapshot(String(args[0]));
       }
       throw new Error(`Unexpected channel: ${channel}`);
     },
@@ -127,7 +150,7 @@ describe("useAllBoards", () => {
         if (channel === "projects:list") return [makeProject("alpha"), makeProject("beta")];
         if (channel === "board:summary:get") {
           if (args[0] === "beta") throw new Error("board unavailable");
-          return board;
+          return boardSnapshot(String(args[0]), board);
         }
         throw new Error(`Unexpected channel: ${channel}`);
       },
@@ -188,7 +211,9 @@ describe("useBoardsForProjects", () => {
     installWindowApi({
       invoke: async (channel: string, ...args: unknown[]) => {
         invokeCalls.push([channel, ...args]);
-        if (channel === "board:summary:get") return BOARD;
+        if (channel === "board:summary:get") {
+          return boardSnapshot(String(args[0]));
+        }
         throw new Error(`Unexpected channel: ${channel}`);
       },
       on: (channel: string, callback: (event: BoardChangeEvent) => void) => {
@@ -220,6 +245,8 @@ describe("useBoardsForProjects", () => {
           status: "build",
           pageId: summary.id,
           summary,
+          storeEpoch: "epoch:test",
+          changeLogSeq: 2,
         });
       }
       await Promise.resolve();
@@ -233,25 +260,38 @@ describe("useBoardsForProjects", () => {
     expect(invokeCalls.length).toBe(1);
   });
 
-  test("refetches only the Project whose Database contains a changed Page", async () => {
-    const pageListeners: Array<(event: PageTargetChangedEvent) => void> = [];
+  test("refetches only the Project whose projection dependencies intersect", async () => {
+    const projectionListeners = new Set<
+      (message: ProjectionStreamMessage) => void
+    >();
+    const projectionRegistry = new ProjectionInvalidationRegistry(
+      (_scope, listener) => {
+        projectionListeners.add(listener);
+        return () => projectionListeners.delete(listener);
+      },
+    );
     const client = createTestQueryClient();
+    let boardFetchCount = 0;
     installWindowApi({
       invoke: async (channel: string, ...args: unknown[]) => {
         invokeCalls.push([channel, ...args]);
-        if (channel === "board:summary:get") return BOARD;
+        if (channel === "board:summary:get") {
+          boardFetchCount += 1;
+          return boardSnapshot(
+            String(args[0]),
+            BOARD,
+            boardFetchCount === 1 ? 1 : 10,
+          );
+        }
         throw new Error(`Unexpected channel: ${channel}`);
       },
-      on: (
-        channel: string,
-        callback: (event: PageTargetChangedEvent) => void,
-      ) => {
-        if (channel === "page-target-changed") pageListeners.push(callback);
-        return () => {};
-      },
+      on: () => () => {},
     });
     const view = render(
-      <TestQueryProvider client={client}>
+      <TestQueryProvider
+        client={client}
+        projectionRegistry={projectionRegistry}
+      >
         <BoardsHarness snapshots={[]} />
       </TestQueryProvider>,
     );
@@ -259,16 +299,24 @@ describe("useBoardsForProjects", () => {
     expect(invokeCalls).toHaveLength(1);
 
     await act(async () => {
-      for (const listener of pageListeners) {
+      for (const listener of projectionListeners) {
         listener({
           version: 1,
-          libraryId: "library:test",
-          storeEpoch: "epoch:test",
-          changeLogSeq: 2,
-          targetPageId: "filtered-page",
-          changeKind: "content",
-          affectedDatabaseIds: ["database:another"],
-          affectedDataSourceIds: [],
+          kind: "changed",
+          scope: {
+            kind: "project",
+            libraryId: "library:test",
+            projectId: "project-1",
+          },
+          cursor: { storeEpoch: "epoch:test", changeLogSeq: 2 },
+          impact: {
+            kind: "resources",
+            page_ids: ["filtered-page"],
+            database_ids: ["database:another"],
+            data_source_ids: [],
+            view_ids: [],
+            document_heads: [],
+          },
         });
       }
       await Promise.resolve();
@@ -277,16 +325,24 @@ describe("useBoardsForProjects", () => {
     expect(invokeCalls).toHaveLength(1);
 
     await act(async () => {
-      for (const listener of pageListeners) {
+      for (const listener of projectionListeners) {
         listener({
           version: 1,
-          libraryId: "library:test",
-          storeEpoch: "epoch:test",
-          changeLogSeq: 3,
-          targetPageId: "filtered-page",
-          changeKind: "content",
-          affectedDatabaseIds: ["database:test:primary"],
-          affectedDataSourceIds: [],
+          kind: "changed",
+          scope: {
+            kind: "project",
+            libraryId: "library:test",
+            projectId: "project-1",
+          },
+          cursor: { storeEpoch: "epoch:test", changeLogSeq: 3 },
+          impact: {
+            kind: "resources",
+            page_ids: ["filtered-page"],
+            database_ids: ["database:test:primary"],
+            data_source_ids: [],
+            view_ids: [],
+            document_heads: [],
+          },
         });
       }
       await new Promise((resolve) => setTimeout(resolve, 60));

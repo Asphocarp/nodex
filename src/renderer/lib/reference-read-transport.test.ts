@@ -27,7 +27,14 @@ const makeCardSummaryWire = (created = "2026-01-01T00:00:00.000Z") => ({
   hasDescription: false,
 });
 
+const projectionAuthorityWire = {
+  libraryId: "library:target",
+  storeEpoch: "epoch:1",
+  changeLogSeq: 9,
+} as const;
+
 const makePageTargetWire = (updatedAt = "2026-01-02T00:00:00.000Z") => ({
+  ...projectionAuthorityWire,
   status: "available",
   targetPageId: "card-target",
   page: {
@@ -59,10 +66,12 @@ describe("reference read renderer transport", () => {
     const requestedUrls: string[] = [];
     const responses = [
       new Response(JSON.stringify({
+        ...projectionAuthorityWire,
         status: "missing",
         targetPageId: "card/target",
       }), { status: 200, headers: { "Content-Type": "application/json" } }),
       new Response(JSON.stringify({
+        ...projectionAuthorityWire,
         status: "available",
         targetPageId: "card/target",
         ancestors: [{
@@ -72,6 +81,8 @@ describe("reference read renderer transport", () => {
         }],
       }), { status: 200, headers: { "Content-Type": "application/json" } }),
       new Response(JSON.stringify({
+        ...projectionAuthorityWire,
+        dataSourceId: "data-source:primary",
         view: {
           id: "view/one",
           databaseBlockId: "database:source:primary",
@@ -162,6 +173,8 @@ describe("reference read renderer transport", () => {
         headers: { "Content-Type": "application/json" },
       }),
       new Response(JSON.stringify({
+        ...projectionAuthorityWire,
+        dataSourceId: "data-source:target",
         view: {
           id: "view-one",
           databaseBlockId: "database-target",

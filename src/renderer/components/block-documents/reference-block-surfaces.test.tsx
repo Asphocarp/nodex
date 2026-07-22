@@ -32,6 +32,10 @@ describe("DatabaseViewReferenceSurface", () => {
   test("does not mount a Database row that closes an ancestor Card cycle", () => {
     const card = makeCard("card-a", "Card A");
     const model: DatabaseViewReadModel = {
+      libraryId: "library:test",
+      storeEpoch: "epoch:test",
+      changeLogSeq: 1,
+      dataSourceId: "data-source:test",
       view: {
         id: "cycle-view",
         databaseBlockId: "database-1",
@@ -72,6 +76,10 @@ describe("DatabaseViewReferenceSurface", () => {
       makeCard("card-4", "Card Four"),
     ];
     const model: DatabaseViewReadModel = {
+      libraryId: "library:test",
+      storeEpoch: "epoch:test",
+      changeLogSeq: 1,
+      dataSourceId: "data-source:test",
       view: {
         id: "view-1",
         databaseBlockId: "database-1",
@@ -147,6 +155,10 @@ describe("DatabaseViewReferenceSurface", () => {
       makeCard("focus-3", "Focus Three"),
     ];
     const model: DatabaseViewReadModel = {
+      libraryId: "library:test",
+      storeEpoch: "epoch:test",
+      changeLogSeq: 1,
+      dataSourceId: "data-source:test",
       view: {
         id: "focus-view",
         databaseBlockId: "database-1",

@@ -1,4 +1,5 @@
 import type { components } from "@nodex/core-protocol";
+import type { ProjectionImpact } from "../../shared/projection-stream";
 import type {
   DocumentAwarenessPublishAck,
   DocumentAwarenessPublishRequest,
@@ -130,6 +131,10 @@ export interface CoreEventSubscription {
 export interface CoreClientPort {
   libraryRead(read: LibraryRead): Promise<LibraryReadSnapshot>;
   libraryApply(input: LibraryApplyInput): Promise<LibraryCommittedValue>;
+  filterProjectionImpactForProject(
+    projectId: string,
+    impact: ProjectionImpact,
+  ): Promise<ProjectionImpact>;
   databaseRead(read: DatabaseRead): Promise<DatabaseReadSnapshot>;
   databaseApply(input: DatabaseApplyInput): Promise<DatabaseCommittedValue>;
   workspaceRead(read: ProjectWorkspaceRead): Promise<ProjectWorkspaceReadSnapshot>;

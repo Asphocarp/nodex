@@ -1,13 +1,12 @@
-use nodex_core_contracts::document::{
-    DocumentInvalidationReason, OwnedDocumentEvent, OwnedDocumentPageImpact,
-};
+use nodex_core_contracts::document::{DocumentInvalidationReason, OwnedDocumentEvent};
 use nodex_core_contracts::{
-    CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CoreModuleEventPayload, StoreEpoch,
+    CORE_EVENT_VERSION, CommittedCoreModuleEvent, CoreModuleEventPayload, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::infrastructure::projection_impact::{decode as decode_projection_impact, replay_floor};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 const DEFAULT_REPLAY_LIMIT: u32 = 256;
@@ -36,6 +35,7 @@ pub(crate) struct ChangeLogRow {
     pub(crate) kind: String,
     pub(crate) operation_id: Option<String>,
     pub(crate) payload_json: String,
+    pub(crate) projection_impact_json: Option<String>,
     pub(crate) committed_at: String,
 }
 
@@ -59,8 +59,6 @@ struct DocumentEventMetadata {
     event_delta: Option<Value>,
     #[serde(default)]
     reason: Option<String>,
-    #[serde(default)]
-    page_impact: Option<OwnedDocumentPageImpact>,
 }
 
 pub(crate) fn replay_document_events(
@@ -85,6 +83,14 @@ pub(crate) fn replay_document_events(
     if oldest_available < 0 || event_head < oldest_available {
         return Err(corrupt("Change log retention boundary is invalid"));
     }
+    let projection_floor = replay_floor(connection)?;
+    if after < projection_floor - 1 {
+        return Ok(DocumentEventReplay::ResyncRequired {
+            requested_after: after,
+            oldest_available: projection_floor,
+            event_head,
+        });
+    }
     if oldest_available > 1 && after < oldest_available - 1 {
         return Ok(DocumentEventReplay::ResyncRequired {
             requested_after: after,
@@ -95,7 +101,8 @@ pub(crate) fn replay_document_events(
 
     let rows = connection
         .prepare(
-            "SELECT seq, project_id, store_epoch, kind, operation_id, payload_json, committed_at \
+            "SELECT seq, project_id, store_epoch, kind, operation_id, payload_json, \
+                    projection_impact_json, committed_at \
              FROM change_log WHERE seq > ?1 ORDER BY seq ASC LIMIT ?2",
         )?
         .query_map(params![after, i64::from(limit)], |row| {
@@ -106,7 +113,8 @@ pub(crate) fn replay_document_events(
                 kind: row.get(3)?,
                 operation_id: row.get(4)?,
                 payload_json: row.get(5)?,
-                committed_at: row.get(6)?,
+                projection_impact_json: row.get(6)?,
+                committed_at: row.get(7)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()
@@ -158,8 +166,6 @@ pub(crate) fn reconstruct_document_event(
     {
         return Err(corrupt("Owned Document event metadata is inconsistent"));
     }
-    validate_page_impact(metadata.page_impact.as_ref())?;
-
     let payload = match metadata.kind.as_str() {
         "document_initialized" | "document_updated" => {
             let update_id = metadata
@@ -194,7 +200,6 @@ pub(crate) fn reconstruct_document_event(
                 generation: metadata.generation,
                 head_seq: metadata.head_seq,
                 update,
-                page_impact: metadata.page_impact,
             }
         }
         "canvas_scene_updated" => {
@@ -246,7 +251,6 @@ pub(crate) fn reconstruct_document_event(
         "document_restored" => OwnedDocumentEvent::DocumentInvalidated {
             document_id: metadata.document_id,
             reason: DocumentInvalidationReason::Restored,
-            page_impact: metadata.page_impact,
         },
         "document_invalidated" => {
             let reason = match metadata.reason.as_deref() {
@@ -258,40 +262,25 @@ pub(crate) fn reconstruct_document_event(
             OwnedDocumentEvent::DocumentInvalidated {
                 document_id: metadata.document_id,
                 reason,
-                page_impact: metadata.page_impact,
             }
         }
         _ => return Err(corrupt("Owned Document event kind is unsupported")),
     };
 
+    let projection_impact = row
+        .projection_impact_json
+        .as_deref()
+        .ok_or_else(|| corrupt("Owned Document projection impact is missing"))
+        .and_then(decode_projection_impact)?;
     Ok(Some(CommittedCoreModuleEvent {
-        version: CORE_CONTRACT_VERSION,
+        version: CORE_EVENT_VERSION,
         sequence: row.sequence,
         store_epoch: StoreEpoch(row.store_epoch.clone()),
         operation_id: row.operation_id.clone(),
         committed_at: row.committed_at.clone(),
+        projection_impact,
         payload: CoreModuleEventPayload::OwnedDocument(payload),
     }))
-}
-
-fn validate_page_impact(impact: Option<&OwnedDocumentPageImpact>) -> Result<(), StoreError> {
-    let Some(impact) = impact else {
-        return Ok(());
-    };
-    if impact.library_id.is_empty()
-        || impact.library_id.len() > 512
-        || impact.page_id.is_empty()
-        || impact.page_id.len() > 512
-        || impact.database.as_ref().is_some_and(|database| {
-            database.database_id.is_empty()
-                || database.database_id.len() > 512
-                || database.data_source_id.is_empty()
-                || database.data_source_id.len() > 512
-        })
-    {
-        return Err(corrupt("Owned Document Page impact is invalid"));
-    }
-    Ok(())
 }
 
 pub(crate) fn validate_change_log_row(

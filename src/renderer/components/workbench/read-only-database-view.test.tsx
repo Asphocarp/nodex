@@ -19,6 +19,7 @@ const viewId = parseDatabaseViewId("view-focused");
 const tagsPropertyId = parseDataSourcePropertyId("tags");
 
 const model: DatabaseViewRenderModel = {
+  libraryId: "library-1",
   projectId: "project-1",
   databaseViewId: viewId,
   databaseId,

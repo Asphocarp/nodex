@@ -9,7 +9,8 @@ use nodex_core_contracts::workspace::{
     ProjectWorkspaceEventKind,
 };
 use nodex_core_contracts::{
-    CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CoreModuleEventPayload, StoreEpoch,
+    CORE_EVENT_VERSION, CommittedCoreModuleEvent, CoreModuleEventPayload, ProjectionImpact,
+    StoreEpoch,
 };
 use rusqlite::{Connection, params};
 use serde::Deserialize;
@@ -18,6 +19,10 @@ use crate::document::event_log::{
     ChangeLogRow, reconstruct_document_event, validate_change_log_row,
 };
 
+use super::projection_impact::{
+    canonicalize as canonicalize_projection_impact, decode as decode_projection_impact,
+    encode as encode_projection_impact, replay_floor,
+};
 use super::sqlite::{StoreError, StoreErrorCode};
 use super::writer::StoreReaders;
 
@@ -28,7 +33,86 @@ const MAX_EVENT_IDENTITIES: usize = 10_000;
 const MODULE_KINDS: &str = "'library.changed', 'database.changed', 'owned_document.document_initialized', \
     'owned_document.document_updated', 'owned_document.canvas_scene_updated', \
     'owned_document.document_restored', 'owned_document.document_invalidated', \
-    'project_workspace.changed', 'automation.changed', 'store_administration.changed'";
+    'project_workspace.changed', 'automation.changed', 'store_administration.changed', \
+    'block_mutation', 'block_relocation'";
+
+pub(crate) struct NewChangeLogEntry<'a> {
+    pub project_id: &'a str,
+    pub store_epoch: &'a str,
+    pub kind: &'a str,
+    pub operation_id: Option<&'a str>,
+    pub block_ids: &'a [String],
+    pub document_ids: &'a [String],
+    pub database_block_ids: &'a [String],
+    pub payload_json: &'a str,
+    pub projection_impact: &'a ProjectionImpact,
+    pub committed_at: &'a str,
+}
+
+pub(crate) fn append_change_log(
+    connection: &Connection,
+    entry: NewChangeLogEntry<'_>,
+) -> Result<i64, StoreError> {
+    let projection_impact = canonicalize_projection_impact(entry.projection_impact.clone())?;
+    let projection_impact_json = encode_projection_impact(&projection_impact)?;
+    connection.execute(
+        "INSERT INTO change_log(\
+           project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
+           database_block_ids_json, payload_json, projection_impact_json, committed_at\
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            entry.project_id,
+            entry.store_epoch,
+            entry.kind,
+            entry.operation_id,
+            serde_json::to_string(entry.block_ids)
+                .map_err(|_| corrupt("Change log Block identities are invalid"))?,
+            serde_json::to_string(entry.document_ids)
+                .map_err(|_| corrupt("Change log Document identities are invalid"))?,
+            serde_json::to_string(entry.database_block_ids)
+                .map_err(|_| corrupt("Change log Database identities are invalid"))?,
+            entry.payload_json,
+            projection_impact_json,
+            entry.committed_at,
+        ],
+    )?;
+    Ok(connection.last_insert_rowid())
+}
+
+pub(crate) fn load_committed_event_by_sequence(
+    connection: &Connection,
+    sequence: i64,
+) -> Result<CommittedCoreModuleEvent, StoreError> {
+    if sequence < 1 {
+        return Err(corrupt("Core event sequence is invalid"));
+    }
+    let row = connection
+        .query_row(
+            "SELECT seq, project_id, store_epoch, kind, operation_id, payload_json, \
+                    projection_impact_json, committed_at \
+             FROM change_log WHERE seq = ?1",
+            [sequence],
+            |row| {
+                Ok(ChangeLogRow {
+                    sequence: row.get(0)?,
+                    project_id: row.get(1)?,
+                    store_epoch: row.get(2)?,
+                    kind: row.get(3)?,
+                    operation_id: row.get(4)?,
+                    payload_json: row.get(5)?,
+                    projection_impact_json: row.get(6)?,
+                    committed_at: row.get(7)?,
+                })
+            },
+        )
+        .map_err(|error| match error {
+            rusqlite::Error::QueryReturnedNoRows => corrupt("Committed Core event is missing"),
+            _ => StoreError::from(error),
+        })?;
+    validate_change_log_row(&row, sequence - 1, event_head(connection)?)?;
+    reconstruct_event(connection, &row)?
+        .ok_or_else(|| corrupt("Committed Core event cannot be reconstructed"))
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CoreEventReplay {
@@ -73,6 +157,8 @@ struct LibraryMetadata {
     module: String,
     affected_page_ids: Vec<String>,
     affected_database_ids: Vec<String>,
+    #[serde(default)]
+    affected_view_ids: Vec<String>,
     affected_parent_keys: Vec<String>,
 }
 
@@ -156,6 +242,14 @@ fn replay_core_events(
     if oldest_change < 0 || event_head < oldest_change {
         return Err(corrupt("Change log retention boundary is invalid"));
     }
+    let projection_floor = replay_floor(connection)?;
+    if after < projection_floor - 1 {
+        return Ok(CoreEventReplay::ResyncRequired {
+            requested_after: after,
+            oldest_available: projection_floor,
+            event_head,
+        });
+    }
     if oldest_change > 1 && after < oldest_change - 1 {
         return Ok(CoreEventReplay::ResyncRequired {
             requested_after: after,
@@ -165,7 +259,8 @@ fn replay_core_events(
     }
 
     let sql = format!(
-        "SELECT seq, project_id, store_epoch, kind, operation_id, payload_json, committed_at \
+        "SELECT seq, project_id, store_epoch, kind, operation_id, payload_json, \
+                projection_impact_json, committed_at \
          FROM change_log WHERE seq > ?1 AND kind IN ({MODULE_KINDS}) \
          ORDER BY seq ASC LIMIT ?2"
     );
@@ -179,7 +274,8 @@ fn replay_core_events(
                 kind: row.get(3)?,
                 operation_id: row.get(4)?,
                 payload_json: row.get(5)?,
-                committed_at: row.get(6)?,
+                projection_impact_json: row.get(6)?,
+                committed_at: row.get(7)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()
@@ -220,16 +316,18 @@ fn reconstruct_event(
         return Err(corrupt("Core event payload exceeds its bound"));
     }
     let payload = match row.kind.as_str() {
-        "library.changed" => {
+        "library.changed" | "block_mutation" | "block_relocation" => {
             let metadata = decode::<LibraryMetadata>(row, "Library")?;
             require_module(&metadata.module, "library")?;
             validate_strings(&metadata.affected_page_ids, "Library Page")?;
             validate_strings(&metadata.affected_database_ids, "Library Database")?;
+            validate_strings(&metadata.affected_view_ids, "Library View")?;
             validate_strings(&metadata.affected_parent_keys, "Library parent")?;
             CoreModuleEventPayload::Library(LibraryEvent {
                 kind: LibraryEventKind::LibraryChanged,
                 page_ids: metadata.affected_page_ids,
                 database_ids: metadata.affected_database_ids,
+                view_ids: metadata.affected_view_ids,
                 parent_keys: metadata.affected_parent_keys,
             })
         }
@@ -353,12 +451,18 @@ fn reconstruct_event(
         }
         _ => return Err(corrupt("Core event kind is unsupported")),
     };
+    let projection_impact = row
+        .projection_impact_json
+        .as_deref()
+        .ok_or_else(|| corrupt("Core projection impact is missing"))
+        .and_then(decode_projection_impact)?;
     Ok(Some(CommittedCoreModuleEvent {
-        version: CORE_CONTRACT_VERSION,
+        version: CORE_EVENT_VERSION,
         sequence: row.sequence,
         store_epoch: StoreEpoch(row.store_epoch.clone()),
         operation_id: row.operation_id.clone(),
         committed_at: row.committed_at.clone(),
+        projection_impact,
         payload,
     }))
 }
@@ -482,6 +586,64 @@ mod tests {
     use crate::infrastructure::store::SqliteStoreKernel;
 
     #[test]
+    fn ledger_append_canonicalizes_required_projection_impact() {
+        let directory = tempdir().expect("temporary Profile");
+        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let encoded = kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO projects(id, name, created, updated) \
+                     VALUES ('project:events', 'Events', '2026-01-01', '2026-01-01')",
+                    [],
+                )?;
+                let impact = ProjectionImpact::Resources {
+                    page_ids: vec![
+                        "page:b".to_owned(),
+                        "page:a".to_owned(),
+                        "page:a".to_owned(),
+                    ],
+                    database_ids: Vec::new(),
+                    data_source_ids: Vec::new(),
+                    view_ids: Vec::new(),
+                    document_heads: Vec::new(),
+                };
+                append_change_log(
+                    connection,
+                    NewChangeLogEntry {
+                        project_id: "project:events",
+                        store_epoch: "epoch:events",
+                        kind: "project_workspace.changed",
+                        operation_id: Some("workspace:canonical-impact"),
+                        block_ids: &[],
+                        document_ids: &[],
+                        database_block_ids: &[],
+                        payload_json: "{}",
+                        projection_impact: &impact,
+                        committed_at: "2026-07-22T00:00:00Z",
+                    },
+                )?;
+                connection
+                    .query_row("SELECT projection_impact_json FROM change_log", [], |row| {
+                        row.get::<_, String>(0)
+                    })
+                    .map_err(StoreError::from)
+            })
+            .expect("canonical append");
+
+        assert_eq!(
+            decode_projection_impact(&encoded).expect("stored canonical impact"),
+            ProjectionImpact::Resources {
+                page_ids: vec!["page:a".to_owned(), "page:b".to_owned()],
+                database_ids: Vec::new(),
+                data_source_ids: Vec::new(),
+                view_ids: Vec::new(),
+                document_heads: Vec::new(),
+            }
+        );
+    }
+
+    #[test]
     fn replays_typed_module_events_from_durable_change_log() {
         let directory = tempdir().expect("temporary Profile");
         let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
@@ -519,8 +681,10 @@ mod tests {
                 ] {
                     connection.execute(
                         "INSERT INTO change_log(\
-                           project_id, store_epoch, kind, operation_id, payload_json, committed_at\
-                         ) VALUES ('project:events', 'epoch:events', ?1, ?2, ?3, '2026-01-01')",
+                           project_id, store_epoch, kind, operation_id, payload_json, \
+                           projection_impact_json, committed_at\
+                         ) VALUES ('project:events', 'epoch:events', ?1, ?2, ?3, \
+                           '{\"kind\":\"none\"}', '2026-01-01')",
                         params![kind, operation_id, payload.to_string()],
                     )?;
                 }
@@ -561,8 +725,10 @@ mod tests {
                 for index in 0..3 {
                     connection.execute(
                         "INSERT INTO change_log(\
-                           project_id, store_epoch, kind, operation_id, payload_json, committed_at\
-                         ) VALUES ('project:events', 'epoch:events', 'library.changed', ?1, ?2, '2026-01-01')",
+                           project_id, store_epoch, kind, operation_id, payload_json, \
+                           projection_impact_json, committed_at\
+                         ) VALUES ('project:events', 'epoch:events', 'library.changed', ?1, ?2, \
+                           '{\"kind\":\"none\"}', '2026-01-01')",
                         params![
                             format!("library:event:{index}"),
                             serde_json::json!({
@@ -587,6 +753,44 @@ mod tests {
     }
 
     #[test]
+    fn corrupt_post_floor_projection_impact_fails_closed() {
+        let directory = tempdir().expect("temporary Profile");
+        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO projects(id, name, created, updated) \
+                     VALUES ('project:events', 'Events', '2026-01-01', '2026-01-01')",
+                    [],
+                )?;
+                connection.execute(
+                    "INSERT INTO change_log( \
+                       project_id, store_epoch, kind, operation_id, payload_json, \
+                       projection_impact_json, committed_at \
+                     ) VALUES ( \
+                       'project:events', 'epoch:events', 'project_workspace.changed', \
+                       'workspace:corrupt-impact', \
+                       '{\"module\":\"project_workspace\",\"kind\":\"workspace_changed\",\
+                         \"projectIds\":[],\"sessionIds\":[],\"threadIds\":[],\
+                         \"sessionSummaryScopes\":[],\"sessionDetailIds\":[]}', \
+                       '{\"kind\":\"resources\",\"page_ids\":[\"b\",\"a\"],\
+                         \"database_ids\":[],\"data_source_ids\":[],\"view_ids\":[],\
+                         \"document_heads\":[]}', \
+                       '2026-07-22T00:00:00Z')",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("corrupt impact fixture");
+
+        let error = CoreEventLog::new(kernel.readers())
+            .replay(0, None)
+            .expect_err("post-floor corruption must fail replay");
+        assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+    }
+
+    #[test]
     fn upgrades_legacy_workspace_move_events_to_global_session_invalidation() {
         let directory = tempdir().expect("temporary Profile");
         let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
@@ -600,9 +804,10 @@ mod tests {
                 )?;
                 connection.execute(
                     "INSERT INTO change_log(\
-                       project_id, store_epoch, kind, operation_id, payload_json, committed_at\
+                       project_id, store_epoch, kind, operation_id, payload_json, \
+                       projection_impact_json, committed_at\
                      ) VALUES ('project:events', 'epoch:events', 'project_workspace.changed', \
-                       'workspace:legacy-move', ?1, '2026-01-01')",
+                       'workspace:legacy-move', ?1, '{\"kind\":\"none\"}', '2026-01-01')",
                     [serde_json::json!({
                         "module": "project_workspace",
                         "operationKind": "move_session",

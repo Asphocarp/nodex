@@ -9,19 +9,22 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, TryLockError};
 
 use nodex_core_contracts::administration::{
-    MaintenanceTask, SchemaOwner, StoreAdministrationCommitValue, StoreAdministrationEvent,
-    StoreAdministrationEventKind, StoreAdministrationIntent, StoreAdministrationRead,
-    StoreAdministrationReadValue, StoreAdministrationReceipt, StoreIntegrity, StoreReadiness,
+    BackupRecord, MaintenanceTask, SchemaOwner, StoreAdministrationCommitValue,
+    StoreAdministrationIntent, StoreAdministrationRead, StoreAdministrationReadValue,
+    StoreAdministrationReceipt, StoreIntegrity, StoreReadiness,
 };
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent,
-    CommittedModuleValue, CoreError, CoreErrorCode, CoreErrorRecovery, CoreModuleEventPayload,
-    ModuleApplyRequest, ModuleMutationReceipt, ModuleReadRequest, ModuleReadSnapshot, StoreEpoch,
+    CommittedModuleValue, CoreError, CoreErrorCode, CoreErrorRecovery, ModuleApplyRequest,
+    ModuleMutationReceipt, ModuleReadRequest, ModuleReadSnapshot, ProjectionImpact, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
+use crate::infrastructure::event_log::{
+    NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
+};
 use crate::infrastructure::module_receipts::{
     NewModuleReceipt, insert_module_receipt, read_module_receipt,
 };
@@ -351,8 +354,7 @@ impl StoreAdministrationModule {
                     &operation_id,
                     &request_hash,
                     &store_epoch,
-                    &record.backup_id,
-                    &record.created_at,
+                    &record,
                 )
             })
             .map_err(core_error)?;
@@ -937,6 +939,49 @@ fn deleted_backup_ids_from_result(result: &serde_json::Value) -> Result<Vec<Stri
 }
 
 #[allow(clippy::too_many_arguments)]
+fn append_administration_event(
+    connection: &Connection,
+    project_id: Option<&str>,
+    store_epoch: &str,
+    operation_id: &str,
+    payload: &serde_json::Value,
+    committed_at: &str,
+) -> Result<i64, StoreError> {
+    let Some(project_id) = project_id else {
+        return connection
+            .query_row("SELECT COALESCE(max(seq), 0) FROM change_log", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .map_err(StoreError::from);
+    };
+    let payload_json = payload.to_string();
+    append_change_log(
+        connection,
+        NewChangeLogEntry {
+            project_id,
+            store_epoch,
+            kind: "store_administration.changed",
+            operation_id: Some(operation_id),
+            block_ids: &[],
+            document_ids: &[],
+            database_block_ids: &[],
+            payload_json: &payload_json,
+            projection_impact: &ProjectionImpact::None,
+            committed_at,
+        },
+    )
+}
+
+fn load_optional_administration_event(
+    connection: &Connection,
+    event_project_id: Option<&str>,
+    event_sequence: i64,
+) -> Result<Option<CommittedCoreModuleEvent>, StoreError> {
+    event_project_id
+        .map(|_| load_committed_event_by_sequence(connection, event_sequence))
+        .transpose()
+}
+
 fn finish_backup_creation(
     connection: &mut Connection,
     library_id: &str,
@@ -944,15 +989,14 @@ fn finish_backup_creation(
     operation_id: &str,
     request_hash: &str,
     store_epoch: &str,
-    backup_id: &str,
-    committed_at: &str,
+    backup: &BackupRecord,
 ) -> Result<StoreAdministrationApplyOutcome, StoreError> {
     with_immediate_transaction(connection, |transaction| {
         let payload = json!({
             "module": MODULE_NAME,
             "operationKind": "create_backup",
             "kind": "store_administration_changed",
-            "backupIds": [backup_id],
+            "backupIds": [&backup.backup_id],
             "readinessChanged": false,
         });
         let event_project_id = transaction
@@ -963,29 +1007,17 @@ fn finish_backup_creation(
                 |row| row.get::<_, String>(0),
             )
             .optional()?;
-        let event_sequence = if let Some(project_id) = event_project_id.as_deref() {
-            transaction.execute(
-                "INSERT INTO change_log(\
-                   project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
-                   database_block_ids_json, payload_json, committed_at\
-                 ) VALUES (?1, ?2, 'store_administration.changed', ?3, '[]', '[]', '[]', ?4, ?5)",
-                params![
-                    project_id,
-                    store_epoch,
-                    operation_id,
-                    payload.to_string(),
-                    committed_at
-                ],
-            )?;
-            transaction.last_insert_rowid()
-        } else {
-            transaction.query_row("SELECT COALESCE(max(seq), 0) FROM change_log", [], |row| {
-                row.get::<_, i64>(0)
-            })?
-        };
+        let event_sequence = append_administration_event(
+            transaction,
+            event_project_id.as_deref(),
+            store_epoch,
+            operation_id,
+            &payload,
+            &backup.created_at,
+        )?;
         let committed = CommittedModuleValue {
             value: StoreAdministrationCommitValue {
-                backup_id: Some(backup_id.to_owned()),
+                backup_id: Some(backup.backup_id.clone()),
                 safety_backup_id: None,
                 completed_tasks: Vec::new(),
             },
@@ -994,7 +1026,7 @@ fn finish_backup_creation(
                     operation_id: operation_id.to_owned(),
                     duplicate: false,
                 },
-                backup_id: Some(backup_id.to_owned()),
+                backup_id: Some(backup.backup_id.clone()),
                 safety_backup_id: None,
             },
             event_sequence,
@@ -1013,22 +1045,14 @@ fn finish_backup_creation(
                 request_hash,
                 result: &result,
                 event_sequence: (event_project_id.is_some()).then_some(event_sequence),
-                committed_at,
+                committed_at: &backup.created_at,
             },
         )?;
-        let event = event_project_id.map(|_| CommittedCoreModuleEvent {
-            version: CORE_CONTRACT_VERSION,
-            sequence: event_sequence,
-            store_epoch: StoreEpoch(store_epoch.to_owned()),
-            operation_id: Some(operation_id.to_owned()),
-            committed_at: committed_at.to_owned(),
-            payload: CoreModuleEventPayload::StoreAdministration(StoreAdministrationEvent {
-                kind: StoreAdministrationEventKind::StoreAdministrationChanged,
-                operation: "create_backup".to_owned(),
-                backup_ids: vec![backup_id.to_owned()],
-                readiness_changed: false,
-            }),
-        });
+        let event = load_optional_administration_event(
+            transaction,
+            event_project_id.as_deref(),
+            event_sequence,
+        )?;
         Ok(StoreAdministrationApplyOutcome { committed, event })
     })
 }
@@ -1062,26 +1086,14 @@ fn finish_cleanup_operation(
                 |row| row.get::<_, String>(0),
             )
             .optional()?;
-        let event_sequence = if let Some(project_id) = event_project_id.as_deref() {
-            transaction.execute(
-                "INSERT INTO change_log(\
-                   project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
-                   database_block_ids_json, payload_json, committed_at\
-                 ) VALUES (?1, ?2, 'store_administration.changed', ?3, '[]', '[]', '[]', ?4, ?5)",
-                params![
-                    project_id,
-                    store_epoch,
-                    operation_id,
-                    payload.to_string(),
-                    committed_at
-                ],
-            )?;
-            transaction.last_insert_rowid()
-        } else {
-            transaction.query_row("SELECT COALESCE(max(seq), 0) FROM change_log", [], |row| {
-                row.get::<_, i64>(0)
-            })?
-        };
+        let event_sequence = append_administration_event(
+            transaction,
+            event_project_id.as_deref(),
+            store_epoch,
+            operation_id,
+            &payload,
+            committed_at,
+        )?;
         let committed = CommittedModuleValue {
             value: StoreAdministrationCommitValue {
                 backup_id: backup_id.map(str::to_owned),
@@ -1123,19 +1135,11 @@ fn finish_cleanup_operation(
                 committed_at,
             },
         )?;
-        let event = event_project_id.map(|_| CommittedCoreModuleEvent {
-            version: CORE_CONTRACT_VERSION,
-            sequence: event_sequence,
-            store_epoch: StoreEpoch(store_epoch.to_owned()),
-            operation_id: Some(operation_id.to_owned()),
-            committed_at: committed_at.to_owned(),
-            payload: CoreModuleEventPayload::StoreAdministration(StoreAdministrationEvent {
-                kind: StoreAdministrationEventKind::StoreAdministrationChanged,
-                operation: operation_kind.to_owned(),
-                backup_ids: deleted_backup_ids.to_vec(),
-                readiness_changed: false,
-            }),
-        });
+        let event = load_optional_administration_event(
+            transaction,
+            event_project_id.as_deref(),
+            event_sequence,
+        )?;
         Ok(StoreAdministrationApplyOutcome { committed, event })
     })
 }
@@ -1214,26 +1218,14 @@ fn finish_maintenance(
                 |row| row.get::<_, String>(0),
             )
             .optional()?;
-        let event_sequence = if let Some(project_id) = event_project_id.as_deref() {
-            transaction.execute(
-                "INSERT INTO change_log(\
-                   project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
-                   database_block_ids_json, payload_json, committed_at\
-                 ) VALUES (?1, ?2, 'store_administration.changed', ?3, '[]', '[]', '[]', ?4, ?5)",
-                params![
-                    project_id,
-                    store_epoch,
-                    operation_id,
-                    payload.to_string(),
-                    committed_at
-                ],
-            )?;
-            transaction.last_insert_rowid()
-        } else {
-            transaction.query_row("SELECT COALESCE(max(seq), 0) FROM change_log", [], |row| {
-                row.get::<_, i64>(0)
-            })?
-        };
+        let event_sequence = append_administration_event(
+            transaction,
+            event_project_id.as_deref(),
+            store_epoch,
+            operation_id,
+            &payload,
+            committed_at,
+        )?;
         let committed = CommittedModuleValue {
             value: StoreAdministrationCommitValue {
                 backup_id: None,
@@ -1267,19 +1259,11 @@ fn finish_maintenance(
                 committed_at,
             },
         )?;
-        let event = event_project_id.map(|_| CommittedCoreModuleEvent {
-            version: CORE_CONTRACT_VERSION,
-            sequence: event_sequence,
-            store_epoch: StoreEpoch(store_epoch.to_owned()),
-            operation_id: Some(operation_id.to_owned()),
-            committed_at: committed_at.to_owned(),
-            payload: CoreModuleEventPayload::StoreAdministration(StoreAdministrationEvent {
-                kind: StoreAdministrationEventKind::StoreAdministrationChanged,
-                operation: "run_maintenance".to_owned(),
-                backup_ids: Vec::new(),
-                readiness_changed: true,
-            }),
-        });
+        let event = load_optional_administration_event(
+            transaction,
+            event_project_id.as_deref(),
+            event_sequence,
+        )?;
         Ok(StoreAdministrationApplyOutcome { committed, event })
     })
 }
@@ -1316,26 +1300,14 @@ fn finish_restore(
                 |row| row.get::<_, String>(0),
             )
             .optional()?;
-        let event_sequence = if let Some(project_id) = event_project_id.as_deref() {
-            transaction.execute(
-                "INSERT INTO change_log(\
-                   project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
-                   database_block_ids_json, payload_json, committed_at\
-                 ) VALUES (?1, ?2, 'store_administration.changed', ?3, '[]', '[]', '[]', ?4, ?5)",
-                params![
-                    project_id,
-                    store_epoch,
-                    operation_id,
-                    payload.to_string(),
-                    committed_at
-                ],
-            )?;
-            transaction.last_insert_rowid()
-        } else {
-            transaction.query_row("SELECT COALESCE(max(seq), 0) FROM change_log", [], |row| {
-                row.get::<_, i64>(0)
-            })?
-        };
+        let event_sequence = append_administration_event(
+            transaction,
+            event_project_id.as_deref(),
+            store_epoch,
+            operation_id,
+            &payload,
+            committed_at,
+        )?;
         let committed = CommittedModuleValue {
             value: StoreAdministrationCommitValue {
                 backup_id: Some(backup_id.to_owned()),
@@ -1369,19 +1341,11 @@ fn finish_restore(
                 committed_at,
             },
         )?;
-        let event = event_project_id.map(|_| CommittedCoreModuleEvent {
-            version: CORE_CONTRACT_VERSION,
-            sequence: event_sequence,
-            store_epoch: StoreEpoch(store_epoch.to_owned()),
-            operation_id: Some(operation_id.to_owned()),
-            committed_at: committed_at.to_owned(),
-            payload: CoreModuleEventPayload::StoreAdministration(StoreAdministrationEvent {
-                kind: StoreAdministrationEventKind::StoreAdministrationChanged,
-                operation: "restore_backup".to_owned(),
-                backup_ids,
-                readiness_changed: true,
-            }),
-        });
+        let event = load_optional_administration_event(
+            transaction,
+            event_project_id.as_deref(),
+            event_sequence,
+        )?;
         Ok(StoreAdministrationApplyOutcome { committed, event })
     })
 }

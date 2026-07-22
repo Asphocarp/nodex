@@ -474,6 +474,9 @@ describe("Core Library Module Adapter", () => {
       requestingProjectId: "project:test",
       targetPageId: "page:one",
     })).resolves.toEqual({
+      libraryId: "library:test",
+      storeEpoch: "epoch:test",
+      changeLogSeq: 14,
       status: "available",
       targetPageId: "page:one",
       ancestors: [{
@@ -1222,19 +1225,21 @@ describe("Core Library Module Adapter", () => {
 
   test("maps only Library Core events into renderer invalidations", () => {
     expect(mapCoreLibraryEvent({
-      protocol_version: 1,
+      protocol_version: 2,
       event: {
-        version: 1,
+        version: 2,
         sequence: 9,
         store_epoch: identity.storeEpoch,
         operation_id: "operation:create",
         committed_at: "2026-07-19T15:02:00.000Z",
+        projection_impact: { kind: "none" },
         payload: {
           module: "library",
           event: {
             kind: "library_changed",
             page_ids: ["page:one"],
             database_ids: ["database:one"],
+            view_ids: [],
             parent_keys: ["library"],
           },
         },

@@ -5,8 +5,8 @@ use nodex_core_contracts::database::{
     DatabasePageValue, DatabaseReceipt, DatabaseTransferTarget,
 };
 use nodex_core_contracts::{
-    BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue,
-    CoreModuleEventPayload, ModuleApplyRequest, ModuleMutationReceipt, StoreEpoch,
+    BoundModuleContext, CommittedModuleValue, CoreModuleEventPayload, ModuleApplyRequest,
+    ModuleMutationReceipt, ProjectionImpact, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -20,9 +20,13 @@ use crate::domain::view_position::{
     LogicalViewPositionItem, ViewPositionPlanError, ViewSiblingRankWriteKind,
     plan_view_position_run,
 };
+use crate::infrastructure::event_log::{
+    NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
+};
 use crate::infrastructure::module_receipts::{
     NewModuleReceipt, insert_module_receipt, read_module_receipt,
 };
+use crate::infrastructure::projection_impact::impact_for_payload;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
 use crate::infrastructure::writer::StoreWriter;
 
@@ -4267,22 +4271,40 @@ fn commit(
         "viewIds": view_ids,
         "committedRevisions": committed_revisions,
     });
-    connection.execute(
-        "INSERT INTO change_log(\
-           project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
-           database_block_ids_json, payload_json, committed_at\
-         ) VALUES (?1, ?2, 'database.changed', ?3, ?4, '[]', ?5, ?6, ?7)",
-        params![
-            authority.ledger_project_id,
+    let event_payload = CoreModuleEventPayload::Database(DatabaseEvent {
+        kind: DatabaseEventKind::DatabaseChanged,
+        project_id: authority.project_id.clone(),
+        database_ids: database_ids.clone(),
+        data_source_ids: data_source_ids.clone(),
+        page_ids: page_ids.clone(),
+        view_ids: view_ids.clone(),
+    });
+    let projection_impact = if request
+        .intent
+        .iter()
+        .any(|intent| matches!(intent, DatabaseIntent::TransferPage { .. }))
+    {
+        ProjectionImpact::All
+    } else {
+        impact_for_payload(&event_payload)?
+    };
+    let payload_json =
+        serde_json::to_string(&payload).map_err(|_| internal("Database event payload"))?;
+    let event_sequence = append_change_log(
+        connection,
+        NewChangeLogEntry {
+            project_id: &authority.ledger_project_id,
             store_epoch,
-            request.operation_id,
-            serde_json::to_string(&block_ids).map_err(|_| internal("Database Block IDs"))?,
-            serde_json::to_string(&database_ids).map_err(|_| internal("Database affected IDs"))?,
-            serde_json::to_string(&payload).map_err(|_| internal("Database event payload"))?,
-            now,
-        ],
+            kind: "database.changed",
+            operation_id: Some(&request.operation_id),
+            block_ids: &block_ids,
+            document_ids: &[],
+            database_block_ids: &database_ids,
+            payload_json: &payload_json,
+            projection_impact: &projection_impact,
+            committed_at: now,
+        },
     )?;
-    let event_sequence = connection.last_insert_rowid();
     let receipt = DatabaseReceipt {
         mutation: ModuleMutationReceipt {
             operation_id: request.operation_id.clone(),
@@ -4321,21 +4343,7 @@ fn commit(
             committed_at: now,
         },
     )?;
-    let event = CommittedCoreModuleEvent {
-        version: CORE_CONTRACT_VERSION,
-        sequence: event_sequence,
-        store_epoch: StoreEpoch(store_epoch.to_owned()),
-        operation_id: Some(request.operation_id.clone()),
-        committed_at: now.to_owned(),
-        payload: CoreModuleEventPayload::Database(DatabaseEvent {
-            kind: DatabaseEventKind::DatabaseChanged,
-            project_id: authority.project_id.clone(),
-            database_ids,
-            data_source_ids,
-            page_ids,
-            view_ids,
-        }),
-    };
+    let event = load_committed_event_by_sequence(connection, event_sequence)?;
     Ok(DatabaseApplyOutcome {
         committed,
         event: Some(event),

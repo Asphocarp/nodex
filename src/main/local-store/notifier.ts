@@ -2,9 +2,7 @@ import { EventEmitter } from "events";
 import type { DatabasePageSummary } from "../../shared/types";
 import type { ProjectSessionsChangeEvent } from "../../shared/ipc-api";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
-import type { PageTargetChangedEvent } from "../../shared/page-target-events";
 import type { PageOwnershipPathsChangedEvent } from "../../shared/page-ownership-path-events";
-import type { AuthorityResyncEvent } from "../../shared/authority-resync-events";
 import {
   parseDatabaseId,
   parseDatabaseViewId,
@@ -27,6 +25,8 @@ export type ProjectChangeType =
   | "pin";
 export interface BoardChangeEvent {
   projectId: string;
+  storeEpoch?: string;
+  changeLogSeq?: number;
   changeType: ChangeType;
   columnId: string;
   status: string;
@@ -90,43 +90,12 @@ export class DatabaseNotifier extends EventEmitter {
     });
   }
 
-  notifyPageTargetChanged(
-    event: PageTargetChangedEvent,
-    options: { readonly notifyLibraryNavigation?: boolean } = {},
-  ): void {
-    this.emit("page-target-changed", event);
-    if (options.notifyLibraryNavigation === false) return;
-    this.notifyLibraryNavigationChanged({
-      version: LIBRARY_NAVIGATION_EVENT_VERSION,
-      libraryId: event.libraryId,
-      storeEpoch: event.storeEpoch,
-      changeLogSeq: event.changeLogSeq,
-      changeKind: event.changeKind === "metadata"
-        ? "content"
-        : event.changeKind,
-      affectedParentKeys: ["library", "catalog", `page:${event.targetPageId}`],
-      affectedPageIds: [event.targetPageId],
-      affectedDatabaseIds: event.affectedDatabaseIds.map(parseDatabaseId),
-      affectedViewIds: [],
-    });
-    if (event.changeKind === "location" || event.changeKind === "lifecycle") {
-      this.notifyPageOwnershipPathsChanged({
-        libraryId: event.libraryId,
-        changeKind: event.changeKind,
-      });
-    }
-  }
-
   notifyLibraryNavigationChanged(event: LibraryNavigationChangedEvent): void {
     this.emit("library-navigation-changed", event);
   }
 
   notifyPageOwnershipPathsChanged(event: PageOwnershipPathsChangedEvent): void {
     this.emit("page-ownership-paths-changed", event);
-  }
-
-  notifyAuthorityResync(event: AuthorityResyncEvent): void {
-    this.emit("authority-resync", event);
   }
 
   notifyProjectsChanged(changeType: ProjectChangeType, projectId?: string): void {

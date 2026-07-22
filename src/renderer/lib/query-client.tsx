@@ -7,6 +7,7 @@ import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { subscribeCodexEvents } from "./api";
 import { queryKeys } from "./query-keys";
 import type { CodexEvent } from "./types";
+import { ProjectionInvalidationProvider } from "./projection-invalidation-context";
 
 const ReactQueryDevtools = lazy(async () => {
   const module = await import("@tanstack/react-query-devtools");
@@ -59,7 +60,9 @@ export function NodexQueryProvider({ children }: { children: ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {children}
+      <ProjectionInvalidationProvider>
+        {children}
+      </ProjectionInvalidationProvider>
       <CodexHostCatalogQuerySync queryClient={queryClient} />
       {shouldRenderQueryDevtools() ? (
         <Suspense fallback={null}>
