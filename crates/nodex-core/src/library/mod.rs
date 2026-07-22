@@ -1931,6 +1931,37 @@ mod tests {
                         params![SOURCE, NOW],
                     )?;
                     transaction.execute(
+                        "INSERT INTO page_read_model( \
+                           page_block_id, project_id, lifecycle, location_kind, \
+                           containing_document_id, containing_database_id, top_level_rank_key, \
+                           location_revision, metadata_revision, document_id, document_generation, \
+                           document_projected_seq, document_schema_version, document_authority, \
+                           membership_id, database_block_id, view_id, view_group_key, view_rank_key, \
+                           title, description_preview, description_length, has_description, \
+                           database_values_json, intrinsic_properties_json, property_revisions_json, \
+                           projection_version, created_at, updated_at \
+                         ) VALUES (?1, 'project-1', 'active', 'space', NULL, NULL, 'a', 1, 1, \
+                           ?2, 1, 0, 2, 'legacy_shadow', NULL, NULL, NULL, NULL, NULL, '', '', 0, 0, \
+                           '{}', '{}', '{}', 1, ?3, ?3)",
+                        params![ROOT_PAGE, ROOT_DOCUMENT, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO page_read_model( \
+                           page_block_id, project_id, lifecycle, location_kind, \
+                           containing_document_id, containing_database_id, top_level_rank_key, \
+                           location_revision, metadata_revision, document_id, document_generation, \
+                           document_projected_seq, document_schema_version, document_authority, \
+                           membership_id, database_block_id, view_id, view_group_key, view_rank_key, \
+                           title, description_preview, description_length, has_description, \
+                           database_values_json, intrinsic_properties_json, property_revisions_json, \
+                           projection_version, created_at, updated_at \
+                         ) VALUES (?1, 'project-1', 'active', 'database', NULL, ?2, NULL, 1, 1, \
+                           ?3, 1, 0, 2, 'legacy_shadow', 'membership:row', ?2, NULL, NULL, NULL, '', '', 0, 0, \
+                           '{\"status\":\"triage\"}', '{}', \
+                           '{\"database\":{\"status\":1},\"intrinsic\":{}}', 1, ?4, ?4)",
+                        params![ROW_PAGE, DATABASE, ROW_DOCUMENT, NOW],
+                    )?;
+                    transaction.execute(
                         "UPDATE projects SET database_block_id = ?1 WHERE id = 'project-1'",
                         [DATABASE],
                     )?;

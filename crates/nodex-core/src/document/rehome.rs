@@ -53,6 +53,7 @@ pub(crate) fn rebuild_rehomed_document_projections(
                 &materialization,
                 authority.head.head_seq,
                 now,
+                true,
             )
         }
     }

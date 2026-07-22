@@ -22,9 +22,14 @@ describe("ProjectPageTargetChangeSubscriptionHub", () => {
     const unsubscribeB = hub.subscribe("project", "page-b", "query-b", targetB);
 
     projectStream.listener?.({
+      version: 1,
       libraryId: "project",
+      storeEpoch: "epoch",
+      changeLogSeq: 1,
       targetPageId: "page-a",
       changeKind: "content",
+      affectedDatabaseIds: [],
+      affectedDataSourceIds: [],
     });
 
     expect(firstA).toHaveBeenCalledOnce();
@@ -33,9 +38,14 @@ describe("ProjectPageTargetChangeSubscriptionHub", () => {
 
     unsubscribeFirst();
     projectStream.listener?.({
+      version: 1,
       libraryId: "project",
+      storeEpoch: "epoch",
+      changeLogSeq: 2,
       targetPageId: "page-a",
       changeKind: "lifecycle",
+      affectedDatabaseIds: [],
+      affectedDataSourceIds: [],
     });
     expect(secondA).toHaveBeenCalledOnce();
 

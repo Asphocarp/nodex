@@ -1,8 +1,10 @@
 import {
   invoke,
   readDatabaseModule,
+  subscribeAuthorityResync,
   subscribeBoardChanges,
   subscribeDatabaseChanges,
+  subscribePageTargetChanges,
 } from "./api";
 import type { BoardSummary, DatabasePage, PageInput, DatabasePageSummary } from "./types";
 import {
@@ -15,6 +17,7 @@ import { toDatabasePageSummary } from "../../shared/page-summary";
 import { applyBoardChangeEventToBoard, upsertCardSummaryInBoard } from "./board-summary-events";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
+import type { PageTargetChangedEvent } from "../../shared/page-target-events";
 import {
   DATABASE_MODULE_V2_CONTRACT_VERSION,
   type DatabaseModuleReadRequestV2,
@@ -62,6 +65,8 @@ type ReadDatabaseModuleFn = (
 ) => Promise<DatabaseModuleReadResultV2>;
 type SubscribeBoardChangesFn = (projectId: string, callback: (event: BoardChangeEvent) => void) => () => void;
 type SubscribeDatabaseChangesFn = (projectId: string, callback: (event: DatabaseChangeEvent) => void) => () => void;
+type SubscribePageTargetChangesFn = (projectId: string, callback: (event: PageTargetChangedEvent) => void) => () => void;
+type SubscribeAuthorityResyncFn = (projectId: string, callback: () => void) => () => void;
 type NowFn = () => number;
 
 export interface KanbanStoreDependencies {
@@ -69,6 +74,8 @@ export interface KanbanStoreDependencies {
   readDatabaseModule: ReadDatabaseModuleFn;
   subscribeBoardChanges: SubscribeBoardChangesFn;
   subscribeDatabaseChanges: SubscribeDatabaseChangesFn;
+  subscribePageTargetChanges: SubscribePageTargetChangesFn;
+  subscribeAuthorityResync: SubscribeAuthorityResyncFn;
   now: NowFn;
 }
 
@@ -115,6 +122,8 @@ const defaultDependencies: KanbanStoreDependencies = {
   readDatabaseModule,
   subscribeBoardChanges,
   subscribeDatabaseChanges,
+  subscribePageTargetChanges,
+  subscribeAuthorityResync,
   now: () => Date.now(),
 };
 
@@ -174,6 +183,12 @@ class KanbanProjectStore {
   private unsubscribeBoardChanges: (() => void) | null = null;
 
   private unsubscribeDatabaseChanges: (() => void) | null = null;
+
+  private unsubscribePageTargetChanges: (() => void) | null = null;
+
+  private unsubscribeAuthorityResync: (() => void) | null = null;
+
+  private refreshRequestedWhileFetching = false;
 
   private lastMutationAt = 0;
 
@@ -265,6 +280,10 @@ class KanbanProjectStore {
         });
       } finally {
         this.inFlightFetch = null;
+        if (this.refreshRequestedWhileFetching && this.listeners.size > 0) {
+          this.refreshRequestedWhileFetching = false;
+          void this.fetchBoard();
+        }
       }
     })();
 
@@ -582,6 +601,15 @@ class KanbanProjectStore {
     return this.dependencies.now() - this.lastMutationAt < MUTATION_COOLDOWN_MS;
   }
 
+  private requestRealtimeRefresh(): void {
+    this.stale = true;
+    if (this.inFlightFetch) {
+      this.refreshRequestedWhileFetching = true;
+      return;
+    }
+    void this.fetchBoard();
+  }
+
   private ensureRealtimeSubscription(): void {
     if (!this.unsubscribeBoardChanges) {
       this.unsubscribeBoardChanges = this.dependencies.subscribeBoardChanges(
@@ -590,7 +618,7 @@ class KanbanProjectStore {
           if (this.databaseViewId) {
             this.stale = true;
             if (this.shouldSkipRealtimeRefresh()) return;
-            void this.fetchBoard();
+            this.requestRealtimeRefresh();
             return;
           }
           const nextBoard = applyBoardChangeEventToBoard(
@@ -607,15 +635,37 @@ class KanbanProjectStore {
             return;
           }
           if (this.shouldSkipRealtimeRefresh()) return;
-          void this.fetchBoard();
+          this.requestRealtimeRefresh();
         },
       );
     }
     if (!this.unsubscribeDatabaseChanges) {
       this.unsubscribeDatabaseChanges =
         this.dependencies.subscribeDatabaseChanges(this.projectId, () => {
-          this.stale = true;
-          void this.refreshBoard();
+          this.requestRealtimeRefresh();
+        });
+    }
+    if (!this.unsubscribePageTargetChanges) {
+      this.unsubscribePageTargetChanges =
+        this.dependencies.subscribePageTargetChanges(this.projectId, (event) => {
+          const loadedDatabaseId = this.baseDatabaseView?.databaseId;
+          const affectsLoadedDatabase = loadedDatabaseId
+            ? event.affectedDatabaseIds.includes(loadedDatabaseId)
+            : false;
+          const affectsLoadedPage = this.snapshot.pageIndex.has(event.targetPageId);
+          const initialReadInFlight = this.inFlightFetch !== null
+            && this.baseBoard === null
+            && this.baseDatabaseView === null;
+          if (!affectsLoadedDatabase && !affectsLoadedPage && !initialReadInFlight) {
+            return;
+          }
+          this.requestRealtimeRefresh();
+        });
+    }
+    if (!this.unsubscribeAuthorityResync) {
+      this.unsubscribeAuthorityResync =
+        this.dependencies.subscribeAuthorityResync(this.projectId, () => {
+          this.requestRealtimeRefresh();
         });
     }
   }
@@ -623,8 +673,13 @@ class KanbanProjectStore {
   private teardownRealtimeSubscription(): void {
     this.unsubscribeBoardChanges?.();
     this.unsubscribeDatabaseChanges?.();
+    this.unsubscribePageTargetChanges?.();
+    this.unsubscribeAuthorityResync?.();
     this.unsubscribeBoardChanges = null;
     this.unsubscribeDatabaseChanges = null;
+    this.unsubscribePageTargetChanges = null;
+    this.unsubscribeAuthorityResync = null;
+    this.refreshRequestedWhileFetching = false;
   }
 }
 

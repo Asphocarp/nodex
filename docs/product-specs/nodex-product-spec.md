@@ -1017,18 +1017,20 @@ CREATE TABLE codex_pinned_threads (
 **Electron path (IPC):**
 ```
 Core commit → authenticated event stream → mainWindow.webContents.send()
-    → window.api.on("board-changed") → useKanban hook → UI re-renders
+    → window.api Page/Database subscriptions → exact-head reread → UI re-renders
 ```
 
 Primary Page Document edits use the independent binary collaboration plane:
 
 ```
 Page Stage Y.Doc transaction → Core Document apply → serialized SQLite commit/ACK
-    → Document subscriber fanout + same-head DatabasePageSummary materialization event
-    → other mounted surfaces apply remote origin; board summaries patch from projection
+    → same-head Page materialization + durable Page impact event
+    → mounted editors apply remote origin; Page/Database readers invalidate and reread
 ```
 
-Each surface subscribes before its state-vector handshake. Missed or reordered realtime events are repaired by a later handshake; a fast successful ACK shows no save indicator. Browser clients use the equivalent binary POST + Document SSE Adapter. Both transports reach the same Document authority and no Page snapshot write exists.
+The durable Page impact identifies its Library/Page and optional Database/Data Source at commit time and carries Core epoch/sequence coordinates through the versioned `page-target-changed` boundary. It contains no title or summary snapshot. Database Views, Page detail, and reference queries reread the canonical exact-head projection; if an event arrives during an in-flight read, they perform one trailing reread so the older response cannot become terminal state.
+
+Each editor surface subscribes before its state-vector handshake. Missed or reordered Document updates are repaired by a later handshake; a fast successful ACK shows no save indicator. The global Core event stream replays from its last published sequence, and a retention gap or browser SSE reconnection emits `authority-resync` so mounted Page/Database readers perform a canonical reread. Browser clients use the equivalent binary POST + Document SSE Adapter. Both transports reach the same Document authority and no Page snapshot write exists.
 
 Agent-facing body edits use ordered stable-ID Document operations (`set title`, `insert`, `update`, `delete`, and `move`) against the current Page Document. A batch either commits its Yjs update, Block registry/indexes, projections, mutation receipt, and change cursor together or changes nothing. Identity-destructive operations require mounted editors to flush and freeze behind a short write fence. Whole NFM input is an explicit compare-and-swap import; an owning `<page uuid="..." />` may pin only an existing Page shell in that same Document.
 

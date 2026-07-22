@@ -117,6 +117,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
                 [OWNER_BLOCK_ID, LIBRARY_ID, DOCUMENT_ID],
             )?;
+            transaction.execute(
+                "INSERT INTO page_read_model(\
+                   page_block_id, project_id, lifecycle, location_kind, \
+                   containing_document_id, containing_database_id, top_level_rank_key, \
+                   location_revision, metadata_revision, document_id, document_generation, \
+                   document_projected_seq, document_schema_version, document_authority, \
+                   membership_id, database_block_id, view_id, view_group_key, view_rank_key, \
+                   title, description_preview, description_length, has_description, \
+                   database_values_json, intrinsic_properties_json, property_revisions_json, \
+                   projection_version, created_at, updated_at\
+                 ) VALUES (?1, ?2, 'active', 'space', NULL, NULL, NULL, 1, 1, ?3, 1, 0, 2, \
+                   'legacy_shadow', NULL, NULL, NULL, NULL, NULL, '', '', 0, 0, '{}', '{}', \
+                   '{}', 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                [OWNER_BLOCK_ID, PROJECT_ID, DOCUMENT_ID],
+            )?;
             Ok(())
         })
     })?;

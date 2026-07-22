@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useEffectEvent, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Database, LayoutList } from "lucide-react";
 
@@ -11,9 +11,12 @@ import type { DatabaseViewId } from "../../../shared/database-identities";
 import {
   readLibraryDatabaseModule,
   readDatabaseModule,
+  subscribeAuthorityResync,
   subscribeDatabaseChanges,
   subscribeLibraryChanges,
+  subscribePageTargetChanges,
 } from "../../lib/api";
+import { invalidateExactQuery } from "../../lib/query-invalidation";
 
 type DatabaseRouteTarget = Extract<
   LibraryRouteTarget,
@@ -110,39 +113,55 @@ export function LibraryDatabaseRoute({
     },
   });
 
-  useEffect(() => {
-    const invalidate = (event: {
-      readonly affectedDatabaseIds: readonly string[];
-      readonly affectedViewIds?: readonly string[];
-    }) => {
+  const invalidate = useEffectEvent((event: {
+    readonly affectedDatabaseIds: readonly string[];
+    readonly affectedViewIds?: readonly string[];
+  }) => {
     const value = query.data;
     const affected = databaseId
       ? event.affectedDatabaseIds.includes(databaseId)
       : directViewId
         ? (event.affectedViewIds ?? []).includes(directViewId)
         : false;
-    if (
-      !affected &&
-      (!value || !event.affectedDatabaseIds.includes(value.database.databaseId))
-    ) {
-      return;
-    }
-    void queryClient.invalidateQueries({ queryKey: descriptorKey });
-    void queryClient.invalidateQueries({ queryKey });
-    };
+    const affectsLoadedDatabase = value
+      ? event.affectedDatabaseIds.includes(value.database.databaseId)
+      : false;
+    const unresolvedDirectView = directViewId !== null && !value;
+    if (!affected && !affectsLoadedDatabase && !unresolvedDirectView) return;
+    void invalidateExactQuery(queryClient, descriptorKey);
+    void invalidateExactQuery(queryClient, queryKey);
+  });
+  const refreshAuthority = useEffectEvent(() => {
+    void invalidateExactQuery(queryClient, descriptorKey);
+    void invalidateExactQuery(queryClient, queryKey);
+  });
+
+  useEffect(() => {
+    const unsubscribeAuthorityResync = subscribeAuthorityResync(
+      accessProjectId ?? null,
+      refreshAuthority,
+    );
     if (accessProjectId) {
-      return subscribeDatabaseChanges(accessProjectId, invalidate);
+      const unsubscribeDatabase = subscribeDatabaseChanges(
+        accessProjectId,
+        invalidate,
+      );
+      const unsubscribePageTarget = subscribePageTargetChanges(
+        accessProjectId,
+        invalidate,
+      );
+      return () => {
+        unsubscribeDatabase();
+        unsubscribePageTarget();
+        unsubscribeAuthorityResync();
+      };
     }
-    return subscribeLibraryChanges(invalidate);
-  }, [
-    accessProjectId,
-    databaseId,
-    descriptorKey,
-    directViewId,
-    query.data,
-    queryClient,
-    queryKey,
-  ]);
+    const unsubscribeLibrary = subscribeLibraryChanges(invalidate);
+    return () => {
+      unsubscribeLibrary();
+      unsubscribeAuthorityResync();
+    };
+  }, [accessProjectId]);
 
   const error = descriptor.error ?? query.error;
   const value = query.data;

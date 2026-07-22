@@ -1781,6 +1781,7 @@ export interface IpcEvents {
   "persisted-atom:updated": PersistedAtomEvent;
   "board-changed": BoardChangeEvent;
   "page-target-changed": import("./page-target-events").PageTargetChangedEvent;
+  "authority-resync": import("./authority-resync-events").AuthorityResyncEvent;
   "page-ownership-paths-changed": import("./page-ownership-path-events").PageOwnershipPathsChangedEvent;
   "database-changed": DatabaseChangeEvent;
   "library-navigation-changed": import("./library-events").LibraryNavigationChangedEvent;

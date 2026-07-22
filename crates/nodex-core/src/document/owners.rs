@@ -350,6 +350,7 @@ fn promote_synced_source(
             generation: 1,
             head_seq: source_persisted.head_seq,
             update: source_prepared.update_v1,
+            page_impact: source_persisted.page_impact.clone(),
         },
     );
     let mut events = vec![host_persisted.event, source_event];
@@ -761,6 +762,7 @@ fn persist_prepared_update(
             generation: loaded.authority.head.generation,
             head_seq: persisted.head_seq,
             update: prepared.update_v1,
+            page_impact: persisted.page_impact.clone(),
         },
     );
     let mut authority = loaded.authority;
@@ -999,6 +1001,7 @@ fn create_yjs_owner(
             generation: 1,
             head_seq: persisted.head_seq,
             update: prepared.update_v1,
+            page_impact: persisted.page_impact.clone(),
         },
     );
     let mut created_block_ids = vec![input.block_id.to_owned()];
@@ -1500,6 +1503,13 @@ fn persist_invalidation(
         DocumentInvalidationReason::GenerationChanged => "generation_changed",
         DocumentInvalidationReason::Restored => "restored",
     };
+    let page_impact = read_document_authority(connection, &head.document_id)?
+        .and_then(|authority| authority.page_impact());
+    let database_ids = page_impact
+        .as_ref()
+        .and_then(|impact| impact.database.as_ref())
+        .map(|database| vec![database.database_id.as_str()])
+        .unwrap_or_default();
     let payload = json!({
         "module": "owned_document",
         "kind": "document_invalidated",
@@ -1507,18 +1517,21 @@ fn persist_invalidation(
         "generation": head.generation,
         "headSeq": head.head_seq,
         "reason": reason_name,
+        "pageImpact": page_impact,
     });
     connection.execute(
         "INSERT INTO change_log (\
            project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
            database_block_ids_json, payload_json, committed_at\
-         ) VALUES (?1, ?2, 'owned_document.document_invalidated', ?3, '[]', ?4, '[]', ?5, ?6)",
+         ) VALUES (?1, ?2, 'owned_document.document_invalidated', ?3, '[]', ?4, ?5, ?6, ?7)",
         params![
             project_id,
             store_epoch,
             operation_id,
             serde_json::to_string(&[&head.document_id])
                 .map_err(|_| internal("Invalidation Document IDs"))?,
+            serde_json::to_string(&database_ids)
+                .map_err(|_| internal("Invalidation Database IDs"))?,
             serde_json::to_string(&payload).map_err(|_| internal("Invalidation event payload"))?,
             now,
         ],
@@ -1531,6 +1544,7 @@ fn persist_invalidation(
         OwnedDocumentEvent::DocumentInvalidated {
             document_id: head.document_id.clone(),
             reason,
+            page_impact,
         },
     ))
 }

@@ -2406,6 +2406,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
 type ProjectEventName =
   | "board-changed"
   | "page-target-changed"
+  | "authority-resync"
   | "page-ownership-paths-changed"
   | "database-changed"
   | "project-sessions-changed";
@@ -2457,9 +2458,28 @@ const ensureBrowserProjectEventStream = (
         return;
       }
       const eventName = event.event;
+      if (eventName === "connected") {
+        const resync = {
+          version: 1,
+          reason: "transport_reconnected",
+          storeEpoch: null,
+          changeLogSeq: null,
+        } as const;
+        for (const listener of [
+          ...(stream.listeners.get("authority-resync") ?? []),
+        ]) {
+          try {
+            listener(resync);
+          } catch {
+            // One consumer cannot starve the other Project event consumers.
+          }
+        }
+        return;
+      }
       if (
         eventName !== "board-changed" &&
         eventName !== "page-target-changed" &&
+        eventName !== "authority-resync" &&
         eventName !== "page-ownership-paths-changed" &&
         eventName !== "database-changed" &&
         eventName !== "project-sessions-changed"
@@ -2528,6 +2548,23 @@ function subscribePageTargetChanges(
   );
 }
 
+function subscribeAuthorityResync(
+  projectId: string | null,
+  callback: (
+    event: import("../../shared/authority-resync-events").AuthorityResyncEvent,
+  ) => void,
+): () => void {
+  if (projectId === null) {
+    return subscribeBrowserLibraryAuthorityResync(callback);
+  }
+  return subscribeBrowserProjectEvent(
+    projectId,
+    "authority-resync",
+    (event) => callback(event as unknown as
+      import("../../shared/authority-resync-events").AuthorityResyncEvent),
+  );
+}
+
 function subscribePageOwnershipPathChanges(
   projectId: string,
   callback: (
@@ -2559,6 +2596,73 @@ let browserLibraryEventSource: EventSource | null = null;
 const browserLibraryEventListeners = new Set<(
   event: import("../../shared/library-events").LibraryNavigationChangedEvent,
 ) => void>();
+const browserLibraryAuthorityResyncListeners = new Set<(
+  event: import("../../shared/authority-resync-events").AuthorityResyncEvent,
+) => void>();
+
+const ensureBrowserLibraryEventSource = (): void => {
+  if (browserLibraryEventSource || typeof EventSource === "undefined") return;
+  browserLibraryEventSource = new EventSource(
+    toApiUrl("/api/library-module/events"),
+  );
+  browserLibraryEventSource.onmessage = (message) => {
+    try {
+      const event = JSON.parse(message.data) as unknown;
+      if (!isEventRecord(event)) return;
+      if (event.event === "connected") {
+        const resync = {
+          version: 1,
+          reason: "transport_reconnected",
+          storeEpoch: null,
+          changeLogSeq: null,
+        } as const;
+        for (const listener of [...browserLibraryAuthorityResyncListeners]) {
+          try {
+            listener(resync);
+          } catch {
+            // One consumer cannot starve the other Library event consumers.
+          }
+        }
+        return;
+      }
+      if (event.event === "authority-resync") {
+        for (const listener of [...browserLibraryAuthorityResyncListeners]) {
+          try {
+            listener(event as unknown as
+              import("../../shared/authority-resync-events").AuthorityResyncEvent);
+          } catch {
+            // One consumer cannot starve the other Library event consumers.
+          }
+        }
+        return;
+      }
+      if (
+        event.event !== "library-navigation-changed"
+        || event.version !== 1
+        || typeof event.libraryId !== "string"
+      ) return;
+      for (const listener of [...browserLibraryEventListeners]) {
+        try {
+          listener(event as unknown as
+            import("../../shared/library-events").LibraryNavigationChangedEvent);
+        } catch {
+          // One consumer cannot starve the other Library event consumers.
+        }
+      }
+    } catch {
+      // A malformed event is only an invalidation miss; the next read heals it.
+    }
+  };
+};
+
+const closeBrowserLibraryEventSourceIfUnused = (): void => {
+  if (
+    browserLibraryEventListeners.size > 0
+    || browserLibraryAuthorityResyncListeners.size > 0
+  ) return;
+  browserLibraryEventSource?.close();
+  browserLibraryEventSource = null;
+};
 
 function subscribeLibraryChanges(
   callback: (
@@ -2567,35 +2671,30 @@ function subscribeLibraryChanges(
 ): () => void {
   if (typeof EventSource === "undefined") return () => {};
   browserLibraryEventListeners.add(callback);
-  if (!browserLibraryEventSource) {
-    browserLibraryEventSource = new EventSource(
-      toApiUrl("/api/library-module/events"),
-    );
-    browserLibraryEventSource.onmessage = (message) => {
-      try {
-        const event = JSON.parse(message.data) as unknown;
-        if (
-          !isEventRecord(event) ||
-          event.event !== "library-navigation-changed" ||
-          event.version !== 1 ||
-          typeof event.libraryId !== "string"
-        ) return;
-        for (const listener of [...browserLibraryEventListeners]) {
-          listener(event as unknown as import("../../shared/library-events").LibraryNavigationChangedEvent);
-        }
-      } catch {
-        // A malformed event is only an invalidation miss; the next read heals it.
-      }
-    };
-  }
+  ensureBrowserLibraryEventSource();
   let active = true;
   return () => {
     if (!active) return;
     active = false;
     browserLibraryEventListeners.delete(callback);
-    if (browserLibraryEventListeners.size > 0) return;
-    browserLibraryEventSource?.close();
-    browserLibraryEventSource = null;
+    closeBrowserLibraryEventSourceIfUnused();
+  };
+}
+
+function subscribeBrowserLibraryAuthorityResync(
+  callback: (
+    event: import("../../shared/authority-resync-events").AuthorityResyncEvent,
+  ) => void,
+): () => void {
+  if (typeof EventSource === "undefined") return () => {};
+  browserLibraryAuthorityResyncListeners.add(callback);
+  ensureBrowserLibraryEventSource();
+  let active = true;
+  return () => {
+    if (!active) return;
+    active = false;
+    browserLibraryAuthorityResyncListeners.delete(callback);
+    closeBrowserLibraryEventSourceIfUnused();
   };
 }
 
@@ -3053,6 +3152,7 @@ export const browserRendererTransport = {
   invoke,
   subscribeBoardChanges,
   subscribePageTargetChanges,
+  subscribeAuthorityResync,
   subscribePageOwnershipPathChanges,
   subscribeDatabaseChanges,
   subscribeLibraryChanges,

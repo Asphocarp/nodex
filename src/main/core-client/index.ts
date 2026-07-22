@@ -16,6 +16,7 @@ export {
   createDesktopDocumentSyncBridge,
   type DesktopDocumentSyncPort,
 } from "./desktop-document-sync-bridge";
+export { mapCorePageProjectionEvents } from "./page-projection-events";
 export { readCoreRuntimeConnection } from "./runtime-descriptor";
 export { connectOrStartCore, resolveCoreExecutable } from "./core-launcher";
 export { initializeDesktopDataAuthority } from "./desktop-data-authority";

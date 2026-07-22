@@ -4,6 +4,8 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
+use nodex_core_contracts::document::{OwnedDocumentPageDatabaseImpact, OwnedDocumentPageImpact};
+
 use crate::domain::derived_records::{BlockDocumentAssetKind, BlockDocumentReference};
 use crate::infrastructure::document_repository::{DocumentHeadRow, DocumentReadRepository};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
@@ -27,6 +29,17 @@ pub(crate) struct DocumentAuthorityRow {
     pub owner_lifecycle: String,
     pub page_library_id: Option<String>,
     pub page_lifecycle: Option<String>,
+    pub page_database: Option<OwnedDocumentPageDatabaseImpact>,
+}
+
+impl DocumentAuthorityRow {
+    pub(crate) fn page_impact(&self) -> Option<OwnedDocumentPageImpact> {
+        Some(OwnedDocumentPageImpact {
+            library_id: self.page_library_id.clone()?,
+            page_id: self.owner_block_id.clone(),
+            database: self.page_database.clone(),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +52,7 @@ pub(crate) struct PersistedDocumentCommit {
     /// when the owning aggregate publishes one.
     pub event_sequence: i64,
     pub committed_at: String,
+    pub page_impact: Option<OwnedDocumentPageImpact>,
 }
 
 pub(crate) struct PersistYjsCommit<'a> {
@@ -84,12 +98,15 @@ pub(crate) fn read_document_authority(
     let owner = connection
         .query_row(
             "SELECT ownership.block_id, owner.type, owner.lifecycle, \
-                    page.library_id, page.lifecycle \
+                    page.library_id, page.lifecycle, page.parent_kind, page.parent_id, \
+                    source.home_database_block_id \
              FROM block_documents ownership \
              JOIN blocks owner ON owner.id = ownership.block_id \
                AND owner.project_id = ownership.project_id \
              LEFT JOIN pages page ON page.block_id = owner.id \
                AND page.document_id = ownership.document_id \
+             LEFT JOIN data_sources source ON page.parent_kind = 'data_source' \
+               AND source.id = page.parent_id AND source.library_id = page.library_id \
              WHERE ownership.document_id = ?1 AND ownership.project_id = ?2",
             params![document_id, head.project_id],
             |row| {
@@ -99,13 +116,24 @@ pub(crate) fn read_document_authority(
                     row.get::<_, String>(2)?,
                     row.get::<_, Option<String>>(3)?,
                     row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<String>>(7)?,
                 ))
             },
         )
         .optional()
         .map_err(|_| corrupt("Document owner row has invalid column types"))?;
-    let Some((owner_block_id, owner_type, owner_lifecycle, page_library_id, page_lifecycle)) =
-        owner
+    let Some((
+        owner_block_id,
+        owner_type,
+        owner_lifecycle,
+        page_library_id,
+        page_lifecycle,
+        page_parent_kind,
+        page_parent_id,
+        page_database_id,
+    )) = owner
     else {
         return Err(corrupt("Document has no owning Block"));
     };
@@ -124,9 +152,34 @@ pub(crate) fn read_document_authority(
         {
             return Err(corrupt("Page Document authority row is invalid"));
         }
+        if page_library_id.is_some()
+            && (!matches!(
+                page_parent_kind.as_deref(),
+                Some("library" | "page" | "data_source")
+            ) || page_parent_id.as_deref().is_none_or(str::is_empty))
+        {
+            return Err(corrupt("Page Document parent authority is invalid"));
+        }
     } else if page_library_id.is_some() || page_lifecycle.is_some() {
         return Err(corrupt("Non-Page Document has Page authority"));
     }
+    let page_database = match page_parent_kind.as_deref() {
+        Some("data_source") => Some(OwnedDocumentPageDatabaseImpact {
+            database_id: page_database_id
+                .filter(|database_id| !database_id.is_empty())
+                .ok_or_else(|| corrupt("Page Data Source has no home Database"))?,
+            data_source_id: page_parent_id
+                .filter(|data_source_id| !data_source_id.is_empty())
+                .ok_or_else(|| corrupt("Page Data Source identity is invalid"))?,
+        }),
+        Some("library" | "page") | None => {
+            if page_database_id.is_some() {
+                return Err(corrupt("Non-Database Page has Database authority"));
+            }
+            None
+        }
+        Some(_) => return Err(corrupt("Page parent kind is invalid")),
+    };
     Ok(Some(DocumentAuthorityRow {
         head,
         owner_block_id,
@@ -134,6 +187,7 @@ pub(crate) fn read_document_authority(
         owner_lifecycle,
         page_library_id,
         page_lifecycle,
+        page_database,
     }))
 }
 
@@ -289,6 +343,7 @@ pub(crate) fn persist_yjs_commit(
         input.materialization,
         next_head_seq,
         &now,
+        true,
     )?;
     let materialization_bytes =
         serde_json::to_vec(input.materialization).map_err(|_| internal("Materialization hash"))?;
@@ -323,12 +378,19 @@ pub(crate) fn persist_yjs_commit(
         "updateId": input.update_id,
         "updateHash": update_hash,
         "updateByteLength": input.update.len(),
+        "pageImpact": input.authority.page_impact(),
     });
+    let page_impact = input.authority.page_impact();
+    let database_ids = page_impact
+        .as_ref()
+        .and_then(|impact| impact.database.as_ref())
+        .map(|database| vec![database.database_id.as_str()])
+        .unwrap_or_default();
     connection.execute(
         "INSERT INTO change_log (\
            project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
            database_block_ids_json, payload_json, committed_at\
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, '[]', ?7, ?8)",
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             input.authority.head.project_id,
             input.store_epoch,
@@ -337,6 +399,8 @@ pub(crate) fn persist_yjs_commit(
             derived_touched_json,
             serde_json::to_string(&[&input.authority.head.id])
                 .map_err(|_| internal("Document event IDs"))?,
+            serde_json::to_string(&database_ids)
+                .map_err(|_| internal("Document event Database IDs"))?,
             serde_json::to_string(&payload).map_err(|_| internal("Document event payload"))?,
             now,
         ],
@@ -349,6 +413,7 @@ pub(crate) fn persist_yjs_commit(
         derived_touched_block_ids,
         event_sequence,
         committed_at: now,
+        page_impact,
     })
 }
 
@@ -464,7 +529,14 @@ pub(crate) fn persist_yjs_genesis(
     if changed != 1 {
         return Err(conflict("Document genesis authority changed before commit"));
     }
-    replace_secondary_projections(connection, input.authority, input.materialization, 1, &now)?;
+    replace_secondary_projections(
+        connection,
+        input.authority,
+        input.materialization,
+        1,
+        &now,
+        input.emit_event,
+    )?;
     let materialization_bytes = serde_json::to_vec(input.materialization)
         .map_err(|_| internal("Genesis materialization hash"))?;
     connection.execute(
@@ -491,12 +563,19 @@ pub(crate) fn persist_yjs_genesis(
             "updateId": input.update_id,
             "updateHash": update_hash,
             "updateByteLength": input.update.len(),
+            "pageImpact": input.authority.page_impact(),
         });
+        let page_impact = input.authority.page_impact();
+        let database_ids = page_impact
+            .as_ref()
+            .and_then(|impact| impact.database.as_ref())
+            .map(|database| vec![database.database_id.as_str()])
+            .unwrap_or_default();
         connection.execute(
             "INSERT INTO change_log (\
                project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
                database_block_ids_json, payload_json, committed_at\
-             ) VALUES (?1, ?2, 'owned_document.document_initialized', ?3, ?4, ?5, '[]', ?6, ?7)",
+             ) VALUES (?1, ?2, 'owned_document.document_initialized', ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 input.authority.head.project_id,
                 input.store_epoch,
@@ -504,6 +583,8 @@ pub(crate) fn persist_yjs_genesis(
                 derived_touched_json,
                 serde_json::to_string(&[&input.authority.head.id])
                     .map_err(|_| internal("Genesis Document event IDs"))?,
+                serde_json::to_string(&database_ids)
+                    .map_err(|_| internal("Genesis Document event Database IDs"))?,
                 serde_json::to_string(&payload).map_err(|_| internal("Genesis event payload"))?,
                 now,
             ],
@@ -521,6 +602,7 @@ pub(crate) fn persist_yjs_genesis(
         derived_touched_block_ids,
         event_sequence,
         committed_at: now,
+        page_impact: input.authority.page_impact(),
     })
 }
 
@@ -712,9 +794,10 @@ pub(super) fn replace_secondary_projections(
     materialization: &DocumentMaterialization,
     projected_seq: i64,
     now: &str,
+    page_projection_required: bool,
 ) -> Result<(), StoreError> {
     if authority.owner_type == "page" {
-        connection.execute(
+        let updated = connection.execute(
             "UPDATE page_read_model SET document_generation = ?1, document_projected_seq = ?2, \
                document_schema_version = ?3, document_authority = 'ydoc_primary', title = ?4, \
                description_preview = ?5, description_length = ?6, has_description = ?7, \
@@ -733,6 +816,11 @@ pub(super) fn replace_secondary_projections(
                 authority.head.id,
             ],
         )?;
+        if page_projection_required && updated != 1 {
+            return Err(corrupt(
+                "Page Document projection does not match its authority",
+            ));
+        }
     }
     connection.execute(
         "DELETE FROM block_asset_refs WHERE document_id = ?1",
@@ -844,6 +932,7 @@ pub(crate) fn rebuild_legacy_import_projections(
         materialization,
         authority.head.head_seq,
         &now,
+        true,
     )
 }
 

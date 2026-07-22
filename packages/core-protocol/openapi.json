@@ -14471,6 +14471,16 @@
                   "document_updated"
                 ]
               },
+              "page_impact": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/OwnedDocumentPageImpact"
+                  }
+                ]
+              },
               "update": {
                 "type": "array",
                 "items": {
@@ -14537,12 +14547,62 @@
                   "document_invalidated"
                 ]
               },
+              "page_impact": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/OwnedDocumentPageImpact"
+                  }
+                ]
+              },
               "reason": {
                 "$ref": "#/components/schemas/DocumentInvalidationReason"
               }
             }
           }
         ]
+      },
+      "OwnedDocumentPageDatabaseImpact": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "data_source_id"
+        ],
+        "properties": {
+          "data_source_id": {
+            "type": "string"
+          },
+          "database_id": {
+            "type": "string"
+          }
+        }
+      },
+      "OwnedDocumentPageImpact": {
+        "type": "object",
+        "required": [
+          "library_id",
+          "page_id"
+        ],
+        "properties": {
+          "database": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OwnedDocumentPageDatabaseImpact"
+              }
+            ]
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "page_id": {
+            "type": "string"
+          }
+        }
       },
       "OwnedDocumentReadRequest": {
         "$ref": "#/components/schemas/ModuleReadRequest_OwnedDocumentRead"

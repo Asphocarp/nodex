@@ -20,6 +20,7 @@ import { createKanbanStoreRegistry } from "./kanban-store";
 import { toDatabasePageSummary } from "../../shared/page-summary";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
+import type { PageTargetChangedEvent } from "../../shared/page-target-events";
 import type {
   DatabaseModuleReadResultV2,
   DatabaseViewRecordV2,
@@ -310,6 +311,100 @@ describe("kanban store", () => {
     expect(fetchCount).toBe(4);
     unsubscribeFirst();
     unsubscribeSecond();
+  });
+
+  test("refreshes a durable Database View from a matching Page Document event", async () => {
+    const callbacks: { pageTarget?: (event: PageTargetChangedEvent) => void } = {};
+    let readCount = 0;
+    const registry = createKanbanStoreRegistry({
+      readDatabaseModule: async () => {
+        readCount += 1;
+        return createDatabaseViewSnapshot(
+          "view-focused",
+          readCount === 1 ? "Before Document edit" : "After Document edit",
+          false,
+        );
+      },
+      invoke: async () => createBoard(),
+      subscribeBoardChanges: () => () => {},
+      subscribeDatabaseChanges: () => () => {},
+      subscribePageTargetChanges: (_projectId, callback) => {
+        callbacks.pageTarget = callback;
+        return () => {};
+      },
+    });
+    const store = registry.getStore("project-1", "view-focused");
+    const unsubscribe = store.subscribe(() => {});
+    await waitForMicrotasks();
+    expect(store.getSnapshot().databaseView?.columns[0]?.rows[0]?.title).toBe(
+      "Before Document edit",
+    );
+
+    callbacks.pageTarget?.({
+      version: 1,
+      libraryId: "library-1",
+      storeEpoch: "epoch-1",
+      changeLogSeq: 9,
+      targetPageId: "card-filtered-out-before-title-change",
+      changeKind: "content",
+      affectedDatabaseIds: ["database-1"],
+      affectedDataSourceIds: ["source-1"],
+      document: { id: "document-1", generation: 1, headSeq: 2 },
+    });
+    await waitForMicrotasks();
+
+    expect(readCount).toBe(2);
+    expect(store.getSnapshot().databaseView?.columns[0]?.rows[0]?.title).toBe(
+      "After Document edit",
+    );
+    unsubscribe();
+  });
+
+  test("runs one trailing read when a Page invalidation arrives during a fetch", async () => {
+    const firstRead = createDeferred<DatabaseModuleReadResultV2>();
+    const callbacks: { pageTarget?: (event: PageTargetChangedEvent) => void } = {};
+    let readCount = 0;
+    const registry = createKanbanStoreRegistry({
+      readDatabaseModule: async () => {
+        readCount += 1;
+        if (readCount === 1) return await firstRead.promise;
+        return createDatabaseViewSnapshot("view-focused", "Latest head", false);
+      },
+      invoke: async () => createBoard(),
+      subscribeBoardChanges: () => () => {},
+      subscribeDatabaseChanges: () => () => {},
+      subscribePageTargetChanges: (_projectId, callback) => {
+        callbacks.pageTarget = callback;
+        return () => {};
+      },
+    });
+    const store = registry.getStore("project-1", "view-focused");
+    const unsubscribe = store.subscribe(() => {});
+
+    callbacks.pageTarget?.({
+      version: 1,
+      libraryId: "library-1",
+      storeEpoch: "epoch-1",
+      changeLogSeq: 10,
+      targetPageId: "card-1",
+      changeKind: "content",
+      affectedDatabaseIds: ["database-1"],
+      affectedDataSourceIds: ["source-1"],
+      document: { id: "document-1", generation: 1, headSeq: 2 },
+    });
+    firstRead.resolve(createDatabaseViewSnapshot(
+      "view-focused",
+      "Stale in-flight head",
+      false,
+    ));
+    await waitForMicrotasks();
+    await waitForMicrotasks();
+
+    expect(readCount).toBe(2);
+    expect(store.getSnapshot().databaseView?.columns[0]?.rows[0]?.title).toBe(
+      "Latest head",
+    );
+    unsubscribe();
   });
 
   test("registers a single board-change subscription for multiple listeners", async () => {

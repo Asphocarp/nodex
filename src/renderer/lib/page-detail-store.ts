@@ -3,9 +3,12 @@ import { useEffect, useSyncExternalStore } from "react";
 import type { PageDetail } from "../../shared/page-detail";
 import {
   readPageDetail,
+  subscribeAuthorityResync,
   subscribeBoardChanges,
   subscribeDatabaseChanges,
+  subscribePageTargetChanges,
 } from "./api";
+import type { PageTargetChangedEvent } from "../../shared/page-target-events";
 
 export interface PageDetailSnapshot {
   readonly detail: PageDetail | null;
@@ -25,6 +28,7 @@ const entries = new Map<string, PageDetailSnapshot>();
 const listeners = new Map<string, Set<Listener>>();
 const versions = new Map<string, number>();
 const inFlight = new Map<string, Promise<PageDetail | null>>();
+const pendingRefreshes = new Set<string>();
 
 const detailKey = (projectId: string, pageId: string): string =>
   `${projectId}:${pageId}`;
@@ -46,6 +50,7 @@ const subscribe = (key: string | null, listener: Listener): (() => void) => {
 };
 
 const compareDetailFreshness = (left: PageDetail, right: PageDetail): number => {
+  if (left.storeEpoch !== right.storeEpoch) return 1;
   const coordinates = [
     [left.changeLogSeq, right.changeLogSeq],
     [left.page.documentGeneration, right.page.documentGeneration],
@@ -106,6 +111,7 @@ export const resetPageDetailStoreForTests = (): void => {
   const subscribedKeys = [...listeners.keys()];
   entries.clear();
   inFlight.clear();
+  pendingRefreshes.clear();
   versions.clear();
   for (const key of subscribedKeys) emit(key);
 };
@@ -161,10 +167,38 @@ export const fetchPageDetail = async (
       return null;
     } finally {
       inFlight.delete(key);
+      if (pendingRefreshes.delete(key) && listeners.has(key)) {
+        void fetchPageDetail(projectId, pageId);
+      }
     }
   })();
   inFlight.set(key, request);
   return request;
+};
+
+const requestPageDetailRefresh = (
+  projectId: string,
+  pageId: string,
+): void => {
+  const key = detailKey(projectId, pageId);
+  if (inFlight.has(key)) {
+    pendingRefreshes.add(key);
+    return;
+  }
+  void fetchPageDetail(projectId, pageId);
+};
+
+const pageEventRequiresRefresh = (
+  detail: PageDetail | null,
+  event: PageTargetChangedEvent,
+): boolean => {
+  if (!event.document || !detail) return true;
+  if (event.storeEpoch && event.storeEpoch !== detail.storeEpoch) return true;
+  if (event.document.id !== detail.page.documentId) return true;
+  if (event.document.generation !== detail.page.documentGeneration) {
+    return event.document.generation > detail.page.documentGeneration;
+  }
+  return event.document.headSeq > detail.page.documentHeadSeq;
 };
 
 export const usePageDetail = (
@@ -181,16 +215,30 @@ export const usePageDetail = (
   useEffect(() => {
     if (!projectId || !pageId) return;
     void fetchPageDetail(projectId, pageId);
-    const refresh = (): void => {
-      void fetchPageDetail(projectId, pageId);
-    };
+    const refresh = (): void => requestPageDetailRefresh(projectId, pageId);
     const unsubscribeDatabase = subscribeDatabaseChanges(projectId, refresh);
+    const unsubscribeAuthorityResync = subscribeAuthorityResync(
+      projectId,
+      refresh,
+    );
     const unsubscribeBoard = subscribeBoardChanges(projectId, (event) => {
       if (!event.pageId || event.pageId === pageId) refresh();
     });
+    const unsubscribePageTarget = subscribePageTargetChanges(
+      projectId,
+      (event) => {
+        if (event.targetPageId !== pageId) return;
+        if (!pageEventRequiresRefresh(getPageDetail(projectId, pageId), event)) {
+          return;
+        }
+        refresh();
+      },
+    );
     return () => {
       unsubscribeDatabase();
+      unsubscribeAuthorityResync();
       unsubscribeBoard();
+      unsubscribePageTarget();
     };
   }, [pageId, projectId]);
 

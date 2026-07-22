@@ -1418,6 +1418,7 @@ impl OwnedDocumentModule {
                                         generation: authority.head.generation,
                                         head_seq: persisted.head_seq,
                                         update: prepared.update_v1.clone(),
+                                        page_impact: persisted.page_impact.clone(),
                                     },
                                 ),
                             };
@@ -1526,6 +1527,7 @@ impl OwnedDocumentModule {
                                         generation: authority.head.generation,
                                         head_seq: persisted.head_seq,
                                         update: prepared.update_v1,
+                                        page_impact: persisted.page_impact.clone(),
                                     },
                                 ),
                             };
@@ -2717,6 +2719,7 @@ impl OwnedDocumentModule {
                             OwnedDocumentEvent::DocumentInvalidated {
                                 document_id,
                                 reason: DocumentInvalidationReason::Restored,
+                                page_impact: None,
                             },
                         ),
                     }],
@@ -3135,6 +3138,7 @@ impl OwnedDocumentModule {
                             generation: job.generation,
                             head_seq: persisted.head_seq,
                             update,
+                            page_impact: persisted.page_impact.clone(),
                         })
                     }
                     UpdatePublication::Invalidated(reason) => {
@@ -3142,6 +3146,7 @@ impl OwnedDocumentModule {
                             OwnedDocumentEvent::DocumentInvalidated {
                                 document_id: job.document_id.clone(),
                                 reason,
+                                page_impact: persisted.page_impact.clone(),
                             },
                         )
                     }
@@ -4699,7 +4704,8 @@ mod tests {
         DocumentBlockUpdatePatch as ContractDocumentBlockUpdatePatch, DocumentCommitOutcome,
         DocumentHeadRevision, DocumentMutationCoordination, DocumentOptionalValue,
         DocumentOwnerCommand, DocumentOwnerRevision, DocumentSemanticBlockDraft,
-        DocumentSemanticCommand, DocumentVersionCursor, OwnedDocumentIntent, OwnedDocumentRead,
+        DocumentSemanticCommand, DocumentVersionCursor, OwnedDocumentIntent,
+        OwnedDocumentPageDatabaseImpact, OwnedDocumentPageImpact, OwnedDocumentRead,
     };
     use nodex_core_contracts::workspace::{
         ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch, ProjectWorkspaceTurnAuthority,
@@ -4725,6 +4731,9 @@ mod tests {
     const PROJECT_ID: &str = "project:test";
     const DOCUMENT_ID: &str = "document:test-page";
     const OWNER_BLOCK_ID: &str = "019bf52d-6870-7000-8000-000000000001";
+    const DATABASE_ID: &str = "019bf52d-6870-7000-8000-000000000020";
+    const DATA_SOURCE_ID: &str = "019bf52d-6870-7000-8000-000000000021";
+    const MEMBERSHIP_ID: &str = "019bf52d-6870-7000-8000-000000000022";
     const TARGET_PAGE_BLOCK_ID: &str = "019bf52d-6870-7000-8000-000000000002";
     const STORE_EPOCH: &str = "epoch:test";
     const NOW: &str = "2026-07-18T00:00:00.000Z";
@@ -4920,6 +4929,30 @@ mod tests {
                             ],
                         )?;
                         transaction.execute(
+                            "INSERT INTO page_read_model(\
+                               page_block_id, project_id, lifecycle, location_kind, \
+                               containing_document_id, containing_database_id, top_level_rank_key, \
+                               location_revision, metadata_revision, document_id, document_generation, \
+                               document_projected_seq, document_schema_version, document_authority, \
+                               membership_id, database_block_id, view_id, view_group_key, view_rank_key, \
+                               title, description_preview, description_length, has_description, \
+                               database_values_json, intrinsic_properties_json, property_revisions_json, \
+                               projection_version, created_at, updated_at\
+                             ) VALUES (?1, ?2, 'active', 'space', NULL, NULL, NULL, 1, 1, ?3, 1, 1, 2, \
+                               'ydoc_primary', NULL, NULL, NULL, NULL, NULL, ?4, ?5, ?6, ?7, '{}', '{}', \
+                               '{}', 1, ?8, ?8)",
+                            params![
+                                OWNER_BLOCK_ID,
+                                PROJECT_ID,
+                                DOCUMENT_ID,
+                                materialization.title,
+                                materialization.preview,
+                                materialization.nfm.len() as i64,
+                                i64::from(!materialization.nfm.trim().is_empty()),
+                                NOW,
+                            ],
+                        )?;
+                        transaction.execute(
                             "INSERT INTO document_engine_fingerprints(\
                                document_id, generation, head_seq, source_state_hash, yrs_state_vector_sha256, \
                                yrs_full_state_sha256, materialization_sha256, validated_at_unix_ms\
@@ -4954,6 +4987,57 @@ mod tests {
         )
         .expect("title update")
         .update_v1
+    }
+
+    fn move_seeded_page_under_database(seeded: &SeededModule) {
+        seeded
+            .kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO blocks(\
+                           id, project_id, type, lifecycle, location_kind, containing_document_id, \
+                           containing_database_id, location_revision, metadata_revision, created_at, updated_at\
+                         ) VALUES (?1, ?2, 'database', 'active', 'space', NULL, NULL, 1, 1, ?3, ?3)",
+                        params![DATABASE_ID, PROJECT_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO database_containers(\
+                           block_id, library_id, name, lifecycle, default_view_id, access_revision, \
+                           metadata_revision, created_at, updated_at\
+                         ) VALUES (?1, ?2, 'Document test Database', 'active', NULL, 1, 1, ?3, ?3)",
+                        params![DATABASE_ID, LIBRARY_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO data_sources(\
+                           id, library_id, home_database_block_id, name, schema_key, schema_revision, \
+                           lifecycle, rank_key, created_at, updated_at\
+                         ) VALUES (?1, ?2, ?3, 'Document test Pages', 'nodex.pages', 1, \
+                           'active', 'a', ?4, ?4)",
+                        params![DATA_SOURCE_ID, LIBRARY_ID, DATABASE_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "UPDATE blocks SET location_kind = 'database', \
+                           containing_database_id = ?1, updated_at = ?2 WHERE id = ?3",
+                        params![DATABASE_ID, NOW, OWNER_BLOCK_ID],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO data_source_page_memberships(\
+                           id, data_source_id, page_block_id, revision, created_at, removed_at\
+                         ) VALUES (?1, ?2, ?3, 1, ?4, NULL)",
+                        params![MEMBERSHIP_ID, DATA_SOURCE_ID, OWNER_BLOCK_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "UPDATE pages SET parent_kind = 'data_source', parent_id = ?1, \
+                           parent_revision = parent_revision + 1, updated_at = ?2 \
+                         WHERE block_id = ?3",
+                        params![DATA_SOURCE_ID, NOW, OWNER_BLOCK_ID],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("move seeded Page under Database");
     }
 
     fn seed_agent_turn(seeded: &SeededModule, connection_id: &str) -> AgentTurnProvenance {
@@ -5121,6 +5205,15 @@ mod tests {
             .call(move |connection| {
                 with_immediate_transaction(connection, |transaction| {
                     transaction.execute(
+                        "INSERT INTO profiles(id, created_at, updated_at) VALUES (?1, ?2, ?2)",
+                        params![PROFILE_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                         VALUES (?1, ?2, ?3, ?3)",
+                        params![LIBRARY_ID, PROFILE_ID, NOW],
+                    )?;
+                    transaction.execute(
                         "INSERT INTO projects(id, library_id, name, created, updated) \
                          VALUES (?1, ?2, 'Pending Document test', ?3, ?3)",
                         params![PROJECT_ID, LIBRARY_ID, NOW],
@@ -5150,6 +5243,36 @@ mod tests {
                          VALUES (?1, ?2, ?3, ?4)",
                         params![OWNER_BLOCK_ID, DOCUMENT_ID, PROJECT_ID, NOW],
                     )?;
+                    if owner_type == "page" {
+                        transaction.execute(
+                            "INSERT INTO pages(\
+                               block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
+                               parent_revision, metadata_revision, created_at, updated_at\
+                             ) VALUES (?1, ?2, ?3, 'library', ?2, 'active', 1, 1, ?4, ?4)",
+                            params![OWNER_BLOCK_ID, LIBRARY_ID, DOCUMENT_ID, NOW],
+                        )?;
+                        transaction.execute(
+                            "INSERT INTO page_read_model(\
+                               page_block_id, project_id, lifecycle, location_kind, \
+                               containing_document_id, containing_database_id, top_level_rank_key, \
+                               location_revision, metadata_revision, document_id, document_generation, \
+                               document_projected_seq, document_schema_version, document_authority, \
+                               membership_id, database_block_id, view_id, view_group_key, view_rank_key, \
+                               title, description_preview, description_length, has_description, \
+                               database_values_json, intrinsic_properties_json, property_revisions_json, \
+                               projection_version, created_at, updated_at\
+                             ) VALUES (?1, ?2, 'active', 'space', NULL, NULL, NULL, 1, 1, ?3, 1, 0, ?4, \
+                               'legacy_shadow', NULL, NULL, NULL, NULL, NULL, '', '', 0, 0, '{}', '{}', \
+                               '{}', 1, ?5, ?5)",
+                            params![
+                                OWNER_BLOCK_ID,
+                                PROJECT_ID,
+                                DOCUMENT_ID,
+                                schema_version,
+                                NOW,
+                            ],
+                        )?;
+                    }
                     Ok(())
                 })
             })
@@ -6430,6 +6553,15 @@ mod tests {
         );
         assert!(!applied.events.is_empty());
         assert!(!applied.committed.receipt.mutation.duplicate);
+        let event_json =
+            serde_json::to_value(&applied.events[0].payload).expect("Document event JSON");
+        assert_eq!(
+            event_json["event"]["page_impact"],
+            json!({
+                "library_id": LIBRARY_ID,
+                "page_id": OWNER_BLOCK_ID,
+            })
+        );
 
         seeded
             .kernel
@@ -6477,6 +6609,172 @@ mod tests {
             applied.committed.event_sequence
         );
         assert!(seeded.module.cache_metrics().expect("cache metrics").hits > 0);
+    }
+
+    #[test]
+    fn page_document_event_records_its_database_projection_impact() {
+        let seeded = seeded_module();
+        move_seeded_page_under_database(&seeded);
+        let update = title_update(
+            &seeded.full_state,
+            &seeded.state_vector,
+            "Database projection impact",
+        );
+
+        let applied = seeded
+            .module
+            .apply(
+                &context(),
+                apply_request("update:database-impact", 1, update),
+            )
+            .expect("Page update");
+        let event_json =
+            serde_json::to_value(&applied.events[0].payload).expect("Document event JSON");
+        assert_eq!(
+            event_json["event"]["page_impact"],
+            json!({
+                "library_id": LIBRARY_ID,
+                "page_id": OWNER_BLOCK_ID,
+                "database": {
+                    "database_id": DATABASE_ID,
+                    "data_source_id": DATA_SOURCE_ID,
+                },
+            })
+        );
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let (payload_json, database_ids_json): (String, String) = connection.query_row(
+                    "SELECT payload_json, database_block_ids_json FROM change_log \
+                     WHERE operation_id = 'update:database-impact'",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )?;
+                assert_eq!(
+                    serde_json::from_str::<Value>(&payload_json).expect("event payload")
+                        ["pageImpact"],
+                    json!({
+                        "library_id": LIBRARY_ID,
+                        "page_id": OWNER_BLOCK_ID,
+                        "database": {
+                            "database_id": DATABASE_ID,
+                            "data_source_id": DATA_SOURCE_ID,
+                        },
+                    })
+                );
+                assert_eq!(
+                    serde_json::from_str::<Value>(&database_ids_json)
+                        .expect("Database impact IDs"),
+                    json!([DATABASE_ID])
+                );
+                let projection: (String, String, i64, String, String, i64) = connection
+                    .query_row(
+                        "SELECT page.title, page.description_preview, \
+                                page.document_projected_seq, materialization.title, \
+                                materialization.preview, materialization.projected_seq \
+                         FROM page_read_model page \
+                         JOIN document_materializations materialization \
+                           ON materialization.document_id = page.document_id \
+                         WHERE page.page_block_id = ?1",
+                        [OWNER_BLOCK_ID],
+                        |row| {
+                            Ok((
+                                row.get(0)?,
+                                row.get(1)?,
+                                row.get(2)?,
+                                row.get(3)?,
+                                row.get(4)?,
+                                row.get(5)?,
+                            ))
+                        },
+                    )?;
+                assert_eq!(projection.0, "Database projection impact");
+                assert_eq!(projection.0, projection.3);
+                assert_eq!(projection.1, projection.4);
+                assert_eq!(projection.2, 2);
+                assert_eq!(projection.2, projection.5);
+                Ok::<_, StoreError>(())
+            })
+            .expect("durable Page impact");
+
+        seeded
+            .kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "UPDATE pages SET parent_kind = 'library', parent_id = ?1 \
+                         WHERE block_id = ?2",
+                        params![LIBRARY_ID, OWNER_BLOCK_ID],
+                    )?;
+                    transaction.execute(
+                        "DELETE FROM data_source_page_memberships WHERE id = ?1",
+                        [MEMBERSHIP_ID],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("move Page after its Document commit");
+        let replay = seeded
+            .module
+            .replay_document_events(&context(), applied.committed.event_sequence - 1, Some(1))
+            .expect("replay committed Page impact");
+        let DocumentEventReplay::Events { events, .. } = replay else {
+            panic!("expected replayed Page Document event")
+        };
+        assert_eq!(events, applied.events);
+    }
+
+    #[test]
+    fn page_document_commit_requires_its_exact_projection_row() {
+        let seeded = seeded_module();
+        seeded
+            .kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "DELETE FROM page_read_model WHERE page_block_id = ?1",
+                    [OWNER_BLOCK_ID],
+                )?;
+                Ok::<_, StoreError>(())
+            })
+            .expect("remove Page projection");
+        let update = title_update(
+            &seeded.full_state,
+            &seeded.state_vector,
+            "Must not commit without projection",
+        );
+
+        let error = seeded
+            .module
+            .apply(
+                &context(),
+                apply_request("update:missing-page-projection", 1, update),
+            )
+            .expect_err("Page commit must fail closed without its projection");
+        assert_eq!(error.code, CoreErrorCode::StoreCorrupt);
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let (head_seq, title, event_count): (i64, String, i64) = connection.query_row(
+                    "SELECT document.head_seq, materialization.title, \
+                            (SELECT count(*) FROM change_log \
+                             WHERE operation_id = 'update:missing-page-projection') \
+                     FROM documents document \
+                     JOIN document_materializations materialization \
+                       ON materialization.document_id = document.id \
+                     WHERE document.id = ?1",
+                    [DOCUMENT_ID],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )?;
+                assert_eq!(head_seq, 1);
+                assert_ne!(title, "Must not commit without projection");
+                assert_eq!(event_count, 0);
+                Ok::<_, StoreError>(())
+            })
+            .expect("failed Page commit rolled back");
     }
 
     #[test]
@@ -6827,6 +7125,7 @@ mod tests {
     #[test]
     fn checkpoints_list_get_and_restore_immutable_document_history() {
         let seeded = seeded_module();
+        move_seeded_page_under_database(&seeded);
         let checkpoint_request = ModuleApplyRequest {
             version: CORE_CONTRACT_VERSION,
             operation_id: "checkpoint:initial".to_owned(),
@@ -7018,13 +7317,26 @@ mod tests {
             DocumentMutationCoordination::WriteFence
         );
         assert!(restored.committed.value.committed_at.is_some());
-        assert!(matches!(
-            restored.events[0].payload,
-            CoreModuleEventPayload::OwnedDocument(OwnedDocumentEvent::DocumentInvalidated {
-                reason: DocumentInvalidationReason::Restored,
-                ..
+        let CoreModuleEventPayload::OwnedDocument(OwnedDocumentEvent::DocumentInvalidated {
+            reason,
+            page_impact,
+            ..
+        }) = &restored.events[0].payload
+        else {
+            panic!("expected restored Page Document invalidation")
+        };
+        assert_eq!(*reason, DocumentInvalidationReason::Restored);
+        assert_eq!(
+            page_impact,
+            &Some(OwnedDocumentPageImpact {
+                library_id: LIBRARY_ID.to_owned(),
+                page_id: OWNER_BLOCK_ID.to_owned(),
+                database: Some(OwnedDocumentPageDatabaseImpact {
+                    database_id: DATABASE_ID.to_owned(),
+                    data_source_id: DATA_SOURCE_ID.to_owned(),
+                }),
             })
-        ));
+        );
         let mut replay_request = restore_request;
         let OwnedDocumentIntent::RestoreVersion { actor, .. } = &mut replay_request.intent else {
             unreachable!()

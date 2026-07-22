@@ -23,12 +23,14 @@ describe("Database event renderer transport", () => {
     let boardEvents = 0;
     let sessionEvents = 0;
     let pageTargetEvents = 0;
+    let authorityResyncEvents = 0;
     let ownershipPathEvents = 0;
     let unsubscribeFirst = () => {};
     let unsubscribeSecond = () => {};
     let unsubscribeBoard = () => {};
     let unsubscribeSessions = () => {};
     let unsubscribePageTarget = () => {};
+    let unsubscribeAuthorityResync = () => {};
     let unsubscribeOwnershipPath = () => {};
     try {
       unsubscribeFirst =
@@ -58,6 +60,13 @@ describe("Database event renderer transport", () => {
             pageTargetEvents += 1;
           },
         );
+      unsubscribeAuthorityResync =
+        browserRendererTransport.subscribeAuthorityResync(
+          "project-1",
+          () => {
+            authorityResyncEvents += 1;
+          },
+        );
       unsubscribeOwnershipPath =
         browserRendererTransport.subscribePageOwnershipPathChanges(
           "project-1",
@@ -73,6 +82,10 @@ describe("Database event renderer transport", () => {
           },
         );
       expect(FakeEventSource.instances.length).toBe(1);
+      FakeEventSource.instances[0]?.onmessage?.({
+        data: JSON.stringify({ event: "connected" }),
+      } as MessageEvent<string>);
+      expect(authorityResyncEvents).toBe(1);
       const payload = JSON.stringify({
         event: "database-changed",
         version: 2,
@@ -106,9 +119,14 @@ describe("Database event renderer transport", () => {
       FakeEventSource.instances[0]?.onmessage?.({
         data: JSON.stringify({
           event: "page-target-changed",
-          projectId: "project-1",
-          targetBlockId: "card-1",
+          version: 1,
+          libraryId: "library-1",
+          storeEpoch: "epoch-1",
+          changeLogSeq: 1,
+          targetPageId: "card-1",
           changeKind: "content",
+          affectedDatabaseIds: ["database-1"],
+          affectedDataSourceIds: ["source-1"],
         }),
       } as MessageEvent<string>);
       FakeEventSource.instances[0]?.onmessage?.({
@@ -139,6 +157,7 @@ describe("Database event renderer transport", () => {
       expect(FakeEventSource.instances[0]?.closed).toBe(false);
       unsubscribeBoard();
       unsubscribePageTarget();
+      unsubscribeAuthorityResync();
       unsubscribeOwnershipPath();
       unsubscribeSessions();
       expect(FakeEventSource.instances.every((source) => source.closed)).toBe(true);
@@ -147,6 +166,7 @@ describe("Database event renderer transport", () => {
       unsubscribeSecond();
       unsubscribeBoard();
       unsubscribePageTarget();
+      unsubscribeAuthorityResync();
       unsubscribeOwnershipPath();
       unsubscribeSessions();
       globalThis.EventSource = originalEventSource;

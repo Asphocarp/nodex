@@ -3540,6 +3540,7 @@ export interface components {
             readonly head_seq: number;
             /** @enum {string} */
             readonly kind: "document_updated";
+            readonly page_impact?: null | components["schemas"]["OwnedDocumentPageImpact"];
             readonly update: readonly number[];
         } | {
             /** Format: int64 */
@@ -3557,7 +3558,17 @@ export interface components {
             readonly document_id: string;
             /** @enum {string} */
             readonly kind: "document_invalidated";
+            readonly page_impact?: null | components["schemas"]["OwnedDocumentPageImpact"];
             readonly reason: components["schemas"]["DocumentInvalidationReason"];
+        };
+        readonly OwnedDocumentPageDatabaseImpact: {
+            readonly data_source_id: string;
+            readonly database_id: string;
+        };
+        readonly OwnedDocumentPageImpact: {
+            readonly database?: null | components["schemas"]["OwnedDocumentPageDatabaseImpact"];
+            readonly library_id: string;
+            readonly page_id: string;
         };
         readonly OwnedDocumentReadRequest: components["schemas"]["ModuleReadRequest_OwnedDocumentRead"];
         readonly OwnedDocumentReadResponse: components["schemas"]["ResponseEnvelope_ModuleReadSnapshot_OwnedDocumentReadValue"];

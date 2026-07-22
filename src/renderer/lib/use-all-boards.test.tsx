@@ -4,6 +4,7 @@ import { render, settleAsyncRender } from "@/test/dom";
 import { createTestQueryClient, TestQueryProvider } from "@/test/query";
 import { installWindowApi } from "@/test/browser-globals";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
+import type { PageTargetChangedEvent } from "../../shared/page-target-events";
 import { plainTextToPortableRichText } from "../../shared/block-documents";
 import type { BoardSummary, DatabasePageSummary, Project } from "./types";
 import { useAllBoards, useBoardsForProjects } from "./use-all-boards";
@@ -230,5 +231,66 @@ describe("useBoardsForProjects", () => {
       expect(firstCard?.title).toBe("Event card");
     });
     expect(invokeCalls.length).toBe(1);
+  });
+
+  test("refetches only the Project whose Database contains a changed Page", async () => {
+    const pageListeners: Array<(event: PageTargetChangedEvent) => void> = [];
+    const client = createTestQueryClient();
+    installWindowApi({
+      invoke: async (channel: string, ...args: unknown[]) => {
+        invokeCalls.push([channel, ...args]);
+        if (channel === "board:summary:get") return BOARD;
+        throw new Error(`Unexpected channel: ${channel}`);
+      },
+      on: (
+        channel: string,
+        callback: (event: PageTargetChangedEvent) => void,
+      ) => {
+        if (channel === "page-target-changed") pageListeners.push(callback);
+        return () => {};
+      },
+    });
+    const view = render(
+      <TestQueryProvider client={client}>
+        <BoardsHarness snapshots={[]} />
+      </TestQueryProvider>,
+    );
+    await waitFor(() => expect(view.getByText("1").textContent).toBe("1"));
+    expect(invokeCalls).toHaveLength(1);
+
+    await act(async () => {
+      for (const listener of pageListeners) {
+        listener({
+          version: 1,
+          libraryId: "library:test",
+          storeEpoch: "epoch:test",
+          changeLogSeq: 2,
+          targetPageId: "filtered-page",
+          changeKind: "content",
+          affectedDatabaseIds: ["database:another"],
+          affectedDataSourceIds: [],
+        });
+      }
+      await Promise.resolve();
+    });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(invokeCalls).toHaveLength(1);
+
+    await act(async () => {
+      for (const listener of pageListeners) {
+        listener({
+          version: 1,
+          libraryId: "library:test",
+          storeEpoch: "epoch:test",
+          changeLogSeq: 3,
+          targetPageId: "filtered-page",
+          changeKind: "content",
+          affectedDatabaseIds: ["database:test:primary"],
+          affectedDataSourceIds: [],
+        });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 60));
+    });
+    await waitFor(() => expect(invokeCalls).toHaveLength(2));
   });
 });

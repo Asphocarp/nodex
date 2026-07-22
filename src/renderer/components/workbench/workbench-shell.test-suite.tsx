@@ -421,6 +421,8 @@ vi.mock("@/lib/api", () => ({
   },
   subscribeBoardChanges: () => () => undefined,
   subscribeDatabaseChanges: () => () => undefined,
+  subscribePageTargetChanges: () => () => undefined,
+  subscribeAuthorityResync: () => () => undefined,
   subscribeLibraryChanges: () => () => undefined,
   readLibraryModule: async (request: unknown) => {
     invokeCalls.push(["library-module:read", request]);

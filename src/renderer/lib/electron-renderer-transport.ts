@@ -18,6 +18,7 @@ import type {
 } from "../../shared/ipc-api";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
 import type { PageTargetChangedEvent } from "../../shared/page-target-events";
+import type { AuthorityResyncEvent } from "../../shared/authority-resync-events";
 import {
   createElectronDocumentSyncAdapter,
   createElectronLibraryDocumentSyncAdapter,
@@ -202,6 +203,16 @@ export function createElectronRendererTransport(
     ) {
       return bridge.on("page-target-changed", (...args: unknown[]) => {
         const payload = args[0] as PageTargetChangedEvent | undefined;
+        if (!payload) return;
+        callback(payload);
+      });
+    },
+    subscribeAuthorityResync(
+      _projectId: string | null,
+      callback: (event: AuthorityResyncEvent) => void,
+    ) {
+      return bridge.on("authority-resync", (...args: unknown[]) => {
+        const payload = args[0] as AuthorityResyncEvent | undefined;
         if (!payload) return;
         callback(payload);
       });

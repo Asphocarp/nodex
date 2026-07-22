@@ -1,0 +1,56 @@
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import { describe, expect, test, vi } from "vitest";
+
+import { invalidateExactQuery } from "./query-invalidation";
+
+const deferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+};
+
+describe("exact query invalidation", () => {
+  test("coalesces events during an initial fetch into one trailing canonical read", async () => {
+    const first = deferred<string>();
+    const second = deferred<string>();
+    const responses = [first, second];
+    let readCount = 0;
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const queryKey = ["database-view", "view-1"] as const;
+    const observer = new QueryObserver(queryClient, {
+      queryKey,
+      queryFn: () => {
+        const response = responses[readCount];
+        readCount += 1;
+        if (!response) throw new Error("unexpected extra read");
+        return response.promise;
+      },
+    });
+    const unsubscribe = observer.subscribe(() => undefined);
+
+    try {
+      expect(readCount).toBe(1);
+      const refresh = invalidateExactQuery(queryClient, queryKey);
+      const coalesced = invalidateExactQuery(queryClient, queryKey);
+      expect(coalesced).toBe(refresh);
+
+      first.resolve("stale initial projection");
+      await first.promise;
+      await vi.waitFor(() => expect(readCount).toBe(2));
+      second.resolve("fresh committed projection");
+      await refresh;
+
+      expect(queryClient.getQueryData(queryKey)).toBe(
+        "fresh committed projection",
+      );
+      expect(readCount).toBe(2);
+    } finally {
+      unsubscribe();
+      queryClient.clear();
+    }
+  });
+});

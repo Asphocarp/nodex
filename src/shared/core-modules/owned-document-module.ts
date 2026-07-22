@@ -1,3 +1,4 @@
+import type { components } from "@nodex/core-protocol";
 import type { AdditionalDocumentCommandRequest } from "../additional-document-commands";
 import type {
   CanvasSceneMutationRequest,
@@ -126,16 +127,4 @@ export type OwnedDocumentModule = DeepCoreModule<
   OwnedDocumentModuleApplyResult
 >;
 
-export type OwnedDocumentEvent =
-  | {
-      readonly kind: "document_updated";
-      readonly documentId: string;
-      readonly generation: number;
-      readonly headSeq: number;
-      readonly update: Uint8Array;
-    }
-  | {
-      readonly kind: "document_invalidated";
-      readonly documentId: string;
-      readonly reason: "access_changed" | "generation_changed" | "restored";
-    };
+export type OwnedDocumentEvent = components["schemas"]["OwnedDocumentEvent"];

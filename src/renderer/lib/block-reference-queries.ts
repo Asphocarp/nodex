@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PageTargetReadModel } from "../../shared/page-targets";
 import type { PageOwnershipPathReadModel } from "../../shared/page-ownership-paths";
 import type { DatabaseViewReadModel } from "../../shared/database-views";
+import type { PageTargetChangedEvent } from "../../shared/page-target-events";
 import {
   readDatabaseViewReference,
   resolvePageOwnershipPath,
@@ -12,6 +13,7 @@ import { queryKeys } from "./query-keys";
 import { resolveRendererTransport } from "./renderer-transport";
 import { createProjectBoardChangeSubscriptionHub } from "./project-board-change-subscription-hub";
 import { createProjectPageTargetChangeSubscriptionHub } from "./project-page-target-change-subscription-hub";
+import { invalidateExactQuery } from "./query-invalidation";
 
 export interface ReferenceQueryResult<T> {
   readonly data: T | null;
@@ -70,21 +72,31 @@ const usePageTargetChangeRefresh = (
   const queryClient = useQueryClient();
   const subscriptionFingerprint = JSON.stringify(targets);
   const subscribeToTargets = useEffectEvent(() => {
-    const unsubscribers = targets.map((target) => {
+    const targetUnsubscribers = targets.map((target) => {
       return pageTargetChangeSubscriptions.subscribe(
         target.requestingProjectId,
         target.targetBlockId,
         JSON.stringify(target.queryKey),
         () => {
-          void queryClient.invalidateQueries({
-            queryKey: target.queryKey,
-            exact: true,
-          });
+          void invalidateExactQuery(queryClient, target.queryKey);
         },
       );
     });
+    const projectUnsubscribers = [...new Set(
+      targets.map((target) => target.requestingProjectId),
+    )].map((projectId) =>
+      resolveRendererTransport().subscribeAuthorityResync(projectId, () => {
+        for (const target of targets) {
+          if (target.requestingProjectId !== projectId) continue;
+          void invalidateExactQuery(queryClient, target.queryKey);
+        }
+      })
+    );
     return () => {
-      for (const unsubscribe of unsubscribers) unsubscribe();
+      for (const unsubscribe of [
+        ...targetUnsubscribers,
+        ...projectUnsubscribers,
+      ]) unsubscribe();
     };
   });
 
@@ -94,10 +106,11 @@ const usePageTargetChangeRefresh = (
 const useBoardChangeRefresh = (
   projectId: string | null,
   consumerKey: string,
-  refresh: () => Promise<unknown>,
+  queryKey: readonly unknown[],
 ): void => {
+  const queryClient = useQueryClient();
   const refreshQuery = useEffectEvent(() => {
-    void refresh();
+    void invalidateExactQuery(queryClient, queryKey);
   });
 
   useEffect(() => {
@@ -181,12 +194,13 @@ export const useDatabaseViewReadModel = (
   hostBlockId?: string,
 ): ReferenceQueryResult<DatabaseViewReadModel> => {
   const enabled = requestingProjectId.length > 0 && databaseViewId.length > 0;
+  const queryClient = useQueryClient();
   const queryKey = queryKeys.blockReferences.databaseView(
     requestingProjectId,
     databaseViewId,
     hostBlockId,
   );
-  const query = useQuery({
+  const { data, error, status } = useQuery({
     queryKey,
     queryFn: () => readDatabaseViewReference({
       requestingProjectId,
@@ -198,13 +212,44 @@ export const useDatabaseViewReadModel = (
     refetchOnWindowFocus: true,
   });
   useBoardChangeRefresh(
-    query.data?.view.projectId ?? null,
+    data?.view.projectId ?? null,
     JSON.stringify(queryKey),
-    query.refetch,
+    queryKey,
   );
+  const pageEventAffectsView = useEffectEvent((
+    event: PageTargetChangedEvent,
+  ): boolean => {
+    if (!data) return true;
+    if (event.affectedDatabaseIds.includes(data.view.databaseBlockId)) {
+      return true;
+    }
+    return data.rows.some((row) => row.page.id === event.targetPageId);
+  });
+  const refreshView = useEffectEvent(() => {
+    void invalidateExactQuery(queryClient, queryKey);
+  });
+  useEffect(() => {
+    if (!enabled) return;
+    const transport = resolveRendererTransport();
+    const unsubscribePageTarget = transport.subscribePageTargetChanges(
+      requestingProjectId,
+      (event) => {
+        if (!pageEventAffectsView(event)) return;
+        refreshView();
+      },
+    );
+    const unsubscribeAuthorityResync = transport.subscribeAuthorityResync(
+      requestingProjectId,
+      refreshView,
+    );
+    return () => {
+      unsubscribePageTarget();
+      unsubscribeAuthorityResync();
+    };
+  }, [enabled, requestingProjectId]);
   return {
-    data: query.data ?? null,
-    loading: enabled && query.status === "pending",
-    error: toError(query.error),
+    data: data ?? null,
+    loading: enabled && status === "pending",
+    error: toError(error),
   };
 };

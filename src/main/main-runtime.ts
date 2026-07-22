@@ -16,6 +16,7 @@ import {
 import { join, resolve } from "path";
 import type { AppInitializationStep } from "../shared/app-startup";
 import type { AppUpdateStatus } from "../shared/types";
+import { AUTHORITY_RESYNC_EVENT_VERSION } from "../shared/authority-resync-events";
 import { registerIpcHandlers } from "./ipc-handlers";
 import {
   configureHttpContentModuleAuthorities,
@@ -122,6 +123,7 @@ import {
   mapCoreDatabaseEvent,
   mapCoreLibraryDatabaseEvent,
   mapCoreLibraryEvent,
+  mapCorePageProjectionEvents,
   mapCoreProjectWorkspaceEvent,
   mapCoreStoreAdministrationEvent,
   type CoreEventEnvelope,
@@ -177,6 +179,11 @@ let desktopAutomationModule: DesktopAutomationModulePort | null = null;
 let desktopLibraryModule: DesktopLibraryModuleBridge | null = null;
 let desktopStoreAdministration: DesktopStoreAdministrationPort | null = null;
 let coreEventSubscription: CoreEventSubscription | null = null;
+let coreEventCursor = 0;
+let coreEventStreamGeneration = 0;
+let coreEventReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let coreEventReconnectDelayMs = 250;
+const MAX_CORE_EVENT_RECONNECT_DELAY_MS = 5_000;
 let storeAdministrationBackupScheduler: StoreAdministrationBackupScheduler | null = null;
 let storeAdministrationMaintenanceScheduler:
   StoreAdministrationMaintenanceScheduler | null = null;
@@ -1010,6 +1017,9 @@ function registerDatabaseNotifierBridges(): void {
   dbNotifier.on("page-target-changed", (event) => {
     broadcastToWindows("page-target-changed", event);
   });
+  dbNotifier.on("authority-resync", (event) => {
+    broadcastToWindows("authority-resync", event);
+  });
   dbNotifier.on("page-ownership-paths-changed", (event) => {
     broadcastToWindows("page-ownership-paths-changed", event);
   });
@@ -1037,40 +1047,102 @@ function registerDatabaseNotifierBridges(): void {
   });
 }
 
+function scheduleCoreEventStreamReconnect(error?: unknown): void {
+  if (runtimeShutdownStarted || coreEventReconnectTimer) return;
+  if (error) {
+    logger.warn("Native Core event stream ended; scheduling replay", {
+      error: error instanceof Error ? error.message : String(error),
+      after: coreEventCursor,
+    });
+  }
+  const delayMs = coreEventReconnectDelayMs;
+  coreEventReconnectDelayMs = Math.min(
+    coreEventReconnectDelayMs * 2,
+    MAX_CORE_EVENT_RECONNECT_DELAY_MS,
+  );
+  coreEventReconnectTimer = setTimeout(() => {
+    coreEventReconnectTimer = null;
+    void openCoreEventStream(coreEventCursor).catch((reconnectError) => {
+      scheduleCoreEventStreamReconnect(reconnectError);
+    });
+  }, delayMs);
+}
+
+function publishAuthorityResync(eventHead: number): void {
+  const runtime = desktopDataAuthorityRuntime;
+  dbNotifier.notifyAuthorityResync({
+    version: AUTHORITY_RESYNC_EVENT_VERSION,
+    reason: "event_gap",
+    storeEpoch: runtime?.rootClient.handshake.store_epoch ?? null,
+    changeLogSeq: eventHead,
+  });
+  dbNotifier.notifyLibraryNavigationChanged({
+    version: 1,
+    libraryId: runtime?.rootClient.handshake.library_id ?? "",
+    storeEpoch: runtime?.rootClient.handshake.store_epoch ?? null,
+    changeLogSeq: eventHead,
+    changeKind: "content",
+    affectedParentKeys: ["library", "catalog"],
+    affectedPageIds: [],
+    affectedDatabaseIds: [],
+    affectedViewIds: [],
+  });
+  dbNotifier.notifyProjectsChanged("update");
+  dbNotifier.notifyProjectSessionsChanged(null, "update");
+}
+
+async function openCoreEventStream(after: number): Promise<void> {
+  const runtime = desktopDataAuthorityRuntime;
+  if (!runtime || runtimeShutdownStarted) return;
+  const generation = ++coreEventStreamGeneration;
+  const subscription = await runtime.rootClient.openEventStream(
+    after,
+    publishCoreModuleEvent,
+    (resync) => {
+      coreEventCursor = Math.max(coreEventCursor, resync.event_head);
+      publishAuthorityResync(resync.event_head);
+      void openCoreEventStream(resync.event_head).catch((error) => {
+        scheduleCoreEventStreamReconnect(error);
+      });
+    },
+  );
+  if (runtimeShutdownStarted || generation !== coreEventStreamGeneration) {
+    subscription.close();
+    return;
+  }
+
+  const previous = coreEventSubscription;
+  coreEventSubscription = subscription;
+  coreEventCursor = Math.max(coreEventCursor, after);
+  coreEventReconnectDelayMs = 250;
+  previous?.close();
+  void subscription.done.then(() => {
+    if (
+      runtimeShutdownStarted
+      || generation !== coreEventStreamGeneration
+      || coreEventSubscription !== subscription
+    ) return;
+    coreEventSubscription = null;
+    scheduleCoreEventStreamReconnect();
+  }).catch((error) => {
+    if (
+      runtimeShutdownStarted
+      || generation !== coreEventStreamGeneration
+      || coreEventSubscription !== subscription
+    ) return;
+    coreEventSubscription = null;
+    scheduleCoreEventStreamReconnect(error);
+  });
+}
+
 async function initializeDesktopApp(
   serverPort: number,
   authority: Promise<DesktopDataAuthorityRuntime>,
 ): Promise<void> {
   desktopDataAuthorityRuntime = await authority;
   registerDatabaseNotifierBridges();
-
-  coreEventSubscription = await desktopDataAuthorityRuntime.rootClient.openEventStream(
-    desktopDataAuthorityRuntime.rootClient.handshake.event_head,
-    publishCoreModuleEvent,
-    (resync) => {
-      broadcastToWindows("library-navigation-changed", {
-        version: 1,
-        libraryId: desktopDataAuthorityRuntime?.rootClient.handshake.library_id
-          ?? "",
-        storeEpoch: desktopDataAuthorityRuntime?.rootClient.handshake.store_epoch
-          ?? null,
-        changeLogSeq: resync.event_head,
-        changeKind: "content",
-        affectedParentKeys: ["library", "catalog"],
-        affectedPageIds: [],
-        affectedDatabaseIds: [],
-        affectedViewIds: [],
-      });
-      dbNotifier.notifyProjectsChanged("update");
-      dbNotifier.notifyProjectSessionsChanged(null, "update");
-    },
-  );
-  void coreEventSubscription.done.catch((error) => {
-    if (runtimeShutdownStarted) return;
-    logger.warn("Native Core event stream ended", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  });
+  coreEventCursor = desktopDataAuthorityRuntime.rootClient.handshake.event_head;
+  await openCoreEventStream(coreEventCursor);
   databaseReady = true;
   await resolvePendingPageDeepLink();
   await resolvePendingSessionDeepLink();
@@ -1087,8 +1159,28 @@ async function initializeDesktopApp(
 
 function publishCoreModuleEvent(envelope: CoreEventEnvelope): void {
   if (!desktopDataAuthorityRuntime) return;
+  publishCoreModuleEventToNotifiers(
+    envelope,
+    desktopDataAuthorityRuntime.rootClient.handshake.library_id,
+  );
+  coreEventCursor = Math.max(coreEventCursor, envelope.event.sequence);
+}
+
+function publishCoreModuleEventToNotifiers(
+  envelope: CoreEventEnvelope,
+  libraryId: string,
+): void {
   const administrationEvent = mapCoreStoreAdministrationEvent(envelope);
   if (administrationEvent) return;
+  const pageProjectionEvents = mapCorePageProjectionEvents(envelope, libraryId);
+  const modulePublishesLibraryNavigation =
+    envelope.event.payload.module === "library"
+    || envelope.event.payload.module === "database";
+  for (const pageEvent of pageProjectionEvents) {
+    dbNotifier.notifyPageTargetChanged(pageEvent, {
+      notifyLibraryNavigation: !modulePublishesLibraryNavigation,
+    });
+  }
   const automationEvent = mapCoreAutomationEvent(envelope);
   if (automationEvent) {
     void codexService.synchronizeAutomationRuntime().catch((error) => {
@@ -1121,7 +1213,7 @@ function publishCoreModuleEvent(envelope: CoreEventEnvelope): void {
   }
   const databaseEvent = mapCoreDatabaseEvent(
     envelope,
-    desktopDataAuthorityRuntime.rootClient.handshake.library_id,
+    libraryId,
   );
   if (databaseEvent) {
     dbNotifier.notifyDatabaseChanged(databaseEvent);
@@ -1129,7 +1221,7 @@ function publishCoreModuleEvent(envelope: CoreEventEnvelope): void {
   }
   const libraryDatabaseEvent = mapCoreLibraryDatabaseEvent(
     envelope,
-    desktopDataAuthorityRuntime.rootClient.handshake.library_id,
+    libraryId,
   );
   if (libraryDatabaseEvent) {
     dbNotifier.notifyLibraryNavigationChanged(libraryDatabaseEvent);
@@ -1137,7 +1229,7 @@ function publishCoreModuleEvent(envelope: CoreEventEnvelope): void {
   }
   const libraryEvent = mapCoreLibraryEvent(
     envelope,
-    desktopDataAuthorityRuntime.rootClient.handshake.library_id,
+    libraryId,
   );
   if (libraryEvent) {
     dbNotifier.notifyLibraryNavigationChanged(libraryEvent);
@@ -1291,6 +1383,11 @@ function collectStartupDeepLinks(context: MainRuntimeStartupContext): string[][]
 function beginMainRuntimeShutdown(): void {
   if (runtimeShutdownStarted) return;
   runtimeShutdownStarted = true;
+  coreEventStreamGeneration += 1;
+  if (coreEventReconnectTimer) {
+    clearTimeout(coreEventReconnectTimer);
+    coreEventReconnectTimer = null;
+  }
   appQuitRequested = true;
   retainRestorableWindowSessions();
   logger.info("Nodex before-quit");

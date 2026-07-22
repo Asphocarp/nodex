@@ -3,6 +3,7 @@ import type { DatabasePageSummary } from "../../shared/types";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
 import type { PageTargetChangedEvent } from "../../shared/page-target-events";
 import type { PageOwnershipPathsChangedEvent } from "../../shared/page-ownership-path-events";
+import type { AuthorityResyncEvent } from "../../shared/authority-resync-events";
 import {
   parseDatabaseId,
   parseDatabaseViewId,
@@ -99,19 +100,23 @@ export class DatabaseNotifier extends EventEmitter {
     });
   }
 
-  notifyPageTargetChanged(event: PageTargetChangedEvent): void {
+  notifyPageTargetChanged(
+    event: PageTargetChangedEvent,
+    options: { readonly notifyLibraryNavigation?: boolean } = {},
+  ): void {
     this.emit("page-target-changed", event);
+    if (options.notifyLibraryNavigation === false) return;
     this.notifyLibraryNavigationChanged({
       version: LIBRARY_NAVIGATION_EVENT_VERSION,
       libraryId: event.libraryId,
-      storeEpoch: null,
-      changeLogSeq: null,
+      storeEpoch: event.storeEpoch,
+      changeLogSeq: event.changeLogSeq,
       changeKind: event.changeKind === "metadata"
         ? "content"
         : event.changeKind,
       affectedParentKeys: ["library", "catalog", `page:${event.targetPageId}`],
       affectedPageIds: [event.targetPageId],
-      affectedDatabaseIds: [],
+      affectedDatabaseIds: event.affectedDatabaseIds.map(parseDatabaseId),
       affectedViewIds: [],
     });
     if (event.changeKind === "location" || event.changeKind === "lifecycle") {
@@ -128,6 +133,10 @@ export class DatabaseNotifier extends EventEmitter {
 
   notifyPageOwnershipPathsChanged(event: PageOwnershipPathsChangedEvent): void {
     this.emit("page-ownership-paths-changed", event);
+  }
+
+  notifyAuthorityResync(event: AuthorityResyncEvent): void {
+    this.emit("authority-resync", event);
   }
 
   notifyProjectsChanged(changeType: ProjectChangeType, projectId?: string): void {

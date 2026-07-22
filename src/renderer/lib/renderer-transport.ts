@@ -7,6 +7,7 @@ import type { CommandKeymapState } from "../../shared/command-keybindings";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
 import type { PageTargetChangedEvent } from "../../shared/page-target-events";
+import type { AuthorityResyncEvent } from "../../shared/authority-resync-events";
 
 export interface RendererTransport {
   kind: "browser" | "electron";
@@ -113,6 +114,10 @@ export interface RendererTransport {
   subscribePageTargetChanges: (
     projectId: string,
     callback: (event: PageTargetChangedEvent) => void,
+  ) => () => void;
+  subscribeAuthorityResync: (
+    projectId: string | null,
+    callback: (event: AuthorityResyncEvent) => void,
   ) => () => void;
   subscribePageOwnershipPathChanges: (
     projectId: string,

@@ -1799,7 +1799,11 @@ app.get("/api/library-module/events", (c) => {
       const handler = (
         event: import("../shared/library-events").LibraryNavigationChangedEvent,
       ) => send(JSON.stringify({ event: "library-navigation-changed", ...event }));
+      const authorityResyncHandler = (
+        event: import("../shared/authority-resync-events").AuthorityResyncEvent,
+      ) => send(JSON.stringify({ event: "authority-resync", ...event }));
       dbNotifier.on("library-navigation-changed", handler);
+      dbNotifier.on("authority-resync", authorityResyncHandler);
       const pingInterval = setInterval(() => {
         try {
           send(JSON.stringify({ event: "ping" }));
@@ -1809,6 +1813,7 @@ app.get("/api/library-module/events", (c) => {
       }, SSE_PING_INTERVAL_MS);
       c.req.raw.signal.addEventListener("abort", () => {
         dbNotifier.removeListener("library-navigation-changed", handler);
+        dbNotifier.removeListener("authority-resync", authorityResyncHandler);
         clearInterval(pingInterval);
       });
     },
@@ -1905,6 +1910,9 @@ app.get("/api/projects/:projectId/events", async (c) => {
           });
         });
       };
+      const authorityResyncHandler = (
+        event: import("../shared/authority-resync-events").AuthorityResyncEvent,
+      ) => send(JSON.stringify({ event: "authority-resync", ...event }));
       const pageOwnershipPathsHandler = (event: {
         libraryId: string;
         projectId?: string;
@@ -1930,6 +1938,7 @@ app.get("/api/projects/:projectId/events", async (c) => {
 
       dbNotifier.on("board-changed", handler);
       dbNotifier.on("page-target-changed", pageTargetHandler);
+      dbNotifier.on("authority-resync", authorityResyncHandler);
       dbNotifier.on("page-ownership-paths-changed", pageOwnershipPathsHandler);
       dbNotifier.on("database-changed", databaseHandler);
       dbNotifier.on("project-sessions-changed", sessionHandler);
@@ -1947,6 +1956,7 @@ app.get("/api/projects/:projectId/events", async (c) => {
       c.req.raw.signal.addEventListener("abort", () => {
         dbNotifier.removeListener("board-changed", handler);
         dbNotifier.removeListener("page-target-changed", pageTargetHandler);
+        dbNotifier.removeListener("authority-resync", authorityResyncHandler);
         dbNotifier.removeListener("page-ownership-paths-changed", pageOwnershipPathsHandler);
         dbNotifier.removeListener("database-changed", databaseHandler);
         dbNotifier.removeListener("project-sessions-changed", sessionHandler);

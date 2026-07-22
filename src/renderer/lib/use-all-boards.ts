@@ -1,11 +1,17 @@
 import { useQueries, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef } from "react";
-import { subscribeBoardChanges } from "@/lib/api";
+import { useCallback, useEffect, useEffectEvent, useRef } from "react";
+import {
+  subscribeAuthorityResync,
+  subscribeBoardChanges,
+  subscribePageTargetChanges,
+} from "@/lib/api";
 import { applyBoardChangeEventToBoard } from "@/lib/board-summary-events";
 import { boardByProjectQueryOptions } from "@/lib/query-options";
 import { queryKeys } from "@/lib/query-keys";
 import type { BoardSummary, Project } from "@/lib/types";
 import { useProjects } from "@/lib/use-projects";
+import type { PageTargetChangedEvent } from "../../shared/page-target-events";
+import { invalidateExactQuery } from "./query-invalidation";
 
 const BOARD_CHANGE_REFETCH_COALESCE_MS = 50;
 
@@ -56,6 +62,20 @@ export function useBoardsForProjects(
     queries: projects.map((project) => boardByProjectQueryOptions(project.id)),
     combine: combineBoardResults,
   });
+  const pageTargetAffectsBoard = useEffectEvent((
+    projectId: string,
+    event: PageTargetChangedEvent,
+  ): boolean => {
+    const project = projects.find((candidate) => candidate.id === projectId);
+    if (!project) return false;
+    const board = queryClient.getQueryData<BoardSummary>(
+      queryKeys.boards.byProject(projectId),
+    );
+    const containsPage = board?.columns.some((column) =>
+      column.cards.some((card) => card.id === event.targetPageId)) ?? false;
+    return containsPage
+      || event.affectedDatabaseIds.includes(project.databaseId);
+  });
 
   useEffect(() => {
     if (!projectIdsKey) return;
@@ -66,14 +86,14 @@ export function useBoardsForProjects(
       if (refetchTimers.has(projectId)) return;
       const timer = setTimeout(() => {
         refetchTimers.delete(projectId);
-        void queryClient.invalidateQueries({
-          queryKey: queryKeys.boards.byProject(projectId),
-          exact: true,
-        });
+        void invalidateExactQuery(
+          queryClient,
+          queryKeys.boards.byProject(projectId),
+        );
       }, BOARD_CHANGE_REFETCH_COALESCE_MS);
       refetchTimers.set(projectId, timer);
     };
-    const unsubscribes = projectIds.map((projectId) =>
+    const unsubscribes = projectIds.flatMap((projectId) => [
       subscribeBoardChanges(projectId, (event) => {
         let applied = false;
         queryClient.setQueryData<BoardSummary | undefined>(
@@ -89,7 +109,14 @@ export function useBoardsForProjects(
           scheduleRefetch(projectId);
         }
       }),
-    );
+      subscribePageTargetChanges(projectId, (event) => {
+        if (!pageTargetAffectsBoard(projectId, event)) return;
+        scheduleRefetch(projectId);
+      }),
+      subscribeAuthorityResync(projectId, () => {
+        scheduleRefetch(projectId);
+      }),
+    ]);
 
     return () => {
       for (const unsubscribe of unsubscribes) {

@@ -25,6 +25,7 @@ vi.mock("./api", () => ({
 vi.mock("./renderer-transport", () => ({
   resolveRendererTransport: () => ({
     subscribeBoardChanges: () => () => undefined,
+    subscribeAuthorityResync: () => () => undefined,
     subscribePageTargetChanges: (
       projectId: string,
       listener: (event: PageTargetChangedEvent) => void,
@@ -94,9 +95,14 @@ describe("Page reference queries", () => {
     parentTitle = "Parent after move";
     await act(async () => {
       mocks.projectListeners.get("host-project")?.({
+        version: 1,
         libraryId: "library-1",
+        storeEpoch: "epoch-1",
+        changeLogSeq: 2,
         targetPageId: "parent-page",
         changeKind: "location",
+        affectedDatabaseIds: [],
+        affectedDataSourceIds: [],
       });
       await Promise.resolve();
     });

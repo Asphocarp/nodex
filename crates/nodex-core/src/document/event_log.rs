@@ -1,4 +1,6 @@
-use nodex_core_contracts::document::{DocumentInvalidationReason, OwnedDocumentEvent};
+use nodex_core_contracts::document::{
+    DocumentInvalidationReason, OwnedDocumentEvent, OwnedDocumentPageImpact,
+};
 use nodex_core_contracts::{
     CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CoreModuleEventPayload, StoreEpoch,
 };
@@ -57,6 +59,8 @@ struct DocumentEventMetadata {
     event_delta: Option<Value>,
     #[serde(default)]
     reason: Option<String>,
+    #[serde(default)]
+    page_impact: Option<OwnedDocumentPageImpact>,
 }
 
 pub(crate) fn replay_document_events(
@@ -154,6 +158,7 @@ pub(crate) fn reconstruct_document_event(
     {
         return Err(corrupt("Owned Document event metadata is inconsistent"));
     }
+    validate_page_impact(metadata.page_impact.as_ref())?;
 
     let payload = match metadata.kind.as_str() {
         "document_initialized" | "document_updated" => {
@@ -189,6 +194,7 @@ pub(crate) fn reconstruct_document_event(
                 generation: metadata.generation,
                 head_seq: metadata.head_seq,
                 update,
+                page_impact: metadata.page_impact,
             }
         }
         "canvas_scene_updated" => {
@@ -240,6 +246,7 @@ pub(crate) fn reconstruct_document_event(
         "document_restored" => OwnedDocumentEvent::DocumentInvalidated {
             document_id: metadata.document_id,
             reason: DocumentInvalidationReason::Restored,
+            page_impact: metadata.page_impact,
         },
         "document_invalidated" => {
             let reason = match metadata.reason.as_deref() {
@@ -251,6 +258,7 @@ pub(crate) fn reconstruct_document_event(
             OwnedDocumentEvent::DocumentInvalidated {
                 document_id: metadata.document_id,
                 reason,
+                page_impact: metadata.page_impact,
             }
         }
         _ => return Err(corrupt("Owned Document event kind is unsupported")),
@@ -264,6 +272,26 @@ pub(crate) fn reconstruct_document_event(
         committed_at: row.committed_at.clone(),
         payload: CoreModuleEventPayload::OwnedDocument(payload),
     }))
+}
+
+fn validate_page_impact(impact: Option<&OwnedDocumentPageImpact>) -> Result<(), StoreError> {
+    let Some(impact) = impact else {
+        return Ok(());
+    };
+    if impact.library_id.is_empty()
+        || impact.library_id.len() > 512
+        || impact.page_id.is_empty()
+        || impact.page_id.len() > 512
+        || impact.database.as_ref().is_some_and(|database| {
+            database.database_id.is_empty()
+                || database.database_id.len() > 512
+                || database.data_source_id.is_empty()
+                || database.data_source_id.len() > 512
+        })
+    {
+        return Err(corrupt("Owned Document Page impact is invalid"));
+    }
+    Ok(())
 }
 
 pub(crate) fn validate_change_log_row(
