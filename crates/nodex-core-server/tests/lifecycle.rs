@@ -1,13 +1,17 @@
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::PermissionsExt;
-use std::os::unix::net::UnixStream;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use fs2::FileExt;
 use nodex_core_protocol::{
-    ClientIdentity, ClientKind, HandshakeRequest, PROTOCOL_MAX, PROTOCOL_MIN, RuntimeDescriptor,
-    RuntimeGenerationIdentity, ShutdownRequest, VersionHandoffRequest,
+    ClientIdentity, ClientKind, CoreArtifactIdentity, CoreReplacementRequest,
+    CoreSelectionDisposition, CoreSelectionPolicy, CoreSelectionReason, CoreSelectionResult,
+    HandshakeRequest, LauncherKind, RuntimeDescriptor, RuntimeGenerationIdentity, ShutdownRequest,
+    ShutdownResponse, ShutdownStatus, VersionRange, canonical_manifest_digest,
+    core_client_requirements, core_compatibility_manifest,
 };
 use sha2::{Digest, Sha256};
 use tempfile::tempdir;
@@ -17,7 +21,7 @@ fn log_identity(identity: &str) -> String {
     format!("sha256:{}", &hex::encode(digest)[..32])
 }
 
-fn read_ready_descriptor(child: &mut Child) -> RuntimeDescriptor {
+fn read_selection_result(child: &mut Child) -> CoreSelectionResult {
     let stdout = child.stdout.take().expect("captured stdout");
     let mut reader = BufReader::new(stdout);
     let mut line = String::new();
@@ -33,7 +37,11 @@ fn read_ready_descriptor(child: &mut Child) -> RuntimeDescriptor {
             .expect("failed Core stderr");
         panic!("Core exited before readiness ({status}): {stderr}");
     }
-    serde_json::from_str(line.trim()).expect("runtime descriptor JSON")
+    serde_json::from_str::<CoreSelectionResult>(line.trim()).expect("Core selection result JSON")
+}
+
+fn read_ready_descriptor(child: &mut Child) -> RuntimeDescriptor {
+    read_selection_result(child).descriptor
 }
 
 fn request(socket: &str, auth: &str, method: &str, path: &str, body: &str) -> String {
@@ -136,20 +144,30 @@ fn response_json(response: &str) -> serde_json::Value {
     serde_json::from_str(body).expect("JSON response")
 }
 
-fn version_handoff_request(
+fn replacement_request(descriptor: &RuntimeDescriptor) -> String {
+    replacement_request_for(descriptor, descriptor.manifest.clone())
+}
+
+fn replacement_request_for(
     descriptor: &RuntimeDescriptor,
-    protocol_min: u32,
-    protocol_max: u32,
+    candidate_manifest: nodex_core_protocol::CoreCompatibilityManifest,
 ) -> String {
-    serde_json::to_string(&ShutdownRequest {
-        version_handoff: Some(VersionHandoffRequest {
-            protocol_min,
-            protocol_max,
-            build_id: "future-core-test".to_owned(),
+    let candidate_manifest_digest =
+        canonical_manifest_digest(&candidate_manifest).expect("candidate manifest digest");
+    serde_json::to_string(&ShutdownRequest::Replacement(Box::new(
+        CoreReplacementRequest {
+            candidate_manifest,
+            candidate_manifest_digest,
+            candidate_artifact: CoreArtifactIdentity {
+                sha256: "f".repeat(64),
+                build_id: "future-core-test".to_owned(),
+            },
+            policy: CoreSelectionPolicy::PreferCurrentArtifact,
+            launcher: LauncherKind::Test,
             expected: RuntimeGenerationIdentity::from(descriptor),
-        }),
-    })
-    .expect("version handoff JSON")
+        },
+    )))
+    .expect("replacement handoff JSON")
 }
 
 #[test]
@@ -217,15 +235,13 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     assert!(health.contains(&format!("\"pid\":{}", expected.pid)));
 
     let handshake = serde_json::to_string(&HandshakeRequest {
-        protocol_min: PROTOCOL_MIN,
-        protocol_max: PROTOCOL_MAX,
+        requirements: core_client_requirements(),
         client: ClientIdentity {
             kind: ClientKind::Test,
             build_id: "lifecycle-test".to_owned(),
         },
         connection_id: "connection:lifecycle".to_owned(),
-        expected_profile_id: Some(expected.profile_id.clone()),
-        expected_start_nonce: Some(expected.start_nonce.clone()),
+        expected_generation: RuntimeGenerationIdentity::from(expected),
     })
     .expect("handshake JSON");
     let response = request(
@@ -243,16 +259,17 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
         .expect("connection binding")
         .to_owned();
 
+    let mut invalid_requirements = core_client_requirements();
+    invalid_requirements.transport.min = 0;
+    invalid_requirements.transport.max = 0;
     let downgrade = serde_json::to_string(&HandshakeRequest {
-        protocol_min: 0,
-        protocol_max: 0,
+        requirements: invalid_requirements,
         client: ClientIdentity {
             kind: ClientKind::Test,
             build_id: "lifecycle-test".to_owned(),
         },
         connection_id: "connection:downgrade".to_owned(),
-        expected_profile_id: Some(expected.profile_id.clone()),
-        expected_start_nonce: Some(expected.start_nonce.clone()),
+        expected_generation: RuntimeGenerationIdentity::from(expected),
     })
     .expect("downgrade JSON");
     let downgrade = request(
@@ -265,15 +282,13 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     assert!(downgrade.starts_with("HTTP/1.1 409"));
 
     let rebound = serde_json::to_string(&HandshakeRequest {
-        protocol_min: PROTOCOL_MIN,
-        protocol_max: PROTOCOL_MAX,
+        requirements: core_client_requirements(),
         client: ClientIdentity {
             kind: ClientKind::NativeCli,
             build_id: "different-client".to_owned(),
         },
         connection_id: "connection:lifecycle".to_owned(),
-        expected_profile_id: Some(expected.profile_id.clone()),
-        expected_start_nonce: Some(expected.start_nonce.clone()),
+        expected_generation: RuntimeGenerationIdentity::from(expected),
     })
     .expect("rebind JSON");
     let rebound = request(
@@ -294,7 +309,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
         &auth,
         "POST",
         "/core/v1/modules/library/read",
-        r#"{"version":1,"read":{"kind":"metadata"}}"#,
+        r#"{"contract_version":1,"read":{"kind":"metadata"}}"#,
         &connection_headers,
     );
     assert!(read.starts_with("HTTP/1.1 200"));
@@ -308,7 +323,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     assert!(library_id.starts_with("library-"));
 
     let apply_body = serde_json::json!({
-        "version": 1,
+        "contract_version": 1,
         "operation_id": "lifecycle-operation-1",
         "store_epoch": expected.store_epoch,
         "intent": {
@@ -345,7 +360,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     const PRIVATE_LOG_SENTINEL: &str = "PRIVATE_TITLE_MUST_NOT_REACH_CORE_LOGS";
     const LOG_OPERATION_ID: &str = "logging-correlation-operation";
     let logged_apply_body = serde_json::json!({
-        "version": 1,
+        "contract_version": 1,
         "operation_id": LOG_OPERATION_ID,
         "store_epoch": expected.store_epoch,
         "intent": {
@@ -392,7 +407,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     const SOURCE_ID: &str = "018f2000-0000-7000-8000-000000000002";
     const VIEW_ID: &str = "018f2000-0000-7000-8000-000000000003";
     let create_database = serde_json::json!({
-        "version": 1,
+        "contract_version": 1,
         "operation_id": "lifecycle-database-create",
         "store_epoch": expected.store_epoch,
         "intent": {
@@ -416,7 +431,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     assert_eq!(response_json(&created_database)["status"], "ok");
 
     let grant_database = serde_json::json!({
-        "version": 1,
+        "contract_version": 1,
         "operation_id": "lifecycle-database-grant",
         "store_epoch": expected.store_epoch,
         "intent": {
@@ -438,7 +453,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     assert_eq!(response_json(&granted_database)["status"], "ok");
 
     let database_read = serde_json::json!({
-        "version": 1,
+        "contract_version": 2,
         "read": {
             "target": { "kind": "data_source", "data_source_id": SOURCE_ID },
             "mode": "data_source",
@@ -465,7 +480,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     );
 
     let database_apply_body = serde_json::json!({
-        "version": 1,
+        "contract_version": 2,
         "operation_id": "lifecycle-database-property",
         "store_epoch": expected.store_epoch,
         "intent": [{
@@ -526,7 +541,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
         &auth,
         "POST",
         "/core/v1/admin/shutdown",
-        &version_handoff_request(expected, 1, 1),
+        &replacement_request(expected),
     );
     assert!(handoff.starts_with("HTTP/1.1 200"));
     let handoff = response_json(&handoff);
@@ -541,16 +556,42 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
         &auth,
         "POST",
         "/core/v1/admin/shutdown",
-        &version_handoff_request(&forged_descriptor, 1, 1),
+        &replacement_request(&forged_descriptor),
     );
-    assert!(forged_handoff.starts_with("HTTP/1.1 409"));
+    assert!(forged_handoff.starts_with("HTTP/1.1 200"));
+    assert_eq!(response_json(&forged_handoff)["status"], "incompatible");
+
+    let mut downgraded_manifest = expected.manifest.clone();
+    downgraded_manifest
+        .modules
+        .iter_mut()
+        .find(|entry| entry.module == nodex_core_contracts::ModuleName::ProjectWorkspace)
+        .expect("Workspace contract")
+        .versions = nodex_core_protocol::VersionRange::exact(1);
+    let downgrade_handoff = request(
+        &expected.socket_path,
+        &auth,
+        "POST",
+        "/core/v1/admin/shutdown",
+        &replacement_request_for(expected, downgraded_manifest),
+    );
+    assert!(downgrade_handoff.starts_with("HTTP/1.1 200"));
+    assert_eq!(response_json(&downgrade_handoff)["status"], "incompatible");
+    let legacy_handoff = request(
+        &expected.socket_path,
+        &auth,
+        "POST",
+        "/core/v1/admin/shutdown",
+        r#"{"version_handoff":null}"#,
+    );
+    assert!(legacy_handoff.starts_with("HTTP/1.1 422"));
 
     let unbound_shutdown = request(
         &expected.socket_path,
         &auth,
         "POST",
         "/core/v1/admin/shutdown",
-        "{}",
+        r#"{"kind":"shutdown"}"#,
     );
     assert!(unbound_shutdown.starts_with("HTTP/1.1 401"));
 
@@ -593,7 +634,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
         &auth,
         "POST",
         "/core/v1/admin/shutdown",
-        "{}",
+        r#"{"kind":"shutdown"}"#,
         &connection_headers,
     );
     assert!(shutdown.starts_with("HTTP/1.1 200"));
@@ -712,7 +753,7 @@ fn core_idle_exits_after_startup_clients_are_gone() {
     let spawn = || {
         Command::new(executable)
             .args(["--home", home.to_str().expect("UTF-8 home")])
-            .env("NODEX_CORE_IDLE_TIMEOUT_MS", "500")
+            .env("NODEX_CORE_IDLE_TIMEOUT_MS", "5000")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -726,7 +767,7 @@ fn core_idle_exits_after_startup_clients_are_gone() {
     assert_eq!(reused.start_nonce, descriptor.start_nonce);
     assert!(contender.wait().expect("wait for startup client").success());
 
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         if let Some(status) = core.try_wait().expect("poll idle Core") {
             assert!(status.success());
@@ -767,7 +808,7 @@ fn incompatible_idle_core_drains_before_a_replacement_starts() {
         &auth,
         "POST",
         "/core/v1/admin/shutdown",
-        &version_handoff_request(&incumbent_descriptor, 1, 1),
+        &replacement_request(&incumbent_descriptor),
     );
     assert!(handoff.starts_with("HTTP/1.1 200"));
     assert_eq!(response_json(&handoff)["status"], "draining");
@@ -821,7 +862,7 @@ fn incompatible_idle_core_drains_before_a_replacement_starts() {
         &replacement_auth,
         "POST",
         "/core/v1/admin/shutdown",
-        &version_handoff_request(replacement_descriptor, 1, 1),
+        &replacement_request(replacement_descriptor),
     );
     assert_eq!(response_json(&replacement_handoff)["status"], "draining");
     let replacement = replacements
@@ -832,7 +873,295 @@ fn incompatible_idle_core_drains_before_a_replacement_starts() {
 }
 
 #[test]
-fn moved_or_deleted_old_app_core_is_reused_then_drained_without_a_second_writer() {
+fn workspace_contract_mismatch_is_replaced_before_a_projectless_terminal_request() {
+    let directory = tempdir().expect("disposable stale-runtime Profile");
+    let home = directory.path().canonicalize().expect("absolute home");
+    let executable = env!("CARGO_BIN_EXE_nodex-core");
+
+    let mut seed = Command::new(executable)
+        .args(["--home", home.to_str().expect("UTF-8 home")])
+        .env("NODEX_CORE_IDLE_TIMEOUT_MS", "100")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("seed current Store identity");
+    let seeded_descriptor = read_ready_descriptor(&mut seed);
+    assert!(seed.wait().expect("wait for seed Core idle exit").success());
+
+    let runtime = home.join("run/core");
+    let socket = runtime.join("core.sock");
+    let descriptor_path = runtime.join("core.json");
+    let auth_path = runtime.join("core.auth");
+    let lock_path = runtime.join("core.lock");
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&lock_path)
+        .expect("open fixture Profile lock");
+    fs::set_permissions(&lock_path, fs::Permissions::from_mode(0o600))
+        .expect("private fixture lock");
+    lock.lock_exclusive().expect("hold fixture Profile lock");
+    let listener = UnixListener::bind(&socket).expect("bind stale Core fixture");
+    fs::set_permissions(&socket, fs::Permissions::from_mode(0o600))
+        .expect("private fixture socket");
+
+    let mut stale_manifest = core_compatibility_manifest();
+    let workspace = stale_manifest
+        .modules
+        .get_mut(3)
+        .expect("canonical Project Workspace manifest entry");
+    assert_eq!(
+        serde_json::to_value(workspace.module).expect("Module name JSON"),
+        serde_json::json!("project_workspace")
+    );
+    workspace.versions = VersionRange::exact(1);
+    let stale_manifest_digest =
+        canonical_manifest_digest(&stale_manifest).expect("stale manifest digest");
+    let stale_descriptor = RuntimeDescriptor {
+        manifest: stale_manifest,
+        manifest_digest: stale_manifest_digest,
+        artifact: seeded_descriptor.artifact.clone(),
+        actual_store_format: seeded_descriptor.actual_store_format.clone(),
+        pid: std::process::id(),
+        start_nonce: "c".repeat(32),
+        socket_path: socket.to_string_lossy().into_owned(),
+        profile_id: seeded_descriptor.profile_id.clone(),
+        store_epoch: seeded_descriptor.store_epoch.clone(),
+        readiness_generation: 1,
+    };
+    let fixture_auth = "d".repeat(64);
+    fs::write(&auth_path, format!("{fixture_auth}\n")).expect("fixture auth");
+    fs::set_permissions(&auth_path, fs::Permissions::from_mode(0o600))
+        .expect("private fixture auth");
+    fs::write(
+        &descriptor_path,
+        format!(
+            "{}\n",
+            serde_json::to_string(&stale_descriptor).expect("fixture descriptor JSON")
+        ),
+    )
+    .expect("fixture descriptor");
+    fs::set_permissions(&descriptor_path, fs::Permissions::from_mode(0o600))
+        .expect("private fixture descriptor");
+
+    let expected_stale_generation = RuntimeGenerationIdentity::from(&stale_descriptor);
+    let fixture_generation = expected_stale_generation.clone();
+    let fixture = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept replacement request");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("bound fixture read");
+        let mut reader = BufReader::new(stream.try_clone().expect("clone fixture stream"));
+        let mut request_head = String::new();
+        let mut content_length = None;
+        loop {
+            let mut line = String::new();
+            reader
+                .read_line(&mut line)
+                .expect("read replacement header");
+            assert!(
+                !line.is_empty(),
+                "replacement request ended before its body"
+            );
+            if let Some(value) = line
+                .strip_prefix("Content-Length: ")
+                .and_then(|value| value.trim().parse::<usize>().ok())
+            {
+                content_length = Some(value);
+            }
+            request_head.push_str(&line);
+            if line == "\r\n" {
+                break;
+            }
+        }
+        let mut request_body = vec![0_u8; content_length.expect("replacement content length")];
+        reader
+            .read_exact(&mut request_body)
+            .expect("read replacement body");
+        let response_body = serde_json::to_vec(&ShutdownResponse {
+            status: ShutdownStatus::Draining,
+            runtime: Some(fixture_generation),
+            retry_after_ms: None,
+        })
+        .expect("fixture response JSON");
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            response_body.len()
+        )
+        .expect("write replacement response head");
+        stream
+            .write_all(&response_body)
+            .expect("write replacement response body");
+        drop(lock);
+        (
+            request_head,
+            serde_json::from_slice::<ShutdownRequest>(&request_body)
+                .expect("strict replacement request"),
+        )
+    });
+
+    let mut current = Command::new(executable)
+        .args([
+            "--home",
+            home.to_str().expect("UTF-8 home"),
+            "--selection-policy",
+            "prefer-current-artifact",
+            "--launcher",
+            "electron-host",
+        ])
+        .env("NODEX_CORE_IDLE_TIMEOUT_MS", "0")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn current Electron Core selector");
+    let selection = read_selection_result(&mut current);
+    assert_eq!(selection.disposition, CoreSelectionDisposition::Started);
+    assert_eq!(selection.reason, CoreSelectionReason::ReplacedContract);
+    assert_eq!(
+        selection.descriptor.store_epoch,
+        seeded_descriptor.store_epoch
+    );
+    let (fixture_head, replacement) = fixture.join().expect("join stale Core fixture");
+    assert!(fixture_head.starts_with("POST /core/v1/admin/shutdown HTTP/1.1"));
+    assert!(fixture_head.contains(&format!("Authorization: Bearer {fixture_auth}")));
+    let ShutdownRequest::Replacement(replacement) = replacement else {
+        panic!("Workspace mismatch must request a typed replacement");
+    };
+    assert_eq!(replacement.expected, expected_stale_generation);
+    assert_eq!(
+        replacement.candidate_manifest.modules[3].versions,
+        VersionRange::exact(2)
+    );
+
+    let selected = selection.descriptor;
+    let selected_auth = fs::read_to_string(runtime.join("core.auth"))
+        .expect("selected Core auth")
+        .trim()
+        .to_owned();
+    let handshake = serde_json::to_string(&HandshakeRequest {
+        requirements: core_client_requirements(),
+        client: ClientIdentity {
+            kind: ClientKind::ElectronHost,
+            build_id: "stale-runtime-regression".to_owned(),
+        },
+        connection_id: "connection:stale-runtime-regression".to_owned(),
+        expected_generation: RuntimeGenerationIdentity::from(&selected),
+    })
+    .expect("handshake JSON");
+    let handshake = response_json(&request(
+        &selected.socket_path,
+        &selected_auth,
+        "POST",
+        "/core/v1/handshake",
+        &handshake,
+    ));
+    let binding = handshake["connection_binding"]
+        .as_str()
+        .expect("connection binding")
+        .to_owned();
+    let connection_headers = [
+        (
+            "x-nodex-connection-id",
+            "connection:stale-runtime-regression",
+        ),
+        ("x-nodex-connection-binding", binding.as_str()),
+    ];
+    for (operation_id, intent) in [
+        (
+            "workspace-create-projectless-session",
+            serde_json::json!({
+                "kind": "create_session",
+                "session_id": "session:projectless-regression",
+                "project_id": null,
+                "title": "Projectless"
+            }),
+        ),
+        (
+            "workspace-create-projectless-terminal",
+            serde_json::json!({
+                "kind": "mutate_session",
+                "session_id": "session:projectless-regression",
+                "intent": {
+                    "kind": "create_tab",
+                    "tab_id": "tab:projectless-terminal-regression",
+                    "panel_id": "bottom",
+                    "target_leaf_id": null,
+                    "title": "Terminal",
+                    "content": {
+                        "kind": "terminal",
+                        "terminal_session_id": "terminal:projectless-regression"
+                    }
+                }
+            }),
+        ),
+    ] {
+        let apply = serde_json::json!({
+            "contract_version": 2,
+            "operation_id": operation_id,
+            "store_epoch": selected.store_epoch,
+            "intent": intent
+        })
+        .to_string();
+        let raw_response = request_with_headers(
+            &selected.socket_path,
+            &selected_auth,
+            "POST",
+            "/core/v1/modules/workspace/apply",
+            &apply,
+            &connection_headers,
+        );
+        assert!(
+            raw_response.starts_with("HTTP/1.1 200"),
+            "unexpected Workspace apply response: {raw_response:?}"
+        );
+        let response = response_json(&raw_response);
+        assert_eq!(response["status"], "ok", "{response}");
+    }
+    let terminal = response_json(&request_with_headers(
+        &selected.socket_path,
+        &selected_auth,
+        "POST",
+        "/core/v1/modules/workspace/read",
+        &serde_json::json!({
+            "contract_version": 2,
+            "read": {
+                "kind": "session_tab",
+                "tab_id": "tab:projectless-terminal-regression"
+            }
+        })
+        .to_string(),
+        &connection_headers,
+    ));
+    assert_eq!(terminal["status"], "ok", "{terminal}");
+    assert_eq!(
+        terminal["payload"]["value"]["tab"]["project_id"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        terminal["payload"]["value"]["tab"]["content"],
+        serde_json::json!({
+            "kind": "terminal",
+            "terminal_session_id": "terminal:projectless-regression"
+        })
+    );
+
+    let shutdown = response_json(&request_with_headers(
+        &selected.socket_path,
+        &selected_auth,
+        "POST",
+        "/core/v1/admin/shutdown",
+        r#"{"kind":"shutdown"}"#,
+        &connection_headers,
+    ));
+    assert_eq!(shutdown["status"], "draining");
+    assert!(current.wait().expect("wait for selected Core").success());
+}
+
+#[test]
+fn compatibility_policy_reuses_while_electron_artifact_policy_replaces_without_a_second_writer() {
     let directory = tempdir().expect("disposable update installation");
     let home = directory.path().join("profile");
     fs::create_dir(&home).expect("Profile home");
@@ -873,21 +1202,65 @@ fn moved_or_deleted_old_app_core_is_reused_then_drained_without_a_second_writer(
             .success()
     );
 
+    let new_bundle = directory.path().join("New Nodex.app");
+    let new_bin = new_bundle.join("Contents/Resources/bin");
+    fs::create_dir_all(&new_bin).expect("new app runtime directory");
+    let new_executable = new_bin.join("nodex-core");
+    fs::copy(env!("CARGO_BIN_EXE_nodex-core"), &new_executable).expect("copy new packaged Core");
+    fs::OpenOptions::new()
+        .append(true)
+        .open(&new_executable)
+        .expect("open new packaged Core")
+        .write_all(b"\nNodex distinct artifact fixture\n")
+        .expect("different artifact digest");
+    fs::set_permissions(&new_executable, fs::Permissions::from_mode(0o755))
+        .expect("new packaged Core is executable");
+    let mut current_app = Command::new(&new_executable)
+        .args([
+            "--home",
+            home.to_str().expect("UTF-8 home"),
+            "--selection-policy",
+            "prefer-current-artifact",
+            "--launcher",
+            "electron-host",
+        ])
+        .env("NODEX_CORE_IDLE_TIMEOUT_MS", "0")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("start current Electron Core selector");
+    let selected = read_selection_result(&mut current_app);
+    assert_eq!(selected.disposition, CoreSelectionDisposition::Started);
+    assert_eq!(selected.reason, CoreSelectionReason::ReplacedArtifact);
+    let current_descriptor = selected.descriptor;
+    assert_ne!(current_descriptor.pid, incumbent_descriptor.pid);
+    assert_ne!(current_descriptor.artifact, incumbent_descriptor.artifact);
+    assert_eq!(
+        current_descriptor.store_epoch,
+        incumbent_descriptor.store_epoch
+    );
+    assert!(incumbent.wait().expect("wait for old Core drain").success());
+
     let runtime = home.join("run/core");
     let auth = fs::read_to_string(runtime.join("core.auth"))
-        .expect("incumbent auth")
+        .expect("current Core auth")
         .trim()
         .to_owned();
     let handoff = request(
-        &incumbent_descriptor.socket_path,
+        &current_descriptor.socket_path,
         &auth,
         "POST",
         "/core/v1/admin/shutdown",
-        &version_handoff_request(&incumbent_descriptor, 1, 1),
+        &replacement_request(&current_descriptor),
     );
     assert!(handoff.starts_with("HTTP/1.1 200"));
     assert_eq!(response_json(&handoff)["status"], "draining");
-    assert!(incumbent.wait().expect("wait for old Core drain").success());
+    assert!(
+        current_app
+            .wait()
+            .expect("wait for current Core drain")
+            .success()
+    );
     assert!(!runtime.join("core.sock").exists());
     assert!(!runtime.join("core.json").exists());
     assert!(!runtime.join("core.auth").exists());

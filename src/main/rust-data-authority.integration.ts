@@ -1078,7 +1078,7 @@ describe("Electron native data authority", () => {
       const lifecycleLibrary = createCoreLibraryModuleAdapter({
         client: runtime.clientForProject(projectId),
         libraryId: runtime.rootClient.handshake.library_id,
-        profileId: runtime.rootClient.handshake.profile_id,
+        profileId: runtime.rootClient.handshake.generation.profile_id,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
       });
       const lifecyclePreflight = await lifecycleLibrary.readPageLifecyclePreflight(
@@ -2582,7 +2582,7 @@ describe("Electron native data authority", () => {
       const library = createCoreLibraryModuleAdapter({
         client: runtime.clientForProject(projectId),
         libraryId: runtime.rootClient.handshake.library_id,
-        profileId: runtime.rootClient.handshake.profile_id,
+        profileId: runtime.rootClient.handshake.generation.profile_id,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
       });
       await expect(library.read({
@@ -2696,7 +2696,7 @@ describe("Electron native data authority", () => {
       const rootLibrary = createCoreLibraryModuleAdapter({
         client: runtime.rootClient,
         libraryId: runtime.rootClient.handshake.library_id,
-        profileId: runtime.rootClient.handshake.profile_id,
+        profileId: runtime.rootClient.handshake.generation.profile_id,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
       });
       await expect(rootLibrary.findPageLocation(

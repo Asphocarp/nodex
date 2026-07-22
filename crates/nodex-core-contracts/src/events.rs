@@ -42,7 +42,7 @@ pub enum ProjectionImpact {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct CommittedCoreModuleEvent {
-    pub version: u32,
+    pub event_version: u32,
     pub sequence: i64,
     pub store_epoch: StoreEpoch,
     pub operation_id: Option<String>,

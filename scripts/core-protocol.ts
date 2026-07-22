@@ -17,10 +17,15 @@ const repositoryRoot = resolve(scriptDirectory, "..");
 const packageRoot = join(repositoryRoot, "packages/core-protocol");
 const committedOpenApi = join(packageRoot, "openapi.json");
 const committedTypes = join(packageRoot, "src/generated.ts");
+const committedRequirements = join(
+  packageRoot,
+  "src/compatibility.generated.ts",
+);
 
 interface GeneratedArtifacts {
   readonly openApi: string;
   readonly types: string;
+  readonly requirements: string;
 }
 
 function run(command: string, args: readonly string[]): void {
@@ -33,6 +38,7 @@ function run(command: string, args: readonly string[]): void {
 function generateArtifacts(directory: string): GeneratedArtifacts {
   const openApi = join(directory, "openapi.json");
   const types = join(directory, "generated.ts");
+  const requirements = join(directory, "compatibility.generated.ts");
 
   run("cargo", [
     "run",
@@ -44,6 +50,8 @@ function generateArtifacts(directory: string): GeneratedArtifacts {
     "--",
     "--output",
     openApi,
+    "--requirements-output",
+    requirements,
   ]);
   run("pnpm", [
     "exec",
@@ -55,7 +63,7 @@ function generateArtifacts(directory: string): GeneratedArtifacts {
     "--immutable",
   ]);
 
-  return { openApi, types };
+  return { openApi, types, requirements };
 }
 
 function assertSame(expectedPath: string, actualPath: string): void {
@@ -75,6 +83,7 @@ export function generateProtocol(): void {
     mkdirSync(dirname(committedTypes), { recursive: true });
     copyFileSync(artifacts.openApi, committedOpenApi);
     copyFileSync(artifacts.types, committedTypes);
+    copyFileSync(artifacts.requirements, committedRequirements);
   } finally {
     rmSync(staging, { recursive: true, force: true });
   }
@@ -86,6 +95,7 @@ export function verifyProtocol(): void {
     const artifacts = generateArtifacts(staging);
     assertSame(committedOpenApi, artifacts.openApi);
     assertSame(committedTypes, artifacts.types);
+    assertSame(committedRequirements, artifacts.requirements);
   } finally {
     rmSync(staging, { recursive: true, force: true });
   }

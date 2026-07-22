@@ -14,7 +14,7 @@ use nodex_core_contracts::library::{
     LibraryPlacementAnchor, LibraryReadValue, LibraryResourceTarget,
 };
 use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CommittedModuleValue,
+    AdapterKind, BoundModuleContext, CommittedModuleValue, LIBRARY_CONTRACT_VERSION,
     ModuleApplyRequest, ModuleReadSnapshot, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
@@ -180,7 +180,7 @@ pub(super) fn prepare_page_copy(
                 .as_ref()
                 .expect("validated committed Agent copy");
             Ok(ModuleReadSnapshot {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: LIBRARY_CONTRACT_VERSION,
                 store_epoch: StoreEpoch(store_epoch),
                 event_head,
                 value: LibraryReadValue::AgentPageCopyPreparation {
@@ -212,7 +212,7 @@ pub(super) fn prepare_page_copy(
         } => {
             let issued = registry.issue(preflight.binding)?;
             Ok(ModuleReadSnapshot {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: LIBRARY_CONTRACT_VERSION,
                 store_epoch: StoreEpoch(store_epoch),
                 event_head,
                 value: LibraryReadValue::AgentPageCopyPreparation {

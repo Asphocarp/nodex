@@ -53,9 +53,23 @@ export class CoreEventReplayError extends Error {
   }
 }
 
+export class CoreEventCompatibilityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CoreEventCompatibilityError";
+  }
+}
+
+interface CoreEventContract {
+  readonly transportVersion: number;
+  readonly eventVersion: number;
+  readonly storeEpoch: string;
+}
+
 export class UdsHttpTransport {
   readonly #maximumJsonResponseBytes: number;
   readonly #requestTimeoutMs: number;
+  #eventContract: CoreEventContract | null = null;
 
   constructor(
     readonly socketPath: string,
@@ -72,6 +86,20 @@ export class UdsHttpTransport {
       MAX_CONFIGURED_REQUEST_TIMEOUT_MS,
       "Core request timeout",
     );
+  }
+
+  configureEventContract(contract: CoreEventContract): void {
+    if (
+      !Number.isSafeInteger(contract.transportVersion) ||
+      !Number.isSafeInteger(contract.eventVersion) ||
+      !contract.storeEpoch
+    ) {
+      throw new CoreEventCompatibilityError("Core event contract is invalid");
+    }
+    if (this.#eventContract !== null) {
+      throw new CoreEventCompatibilityError("Core event contract is already configured");
+    }
+    this.#eventContract = contract;
   }
 
   requestJson<Response>(
@@ -215,6 +243,12 @@ export class UdsHttpTransport {
     if (!Number.isSafeInteger(after) || after < 0) {
       return Promise.reject(new Error("Event sequence must be a non-negative integer"));
     }
+    if (this.#eventContract === null) {
+      return Promise.reject(
+        new CoreEventCompatibilityError("Core event stream opened before handshake"),
+      );
+    }
+    const eventContract = this.#eventContract;
 
     return new Promise<CoreEventSubscription>((resolve, reject) => {
       let opened = false;
@@ -264,7 +298,7 @@ export class UdsHttpTransport {
           };
           const processFrame = (frame: { readonly event: string; readonly data: string }): void => {
             if (frame.event === "module") {
-              onEvent(parseEventEnvelope(frame.data));
+              onEvent(parseEventEnvelope(frame.data, eventContract));
               return;
             }
             if (frame.event === "document-resync-required") {
@@ -382,25 +416,174 @@ const errorMessage = (value: unknown): string => {
   return "Core request failed";
 };
 
-const parseEventEnvelope = (json: string): CoreEventEnvelope => {
+const parseEventEnvelope = (
+  json: string,
+  contract: CoreEventContract,
+): CoreEventEnvelope => {
   const value = decodeBoundedJson<unknown>(
     Buffer.from(json, "utf8"),
     MAX_EVENT_FRAME_BYTES,
     "Core event",
   );
-  if (typeof value !== "object" || value === null || !("event" in value)) {
-    throw new Error("Core event envelope is invalid");
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !hasExactKeys(value, ["event", "transport_version"]) ||
+    !("transport_version" in value) ||
+    value.transport_version !== contract.transportVersion ||
+    !("event" in value)
+  ) {
+    throw new CoreEventCompatibilityError("Core event transport version is invalid");
   }
   const event = value.event;
   if (
     typeof event !== "object" ||
     event === null ||
-    !("sequence" in event) ||
-    typeof event.sequence !== "number"
+    !hasExactKeys(event, [
+      "committed_at",
+      "event_version",
+      "operation_id",
+      "payload",
+      "projection_impact",
+      "sequence",
+      "store_epoch",
+    ])
   ) {
-    throw new Error("Core event sequence is invalid");
+    throw new CoreEventCompatibilityError("Core event payload is invalid");
+  }
+  if (!("event_version" in event) || event.event_version !== contract.eventVersion) {
+    throw new CoreEventCompatibilityError("Core event version is invalid");
+  }
+  if (
+    !("sequence" in event) ||
+    typeof event.sequence !== "number" ||
+    !Number.isSafeInteger(event.sequence) ||
+    event.sequence < 1
+  ) {
+    throw new CoreEventCompatibilityError("Core event sequence is invalid");
+  }
+  if (!("store_epoch" in event) || event.store_epoch !== contract.storeEpoch) {
+    throw new CoreEventCompatibilityError("Core event Store epoch is invalid");
+  }
+  if (
+    !("committed_at" in event) ||
+    typeof event.committed_at !== "string" ||
+    event.committed_at.length === 0 ||
+    event.committed_at.length > 64 ||
+    !("operation_id" in event) ||
+    (event.operation_id !== null && typeof event.operation_id !== "string") ||
+    !("payload" in event) ||
+    !isModuleEventPayload(event.payload)
+  ) {
+    throw new CoreEventCompatibilityError("Core event payload is invalid");
+  }
+  if (!("projection_impact" in event) || !isProjectionImpact(event.projection_impact)) {
+    throw new CoreEventCompatibilityError("Core Projection impact is invalid");
   }
   return value as CoreEventEnvelope;
+};
+
+const hasExactKeys = (
+  value: Readonly<object>,
+  expected: readonly string[],
+): boolean => {
+  const actual = Object.keys(value).sort();
+  return actual.length === expected.length &&
+    actual.every((key, index) => key === expected[index]);
+};
+
+const isIdentity = (value: unknown): value is string =>
+  typeof value === "string" &&
+  value.length > 0 &&
+  value.length <= 512 &&
+  value === value.trim();
+
+const isCanonicalIdentityArray = (value: unknown): value is readonly string[] => {
+  if (!Array.isArray(value) || value.length > 10_000) return false;
+  let previous: string | undefined;
+  for (const entry of value) {
+    if (!isIdentity(entry) || (previous !== undefined && previous >= entry)) return false;
+    previous = entry;
+  }
+  return true;
+};
+
+const isModuleEventPayload = (value: unknown): boolean => {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !hasExactKeys(value, ["event", "module"]) ||
+    !("module" in value) ||
+    ![
+      "automation",
+      "database",
+      "library",
+      "owned_document",
+      "project_workspace",
+      "store_administration",
+    ].includes(String(value.module)) ||
+    !("event" in value) ||
+    typeof value.event !== "object" ||
+    value.event === null ||
+    !("kind" in value.event) ||
+    typeof value.event.kind !== "string"
+  ) {
+    return false;
+  }
+  return true;
+};
+
+const isProjectionImpact = (value: unknown): boolean => {
+  if (typeof value !== "object" || value === null || !("kind" in value)) return false;
+  if (value.kind === "none" || value.kind === "all") {
+    return Object.keys(value).length === 1;
+  }
+  if (value.kind !== "resources") return false;
+  const record = value as Readonly<Record<string, unknown>>;
+  if (!hasExactKeys(record, [
+    "data_source_ids",
+    "database_ids",
+    "document_heads",
+    "kind",
+    "page_ids",
+    "view_ids",
+  ])) return false;
+  const heads = record.document_heads;
+  if (!isCanonicalIdentityArray(record.page_ids) ||
+    !isCanonicalIdentityArray(record.database_ids) ||
+    !isCanonicalIdentityArray(record.data_source_ids) ||
+    !isCanonicalIdentityArray(record.view_ids) ||
+    record.page_ids.length + record.database_ids.length +
+        record.data_source_ids.length + record.view_ids.length > 10_000 ||
+    (record.page_ids.length === 0 && record.database_ids.length === 0 &&
+      record.data_source_ids.length === 0 && record.view_ids.length === 0 &&
+      Array.isArray(heads) && heads.length === 0)) return false;
+  const pages = new Set(record.page_ids);
+  let previousHead: string | undefined;
+  return Array.isArray(heads) &&
+    heads.length <= 10_000 &&
+    heads.every((head) =>
+      typeof head === "object" &&
+      head !== null &&
+      hasExactKeys(head, ["document_id", "generation", "head_seq", "page_id"]) &&
+      "page_id" in head &&
+      isIdentity(head.page_id) &&
+      pages.has(head.page_id) &&
+      "document_id" in head &&
+      isIdentity(head.document_id) &&
+      "generation" in head &&
+      Number.isSafeInteger(head.generation) &&
+      Number(head.generation) >= 1 &&
+      "head_seq" in head &&
+      Number.isSafeInteger(head.head_seq) &&
+      Number(head.head_seq) >= 1 &&
+      (() => {
+        const key = `${head.page_id}\u0000${head.document_id}`;
+        if (previousHead !== undefined && previousHead >= key) return false;
+        previousHead = key;
+        return true;
+      })()
+    );
 };
 
 const parseDocumentResync = (json: string): DocumentResyncRequired => {

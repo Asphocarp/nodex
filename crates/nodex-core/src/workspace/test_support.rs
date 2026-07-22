@@ -5,8 +5,8 @@ use nodex_core_contracts::workspace::{
     ProjectWorkspaceThreadPatch,
 };
 use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, LibraryId, ModuleApplyRequest,
-    ModuleReadRequest, ProfileId, ProjectId, StoreEpoch,
+    AdapterKind, BoundModuleContext, LibraryId, ModuleApplyRequest, ModuleReadRequest,
+    PROJECT_WORKSPACE_CONTRACT_VERSION, ProfileId, ProjectId, StoreEpoch,
 };
 use tempfile::{TempDir, tempdir};
 
@@ -75,7 +75,7 @@ pub(super) fn request(
     intent: ProjectWorkspaceIntent,
 ) -> ModuleApplyRequest<ProjectWorkspaceIntent> {
     ModuleApplyRequest {
-        version: CORE_CONTRACT_VERSION,
+        contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
         operation_id: operation_id.to_owned(),
         store_epoch: StoreEpoch("epoch-1".to_owned()),
         intent,
@@ -100,7 +100,7 @@ pub(super) fn read(
         .read(
             &context(),
             ModuleReadRequest {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                 read,
             },
         )

@@ -5,9 +5,9 @@ use nodex_core_contracts::document::{
     OwnedDocumentEvent, OwnedDocumentIntent, OwnedDocumentRead, OwnedDocumentReadValue,
 };
 use nodex_core_contracts::{
-    BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CoreError, CoreErrorCode,
-    CoreErrorRecovery, CoreModuleEventPayload, ModuleApplyRequest, ModuleReadRequest,
-    ModuleReadSnapshot, StoreEpoch,
+    BoundModuleContext, CommittedCoreModuleEvent, CoreError, CoreErrorCode, CoreErrorRecovery,
+    CoreModuleEventPayload, ModuleApplyRequest, ModuleReadRequest, ModuleReadSnapshot,
+    OWNED_DOCUMENT_CONTRACT_VERSION, StoreEpoch,
 };
 
 use super::event_log::DocumentEventReplay;
@@ -231,7 +231,7 @@ impl OwnedDocumentRealtimeAdapter {
         self.module.read(
             context,
             ModuleReadRequest {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                 read: OwnedDocumentRead::SyncYjs {
                     document_id,
                     state_vector,
@@ -254,7 +254,7 @@ impl OwnedDocumentRealtimeAdapter {
         self.module.read(
             context,
             ModuleReadRequest {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                 read: OwnedDocumentRead::SyncCanvas { document_id },
             },
         )

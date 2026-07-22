@@ -1766,8 +1766,8 @@ mod tests {
         ProjectWorkspaceTurnAuthoritySource, ProjectWorkspaceTurnCoordinate,
     };
     use nodex_core_contracts::{
-        AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CoreErrorCode, LibraryId,
-        ModuleApplyRequest, ModuleReadRequest, ProfileId, ProjectId, StoreEpoch,
+        AdapterKind, BoundModuleContext, CoreErrorCode, LibraryId, ModuleApplyRequest,
+        ModuleReadRequest, PROJECT_WORKSPACE_CONTRACT_VERSION, ProfileId, ProjectId, StoreEpoch,
     };
     use tempfile::{TempDir, tempdir};
 
@@ -1825,7 +1825,7 @@ mod tests {
         intent: ProjectWorkspaceIntent,
     ) -> ModuleApplyRequest<ProjectWorkspaceIntent> {
         ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
             operation_id: operation_id.to_owned(),
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent,
@@ -1840,7 +1840,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     read,
                 },
             )
@@ -2617,7 +2617,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     read: ProjectWorkspaceRead::Thread {
                         thread_id: "thread-b".to_owned(),
                     },

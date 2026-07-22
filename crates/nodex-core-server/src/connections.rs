@@ -44,7 +44,7 @@ struct ConnectionRecord {
     adapter: AdapterKind,
     peer: PeerIdentity,
     build_id: String,
-    protocol_version: u32,
+    transport_version: u32,
     last_seen: Instant,
     event_subscriptions: HashSet<EventSubscriptionKey>,
 }
@@ -133,7 +133,7 @@ impl ConnectionRegistry {
         adapter: AdapterKind,
         peer: &PeerIdentity,
         build_id: &str,
-        protocol_version: u32,
+        transport_version: u32,
     ) -> Result<(), ConnectionRegistryError> {
         let mut state = self
             .state
@@ -148,7 +148,7 @@ impl ConnectionRegistry {
             if record.adapter != adapter
                 || record.peer != *peer
                 || record.build_id != build_id
-                || record.protocol_version != protocol_version
+                || record.transport_version != transport_version
                 || !constant_time_equal(record.binding.as_bytes(), binding.as_bytes())
             {
                 return Err(conflict("connection identity is already bound"));
@@ -166,7 +166,7 @@ impl ConnectionRegistry {
                 adapter,
                 peer: peer.clone(),
                 build_id: build_id.to_owned(),
-                protocol_version,
+                transport_version,
                 last_seen: now,
                 event_subscriptions: HashSet::new(),
             },

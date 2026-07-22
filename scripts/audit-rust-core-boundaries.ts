@@ -19,6 +19,17 @@ const assertAbsent = (
   }
 };
 
+const assertPresent = (
+  file: string,
+  required: readonly RegExp[],
+  label: string,
+): void => {
+  const content = read(file);
+  for (const pattern of required) {
+    if (!pattern.test(content)) failures.push(`${label}: ${file} misses ${pattern}`);
+  }
+};
+
 const sourceFiles = (
   directory: string,
   extensionPattern: RegExp = /\.rs$/,
@@ -70,6 +81,46 @@ for (const moduleDirectory of [
       "deep Module must not import an Adapter or transport",
     );
   }
+}
+
+for (const [file, contractVersion] of [
+  [
+    "crates/nodex-core/src/administration/mod.rs",
+    "STORE_ADMINISTRATION_CONTRACT_VERSION",
+  ],
+  ["crates/nodex-core/src/automation/mod.rs", "AUTOMATION_CONTRACT_VERSION"],
+  ["crates/nodex-core/src/database/mod.rs", "DATABASE_CONTRACT_VERSION"],
+  [
+    "crates/nodex-core/src/document/module.rs",
+    "OWNED_DOCUMENT_CONTRACT_VERSION",
+  ],
+  ["crates/nodex-core/src/library/mod.rs", "LIBRARY_CONTRACT_VERSION"],
+  [
+    "crates/nodex-core/src/workspace/mod.rs",
+    "PROJECT_WORKSPACE_CONTRACT_VERSION",
+  ],
+] as const) {
+  assertPresent(
+    file,
+    [
+      new RegExp(`request\\.contract_version\\s*!=\\s*${contractVersion}`),
+      new RegExp(`contract_version:\\s*${contractVersion}`),
+    ],
+    "each Core Module must enforce and emit its own contract version",
+  );
+}
+
+for (const file of [
+  ...sourceFiles("crates/nodex-core-contracts/src"),
+  ...sourceFiles("crates/nodex-core/src"),
+  ...sourceFiles("crates/nodex-core-server/src"),
+  ...sourceFiles("src/main/core-client", /\.ts$/),
+]) {
+  assertAbsent(
+    file,
+    [/\bCORE_CONTRACT_VERSION\b/],
+    "Core Modules must not collapse back onto one global contract version",
+  );
 }
 
 for (const file of sourceFiles("crates/nodex-core-server/src")) {
@@ -188,8 +239,16 @@ const expectedRoutes = new Set([
     .flatMap((module) => ["apply", "read"].map((operation) =>
       `/core/v1/modules/${module}/${operation}`)),
 ]);
+interface OpenApiSchema {
+  readonly properties?: Readonly<Record<string, unknown>>;
+  readonly required?: readonly string[];
+}
+
 const openApi = JSON.parse(read("packages/core-protocol/openapi.json")) as {
   readonly paths?: Readonly<Record<string, unknown>>;
+  readonly components?: {
+    readonly schemas?: Readonly<Record<string, OpenApiSchema>>;
+  };
 };
 const actualRoutes = new Set(Object.keys(openApi.paths ?? {}));
 for (const route of expectedRoutes) {
@@ -197,6 +256,39 @@ for (const route of expectedRoutes) {
 }
 for (const route of actualRoutes) {
   if (!expectedRoutes.has(route)) failures.push(`forbidden Core protocol route: ${route}`);
+}
+
+const schemas = openApi.components?.schemas ?? {};
+const moduleRequestSchemas = Object.entries(schemas).filter(([name]) =>
+  /^Module(?:Read|Apply)Request_/.test(name),
+);
+if (moduleRequestSchemas.length !== 12) {
+  failures.push(
+    `generated Core protocol must expose 12 typed Module request schemas, found ${moduleRequestSchemas.length}`,
+  );
+}
+for (const [name, schema] of moduleRequestSchemas) {
+  const required = new Set(schema.required ?? []);
+  const properties = new Set(Object.keys(schema.properties ?? {}));
+  if (!required.has("contract_version") || !properties.has("contract_version")) {
+    failures.push(`${name} does not require the Module-specific contract_version axis`);
+  }
+  if (properties.has("version")) {
+    failures.push(`${name} exposes the retired ambiguous version field`);
+  }
+}
+
+const compatibilityManifest = schemas.CoreCompatibilityManifest;
+for (const axis of [
+  "manifest_version",
+  "transport",
+  "event_versions",
+  "modules",
+  "store",
+]) {
+  if (!compatibilityManifest?.required?.includes(axis)) {
+    failures.push(`CoreCompatibilityManifest does not require ${axis}`);
+  }
 }
 
 void productionMainBundlePromise.then((productionMainBundle) => {

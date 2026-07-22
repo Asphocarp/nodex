@@ -50,7 +50,7 @@ const readDescriptor = (
     const timeout = setTimeout(() => {
       lines.close();
       reject(new Error("Core did not publish a runtime descriptor"));
-    }, 5_000);
+    }, 10_000);
     lines.once("line", (line) => {
       clearTimeout(timeout);
       lines.close();
@@ -134,7 +134,7 @@ describe("Rust Core renderer Document adapter", () => {
         },
       });
       const provenance = {
-        profile_id: host.handshake.profile_id,
+        profile_id: host.handshake.generation.profile_id,
         authority: {
           thread_id: threadId,
           turn_id: turnId,

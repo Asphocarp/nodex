@@ -3,6 +3,8 @@ use utoipa::ToSchema;
 
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
+pub const STORE_ADMINISTRATION_CONTRACT_VERSION: u32 = 1;
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum StoreAdministrationRead {
@@ -149,6 +151,6 @@ impl VersionedModuleContract for StoreAdministrationContract {
     type Receipt = StoreAdministrationReceipt;
     type Event = StoreAdministrationEvent;
 
-    const VERSION: u32 = 1;
+    const VERSION: u32 = STORE_ADMINISTRATION_CONTRACT_VERSION;
     const MODULE: ModuleName = ModuleName::StoreAdministration;
 }

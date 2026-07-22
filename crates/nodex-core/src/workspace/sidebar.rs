@@ -738,15 +738,13 @@ fn corrupt(message: impl Into<String>) -> StoreError {
 
 #[cfg(test)]
 mod tests {
-    use nodex_core_contracts::CORE_CONTRACT_VERSION;
-    use nodex_core_contracts::workspace::{
-        ProjectSessionIntent, ProjectSessionPanelId, ProjectSessionTabKind, ProjectWorkspaceIntent,
-        ProjectWorkspaceRead, ProjectWorkspaceReadValue, ProjectWorkspaceThreadMoveMetadataPatch,
-        ProjectWorkspaceThreadPlacement,
-    };
-    use serde_json::json;
-
     use crate::infrastructure::sqlite::with_immediate_transaction;
+    use nodex_core_contracts::PROJECT_WORKSPACE_CONTRACT_VERSION;
+    use nodex_core_contracts::workspace::{
+        ProjectSessionIntent, ProjectSessionPanelId, ProjectSessionTabContent,
+        ProjectWorkspaceIntent, ProjectWorkspaceRead, ProjectWorkspaceReadValue,
+        ProjectWorkspaceThreadMoveMetadataPatch, ProjectWorkspaceThreadPlacement,
+    };
 
     use super::super::test_support::{
         apply, context, create_project, create_session_thread, read, request, seeded_workspace,
@@ -926,12 +924,10 @@ mod tests {
                     tab_id: "tab:move".to_owned(),
                     panel_id: ProjectSessionPanelId::Right,
                     target_leaf_id: None,
-                    browser_tab_id: None,
-                    tab_kind: ProjectSessionTabKind::Terminal,
                     title: "Move terminal".to_owned(),
-                    config: json!({
-                        "terminalSessionId": "terminal:move"
-                    }),
+                    content: ProjectSessionTabContent::Terminal {
+                        terminal_session_id: "terminal:move".to_owned(),
+                    },
                 },
             },
         );
@@ -944,13 +940,14 @@ mod tests {
                     tab_id: "tab:move-browser".to_owned(),
                     panel_id: ProjectSessionPanelId::Right,
                     target_leaf_id: None,
-                    browser_tab_id: None,
-                    tab_kind: ProjectSessionTabKind::Browser,
                     title: "Move browser".to_owned(),
-                    config: json!({
-                        "projectId": "project:default",
-                        "url": "https://example.test/move"
-                    }),
+                    content: ProjectSessionTabContent::Browser {
+                        browser_tab_id: None,
+                        url: Some("https://example.test/move".to_owned()),
+                        title: None,
+                        favicon_url: None,
+                        device_toolbar_visible: None,
+                    },
                 },
             },
         );
@@ -1046,20 +1043,19 @@ mod tests {
             .iter()
             .find(|tab| tab.id == "tab:move-browser")
             .expect("moved browser tab");
-        assert_eq!(
-            browser
-                .config
-                .get("projectId")
-                .and_then(|value| value.as_str()),
-            Some("project:target")
-        );
+        assert!(matches!(
+            browser.content,
+            ProjectSessionTabContent::Browser { .. }
+        ));
         let terminal = tabs
             .iter()
             .find(|tab| tab.id == "tab:move")
             .expect("moved Terminal tab");
         assert_eq!(
-            terminal.config,
-            json!({ "terminalSessionId": "terminal:move" })
+            terminal.content,
+            ProjectSessionTabContent::Terminal {
+                terminal_session_id: "terminal:move".to_owned(),
+            }
         );
 
         apply(
@@ -1088,7 +1084,10 @@ mod tests {
             .iter()
             .find(|tab| tab.id == "tab:move-browser")
             .expect("projectless browser tab");
-        assert_eq!(browser.config["projectId"], serde_json::Value::Null);
+        assert!(matches!(
+            browser.content,
+            ProjectSessionTabContent::Browser { .. }
+        ));
 
         apply(
             &workspace.module,
@@ -1112,10 +1111,8 @@ mod tests {
                     tab_id: "tab:move-review".to_owned(),
                     panel_id: ProjectSessionPanelId::Right,
                     target_leaf_id: None,
-                    browser_tab_id: None,
-                    tab_kind: ProjectSessionTabKind::Review,
                     title: "Review".to_owned(),
-                    config: json!({ "projectId": "project:target" }),
+                    content: ProjectSessionTabContent::Review,
                 },
             },
         );
@@ -1201,7 +1198,7 @@ mod tests {
             .read(
                 &context(),
                 nodex_core_contracts::ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     read: ProjectWorkspaceRead::Sidebar {
                         include_archived: None,
                     },

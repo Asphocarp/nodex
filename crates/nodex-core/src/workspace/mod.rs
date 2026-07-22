@@ -18,9 +18,9 @@ use nodex_core_contracts::workspace::{
     ProjectWorkspaceReadValue, ProjectWorkspaceReceipt,
 };
 use nodex_core_contracts::{
-    BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue,
-    CoreError, CoreErrorCode, CoreErrorRecovery, ModuleApplyRequest, ModuleReadRequest,
-    ModuleReadSnapshot, StoreEpoch,
+    BoundModuleContext, CommittedCoreModuleEvent, CommittedModuleValue, CoreError, CoreErrorCode,
+    CoreErrorRecovery, ModuleApplyRequest, ModuleReadRequest, ModuleReadSnapshot,
+    PROJECT_WORKSPACE_CONTRACT_VERSION, StoreEpoch,
 };
 use rusqlite::OptionalExtension;
 
@@ -80,7 +80,7 @@ impl ProjectWorkspaceModule {
         request: ModuleReadRequest<ProjectWorkspaceRead>,
     ) -> Result<ModuleReadSnapshot<ProjectWorkspaceReadValue>, CoreError> {
         self.validate_context(context)?;
-        if request.version != CORE_CONTRACT_VERSION {
+        if request.contract_version != PROJECT_WORKSPACE_CONTRACT_VERSION {
             return Err(invalid("unsupported Project Workspace contract version"));
         }
         let Some(readers) = &self.readers else {
@@ -118,7 +118,7 @@ impl ProjectWorkspaceModule {
                     |row| row.get::<_, i64>(0),
                 )?;
                 Ok(ModuleReadSnapshot {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     store_epoch: StoreEpoch(store_epoch),
                     event_head,
                     value: read::read(connection, &library_id, request.read)?,
@@ -133,7 +133,7 @@ impl ProjectWorkspaceModule {
         request: ModuleApplyRequest<ProjectWorkspaceIntent>,
     ) -> Result<ProjectWorkspaceApplyOutcome, CoreError> {
         self.validate_context(context)?;
-        if request.version != CORE_CONTRACT_VERSION {
+        if request.contract_version != PROJECT_WORKSPACE_CONTRACT_VERSION {
             return Err(invalid("unsupported Project Workspace contract version"));
         }
         let Some(writer) = &self.writer else {

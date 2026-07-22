@@ -4,6 +4,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use super::sqlite::{StoreError, StoreErrorCode};
 
@@ -89,6 +90,22 @@ pub fn read_schema_inventory(connection: &Connection) -> Result<SchemaInventory,
         })
         .map(|(key, sql)| (key, normalize_sql(&sql)))
         .collect())
+}
+
+pub fn schema_inventory_fingerprint(inventory: &SchemaInventory) -> String {
+    let mut digest = Sha256::new();
+    for (key, sql) in inventory {
+        for value in [
+            key.object_type.as_str(),
+            key.name.as_str(),
+            key.table_name.as_str(),
+            sql.as_str(),
+        ] {
+            digest.update(value.as_bytes());
+            digest.update([0]);
+        }
+    }
+    format!("{:x}", digest.finalize())
 }
 
 pub fn validate_exact_v84_schema(connection: &Connection) -> Result<(), StoreError> {

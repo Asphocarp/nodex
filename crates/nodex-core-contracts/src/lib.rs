@@ -3,7 +3,6 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-pub const CORE_CONTRACT_VERSION: u32 = 1;
 pub const CORE_EVENT_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -102,13 +101,13 @@ pub struct CoreError {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct ModuleReadRequest<T> {
-    pub version: u32,
+    pub contract_version: u32,
     pub read: T,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct ModuleApplyRequest<T> {
-    pub version: u32,
+    pub contract_version: u32,
     pub operation_id: String,
     pub store_epoch: StoreEpoch,
     pub intent: T,
@@ -116,7 +115,7 @@ pub struct ModuleApplyRequest<T> {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct ModuleReadSnapshot<T> {
-    pub version: u32,
+    pub contract_version: u32,
     pub store_epoch: StoreEpoch,
     pub event_head: i64,
     pub value: T,
@@ -136,7 +135,7 @@ pub struct CommittedModuleValue<T, R> {
     pub store_epoch: StoreEpoch,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ModuleName {
     Library,
@@ -145,6 +144,12 @@ pub enum ModuleName {
     ProjectWorkspace,
     Automation,
     StoreAdministration,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ModuleContractVersion {
+    pub module: ModuleName,
+    pub contract_version: u32,
 }
 
 pub trait VersionedModuleContract {
@@ -167,9 +172,44 @@ pub mod events;
 pub mod library;
 pub mod workspace;
 
+pub use administration::STORE_ADMINISTRATION_CONTRACT_VERSION;
+pub use automation::AUTOMATION_CONTRACT_VERSION;
+pub use database::DATABASE_CONTRACT_VERSION;
+pub use document::OWNED_DOCUMENT_CONTRACT_VERSION;
 pub use events::{
     CommittedCoreModuleEvent, CoreModuleEventPayload, PageDocumentHeadImpact, ProjectionImpact,
 };
+pub use library::LIBRARY_CONTRACT_VERSION;
+pub use workspace::PROJECT_WORKSPACE_CONTRACT_VERSION;
+
+pub const fn module_contract_manifest() -> [ModuleContractVersion; 6] {
+    [
+        ModuleContractVersion {
+            module: ModuleName::Library,
+            contract_version: LIBRARY_CONTRACT_VERSION,
+        },
+        ModuleContractVersion {
+            module: ModuleName::Database,
+            contract_version: DATABASE_CONTRACT_VERSION,
+        },
+        ModuleContractVersion {
+            module: ModuleName::OwnedDocument,
+            contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+        },
+        ModuleContractVersion {
+            module: ModuleName::ProjectWorkspace,
+            contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
+        },
+        ModuleContractVersion {
+            module: ModuleName::Automation,
+            contract_version: AUTOMATION_CONTRACT_VERSION,
+        },
+        ModuleContractVersion {
+            module: ModuleName::StoreAdministration,
+            contract_version: STORE_ADMINISTRATION_CONTRACT_VERSION,
+        },
+    ]
+}
 
 #[cfg(test)]
 mod tests {
@@ -203,14 +243,47 @@ mod tests {
     #[test]
     fn caller_requests_cannot_supply_bound_identity() {
         let request = ModuleReadRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: LIBRARY_CONTRACT_VERSION,
             read: library::LibraryRead::Metadata,
         };
         let json = serde_json::to_value(request).expect("request serializes");
 
-        assert_eq!(json["version"], CORE_CONTRACT_VERSION);
+        assert_eq!(json["contract_version"], LIBRARY_CONTRACT_VERSION);
         assert!(json.get("profile_id").is_none());
         assert!(json.get("library_id").is_none());
         assert!(json.get("adapter").is_none());
+    }
+
+    #[test]
+    fn module_contract_manifest_is_complete_and_canonical() {
+        assert_eq!(
+            module_contract_manifest(),
+            [
+                ModuleContractVersion {
+                    module: ModuleName::Library,
+                    contract_version: 1,
+                },
+                ModuleContractVersion {
+                    module: ModuleName::Database,
+                    contract_version: 2,
+                },
+                ModuleContractVersion {
+                    module: ModuleName::OwnedDocument,
+                    contract_version: 1,
+                },
+                ModuleContractVersion {
+                    module: ModuleName::ProjectWorkspace,
+                    contract_version: 2,
+                },
+                ModuleContractVersion {
+                    module: ModuleName::Automation,
+                    contract_version: 1,
+                },
+                ModuleContractVersion {
+                    module: ModuleName::StoreAdministration,
+                    contract_version: 1,
+                },
+            ]
+        );
     }
 }

@@ -15,7 +15,7 @@ use nodex_core_contracts::library::{
     LibraryPageCopyDestination, LibraryPageCopyValue, LibraryReadValue, LibraryResourceTarget,
 };
 use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CommittedModuleValue,
+    AdapterKind, BoundModuleContext, CommittedModuleValue, LIBRARY_CONTRACT_VERSION,
     ModuleApplyRequest, ModuleReadSnapshot, ProjectId, StoreEpoch,
 };
 use rusqlite::{Connection, TransactionBehavior};
@@ -181,7 +181,7 @@ pub(super) fn prepare_create_pages(
                 .as_ref()
                 .expect("validated committed Agent Page create");
             Ok(ModuleReadSnapshot {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: LIBRARY_CONTRACT_VERSION,
                 store_epoch: StoreEpoch(store_epoch),
                 event_head,
                 value: LibraryReadValue::AgentCreatePagesPreparation {
@@ -219,7 +219,7 @@ pub(super) fn prepare_create_pages(
         } => {
             let issued = registry.issue(preflight.binding)?;
             Ok(ModuleReadSnapshot {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: LIBRARY_CONTRACT_VERSION,
                 store_epoch: StoreEpoch(store_epoch),
                 event_head,
                 value: LibraryReadValue::AgentCreatePagesPreparation {

@@ -13,8 +13,12 @@
   Core. The JavaScript SQLite/Yjs authority and runtime selector are absent; the
   frozen legacy migrator is an import-only staging converter and the final
   TypeScript v84 artifact is import/conformance evidence. The accompanying
-  launcher can start or reuse a detached Core and waits for an authenticated
-  ready handshake before Electron adapter initialization. The authority cannot
+  launcher executes the validated candidate selector first, then starts or
+  reuses only the exact generation returned by its bounded selection result.
+  Compatibility covers transport, committed event, every semantic Module,
+  exact Store format, and the launcher's artifact-freshness policy. Electron
+  waits for an authenticated full-generation handshake before Adapter
+  initialization. The authority cannot
   change inside a process, and launch/readiness
   failure is terminal rather than an implicit fallback or second writer.
 - The cutover gate runs inside the Electron runtime, opens a disposable Profile
@@ -37,7 +41,7 @@
 - Ready Block Documents use binary Yjs updates in SQLite. The DocumentStore rejects stale store epochs and generations, deduplicates update IDs through immutable receipts, reconstructs from the latest snapshot plus tail, validates the Page roots/XML tree/global Block registry before commit, and acknowledges only after the immediate SQLite transaction advances the durable head and Block index together. A causally redundant Yjs replay is a successful duplicate ACK at the unchanged head and produces neither an update row nor fanout; monotonic CRDT state makes that no-op result stable without inventing a sequence receipt. Client-declared touched IDs are bounded diagnostics; the writer derives the authoritative title/Block change set from validated before/after content. An update with unresolved Yjs dependencies returns a typed retry error and is never appended as a poison tail.
 - Electron IPC and browser HTTP/SSE are adapters over Core's engine-specific Document contracts. A client subscribes before synchronization; Yjs repairs with state vectors, while Canvas repairs a missing/out-of-order head with one bounded full canonical scene. Only durable effective changes fan out, exact retries return their original receipt, and browser routes verify Project/Document scope through the same native writer.
 - Every new `change_log` row requires a normalized `ProjectionImpact` committed with its semantic mutation. Page Document commits include Page, Database, Data Source, every affected View, and the exact final Document head. Ordinary lifecycle, property, Database, Automation, and Project-creation mutations include their complete resource closure; modules with no canonical projection effect explicitly record `none`. Empty resources become `none`, and a legitimate effect beyond the fixed identity bound becomes `all` rather than being truncated. Visibility-changing moves, grants, and transfers also use identity-free `all`: Project filtering reads post-commit authorization and cannot safely reveal or name a resource the Project just lost. Event payloads contain no title, summary, property values, or Page DTO. Live publication and replay call the same row decoder, so commit-time coordinates survive later moves.
-- Core protocol v2 is distinct from module contract v1. Schema v88 stores `projection_event_v2_floor`; replay before `floor - 1` returns resync instead of inventing old impact, while a missing, malformed, or noncanonical post-floor impact is corruption. The Host projection router advances its Core cursor only after accepting each event. Library scope receives complete impact; Project scopes use independent ordered queues and one transactionally consistent Core authorization filter that reuses canonical Page/Database/View predicates. Filtering failure fails closed to a scoped resync. A new listener is registered before its checkpoint barrier, and browser EventSource reconnection creates a fresh checkpoint. Retention gaps publish `event_gap` resync. An unexpected Core stream end reopens from the last accepted sequence. The private Core event reader accepts the full legal bounded impact plus payload within its explicit frame budget rather than inheriting the smaller ordinary request limit.
+- Committed Core event version 2 is distinct from private transport version 3 and from every semantic Module contract version. Schema v88 stores `projection_event_v2_floor`; replay before `floor - 1` returns resync instead of inventing old impact, while a missing, malformed, or noncanonical post-floor impact is corruption. The Host projection router advances its Core cursor only after accepting each event. Library scope receives complete impact; Project scopes use independent ordered queues and one transactionally consistent Core authorization filter that reuses canonical Page/Database/View predicates. Filtering failure fails closed to a scoped resync. A new listener is registered before its checkpoint barrier, and browser EventSource reconnection creates a fresh checkpoint. Retention gaps publish `event_gap` resync. An unexpected Core stream end reopens from the last accepted sequence. A transport/event/Store-epoch mismatch is fatal for that stream and requires a new authenticated runtime binding; ordinary disconnects reopen from the last accepted sequence. The private Core event reader accepts the full legal bounded impact plus payload within its explicit frame budget rather than inheriting the smaller ordinary request limit.
 - Each renderer window has one projection invalidation registry and one underlying stream per scope. Registrations expose dynamic Page/Database/Data Source/View/Document dependencies plus the cursor covered by current canonical data. Resource intersections, `all`, resync, or Store-epoch changes invalidate the relevant consumers. A checkpoint repairs the first-query-before-subscription window. If an event arrives while a callback is running, the registry records the required cursor, then performs at most one trailing reread unless the completed snapshot already covers it; failed callbacks retain the unsatisfied cursor for a bounded retry. Multi-query consumers report the oldest common cursor across every required canonical snapshot. TanStack Query families enumerate concrete keys and invalidate each exact query. `board-changed` may provide a cursor-fenced provisional summary patch but is never required for convergence.
 - `BlockTransfer` is the public stable-ID Move/Copy command for cross-surface Block ownership. Public intent uses logical `library | page | data_source` parents; `document` is permitted only for a registered non-Page Document. Core resolves physical storage coordinates, verifies a target View points at the requested Data Source, and captures current revisions/heads. The Host coordinates bounded mounted-surface IME/flush/freeze evidence, then Core reprepares and commits the exact transaction. Response-loss retry compares the logical intent with its immutable receipt, so it never depends on the obsolete source parent.
 - The Synced Block ownership kernel reuses that fence/relocation substrate. Its writer-only contract requires one Host boundary for promotion and one exact host+source boundary for sole-instance demotion, rejecting partial/duplicate proofs. Inside that boundary Core removes the host reference, relocates every source root with stable application IDs, advances and materializes the source as an empty Y.Doc, moves the registry rows, and tombstones the hidden source resource in one transaction. Any stale/missing reference projection, changed source ownership, additional reference, or wrong store epoch fails closed. The Host-only coordinator acquires mounted-surface flush/freeze evidence; Core reprepares and commits through its serialized writer, publishes terminal heads, and exact retry cross-checks the immutable receipt/change evidence.
@@ -119,11 +123,17 @@
   subscriptions, and Awareness state; atomically republishes the runtime
   descriptor with the new epoch/readiness generation; and makes the installed
   Store's durable change log the new replay authority before the fence reopens.
+  The epoch-rotation transaction rewrites restored change-log and Module-receipt
+  epoch coordinates, including receipt result JSON, to that new Store
+  incarnation. Old clients therefore fail their exact event-epoch contract,
+  while a newly handshaken client can replay the restored history without
+  accepting a prior-incarnation frame.
 - Native Core startup serializes on one mode-restricted lifetime lock. A losing
-  launcher does not trust descriptor JSON or its PID: it validates the fixed
+  selector does not trust descriptor JSON or its PID: it validates the fixed
   runtime directory, descriptor, auth file, and Unix socket ownership/type/mode,
-  then proves readiness through an authenticated protocol/Profile/nonce/schema
-  handshake before returning the winner's descriptor. The winner removes only
+  canonical compatibility manifest/digest, executable identity, and exact Store
+  identity, then proves readiness through an authenticated full-generation
+  handshake before returning the winner. The winner removes only
   an owned real socket after it holds the lock. Handshake connections are
   registered against the UDS peer identity and cannot change role; shutdown
   first enters drain state, rejects fresh connected work, stops accepting
@@ -142,17 +152,22 @@
   idle expiry, SIGINT, and SIGTERM signal SSE streams to end, stop new socket
   acceptance, and then rely on Axum to wait for already admitted ordinary
   requests; an active transaction is never cancelled to accelerate exit.
-- Core reuse is build-independent inside the overlap of the client and server
-  protocol ranges; handshake selects their highest common version. A launcher
-  facing an incompatible range may request handoff only by authenticating over
-  the fixed UDS and echoing the complete descriptor generation (protocol/build,
-  PID/start nonce, Profile/store epoch, and readiness generation). Core returns
-  `busy` plus a bounded retry delay while any idle-preventing lease remains. An
-  accepted handoff enters the normal drain, and the contender keeps retrying the
-  already-open advisory lock until the incumbent has cleaned up and released it
-  before starting a replacement. Failure to verify or complete that protocol
-  is terminal; startup never kills a PID, deletes an unproven path, opens a
-  second SQLite writer, or silently falls back to another backend.
+- Core compatibility is an explicit offer/require comparison, not transport
+  overlap or a build string. Transport 3 carries committed-event version 2,
+  canonical per-Module ranges, exact normalized-schema Store fingerprints, and
+  executable SHA-256 separately. Electron's `prefer_current_artifact` policy
+  replaces a different compatible artifact; native CLI's `compatible` policy
+  reuses it. Replacement authenticates over the fixed UDS and echoes the
+  complete manifest/artifact/PID/start-nonce/Profile/Store/readiness generation.
+  Core rejects unreadable Stores and every transport/event/Module downgrade,
+  and returns `busy` plus a bounded retry delay while an idle-preventing lease
+  remains. An accepted handoff enters normal drain; the contender holds the
+  already-open advisory lock and starts only after exact-generation cleanup and
+  lock release. Transport-3 shutdown/replacement JSON rejects unknown or legacy
+  fields. The Rust selector alone can bridge forward from a transport-1/2
+  incumbent; an old candidate cannot replace transport 3. Failure is terminal:
+  startup never kills a PID, deletes an unproven path, opens a second SQLite
+  writer, or silently falls back to another backend.
 - The authenticated native health response derives `ready | maintenance |
   draining | failed` from the lifecycle and restartable Store generation. Its
   metrics are bounded process-local counters/gauges: current writer queue/read/
@@ -192,6 +207,13 @@
   resync boundary and closes that subscription. A reconnect after process
   restart therefore replays retained typed events; a slow or stale consumer is
   forced onto fresh authoritative reads instead of silently skipping changes.
+  The Host configures its decoder only after a successful handshake and accepts
+  exactly the selected transport, event version, Store epoch, positive sequence,
+  known Module payload envelope, and canonical bounded Projection Impact.
+  Decode/compatibility failure occurs before router delivery and permanently
+  ends that supervisor; ordinary disconnects retain bounded backoff, and replay
+  gaps retain their explicit resync path. The replay cursor advances only after
+  ordered router acceptance.
 - Native event-stream identities are leased, unique, and released when Axum
   drops the stream: one logical connection may hold at most 64 streams and the
   process at most 2,048. A second live global stream or identical Document
@@ -293,7 +315,7 @@
 - Missing Codex CLI binary surfaces explicit `missingBinary` connection status in UI.
 - `codex-service` defers absent staged/bundled runtime handling until the client actually starts, while a materialized Open Interpreter runtime must pass its release-lock and manifest contracts before app-server launch: every artifact is a regular file with recorded size, SHA-256, and executable mode, every declared search-path tool is executable, the runtime version matches the lock, and initialize must resolve the expected isolated state home at `${NODEX_HOME}/agent`.
 - Packaged builds ship one pinned Open Interpreter closure (`interpreter`, `codex-code-mode-host`, `rg`, the runtime zsh, resources, and `runtime.json`) inside `Contents/Resources/agent-runtime`, alongside architecture-matched `nodex`/`nodex-core` and `rust-core-runtime.json`; the optional ServiceManagement Adapter remains sealed only inside `Contents/Helpers/Nodex Service.app`. Dev/unpackaged runs use the same staged Agent layout under `.generated/codex-runtime/agent-runtime`. Staging downloads the architecture-specific locked archive, checks archive and inner artifact evidence, installs atomically, retains Apache-2.0 license/NOTICE material without duplicating the `i` executable alias, and rejects wrong-architecture or non-executable outputs before packaging.
-- macOS packaging re-signs every embedded Open Interpreter executable under the enclosing Nodex Developer ID identity. Packaged verification requires each executable's TeamIdentifier to equal the enclosing app before Gatekeeper/notarization checks; upstream ad-hoc signatures are not treated as distribution authority.
+- macOS packaging re-signs every embedded Open Interpreter executable and native Nodex binary under the enclosing Nodex Developer ID identity. Because signing changes Mach-O bytes, the custom signing boundary refreshes `rust-core-runtime.json` from the final nested signatures and then reseals only the outer app before notarization. Packaged verification requires each executable's TeamIdentifier to equal the enclosing app, the manifest Core SHA-256 to equal Core's authenticated self identity, and two selector launches to reuse one PID/start nonce before Gatekeeper/notarization checks; upstream ad-hoc signatures are not treated as distribution authority.
 - Nodex never falls back to a system `codex` or `interpreter` binary from `PATH`. The committed protocol is generated from the actual pinned runtime, while a stock Codex schema comparison rejects accidental removal of the shared request surface.
 - Credential changes invalidate the provider catalog and restart the app-server immediately when idle. If a turn is active, the restart is marked pending, new work is rejected until the active turn reaches a terminal notification, and the restart then applies the new environment before another start or turn request.
 - Permission-state reads degrade to a local fallback when the pinned Agent app-server runtime cannot start, so settings and approval fallback logic do not crash before the missing-runtime connection state can be surfaced.

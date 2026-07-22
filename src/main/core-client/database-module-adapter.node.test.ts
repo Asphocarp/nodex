@@ -18,7 +18,10 @@ import {
   mapCoreLibraryDatabaseEvent,
 } from "./desktop-database-module-bridge";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
-import { FakeCoreClient } from "./testing/fake-core-client";
+import {
+  createFakeCoreHandshake,
+  FakeCoreClient,
+} from "./testing/fake-core-client";
 
 const identity = {
   projectId: "project:test",
@@ -27,7 +30,7 @@ const identity = {
 } as const;
 
 const emptyCatalogSnapshot = () => ({
-  version: 1 as const,
+  contract_version: 1 as const,
   store_epoch: identity.storeEpoch,
   event_head: 17,
   value: { kind: "catalog" as const, databases: [] },
@@ -474,11 +477,11 @@ describe("Core Database Module Adapter", () => {
     const runtime = {
       backend: "rust",
       rootClient: {
-        handshake: {
-          library_id: identity.libraryId,
-          profile_id: "profile:test",
-          store_epoch: identity.storeEpoch,
-        },
+        handshake: createFakeCoreHandshake({
+          libraryId: identity.libraryId,
+          profileId: "profile:test",
+          storeEpoch: identity.storeEpoch,
+        }),
       },
       clientForProject: (projectId: string) => {
         requestedProjects.push(projectId);
@@ -501,9 +504,9 @@ describe("Core Database Module Adapter", () => {
 
   test("maps Database Core events into resource-scoped renderer invalidations", () => {
     expect(mapCoreDatabaseEvent({
-      protocol_version: 2,
+      transport_version: 3,
       event: {
-        version: 2,
+        event_version: 2,
         sequence: 42,
         store_epoch: identity.storeEpoch,
         operation_id: "operation:database",
@@ -538,9 +541,9 @@ describe("Core Database Module Adapter", () => {
 
   test("maps Library Database events without a compatibility Project", () => {
     expect(mapCoreLibraryDatabaseEvent({
-      protocol_version: 2,
+      transport_version: 3,
       event: {
-        version: 2,
+        event_version: 2,
         sequence: 53,
         store_epoch: identity.storeEpoch,
         operation_id: "operation:library-database",

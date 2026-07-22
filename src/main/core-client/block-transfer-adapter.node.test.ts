@@ -67,7 +67,7 @@ const coreResult = () => ({
 });
 
 const preparedSnapshot = (): LibraryReadSnapshot => ({
-  version: 1,
+  contract_version: 1,
   store_epoch: identity.storeEpoch,
   event_head: 10,
   value: {
@@ -98,7 +98,7 @@ const preparedSnapshot = (): LibraryReadSnapshot => ({
 });
 
 const committedSnapshot = (): LibraryReadSnapshot => ({
-  version: 1,
+  contract_version: 1,
   store_epoch: identity.storeEpoch,
   event_head: 11,
   value: {

@@ -15,7 +15,7 @@ use nodex_core_contracts::library::{
     LibraryPageCopyDestination, LibraryReadValue,
 };
 use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CommittedModuleValue,
+    AdapterKind, BoundModuleContext, CommittedModuleValue, LIBRARY_CONTRACT_VERSION,
     ModuleApplyRequest, ModuleReadSnapshot, ProjectId, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
@@ -176,7 +176,7 @@ pub(super) fn prepare_move_pages(
             footprint,
             committed,
         } => Ok(ModuleReadSnapshot {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: LIBRARY_CONTRACT_VERSION,
             store_epoch: StoreEpoch(store_epoch),
             event_head,
             value: LibraryReadValue::AgentMovePagesPreparation {
@@ -206,7 +206,7 @@ pub(super) fn prepare_move_pages(
         } => {
             let issued = registry.issue(preflight.binding)?;
             Ok(ModuleReadSnapshot {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: LIBRARY_CONTRACT_VERSION,
                 store_epoch: StoreEpoch(store_epoch),
                 event_head,
                 value: LibraryReadValue::AgentMovePagesPreparation {
@@ -1430,7 +1430,7 @@ fn request_hash(
 ) -> Result<String, StoreError> {
     hash_serializable(&(
         context,
-        CORE_CONTRACT_VERSION,
+        LIBRARY_CONTRACT_VERSION,
         store_epoch,
         authorization,
         request,

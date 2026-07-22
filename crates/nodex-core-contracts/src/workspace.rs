@@ -6,6 +6,8 @@ use utoipa::ToSchema;
 
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
+pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 2;
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProjectWorkspaceRead {
@@ -480,6 +482,67 @@ pub enum ProjectSessionTabKind {
     Files,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProjectSessionDatabaseView {
+    Kanban,
+    List,
+    ToggleList,
+    Canvas,
+    Calendar,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ProjectSessionTabContent {
+    DbView {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        database_view_id: Option<String>,
+        view: ProjectSessionDatabaseView,
+    },
+    PageStage {
+        project_id: String,
+        page_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title_snapshot: Option<String>,
+    },
+    Terminal {
+        terminal_session_id: String,
+    },
+    Browser {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        browser_tab_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        favicon_url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        device_toolbar_visible: Option<bool>,
+    },
+    Review,
+    Files {
+        workspace_root: Option<String>,
+        cwd: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
+    },
+}
+
+impl ProjectSessionTabContent {
+    pub fn kind(&self) -> ProjectSessionTabKind {
+        match self {
+            Self::DbView { .. } => ProjectSessionTabKind::DbView,
+            Self::PageStage { .. } => ProjectSessionTabKind::PageStage,
+            Self::Terminal { .. } => ProjectSessionTabKind::Terminal,
+            Self::Browser { .. } => ProjectSessionTabKind::Browser,
+            Self::Review => ProjectSessionTabKind::Review,
+            Self::Files { .. } => ProjectSessionTabKind::Files,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize, ToSchema)]
 pub struct ProjectSessionPanelSizePatch {
     #[serde(
@@ -529,12 +592,10 @@ pub struct ProjectWorkspaceSessionTab {
     pub id: String,
     pub session_id: String,
     pub project_id: Option<String>,
-    pub browser_tab_id: Option<String>,
     pub panel_id: ProjectSessionPanelId,
-    pub kind: ProjectSessionTabKind,
     pub title: String,
     pub order: i64,
-    pub config: Value,
+    pub content: ProjectSessionTabContent,
     pub state_key: i64,
     pub state: Value,
     pub created_at: String,
@@ -723,10 +784,8 @@ pub enum ProjectSessionIntent {
         tab_id: String,
         panel_id: ProjectSessionPanelId,
         target_leaf_id: Option<String>,
-        browser_tab_id: Option<String>,
-        tab_kind: ProjectSessionTabKind,
         title: String,
-        config: Value,
+        content: ProjectSessionTabContent,
     },
     DeleteTab {
         tab_id: String,
@@ -753,7 +812,7 @@ pub enum ProjectSessionIntent {
             deserialize_with = "deserialize_present",
             skip_serializing_if = "Option::is_none"
         )]
-        config: Option<Value>,
+        content: Option<ProjectSessionTabContent>,
         #[serde(
             default,
             deserialize_with = "deserialize_present",
@@ -852,7 +911,7 @@ impl VersionedModuleContract for ProjectWorkspaceContract {
     type Receipt = ProjectWorkspaceReceipt;
     type Event = ProjectWorkspaceEvent;
 
-    const VERSION: u32 = 1;
+    const VERSION: u32 = PROJECT_WORKSPACE_CONTRACT_VERSION;
     const MODULE: ModuleName = ModuleName::ProjectWorkspace;
 }
 
@@ -866,7 +925,7 @@ mod tests {
     };
 
     #[test]
-    fn optional_tab_updates_distinguish_absence_from_explicit_null() {
+    fn optional_tab_updates_reject_explicit_null_for_typed_content() {
         let absent = serde_json::from_value::<ProjectSessionIntent>(json!({
             "kind": "update_tab",
             "tab_id": "tab-1"
@@ -874,7 +933,7 @@ mod tests {
         .expect("absent optional tab fields");
         let encoded = serde_json::to_value(absent).expect("tab update round trip");
         assert!(encoded.get("title").is_none());
-        assert!(encoded.get("config").is_none());
+        assert!(encoded.get("content").is_none());
 
         assert!(
             serde_json::from_value::<ProjectSessionIntent>(json!({
@@ -884,16 +943,14 @@ mod tests {
             }))
             .is_err()
         );
-        let explicit_null = serde_json::from_value::<ProjectSessionIntent>(json!({
-            "kind": "update_tab",
-            "tab_id": "tab-1",
-            "config": null
-        }))
-        .expect("explicit JSON null config");
-        let ProjectSessionIntent::UpdateTab { config, .. } = explicit_null else {
-            panic!("tab update intent");
-        };
-        assert_eq!(config, Some(serde_json::Value::Null));
+        assert!(
+            serde_json::from_value::<ProjectSessionIntent>(json!({
+                "kind": "update_tab",
+                "tab_id": "tab-1",
+                "content": null
+            }))
+            .is_err()
+        );
     }
 
     #[test]

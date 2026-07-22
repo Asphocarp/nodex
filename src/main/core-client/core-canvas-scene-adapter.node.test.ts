@@ -23,7 +23,7 @@ const COMMITTED_AT = "2026-07-19T00:00:00.000Z";
 const emptyScene = materializePortableCanvasScene({ elements: [] });
 
 const syncSnapshot = (): OwnedDocumentReadSnapshot => ({
-  version: 1,
+  contract_version: 1,
   store_epoch: STORE_EPOCH,
   event_head: 0,
   value: {
@@ -88,9 +88,9 @@ const committedMutation = (): OwnedDocumentCommittedValue => ({
 });
 
 const committedEvent = (): CoreEventEnvelope => ({
-  protocol_version: 2,
+  transport_version: 3,
   event: {
-    version: 2,
+    event_version: 2,
     sequence: 1,
     store_epoch: STORE_EPOCH,
     operation_id: mutationResult.mutationId,

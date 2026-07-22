@@ -28,7 +28,9 @@ import type {
   StoreAdministrationCommittedValue,
   StoreAdministrationRead,
   StoreAdministrationReadSnapshot,
+  CoreHandshakeResponse,
 } from "../types";
+import { CORE_CLIENT_REQUIREMENTS } from "@nodex/core-protocol";
 import type {
   DocumentAwarenessPublishAck,
   DocumentAwarenessPublishRequest,
@@ -39,6 +41,51 @@ import type {
   DocumentSyncResponse,
 } from "../../../shared/block-documents/document-sync";
 import type { ProjectionImpact } from "../../../shared/projection-stream";
+
+export interface FakeCoreHandshakeInput {
+  readonly profileId: string;
+  readonly libraryId: string;
+  readonly storeEpoch: string;
+  readonly eventHead?: number;
+  readonly connectionBinding?: string;
+}
+
+export const createFakeCoreHandshake = ({
+  profileId,
+  libraryId,
+  storeEpoch,
+  eventHead = 0,
+  connectionBinding = "fake-core-connection",
+}: FakeCoreHandshakeInput): CoreHandshakeResponse => {
+  const actualStoreFormat = CORE_CLIENT_REQUIREMENTS.accepted_store_formats[0];
+  const artifactSha256 = "a".repeat(64);
+  const manifestDigest = "b".repeat(64);
+  return {
+    actual_store_format: actualStoreFormat,
+    artifact: {
+      build_id: "fake-core-test",
+      sha256: artifactSha256,
+    },
+    connection_binding: connectionBinding,
+    event_head: eventHead,
+    generation: {
+      artifact_sha256: artifactSha256,
+      manifest_digest: manifestDigest,
+      pid: 1,
+      profile_id: profileId,
+      readiness_generation: 1,
+      start_nonce: "fake-core-start",
+      store_epoch: storeEpoch,
+    },
+    library_id: libraryId,
+    manifest_digest: manifestDigest,
+    schema_version: actualStoreFormat.version,
+    selected_event_version: CORE_CLIENT_REQUIREMENTS.event_version,
+    selected_module_versions: CORE_CLIENT_REQUIREMENTS.modules,
+    selected_transport_version: CORE_CLIENT_REQUIREMENTS.transport.max,
+    store_epoch: storeEpoch,
+  };
+};
 
 export class FakeCoreClient implements CoreClientPort {
   readonly automationReads: AutomationRead[] = [];

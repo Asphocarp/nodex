@@ -14,9 +14,9 @@ use nodex_core_contracts::automation::{
     AutomationCommitValue, AutomationIntent, AutomationRead, AutomationReadValue, AutomationReceipt,
 };
 use nodex_core_contracts::{
-    BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue,
-    CoreError, CoreErrorCode, CoreErrorRecovery, ModuleApplyRequest, ModuleReadRequest,
-    ModuleReadSnapshot, StoreEpoch,
+    AUTOMATION_CONTRACT_VERSION, BoundModuleContext, CommittedCoreModuleEvent,
+    CommittedModuleValue, CoreError, CoreErrorCode, CoreErrorRecovery, ModuleApplyRequest,
+    ModuleReadRequest, ModuleReadSnapshot, StoreEpoch,
 };
 use rusqlite::OptionalExtension;
 use std::path::PathBuf;
@@ -66,7 +66,7 @@ impl AutomationModule {
         request: ModuleReadRequest<AutomationRead>,
     ) -> Result<ModuleReadSnapshot<AutomationReadValue>, CoreError> {
         self.validate_context(context)?;
-        if request.version != CORE_CONTRACT_VERSION {
+        if request.contract_version != AUTOMATION_CONTRACT_VERSION {
             return Err(invalid("unsupported Automation contract version"));
         }
         let Some(readers) = &self.readers else {
@@ -86,7 +86,7 @@ impl AutomationModule {
                     |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
                 )?;
                 let snapshot = ModuleReadSnapshot {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: AUTOMATION_CONTRACT_VERSION,
                     store_epoch: StoreEpoch(store_epoch),
                     event_head,
                     value: read::read(&transaction, &library_id, &context, request.read)?,
@@ -103,7 +103,7 @@ impl AutomationModule {
         request: ModuleApplyRequest<AutomationIntent>,
     ) -> Result<AutomationApplyOutcome, CoreError> {
         self.validate_context(context)?;
-        if request.version != CORE_CONTRACT_VERSION {
+        if request.contract_version != AUTOMATION_CONTRACT_VERSION {
             return Err(invalid("unsupported Automation contract version"));
         }
         let Some(writer) = &self.writer else {

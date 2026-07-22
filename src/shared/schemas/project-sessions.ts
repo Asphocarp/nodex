@@ -16,6 +16,8 @@ import type {
   ProjectSessionPanelResizeInput,
   ProjectSessionPanelSplitInput,
   ProjectSessionTabConfig,
+  ProjectSessionTabConfigByKind,
+  ProjectSessionTabKind,
   ProjectSessionTabCreateInput,
   ProjectSessionTabDeleteInput,
   ProjectSessionTabMoveInput,
@@ -46,17 +48,17 @@ export const ProjectSessionDbViewTabConfigSchema = z.object({
   projectId: z.string().min(1),
   databaseViewId: z.string().min(1).optional(),
   view: WorkbenchViewSchema,
-}) satisfies z.ZodType<ProjectSessionDbViewTabConfig>;
+}).strict() satisfies z.ZodType<ProjectSessionDbViewTabConfig>;
 
 export const ProjectSessionPageStageTabConfigSchema = z.object({
   projectId: z.string().min(1),
   pageId: z.string().min(1),
   titleSnapshot: z.string().optional(),
-}) satisfies z.ZodType<ProjectSessionPageStageTabConfig>;
+}).strict() satisfies z.ZodType<ProjectSessionPageStageTabConfig>;
 
 export const ProjectSessionTerminalTabConfigSchema = z.object({
   terminalSessionId: z.string().min(1),
-}) satisfies z.ZodType<ProjectSessionTerminalTabConfig>;
+}).strict() satisfies z.ZodType<ProjectSessionTerminalTabConfig>;
 
 export const ProjectSessionBrowserTabConfigSchema = z.object({
   projectId: z.string().min(1).nullable(),
@@ -64,11 +66,11 @@ export const ProjectSessionBrowserTabConfigSchema = z.object({
   title: z.string().optional(),
   faviconUrl: z.string().optional(),
   deviceToolbarVisible: z.boolean().optional(),
-}) satisfies z.ZodType<ProjectSessionBrowserTabConfig>;
+}).strict() satisfies z.ZodType<ProjectSessionBrowserTabConfig>;
 
 export const ProjectSessionProjectScopedTabConfigSchema = z.object({
   projectId: z.string().min(1),
-}) satisfies z.ZodType<ProjectSessionProjectScopedTabConfig>;
+}).strict() satisfies z.ZodType<ProjectSessionProjectScopedTabConfig>;
 
 export const ProjectSessionFilesTabConfigSchema = z.object({
   projectId: z.string().min(1).nullable(),
@@ -82,25 +84,23 @@ export const ProjectSessionFilesTabConfigSchema = z.object({
     z.string().trim().min(1).nullable(),
   ).default(null),
   path: z.string().trim().min(1).optional(),
-}) satisfies z.ZodType<ProjectSessionFilesTabConfig>;
+}).strict() satisfies z.ZodType<ProjectSessionFilesTabConfig>;
 
-export function parseProjectSessionTabConfig(kind: string, config: unknown): ProjectSessionTabConfig {
-  if (kind === "db_view") return ProjectSessionDbViewTabConfigSchema.parse(config);
-  if (kind === "page_stage") return ProjectSessionPageStageTabConfigSchema.parse(config);
-  if (kind === "terminal") return ProjectSessionTerminalTabConfigSchema.parse(config);
-  if (kind === "browser") return ProjectSessionBrowserTabConfigSchema.parse(config);
-  if (kind === "review") return ProjectSessionProjectScopedTabConfigSchema.parse(config);
-  if (kind === "files") return ProjectSessionFilesTabConfigSchema.parse(config);
-  if (kind === "files_placeholder") {
-    const scopedConfig = ProjectSessionProjectScopedTabConfigSchema.parse(config);
-    return {
-      projectId: scopedConfig.projectId,
-      hostId: "local",
-      workspaceRoot: null,
-      cwd: null,
-    };
+export function parseProjectSessionTabConfig<Kind extends ProjectSessionTabKind>(
+  kind: Kind,
+  config: unknown,
+): ProjectSessionTabConfigByKind[Kind] {
+  let parsed: ProjectSessionTabConfig;
+  if (kind === "db_view") parsed = ProjectSessionDbViewTabConfigSchema.parse(config);
+  else if (kind === "page_stage") parsed = ProjectSessionPageStageTabConfigSchema.parse(config);
+  else if (kind === "terminal") parsed = ProjectSessionTerminalTabConfigSchema.parse(config);
+  else if (kind === "browser") parsed = ProjectSessionBrowserTabConfigSchema.parse(config);
+  else if (kind === "review") parsed = ProjectSessionProjectScopedTabConfigSchema.parse(config);
+  else if (kind === "files") parsed = ProjectSessionFilesTabConfigSchema.parse(config);
+  else {
+    throw new Error(`Unknown project session tab kind: ${String(kind)}`);
   }
-  throw new Error(`Unknown project session tab kind: ${kind}`);
+  return parsed as ProjectSessionTabConfigByKind[Kind];
 }
 
 export const PanelIdSchema = z.enum(["right", "bottom"]);
@@ -211,19 +211,52 @@ export const ProjectSessionTabKindSchema = z.enum([
   "files",
 ]);
 
-export const ProjectSessionTabCreateInputSchema = z.object({
+const projectSessionTabCreateBase = {
   sessionId: z.string().min(1),
   panelId: PanelIdSchema,
   targetLeafId: z.string().min(1).optional(),
   clientTabId: z.string().regex(/^[A-Za-z0-9:_-]{1,160}$/).optional(),
-  browserTabId: z.string().trim().min(1).optional(),
-  kind: ProjectSessionTabKindSchema,
   title: titleSchema,
-  config: z.unknown(),
-}).transform((input) => ({
-  ...input,
-  config: parseProjectSessionTabConfig(input.kind, input.config),
-})) satisfies z.ZodType<ProjectSessionTabCreateInput>;
+} as const;
+
+export const ProjectSessionTabCreateInputSchema = z.discriminatedUnion("kind", [
+  z.object({
+    ...projectSessionTabCreateBase,
+    kind: z.literal("db_view"),
+    config: ProjectSessionDbViewTabConfigSchema,
+    browserTabId: z.never().optional(),
+  }).strict(),
+  z.object({
+    ...projectSessionTabCreateBase,
+    kind: z.literal("page_stage"),
+    config: ProjectSessionPageStageTabConfigSchema,
+    browserTabId: z.never().optional(),
+  }).strict(),
+  z.object({
+    ...projectSessionTabCreateBase,
+    kind: z.literal("terminal"),
+    config: ProjectSessionTerminalTabConfigSchema,
+    browserTabId: z.never().optional(),
+  }).strict(),
+  z.object({
+    ...projectSessionTabCreateBase,
+    kind: z.literal("browser"),
+    config: ProjectSessionBrowserTabConfigSchema,
+    browserTabId: z.string().trim().min(1).optional(),
+  }).strict(),
+  z.object({
+    ...projectSessionTabCreateBase,
+    kind: z.literal("review"),
+    config: ProjectSessionProjectScopedTabConfigSchema,
+    browserTabId: z.never().optional(),
+  }).strict(),
+  z.object({
+    ...projectSessionTabCreateBase,
+    kind: z.literal("files"),
+    config: ProjectSessionFilesTabConfigSchema,
+    browserTabId: z.never().optional(),
+  }).strict(),
+]) satisfies z.ZodType<ProjectSessionTabCreateInput>;
 
 export const ProjectSessionTabUpdateInputSchema = z.object({
   title: titleSchema.optional(),
@@ -232,7 +265,10 @@ export const ProjectSessionTabUpdateInputSchema = z.object({
   state: z.unknown().optional(),
 });
 
-export function parseProjectSessionTabUpdateInput(kind: string, input: unknown): ProjectSessionTabUpdateInput {
+export function parseProjectSessionTabUpdateInput(
+  kind: ProjectSessionTabKind,
+  input: unknown,
+): ProjectSessionTabUpdateInput {
   const parsed = ProjectSessionTabUpdateInputSchema.parse(input);
   if (parsed.config === undefined) return parsed as ProjectSessionTabUpdateInput;
   return {

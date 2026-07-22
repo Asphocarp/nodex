@@ -119,14 +119,14 @@ pub(super) fn apply(
                     &profile_id,
                     &library_id,
                     &context.project_id,
-                    request.version,
+                    request.contract_version,
                     &request.store_epoch,
                     &request.intent,
                 ))
             } else {
                 serde_json::to_vec(&(
                     &context,
-                    request.version,
+                    request.contract_version,
                     &request.store_epoch,
                     &request.intent,
                 ))
@@ -1692,11 +1692,15 @@ mod tests {
         AutomationRunStatus, PageOccurrenceSchedulePatch, PageOccurrenceUpdateScope,
         ReminderLeaseStatus,
     };
-    use nodex_core_contracts::database::{DatabaseIntent, DatabaseTransferTarget};
-    use nodex_core_contracts::library::{LibraryIntent, LibraryWriteParent};
+    use nodex_core_contracts::database::{
+        DATABASE_CONTRACT_VERSION, DatabaseIntent, DatabaseTransferTarget,
+    };
+    use nodex_core_contracts::library::{
+        LIBRARY_CONTRACT_VERSION, LibraryIntent, LibraryWriteParent,
+    };
     use nodex_core_contracts::{
-        AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, LibraryId, ModuleApplyRequest,
-        ModuleReadRequest, ProfileId, ProjectId, StoreEpoch,
+        AUTOMATION_CONTRACT_VERSION, AdapterKind, BoundModuleContext, LibraryId,
+        ModuleApplyRequest, ModuleReadRequest, ProfileId, ProjectId, StoreEpoch,
     };
     use rusqlite::params;
     use serde_json::{Value, json};
@@ -1783,7 +1787,7 @@ mod tests {
         harness.module.apply(
             &harness.context,
             ModuleApplyRequest {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: AUTOMATION_CONTRACT_VERSION,
                 operation_id: operation_id.to_owned(),
                 store_epoch: harness.store_epoch.clone(),
                 intent,
@@ -1807,7 +1811,7 @@ mod tests {
         harness.module.apply(
             context,
             ModuleApplyRequest {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: AUTOMATION_CONTRACT_VERSION,
                 operation_id: operation_id.to_owned(),
                 store_epoch: harness.store_epoch.clone(),
                 intent,
@@ -1829,7 +1833,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: format!("create:{page_id}"),
                     store_epoch: harness.store_epoch.clone(),
                     intent: LibraryIntent::CreatePage {
@@ -1862,7 +1866,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     operation_id: format!("transfer:{page_id}"),
                     store_epoch: harness.store_epoch.clone(),
                     intent: vec![DatabaseIntent::TransferPage {
@@ -2070,7 +2074,7 @@ mod tests {
             .read(
                 &harness.context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: AUTOMATION_CONTRACT_VERSION,
                     read: AutomationRead::Definitions {
                         include_deleted: None,
                     },
@@ -2234,7 +2238,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: AUTOMATION_CONTRACT_VERSION,
                     operation_id: "untrusted-claim".to_owned(),
                     store_epoch: harness.store_epoch.clone(),
                     intent: AutomationIntent::ClaimDue {
@@ -2253,7 +2257,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: AUTOMATION_CONTRACT_VERSION,
                     operation_id: "untrusted-run".to_owned(),
                     store_epoch: harness.store_epoch.clone(),
                     intent: AutomationIntent::BeginRun {
@@ -2335,7 +2339,7 @@ mod tests {
             .read(
                 &harness.context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: AUTOMATION_CONTRACT_VERSION,
                     read: AutomationRead::Leases {
                         automation_id: Some("daily-report".to_owned()),
                         include_settled: Some(true),
@@ -2595,7 +2599,7 @@ mod tests {
             .read(
                 &harness.context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: AUTOMATION_CONTRACT_VERSION,
                     read: AutomationRead::Inbox { limit: None },
                 },
             )
@@ -2682,7 +2686,7 @@ mod tests {
             .read(
                 &harness.context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: AUTOMATION_CONTRACT_VERSION,
                     read: AutomationRead::Run {
                         thread_id: "thread:run-1".to_owned(),
                     },
@@ -2838,7 +2842,7 @@ mod tests {
             .read(
                 &context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: AUTOMATION_CONTRACT_VERSION,
                     read: AutomationRead::Occurrences {
                         window_start_ms: "2026-07-18T00:00:00Z"
                             .parse::<chrono::DateTime<Utc>>()
@@ -2882,7 +2886,7 @@ mod tests {
             .read(
                 &context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: AUTOMATION_CONTRACT_VERSION,
                     read: AutomationRead::Occurrences {
                         window_start_ms: "2026-07-18T00:00:00Z"
                             .parse::<chrono::DateTime<Utc>>()
@@ -3553,7 +3557,7 @@ mod tests {
             .read(
                 &context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: AUTOMATION_CONTRACT_VERSION,
                     read: AutomationRead::ReminderLeases {
                         include_settled: Some(true),
                         limit: Some(20),

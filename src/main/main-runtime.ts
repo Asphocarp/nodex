@@ -138,6 +138,7 @@ import {
 } from "./core-client";
 import { createDesktopNodexAgentV3DynamicService } from "./core-client/desktop-nodex-agent-dynamic-service";
 import { superviseCoreEventStream } from "./core-client/core-event-stream-supervisor";
+import { CoreEventCompatibilityError } from "./core-client/uds-http";
 import { ProjectionInvalidationRouter } from "./core-client/projection-invalidation-router";
 import {
   requireProjectionInvalidationRouter,
@@ -1176,6 +1177,12 @@ async function initializeDesktopApp(
     },
     onInterrupted: (error) => {
       if (runtimeShutdownStarted) return;
+      if (error instanceof CoreEventCompatibilityError) {
+        logger.error("Native Core event contract changed; runtime rebind is required", {
+          error: error.message,
+        });
+        return;
+      }
       void requireProjectionRouter().resync({
         storeEpoch: coreClient.handshake.store_epoch,
         changeLogSeq: requireProjectionRouter().cursor.changeLogSeq,
@@ -1188,6 +1195,12 @@ async function initializeDesktopApp(
             : String(error),
       });
     },
+  });
+  void coreEventSubscription.done.catch((error) => {
+    if (runtimeShutdownStarted || error instanceof CoreEventCompatibilityError) return;
+    logger.error("Native Core event supervisor terminated unexpectedly", {
+      error: error instanceof Error ? error.message : String(error),
+    });
   });
   databaseReady = true;
   await resolvePendingPageDeepLink();

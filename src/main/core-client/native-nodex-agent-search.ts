@@ -103,7 +103,7 @@ export async function readNativeSearch(
   }
   try {
     const authorization = toCoreAgentExecutionAuthorization(
-      runtime.rootClient.handshake.profile_id,
+      runtime.rootClient.handshake.generation.profile_id,
       request.authority,
       request.callId ?? `nodex-agent:${request.tool}`,
       request.resourceAccess,

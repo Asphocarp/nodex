@@ -121,7 +121,7 @@ const createCoreNodexAgentAuthorityPort = (
         rootThreadId,
         actorProjectId,
         libraryId: project.library_id,
-        profileId: runtime.rootClient.handshake.profile_id,
+        profileId: runtime.rootClient.handshake.generation.profile_id,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
         scope,
         source,

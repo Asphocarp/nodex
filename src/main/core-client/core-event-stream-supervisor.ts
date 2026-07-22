@@ -3,6 +3,7 @@ import type {
   CoreEventReplayRequired,
   CoreEventSubscription,
 } from "./types";
+import { CoreEventCompatibilityError } from "./uds-http";
 
 export interface CoreEventStreamSupervisorInput {
   readonly initialAfter: number;
@@ -78,6 +79,10 @@ export function superviseCoreEventStream(
         active = null;
       }
       if (closed) return;
+      if (interruption instanceof CoreEventCompatibilityError) {
+        input.onInterrupted?.(interruption);
+        throw interruption;
+      }
       if (!resyncRequested) input.onInterrupted?.(interruption);
       if (!resyncRequested && retryDelayMs > 0) {
         await wait(retryDelayMs);

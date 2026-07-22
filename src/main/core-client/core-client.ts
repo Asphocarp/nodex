@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { CORE_CLIENT_REQUIREMENTS } from "@nodex/core-protocol";
 import type { components } from "@nodex/core-protocol";
 import type { ProjectionImpact } from "../../shared/projection-stream";
 import {
@@ -72,10 +73,26 @@ import type {
 } from "./types";
 import { UdsHttpTransport } from "./uds-http";
 
-const CORE_PROTOCOL_MIN = 2;
-const CORE_PROTOCOL_MAX = 2;
-const MODULE_CONTRACT_VERSION = 1;
 const DOCUMENT_FRAME_OVERHEAD_BYTES = MAX_DOCUMENT_HTTP_METADATA_BYTES + 8;
+
+type ModuleName = components["schemas"]["ModuleName"];
+
+const contractVersion = (module: ModuleName): number => {
+  const entry = CORE_CLIENT_REQUIREMENTS.modules.find(
+    (candidate) => candidate.module === module,
+  );
+  if (entry) return entry.contract_version;
+  throw new Error(`Core client requirements omit ${module}`);
+};
+
+const MODULE_CONTRACT_VERSIONS = {
+  library: contractVersion("library"),
+  database: contractVersion("database"),
+  ownedDocument: contractVersion("owned_document"),
+  projectWorkspace: contractVersion("project_workspace"),
+  automation: contractVersion("automation"),
+  storeAdministration: contractVersion("store_administration"),
+} as const;
 
 type ClientKind = components["schemas"]["ClientKind"];
 type HealthResponse = components["schemas"]["HealthResponse"];
@@ -130,18 +147,29 @@ export class CoreClient implements CoreClientPort {
       "POST",
       "/core/v1/handshake",
       {
-        protocol_min: CORE_PROTOCOL_MIN,
-        protocol_max: CORE_PROTOCOL_MAX,
+        requirements: CORE_CLIENT_REQUIREMENTS,
         client: {
           kind: input.clientKind,
           build_id: input.buildId,
         },
         connection_id: connectionId,
-        expected_profile_id: runtime.descriptor.profile_id,
-        expected_start_nonce: runtime.descriptor.start_nonce,
+        expected_generation: {
+          manifest_digest: runtime.descriptor.manifest_digest,
+          artifact_sha256: runtime.descriptor.artifact.sha256,
+          pid: runtime.descriptor.pid,
+          start_nonce: runtime.descriptor.start_nonce,
+          profile_id: runtime.descriptor.profile_id,
+          store_epoch: runtime.descriptor.store_epoch,
+          readiness_generation: runtime.descriptor.readiness_generation,
+        },
       },
     );
     assertHandshake(runtime.descriptor, handshake);
+    transport.configureEventContract({
+      transportVersion: handshake.selected_transport_version,
+      eventVersion: handshake.selected_event_version,
+      storeEpoch: handshake.store_epoch,
+    });
     return new CoreClient(transport, handshake, input.projectId, connectionId);
   }
 
@@ -167,7 +195,7 @@ export class CoreClient implements CoreClientPort {
     const response = await this.#transport.requestJson<LibraryReadResponse>(
       "POST",
       "/core/v1/modules/library/read",
-      { version: MODULE_CONTRACT_VERSION, read },
+      { contract_version: MODULE_CONTRACT_VERSIONS.library, read },
       this.#moduleHeaders(),
     );
     if (response.status === "ok") return response.payload;
@@ -179,7 +207,7 @@ export class CoreClient implements CoreClientPort {
       "POST",
       "/core/v1/modules/library/apply",
       {
-        version: MODULE_CONTRACT_VERSION,
+        contract_version: MODULE_CONTRACT_VERSIONS.library,
         operation_id: input.operationId,
         store_epoch: this.handshake.store_epoch,
         intent: input.intent,
@@ -209,7 +237,7 @@ export class CoreClient implements CoreClientPort {
     const response = await this.#transport.requestJson<DatabaseReadResponse>(
       "POST",
       "/core/v1/modules/database/read",
-      { version: MODULE_CONTRACT_VERSION, read },
+      { contract_version: MODULE_CONTRACT_VERSIONS.database, read },
       this.#databaseHeaders(),
     );
     if (response.status === "ok") return response.payload;
@@ -221,7 +249,7 @@ export class CoreClient implements CoreClientPort {
       "POST",
       "/core/v1/modules/database/apply",
       {
-        version: MODULE_CONTRACT_VERSION,
+        contract_version: MODULE_CONTRACT_VERSIONS.database,
         operation_id: input.operationId,
         store_epoch: this.handshake.store_epoch,
         intent: input.intent,
@@ -238,7 +266,7 @@ export class CoreClient implements CoreClientPort {
     const response = await this.#transport.requestJson<ProjectWorkspaceReadResponse>(
       "POST",
       "/core/v1/modules/workspace/read",
-      { version: MODULE_CONTRACT_VERSION, read },
+      { contract_version: MODULE_CONTRACT_VERSIONS.projectWorkspace, read },
       this.#moduleHeaders(),
     );
     if (response.status === "ok") return response.payload;
@@ -252,7 +280,7 @@ export class CoreClient implements CoreClientPort {
       "POST",
       "/core/v1/modules/workspace/apply",
       {
-        version: MODULE_CONTRACT_VERSION,
+        contract_version: MODULE_CONTRACT_VERSIONS.projectWorkspace,
         operation_id: input.operationId,
         store_epoch: this.handshake.store_epoch,
         intent: input.intent,
@@ -267,7 +295,7 @@ export class CoreClient implements CoreClientPort {
     const response = await this.#transport.requestJson<AutomationReadResponse>(
       "POST",
       "/core/v1/modules/automation/read",
-      { version: MODULE_CONTRACT_VERSION, read },
+      { contract_version: MODULE_CONTRACT_VERSIONS.automation, read },
       this.#moduleHeaders(),
     );
     if (response.status === "ok") return response.payload;
@@ -281,7 +309,7 @@ export class CoreClient implements CoreClientPort {
       "POST",
       "/core/v1/modules/automation/apply",
       {
-        version: MODULE_CONTRACT_VERSION,
+        contract_version: MODULE_CONTRACT_VERSIONS.automation,
         operation_id: input.operationId,
         store_epoch: this.handshake.store_epoch,
         intent: input.intent,
@@ -299,7 +327,7 @@ export class CoreClient implements CoreClientPort {
       await this.#transport.requestJson<StoreAdministrationReadResponse>(
         "POST",
         "/core/v1/modules/administration/read",
-        { version: MODULE_CONTRACT_VERSION, read },
+        { contract_version: MODULE_CONTRACT_VERSIONS.storeAdministration, read },
         this.#moduleHeaders(),
       );
     if (response.status === "ok") return response.payload;
@@ -314,7 +342,7 @@ export class CoreClient implements CoreClientPort {
         "POST",
         "/core/v1/modules/administration/apply",
         {
-          version: MODULE_CONTRACT_VERSION,
+          contract_version: MODULE_CONTRACT_VERSIONS.storeAdministration,
           operation_id: input.operationId,
           store_epoch: this.handshake.store_epoch,
           intent: input.intent,
@@ -332,7 +360,7 @@ export class CoreClient implements CoreClientPort {
     const response = await this.#transport.requestJson<OwnedDocumentReadResponse>(
       "POST",
       "/core/v1/modules/document/read",
-      { version: MODULE_CONTRACT_VERSION, read },
+      { contract_version: MODULE_CONTRACT_VERSIONS.ownedDocument, read },
       this.#documentHeaders(clientSessionId),
     );
     if (response.status === "ok") return response.payload;
@@ -346,7 +374,7 @@ export class CoreClient implements CoreClientPort {
       "POST",
       "/core/v1/modules/document/apply",
       {
-        version: MODULE_CONTRACT_VERSION,
+        contract_version: MODULE_CONTRACT_VERSIONS.ownedDocument,
         operation_id: input.operationId,
         store_epoch: this.handshake.store_epoch,
         intent: input.intent,
@@ -456,7 +484,7 @@ export class CoreClient implements CoreClientPort {
     return this.#transport.requestJson(
       "POST",
       "/core/v1/admin/shutdown",
-      {},
+      { kind: "shutdown" },
       this.#moduleHeaders(),
     );
   }
@@ -500,16 +528,45 @@ const assertHandshake = (
   handshake: CoreHandshakeResponse,
 ): void => {
   if (
-    handshake.protocol_version < CORE_PROTOCOL_MIN ||
-    handshake.protocol_version > CORE_PROTOCOL_MAX
+    handshake.selected_transport_version < CORE_CLIENT_REQUIREMENTS.transport.min ||
+    handshake.selected_transport_version > CORE_CLIENT_REQUIREMENTS.transport.max
   ) {
-    throw new Error("Core selected an unsupported protocol version");
+    throw new Error("Core selected an unsupported transport version");
   }
   if (
-    handshake.pid !== descriptor.pid ||
-    handshake.start_nonce !== descriptor.start_nonce ||
-    handshake.profile_id !== descriptor.profile_id ||
-    handshake.store_epoch !== descriptor.store_epoch
+    handshake.selected_event_version !== CORE_CLIENT_REQUIREMENTS.event_version ||
+    handshake.selected_module_versions.length !==
+      CORE_CLIENT_REQUIREMENTS.modules.length ||
+    handshake.selected_module_versions.some((selected, index) => {
+      const required = CORE_CLIENT_REQUIREMENTS.modules[index];
+      return required === undefined ||
+        selected.module !== required.module ||
+        selected.contract_version !== required.contract_version;
+    })
+  ) {
+    throw new Error("Core selected unsupported event or Module contracts");
+  }
+  if (
+    handshake.generation.pid !== descriptor.pid ||
+    handshake.generation.start_nonce !== descriptor.start_nonce ||
+    handshake.generation.profile_id !== descriptor.profile_id ||
+    handshake.generation.manifest_digest !== descriptor.manifest_digest ||
+    handshake.generation.artifact_sha256 !== descriptor.artifact.sha256 ||
+    handshake.generation.store_epoch !== descriptor.store_epoch ||
+    handshake.generation.readiness_generation !== descriptor.readiness_generation ||
+    handshake.manifest_digest !== descriptor.manifest_digest ||
+    handshake.artifact.sha256 !== descriptor.artifact.sha256 ||
+    handshake.artifact.build_id !== descriptor.artifact.build_id ||
+    handshake.actual_store_format.lineage !== descriptor.actual_store_format.lineage ||
+    handshake.actual_store_format.version !== descriptor.actual_store_format.version ||
+    handshake.actual_store_format.schema_fingerprint !==
+      descriptor.actual_store_format.schema_fingerprint ||
+    handshake.store_epoch !== descriptor.store_epoch ||
+    handshake.schema_version !== descriptor.actual_store_format.version ||
+    !handshake.library_id ||
+    !handshake.connection_binding ||
+    !Number.isSafeInteger(handshake.event_head) ||
+    handshake.event_head < 0
   ) {
     throw new Error("Core handshake does not match the validated runtime descriptor");
   }

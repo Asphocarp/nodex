@@ -6,7 +6,10 @@ import {
   mapCoreAutomationEvent,
 } from "./desktop-automation-module-bridge";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
-import { FakeCoreClient } from "./testing/fake-core-client";
+import {
+  createFakeCoreHandshake,
+  FakeCoreClient,
+} from "./testing/fake-core-client";
 import type {
   AutomationCommittedValue,
   AutomationReadSnapshot,
@@ -97,7 +100,7 @@ const occurrence = (overrides: Record<string, unknown> = {}) => ({
 const readSnapshot = (
   value: AutomationReadSnapshot["value"],
 ): AutomationReadSnapshot => ({
-  version: 1,
+  contract_version: 1,
   store_epoch: "epoch:test",
   event_head: 7,
   value,
@@ -135,12 +138,11 @@ const committed = (
 const rustRuntime = (client: FakeCoreClient): RustDataAuthorityRuntime => ({
   backend: "rust",
   rootClient: Object.assign(client, {
-    handshake: {
-      library_id: "library:test",
-      profile_id: "profile:test",
-      store_epoch: "epoch:test",
-      event_head: 0,
-    },
+    handshake: createFakeCoreHandshake({
+      libraryId: "library:test",
+      profileId: "profile:test",
+      storeEpoch: "epoch:test",
+    }),
   }),
   clientForProject: () => client,
 }) as unknown as RustDataAuthorityRuntime;
@@ -159,9 +161,9 @@ const createInput: CodexScheduledAutomationCreateInput = {
 describe("Desktop Automation Module bridge", () => {
   test("maps Automation events into authority-neutral invalidations", () => {
     expect(mapCoreAutomationEvent({
-      protocol_version: 2,
+      transport_version: 3,
       event: {
-        version: 2,
+        event_version: 2,
         sequence: 8,
         store_epoch: "epoch:test",
         operation_id: "operation:automation",

@@ -69,10 +69,12 @@ rejected, and the JavaScript SQLite/Yjs authority has been removed. The frozen
 v84 SQL artifact remains import evidence. A separate hash-pinned migrator can
 advance exact published v26, v57, v68, v82, and v83 snapshots to that handoff
 schema, but it runs only against a disposable staging copy and can never become
-the live authority. The detached Core launcher first authenticates and reuses a
-compatible runtime from the fixed Profile-private descriptor, or starts the validated
-development/app-bundle executable and polls the same handshake until readiness;
-it never interprets process output as authority. Main initialization routes
+the live authority. Every launcher first executes its validated candidate as the
+single-winner selector. Under the Profile lifetime lock, that selector either
+starts the candidate or authenticates and reuses an incumbent that satisfies the
+generated transport, event, per-Module, exact Store-format, and launcher
+freshness policy. Its bounded selection result identifies one exact generation;
+only the following authenticated handshake proves authority. Main initialization routes
 every durable port through Core and starts the public loopback server only after
 Core reports ready; disconnecting
 Electron does not terminate the detached Core. The active
@@ -318,13 +320,17 @@ change-ledger Project coordinate private; Library snapshots, receipts, and
 events never expose or imply that compatibility owner. Electron consequently
 publishes Library catalog/resource invalidations without inventing a Project.
 `nodex-core-contracts` owns six
-transport-neutral semantic Module contracts; `nodex-core-protocol` generates the
-fixed private OpenAPI 3.1 surface and `@nodex/core-protocol` TypeScript types;
+transport-neutral semantic Module contracts and their independent versions;
+`nodex-core-protocol` owns transport 3, committed-event version selection,
+artifact/Store compatibility, and generates the fixed private OpenAPI 3.1
+surface plus `@nodex/core-protocol` TypeScript requirements;
 `nodex-core` contains vertical Module implementations; and `nodex-core-server`
 hosts authenticated HTTP/1.1 over a Profile-private Unix socket. The thin
-`src/main/core-client/` Adapter validates runtime ownership and permissions,
-performs the version/nonce/Profile handshake, uses bounded codecs, and parses
-committed SSE events incrementally. Global Module replay is reconstructed from
+`src/main/core-client/` Adapter validates runtime ownership, permissions,
+canonical manifest/digest, artifact, and Store identity; performs the
+exact-generation handshake; uses bounded codecs; and parses committed SSE
+events incrementally. `contract_version`, `transport_version`, and
+`event_version` are separate axes. Global Module replay is reconstructed from
 the durable SQLite change log in one read snapshot, so a process restart does
 not reset the cursor. The replay window and live broadcast are bounded; a
 retention gap, oversized catch-up window, or lagged subscriber receives an
@@ -340,7 +346,7 @@ The handshake also binds its declared
 Electron Host, native CLI, or test Adapter kind to a generated connection ID;
 every Module and Document request must present the resulting per-start binding
 capability. Core registers that logical connection against the authenticated
-Unix-socket peer UID/PID, client build, negotiated protocol, and process-start
+Unix-socket peer UID/PID, client build, selected transport, and process-start
 nonce; a binding cannot be replayed by a different local process or rebound to
 another Adapter kind. Concurrent launchers treat `core.json` as a hint only:
 the losing launcher validates owner/type/mode for the fixed runtime entries and
@@ -362,16 +368,24 @@ accepting sockets and waits for ordinary in-flight requests/transactions, while
 Core signals long-lived SSE streams to finish so graceful shutdown cannot wait
 forever on a subscription.
 
-Launchers reuse any running Core whose declared protocol range overlaps their
-own, selecting the highest common version rather than requiring equal build
-identities. If the ranges do not overlap, the contender authenticates to the
-fixed UDS and submits an exact descriptor-generation handoff through the
-existing lifecycle route. Core drains only when the same atomic idle predicate
-passes; otherwise it returns a bounded busy/retry result. An accepted contender
-waits for the incumbent to clean up and release the Profile store lock before
-removing stale runtime entries or opening SQLite, so upgrade races cannot create
-a second writer. A rejected, unverified, or legacy handoff never falls back to
-process killing or stale-file deletion.
+The shared compatibility evaluator compares an explicit client requirement with
+the incumbent offer across transport, committed event, each of the six Module
+contracts, and the exact Store identity. Electron additionally uses
+`prefer_current_artifact`, so a different executable SHA-256 causes a safe
+handoff even when semantics match; native CLI uses `compatible`, so compatible
+installation sources reuse one another. A replacement carries the candidate
+manifest/digest/artifact/policy plus the exact incumbent generation. Core
+rejects an unreadable Store or any transport/event/Module downgrade and drains
+only when the same atomic idle predicate passes; otherwise it returns a bounded
+busy/retry result. An accepted contender waits for exact-generation cleanup and
+Profile-lock release before opening SQLite, so upgrade races cannot create a
+second writer. Transport-3 lifecycle JSON is strictly tagged. The only legacy
+bridge is forward replacement of a transport-1/2 incumbent by the transport-3
+Rust selector; an old candidate cannot shut down a transport-3 Core. No rejected
+or unverified handoff falls back to process killing or stale-file deletion.
+For packaged macOS builds, artifact identity is computed after nested Developer
+ID signing; the signing boundary rewrites the closed native manifest from those
+final bytes and reseals the outer app before notarization.
 
 The private health route is also the bounded native observability snapshot. It
 derives readiness from the lifecycle/store generation and reports only numeric
@@ -423,8 +437,11 @@ semantically validates the complete v88 Document/Canvas/projection/managed-asset
 closure, optionally creates a safety backup inside one maintenance generation,
 installs through the Core-owned journal, rotates `storeEpoch`, resets Document
 cache and realtime state, republishes the runtime descriptor, and clears the
-old live subscriptions before committing its receipt/event; subsequent replay
-is read from the installed Store's durable change log. Backup deletion
+old live subscriptions before committing its receipt/event. Epoch rotation also
+rebinds the restored change-log and Module-receipt epoch coordinates in the same
+maintenance transaction, so the new generation replays one internally
+consistent Store incarnation; subsequent replay is read from that installed
+Store's durable change log. Backup deletion
 and automatic-retention pruning commit a durable logical tombstone before
 best-effort physical cleanup, so a crash cannot make a deleted backup visible or
 restorable and an exact retry finishes cleanup. Maintenance normalizes task
@@ -859,7 +876,7 @@ Project sessions and sidebar flow:
 7. Window/session UI state owns only the active project, active session, and transient focus/history. Project-bound session selection updates both active project and session. Projectless session selection updates only active session and leaves active project as the DB/workbench fallback.
 8. Project creation seeds one ordinary pinned `Database View` session with an open full-width right-panel `db_view` tab for that Project's durable primary View ID. This happens only during Project creation, fresh default-Project initialization, or one-time schema migration; `project-sessions:list` never recreates it after the user renames, unpins, archives, or deletes it. Projectless sessions do not receive this starter DB session and cannot own Project-scoped DB/Page tabs.
 9. `db_view` tabs are unique per durable `databaseViewId`, so one session may open multiple Views from the same Project while duplicate opens focus the existing tab. `review` remains the singleton right-panel kind. Browser tabs are first-class multi-tabs with their own webview lifecycle, title/favicon state, context menu actions, and browsing history. Terminal tabs are session-owned bottom-panel tabs by default and carry only `terminalSessionId`; Pages never own terminals. Browser and Terminal are portable between Project and projectless Session ownership. A null-owned Files tab is valid only for an explicit resource path; the generic Files tree, Database View, Page Stage, and Review remain Project-scoped.
-10. Session tab storage deliberately splits ownership from content targeting: `project_session_tabs.project_id` is the nullable Project that attaches the row to a session, while kind-specific `config.projectId` exists only where the tab body needs Project authorization context. These values normally match for Project-scoped tabs, but cross-Project Page Stage tabs preserve a different config Project so the active session can host a Page available through another grant context without loading the wrong Board. Portable Terminal config does not duplicate ownership.
+10. Project Workspace contract 2 represents every durable tab with the strict tagged `ProjectSessionTabContent` union used by create, update, and read. The Core storage Adapter deliberately splits ownership from content targeting: `project_session_tabs.project_id` is the nullable Project attaching the row to a Session, while only the Page Stage variant carries a distinct Project authorization context. Cross-Project Page Stage tabs can therefore host an authorized foreign Page without loading the wrong Board. Browser identity exists only in Browser content; Terminal content contains only `terminalSessionId`. The internal `kind + config_json + browser_tab_id` columns are never exposed as an untyped wire contract, and malformed stored combinations fail closed on read.
 11. Renderer-local panel previews are intentionally outside SQLite. Files and Browser previews occupy one preview slot per session panel leaf, replace each other within that leaf, and are persisted only when pinned through the normal session-tab create API.
 12. Renderer-local side-chat tabs are also outside SQLite but use a separate leaf-scoped lifecycle from previews. The renderer creates `sidechat-loading:<parentThreadId>:<index>` tabs, asks main to start an ephemeral fork, replaces the loading tab with `sidechat:<threadId>`, and discards the backing temporary thread when the tab closes.
 

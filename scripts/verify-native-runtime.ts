@@ -101,7 +101,7 @@ const verifySignatures = (appPath: string, binaryPaths: readonly string[], requi
 const restrictedEnvironment = (home: string): NodeJS.ProcessEnv => ({
   CARGO_HOME: join(home, "unavailable-cargo-home"),
   HOME: home,
-  NODEX_CORE_IDLE_TIMEOUT_MS: "100",
+  NODEX_CORE_IDLE_TIMEOUT_MS: "2000",
   NODEX_HOME: join(home, "profile"),
   NODEX_LOG_CONSOLE: "false",
   PATH: "/usr/bin:/bin",
@@ -120,7 +120,38 @@ const waitForRuntimeExit = async (descriptor: string): Promise<void> => {
   }
 };
 
-const smokeNativeRuntime = async (appPath: string): Promise<void> => {
+interface PackagedCoreIdentity {
+  readonly pid: number;
+  readonly startNonce: string;
+}
+
+const readPackagedCoreIdentity = (
+  descriptorPath: string,
+  expectedArtifactSha256: string,
+): PackagedCoreIdentity => {
+  const value = JSON.parse(readFileSync(descriptorPath, "utf8")) as {
+    readonly artifact?: { readonly sha256?: unknown };
+    readonly manifest_digest?: unknown;
+    readonly pid?: unknown;
+    readonly start_nonce?: unknown;
+  };
+  if (!Number.isSafeInteger(value.pid) || typeof value.start_nonce !== "string") {
+    throw new Error("Packaged Core published an invalid runtime generation identity");
+  }
+  if (value.artifact?.sha256 !== expectedArtifactSha256) {
+    throw new Error("Packaged Core self identity does not match rust-core-runtime.json");
+  }
+  if (typeof value.manifest_digest !== "string"
+    || !/^[a-f0-9]{64}$/u.test(value.manifest_digest)) {
+    throw new Error("Packaged Core published an invalid compatibility manifest digest");
+  }
+  return { pid: value.pid as number, startNonce: value.start_nonce };
+};
+
+const smokeNativeRuntime = async (
+  appPath: string,
+  expectedCoreSha256: string,
+): Promise<void> => {
   const directory = mkdtempSync("/tmp/ndx-pkg-");
   const environment = restrictedEnvironment(directory);
   const cli = join(appPath, "Contents/Resources/bin/nodex");
@@ -135,6 +166,20 @@ const smokeNativeRuntime = async (appPath: string): Promise<void> => {
     const doctor = runWithEnvironment(cli, ["--json", "doctor"], environment, "Run packaged Core doctor");
     const envelope = JSON.parse(doctor.stdout) as { ok?: unknown };
     if (envelope.ok !== true) throw new Error("Packaged Core doctor did not return a successful envelope");
+    const firstCore = readPackagedCoreIdentity(descriptor, expectedCoreSha256);
+    const repeatedDoctor = runWithEnvironment(
+      cli,
+      ["--json", "doctor"],
+      environment,
+      "Reuse packaged Core doctor",
+    );
+    if ((JSON.parse(repeatedDoctor.stdout) as { ok?: unknown }).ok !== true) {
+      throw new Error("Repeated packaged Core doctor did not return a successful envelope");
+    }
+    const reusedCore = readPackagedCoreIdentity(descriptor, expectedCoreSha256);
+    if (reusedCore.pid !== firstCore.pid || reusedCore.startNonce !== firstCore.startNonce) {
+      throw new Error("Compatible packaged CLI selectors did not reuse one Core generation");
+    }
     const service = runWithEnvironment(
       cli,
       ["--json", "service", "status"],
@@ -243,7 +288,9 @@ export async function verifyPackagedNativeRuntime(options: VerificationOptions):
     run("spctl", ["--assess", "--type", "execute", "--verbose=4", appPath], "Assess notarization");
     run("xcrun", ["stapler", "validate", appPath], "Validate notarization ticket");
   }
-  await smokeNativeRuntime(appPath);
+  const coreManifest = manifest.binaries.find(({ name }) => name === "nodex-core");
+  if (!coreManifest) throw new Error("Native runtime manifest omits nodex-core");
+  await smokeNativeRuntime(appPath, coreManifest.sourceSha256);
   if (options.launchApp) await launchAppSmoke(appPath);
   process.stdout.write(`Verified packaged native runtime ${options.targetArch}\n`);
 }

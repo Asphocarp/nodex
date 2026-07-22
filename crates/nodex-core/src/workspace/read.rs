@@ -8,7 +8,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::panel_layout::{parse_panel_id, parse_panels};
-use super::session_mutation::parse_tab_kind;
+use super::session_mutation::{decode_tab_content, parse_tab_kind};
 use super::thread::{read_permission_mode, read_thread, read_threads};
 use super::{execution, sidebar};
 
@@ -551,16 +551,15 @@ fn read_session_tabs(
                 {
                     return Err(corrupt("Project Session browser identity is invalid"));
                 }
+                let content = decode_tab_content(kind, &config, browser_tab_id)?;
                 Ok(ProjectWorkspaceSessionTab {
                     id,
                     session_id,
                     project_id,
-                    browser_tab_id,
                     panel_id,
-                    kind,
                     title,
                     order,
-                    config,
+                    content,
                     state_key,
                     state,
                     created_at,
@@ -611,10 +610,12 @@ fn corrupt(message: &str) -> StoreError {
 
 #[cfg(test)]
 mod tests {
-    use nodex_core_contracts::workspace::{ProjectWorkspaceRead, ProjectWorkspaceReadValue};
+    use nodex_core_contracts::workspace::{
+        ProjectSessionTabContent, ProjectWorkspaceRead, ProjectWorkspaceReadValue,
+    };
     use nodex_core_contracts::{
-        AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CoreErrorCode, LibraryId,
-        ModuleReadRequest, ProfileId, ProjectId,
+        AdapterKind, BoundModuleContext, CoreErrorCode, LibraryId, ModuleReadRequest,
+        PROJECT_WORKSPACE_CONTRACT_VERSION, ProfileId, ProjectId,
     };
     use tempfile::{TempDir, tempdir};
 
@@ -759,7 +760,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     read,
                 },
             )
@@ -863,7 +864,13 @@ mod tests {
             panic!("session tab snapshot");
         };
         assert_eq!(tab.session_id, "session-project");
-        assert_eq!(tab.browser_tab_id.as_deref(), Some("browser-1"));
+        assert!(matches!(
+            tab.content,
+            ProjectSessionTabContent::Browser {
+                browser_tab_id: Some(ref browser_tab_id),
+                ..
+            } if browser_tab_id == "browser-1"
+        ));
 
         let ProjectWorkspaceReadValue::Thread { thread } = read(
             &module,
@@ -890,7 +897,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     read: ProjectWorkspaceRead::Session {
                         session_id: "session-foreign".to_owned(),
                     },
@@ -903,7 +910,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     read: ProjectWorkspaceRead::Thread {
                         thread_id: "thread-foreign".to_owned(),
                     },
@@ -931,7 +938,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     read: ProjectWorkspaceRead::Session {
                         session_id: "session-project".to_owned(),
                     },
@@ -946,7 +953,7 @@ mod tests {
             .read(
                 &foreign,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     read: ProjectWorkspaceRead::Startup,
                 },
             )

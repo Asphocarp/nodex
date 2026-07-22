@@ -156,7 +156,7 @@ describe.skipIf(!packagedCli)("packaged native CLI and Electron authority", () =
       expect(selected.backend).toBe("rust");
       if (selected.backend !== "rust") throw new Error("Expected Rust authority");
       runtime = selected;
-      expect(runtime.rootClient.handshake.pid).toBe(coldCorePid);
+      expect(runtime.rootClient.handshake.generation.pid).toBe(coldCorePid);
 
       const startup = await runtime.rootClient.workspaceRead({ kind: "startup" });
       if (startup.value.kind !== "startup") {

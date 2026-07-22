@@ -1989,7 +1989,8 @@
           "kind": {
             "$ref": "#/components/schemas/ClientKind"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "ClientKind": {
         "type": "string",
@@ -2027,7 +2028,7 @@
       "CommittedCoreModuleEvent": {
         "type": "object",
         "required": [
-          "version",
+          "event_version",
           "sequence",
           "store_epoch",
           "committed_at",
@@ -2037,6 +2038,11 @@
         "properties": {
           "committed_at": {
             "type": "string"
+          },
+          "event_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           },
           "operation_id": {
             "type": [
@@ -2056,11 +2062,6 @@
           },
           "store_epoch": {
             "$ref": "#/components/schemas/StoreEpoch"
-          },
-          "version": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
           }
         }
       },
@@ -2406,6 +2407,117 @@
             }
           }
         }
+      },
+      "CompatibilityAxis": {
+        "type": "string",
+        "enum": [
+          "manifest",
+          "transport",
+          "event",
+          "module",
+          "store"
+        ]
+      },
+      "CompatibilityMismatch": {
+        "type": "object",
+        "required": [
+          "axis",
+          "required",
+          "offered"
+        ],
+        "properties": {
+          "axis": {
+            "$ref": "#/components/schemas/CompatibilityAxis"
+          },
+          "offered": {
+            "type": "string"
+          },
+          "required": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CoreArtifactIdentity": {
+        "type": "object",
+        "required": [
+          "sha256",
+          "build_id"
+        ],
+        "properties": {
+          "build_id": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CoreClientRequirements": {
+        "type": "object",
+        "required": [
+          "transport",
+          "event_version",
+          "modules",
+          "accepted_store_formats"
+        ],
+        "properties": {
+          "accepted_store_formats": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StoreFormatIdentity"
+            }
+          },
+          "event_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "modules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModuleContractVersion"
+            }
+          },
+          "transport": {
+            "$ref": "#/components/schemas/VersionRange"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CoreCompatibilityManifest": {
+        "type": "object",
+        "required": [
+          "manifest_version",
+          "transport",
+          "event_versions",
+          "modules",
+          "store"
+        ],
+        "properties": {
+          "event_versions": {
+            "$ref": "#/components/schemas/VersionRange"
+          },
+          "manifest_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "modules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModuleContractSupport"
+            }
+          },
+          "store": {
+            "$ref": "#/components/schemas/StoreFormatSupport"
+          },
+          "transport": {
+            "$ref": "#/components/schemas/VersionRange"
+          }
+        },
+        "additionalProperties": false
       },
       "CoreError": {
         "type": "object",
@@ -2819,6 +2931,87 @@
           "draining",
           "failed"
         ]
+      },
+      "CoreReplacementRequest": {
+        "type": "object",
+        "required": [
+          "candidate_manifest",
+          "candidate_manifest_digest",
+          "candidate_artifact",
+          "policy",
+          "launcher",
+          "expected"
+        ],
+        "properties": {
+          "candidate_artifact": {
+            "$ref": "#/components/schemas/CoreArtifactIdentity"
+          },
+          "candidate_manifest": {
+            "$ref": "#/components/schemas/CoreCompatibilityManifest"
+          },
+          "candidate_manifest_digest": {
+            "type": "string"
+          },
+          "expected": {
+            "$ref": "#/components/schemas/RuntimeGenerationIdentity"
+          },
+          "launcher": {
+            "$ref": "#/components/schemas/LauncherKind"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/CoreSelectionPolicy"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CoreSelectionDisposition": {
+        "type": "string",
+        "enum": [
+          "started",
+          "reused"
+        ]
+      },
+      "CoreSelectionPolicy": {
+        "type": "string",
+        "enum": [
+          "compatible",
+          "prefer_current_artifact"
+        ]
+      },
+      "CoreSelectionReason": {
+        "type": "string",
+        "enum": [
+          "started_no_incumbent",
+          "reused_compatible",
+          "replaced_contract",
+          "replaced_artifact"
+        ]
+      },
+      "CoreSelectionResult": {
+        "type": "object",
+        "required": [
+          "selection_version",
+          "disposition",
+          "reason",
+          "descriptor"
+        ],
+        "properties": {
+          "descriptor": {
+            "$ref": "#/components/schemas/RuntimeDescriptor"
+          },
+          "disposition": {
+            "$ref": "#/components/schemas/CoreSelectionDisposition"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/CoreSelectionReason"
+          },
+          "selection_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
       },
       "DatabaseAgentQuery": {
         "type": "object",
@@ -4198,19 +4391,20 @@
       "EventEnvelope": {
         "type": "object",
         "required": [
-          "protocol_version",
+          "transport_version",
           "event"
         ],
         "properties": {
           "event": {
             "$ref": "#/components/schemas/CommittedCoreModuleEvent"
           },
-          "protocol_version": {
+          "transport_version": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
           }
-        }
+        },
+        "additionalProperties": false
       },
       "EventReplayRequired": {
         "type": "object",
@@ -4237,10 +4431,10 @@
       "HandshakeRequest": {
         "type": "object",
         "required": [
-          "protocol_min",
-          "protocol_max",
+          "requirements",
           "client",
-          "connection_id"
+          "connection_id",
+          "expected_generation"
         ],
         "properties": {
           "client": {
@@ -4249,38 +4443,25 @@
           "connection_id": {
             "type": "string"
           },
-          "expected_profile_id": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "expected_generation": {
+            "$ref": "#/components/schemas/RuntimeGenerationIdentity"
           },
-          "expected_start_nonce": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "protocol_max": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "protocol_min": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
+          "requirements": {
+            "$ref": "#/components/schemas/CoreClientRequirements"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "HandshakeResponse": {
         "type": "object",
         "required": [
-          "protocol_version",
-          "build_id",
-          "pid",
-          "start_nonce",
-          "profile_id",
+          "selected_transport_version",
+          "selected_event_version",
+          "selected_module_versions",
+          "manifest_digest",
+          "artifact",
+          "actual_store_format",
+          "generation",
           "library_id",
           "connection_binding",
           "store_epoch",
@@ -4288,8 +4469,11 @@
           "event_head"
         ],
         "properties": {
-          "build_id": {
-            "type": "string"
+          "actual_store_format": {
+            "$ref": "#/components/schemas/StoreFormatIdentity"
+          },
+          "artifact": {
+            "$ref": "#/components/schemas/CoreArtifactIdentity"
           },
           "connection_binding": {
             "type": "string"
@@ -4298,34 +4482,41 @@
             "type": "integer",
             "format": "int64"
           },
+          "generation": {
+            "$ref": "#/components/schemas/RuntimeGenerationIdentity"
+          },
           "library_id": {
             "type": "string"
           },
-          "pid": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "profile_id": {
+          "manifest_digest": {
             "type": "string"
-          },
-          "protocol_version": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
           },
           "schema_version": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
           },
-          "start_nonce": {
-            "type": "string"
+          "selected_event_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "selected_module_versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModuleContractVersion"
+            }
+          },
+          "selected_transport_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           },
           "store_epoch": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "HealthDurationMetric": {
         "type": "object",
@@ -4382,6 +4573,14 @@
             "$ref": "#/components/schemas/CoreReadiness"
           }
         }
+      },
+      "LauncherKind": {
+        "type": "string",
+        "enum": [
+          "electron_host",
+          "native_cli",
+          "test"
+        ]
       },
       "LibraryAccess": {
         "type": "string",
@@ -9841,12 +10040,17 @@
       "ModuleApplyRequest_AutomationIntent": {
         "type": "object",
         "required": [
-          "version",
+          "contract_version",
           "operation_id",
           "store_epoch",
           "intent"
         ],
         "properties": {
+          "contract_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "intent": {
             "oneOf": [
               {
@@ -10577,23 +10781,23 @@
           },
           "store_epoch": {
             "$ref": "#/components/schemas/StoreEpoch"
-          },
-          "version": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
           }
         }
       },
       "ModuleApplyRequest_LibraryIntent": {
         "type": "object",
         "required": [
-          "version",
+          "contract_version",
           "operation_id",
           "store_epoch",
           "intent"
         ],
         "properties": {
+          "contract_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "intent": {
             "oneOf": [
               {
@@ -11060,23 +11264,23 @@
           },
           "store_epoch": {
             "$ref": "#/components/schemas/StoreEpoch"
-          },
-          "version": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
           }
         }
       },
       "ModuleApplyRequest_OwnedDocumentIntent": {
         "type": "object",
         "required": [
-          "version",
+          "contract_version",
           "operation_id",
           "store_epoch",
           "intent"
         ],
         "properties": {
+          "contract_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "intent": {
             "oneOf": [
               {
@@ -11444,23 +11648,23 @@
           },
           "store_epoch": {
             "$ref": "#/components/schemas/StoreEpoch"
-          },
-          "version": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
           }
         }
       },
       "ModuleApplyRequest_ProjectWorkspaceIntent": {
         "type": "object",
         "required": [
-          "version",
+          "contract_version",
           "operation_id",
           "store_epoch",
           "intent"
         ],
         "properties": {
+          "contract_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "intent": {
             "oneOf": [
               {
@@ -12227,23 +12431,23 @@
           },
           "store_epoch": {
             "$ref": "#/components/schemas/StoreEpoch"
-          },
-          "version": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
           }
         }
       },
       "ModuleApplyRequest_StoreAdministrationIntent": {
         "type": "object",
         "required": [
-          "version",
+          "contract_version",
           "operation_id",
           "store_epoch",
           "intent"
         ],
         "properties": {
+          "contract_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "intent": {
             "oneOf": [
               {
@@ -12370,23 +12574,23 @@
           },
           "store_epoch": {
             "$ref": "#/components/schemas/StoreEpoch"
-          },
-          "version": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
           }
         }
       },
       "ModuleApplyRequest_Vec_DatabaseIntent": {
         "type": "object",
         "required": [
-          "version",
+          "contract_version",
           "operation_id",
           "store_epoch",
           "intent"
         ],
         "properties": {
+          "contract_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "intent": {
             "type": "array",
             "items": {
@@ -12829,11 +13033,39 @@
           },
           "store_epoch": {
             "$ref": "#/components/schemas/StoreEpoch"
+          }
+        }
+      },
+      "ModuleContractSupport": {
+        "type": "object",
+        "required": [
+          "module",
+          "versions"
+        ],
+        "properties": {
+          "module": {
+            "$ref": "#/components/schemas/ModuleName"
           },
-          "version": {
+          "versions": {
+            "$ref": "#/components/schemas/VersionRange"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ModuleContractVersion": {
+        "type": "object",
+        "required": [
+          "module",
+          "contract_version"
+        ],
+        "properties": {
+          "contract_version": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          },
+          "module": {
+            "$ref": "#/components/schemas/ModuleName"
           }
         }
       },
@@ -12852,13 +13084,29 @@
           }
         }
       },
+      "ModuleName": {
+        "type": "string",
+        "enum": [
+          "library",
+          "database",
+          "owned_document",
+          "project_workspace",
+          "automation",
+          "store_administration"
+        ]
+      },
       "ModuleReadRequest_AutomationRead": {
         "type": "object",
         "required": [
-          "version",
+          "contract_version",
           "read"
         ],
         "properties": {
+          "contract_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "read": {
             "oneOf": [
               {
@@ -13102,21 +13350,21 @@
                 }
               }
             ]
-          },
-          "version": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
           }
         }
       },
       "ModuleReadRequest_DatabaseRead": {
         "type": "object",
         "required": [
-          "version",
+          "contract_version",
           "read"
         ],
         "properties": {
+          "contract_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "read": {
             "type": "object",
             "required": [
@@ -13139,21 +13387,21 @@
                 "$ref": "#/components/schemas/DatabaseTarget"
               }
             }
-          },
-          "version": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
           }
         }
       },
       "ModuleReadRequest_LibraryRead": {
         "type": "object",
         "required": [
-          "version",
+          "contract_version",
           "read"
         ],
         "properties": {
+          "contract_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "read": {
             "oneOf": [
               {
@@ -13861,21 +14109,21 @@
                 }
               }
             ]
-          },
-          "version": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
           }
         }
       },
       "ModuleReadRequest_OwnedDocumentRead": {
         "type": "object",
         "required": [
-          "version",
+          "contract_version",
           "read"
         ],
         "properties": {
+          "contract_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "read": {
             "oneOf": [
               {
@@ -14097,21 +14345,21 @@
                 }
               }
             ]
-          },
-          "version": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
           }
         }
       },
       "ModuleReadRequest_ProjectWorkspaceRead": {
         "type": "object",
         "required": [
-          "version",
+          "contract_version",
           "read"
         ],
         "properties": {
+          "contract_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "read": {
             "oneOf": [
               {
@@ -14401,21 +14649,21 @@
                 }
               }
             ]
-          },
-          "version": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
           }
         }
       },
       "ModuleReadRequest_StoreAdministrationRead": {
         "type": "object",
         "required": [
-          "version",
+          "contract_version",
           "read"
         ],
         "properties": {
+          "contract_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "read": {
             "oneOf": [
               {
@@ -14461,11 +14709,6 @@
                 }
               }
             ]
-          },
-          "version": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
           }
         }
       },
@@ -14867,6 +15110,16 @@
           "archived"
         ]
       },
+      "ProjectSessionDatabaseView": {
+        "type": "string",
+        "enum": [
+          "kanban",
+          "list",
+          "toggle-list",
+          "canvas",
+          "calendar"
+        ]
+      },
       "ProjectSessionIntent": {
         "oneOf": [
           {
@@ -15012,19 +15265,14 @@
             "required": [
               "tab_id",
               "panel_id",
-              "tab_kind",
               "title",
-              "config",
+              "content",
               "kind"
             ],
             "properties": {
-              "browser_tab_id": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+              "content": {
+                "$ref": "#/components/schemas/ProjectSessionTabContent"
               },
-              "config": {},
               "kind": {
                 "type": "string",
                 "enum": [
@@ -15036,9 +15284,6 @@
               },
               "tab_id": {
                 "type": "string"
-              },
-              "tab_kind": {
-                "$ref": "#/components/schemas/ProjectSessionTabKind"
               },
               "target_leaf_id": {
                 "type": [
@@ -15113,7 +15358,16 @@
               "kind"
             ],
             "properties": {
-              "config": {},
+              "content": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ProjectSessionTabContent"
+                  }
+                ]
+              },
               "kind": {
                 "type": "string",
                 "enum": [
@@ -15322,15 +15576,168 @@
           }
         }
       },
-      "ProjectSessionTabKind": {
-        "type": "string",
-        "enum": [
-          "db_view",
-          "page_stage",
-          "terminal",
-          "browser",
-          "review",
-          "files"
+      "ProjectSessionTabContent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "view",
+              "kind"
+            ],
+            "properties": {
+              "database_view_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "db_view"
+                ]
+              },
+              "view": {
+                "$ref": "#/components/schemas/ProjectSessionDatabaseView"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "project_id",
+              "page_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page_stage"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              },
+              "project_id": {
+                "type": "string"
+              },
+              "title_snapshot": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "terminal_session_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "terminal"
+                ]
+              },
+              "terminal_session_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "browser_tab_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "device_toolbar_visible": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "favicon_url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "browser"
+                ]
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "review"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "cwd": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "files"
+                ]
+              },
+              "path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "workspace_root": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
         ]
       },
       "ProjectSource": {
@@ -15704,31 +16111,23 @@
           "id",
           "session_id",
           "panel_id",
-          "kind",
           "title",
           "order",
-          "config",
+          "content",
           "state_key",
           "state",
           "created_at",
           "updated_at"
         ],
         "properties": {
-          "browser_tab_id": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "content": {
+            "$ref": "#/components/schemas/ProjectSessionTabContent"
           },
-          "config": {},
           "created_at": {
             "type": "string"
           },
           "id": {
             "type": "string"
-          },
-          "kind": {
-            "$ref": "#/components/schemas/ProjectSessionTabKind"
           },
           "order": {
             "type": "integer",
@@ -17790,12 +18189,17 @@
               "payload": {
                 "type": "object",
                 "required": [
-                  "version",
+                  "contract_version",
                   "store_epoch",
                   "event_head",
                   "value"
                 ],
                 "properties": {
+                  "contract_version": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
                   "event_head": {
                     "type": "integer",
                     "format": "int64"
@@ -18005,11 +18409,6 @@
                         }
                       }
                     ]
-                  },
-                  "version": {
-                    "type": "integer",
-                    "format": "int32",
-                    "minimum": 0
                   }
                 }
               },
@@ -18053,12 +18452,17 @@
               "payload": {
                 "type": "object",
                 "required": [
-                  "version",
+                  "contract_version",
                   "store_epoch",
                   "event_head",
                   "value"
                 ],
                 "properties": {
+                  "contract_version": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
                   "event_head": {
                     "type": "integer",
                     "format": "int64"
@@ -18194,11 +18598,6 @@
                         }
                       }
                     ]
-                  },
-                  "version": {
-                    "type": "integer",
-                    "format": "int32",
-                    "minimum": 0
                   }
                 }
               },
@@ -18242,12 +18641,17 @@
               "payload": {
                 "type": "object",
                 "required": [
-                  "version",
+                  "contract_version",
                   "store_epoch",
                   "event_head",
                   "value"
                 ],
                 "properties": {
+                  "contract_version": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
                   "event_head": {
                     "type": "integer",
                     "format": "int64"
@@ -18819,11 +19223,6 @@
                         }
                       }
                     ]
-                  },
-                  "version": {
-                    "type": "integer",
-                    "format": "int32",
-                    "minimum": 0
                   }
                 }
               },
@@ -18867,12 +19266,17 @@
               "payload": {
                 "type": "object",
                 "required": [
-                  "version",
+                  "contract_version",
                   "store_epoch",
                   "event_head",
                   "value"
                 ],
                 "properties": {
+                  "contract_version": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
                   "event_head": {
                     "type": "integer",
                     "format": "int64"
@@ -19044,11 +19448,6 @@
                         }
                       }
                     ]
-                  },
-                  "version": {
-                    "type": "integer",
-                    "format": "int32",
-                    "minimum": 0
                   }
                 }
               },
@@ -19092,12 +19491,17 @@
               "payload": {
                 "type": "object",
                 "required": [
-                  "version",
+                  "contract_version",
                   "store_epoch",
                   "event_head",
                   "value"
                 ],
                 "properties": {
+                  "contract_version": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
                   "event_head": {
                     "type": "integer",
                     "format": "int64"
@@ -19400,11 +19804,6 @@
                         }
                       }
                     ]
-                  },
-                  "version": {
-                    "type": "integer",
-                    "format": "int32",
-                    "minimum": 0
                   }
                 }
               },
@@ -19448,12 +19847,17 @@
               "payload": {
                 "type": "object",
                 "required": [
-                  "version",
+                  "contract_version",
                   "store_epoch",
                   "event_head",
                   "value"
                 ],
                 "properties": {
+                  "contract_version": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
                   "event_head": {
                     "type": "integer",
                     "format": "int64"
@@ -19547,11 +19951,6 @@
                         }
                       }
                     ]
-                  },
-                  "version": {
-                    "type": "integer",
-                    "format": "int32",
-                    "minimum": 0
                   }
                 }
               },
@@ -19586,9 +19985,10 @@
       "RuntimeDescriptor": {
         "type": "object",
         "required": [
-          "protocol_min",
-          "protocol_max",
-          "build_id",
+          "manifest",
+          "manifest_digest",
+          "artifact",
+          "actual_store_format",
           "pid",
           "start_nonce",
           "socket_path",
@@ -19597,7 +19997,16 @@
           "readiness_generation"
         ],
         "properties": {
-          "build_id": {
+          "actual_store_format": {
+            "$ref": "#/components/schemas/StoreFormatIdentity"
+          },
+          "artifact": {
+            "$ref": "#/components/schemas/CoreArtifactIdentity"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/CoreCompatibilityManifest"
+          },
+          "manifest_digest": {
             "type": "string"
           },
           "pid": {
@@ -19607,16 +20016,6 @@
           },
           "profile_id": {
             "type": "string"
-          },
-          "protocol_max": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "protocol_min": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
           },
           "readiness_generation": {
             "type": "integer",
@@ -19632,14 +20031,14 @@
           "store_epoch": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "RuntimeGenerationIdentity": {
         "type": "object",
         "required": [
-          "protocol_min",
-          "protocol_max",
-          "build_id",
+          "manifest_digest",
+          "artifact_sha256",
           "pid",
           "start_nonce",
           "profile_id",
@@ -19647,7 +20046,10 @@
           "readiness_generation"
         ],
         "properties": {
-          "build_id": {
+          "artifact_sha256": {
+            "type": "string"
+          },
+          "manifest_digest": {
             "type": "string"
           },
           "pid": {
@@ -19657,16 +20059,6 @@
           },
           "profile_id": {
             "type": "string"
-          },
-          "protocol_max": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "protocol_min": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
           },
           "readiness_generation": {
             "type": "integer",
@@ -19679,7 +20071,8 @@
           "store_epoch": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "ScheduledPageOccurrence": {
         "type": "object",
@@ -19850,19 +20243,40 @@
         ]
       },
       "ShutdownRequest": {
-        "type": "object",
-        "properties": {
-          "version_handoff": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/VersionHandoffRequest"
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "shutdown"
+                ]
               }
-            ]
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "request",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "replacement"
+                ]
+              },
+              "request": {
+                "$ref": "#/components/schemas/CoreReplacementRequest"
+              }
+            }
           }
-        }
+        ]
       },
       "ShutdownResponse": {
         "type": "object",
@@ -19897,7 +20311,8 @@
         "type": "string",
         "enum": [
           "draining",
-          "busy"
+          "busy",
+          "incompatible"
         ]
       },
       "StoreAdministrationApplyRequest": {
@@ -19947,6 +20362,54 @@
       "StoreEpoch": {
         "type": "string"
       },
+      "StoreFormatIdentity": {
+        "type": "object",
+        "required": [
+          "lineage",
+          "version",
+          "schema_fingerprint"
+        ],
+        "properties": {
+          "lineage": {
+            "type": "string"
+          },
+          "schema_fingerprint": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "StoreFormatSupport": {
+        "type": "object",
+        "required": [
+          "readable",
+          "migratable",
+          "current"
+        ],
+        "properties": {
+          "current": {
+            "$ref": "#/components/schemas/StoreFormatIdentity"
+          },
+          "migratable": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StoreFormatIdentity"
+            }
+          },
+          "readable": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StoreFormatIdentity"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "StoreIntegrity": {
         "type": "string",
         "enum": [
@@ -19964,32 +20427,25 @@
           "failed"
         ]
       },
-      "VersionHandoffRequest": {
+      "VersionRange": {
         "type": "object",
         "required": [
-          "protocol_min",
-          "protocol_max",
-          "build_id",
-          "expected"
+          "min",
+          "max"
         ],
         "properties": {
-          "build_id": {
-            "type": "string"
-          },
-          "expected": {
-            "$ref": "#/components/schemas/RuntimeGenerationIdentity"
-          },
-          "protocol_max": {
+          "max": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
           },
-          "protocol_min": {
+          "min": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
           }
-        }
+        },
+        "additionalProperties": false
       }
     }
   }

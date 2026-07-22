@@ -89,7 +89,7 @@ function viewContainerHost() {
   return document.body.querySelector("[data-browser-sidebar-hidden-webview-host='tab-browser']");
 }
 
-const browserTab: ProjectSessionTab = {
+const browserTab = {
   id: "tab-browser",
   sessionId: "session-1",
   browserTabId: "tab-browser",
@@ -107,4 +107,4 @@ const browserTab: ProjectSessionTab = {
   state: null,
   createdAt: "2026-06-09T00:00:00.000Z",
   updatedAt: "2026-06-09T00:00:00.000Z",
-};
+} satisfies ProjectSessionTab;

@@ -152,7 +152,7 @@ pub(super) fn apply(
             validate_id("operation_id", &request.operation_id)?;
             let fingerprint = serde_json::to_vec(&(
                 &context,
-                request.version,
+                request.contract_version,
                 &request.store_epoch,
                 &request.intent,
             ))
@@ -1520,14 +1520,14 @@ mod tests {
 
     use nodex_core_contracts::workspace::{
         CodexThreadActiveFlag, CodexThreadStatusType, ProjectCatalogChangeKind, ProjectLifecycle,
-        ProjectSessionIntent, ProjectSessionInvalidationScope, ProjectSessionPanelId,
-        ProjectSessionPanelSizePatch, ProjectSessionPanelStatePatch, ProjectSessionTabKind,
-        ProjectWorkspaceIntent, ProjectWorkspaceRead, ProjectWorkspaceReadValue,
-        ProjectWorkspaceThreadPatch, ProjectWorkspaceThreadStatus,
+        ProjectSessionDatabaseView, ProjectSessionIntent, ProjectSessionInvalidationScope,
+        ProjectSessionPanelId, ProjectSessionPanelSizePatch, ProjectSessionPanelStatePatch,
+        ProjectSessionTabContent, ProjectWorkspaceIntent, ProjectWorkspaceRead,
+        ProjectWorkspaceReadValue, ProjectWorkspaceThreadPatch, ProjectWorkspaceThreadStatus,
     };
     use nodex_core_contracts::{
-        AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CoreErrorCode,
-        CoreModuleEventPayload, LibraryId, ModuleApplyRequest, ModuleReadRequest, ProfileId,
+        AdapterKind, BoundModuleContext, CoreErrorCode, CoreModuleEventPayload, LibraryId,
+        ModuleApplyRequest, ModuleReadRequest, PROJECT_WORKSPACE_CONTRACT_VERSION, ProfileId,
         ProjectId, ProjectionImpact, StoreEpoch,
     };
     use serde_json::json;
@@ -1607,7 +1607,7 @@ mod tests {
         intent: ProjectWorkspaceIntent,
     ) -> ModuleApplyRequest<ProjectWorkspaceIntent> {
         ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
             operation_id: operation_id.to_owned(),
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent,
@@ -2315,7 +2315,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     read: ProjectWorkspaceRead::Session {
                         session_id: "session-b".to_owned(),
                     },
@@ -2394,13 +2394,14 @@ mod tests {
                         tab_id: "projectless-browser".to_owned(),
                         panel_id: ProjectSessionPanelId::Right,
                         target_leaf_id: None,
-                        browser_tab_id: Some("projectless-browser-identity".to_owned()),
-                        tab_kind: ProjectSessionTabKind::Browser,
                         title: "Projectless browser".to_owned(),
-                        config: json!({
-                            "projectId": null,
-                            "url": "https://example.test/projectless"
-                        }),
+                        content: ProjectSessionTabContent::Browser {
+                            browser_tab_id: Some("projectless-browser-identity".to_owned()),
+                            url: Some("https://example.test/projectless".to_owned()),
+                            title: None,
+                            favicon_url: None,
+                            device_toolbar_visible: None,
+                        },
                     },
                 ),
             )
@@ -2415,12 +2416,10 @@ mod tests {
                         tab_id: "projectless-terminal".to_owned(),
                         panel_id: ProjectSessionPanelId::Bottom,
                         target_leaf_id: None,
-                        browser_tab_id: None,
-                        tab_kind: ProjectSessionTabKind::Terminal,
                         title: "Projectless terminal".to_owned(),
-                        config: json!({
-                            "terminalSessionId": "projectless-terminal-owner"
-                        }),
+                        content: ProjectSessionTabContent::Terminal {
+                            terminal_session_id: "projectless-terminal-owner".to_owned(),
+                        },
                     },
                 ),
             )
@@ -2476,7 +2475,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     read: ProjectWorkspaceRead::Session {
                         session_id: "session-projectless".to_owned(),
                     },
@@ -2491,14 +2490,19 @@ mod tests {
             .iter()
             .find(|tab| tab.id == "projectless-browser")
             .expect("rehomed projectless Browser tab");
-        assert_eq!(browser.config["projectId"], serde_json::Value::Null);
+        assert!(matches!(
+            browser.content,
+            ProjectSessionTabContent::Browser { .. }
+        ));
         let terminal = tabs
             .iter()
             .find(|tab| tab.id == "projectless-terminal")
             .expect("rehomed projectless Terminal tab");
         assert_eq!(
-            terminal.config,
-            json!({ "terminalSessionId": "projectless-terminal-owner" })
+            terminal.content,
+            ProjectSessionTabContent::Terminal {
+                terminal_session_id: "projectless-terminal-owner".to_owned(),
+            }
         );
 
         module
@@ -2511,12 +2515,10 @@ mod tests {
                         tab_id: "session-a-terminal".to_owned(),
                         panel_id: ProjectSessionPanelId::Right,
                         target_leaf_id: None,
-                        browser_tab_id: None,
-                        tab_kind: ProjectSessionTabKind::Terminal,
                         title: "Terminal".to_owned(),
-                        config: json!({
-                            "terminalSessionId": "session-a-terminal-owner"
-                        }),
+                        content: ProjectSessionTabContent::Terminal {
+                            terminal_session_id: "session-a-terminal-owner".to_owned(),
+                        },
                     },
                 ),
             )
@@ -2531,10 +2533,8 @@ mod tests {
                         tab_id: "session-a-review".to_owned(),
                         panel_id: ProjectSessionPanelId::Right,
                         target_leaf_id: None,
-                        browser_tab_id: None,
-                        tab_kind: ProjectSessionTabKind::Review,
                         title: "Review".to_owned(),
-                        config: json!({ "projectId": "project-native" }),
+                        content: ProjectSessionTabContent::Review,
                     },
                 ),
             )
@@ -2675,10 +2675,10 @@ mod tests {
                         tab_id: "tab:projectless-terminal".to_owned(),
                         panel_id: ProjectSessionPanelId::Bottom,
                         target_leaf_id: None,
-                        browser_tab_id: None,
-                        tab_kind: ProjectSessionTabKind::Terminal,
                         title: "Terminal".to_owned(),
-                        config: json!({ "terminalSessionId": "terminal:projectless" }),
+                        content: ProjectSessionTabContent::Terminal {
+                            terminal_session_id: "terminal:projectless".to_owned(),
+                        },
                     },
                 ),
             )
@@ -2693,50 +2693,48 @@ mod tests {
                         tab_id: "tab:projectless-file".to_owned(),
                         panel_id: ProjectSessionPanelId::Right,
                         target_leaf_id: None,
-                        browser_tab_id: None,
-                        tab_kind: ProjectSessionTabKind::Files,
                         title: "notes.md".to_owned(),
-                        config: json!({
-                            "projectId": null,
-                            "hostId": "local",
-                            "workspaceRoot": "/workspace",
-                            "cwd": "/workspace/nodex",
-                            "path": "/workspace/nodex/notes.md"
-                        }),
+                        content: ProjectSessionTabContent::Files {
+                            workspace_root: Some("/workspace".to_owned()),
+                            cwd: Some("/workspace/nodex".to_owned()),
+                            path: Some("/workspace/nodex/notes.md".to_owned()),
+                        },
                     },
                 ),
             )
             .expect("create projectless exact-file tab");
 
-        for (operation_id, tab_id, tab_kind, config) in [
+        for (operation_id, tab_id, content) in [
             (
                 "workspace-reject-projectless-files-tree",
                 "tab:projectless-files-tree",
-                ProjectSessionTabKind::Files,
-                json!({
-                    "projectId": null,
-                    "hostId": "local",
-                    "workspaceRoot": "/workspace",
-                    "cwd": "/workspace/nodex"
-                }),
+                ProjectSessionTabContent::Files {
+                    workspace_root: Some("/workspace".to_owned()),
+                    cwd: Some("/workspace/nodex".to_owned()),
+                    path: None,
+                },
             ),
             (
                 "workspace-reject-projectless-db",
                 "tab:projectless-db",
-                ProjectSessionTabKind::DbView,
-                json!({ "projectId": null, "view": "kanban" }),
+                ProjectSessionTabContent::DbView {
+                    database_view_id: None,
+                    view: ProjectSessionDatabaseView::Kanban,
+                },
             ),
             (
                 "workspace-reject-projectless-page",
                 "tab:projectless-page",
-                ProjectSessionTabKind::PageStage,
-                json!({ "projectId": "project:default", "pageId": "page:default" }),
+                ProjectSessionTabContent::PageStage {
+                    project_id: "project:default".to_owned(),
+                    page_id: "page:default".to_owned(),
+                    title_snapshot: None,
+                },
             ),
             (
                 "workspace-reject-projectless-review",
                 "tab:projectless-review",
-                ProjectSessionTabKind::Review,
-                json!({ "projectId": null }),
+                ProjectSessionTabContent::Review,
             ),
         ] {
             let error = module
@@ -2749,10 +2747,8 @@ mod tests {
                             tab_id: tab_id.to_owned(),
                             panel_id: ProjectSessionPanelId::Right,
                             target_leaf_id: None,
-                            browser_tab_id: None,
-                            tab_kind,
                             title: "Unavailable".to_owned(),
-                            config,
+                            content,
                         },
                     ),
                 )
@@ -2764,7 +2760,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     read: ProjectWorkspaceRead::Session {
                         session_id: "session:projectless-tabs".to_owned(),
                     },
@@ -2781,18 +2777,23 @@ mod tests {
             .find(|tab| tab.id == "tab:projectless-terminal")
             .expect("projectless Terminal tab");
         assert_eq!(
-            terminal.config,
-            json!({ "terminalSessionId": "terminal:projectless" })
+            terminal.content,
+            ProjectSessionTabContent::Terminal {
+                terminal_session_id: "terminal:projectless".to_owned(),
+            }
         );
         let file = tabs
             .iter()
             .find(|tab| tab.id == "tab:projectless-file")
             .expect("projectless file tab");
-        assert_eq!(file.config["projectId"], serde_json::Value::Null);
-        assert_eq!(file.config["hostId"], "local");
-        assert_eq!(file.config["workspaceRoot"], "/workspace");
-        assert_eq!(file.config["cwd"], "/workspace/nodex");
-        assert_eq!(file.config["path"], "/workspace/nodex/notes.md");
+        assert_eq!(
+            file.content,
+            ProjectSessionTabContent::Files {
+                workspace_root: Some("/workspace".to_owned()),
+                cwd: Some("/workspace/nodex".to_owned()),
+                path: Some("/workspace/nodex/notes.md".to_owned()),
+            }
+        );
     }
 
     #[test]
@@ -2871,12 +2872,10 @@ mod tests {
                         tab_id: "terminal-tab".to_owned(),
                         panel_id: ProjectSessionPanelId::Right,
                         target_leaf_id: Some("target-leaf".to_owned()),
-                        browser_tab_id: None,
-                        tab_kind: ProjectSessionTabKind::Terminal,
                         title: "  Terminal  ".to_owned(),
-                        config: json!({
-                            "terminalSessionId": "terminal-session-1"
-                        }),
+                        content: ProjectSessionTabContent::Terminal {
+                            terminal_session_id: "terminal-session-1".to_owned(),
+                        },
                     },
                 ),
             )
@@ -2888,14 +2887,14 @@ mod tests {
                 tab_id: "browser-tab".to_owned(),
                 panel_id: ProjectSessionPanelId::Right,
                 target_leaf_id: Some("target-leaf".to_owned()),
-                browser_tab_id: Some("browser-identity-1".to_owned()),
-                tab_kind: ProjectSessionTabKind::Browser,
                 title: "Browser".to_owned(),
-                config: json!({
-                    "projectId": "project-native",
-                    "url": "https://example.test",
-                    "deviceToolbarVisible": true
-                }),
+                content: ProjectSessionTabContent::Browser {
+                    browser_tab_id: Some("browser-identity-1".to_owned()),
+                    url: Some("https://example.test".to_owned()),
+                    title: None,
+                    favicon_url: None,
+                    device_toolbar_visible: Some(true),
+                },
             },
         );
         let browser = module
@@ -2920,14 +2919,11 @@ mod tests {
                         tab_id: "duplicate-db-tab".to_owned(),
                         panel_id: ProjectSessionPanelId::Bottom,
                         target_leaf_id: None,
-                        browser_tab_id: None,
-                        tab_kind: ProjectSessionTabKind::DbView,
                         title: "Duplicate DB".to_owned(),
-                        config: json!({
-                            "projectId": "project-native",
-                            "databaseViewId": database_view_id,
-                            "view": "kanban"
-                        }),
+                        content: ProjectSessionTabContent::DbView {
+                            database_view_id: Some(database_view_id),
+                            view: ProjectSessionDatabaseView::Kanban,
+                        },
                     },
                 ),
             )
@@ -2968,7 +2964,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     read: ProjectWorkspaceRead::Session {
                         session_id: session_id.clone(),
                     },
@@ -3009,10 +3005,10 @@ mod tests {
                         tab_id: "invalid-tab".to_owned(),
                         panel_id: ProjectSessionPanelId::Right,
                         target_leaf_id: None,
-                        browser_tab_id: None,
-                        tab_kind: ProjectSessionTabKind::Terminal,
                         title: "Invalid".to_owned(),
-                        config: json!({ "projectId": "project:default" }),
+                        content: ProjectSessionTabContent::Terminal {
+                            terminal_session_id: String::new(),
+                        },
                     },
                 ),
             )
@@ -3083,9 +3079,9 @@ mod tests {
                     ProjectSessionIntent::UpdateTab {
                         tab_id: "terminal-tab".to_owned(),
                         title: Some("  Updated shell  ".to_owned()),
-                        config: Some(json!({
-                            "terminalSessionId": "terminal-session-2"
-                        })),
+                        content: Some(ProjectSessionTabContent::Terminal {
+                            terminal_session_id: "terminal-session-2".to_owned(),
+                        }),
                         state_key: Some(4),
                         state: Some(json!({ "cwd": "/workspace/native" })),
                     },
@@ -3122,14 +3118,12 @@ mod tests {
                         tab_id: "cross-project-page".to_owned(),
                         panel_id: ProjectSessionPanelId::Right,
                         target_leaf_id: None,
-                        browser_tab_id: None,
-                        tab_kind: ProjectSessionTabKind::PageStage,
                         title: "Cross-project Page".to_owned(),
-                        config: json!({
-                            "projectId": "project:default",
-                            "pageId": "page:cross-project",
-                            "titleSnapshot": "Initial"
-                        }),
+                        content: ProjectSessionTabContent::PageStage {
+                            project_id: "project:default".to_owned(),
+                            page_id: "page:cross-project".to_owned(),
+                            title_snapshot: Some("Initial".to_owned()),
+                        },
                     },
                 ),
             )
@@ -3143,11 +3137,11 @@ mod tests {
                     ProjectSessionIntent::UpdateTab {
                         tab_id: "cross-project-page".to_owned(),
                         title: None,
-                        config: Some(json!({
-                            "projectId": "project:default",
-                            "pageId": "page:cross-project",
-                            "titleSnapshot": "Updated"
-                        })),
+                        content: Some(ProjectSessionTabContent::PageStage {
+                            project_id: "project:default".to_owned(),
+                            page_id: "page:cross-project".to_owned(),
+                            title_snapshot: Some("Updated".to_owned()),
+                        }),
                         state_key: None,
                         state: None,
                     },
@@ -3188,7 +3182,9 @@ mod tests {
                     ProjectSessionIntent::UpdateTab {
                         tab_id: "terminal-tab".to_owned(),
                         title: None,
-                        config: Some(json!({ "projectId": "project:default" })),
+                        content: Some(ProjectSessionTabContent::Terminal {
+                            terminal_session_id: String::new(),
+                        }),
                         state_key: None,
                         state: None,
                     },
@@ -3201,7 +3197,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     read: ProjectWorkspaceRead::Session {
                         session_id: session_id.clone(),
                     },
@@ -3228,7 +3224,12 @@ mod tests {
             .find(|tab| tab.id == "terminal-tab")
             .expect("updated terminal tab");
         assert_eq!(terminal.title, "Updated shell");
-        assert_eq!(terminal.config["terminalSessionId"], "terminal-session-2");
+        assert_eq!(
+            terminal.content,
+            ProjectSessionTabContent::Terminal {
+                terminal_session_id: "terminal-session-2".to_owned(),
+            }
+        );
         assert_eq!(terminal.state_key, 2);
         assert_eq!(terminal.state, json!({ "cwd": "/workspace/native" }));
         let page = tabs
@@ -3236,8 +3237,14 @@ mod tests {
             .find(|tab| tab.id == "cross-project-page")
             .expect("cross-Project Page tab");
         assert_eq!(page.project_id.as_deref(), Some("project-native"));
-        assert_eq!(page.config["projectId"], "project:default");
-        assert_eq!(page.config["titleSnapshot"], "Updated");
+        assert_eq!(
+            page.content,
+            ProjectSessionTabContent::PageStage {
+                project_id: "project:default".to_owned(),
+                page_id: "page:cross-project".to_owned(),
+                title_snapshot: Some("Updated".to_owned()),
+            }
+        );
         let failed_writes = kernel
             .writer()
             .call(|connection| {

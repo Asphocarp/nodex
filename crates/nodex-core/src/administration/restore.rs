@@ -310,6 +310,25 @@ pub(super) fn rotate_installed_store_epoch(
                     "Installed restore candidate epoch changed during rotation",
                 ));
             }
+            transaction.execute_batch("DROP TRIGGER change_log_is_immutable")?;
+            transaction.execute(
+                "UPDATE change_log SET store_epoch = ?1 WHERE store_epoch != ?1",
+                [installed_epoch],
+            )?;
+            transaction.execute_batch(
+                "CREATE TRIGGER change_log_is_immutable \
+                   BEFORE UPDATE ON change_log \
+                   BEGIN \
+                     SELECT RAISE(ABORT, 'change log entries are immutable'); \
+                   END;",
+            )?;
+            transaction.execute(
+                "UPDATE core_module_receipts \
+                 SET store_epoch = ?1, \
+                     result_json = json_set(result_json, '$.store_epoch', ?1) \
+                 WHERE store_epoch != ?1",
+                [installed_epoch],
+            )?;
             Ok(())
         })?;
     }

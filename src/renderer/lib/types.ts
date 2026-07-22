@@ -50,6 +50,7 @@ export type {
   ProjectSessionPinnedInput,
   ProjectSessionPinnedOrderInput,
   ProjectSessionTab,
+  ProjectSessionTabConfiguration,
   ProjectSessionTabConfig,
   ProjectSessionTabCreateInput,
   ProjectSessionTabDeleteInput,

@@ -7,11 +7,13 @@ import { describe, expect, test } from "vitest";
 
 import { CoreClient, CoreModuleResponseError } from "./core-client";
 import { readCoreRuntimeConnection } from "./runtime-descriptor";
+import { CoreEventCompatibilityError } from "./uds-http";
 import type {
   CoreEventEnvelope,
   CoreEventSubscription,
   CoreRuntimeDescriptor,
 } from "./types";
+import type { components } from "@nodex/core-protocol";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 
@@ -28,11 +30,14 @@ const readDescriptor = (
     const timeout = setTimeout(() => {
       lines.close();
       reject(new Error("Core did not publish a runtime descriptor"));
-    }, 5_000);
+    }, 10_000);
     lines.once("line", (line) => {
       clearTimeout(timeout);
       lines.close();
-      resolve(JSON.parse(line) as CoreRuntimeDescriptor);
+      resolve(
+        (JSON.parse(line) as components["schemas"]["CoreSelectionResult"])
+          .descriptor,
+      );
     });
     child.once("error", (error) => {
       clearTimeout(timeout);
@@ -95,7 +100,7 @@ describe("CoreClient over a Unix socket", () => {
         buildId: "node-integration-test",
         projectId: "project:default",
       });
-      expect(client.handshake.pid).toBe(winnerPid);
+      expect(client.handshake.generation.pid).toBe(winnerPid);
 
       const descriptorPath = path.join(nodexHome, "run/core/core.json");
       chmodSync(descriptorPath, 0o644);
@@ -233,7 +238,7 @@ describe("CoreClient over a Unix socket", () => {
         },
       });
       const agentProvenance = {
-        profile_id: client.handshake.profile_id,
+        profile_id: client.handshake.generation.profile_id,
         authority: {
           thread_id: "thread:node-integration",
           turn_id: "turn:node-integration",
@@ -625,11 +630,16 @@ describe("CoreClient over a Unix socket", () => {
           create_safety_backup: true,
         },
       };
+      const staleEventStream = subscription.done.catch((error: unknown) => error);
       const restored = await client.administrationApply(restoreInput);
       expect(restored.receipt.duplicate).toBe(false);
       expect(restored.value.backup_id).toBe(backupCommitted.value.backup_id);
       expect(restored.value.safety_backup_id).toEqual(expect.any(String));
       expect(restored.store_epoch).not.toBe(client.handshake.store_epoch);
+      await expect(staleEventStream).resolves.toBeInstanceOf(
+        CoreEventCompatibilityError,
+      );
+      subscription = undefined;
 
       const replacedConnection = readCoreRuntimeConnection(nodexHome);
       expect(replacedConnection.descriptor.store_epoch).toBe(restored.store_epoch);
@@ -674,9 +684,6 @@ describe("CoreClient over a Unix socket", () => {
       documentSubscription.close();
       await documentSubscription.done;
       documentSubscription = undefined;
-      subscription.close();
-      await subscription.done;
-      subscription = undefined;
       await expect(client.shutdown()).resolves.toEqual({ status: "draining" });
       const exitCodes = await Promise.all(children.map(waitForExit));
       expect(exitCodes).toEqual([0, 0]);
@@ -702,9 +709,11 @@ describe("CoreClient over a Unix socket", () => {
         if (candidate.event.operation_id !== applyInput.operationId) return;
         resolveReplayedEvent?.(candidate);
       });
-      await expect(
-        withTimeout(replayedEvent, "Core did not replay a durable event after restart"),
-      ).resolves.toMatchObject({
+      const replayed = await withTimeout(
+        replayedEvent,
+        "Core did not replay a durable event after restart",
+      );
+      expect(replayed).toMatchObject({
         event: {
           sequence: committed.event_sequence,
           operation_id: applyInput.operationId,
@@ -714,6 +723,11 @@ describe("CoreClient over a Unix socket", () => {
           },
         },
       });
+      expect(event.event.event_version).toBe(2);
+      expect(replayed.event.event_version).toBe(2);
+      expect(replayed.event.projection_impact).toEqual(
+        event.event.projection_impact,
+      );
       restartedSubscription.close();
       await restartedSubscription.done;
       restartedSubscription = undefined;

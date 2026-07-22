@@ -16,9 +16,9 @@ const envelope = (
   sequence: number,
   impact: ProjectionImpact,
 ): CoreEventEnvelope => ({
-  protocol_version: 2,
+  transport_version: 3,
   event: {
-    version: 2,
+    event_version: 2,
     sequence,
     store_epoch: "epoch-1",
     committed_at: "2026-07-22T00:00:00.000Z",

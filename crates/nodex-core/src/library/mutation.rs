@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 #[cfg(test)]
-use nodex_core_contracts::CORE_CONTRACT_VERSION;
+use nodex_core_contracts::LIBRARY_CONTRACT_VERSION;
 use nodex_core_contracts::library::{
     LibraryAccess, LibraryBlockPropertyMutationReceipt, LibraryBlockTransferDocumentCommit,
     LibraryBlockTransferResult, LibraryCommitValue, LibraryIntent, LibraryPageCopyResult,
@@ -134,7 +134,7 @@ pub(super) fn apply(
                         &context.profile_id,
                         &context.library_id,
                         &context.project_id,
-                        request.version,
+                        request.contract_version,
                         &request.store_epoch,
                         &request.intent,
                     ))
@@ -148,7 +148,7 @@ pub(super) fn apply(
                         &context.profile_id,
                         &context.library_id,
                         &context.project_id,
-                        request.version,
+                        request.contract_version,
                         &request.store_epoch,
                         provenance,
                         grants,
@@ -162,7 +162,7 @@ pub(super) fn apply(
                         &context.library_id,
                         &context.project_id,
                         &context.adapter,
-                        request.version,
+                        request.contract_version,
                         &request.store_epoch,
                         &request.intent,
                     ))
@@ -2554,7 +2554,7 @@ mod tests {
 
     fn create_request(operation_id: &str, title: &str) -> ModuleApplyRequest<LibraryIntent> {
         ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: LIBRARY_CONTRACT_VERSION,
             operation_id: operation_id.to_owned(),
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent: LibraryIntent::CreatePage {
@@ -2568,7 +2568,7 @@ mod tests {
 
     fn create_database_request(operation_id: &str) -> ModuleApplyRequest<LibraryIntent> {
         ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: LIBRARY_CONTRACT_VERSION,
             operation_id: operation_id.to_owned(),
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent: LibraryIntent::CreateDatabase {
@@ -2656,7 +2656,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::Children {
                         parent: LibraryNavigationParent::Library,
                         cursor: None,
@@ -2776,7 +2776,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::Children {
                         parent: LibraryNavigationParent::Database {
                             database_id: "018f0000-0000-7000-8000-000000000001".to_owned(),
@@ -2854,7 +2854,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:create-nested-page".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreatePage {
@@ -2879,7 +2879,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:create-nested-database".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreateDatabase {
@@ -2905,7 +2905,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::Children {
                         parent: LibraryNavigationParent::Page {
                             page_id: "page:created".to_owned(),
@@ -2935,7 +2935,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:stale-nested-page".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreatePage {
@@ -3023,7 +3023,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:archive-nested-page".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::ArchiveResource {
@@ -3043,7 +3043,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:edit-parent-after-archive".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreateDatabase {
@@ -3078,7 +3078,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:restore-nested-page".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::RestoreResource {
@@ -3115,7 +3115,7 @@ mod tests {
                 .apply(
                     &context(),
                     ModuleApplyRequest {
-                        version: CORE_CONTRACT_VERSION,
+                        contract_version: LIBRARY_CONTRACT_VERSION,
                         operation_id: operation_id.to_owned(),
                         store_epoch: StoreEpoch("epoch-1".to_owned()),
                         intent,
@@ -3127,7 +3127,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:grant-page".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::GrantProjectAccess {
@@ -3144,7 +3144,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:grant-page-again".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::GrantProjectAccess {
@@ -3175,7 +3175,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:grant-primary".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::GrantProjectAccess {
@@ -3193,7 +3193,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:archive-primary".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::ArchiveResource {
@@ -3214,7 +3214,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:move-page-to-library".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::MoveBlock {
@@ -3240,7 +3240,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:move-page-back".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::MoveBlock {
@@ -3262,7 +3262,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:reorder-page".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::MoveBlock {
@@ -3287,7 +3287,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:create-other-page".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreatePage {
@@ -3303,7 +3303,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:move-database-across-pages".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::MoveBlock {
@@ -3333,7 +3333,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:reject-page-cycle".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::MoveBlock {
@@ -3419,7 +3419,7 @@ mod tests {
     fn semantic_page_creation_owns_identity_content_etags_and_replay() {
         let (_directory, _kernel, module) = seeded_library();
         let request = |body: &str| ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: LIBRARY_CONTRACT_VERSION,
             operation_id: "native-cli:create-page".to_owned(),
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent: LibraryIntent::CreatePageFromNfm {
@@ -3467,7 +3467,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageFile {
                         page_id: created.page_id.clone(),
                         file_kind: LibraryPageFileKind::BodyNestedMarkdown,
@@ -3484,7 +3484,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageFile {
                         page_id: created.page_id.clone(),
                         file_kind: LibraryPageFileKind::MetaYaml,
@@ -3504,7 +3504,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageDraftProjection {
                         page_id: created.page_id.clone(),
                     },
@@ -3552,7 +3552,7 @@ mod tests {
             .apply(
                 &storage_context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "native-cli:grant-database-for-page".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::GrantProjectAccess {
@@ -3566,7 +3566,7 @@ mod tests {
             )
             .expect("grant Data Source destination");
         let request = |body: &str| ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: LIBRARY_CONTRACT_VERSION,
             operation_id: "native-cli:create-data-source-page".to_owned(),
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent: LibraryIntent::CreatePageFromNfm {
@@ -3690,7 +3690,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "native-cli:create-search-page".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreatePageFromNfm {
@@ -3709,7 +3709,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::AcquireSearchSnapshot {
                         scope: LibrarySearchSnapshotScope::Page {
                             page_id: created.page_id.clone(),
@@ -3787,7 +3787,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::AcquireSearchSnapshot {
                         scope: LibrarySearchSnapshotScope::Page {
                             page_id: created.page_id.clone(),
@@ -3805,7 +3805,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::AcquireSearchSnapshot {
                         scope: LibrarySearchSnapshotScope::Page {
                             page_id: created.page_id.clone(),
@@ -3858,7 +3858,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageFile {
                         page_id: created.page_id.clone(),
                         file_kind: LibraryPageFileKind::MetaYaml,
@@ -3877,7 +3877,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "native-cli:rename-search-page".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: OwnedDocumentIntent::ApplySemanticMutation {
@@ -3899,7 +3899,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::AcquireSearchSnapshot {
                         scope: LibrarySearchSnapshotScope::Page {
                             page_id: created.page_id.clone(),
@@ -3953,7 +3953,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "native-cli:grant-search-database".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::GrantProjectAccess {
@@ -3970,7 +3970,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "native-cli:move-search-page".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::MovePage {
@@ -3987,7 +3987,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::AcquireSearchSnapshot {
                         scope: LibrarySearchSnapshotScope::Database {
                             database_id: "018f0000-0000-7000-8000-000000000001".to_owned(),
@@ -4023,7 +4023,7 @@ mod tests {
                 .read(
                     &context(),
                     ModuleReadRequest {
-                        version: CORE_CONTRACT_VERSION,
+                        contract_version: LIBRARY_CONTRACT_VERSION,
                         read: LibraryRead::ReleaseSearchSnapshot {
                             lease_id: lease_id.to_owned(),
                         },
@@ -4057,7 +4057,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::AcquireSearchSnapshot {
                         scope: LibrarySearchSnapshotScope::Database {
                             database_id: "018f0000-0000-7000-8000-000000000001".to_owned(),
@@ -4097,7 +4097,7 @@ mod tests {
         let mut retry_context = context();
         retry_context.connection_id = "connection:native-cli-retry".to_owned();
         let create = |operation_id: &str, title: &str| ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: LIBRARY_CONTRACT_VERSION,
             operation_id: operation_id.to_owned(),
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent: LibraryIntent::CreatePageFromNfm {
@@ -4130,7 +4130,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "native-cli:grant-destination-database".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::GrantProjectAccess {
@@ -4144,7 +4144,7 @@ mod tests {
             )
             .expect("grant destination Database write access");
         let duplicate_request = ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: LIBRARY_CONTRACT_VERSION,
             operation_id: "native-cli:duplicate-page".to_owned(),
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent: LibraryIntent::DuplicatePage {
@@ -4182,7 +4182,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageFile {
                         page_id: copied.page_id.clone(),
                         file_kind: LibraryPageFileKind::MetaYaml,
@@ -4197,7 +4197,7 @@ mod tests {
         let stale_delete_etag = before_move.validators.page_etag.expect("Page ETag");
 
         let move_request = ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: LIBRARY_CONTRACT_VERSION,
             operation_id: "native-cli:move-page".to_owned(),
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent: LibraryIntent::MovePage {
@@ -4232,7 +4232,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "native-cli:move-page-to-data-source".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::MovePage {
@@ -4263,7 +4263,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "native-cli:delete-stale-page".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::DeletePage {
@@ -4279,7 +4279,7 @@ mod tests {
         );
 
         let delete_request = ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: LIBRARY_CONTRACT_VERSION,
             operation_id: "native-cli:delete-page".to_owned(),
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent: LibraryIntent::DeletePage {

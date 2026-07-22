@@ -1322,7 +1322,7 @@ fn context(
     let background_registration = crate::service::status(home);
     let value = serde_json::to_value(ContextOutput {
         profile: ContextProfile {
-            id: client.handshake.profile_id.clone(),
+            id: client.handshake.generation.profile_id.clone(),
             library_id: client.handshake.library_id.clone(),
         },
         project: resolved.project,
@@ -1331,9 +1331,9 @@ fn context(
         primary_database_id,
         scope,
         core: ContextCore {
-            pid: client.handshake.pid,
-            build_id: client.handshake.build_id.clone(),
-            protocol_version: client.handshake.protocol_version,
+            pid: client.handshake.generation.pid,
+            build_id: client.handshake.artifact.build_id.clone(),
+            transport_version: client.handshake.selected_transport_version,
             schema_version: client.handshake.schema_version,
             store_epoch: client.handshake.store_epoch.clone(),
             readiness: format!("{:?}", health.status).to_ascii_lowercase(),
@@ -1362,7 +1362,7 @@ fn backup_create(
     label: Option<String>,
 ) -> Result<CommandOutput, CliError> {
     let committed = unwrap_administration_apply(client.administration_apply(ModuleApplyRequest {
-        version: StoreAdministrationContract::VERSION,
+        contract_version: StoreAdministrationContract::VERSION,
         operation_id,
         store_epoch: StoreEpoch(client.handshake.store_epoch.clone()),
         intent: StoreAdministrationIntent::CreateBackup {
@@ -1386,7 +1386,7 @@ fn doctor(
         let operation_id = operation_id(idempotency_key, json_output)?;
         Some(unwrap_administration_apply(client.administration_apply(
             ModuleApplyRequest {
-                version: StoreAdministrationContract::VERSION,
+                contract_version: StoreAdministrationContract::VERSION,
                 operation_id,
                 store_epoch: StoreEpoch(client.handshake.store_epoch.clone()),
                 intent: StoreAdministrationIntent::RunMaintenance {
@@ -1560,7 +1560,7 @@ fn validate_profile_selector(selector: Option<&str>, client: &CoreClient) -> Res
     let Some(selector) = selector else {
         return Ok(());
     };
-    if selector == client.handshake.profile_id {
+    if selector == client.handshake.generation.profile_id {
         return Ok(());
     }
     Err(CliError::new(
@@ -1729,7 +1729,7 @@ struct ContextScope {
 struct ContextCore {
     pid: u32,
     build_id: String,
-    protocol_version: u32,
+    transport_version: u32,
     schema_version: u32,
     store_epoch: String,
     readiness: String,

@@ -303,7 +303,7 @@ import type {
   ProjectSessionPanelState,
   ProjectSessionSummary,
   ProjectSessionTab,
-  ProjectSessionTabConfig,
+  ProjectSessionTabConfiguration,
   ProjectSessionTabCreateInput,
   ProjectSessionThreadLink,
   ProjectSessionPanelSplitSide,
@@ -753,7 +753,7 @@ interface PageStageHistoryModalContext {
   pageNfm?: string;
 }
 
-type ProjectSessionTabDraft = Pick<ProjectSessionTabCreateInput, "kind" | "title" | "config">;
+type ProjectSessionTabDraft = ProjectSessionTabConfiguration & { title: string };
 
 const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
   {
@@ -2069,22 +2069,86 @@ function makePreviewProjectSessionTab(
     throw new Error("Projectless sessions cannot own project-scoped tabs");
   }
   const now = new Date().toISOString();
-  return {
+  const base = {
     id: `preview:${session.id}:${panelId}:${draft.kind}`,
     sessionId: session.id,
     projectId,
-    browserTabId: draft.kind === "browser" ? makeClientProjectSessionTabId() : null,
     panelId,
-    kind: draft.kind,
     title: draft.title,
     order: session.tabs.filter((tab) => tab.panelId === panelId).length,
-    config: draft.config,
     stateKey: 0,
     state: {},
     preview: true,
     createdAt: now,
     updatedAt: now,
-  };
+  } as const;
+  switch (draft.kind) {
+    case "browser":
+      return {
+        ...base,
+        kind: draft.kind,
+        config: draft.config,
+        browserTabId: makeClientProjectSessionTabId(),
+      };
+    case "db_view":
+      return { ...base, kind: draft.kind, config: draft.config, browserTabId: null };
+    case "page_stage":
+      return { ...base, kind: draft.kind, config: draft.config, browserTabId: null };
+    case "terminal":
+      return { ...base, kind: draft.kind, config: draft.config, browserTabId: null };
+    case "review":
+      return { ...base, kind: draft.kind, config: draft.config, browserTabId: null };
+    case "files":
+      return { ...base, kind: draft.kind, config: draft.config, browserTabId: null };
+  }
+}
+
+function makePinnedPreviewTabCreateInput(
+  session: ProjectSession,
+  panelId: PanelId,
+  targetLeafId: string,
+  previewTab: ProjectSessionPreviewTab,
+): ProjectSessionTabCreateInput {
+  const base = {
+    sessionId: session.id,
+    panelId,
+    targetLeafId,
+    title: previewTab.title,
+  } as const;
+
+  switch (previewTab.kind) {
+    case "db_view":
+      return { ...base, kind: previewTab.kind, config: previewTab.config };
+    case "terminal":
+      return { ...base, kind: previewTab.kind, config: previewTab.config };
+    case "review":
+      return { ...base, kind: previewTab.kind, config: previewTab.config };
+    case "page_stage":
+      return {
+        ...base,
+        kind: previewTab.kind,
+        config: previewTab.config,
+        clientTabId: previewTab.id,
+      };
+    case "browser":
+      return {
+        ...base,
+        kind: previewTab.kind,
+        config: previewTab.config,
+        browserTabId: requireProjectSessionBrowserTabId(previewTab),
+      };
+    case "files":
+      return {
+        ...base,
+        kind: previewTab.kind,
+        config: isProjectSessionFilesPreviewTab(previewTab)
+          ? {
+              ...previewTab.config,
+              projectId: session.projectId ?? previewTab.config.projectId,
+            }
+          : previewTab.config,
+      };
+  }
 }
 
 function makePreviewWorkspaceFileTab(
@@ -5314,24 +5378,12 @@ export function WorkbenchShell({
         panelId,
         leafId: targetLeafId,
       });
-      const previewTabConfig: ProjectSessionTabConfig = isProjectSessionFilesPreviewTab(previewTab)
-        ? {
-            ...previewTab.config,
-            projectId: projectId ?? previewTab.config.projectId,
-          }
-        : previewTab.config;
-      const createInput: ProjectSessionTabCreateInput = {
-        sessionId: activeSession.id,
+      const createInput = makePinnedPreviewTabCreateInput(
+        activeSession,
         panelId,
         targetLeafId,
-        ...(previewTab.kind === "browser"
-          ? { browserTabId: requireProjectSessionBrowserTabId(previewTab) }
-          : {}),
-        ...(previewTab.kind === "page_stage" ? { clientTabId: previewTab.id } : {}),
-        kind: previewTab.kind,
-        title: previewTab.title,
-        config: previewTabConfig,
-      };
+        previewTab,
+      );
       await invoke("project-session-tabs:create", createInput);
       if (previewTab.kind === "page_stage") {
         await refreshProjectSessions(projectId);

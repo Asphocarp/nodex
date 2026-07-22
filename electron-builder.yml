@@ -62,6 +62,7 @@ protocols:
 # --- macOS ---
 mac:
   icon: icon.icon
+  sign: scripts/sign-macos-runtime.mjs
   minimumSystemVersion: 12.0.0
   target:
   - dmg

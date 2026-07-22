@@ -14,6 +14,13 @@ import type { DesktopDocumentSyncPort } from "./desktop-document-sync-bridge";
 import { createDesktopNodexAgentV3DynamicService } from "./desktop-nodex-agent-dynamic-service";
 import { NativeNodexAgentPageUpdateRuntime } from "./native-nodex-agent-page-update";
 import type { DesktopProjectWorkspacePort } from "./project-workspace-adapter";
+import { createFakeCoreHandshake } from "./testing/fake-core-client";
+
+const nativeAgentHandshake = () => createFakeCoreHandshake({
+  profileId: "profile-native-agent",
+  libraryId: "library-native-agent",
+  storeEpoch: "store-native-agent",
+});
 
 const documentSync = {
   coordinateNodexAgentLeasedMutation: async (options: {
@@ -283,11 +290,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
     const runtime = {
       backend: "rust" as const,
       rootClient: {
-        handshake: {
-          profile_id: "profile-native-agent",
-          library_id: "library-native-agent",
-          store_epoch: "store-native-agent",
-        },
+        handshake: nativeAgentHandshake(),
       },
       clientForProject: () => ({ libraryRead, libraryApply }),
     } as unknown as Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>;
@@ -478,11 +481,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
     const runtime = {
       backend: "rust" as const,
       rootClient: {
-        handshake: {
-          profile_id: "profile-native-agent",
-          library_id: "library-native-agent",
-          store_epoch: "store-native-agent",
-        },
+        handshake: nativeAgentHandshake(),
       },
       clientForProject: () => ({ libraryRead, libraryApply }),
     } as unknown as Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>;
@@ -681,11 +680,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
     const runtime = {
       backend: "rust" as const,
       rootClient: {
-        handshake: {
-          profile_id: "profile-native-agent",
-          library_id: "library-native-agent",
-          store_epoch: "store-native-agent",
-        },
+        handshake: nativeAgentHandshake(),
       },
       clientForProject: () => ({ libraryRead, libraryApply }),
     } as unknown as Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>;
@@ -763,7 +758,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
     const runtime = {
       backend: "rust" as const,
       rootClient: {
-        handshake: { profile_id: "profile-native-agent" },
+        handshake: nativeAgentHandshake(),
       },
       clientForProject: () => ({ libraryRead }),
     } as unknown as Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>;
@@ -925,7 +920,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
     const runtime = {
       backend: "rust" as const,
       rootClient: {
-        handshake: { profile_id: "profile-native-agent" },
+        handshake: nativeAgentHandshake(),
       },
       clientForProject: () => ({ libraryRead, documentRead }),
     } as unknown as Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>;
@@ -1024,7 +1019,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
     const runtime = {
       backend: "rust" as const,
       rootClient: {
-        handshake: { profile_id: "profile-native-agent" },
+        handshake: nativeAgentHandshake(),
       },
       clientForProject: () => ({ databaseRead }),
     } as unknown as Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>;
@@ -1177,11 +1172,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
     const runtime = {
       backend: "rust" as const,
       rootClient: {
-        handshake: {
-          profile_id: "profile-native-agent",
-          library_id: "library-native-agent",
-          store_epoch: "store-native-agent",
-        },
+        handshake: nativeAgentHandshake(),
         libraryRead,
       },
       clientForProject: () => ({ documentRead, documentApply }),
@@ -1265,7 +1256,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
     const runtime = {
       backend: "rust" as const,
       rootClient: {
-        handshake: { profile_id: "profile-native-agent" },
+        handshake: nativeAgentHandshake(),
         libraryRead: vi.fn(async () => ({
           value: {
             kind: "page_content" as const,
@@ -1391,7 +1382,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
     const runtime = {
       backend: "rust" as const,
       rootClient: {
-        handshake: { profile_id: "profile-native-agent" },
+        handshake: nativeAgentHandshake(),
         libraryRead: vi.fn(async () => ({
           value: {
             kind: "page_content" as const,

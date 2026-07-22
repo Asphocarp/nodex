@@ -8,9 +8,13 @@ import type {
   ProjectSession,
   ProjectSessionThreadLink,
   ProjectSessionTab,
+  ProjectSessionTabConfiguration,
+  ProjectSessionTabCreateInput,
+  ProjectSessionTabUpdateInput,
 } from "@/lib/types";
 import type { WorkbenchView } from "@/lib/use-workbench-state";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import { parseProjectSessionTabConfig } from "../../../shared/schemas/project-sessions";
 import type {
   LibraryModuleReadRequest,
   LibraryReadValue,
@@ -218,10 +222,29 @@ function buildStoryCardDetail(projectId: string, pageId: string): DatabasePage |
   };
 }
 
-function makeTab(
-  overrides: Partial<ProjectSessionTab> & Pick<ProjectSessionTab, "id" | "kind" | "title" | "config">,
-): ProjectSessionTab {
-  return {
+type SessionTabFixtureCommon = Pick<ProjectSessionTab, "id" | "title"> &
+  Partial<Pick<
+    ProjectSessionTab,
+    | "sessionId"
+    | "projectId"
+    | "panelId"
+    | "order"
+    | "stateKey"
+    | "state"
+    | "createdAt"
+    | "updatedAt"
+  >>;
+
+type SessionTabFixture<
+  Configuration extends ProjectSessionTabConfiguration = ProjectSessionTabConfiguration,
+> = Configuration extends { kind: "browser" }
+  ? Configuration & SessionTabFixtureCommon & { browserTabId?: string }
+  : Configuration & SessionTabFixtureCommon & { browserTabId?: never };
+
+type SessionTabInput = SessionTabFixture | ProjectSessionTab;
+
+function makeTab(overrides: SessionTabInput): ProjectSessionTab {
+  const base = {
     sessionId: "session:overview",
     projectId: "nodex",
     panelId: overrides.kind === "terminal" ? "bottom" : "right",
@@ -230,10 +253,52 @@ function makeTab(
     state: {},
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
-    ...overrides,
-    browserTabId: overrides.browserTabId
-      ?? (overrides.kind === "browser" ? `browser:${overrides.id}` : null),
+  } satisfies Pick<
+    ProjectSessionTab,
+    | "sessionId"
+    | "projectId"
+    | "panelId"
+    | "order"
+    | "stateKey"
+    | "state"
+    | "createdAt"
+    | "updatedAt"
+  >;
+  if (overrides.kind === "browser") {
+    return {
+      ...base,
+      ...overrides,
+      browserTabId: overrides.browserTabId ?? `browser:${overrides.id}`,
+    };
+  }
+  return { ...base, ...overrides, browserTabId: null };
+}
+
+function updateTab(
+  tab: ProjectSessionTab,
+  input: ProjectSessionTabUpdateInput,
+  updatedAt: string,
+): ProjectSessionTab {
+  const common = {
+    ...(input.title !== undefined ? { title: input.title } : {}),
+    ...(input.stateKey !== undefined ? { stateKey: input.stateKey } : {}),
+    ...(Object.prototype.hasOwnProperty.call(input, "state") ? { state: input.state } : {}),
+    updatedAt,
   };
+  switch (tab.kind) {
+    case "db_view":
+      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseProjectSessionTabConfig(tab.kind, input.config) }) };
+    case "page_stage":
+      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseProjectSessionTabConfig(tab.kind, input.config) }) };
+    case "terminal":
+      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseProjectSessionTabConfig(tab.kind, input.config) }) };
+    case "browser":
+      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseProjectSessionTabConfig(tab.kind, input.config) }) };
+    case "review":
+      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseProjectSessionTabConfig(tab.kind, input.config) }) };
+    case "files":
+      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseProjectSessionTabConfig(tab.kind, input.config) }) };
+  }
 }
 
 function makePanelLayout(tabIds: string[], activeTabId: string | null) {
@@ -1132,29 +1197,21 @@ function installStoryApi(
         }
         if (channel === "project-session-tabs:update") {
           const tabId = String(args[0]);
-          const input = (args[1] ?? {}) as Partial<ProjectSessionTab>;
+          const input = (args[1] ?? {}) as ProjectSessionTabUpdateInput;
           const session = Object.values(sessionsByProject)
             .flat()
             .find((item) => item.tabs.some((tab) => tab.id === tabId));
           if (!session) return null;
 
           const tabs = session.tabs.map((tab) =>
-            tab.id === tabId
-              ? { ...tab, ...input, updatedAt: new Date().toISOString() }
-              : tab,
+            tab.id === tabId ? updateTab(tab, input, new Date().toISOString()) : tab,
           );
           const next = { ...session, tabs };
           setSessionsByProject((current) => replaceSession(current, next));
           return tabs.find((tab) => tab.id === tabId) ?? null;
         }
         if (channel === "project-session-tabs:create") {
-          const input = args[0] as {
-            sessionId: string;
-            panelId?: ProjectSessionTab["panelId"];
-            kind: ProjectSessionTab["kind"];
-            title: string;
-            config: ProjectSessionTab["config"];
-          };
+          const input = args[0] as ProjectSessionTabCreateInput;
           const session = Object.values(sessionsByProject)
             .flat()
             .find((item) => item.id === input.sessionId);
@@ -1169,14 +1226,11 @@ function installStoryApi(
           }
           const panelId = input.panelId ?? (input.kind === "terminal" ? "bottom" : "right");
           const tab = makeTab({
+            ...input,
             id: `tab:${input.kind}:${session.tabs.length + 1}`,
-            sessionId: input.sessionId,
             projectId: session.projectId,
-            kind: input.kind,
-            title: input.title,
             order: session.tabs.filter((item) => item.panelId === panelId).length,
             panelId,
-            config: input.config,
           });
           const tabs = [...session.tabs, tab];
           const next = withPanelLayouts({

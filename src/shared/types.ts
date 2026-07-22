@@ -602,13 +602,24 @@ export interface ProjectSessionBrowserTabConfig {
   deviceToolbarVisible?: boolean;
 }
 
+export interface ProjectSessionTabConfigByKind {
+  db_view: ProjectSessionDbViewTabConfig;
+  page_stage: ProjectSessionPageStageTabConfig;
+  terminal: ProjectSessionTerminalTabConfig;
+  browser: ProjectSessionBrowserTabConfig;
+  review: ProjectSessionProjectScopedTabConfig;
+  files: ProjectSessionFilesTabConfig;
+}
+
 export type ProjectSessionTabConfig =
-  | ProjectSessionDbViewTabConfig
-  | ProjectSessionPageStageTabConfig
-  | ProjectSessionTerminalTabConfig
-  | ProjectSessionBrowserTabConfig
-  | ProjectSessionFilesTabConfig
-  | ProjectSessionProjectScopedTabConfig;
+  ProjectSessionTabConfigByKind[ProjectSessionTabKind];
+
+export type ProjectSessionTabConfiguration = {
+  [Kind in ProjectSessionTabKind]: {
+    kind: Kind;
+    config: ProjectSessionTabConfigByKind[Kind];
+  };
+}[ProjectSessionTabKind];
 
 export type WorkspaceFileHostId = "local";
 
@@ -714,27 +725,30 @@ export interface ProjectSessionPanelState {
   size: ProjectSessionPanelSize;
 }
 
-export interface ProjectSessionTab {
+interface ProjectSessionTabBase {
   id: string;
   sessionId: string;
   projectId: string | null;
-  browserTabId: string | null;
   panelId: PanelId;
-  kind: ProjectSessionTabKind;
   title: string;
   order: number;
-  config: ProjectSessionTabConfig;
   stateKey: number;
   state: unknown;
   createdAt: string;
   updatedAt: string;
 }
 
-export type ProjectSessionBrowserTab = ProjectSessionTab & {
-  browserTabId: string;
-  kind: "browser";
-  config: ProjectSessionBrowserTabConfig;
-};
+type PersistedProjectSessionTabVariant<
+  Configuration extends ProjectSessionTabConfiguration = ProjectSessionTabConfiguration,
+> = Configuration extends { kind: "browser" }
+  ? Configuration & { browserTabId: string }
+  : Configuration & { browserTabId: null };
+
+export type ProjectSessionTabVariant = PersistedProjectSessionTabVariant;
+
+export type ProjectSessionTab = ProjectSessionTabBase & ProjectSessionTabVariant;
+
+export type ProjectSessionBrowserTab = Extract<ProjectSessionTab, { kind: "browser" }>;
 
 export interface ProjectSessionThreadLink {
   sessionId: string;
@@ -835,16 +849,22 @@ export type ProjectSessionForkResult =
   | ProjectSessionReadyForkResult
   | ProjectSessionPendingForkResult;
 
-export interface ProjectSessionTabCreateInput {
+interface ProjectSessionTabCreateBase {
   sessionId: string;
   panelId: PanelId;
   targetLeafId?: string;
   clientTabId?: string;
-  browserTabId?: string;
-  kind: ProjectSessionTabKind;
   title: string;
-  config: ProjectSessionTabConfig;
 }
+
+type ProjectSessionTabCreateVariant<
+  Configuration extends ProjectSessionTabConfiguration = ProjectSessionTabConfiguration,
+> = Configuration extends { kind: "browser" }
+  ? Configuration & { browserTabId?: string }
+  : Configuration & { browserTabId?: never };
+
+export type ProjectSessionTabCreateInput = ProjectSessionTabCreateBase &
+  ProjectSessionTabCreateVariant;
 
 export interface ProjectSessionTabUpdateInput {
   title?: string;

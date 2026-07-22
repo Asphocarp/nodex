@@ -632,14 +632,14 @@ export interface components {
         readonly CodexThreadStatusType: "notLoaded" | "idle" | "systemError" | "active";
         readonly CommittedCoreModuleEvent: {
             readonly committed_at: string;
+            /** Format: int32 */
+            readonly event_version: number;
             readonly operation_id?: string | null;
             readonly payload: components["schemas"]["CoreModuleEventPayload"];
             readonly projection_impact: components["schemas"]["ProjectionImpact"];
             /** Format: int64 */
             readonly sequence: number;
             readonly store_epoch: components["schemas"]["StoreEpoch"];
-            /** Format: int32 */
-            readonly version: number;
         };
         readonly CommittedModuleValue_LibraryCommitValue_LibraryReceipt: {
             /** Format: int64 */
@@ -704,6 +704,32 @@ export interface components {
                     readonly [key: string]: string;
                 } | null;
             };
+        };
+        /** @enum {string} */
+        readonly CompatibilityAxis: "manifest" | "transport" | "event" | "module" | "store";
+        readonly CompatibilityMismatch: {
+            readonly axis: components["schemas"]["CompatibilityAxis"];
+            readonly offered: string;
+            readonly required: string;
+        };
+        readonly CoreArtifactIdentity: {
+            readonly build_id: string;
+            readonly sha256: string;
+        };
+        readonly CoreClientRequirements: {
+            readonly accepted_store_formats: readonly components["schemas"]["StoreFormatIdentity"][];
+            /** Format: int32 */
+            readonly event_version: number;
+            readonly modules: readonly components["schemas"]["ModuleContractVersion"][];
+            readonly transport: components["schemas"]["VersionRange"];
+        };
+        readonly CoreCompatibilityManifest: {
+            readonly event_versions: components["schemas"]["VersionRange"];
+            /** Format: int32 */
+            readonly manifest_version: number;
+            readonly modules: readonly components["schemas"]["ModuleContractSupport"][];
+            readonly store: components["schemas"]["StoreFormatSupport"];
+            readonly transport: components["schemas"]["VersionRange"];
         };
         readonly CoreError: {
             readonly code: components["schemas"]["CoreErrorCode"];
@@ -811,6 +837,27 @@ export interface components {
         };
         /** @enum {string} */
         readonly CoreReadiness: "starting" | "ready" | "maintenance" | "draining" | "failed";
+        readonly CoreReplacementRequest: {
+            readonly candidate_artifact: components["schemas"]["CoreArtifactIdentity"];
+            readonly candidate_manifest: components["schemas"]["CoreCompatibilityManifest"];
+            readonly candidate_manifest_digest: string;
+            readonly expected: components["schemas"]["RuntimeGenerationIdentity"];
+            readonly launcher: components["schemas"]["LauncherKind"];
+            readonly policy: components["schemas"]["CoreSelectionPolicy"];
+        };
+        /** @enum {string} */
+        readonly CoreSelectionDisposition: "started" | "reused";
+        /** @enum {string} */
+        readonly CoreSelectionPolicy: "compatible" | "prefer_current_artifact";
+        /** @enum {string} */
+        readonly CoreSelectionReason: "started_no_incumbent" | "reused_compatible" | "replaced_contract" | "replaced_artifact";
+        readonly CoreSelectionResult: {
+            readonly descriptor: components["schemas"]["RuntimeDescriptor"];
+            readonly disposition: components["schemas"]["CoreSelectionDisposition"];
+            readonly reason: components["schemas"]["CoreSelectionReason"];
+            /** Format: int32 */
+            readonly selection_version: number;
+        };
         readonly DatabaseAgentQuery: {
             readonly authorization: components["schemas"]["AgentExecutionAuthorization"];
             readonly cursor?: string | null;
@@ -1133,7 +1180,7 @@ export interface components {
         readonly EventEnvelope: {
             readonly event: components["schemas"]["CommittedCoreModuleEvent"];
             /** Format: int32 */
-            readonly protocol_version: number;
+            readonly transport_version: number;
         };
         readonly EventReplayRequired: {
             /** Format: int64 */
@@ -1146,27 +1193,25 @@ export interface components {
         readonly HandshakeRequest: {
             readonly client: components["schemas"]["ClientIdentity"];
             readonly connection_id: string;
-            readonly expected_profile_id?: string | null;
-            readonly expected_start_nonce?: string | null;
-            /** Format: int32 */
-            readonly protocol_max: number;
-            /** Format: int32 */
-            readonly protocol_min: number;
+            readonly expected_generation: components["schemas"]["RuntimeGenerationIdentity"];
+            readonly requirements: components["schemas"]["CoreClientRequirements"];
         };
         readonly HandshakeResponse: {
-            readonly build_id: string;
+            readonly actual_store_format: components["schemas"]["StoreFormatIdentity"];
+            readonly artifact: components["schemas"]["CoreArtifactIdentity"];
             readonly connection_binding: string;
             /** Format: int64 */
             readonly event_head: number;
+            readonly generation: components["schemas"]["RuntimeGenerationIdentity"];
             readonly library_id: string;
-            /** Format: int32 */
-            readonly pid: number;
-            readonly profile_id: string;
-            /** Format: int32 */
-            readonly protocol_version: number;
+            readonly manifest_digest: string;
             /** Format: int32 */
             readonly schema_version: number;
-            readonly start_nonce: string;
+            /** Format: int32 */
+            readonly selected_event_version: number;
+            readonly selected_module_versions: readonly components["schemas"]["ModuleContractVersion"][];
+            /** Format: int32 */
+            readonly selected_transport_version: number;
             readonly store_epoch: string;
         };
         readonly HealthDurationMetric: {
@@ -1186,6 +1231,8 @@ export interface components {
             readonly start_nonce: string;
             readonly status: components["schemas"]["CoreReadiness"];
         };
+        /** @enum {string} */
+        readonly LauncherKind: "electron_host" | "native_cli" | "test";
         /** @enum {string} */
         readonly LibraryAccess: "read" | "read_write";
         readonly LibraryAgentBlockTarget: {
@@ -2476,6 +2523,8 @@ export interface components {
         /** @enum {string} */
         readonly MaintenanceTask: "integrity_check" | "foreign_key_check" | "document_revision_finalize" | "document_compaction" | "history_retention" | "block_retention";
         readonly ModuleApplyRequest_AutomationIntent: {
+            /** Format: int32 */
+            readonly contract_version: number;
             readonly intent: {
                 readonly automation_id: string;
                 readonly definition: components["schemas"]["AutomationDefinitionInput"];
@@ -2655,10 +2704,10 @@ export interface components {
             };
             readonly operation_id: string;
             readonly store_epoch: components["schemas"]["StoreEpoch"];
-            /** Format: int32 */
-            readonly version: number;
         };
         readonly ModuleApplyRequest_LibraryIntent: {
+            /** Format: int32 */
+            readonly contract_version: number;
             readonly intent: {
                 readonly document_id: string;
                 /** @enum {string} */
@@ -2771,10 +2820,10 @@ export interface components {
             };
             readonly operation_id: string;
             readonly store_epoch: components["schemas"]["StoreEpoch"];
-            /** Format: int32 */
-            readonly version: number;
         };
         readonly ModuleApplyRequest_OwnedDocumentIntent: {
+            /** Format: int32 */
+            readonly contract_version: number;
             readonly intent: {
                 /** @enum {string} */
                 readonly kind: "prepare_owner";
@@ -2869,10 +2918,10 @@ export interface components {
             };
             readonly operation_id: string;
             readonly store_epoch: components["schemas"]["StoreEpoch"];
-            /** Format: int32 */
-            readonly version: number;
         };
         readonly ModuleApplyRequest_ProjectWorkspaceIntent: {
+            /** Format: int32 */
+            readonly contract_version: number;
             readonly intent: {
                 readonly description: string;
                 readonly icon?: string | null;
@@ -3033,10 +3082,10 @@ export interface components {
             };
             readonly operation_id: string;
             readonly store_epoch: components["schemas"]["StoreEpoch"];
-            /** Format: int32 */
-            readonly version: number;
         };
         readonly ModuleApplyRequest_StoreAdministrationIntent: {
+            /** Format: int32 */
+            readonly contract_version: number;
             readonly intent: {
                 readonly include_assets: boolean;
                 /** @enum {string} */
@@ -3066,10 +3115,10 @@ export interface components {
             };
             readonly operation_id: string;
             readonly store_epoch: components["schemas"]["StoreEpoch"];
-            /** Format: int32 */
-            readonly version: number;
         };
         readonly ModuleApplyRequest_Vec_DatabaseIntent: {
+            /** Format: int32 */
+            readonly contract_version: number;
             readonly intent: readonly ({
                 readonly before_property_id?: string | null;
                 readonly data_source_id: string;
@@ -3178,14 +3227,25 @@ export interface components {
             })[];
             readonly operation_id: string;
             readonly store_epoch: components["schemas"]["StoreEpoch"];
+        };
+        readonly ModuleContractSupport: {
+            readonly module: components["schemas"]["ModuleName"];
+            readonly versions: components["schemas"]["VersionRange"];
+        };
+        readonly ModuleContractVersion: {
             /** Format: int32 */
-            readonly version: number;
+            readonly contract_version: number;
+            readonly module: components["schemas"]["ModuleName"];
         };
         readonly ModuleMutationReceipt: {
             readonly duplicate: boolean;
             readonly operation_id: string;
         };
+        /** @enum {string} */
+        readonly ModuleName: "library" | "database" | "owned_document" | "project_workspace" | "automation" | "store_administration";
         readonly ModuleReadRequest_AutomationRead: {
+            /** Format: int32 */
+            readonly contract_version: number;
             readonly read: {
                 readonly include_deleted?: boolean | null;
                 /** @enum {string} */
@@ -3240,20 +3300,20 @@ export interface components {
                 /** Format: int32 */
                 readonly limit?: number | null;
             };
-            /** Format: int32 */
-            readonly version: number;
         };
         readonly ModuleReadRequest_DatabaseRead: {
+            /** Format: int32 */
+            readonly contract_version: number;
             readonly read: {
                 readonly filter?: unknown;
                 readonly mode: components["schemas"]["DatabaseReadMode"];
                 readonly sort?: readonly unknown[] | null;
                 readonly target: components["schemas"]["DatabaseTarget"];
             };
-            /** Format: int32 */
-            readonly version: number;
         };
         readonly ModuleReadRequest_LibraryRead: {
+            /** Format: int32 */
+            readonly contract_version: number;
             readonly read: {
                 /** @enum {string} */
                 readonly kind: "metadata";
@@ -3402,10 +3462,10 @@ export interface components {
                 readonly operation_id: string;
                 readonly store_epoch: string;
             };
-            /** Format: int32 */
-            readonly version: number;
         };
         readonly ModuleReadRequest_OwnedDocumentRead: {
+            /** Format: int32 */
+            readonly contract_version: number;
             readonly read: {
                 /** @enum {string} */
                 readonly kind: "descriptor";
@@ -3454,10 +3514,10 @@ export interface components {
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly target_block_id: string;
             };
-            /** Format: int32 */
-            readonly version: number;
         };
         readonly ModuleReadRequest_ProjectWorkspaceRead: {
+            /** Format: int32 */
+            readonly contract_version: number;
             readonly read: {
                 /** @enum {string} */
                 readonly kind: "startup";
@@ -3520,10 +3580,10 @@ export interface components {
                 readonly kind: "managed_worktrees";
                 readonly project_id: string;
             };
-            /** Format: int32 */
-            readonly version: number;
         };
         readonly ModuleReadRequest_StoreAdministrationRead: {
+            /** Format: int32 */
+            readonly contract_version: number;
             readonly read: {
                 /** @enum {string} */
                 readonly kind: "status";
@@ -3534,8 +3594,6 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "maintenance_status";
             };
-            /** Format: int32 */
-            readonly version: number;
         };
         readonly OwnedDocumentApplyRequest: components["schemas"]["ModuleApplyRequest_OwnedDocumentIntent"];
         readonly OwnedDocumentApplyResponse: components["schemas"]["ResponseEnvelope_CommittedModuleValue_OwnedDocumentCommitValue_OwnedDocumentReceipt"];
@@ -3697,6 +3755,8 @@ export interface components {
         };
         /** @enum {string} */
         readonly ProjectLifecycle: "active" | "inactive" | "archived";
+        /** @enum {string} */
+        readonly ProjectSessionDatabaseView: "kanban" | "list" | "toggle-list" | "canvas" | "calendar";
         readonly ProjectSessionIntent: {
             /** @enum {string} */
             readonly kind: "rename";
@@ -3726,13 +3786,11 @@ export interface components {
             readonly layout: unknown;
             readonly panel_id: components["schemas"]["ProjectSessionPanelId"];
         } | {
-            readonly browser_tab_id?: string | null;
-            readonly config: unknown;
+            readonly content: components["schemas"]["ProjectSessionTabContent"];
             /** @enum {string} */
             readonly kind: "create_tab";
             readonly panel_id: components["schemas"]["ProjectSessionPanelId"];
             readonly tab_id: string;
-            readonly tab_kind: components["schemas"]["ProjectSessionTabKind"];
             readonly target_leaf_id?: string | null;
             readonly title: string;
         } | {
@@ -3750,7 +3808,7 @@ export interface components {
             readonly target_layout?: unknown;
             readonly target_leaf_id?: string | null;
         } | {
-            readonly config?: unknown;
+            readonly content?: null | components["schemas"]["ProjectSessionTabContent"];
             /** @enum {string} */
             readonly kind: "update_tab";
             readonly state?: unknown;
@@ -3801,8 +3859,39 @@ export interface components {
             readonly layout?: unknown;
             readonly size?: null | components["schemas"]["ProjectSessionPanelSizePatch"];
         };
-        /** @enum {string} */
-        readonly ProjectSessionTabKind: "db_view" | "page_stage" | "terminal" | "browser" | "review" | "files";
+        readonly ProjectSessionTabContent: {
+            readonly database_view_id?: string | null;
+            /** @enum {string} */
+            readonly kind: "db_view";
+            readonly view: components["schemas"]["ProjectSessionDatabaseView"];
+        } | {
+            /** @enum {string} */
+            readonly kind: "page_stage";
+            readonly page_id: string;
+            readonly project_id: string;
+            readonly title_snapshot?: string | null;
+        } | {
+            /** @enum {string} */
+            readonly kind: "terminal";
+            readonly terminal_session_id: string;
+        } | {
+            readonly browser_tab_id?: string | null;
+            readonly device_toolbar_visible?: boolean | null;
+            readonly favicon_url?: string | null;
+            /** @enum {string} */
+            readonly kind: "browser";
+            readonly title?: string | null;
+            readonly url?: string | null;
+        } | {
+            /** @enum {string} */
+            readonly kind: "review";
+        } | {
+            readonly cwd?: string | null;
+            /** @enum {string} */
+            readonly kind: "files";
+            readonly path?: string | null;
+            readonly workspace_root?: string | null;
+        };
         readonly ProjectSource: {
             /** Format: int64 */
             readonly order: number;
@@ -3890,11 +3979,9 @@ export interface components {
             readonly updated_at: string;
         };
         readonly ProjectWorkspaceSessionTab: {
-            readonly browser_tab_id?: string | null;
-            readonly config: unknown;
+            readonly content: components["schemas"]["ProjectSessionTabContent"];
             readonly created_at: string;
             readonly id: string;
-            readonly kind: components["schemas"]["ProjectSessionTabKind"];
             /** Format: int64 */
             readonly order: number;
             readonly panel_id: components["schemas"]["ProjectSessionPanelId"];
@@ -4263,6 +4350,8 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_AutomationReadValue: {
             readonly payload: {
+                /** Format: int32 */
+                readonly contract_version: number;
                 /** Format: int64 */
                 readonly event_head: number;
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
@@ -4304,8 +4393,6 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "reminder_snoozes";
                 };
-                /** Format: int32 */
-                readonly version: number;
             };
             /** @enum {string} */
             readonly status: "ok";
@@ -4316,6 +4403,8 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_DatabaseReadValue: {
             readonly payload: {
+                /** Format: int32 */
+                readonly contract_version: number;
                 /** Format: int64 */
                 readonly event_head: number;
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
@@ -4350,8 +4439,6 @@ export interface components {
                     readonly next_cursor?: string | null;
                     readonly value: unknown;
                 };
-                /** Format: int32 */
-                readonly version: number;
             };
             /** @enum {string} */
             readonly status: "ok";
@@ -4362,6 +4449,8 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_LibraryReadValue: {
             readonly payload: {
+                /** Format: int32 */
+                readonly contract_version: number;
                 /** Format: int64 */
                 readonly event_head: number;
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
@@ -4483,8 +4572,6 @@ export interface components {
                     readonly kind: "block_transfer_plan";
                     readonly value: components["schemas"]["LibraryBlockTransferPlan"];
                 };
-                /** Format: int32 */
-                readonly version: number;
             };
             /** @enum {string} */
             readonly status: "ok";
@@ -4495,6 +4582,8 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_OwnedDocumentReadValue: {
             readonly payload: {
+                /** Format: int32 */
+                readonly contract_version: number;
                 /** Format: int64 */
                 readonly event_head: number;
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
@@ -4532,8 +4621,6 @@ export interface components {
                     readonly kind: "agent_semantic_snapshot";
                     readonly snapshot: components["schemas"]["AgentDocumentSemanticSnapshot"];
                 };
-                /** Format: int32 */
-                readonly version: number;
             };
             /** @enum {string} */
             readonly status: "ok";
@@ -4544,6 +4631,8 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_ProjectWorkspaceReadValue: {
             readonly payload: {
+                /** Format: int32 */
+                readonly contract_version: number;
                 /** Format: int64 */
                 readonly event_head: number;
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
@@ -4607,8 +4696,6 @@ export interface components {
                     readonly kind: "managed_worktrees";
                     readonly roots: readonly string[];
                 };
-                /** Format: int32 */
-                readonly version: number;
             };
             /** @enum {string} */
             readonly status: "ok";
@@ -4619,6 +4706,8 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_StoreAdministrationReadValue: {
             readonly payload: {
+                /** Format: int32 */
+                readonly contract_version: number;
                 /** Format: int64 */
                 readonly event_head: number;
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
@@ -4641,8 +4730,6 @@ export interface components {
                     readonly operation_id?: string | null;
                     readonly phase?: string | null;
                 };
-                /** Format: int32 */
-                readonly version: number;
             };
             /** @enum {string} */
             readonly status: "ok";
@@ -4652,14 +4739,13 @@ export interface components {
             readonly status: "error";
         };
         readonly RuntimeDescriptor: {
-            readonly build_id: string;
+            readonly actual_store_format: components["schemas"]["StoreFormatIdentity"];
+            readonly artifact: components["schemas"]["CoreArtifactIdentity"];
+            readonly manifest: components["schemas"]["CoreCompatibilityManifest"];
+            readonly manifest_digest: string;
             /** Format: int32 */
             readonly pid: number;
             readonly profile_id: string;
-            /** Format: int32 */
-            readonly protocol_max: number;
-            /** Format: int32 */
-            readonly protocol_min: number;
             /** Format: int64 */
             readonly readiness_generation: number;
             readonly socket_path: string;
@@ -4667,14 +4753,11 @@ export interface components {
             readonly store_epoch: string;
         };
         readonly RuntimeGenerationIdentity: {
-            readonly build_id: string;
+            readonly artifact_sha256: string;
+            readonly manifest_digest: string;
             /** Format: int32 */
             readonly pid: number;
             readonly profile_id: string;
-            /** Format: int32 */
-            readonly protocol_max: number;
-            /** Format: int32 */
-            readonly protocol_min: number;
             /** Format: int64 */
             readonly readiness_generation: number;
             readonly start_nonce: string;
@@ -4719,7 +4802,12 @@ export interface components {
         /** @enum {string} */
         readonly SchemaOwner: "type_script" | "rust";
         readonly ShutdownRequest: {
-            readonly version_handoff?: null | components["schemas"]["VersionHandoffRequest"];
+            /** @enum {string} */
+            readonly kind: "shutdown";
+        } | {
+            /** @enum {string} */
+            readonly kind: "replacement";
+            readonly request: components["schemas"]["CoreReplacementRequest"];
         };
         readonly ShutdownResponse: {
             /** Format: int64 */
@@ -4728,7 +4816,7 @@ export interface components {
             readonly status: components["schemas"]["ShutdownStatus"];
         };
         /** @enum {string} */
-        readonly ShutdownStatus: "draining" | "busy";
+        readonly ShutdownStatus: "draining" | "busy" | "incompatible";
         readonly StoreAdministrationApplyRequest: components["schemas"]["ModuleApplyRequest_StoreAdministrationIntent"];
         readonly StoreAdministrationApplyResponse: components["schemas"]["ResponseEnvelope_CommittedModuleValue_StoreAdministrationCommitValue_StoreAdministrationReceipt"];
         readonly StoreAdministrationEvent: {
@@ -4742,17 +4830,26 @@ export interface components {
         readonly StoreAdministrationReadRequest: components["schemas"]["ModuleReadRequest_StoreAdministrationRead"];
         readonly StoreAdministrationReadResponse: components["schemas"]["ResponseEnvelope_ModuleReadSnapshot_StoreAdministrationReadValue"];
         readonly StoreEpoch: string;
+        readonly StoreFormatIdentity: {
+            readonly lineage: string;
+            readonly schema_fingerprint: string;
+            /** Format: int32 */
+            readonly version: number;
+        };
+        readonly StoreFormatSupport: {
+            readonly current: components["schemas"]["StoreFormatIdentity"];
+            readonly migratable: readonly components["schemas"]["StoreFormatIdentity"][];
+            readonly readable: readonly components["schemas"]["StoreFormatIdentity"][];
+        };
         /** @enum {string} */
         readonly StoreIntegrity: "unknown" | "ok" | "failed";
         /** @enum {string} */
         readonly StoreReadiness: "starting" | "ready" | "maintenance" | "failed";
-        readonly VersionHandoffRequest: {
-            readonly build_id: string;
-            readonly expected: components["schemas"]["RuntimeGenerationIdentity"];
+        readonly VersionRange: {
             /** Format: int32 */
-            readonly protocol_max: number;
+            readonly max: number;
             /** Format: int32 */
-            readonly protocol_min: number;
+            readonly min: number;
         };
     };
     responses: never;

@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 
 use nodex_core_contracts::BoundModuleContext;
 use nodex_core_contracts::workspace::{
-    ProjectSessionIntent, ProjectSessionPanelId, ProjectSessionPanelStatePatch,
-    ProjectSessionTabKind,
+    ProjectSessionDatabaseView, ProjectSessionIntent, ProjectSessionPanelId,
+    ProjectSessionPanelStatePatch, ProjectSessionTabContent, ProjectSessionTabKind,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Map, Value, json};
@@ -162,10 +162,8 @@ pub(super) fn mutate_session(
             tab_id,
             panel_id,
             target_leaf_id,
-            browser_tab_id,
-            tab_kind,
             title,
-            config,
+            content,
         } => create_tab(
             connection,
             library_id,
@@ -178,10 +176,8 @@ pub(super) fn mutate_session(
             tab_id,
             *panel_id,
             target_leaf_id.as_deref(),
-            browser_tab_id.as_deref(),
-            *tab_kind,
             title,
-            config,
+            content,
         ),
         ProjectSessionIntent::DeleteTab { tab_id, layout } => delete_tab(
             connection,
@@ -221,7 +217,7 @@ pub(super) fn mutate_session(
         ProjectSessionIntent::UpdateTab {
             tab_id,
             title,
-            config,
+            content,
             state_key,
             state,
         } => update_tab(
@@ -235,7 +231,7 @@ pub(super) fn mutate_session(
             &authority,
             tab_id,
             title.as_deref(),
-            config.as_ref(),
+            content.as_ref(),
             *state_key,
             state.as_ref(),
         ),
@@ -432,26 +428,23 @@ fn create_tab(
     tab_id: &str,
     panel_id: ProjectSessionPanelId,
     target_leaf_id: Option<&str>,
-    browser_tab_id: Option<&str>,
-    tab_kind: ProjectSessionTabKind,
     title: &str,
-    config: &Value,
+    content: &ProjectSessionTabContent,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
     validate_tab_id(tab_id)?;
     if let Some(target_leaf_id) = target_leaf_id {
         validate_id("target_leaf_id", target_leaf_id)?;
     }
-    if let Some(browser_tab_id) = browser_tab_id {
-        validate_id("browser_tab_id", browser_tab_id)?;
-    }
-    let title = normalize_tab_title(title)?;
-    let config = normalize_tab_config(
+    let (tab_kind, requested_browser_tab_id, config) = normalize_tab_content(
         connection,
         library_id,
         authority.project_id.as_deref(),
-        tab_kind,
-        config,
+        content,
     )?;
+    if let Some(browser_tab_id) = requested_browser_tab_id.as_deref() {
+        validate_id("browser_tab_id", browser_tab_id)?;
+    }
+    let title = normalize_tab_title(title)?;
 
     if let Some(existing) = find_equivalent_tab(connection, session_id, tab_kind, &config)? {
         focus_existing_tab(connection, session_id, existing.0, existing.1)?;
@@ -487,13 +480,9 @@ fn create_tab(
             false,
         ));
     }
-    if !matches!(tab_kind, ProjectSessionTabKind::Browser) && browser_tab_id.is_some() {
-        return Err(invalid("Only browser tabs can have a browser identity"));
-    }
     let browser_tab_id = if matches!(tab_kind, ProjectSessionTabKind::Browser) {
         Some(
-            browser_tab_id
-                .map(str::to_owned)
+            requested_browser_tab_id
                 .unwrap_or_else(|| stable_uuid_v7(operation_id, "browser_tab", tab_id)),
         )
     } else {
@@ -737,12 +726,12 @@ fn update_tab(
     authority: &SessionAuthority,
     tab_id: &str,
     title: Option<&str>,
-    config: Option<&Value>,
+    content: Option<&ProjectSessionTabContent>,
     state_key: Option<i64>,
     state: Option<&Value>,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
     validate_tab_id(tab_id)?;
-    if title.is_none() && config.is_none() && state_key.is_none() && state.is_none() {
+    if title.is_none() && content.is_none() && state_key.is_none() && state.is_none() {
         return Err(invalid("Project Session tab update is empty"));
     }
     if state_key.is_some_and(|value| value < 0) {
@@ -750,22 +739,31 @@ fn update_tab(
             "Project Session tab state key must be non-negative",
         ));
     }
-    let (tab_kind, tab_project_id) = require_tab_kind(connection, session_id, tab_id)?;
+    let (tab_kind, tab_project_id, browser_tab_id) =
+        require_tab_kind(connection, session_id, tab_id)?;
     if tab_project_id != authority.project_id {
         return Err(corrupt(
             "Project Session tab Project differs from its owning Session",
         ));
     }
     let title = title.map(normalize_tab_title).transpose()?;
-    let config = config
-        .map(|config| {
-            normalize_tab_config(
+    let config = content
+        .map(|content| {
+            let (content_kind, requested_browser_tab_id, config) = normalize_tab_content(
                 connection,
                 library_id,
                 authority.project_id.as_deref(),
-                tab_kind,
-                config,
-            )
+                content,
+            )?;
+            if content_kind != tab_kind {
+                return Err(invalid("Project Session tab content kind cannot change"));
+            }
+            if requested_browser_tab_id.is_some() && requested_browser_tab_id != browser_tab_id {
+                return Err(invalid(
+                    "Project Session Browser tab identity cannot change",
+                ));
+            }
+            Ok(config)
         })
         .transpose()?;
     if matches!(tab_kind, ProjectSessionTabKind::DbView)
@@ -858,7 +856,7 @@ fn replace_tab_state(
     if state_key < 0 {
         return Err(invalid("Project Session tab state key must be nonnegative"));
     }
-    let (_, tab_project_id) = require_tab_kind(connection, session_id, tab_id)?;
+    let (_, tab_project_id, _) = require_tab_kind(connection, session_id, tab_id)?;
     if tab_project_id != authority.project_id {
         return Err(corrupt(
             "Project Session tab Project differs from its owning Session",
@@ -900,17 +898,23 @@ fn require_tab_kind(
     connection: &Connection,
     session_id: &str,
     tab_id: &str,
-) -> Result<(ProjectSessionTabKind, Option<String>), StoreError> {
+) -> Result<(ProjectSessionTabKind, Option<String>, Option<String>), StoreError> {
     let row = connection
         .query_row(
-            "SELECT kind, project_id FROM project_session_tabs \
+            "SELECT kind, project_id, browser_tab_id FROM project_session_tabs \
              WHERE id = ?1 AND session_id = ?2",
             params![tab_id, session_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            },
         )
         .optional()?
         .ok_or_else(|| not_found("Project Session tab is unavailable"))?;
-    Ok((parse_tab_kind(&row.0)?, row.1))
+    Ok((parse_tab_kind(&row.0)?, row.1, row.2))
 }
 
 struct TabIds {
@@ -1090,6 +1094,100 @@ fn find_equivalent_tab(
         .transpose()
 }
 
+fn database_view_name(view: ProjectSessionDatabaseView) -> &'static str {
+    match view {
+        ProjectSessionDatabaseView::Kanban => "kanban",
+        ProjectSessionDatabaseView::List => "list",
+        ProjectSessionDatabaseView::ToggleList => "toggle-list",
+        ProjectSessionDatabaseView::Canvas => "canvas",
+        ProjectSessionDatabaseView::Calendar => "calendar",
+    }
+}
+
+fn normalize_tab_content(
+    connection: &Connection,
+    library_id: &str,
+    project_id: Option<&str>,
+    content: &ProjectSessionTabContent,
+) -> Result<(ProjectSessionTabKind, Option<String>, Value), StoreError> {
+    let (browser_tab_id, config) = match content {
+        ProjectSessionTabContent::DbView {
+            database_view_id,
+            view,
+        } => {
+            let mut config = json!({
+                "projectId": project_id,
+                "view": database_view_name(*view),
+            });
+            if let Some(database_view_id) = database_view_id {
+                config["databaseViewId"] = json!(database_view_id);
+            }
+            (None, config)
+        }
+        ProjectSessionTabContent::PageStage {
+            project_id,
+            page_id,
+            title_snapshot,
+        } => {
+            let mut config = json!({
+                "projectId": project_id,
+                "pageId": page_id,
+            });
+            if let Some(title_snapshot) = title_snapshot {
+                config["titleSnapshot"] = json!(title_snapshot);
+            }
+            (None, config)
+        }
+        ProjectSessionTabContent::Terminal {
+            terminal_session_id,
+        } => (None, json!({ "terminalSessionId": terminal_session_id })),
+        ProjectSessionTabContent::Browser {
+            browser_tab_id,
+            url,
+            title,
+            favicon_url,
+            device_toolbar_visible,
+        } => {
+            let mut config = json!({
+                "projectId": project_id,
+            });
+            for (key, value) in [
+                ("url", url.as_ref()),
+                ("title", title.as_ref()),
+                ("faviconUrl", favicon_url.as_ref()),
+            ] {
+                if let Some(value) = value {
+                    config[key] = json!(value);
+                }
+            }
+            if let Some(device_toolbar_visible) = device_toolbar_visible {
+                config["deviceToolbarVisible"] = json!(device_toolbar_visible);
+            }
+            (browser_tab_id.clone(), config)
+        }
+        ProjectSessionTabContent::Review => (None, json!({ "projectId": project_id })),
+        ProjectSessionTabContent::Files {
+            workspace_root,
+            cwd,
+            path,
+        } => {
+            let mut config = json!({
+                "projectId": project_id,
+                "hostId": "local",
+                "workspaceRoot": workspace_root,
+                "cwd": cwd,
+            });
+            if let Some(path) = path {
+                config["path"] = json!(path);
+            }
+            (None, config)
+        }
+    };
+    let tab_kind = content.kind();
+    let config = normalize_tab_config(connection, library_id, project_id, tab_kind, &config)?;
+    Ok((tab_kind, browser_tab_id, config))
+}
+
 fn normalize_tab_config(
     connection: &Connection,
     library_id: &str,
@@ -1141,7 +1239,7 @@ fn normalize_tab_config(
             Ok(Value::Object(normalized))
         }
         ProjectSessionTabKind::Terminal => {
-            let terminal_session_id = required_string(config, "terminalSessionId", true)?;
+            let terminal_session_id = required_string(config, "terminalSessionId", false)?;
             Ok(json!({
                 "terminalSessionId": terminal_session_id,
             }))
@@ -1206,6 +1304,82 @@ fn normalize_tab_config(
     }
 }
 
+pub(super) fn decode_tab_content(
+    kind: ProjectSessionTabKind,
+    config: &Value,
+    browser_tab_id: Option<String>,
+) -> Result<ProjectSessionTabContent, StoreError> {
+    let config = config
+        .as_object()
+        .ok_or_else(|| corrupt("Project Session tab config must be an object"))?;
+    let required = |key: &str| -> Result<String, StoreError> {
+        config
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| corrupt(&format!("Project Session tab config is missing {key}")))
+    };
+    let optional = |key: &str| -> Result<Option<String>, StoreError> {
+        match config.get(key) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(value)) => Ok(Some(value.clone())),
+            Some(_) => Err(corrupt(&format!(
+                "Project Session tab config {key} has an invalid type"
+            ))),
+        }
+    };
+    match kind {
+        ProjectSessionTabKind::DbView => {
+            let view = match required("view")?.as_str() {
+                "kanban" => ProjectSessionDatabaseView::Kanban,
+                "list" => ProjectSessionDatabaseView::List,
+                "toggle-list" => ProjectSessionDatabaseView::ToggleList,
+                "canvas" => ProjectSessionDatabaseView::Canvas,
+                "calendar" => ProjectSessionDatabaseView::Calendar,
+                _ => return Err(corrupt("Project Session Database View mode is invalid")),
+            };
+            Ok(ProjectSessionTabContent::DbView {
+                database_view_id: Some(required("databaseViewId")?),
+                view,
+            })
+        }
+        ProjectSessionTabKind::PageStage => Ok(ProjectSessionTabContent::PageStage {
+            project_id: required("projectId")?,
+            page_id: required("pageId")?,
+            title_snapshot: optional("titleSnapshot")?,
+        }),
+        ProjectSessionTabKind::Terminal => Ok(ProjectSessionTabContent::Terminal {
+            terminal_session_id: required("terminalSessionId")?,
+        }),
+        ProjectSessionTabKind::Browser => {
+            let browser_tab_id = browser_tab_id
+                .ok_or_else(|| corrupt("Project Session Browser tab identity is missing"))?;
+            let device_toolbar_visible = match config.get("deviceToolbarVisible") {
+                None => None,
+                Some(Value::Bool(value)) => Some(*value),
+                Some(_) => {
+                    return Err(corrupt(
+                        "Project Session Browser device toolbar flag is invalid",
+                    ));
+                }
+            };
+            Ok(ProjectSessionTabContent::Browser {
+                browser_tab_id: Some(browser_tab_id),
+                url: optional("url")?,
+                title: optional("title")?,
+                favicon_url: optional("faviconUrl")?,
+                device_toolbar_visible,
+            })
+        }
+        ProjectSessionTabKind::Review => Ok(ProjectSessionTabContent::Review),
+        ProjectSessionTabKind::Files => Ok(ProjectSessionTabContent::Files {
+            workspace_root: optional("workspaceRoot")?,
+            cwd: optional("cwd")?,
+            path: optional("path")?,
+        }),
+    }
+}
+
 fn require_config_project(
     connection: &Connection,
     library_id: &str,
@@ -1234,7 +1408,7 @@ fn validate_config_project(
 ) -> Result<(), StoreError> {
     let configured = config
         .get("projectId")
-        .ok_or_else(|| invalid("Project Session tab config requires projectId"))?;
+        .ok_or_else(|| invalid("Stored Project Session tab is missing its Project coordinate"))?;
     let matches = match (project_id, configured) {
         (Some(expected), Value::String(actual)) => actual == expected,
         (None, Value::Null) => true,

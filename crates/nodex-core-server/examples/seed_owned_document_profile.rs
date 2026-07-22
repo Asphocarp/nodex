@@ -12,8 +12,9 @@ use nodex_core_contracts::document::{
 };
 use nodex_core_contracts::workspace::ProjectWorkspaceIntent;
 use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, LibraryId, ModuleApplyRequest,
-    ModuleReadRequest, ProfileId, ProjectId, StoreEpoch,
+    AdapterKind, BoundModuleContext, LibraryId, ModuleApplyRequest, ModuleReadRequest,
+    OWNED_DOCUMENT_CONTRACT_VERSION, PROJECT_WORKSPACE_CONTRACT_VERSION, ProfileId, ProjectId,
+    StoreEpoch,
 };
 use serde_json::json;
 
@@ -68,7 +69,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .apply(
             &context,
             ModuleApplyRequest {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                 operation_id: "seed:project".to_owned(),
                 store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                 intent: ProjectWorkspaceIntent::CreateProject {
@@ -141,7 +142,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .apply(
             &context,
             ModuleApplyRequest {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                 operation_id: "seed:prepare-page".to_owned(),
                 store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                 intent: OwnedDocumentIntent::PrepareOwner {
@@ -154,7 +155,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .read(
             &context,
             ModuleReadRequest {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                 read: OwnedDocumentRead::SyncYjs {
                     document_id: DOCUMENT_ID.to_owned(),
                     state_vector: Vec::new(),
@@ -218,7 +219,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .apply(
             &context,
             ModuleApplyRequest {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                 operation_id: "seed:body".to_owned(),
                 store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                 intent: OwnedDocumentIntent::ApplyYjsUpdate {

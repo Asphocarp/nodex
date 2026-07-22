@@ -12,7 +12,6 @@ import type {
   PanelId,
   ProjectSession,
   ProjectSessionTab,
-  ProjectSessionTabKind,
 } from "../../shared/types";
 import {
   createCodexForkBrowserSnapshotAdapter,
@@ -35,33 +34,46 @@ function makeDeviceState(seed: number): BrowserSidebarDeviceToolbarState {
   };
 }
 
-function makeTab(input: {
+type TabInputBase = {
   id: string;
   panelId: PanelId;
   order: number;
-  kind?: ProjectSessionTabKind;
-  browserTabId?: string | null;
   sessionId?: string;
   projectId?: string | null;
-}): ProjectSessionTab {
-  const kind = input.kind ?? "browser";
+};
+
+type TabInput = TabInputBase & (
+  | { kind?: "browser"; browserTabId?: string | null }
+  | { kind: "terminal"; browserTabId?: never }
+);
+
+function makeTab(input: TabInput): ProjectSessionTab {
   const projectId = input.projectId === undefined ? "project-source" : input.projectId;
-  return {
+  const base = {
     id: input.id,
     sessionId: input.sessionId ?? "session-source",
-    browserTabId: kind === "browser" ? input.browserTabId ?? input.id : null,
     projectId,
     panelId: input.panelId,
-    kind,
     title: input.id,
     order: input.order,
-    config: kind === "browser"
-      ? { projectId }
-      : { projectId: projectId ?? "project-source" },
     stateKey: 0,
     state: {},
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
+  };
+  if (input.kind === "terminal") {
+    return {
+      ...base,
+      browserTabId: null,
+      kind: input.kind,
+      config: { terminalSessionId: `terminal:${input.id}` },
+    };
+  }
+  return {
+    ...base,
+    browserTabId: input.browserTabId ?? input.id,
+    kind: "browser",
+    config: { projectId },
   };
 }
 

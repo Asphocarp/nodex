@@ -457,7 +457,7 @@ fn reconstruct_event(
         .ok_or_else(|| corrupt("Core projection impact is missing"))
         .and_then(decode_projection_impact)?;
     Ok(Some(CommittedCoreModuleEvent {
-        version: CORE_EVENT_VERSION,
+        event_version: CORE_EVENT_VERSION,
         sequence: row.sequence,
         store_epoch: StoreEpoch(row.store_epoch.clone()),
         operation_id: row.operation_id.clone(),

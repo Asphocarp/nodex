@@ -490,7 +490,7 @@ fn apply_semantic_write(
                 Some(project_id),
                 false,
                 ModuleApplyRequest {
-                    version: OwnedDocumentContract::VERSION,
+                    contract_version: OwnedDocumentContract::VERSION,
                     operation_id: operation_id.clone(),
                     store_epoch: StoreEpoch(client.handshake.store_epoch.clone()),
                     intent: OwnedDocumentIntent::ApplySemanticMutation {

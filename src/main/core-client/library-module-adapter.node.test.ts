@@ -10,7 +10,10 @@ import {
 import { LIBRARY_MODULE_CONTRACT_VERSION } from "../../shared/library-module";
 import { PAGE_HISTORY_CONTRACT_VERSION } from "../../shared/page-history";
 import type { PageLifecycleMutationRequestV2 } from "../../shared/page-lifecycle-v2";
-import { FakeCoreClient } from "./testing/fake-core-client";
+import {
+  createFakeCoreHandshake,
+  FakeCoreClient,
+} from "./testing/fake-core-client";
 import { createCoreLibraryModuleAdapter } from "./library-module-adapter";
 import {
   createDesktopLibraryModuleBridge,
@@ -24,8 +27,10 @@ const identity = {
   storeEpoch: "epoch:test",
 } as const;
 
+const fakeHandshake = () => createFakeCoreHandshake(identity);
+
 const pageDetailSnapshot = () => ({
-  version: 1 as const,
+  contract_version: 1 as const,
   store_epoch: identity.storeEpoch,
   event_head: 9,
   value: {
@@ -70,7 +75,7 @@ const pageDetailSnapshot = () => ({
 });
 
 const pageHistorySnapshot = () => ({
-  version: 1 as const,
+  contract_version: 1 as const,
   store_epoch: identity.storeEpoch,
   event_head: 12,
   value: {
@@ -114,7 +119,7 @@ const pageHistorySnapshot = () => ({
 });
 
 const projectPageSearchSnapshot = () => ({
-  version: 1 as const,
+  contract_version: 1 as const,
   store_epoch: identity.storeEpoch,
   event_head: 13,
   value: {
@@ -130,7 +135,7 @@ const projectPageSearchSnapshot = () => ({
 });
 
 const pageTargetSnapshot = () => ({
-  version: 1 as const,
+  contract_version: 1 as const,
   store_epoch: identity.storeEpoch,
   event_head: 14,
   value: {
@@ -149,7 +154,7 @@ const pageTargetSnapshot = () => ({
 });
 
 const pageOwnershipPathSnapshot = () => ({
-  version: 1 as const,
+  contract_version: 1 as const,
   store_epoch: identity.storeEpoch,
   event_head: 14,
   value: {
@@ -167,7 +172,7 @@ const pageOwnershipPathSnapshot = () => ({
 });
 
 const pageLocationSnapshot = () => ({
-  version: 1 as const,
+  contract_version: 1 as const,
   store_epoch: identity.storeEpoch,
   event_head: 14,
   value: {
@@ -243,7 +248,7 @@ const lifecycleDefaultView = () => ({
 });
 
 const pageLifecyclePreflightSnapshot = () => ({
-  version: 1 as const,
+  contract_version: 1 as const,
   store_epoch: identity.storeEpoch,
   event_head: 15,
   value: {
@@ -344,11 +349,7 @@ describe("Core Library Module Adapter", () => {
     const runtime = {
       backend: "rust",
       rootClient: Object.assign(rootClient, {
-        handshake: {
-          library_id: identity.libraryId,
-          profile_id: identity.profileId,
-          store_epoch: identity.storeEpoch,
-        },
+        handshake: fakeHandshake(),
       }),
       clientForProject: (projectId: string) => {
         requestedProjects.push(projectId);
@@ -927,11 +928,7 @@ describe("Core Library Module Adapter", () => {
     const runtime = {
       backend: "rust",
       rootClient: Object.assign(rootClient, {
-        handshake: {
-          library_id: identity.libraryId,
-          profile_id: identity.profileId,
-          store_epoch: identity.storeEpoch,
-        },
+        handshake: fakeHandshake(),
       }),
       clientForProject: (projectId: string) => {
         requestedProjects.push(projectId);
@@ -992,7 +989,7 @@ describe("Core Library Module Adapter", () => {
   test("maps one complete catalog read without exposing transport shapes", async () => {
     const client = new FakeCoreClient();
     client.enqueueRead({
-      version: 1,
+      contract_version: 1,
       store_epoch: identity.storeEpoch,
       event_head: 7,
       value: {
@@ -1126,11 +1123,7 @@ describe("Core Library Module Adapter", () => {
   test("fails closed before a Rust write without a trusted window Project", async () => {
     const runtime = {
       backend: "rust",
-      rootClient: { handshake: {
-        library_id: identity.libraryId,
-        profile_id: identity.profileId,
-        store_epoch: identity.storeEpoch,
-      } },
+      rootClient: { handshake: fakeHandshake() },
       clientForProject: () => {
         throw new Error("Project client must not be resolved");
       },
@@ -1186,11 +1179,7 @@ describe("Core Library Module Adapter", () => {
     const runtime = {
       backend: "rust",
       rootClient: Object.assign(rootClient, {
-        handshake: {
-          library_id: identity.libraryId,
-          profile_id: identity.profileId,
-          store_epoch: identity.storeEpoch,
-        },
+        handshake: fakeHandshake(),
       }),
       clientForProject: () => {
         throw new Error("Trusted Library writes must not resolve a Project client");
@@ -1225,9 +1214,9 @@ describe("Core Library Module Adapter", () => {
 
   test("maps only Library Core events into renderer invalidations", () => {
     expect(mapCoreLibraryEvent({
-      protocol_version: 2,
+      transport_version: 3,
       event: {
-        version: 2,
+        event_version: 2,
         sequence: 9,
         store_epoch: identity.storeEpoch,
         operation_id: "operation:create",

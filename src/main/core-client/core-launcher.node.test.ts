@@ -99,12 +99,12 @@ describe("native Core launcher", () => {
     try {
       first = await connectOrStartCore(input);
       expect(first.startedProcessId).not.toBeNull();
-      expect(first.client.handshake.pid).toBe(first.startedProcessId);
+      expect(first.client.handshake.generation.pid).toBe(first.startedProcessId);
       await expect(first.client.health()).resolves.toMatchObject({ status: "ready" });
 
       const reused = await connectOrStartCore(input);
       expect(reused.startedProcessId).toBeNull();
-      expect(reused.client.handshake.pid).toBe(first.client.handshake.pid);
+      expect(reused.client.handshake.generation.pid).toBe(first.client.handshake.generation.pid);
 
       await first.client.shutdown();
       const socketPath = path.join(nodexHome, "run/core/core.sock");
@@ -130,7 +130,7 @@ describe("native Core launcher", () => {
         isPackaged: false,
         nodexHome,
         startupTimeoutMs: 2_000,
-      })).rejects.toThrow(/Native Rust Core exited during startup with code \d+: .*--home/s);
+      })).rejects.toThrow(/Native Rust Core exited before selection with code \d+: .*--home/s);
     } finally {
       rmSync(nodexHome, { recursive: true, force: true });
     }

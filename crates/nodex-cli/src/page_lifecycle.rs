@@ -48,7 +48,7 @@ pub(crate) fn create_page(
         .library_apply(
             Some(&project.id),
             ModuleApplyRequest {
-                version: LIBRARY_CONTRACT_VERSION,
+                contract_version: LIBRARY_CONTRACT_VERSION,
                 operation_id,
                 store_epoch: StoreEpoch(client.handshake.store_epoch.clone()),
                 intent: LibraryIntent::CreatePageFromNfm {
@@ -148,7 +148,7 @@ fn transfer_page(
         .library_apply(
             Some(&project.id),
             ModuleApplyRequest {
-                version: LIBRARY_CONTRACT_VERSION,
+                contract_version: LIBRARY_CONTRACT_VERSION,
                 operation_id,
                 store_epoch: StoreEpoch(client.handshake.store_epoch.clone()),
                 intent,
@@ -231,7 +231,7 @@ pub(crate) fn delete_page(
         .library_apply(
             Some(&project.id),
             ModuleApplyRequest {
-                version: LIBRARY_CONTRACT_VERSION,
+                contract_version: LIBRARY_CONTRACT_VERSION,
                 operation_id,
                 store_epoch: StoreEpoch(client.handshake.store_epoch.clone()),
                 intent: LibraryIntent::DeletePage {

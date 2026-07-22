@@ -1,9 +1,10 @@
 use std::fs;
-use std::io::{self, Read, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -20,19 +21,22 @@ use thiserror::Error;
 
 use crate::{
     AutomationApplyRequest, AutomationApplyResponse, AutomationReadRequest, AutomationReadResponse,
-    ClientIdentity, ClientKind, DatabaseApplyRequest, DatabaseApplyResponse, DatabaseReadRequest,
-    DatabaseReadResponse, HandshakeRequest, HandshakeResponse, HealthResponse, LibraryApplyRequest,
-    LibraryApplyResponse, LibraryReadRequest, LibraryReadResponse, OwnedDocumentApplyRequest,
-    OwnedDocumentApplyResponse, OwnedDocumentReadRequest, OwnedDocumentReadResponse, PROTOCOL_MAX,
-    PROTOCOL_MIN, ProjectWorkspaceApplyRequest, ProjectWorkspaceApplyResponse,
-    ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse, RuntimeDescriptor, ShutdownRequest,
-    ShutdownResponse, StoreAdministrationApplyRequest, StoreAdministrationApplyResponse,
-    StoreAdministrationReadRequest, StoreAdministrationReadResponse,
+    ClientIdentity, ClientKind, CoreSelectionDisposition, CoreSelectionResult,
+    DatabaseApplyRequest, DatabaseApplyResponse, DatabaseReadRequest, DatabaseReadResponse,
+    HandshakeRequest, HandshakeResponse, HealthResponse, LibraryApplyRequest, LibraryApplyResponse,
+    LibraryReadRequest, LibraryReadResponse, OwnedDocumentApplyRequest, OwnedDocumentApplyResponse,
+    OwnedDocumentReadRequest, OwnedDocumentReadResponse, ProjectWorkspaceApplyRequest,
+    ProjectWorkspaceApplyResponse, ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse,
+    RuntimeDescriptor, RuntimeGenerationIdentity, ShutdownRequest, ShutdownResponse,
+    StoreAdministrationApplyRequest, StoreAdministrationApplyResponse,
+    StoreAdministrationReadRequest, StoreAdministrationReadResponse, TRANSPORT_PROTOCOL_MAX,
+    TRANSPORT_PROTOCOL_MIN, canonical_manifest_digest, core_client_requirements,
+    evaluate_compatibility,
 };
 
 const PRIVATE_MODE: u32 = 0o600;
 const RUNTIME_DIRECTORY_MODE: u32 = 0o700;
-const MAX_DESCRIPTOR_BYTES: u64 = 16 * 1024;
+const MAX_DESCRIPTOR_BYTES: u64 = 64 * 1024;
 const MAX_AUTH_BYTES: u64 = 128;
 const MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -76,21 +80,26 @@ pub struct CoreClient {
 impl CoreClient {
     pub fn connect(home: &Path, build_id: &str) -> Result<Self, ClientError> {
         let runtime = RuntimeFiles::read(home)?;
+        let requirements = core_client_requirements();
+        evaluate_compatibility(
+            &requirements,
+            &runtime.descriptor.manifest,
+            &runtime.descriptor.actual_store_format,
+        )
+        .map_err(|mismatches| ClientError::ProtocolIncompatible(format!("{mismatches:?}")))?;
         let connection_id = format!("native-cli:{}", random_hex(16)?);
         let handshake = request_json::<_, HandshakeResponse>(
             &runtime.socket,
             &runtime.auth,
             "/core/v1/handshake",
             &HandshakeRequest {
-                protocol_min: PROTOCOL_MIN,
-                protocol_max: PROTOCOL_MAX,
+                requirements,
                 client: ClientIdentity {
                     kind: ClientKind::NativeCli,
                     build_id: build_id.to_owned(),
                 },
                 connection_id: connection_id.clone(),
-                expected_profile_id: Some(runtime.descriptor.profile_id.clone()),
-                expected_start_nonce: Some(runtime.descriptor.start_nonce.clone()),
+                expected_generation: RuntimeGenerationIdentity::from(&runtime.descriptor),
             },
             &[],
         )?;
@@ -117,7 +126,7 @@ impl CoreClient {
         self.connected_request(
             "/core/v1/modules/library/read",
             &LibraryReadRequest(nodex_core_contracts::ModuleReadRequest {
-                version: nodex_core_contracts::library::LIBRARY_CONTRACT_VERSION,
+                contract_version: nodex_core_contracts::library::LIBRARY_CONTRACT_VERSION,
                 read,
             }),
             ScopeHeaders::project(project_id),
@@ -144,7 +153,7 @@ impl CoreClient {
         self.connected_request(
             "/core/v1/modules/database/read",
             &DatabaseReadRequest(nodex_core_contracts::ModuleReadRequest {
-                version: nodex_core_contracts::CORE_CONTRACT_VERSION,
+                contract_version: nodex_core_contracts::database::DATABASE_CONTRACT_VERSION,
                 read,
             }),
             ScopeHeaders::database(project_id),
@@ -172,7 +181,7 @@ impl CoreClient {
         self.connected_request(
             "/core/v1/modules/document/read",
             &OwnedDocumentReadRequest(nodex_core_contracts::ModuleReadRequest {
-                version: <nodex_core_contracts::document::OwnedDocumentContract as VersionedModuleContract>::VERSION,
+                contract_version: <nodex_core_contracts::document::OwnedDocumentContract as VersionedModuleContract>::VERSION,
                 read,
             }),
             ScopeHeaders::document(project_id, library_scope),
@@ -200,7 +209,7 @@ impl CoreClient {
         self.connected_request(
             "/core/v1/modules/workspace/read",
             &ProjectWorkspaceReadRequest(nodex_core_contracts::ModuleReadRequest {
-                version: <nodex_core_contracts::workspace::ProjectWorkspaceContract as VersionedModuleContract>::VERSION,
+                contract_version: <nodex_core_contracts::workspace::ProjectWorkspaceContract as VersionedModuleContract>::VERSION,
                 read,
             }),
             ScopeHeaders::project(project_id),
@@ -227,7 +236,7 @@ impl CoreClient {
         self.connected_request(
             "/core/v1/modules/automation/read",
             &AutomationReadRequest(nodex_core_contracts::ModuleReadRequest {
-                version: <nodex_core_contracts::automation::AutomationContract as VersionedModuleContract>::VERSION,
+                contract_version: <nodex_core_contracts::automation::AutomationContract as VersionedModuleContract>::VERSION,
                 read,
             }),
             ScopeHeaders::project(project_id),
@@ -253,7 +262,7 @@ impl CoreClient {
         self.connected_request(
             "/core/v1/modules/administration/read",
             &StoreAdministrationReadRequest(nodex_core_contracts::ModuleReadRequest {
-                version: <nodex_core_contracts::administration::StoreAdministrationContract as VersionedModuleContract>::VERSION,
+                contract_version: <nodex_core_contracts::administration::StoreAdministrationContract as VersionedModuleContract>::VERSION,
                 read,
             }),
             ScopeHeaders::default(),
@@ -300,20 +309,19 @@ pub fn connect_or_launch(
     core_executable: Option<&Path>,
 ) -> Result<CoreClient, ClientError> {
     ensure_home(home)?;
-    match CoreClient::connect(home, build_id) {
-        Ok(client) => return Ok(client),
-        Err(ClientError::ProtocolIncompatible(message)) => {
-            return Err(ClientError::ProtocolIncompatible(message));
-        }
-        Err(_) => {}
-    }
-
     let executable = match core_executable {
         Some(path) => path.to_owned(),
         None => discover_core_executable()?,
     };
     let mut child = Command::new(&executable)
-        .args(["--home", &home.to_string_lossy()])
+        .args([
+            "--home",
+            &home.to_string_lossy(),
+            "--selection-policy",
+            "compatible",
+            "--launcher",
+            "native-cli",
+        ])
         .env("NODEX_LOG_CONSOLE", "false")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -321,7 +329,8 @@ pub fn connect_or_launch(
         .map_err(|error| {
             ClientError::Startup(format!("could not start {}: {error}", executable.display()))
         })?;
-    wait_for_core(home, build_id, &mut child)
+    let selection = wait_for_selection_result(&mut child)?;
+    wait_for_core(home, build_id, &mut child, &selection)
 }
 
 pub fn discover_core_executable() -> Result<PathBuf, ClientError> {
@@ -353,14 +362,28 @@ fn wait_for_core(
     home: &Path,
     build_id: &str,
     child: &mut Child,
+    selection: &CoreSelectionResult,
 ) -> Result<CoreClient, ClientError> {
     let deadline = Instant::now() + STARTUP_TIMEOUT;
     loop {
         let error = match CoreClient::connect(home, build_id) {
-            Ok(client) => return Ok(client),
+            Ok(client) if client.descriptor == selection.descriptor => return Ok(client),
+            Ok(_) => {
+                ClientError::Startup("runtime generation changed after Core selection".to_owned())
+            }
             Err(error) => error,
         };
         if let Some(status) = child.try_wait()? {
+            if matches!(selection.disposition, CoreSelectionDisposition::Reused) && status.success()
+            {
+                if Instant::now() >= deadline {
+                    return Err(ClientError::Startup(format!(
+                        "selected reused Core did not accept a connection: {error}"
+                    )));
+                }
+                thread::sleep(Duration::from_millis(20));
+                continue;
+            }
             let mut stderr = String::new();
             if let Some(mut pipe) = child.stderr.take() {
                 let _ = pipe.read_to_string(&mut stderr);
@@ -377,6 +400,34 @@ fn wait_for_core(
         }
         thread::sleep(Duration::from_millis(20));
     }
+}
+
+fn wait_for_selection_result(child: &mut Child) -> Result<CoreSelectionResult, ClientError> {
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| ClientError::Startup("Core stdout is unavailable".to_owned()))?;
+    let (sender, receiver) = mpsc::sync_channel(1);
+    thread::spawn(move || {
+        let mut line = String::new();
+        let result = BufReader::new(stdout).read_line(&mut line).map(|_| line);
+        let _ = sender.send(result);
+    });
+    let line = receiver
+        .recv_timeout(STARTUP_TIMEOUT)
+        .map_err(|_| ClientError::Startup("Core selection timed out".to_owned()))??;
+    if line.len() > MAX_DESCRIPTOR_BYTES as usize {
+        return Err(ClientError::Startup(
+            "Core selection result is oversized".to_owned(),
+        ));
+    }
+    let selection = serde_json::from_str::<CoreSelectionResult>(line.trim())?;
+    if selection.selection_version != 1 {
+        return Err(ClientError::Startup(
+            "Core selection result version is unsupported".to_owned(),
+        ));
+    }
+    Ok(selection)
 }
 
 #[derive(Default)]
@@ -549,27 +600,36 @@ fn validate_handshake(
     descriptor: &RuntimeDescriptor,
     handshake: &HandshakeResponse,
 ) -> Result<(), ClientError> {
-    if handshake.protocol_version < PROTOCOL_MIN || handshake.protocol_version > PROTOCOL_MAX {
+    let requirements = core_client_requirements();
+    if handshake.selected_transport_version < TRANSPORT_PROTOCOL_MIN
+        || handshake.selected_transport_version > TRANSPORT_PROTOCOL_MAX
+    {
         return Err(ClientError::ProtocolIncompatible(format!(
-            "Core selected protocol {} outside {PROTOCOL_MIN}..={PROTOCOL_MAX}",
-            handshake.protocol_version
+            "Core selected transport {} outside {TRANSPORT_PROTOCOL_MIN}..={TRANSPORT_PROTOCOL_MAX}",
+            handshake.selected_transport_version
         )));
     }
-    if descriptor.protocol_min > PROTOCOL_MAX || descriptor.protocol_max < PROTOCOL_MIN {
-        return Err(ClientError::ProtocolIncompatible(format!(
-            "Core supports {}..={} while CLI supports {PROTOCOL_MIN}..={PROTOCOL_MAX}",
-            descriptor.protocol_min, descriptor.protocol_max
-        )));
-    }
-    if handshake.pid != descriptor.pid
-        || handshake.start_nonce != descriptor.start_nonce
-        || handshake.profile_id != descriptor.profile_id
+    if handshake.generation != RuntimeGenerationIdentity::from(descriptor)
+        || handshake.selected_event_version != requirements.event_version
+        || handshake.selected_module_versions != requirements.modules
+        || handshake.manifest_digest != descriptor.manifest_digest
+        || handshake.artifact != descriptor.artifact
+        || handshake.actual_store_format != descriptor.actual_store_format
         || handshake.store_epoch != descriptor.store_epoch
-        || handshake.schema_version == 0
+        || handshake.schema_version != descriptor.actual_store_format.version
+        || handshake.event_head < 0
+        || handshake.library_id.is_empty()
         || handshake.connection_binding.is_empty()
     {
         return Err(ClientError::InvalidRuntime(
             "handshake does not match the authenticated runtime descriptor".to_owned(),
+        ));
+    }
+    let digest = canonical_manifest_digest(&descriptor.manifest)
+        .map_err(|mismatch| ClientError::InvalidRuntime(format!("{mismatch:?}")))?;
+    if digest != descriptor.manifest_digest {
+        return Err(ClientError::InvalidRuntime(
+            "runtime manifest digest does not match its canonical manifest".to_owned(),
         ));
     }
     Ok(())

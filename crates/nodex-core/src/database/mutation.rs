@@ -138,7 +138,7 @@ pub(super) fn apply(
             }
             let fingerprint = serde_json::to_vec(&(
                 &context,
-                request.version,
+                request.contract_version,
                 &request.store_epoch,
                 &request.intent,
             ))
@@ -4261,7 +4261,7 @@ fn commit(
         "module": MODULE_NAME,
         "kind": "database_changed",
         "projectId": authority.project_id,
-        "version": request.version,
+        "version": request.contract_version,
         "operationCount": request.intent.len(),
         "operationKinds": operation_kinds,
         "requestHash": request_hash,

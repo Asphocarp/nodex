@@ -8,8 +8,8 @@ use nodex_core_contracts::library::{
     LibraryReadValue, LibraryReceipt, LibraryResourceTarget,
 };
 use nodex_core_contracts::{
-    BoundModuleContext, CORE_CONTRACT_VERSION, CORE_EVENT_VERSION, CommittedCoreModuleEvent,
-    CommittedModuleValue, CoreError, CoreErrorCode, CoreErrorRecovery, CoreModuleEventPayload,
+    BoundModuleContext, CORE_EVENT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue,
+    CoreError, CoreErrorCode, CoreErrorRecovery, CoreModuleEventPayload, LIBRARY_CONTRACT_VERSION,
     ModuleApplyRequest, ModuleMutationReceipt, ModuleReadRequest, ModuleReadSnapshot,
     ProjectionImpact, StoreEpoch,
 };
@@ -141,7 +141,7 @@ impl LibraryModule {
         request: ModuleReadRequest<LibraryRead>,
     ) -> Result<ModuleReadSnapshot<LibraryReadValue>, CoreError> {
         self.validate_context(context)?;
-        if request.version != CORE_CONTRACT_VERSION {
+        if request.contract_version != LIBRARY_CONTRACT_VERSION {
             return Err(invalid_input("unsupported Library contract version"));
         }
 
@@ -185,7 +185,7 @@ impl LibraryModule {
                 .map_err(core_error)?
             {
                 return Ok(ModuleReadSnapshot {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     store_epoch: StoreEpoch(current_store_epoch),
                     event_head: current_event_head,
                     value: LibraryReadValue::SearchSnapshotLease {
@@ -231,7 +231,7 @@ impl LibraryModule {
                 .acquire(prepared, cache_key)
                 .map_err(core_error)?;
             return Ok(ModuleReadSnapshot {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: LIBRARY_CONTRACT_VERSION,
                 store_epoch: StoreEpoch(store_epoch),
                 event_head,
                 value: LibraryReadValue::SearchSnapshotLease {
@@ -263,7 +263,7 @@ impl LibraryModule {
                 .release(lease_id)
                 .map_err(core_error)?;
             return Ok(ModuleReadSnapshot {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: LIBRARY_CONTRACT_VERSION,
                 store_epoch: StoreEpoch(store_epoch),
                 event_head,
                 value: LibraryReadValue::SearchSnapshotRelease { value },
@@ -438,7 +438,7 @@ impl LibraryModule {
                     };
                     transaction.commit()?;
                     Ok(ModuleReadSnapshot {
-                        version: CORE_CONTRACT_VERSION,
+                        contract_version: LIBRARY_CONTRACT_VERSION,
                         store_epoch: StoreEpoch(store_epoch),
                         event_head,
                         value,
@@ -462,7 +462,7 @@ impl LibraryModule {
         };
 
         Ok(ModuleReadSnapshot {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: LIBRARY_CONTRACT_VERSION,
             store_epoch: self.store_epoch.clone(),
             event_head: state.event_head,
             value,
@@ -475,7 +475,7 @@ impl LibraryModule {
         request: ModuleApplyRequest<LibraryIntent>,
     ) -> Result<LibraryApplyOutcome, CoreError> {
         self.validate_context(context)?;
-        if request.version != CORE_CONTRACT_VERSION {
+        if request.contract_version != LIBRARY_CONTRACT_VERSION {
             return Err(invalid_input("unsupported Library contract version"));
         }
         if let LibraryIntent::ExecutePreparedAgentPageCopy {
@@ -597,7 +597,7 @@ impl LibraryModule {
         };
         let fingerprint = serde_json::to_vec(&(
             context,
-            request.version,
+            request.contract_version,
             &request.store_epoch,
             &request.intent,
         ))
@@ -685,7 +685,7 @@ impl LibraryModule {
             LibraryResourceTarget::Database { .. } => ProjectionImpact::All,
         };
         let event = CommittedCoreModuleEvent {
-            version: CORE_EVENT_VERSION,
+            event_version: CORE_EVENT_VERSION,
             sequence: event_sequence,
             store_epoch: self.store_epoch.clone(),
             operation_id: Some(request.operation_id.clone()),
@@ -836,8 +836,9 @@ mod tests {
         LibraryWriteParent,
     };
     use nodex_core_contracts::workspace::{
-        ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch, ProjectWorkspaceTurnAuthority,
-        ProjectWorkspaceTurnAuthorityScope, ProjectWorkspaceTurnAuthoritySource,
+        PROJECT_WORKSPACE_CONTRACT_VERSION, ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch,
+        ProjectWorkspaceTurnAuthority, ProjectWorkspaceTurnAuthorityScope,
+        ProjectWorkspaceTurnAuthoritySource,
     };
     use nodex_core_contracts::{AdapterKind, LibraryId, ProfileId, ProjectId};
     use rusqlite::params;
@@ -863,7 +864,7 @@ mod tests {
 
     fn request(operation_id: &str, page_id: &str) -> ModuleApplyRequest<LibraryIntent> {
         ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: LIBRARY_CONTRACT_VERSION,
             operation_id: operation_id.to_owned(),
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent: LibraryIntent::GrantProjectAccess {
@@ -959,7 +960,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     operation_id: "agent-thread".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: ProjectWorkspaceIntent::UpsertThread {
@@ -980,7 +981,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     operation_id: "agent-turn-authority".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: ProjectWorkspaceIntent::FreezeTurnAuthority {
@@ -999,7 +1000,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "agent-target-page".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreatePage {
@@ -1025,7 +1026,7 @@ mod tests {
             },
         };
         let plan_request = ModuleReadRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: LIBRARY_CONTRACT_VERSION,
             read: LibraryRead::PlanAgentResourceAccess {
                 provenance: Box::new(provenance.clone()),
                 call_id: "call:agent".to_owned(),
@@ -1061,7 +1062,7 @@ mod tests {
         );
 
         let grant_request = ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: LIBRARY_CONTRACT_VERSION,
             operation_id: "agent-persist-grant".to_owned(),
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent: LibraryIntent::PersistAgentProjectResourceGrants {
@@ -1097,7 +1098,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "agent-target-child".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreatePage {
@@ -1118,7 +1119,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "agent-foreign-target".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreatePage {
@@ -1139,7 +1140,7 @@ mod tests {
             module.read(
                 &context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::AgentSearch {
                         authorization: Box::new(authorization),
                         query: "target".to_owned(),
@@ -1195,7 +1196,7 @@ mod tests {
             .read(
                 &context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::AgentSearch {
                         authorization: Box::new(authorization.clone()),
                         query: "targat".to_owned(),
@@ -1231,7 +1232,7 @@ mod tests {
             .read(
                 &context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::AgentSearch {
                         authorization: Box::new(authorization.clone()),
                         query: "target".to_owned(),
@@ -1259,7 +1260,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "agent-search-stale-event".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreatePage {
@@ -1327,7 +1328,7 @@ mod tests {
                 .apply(
                     &persistent_context,
                     ModuleApplyRequest {
-                        version: CORE_CONTRACT_VERSION,
+                        contract_version: LIBRARY_CONTRACT_VERSION,
                         operation_id: format!("create:{page_id}"),
                         store_epoch: StoreEpoch("epoch-1".to_owned()),
                         intent: LibraryIntent::CreatePage {
@@ -1342,7 +1343,7 @@ mod tests {
         }
 
         let archive_request = ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: LIBRARY_CONTRACT_VERSION,
             operation_id: "lifecycle:archive-a".to_owned(),
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent: LibraryIntent::ApplyPageLifecycle {
@@ -1377,7 +1378,7 @@ mod tests {
             .apply(
                 &persistent_context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "lifecycle:unarchive-a".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::ApplyPageLifecycle {
@@ -1403,7 +1404,7 @@ mod tests {
             .apply(
                 &persistent_context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "lifecycle:move-b".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::ApplyPageLifecycle {
@@ -1457,7 +1458,7 @@ mod tests {
             .expect("Page lifecycle projections remain synchronized");
 
         let delete_request = ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: LIBRARY_CONTRACT_VERSION,
             operation_id: "lifecycle:delete-a".to_owned(),
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent: LibraryIntent::ApplyPageLifecycle {
@@ -1489,7 +1490,7 @@ mod tests {
             .apply(
                 &persistent_context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "lifecycle:restore-a".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::ApplyPageLifecycle {
@@ -1547,7 +1548,7 @@ mod tests {
             .apply(
                 &persistent_context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "lifecycle:stale".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::ApplyPageLifecycle {
@@ -1611,7 +1612,7 @@ mod tests {
             .apply(
                 &persistent_context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "create:default-database".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreateDatabase {
@@ -1635,7 +1636,7 @@ mod tests {
             })
             .expect("bind default Database");
         let create_request = ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: LIBRARY_CONTRACT_VERSION,
             operation_id: "lifecycle:create-page".to_owned(),
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent: LibraryIntent::ApplyPageLifecycle {
@@ -1696,7 +1697,7 @@ mod tests {
             .read(
                 &persistent_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageContent {
                         page_id: PAGE.to_owned(),
                     },
@@ -1713,7 +1714,7 @@ mod tests {
             .read(
                 &persistent_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageFile {
                         page_id: PAGE.to_owned(),
                         file_kind: LibraryPageFileKind::BodyNestedMarkdown,
@@ -1736,7 +1737,7 @@ mod tests {
             .read(
                 &persistent_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageFile {
                         page_id: PAGE.to_owned(),
                         file_kind: LibraryPageFileKind::MetaYaml,
@@ -1772,7 +1773,7 @@ mod tests {
             .read(
                 &persistent_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageFile {
                         page_id: PAGE.to_owned(),
                         file_kind: LibraryPageFileKind::BodyNestedMarkdown,
@@ -1786,7 +1787,7 @@ mod tests {
             .read(
                 &persistent_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageLifecyclePreflight {
                         page_id: PAGE.to_owned(),
                     },
@@ -2011,7 +2012,7 @@ mod tests {
                 .apply(
                     &persistent_context,
                     ModuleApplyRequest {
-                        version: CORE_CONTRACT_VERSION,
+                        contract_version: LIBRARY_CONTRACT_VERSION,
                         operation_id: operation_id.to_owned(),
                         store_epoch: StoreEpoch("epoch-1".to_owned()),
                         intent: OwnedDocumentIntent::PrepareOwner {
@@ -2071,7 +2072,7 @@ mod tests {
                 .read(
                     &persistent_context,
                     ModuleReadRequest {
-                        version: CORE_CONTRACT_VERSION,
+                        contract_version: LIBRARY_CONTRACT_VERSION,
                         read,
                     },
                 )
@@ -2102,7 +2103,7 @@ mod tests {
             .read(
                 &persistent_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageContent {
                         page_id: ROOT_PAGE.to_owned(),
                     },
@@ -2151,7 +2152,7 @@ mod tests {
             .read(
                 &root_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::ProjectPageSearch {
                         project_ids: vec!["missing-project".to_owned(), "project-1".to_owned()],
                         query: "say hi".to_owned(),
@@ -2173,7 +2174,7 @@ mod tests {
             .read(
                 &persistent_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::ProjectPageSearch {
                         project_ids: vec!["project-1".to_owned()],
                         query: "say hi".to_owned(),
@@ -2189,7 +2190,7 @@ mod tests {
             .read(
                 &untrusted_root_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::ProjectPageSearch {
                         project_ids: vec!["project-1".to_owned()],
                         query: "say hi".to_owned(),
@@ -2203,7 +2204,7 @@ mod tests {
             .read(
                 &untrusted_root_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageContent {
                         page_id: ROOT_PAGE.to_owned(),
                     },
@@ -2227,7 +2228,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageLocation {
                         page_id: ROW_PAGE.to_owned(),
                     },
@@ -2243,7 +2244,7 @@ mod tests {
             .read(
                 &persistent_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageLifecyclePreflight {
                         page_id: ROW_PAGE.to_owned(),
                     },
@@ -2271,7 +2272,7 @@ mod tests {
             .apply(
                 &persistent_context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "lifecycle:delete-row".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::ApplyPageLifecycle {
@@ -2298,7 +2299,7 @@ mod tests {
             .read(
                 &persistent_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageLifecyclePreflight {
                         page_id: ROW_PAGE.to_owned(),
                     },
@@ -2320,7 +2321,7 @@ mod tests {
             .apply(
                 &persistent_context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "lifecycle:restore-row".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::ApplyPageLifecycle {
@@ -2353,7 +2354,7 @@ mod tests {
             .read(
                 &persistent_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageLifecyclePreflight {
                         page_id: ROW_PAGE.to_owned(),
                     },
@@ -2380,7 +2381,7 @@ mod tests {
             .read(
                 &persistent_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageLocation {
                         page_id: ROW_PAGE.to_owned(),
                     },
@@ -2395,7 +2396,7 @@ mod tests {
             .apply(
                 &persistent_context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "create:nested-reference-page".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreatePage {
@@ -2421,7 +2422,7 @@ mod tests {
             .read(
                 &project_two_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageTarget {
                         page_id: NESTED_PAGE.to_owned(),
                     },
@@ -2441,7 +2442,7 @@ mod tests {
             .read(
                 &project_two_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageDetail {
                         page_id: NESTED_PAGE.to_owned(),
                     },
@@ -2453,7 +2454,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "grant:nested-reference-page".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::GrantProjectAccess {
@@ -2470,7 +2471,7 @@ mod tests {
             .read(
                 &project_two_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageTarget {
                         page_id: NESTED_PAGE.to_owned(),
                     },
@@ -2492,7 +2493,7 @@ mod tests {
             .read(
                 &project_two_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageOwnershipPath {
                         page_id: NESTED_PAGE.to_owned(),
                     },
@@ -2515,7 +2516,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "grant:root-reference-page".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::GrantProjectAccess {
@@ -2532,7 +2533,7 @@ mod tests {
             .read(
                 &project_two_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageOwnershipPath {
                         page_id: NESTED_PAGE.to_owned(),
                     },
@@ -2561,7 +2562,7 @@ mod tests {
             .read(
                 &missing_project_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageTarget {
                         page_id: NESTED_PAGE.to_owned(),
                     },
@@ -2601,7 +2602,7 @@ mod tests {
             .read(
                 &persistent_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::Children {
                         parent: LibraryNavigationParent::Library,
                         cursor: Some(cursor),
@@ -2677,7 +2678,7 @@ mod tests {
                 .apply(
                     &persistent_context,
                     ModuleApplyRequest {
-                        version: CORE_CONTRACT_VERSION,
+                        contract_version: LIBRARY_CONTRACT_VERSION,
                         operation_id: operation_id.to_owned(),
                         store_epoch: StoreEpoch("epoch-1".to_owned()),
                         intent: LibraryIntent::CreatePage {
@@ -2717,7 +2718,7 @@ mod tests {
             .read(
                 &persistent_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PlanBlockTransfer {
                         operation_id: "move-transfer-root".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -2742,7 +2743,7 @@ mod tests {
             .apply(
                 &persistent_context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "move-transfer-root".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
@@ -2757,7 +2758,7 @@ mod tests {
             .apply(
                 &persistent_context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "move-transfer-root".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
@@ -2806,7 +2807,7 @@ mod tests {
             .read(
                 &reconnected,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PlanBlockTransfer {
                         operation_id: "move-transfer-root".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -2838,7 +2839,7 @@ mod tests {
             .read(
                 &persistent_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PlanBlockTransfer {
                         operation_id: "copy-transfer-root".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -2857,7 +2858,7 @@ mod tests {
             .apply(
                 &persistent_context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "copy-transfer-root".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
@@ -2967,7 +2968,7 @@ mod tests {
                 .apply(
                     context,
                     ModuleApplyRequest {
-                        version: CORE_CONTRACT_VERSION,
+                        contract_version: LIBRARY_CONTRACT_VERSION,
                         operation_id: operation_id.to_owned(),
                         store_epoch: StoreEpoch("epoch-1".to_owned()),
                         intent: LibraryIntent::CreatePage {
@@ -3014,7 +3015,7 @@ mod tests {
             .read(
                 &local_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PlanBlockTransfer {
                         operation_id: "copy-without-source-grant".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -3040,7 +3041,7 @@ mod tests {
             .read(
                 &local_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PlanBlockTransfer {
                         operation_id: "copy-page-without-source-grant".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -3055,7 +3056,7 @@ mod tests {
             module.apply(
                 &foreign_context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: operation_id.to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::GrantProjectAccess {
@@ -3085,7 +3086,7 @@ mod tests {
             .read(
                 &local_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PlanBlockTransfer {
                         operation_id: "copy-granted-page-to-library".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -3104,7 +3105,7 @@ mod tests {
             .apply(
                 &local_context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "copy-granted-page-to-library".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
@@ -3127,7 +3128,7 @@ mod tests {
             .read(
                 &local_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PlanBlockTransfer {
                         operation_id: "copy-from-granted-source".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -3146,7 +3147,7 @@ mod tests {
             .apply(
                 &local_context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "copy-from-granted-source".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
@@ -3182,7 +3183,7 @@ mod tests {
             .read(
                 &local_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PlanBlockTransfer {
                         operation_id: "move-with-read-source-grant".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -3202,7 +3203,7 @@ mod tests {
             .read(
                 &local_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PlanBlockTransfer {
                         operation_id: "move-between-granted-pages".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -3221,7 +3222,7 @@ mod tests {
             .apply(
                 &local_context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "move-between-granted-pages".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
@@ -3249,7 +3250,7 @@ mod tests {
             .read(
                 &local_context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PlanBlockTransfer {
                         operation_id: "move-into-granted-storage".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -3268,7 +3269,7 @@ mod tests {
             .apply(
                 &local_context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "move-into-granted-storage".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
@@ -3412,7 +3413,7 @@ mod tests {
                 .apply(
                     &context,
                     ModuleApplyRequest {
-                        version: CORE_CONTRACT_VERSION,
+                        contract_version: LIBRARY_CONTRACT_VERSION,
                         operation_id: operation_id.to_owned(),
                         store_epoch: StoreEpoch("epoch-1".to_owned()),
                         intent: LibraryIntent::CreatePage {
@@ -3429,7 +3430,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "create-transform-database".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreateDatabase {
@@ -3484,7 +3485,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "shape-promote-source".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: OwnedDocumentIntent::ApplyOperationBatch {
@@ -3523,7 +3524,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "shape-wrapper-source".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: OwnedDocumentIntent::ApplyOperationBatch {
@@ -3583,7 +3584,7 @@ mod tests {
             .read(
                 &context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PlanBlockTransfer {
                         operation_id: "promote-root-to-library".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -3604,7 +3605,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "promote-root-to-library".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
@@ -3643,7 +3644,7 @@ mod tests {
             .read(
                 &context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PlanBlockTransfer {
                         operation_id: "copy-wrapper-to-library".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -3662,7 +3663,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "copy-wrapper-to-library".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
@@ -3705,7 +3706,7 @@ mod tests {
             .read(
                 &context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PlanBlockTransfer {
                         operation_id: "copy-wrapper-to-data-source".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -3727,7 +3728,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "copy-wrapper-to-data-source".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
@@ -3911,7 +3912,7 @@ mod tests {
             .read(
                 &context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PlanBlockTransfer {
                         operation_id: "return-page-to-library".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -3942,7 +3943,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "return-page-to-library".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
@@ -3957,7 +3958,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "return-page-to-library".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
@@ -4005,7 +4006,7 @@ mod tests {
             .read(
                 &context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PlanBlockTransfer {
                         operation_id: "return-page-to-data-source".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -4027,7 +4028,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "return-page-to-data-source".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
@@ -4085,7 +4086,7 @@ mod tests {
             .read(
                 &context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PlanBlockTransfer {
                         operation_id: "move-data-source-page-into-page".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -4113,7 +4114,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "move-data-source-page-into-page".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
@@ -4157,7 +4158,7 @@ mod tests {
             .read(
                 &context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PlanBlockTransfer {
                         operation_id: "move-nested-page-to-library".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -4181,7 +4182,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "move-nested-page-to-library".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
@@ -4237,7 +4238,7 @@ mod tests {
             .read(
                 &context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PlanBlockTransfer {
                         operation_id: "move-library-page-into-document".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -4256,7 +4257,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "move-library-page-into-document".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
@@ -4295,7 +4296,7 @@ mod tests {
             .read(
                 &context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PlanBlockTransfer {
                         operation_id: "move-page-between-documents".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -4315,7 +4316,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "move-page-between-documents".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
@@ -4354,7 +4355,7 @@ mod tests {
             .read(
                 &context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PlanBlockTransfer {
                         operation_id: "reject-page-ownership-cycle".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -4381,7 +4382,7 @@ mod tests {
             .read(
                 &context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PlanBlockTransfer {
                         operation_id: "copy-recursive-page-ownership".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -4401,7 +4402,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "copy-recursive-page-ownership".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
@@ -4458,7 +4459,7 @@ mod tests {
             .read(
                 &context,
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PlanBlockTransfer {
                         operation_id: "copy-multiple-pages-into-nested-target".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -4484,7 +4485,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "copy-multiple-pages-into-nested-target".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
@@ -4608,7 +4609,7 @@ mod tests {
             .apply(
                 &persistent_context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "property:create-database".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreateDatabase {
@@ -4635,7 +4636,7 @@ mod tests {
             .apply(
                 &persistent_context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "property:create-page".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::ApplyPageLifecycle {
@@ -4675,7 +4676,7 @@ mod tests {
             )
             .expect("create Page");
         let request = ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: LIBRARY_CONTRACT_VERSION,
             operation_id: "property:mixed".to_owned(),
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent: LibraryIntent::ApplyBlockPropertyMutation {
@@ -4737,7 +4738,7 @@ mod tests {
             .apply(
                 &persistent_context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "property:conflict".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::ApplyBlockPropertyMutation {
@@ -4774,7 +4775,7 @@ mod tests {
             .apply(
                 &persistent_context,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "property:invalid-schedule".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::ApplyBlockPropertyMutation {
@@ -4806,7 +4807,7 @@ mod tests {
         assert!(invalid_schedule.event.is_none());
 
         let invalid_actor_request = ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: LIBRARY_CONTRACT_VERSION,
             operation_id: "property:invalid-actor".to_owned(),
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent: LibraryIntent::ApplyBlockPropertyMutation {

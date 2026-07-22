@@ -24,8 +24,8 @@ use nodex_core_contracts::database::{
     DatabaseCommitValue, DatabaseIntent, DatabaseRead, DatabaseReadValue, DatabaseReceipt,
 };
 use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent,
-    CommittedModuleValue, CoreError, CoreErrorCode, CoreErrorRecovery, ModuleApplyRequest,
+    AdapterKind, BoundModuleContext, CommittedCoreModuleEvent, CommittedModuleValue, CoreError,
+    CoreErrorCode, CoreErrorRecovery, DATABASE_CONTRACT_VERSION, ModuleApplyRequest,
     ModuleReadRequest, ModuleReadSnapshot,
 };
 use rusqlite::OptionalExtension;
@@ -75,7 +75,7 @@ impl DatabaseModule {
         request: ModuleReadRequest<DatabaseRead>,
     ) -> Result<ModuleReadSnapshot<DatabaseReadValue>, CoreError> {
         self.validate_context(context)?;
-        if request.version != CORE_CONTRACT_VERSION {
+        if request.contract_version != DATABASE_CONTRACT_VERSION {
             return Err(invalid("unsupported Database contract version"));
         }
         let Some(readers) = &self.readers else {
@@ -123,7 +123,7 @@ impl DatabaseModule {
                 )?;
                 transaction.commit()?;
                 Ok(ModuleReadSnapshot {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     store_epoch: nodex_core_contracts::StoreEpoch(store_epoch),
                     event_head,
                     value,
@@ -138,7 +138,7 @@ impl DatabaseModule {
         request: ModuleApplyRequest<Vec<DatabaseIntent>>,
     ) -> Result<DatabaseApplyOutcome, CoreError> {
         self.validate_context(context)?;
-        if request.version != CORE_CONTRACT_VERSION {
+        if request.contract_version != DATABASE_CONTRACT_VERSION {
             return Err(invalid("unsupported Database contract version"));
         }
         let Some(writer) = &self.writer else {
@@ -243,10 +243,13 @@ mod tests {
         DatabaseAgentQuery, DatabaseIntent, DatabaseReadMode, DatabaseTarget,
         DatabaseTransferTarget,
     };
-    use nodex_core_contracts::library::{LibraryIntent, LibraryWriteParent};
+    use nodex_core_contracts::library::{
+        LIBRARY_CONTRACT_VERSION, LibraryIntent, LibraryWriteParent,
+    };
     use nodex_core_contracts::workspace::{
-        ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch, ProjectWorkspaceTurnAuthority,
-        ProjectWorkspaceTurnAuthorityScope, ProjectWorkspaceTurnAuthoritySource,
+        PROJECT_WORKSPACE_CONTRACT_VERSION, ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch,
+        ProjectWorkspaceTurnAuthority, ProjectWorkspaceTurnAuthorityScope,
+        ProjectWorkspaceTurnAuthoritySource,
     };
     use nodex_core_contracts::{
         AdapterKind, CoreModuleEventPayload, LibraryId, ModuleApplyRequest, ProfileId, ProjectId,
@@ -324,7 +327,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:database-read-fixture".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreateDatabase {
@@ -341,7 +344,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:database-row-page".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreatePage {
@@ -357,7 +360,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:database-row-page-2".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreatePage {
@@ -469,7 +472,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     operation_id: "operation:database-agent-thread".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: ProjectWorkspaceIntent::UpsertThread {
@@ -490,7 +493,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     operation_id: "operation:database-agent-turn".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: ProjectWorkspaceIntent::FreezeTurnAuthority {
@@ -527,7 +530,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     read: DatabaseRead {
                         target: DatabaseTarget::AgentDataSource {
                             data_source_id: SOURCE_ID.to_owned(),
@@ -562,7 +565,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     read: DatabaseRead {
                         target: DatabaseTarget::AgentDataSource {
                             data_source_id: SOURCE_ID.to_owned(),
@@ -594,7 +597,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     operation_id: "operation:database-agent-page-2-cleanup".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: vec![DatabaseIntent::TransferPage {
@@ -616,7 +619,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     read: DatabaseRead {
                         target: DatabaseTarget::AgentDataSource {
                             data_source_id: SOURCE_ID.to_owned(),
@@ -639,7 +642,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     read: DatabaseRead {
                         target: DatabaseTarget::ProjectDefault,
                         mode: DatabaseReadMode::Catalog,
@@ -660,7 +663,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     read: DatabaseRead {
                         target: DatabaseTarget::DataSource {
                             data_source_id: SOURCE_ID.to_owned(),
@@ -702,7 +705,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     read: DatabaseRead {
                         target: DatabaseTarget::Page {
                             page_id: "page:database-row".to_owned(),
@@ -741,7 +744,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     read: DatabaseRead {
                         target: DatabaseTarget::Page {
                             page_id: "page:database-row".to_owned(),
@@ -780,7 +783,7 @@ mod tests {
             .expect("restore Database Page fixture");
 
         let request = ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: DATABASE_CONTRACT_VERSION,
             operation_id: "operation:database-schema-values".to_owned(),
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent: vec![
@@ -900,7 +903,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     operation_id: "operation:database-rollback".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: vec![
@@ -930,7 +933,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     read: DatabaseRead {
                         target: DatabaseTarget::DataSource {
                             data_source_id: SOURCE_ID.to_owned(),
@@ -974,7 +977,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     operation_id: "operation:database-view-position".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: vec![
@@ -1025,7 +1028,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     operation_id: "operation:database-view-regroup".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: vec![
@@ -1055,7 +1058,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     read: DatabaseRead {
                         target: DatabaseTarget::View {
                             view_id: SECOND_VIEW_ID.to_owned(),
@@ -1102,7 +1105,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     operation_id: "operation:database-delete-old-view".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: vec![DatabaseIntent::DeleteView {
@@ -1117,7 +1120,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     read: DatabaseRead {
                         target: DatabaseTarget::View {
                             view_id: VIEW_ID.to_owned(),
@@ -1139,7 +1142,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     operation_id: "operation:database-row-to-library".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: vec![DatabaseIntent::TransferPage {
@@ -1157,7 +1160,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     read: DatabaseRead {
                         target: DatabaseTarget::DataSource {
                             data_source_id: SOURCE_ID.to_owned(),
@@ -1181,7 +1184,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     operation_id: "operation:database-row-return".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: vec![DatabaseIntent::TransferPage {
@@ -1199,7 +1202,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     read: DatabaseRead {
                         target: DatabaseTarget::DataSource {
                             data_source_id: SOURCE_ID.to_owned(),
@@ -1220,7 +1223,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     operation_id: "operation:database-page-parent-rejected".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: vec![DatabaseIntent::TransferPage {
@@ -1240,7 +1243,7 @@ mod tests {
             .read(
                 &library_context(AdapterKind::Test),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     read: DatabaseRead {
                         target: DatabaseTarget::DataSource {
                             data_source_id: SOURCE_ID.to_owned(),
@@ -1263,7 +1266,7 @@ mod tests {
             .read(
                 &library_context(AdapterKind::Agent),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     read: DatabaseRead {
                         target: DatabaseTarget::DataSource {
                             data_source_id: SOURCE_ID.to_owned(),
@@ -1281,7 +1284,7 @@ mod tests {
             .apply(
                 &library_context(AdapterKind::Test),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                     operation_id: "operation:library-database-property".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: vec![DatabaseIntent::PutProperty {

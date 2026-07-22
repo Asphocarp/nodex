@@ -14,9 +14,9 @@ use nodex_core_contracts::administration::{
     StoreAdministrationReceipt, StoreIntegrity, StoreReadiness,
 };
 use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent,
-    CommittedModuleValue, CoreError, CoreErrorCode, CoreErrorRecovery, ModuleApplyRequest,
-    ModuleMutationReceipt, ModuleReadRequest, ModuleReadSnapshot, ProjectionImpact, StoreEpoch,
+    AdapterKind, BoundModuleContext, CommittedCoreModuleEvent, CommittedModuleValue, CoreError,
+    CoreErrorCode, CoreErrorRecovery, ModuleApplyRequest, ModuleMutationReceipt, ModuleReadRequest,
+    ModuleReadSnapshot, ProjectionImpact, STORE_ADMINISTRATION_CONTRACT_VERSION, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
@@ -108,7 +108,7 @@ impl StoreAdministrationModule {
         request: ModuleReadRequest<StoreAdministrationRead>,
     ) -> Result<ModuleReadSnapshot<StoreAdministrationReadValue>, CoreError> {
         self.validate_context(context)?;
-        if request.version != CORE_CONTRACT_VERSION {
+        if request.contract_version != STORE_ADMINISTRATION_CONTRACT_VERSION {
             return Err(invalid("unsupported Store Administration contract version"));
         }
         let Some(readers) = &self.readers else {
@@ -196,7 +196,7 @@ impl StoreAdministrationModule {
                 };
                 transaction.commit()?;
                 Ok(ModuleReadSnapshot {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: STORE_ADMINISTRATION_CONTRACT_VERSION,
                     store_epoch: StoreEpoch(store_epoch),
                     event_head,
                     value,
@@ -213,7 +213,7 @@ impl StoreAdministrationModule {
         request: ModuleApplyRequest<StoreAdministrationIntent>,
     ) -> Result<StoreAdministrationApplyOutcome, CoreError> {
         self.validate_context(context)?;
-        if request.version != CORE_CONTRACT_VERSION {
+        if request.contract_version != STORE_ADMINISTRATION_CONTRACT_VERSION {
             return Err(invalid("unsupported Store Administration contract version"));
         }
         require_private_adapter(context)?;
@@ -291,7 +291,7 @@ impl StoreAdministrationModule {
         let fingerprint = serde_json::to_vec(&(
             &self.profile_id,
             &self.library_id,
-            request.version,
+            request.contract_version,
             &request.store_epoch,
             &normalized_label,
             include_assets,
@@ -385,7 +385,7 @@ impl StoreAdministrationModule {
         let fingerprint = serde_json::to_vec(&(
             &self.profile_id,
             &self.library_id,
-            request.version,
+            request.contract_version,
             &request.store_epoch,
             "delete_backup",
             &backup_id,
@@ -475,7 +475,7 @@ impl StoreAdministrationModule {
         let fingerprint = serde_json::to_vec(&(
             &self.profile_id,
             &self.library_id,
-            request.version,
+            request.contract_version,
             &request.store_epoch,
             "prune_backups",
             retain_count,
@@ -561,7 +561,7 @@ impl StoreAdministrationModule {
         let fingerprint = serde_json::to_vec(&(
             &self.profile_id,
             &self.library_id,
-            request.version,
+            request.contract_version,
             &request.store_epoch,
             "run_maintenance",
             &tasks,
@@ -658,7 +658,7 @@ impl StoreAdministrationModule {
         let fingerprint = serde_json::to_vec(&(
             &self.profile_id,
             &self.library_id,
-            request.version,
+            request.contract_version,
             "restore_backup",
             &backup_id,
             create_safety_backup,

@@ -18,7 +18,10 @@ import {
   createDesktopDocumentSyncBridge,
 } from "./desktop-document-sync-bridge";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
-import { FakeCoreClient } from "./testing/fake-core-client";
+import {
+  createFakeCoreHandshake,
+  FakeCoreClient,
+} from "./testing/fake-core-client";
 
 class FakeTarget implements DocumentSyncClientTarget {
   readonly sent: Array<{ readonly channel: string; readonly payload: unknown }> = [];
@@ -50,12 +53,12 @@ const rustRuntime = (
   projectClient: FakeCoreClient = rootClient,
 ): RustDataAuthorityRuntime => {
   Object.assign(rootClient, {
-    handshake: {
-      library_id: "library:test",
-      profile_id: "profile:test",
-      store_epoch: "epoch:test",
-      connection_binding: "binding:test",
-    },
+    handshake: createFakeCoreHandshake({
+      connectionBinding: "binding:test",
+      libraryId: "library:test",
+      profileId: "profile:test",
+      storeEpoch: "epoch:test",
+    }),
   });
   return {
     backend: "rust",
@@ -77,7 +80,7 @@ const canvasSubscribeRequest = {
 } as const;
 
 const canvasSyncSnapshot = () => ({
-  version: 1 as const,
+  contract_version: 1 as const,
   store_epoch: "epoch:canvas",
   event_head: 0,
   value: {
@@ -105,7 +108,7 @@ const canvasSyncSnapshot = () => ({
 });
 
 const ownedDocumentDescriptorSnapshot = (projectId = "project:one") => ({
-  version: 1 as const,
+  contract_version: 1 as const,
   store_epoch: "epoch:test",
   event_head: 2,
   value: {
@@ -398,7 +401,7 @@ describe("Desktop Document sync bridge", () => {
       authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
     });
     projectClient.enqueueDocumentRead({
-      version: 1,
+      contract_version: 1,
       store_epoch: "epoch:test",
       event_head: 4,
       value: {
@@ -691,7 +694,7 @@ describe("Desktop Document sync bridge", () => {
       },
     } as const;
     const preparedSnapshot = {
-      version: 1 as const,
+      contract_version: 1 as const,
       store_epoch: "epoch:test",
       event_head: 8,
       value: {

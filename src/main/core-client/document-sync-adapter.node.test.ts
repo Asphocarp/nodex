@@ -5,7 +5,7 @@ import { createCoreDocumentSyncAdapter } from "./document-sync-adapter";
 import { FakeCoreClient } from "./testing/fake-core-client";
 
 const descriptorSnapshot = () => ({
-  version: 1 as const,
+  contract_version: 1 as const,
   store_epoch: "epoch:test",
   event_head: 4,
   value: {
@@ -336,7 +336,7 @@ describe("Core Document sync adapter", () => {
       versionId: documentVersionSummary().versionId,
     };
     client.enqueueDocumentRead({
-      version: 1,
+      contract_version: 1,
       store_epoch: "epoch:test",
       event_head: 8,
       value: {
@@ -370,7 +370,7 @@ describe("Core Document sync adapter", () => {
     });
 
     client.enqueueDocumentRead({
-      version: 1,
+      contract_version: 1,
       store_epoch: "epoch:test",
       event_head: 8,
       value: { kind: "version", value: documentVersionDetail() },

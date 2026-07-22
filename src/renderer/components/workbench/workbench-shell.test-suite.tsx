@@ -33,6 +33,9 @@ import type {
   ProjectSession,
   ProjectSessionPanelNode,
   ProjectSessionTab,
+  ProjectSessionTabConfiguration,
+  ProjectSessionTabCreateInput,
+  ProjectSessionTabUpdateInput,
   WorktreeEnvironmentOption,
 } from "@/lib/types";
 import { resetDatabaseRowDetailStoreForTests } from "@/lib/database-row-detail-store";
@@ -96,6 +99,7 @@ import {
   removeProjectSessionPanelTab,
   splitProjectSessionPanelLeaf,
 } from "../../../shared/project-session-panel-layout";
+import { parseProjectSessionTabConfig } from "../../../shared/schemas/project-sessions";
 import {
   WORKBENCH_AUTOMATION_CREATE_WITH_CHAT_PROMPT,
   WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS,
@@ -1385,18 +1389,35 @@ function makePanels(options: {
   };
 }
 
-type SessionTabFixture = Partial<ProjectSessionTab> & Pick<ProjectSessionTab, "id" | "kind" | "title" | "config">;
+type SessionTabFixtureCommon = Pick<ProjectSessionTab, "id" | "title"> &
+  Partial<Pick<
+    ProjectSessionTab,
+    | "sessionId"
+    | "projectId"
+    | "panelId"
+    | "order"
+    | "stateKey"
+    | "state"
+    | "createdAt"
+    | "updatedAt"
+  >>;
+type SessionTabFixture<
+  Configuration extends ProjectSessionTabConfiguration = ProjectSessionTabConfiguration,
+> = Configuration extends { kind: "browser" }
+  ? Configuration & SessionTabFixtureCommon & { browserTabId?: string }
+  : Configuration & SessionTabFixtureCommon & { browserTabId?: never };
+type SessionTabInput = SessionTabFixture | ProjectSessionTab;
 type SessionFixtureOverrides = Omit<Partial<ProjectSession>, "tabs"> & {
   title?: string;
   threadId?: string;
-  tabs?: SessionTabFixture[];
+  tabs?: SessionTabInput[];
   rightCollapsed?: boolean;
   rightFullWidth?: boolean;
   rightLayout?: ProjectSession["panels"]["right"]["layout"];
 };
 
-function makeSessionTab(overrides: SessionTabFixture): ProjectSessionTab {
-  const tab: ProjectSessionTab = {
+function makeSessionTab(overrides: SessionTabInput): ProjectSessionTab {
+  const base = {
     sessionId: "session:alpha:database-view",
     projectId: "alpha",
     panelId: "right",
@@ -1405,10 +1426,24 @@ function makeSessionTab(overrides: SessionTabFixture): ProjectSessionTab {
     state: {},
     createdAt: "2026-06-07T00:00:00.000Z",
     updatedAt: "2026-06-07T00:00:00.000Z",
-    ...overrides,
-    browserTabId: overrides.browserTabId
-      ?? (overrides.kind === "browser" ? `browser:${overrides.id}` : null),
-  };
+  } satisfies Pick<
+    ProjectSessionTab,
+    | "sessionId"
+    | "projectId"
+    | "panelId"
+    | "order"
+    | "stateKey"
+    | "state"
+    | "createdAt"
+    | "updatedAt"
+  >;
+  const tab: ProjectSessionTab = overrides.kind === "browser"
+    ? {
+        ...base,
+        ...overrides,
+        browserTabId: overrides.browserTabId ?? `browser:${overrides.id}`,
+      }
+    : { ...base, ...overrides, browserTabId: null };
   if (
     tab.kind !== "db_view"
     || !("projectId" in tab.config)
@@ -1423,6 +1458,33 @@ function makeSessionTab(overrides: SessionTabFixture): ProjectSessionTab {
       databaseViewId: `database-view:${tab.config.projectId}:primary-kanban`,
     },
   };
+}
+
+function updateSessionTab(
+  tab: ProjectSessionTab,
+  input: ProjectSessionTabUpdateInput,
+  updatedAt: string,
+): ProjectSessionTab {
+  const common = {
+    ...(input.title !== undefined ? { title: input.title } : {}),
+    ...(input.stateKey !== undefined ? { stateKey: input.stateKey } : {}),
+    ...(Object.prototype.hasOwnProperty.call(input, "state") ? { state: input.state } : {}),
+    updatedAt,
+  };
+  switch (tab.kind) {
+    case "db_view":
+      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseProjectSessionTabConfig(tab.kind, input.config) }) };
+    case "page_stage":
+      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseProjectSessionTabConfig(tab.kind, input.config) }) };
+    case "terminal":
+      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseProjectSessionTabConfig(tab.kind, input.config) }) };
+    case "browser":
+      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseProjectSessionTabConfig(tab.kind, input.config) }) };
+    case "review":
+      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseProjectSessionTabConfig(tab.kind, input.config) }) };
+    case "files":
+      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseProjectSessionTabConfig(tab.kind, input.config) }) };
+  }
 }
 
 function makeSession(overrides: SessionFixtureOverrides = {}): ProjectSession {
@@ -1445,7 +1507,7 @@ function makeSession(overrides: SessionFixtureOverrides = {}): ProjectSession {
     ?? noThreadFallbackTitle;
   const databaseViewStarter = thread === null && noThreadFallbackTitle === "Database View";
   const tabId = `${sessionId}:db`;
-  const defaultTabs: SessionTabFixture[] = projectId === null ? [] : [
+  const defaultTabs: SessionTabInput[] = projectId === null ? [] : [
     makeSessionTab({
       id: tabId,
       sessionId,
@@ -2475,16 +2537,7 @@ function renderWorkbench({
       return session;
     }
     if (channel === "project-session-tabs:create") {
-      const input = (args[0] ?? {}) as {
-        sessionId: string;
-        panelId?: ProjectSessionTab["panelId"];
-        targetLeafId?: string;
-        clientTabId?: string;
-        browserTabId?: string;
-        kind: ProjectSession["tabs"][number]["kind"];
-        title: string;
-        config: ProjectSession["tabs"][number]["config"];
-      };
+      const input = (args[0] ?? {}) as ProjectSessionTabCreateInput;
       const session = Object.values(sessionState).flat().find((item) => item.id === input.sessionId);
       if (!session) return null;
       if (input.kind === "review") {
@@ -2539,23 +2592,13 @@ function renderWorkbench({
         throw new Error(`Project session tab id already exists: ${input.clientTabId}`);
       }
       const tabId = input.clientTabId ?? `created-tab-${session.tabs.length + 1}`;
-      const tab = {
+      const tab = makeSessionTab({
+        ...input,
         id: tabId,
-        sessionId: input.sessionId,
         projectId: session.projectId,
-        browserTabId: input.kind === "browser"
-          ? input.browserTabId ?? `browser:${tabId}`
-          : null,
         panelId,
-        kind: input.kind,
-        title: input.title,
         order: session.tabs.filter((item) => item.panelId === panelId).length,
-        config: input.config,
-        stateKey: 0,
-        state: {},
-        createdAt: "2026-06-07T00:00:00.000Z",
-        updatedAt: "2026-06-07T00:00:00.000Z",
-      } as ProjectSession["tabs"][number];
+      });
       const tabs = [...session.tabs, tab];
       const targetLeafId = input.targetLeafId ?? session.panels[panelId].layout.activeLeafId ?? firstPanelLeafId(session.panels[panelId].layout.root);
       sessionState = replaceSession(sessionState, {
@@ -2574,7 +2617,7 @@ function renderWorkbench({
     }
     if (channel === "project-session-tabs:update") {
       const tabId = String(args[0]);
-      const input = (args[1] ?? {}) as Partial<ProjectSession["tabs"][number]>;
+      const input = (args[1] ?? {}) as ProjectSessionTabUpdateInput;
       const session = Object.values(sessionState)
         .flat()
         .find((item) => item.tabs.some((tab) => tab.id === tabId));
@@ -2582,7 +2625,7 @@ function renderWorkbench({
 
       const updatedTabs = session.tabs.map((tab) =>
         tab.id === tabId
-          ? { ...tab, ...input, updatedAt: "2026-06-07T00:00:00.000Z" }
+          ? updateSessionTab(tab, input, "2026-06-07T00:00:00.000Z")
           : tab,
       );
       const updatedSession = { ...session, tabs: updatedTabs };

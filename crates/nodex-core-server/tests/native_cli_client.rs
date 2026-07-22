@@ -36,17 +36,23 @@ fn native_client_cold_starts_reuses_and_reads_the_authenticated_core() {
         .expect("cold native client launch");
     let expected_schema_version =
         u32::try_from(CORE_SCHEMA_VERSION).expect("Core schema version fits the wire contract");
-    let pid = client.handshake.pid;
+    let pid = client.handshake.generation.pid;
     let guard = ProcessGuard(pid);
-    assert_eq!(client.descriptor.pid, client.handshake.pid);
+    assert_eq!(client.descriptor.pid, client.handshake.generation.pid);
     assert_eq!(client.handshake.schema_version, expected_schema_version);
 
     let second = CoreClient::connect(&home, "native-client-test").expect("reuse running Core");
-    assert_eq!(second.handshake.pid, client.handshake.pid);
-    assert_eq!(second.handshake.start_nonce, client.handshake.start_nonce);
+    assert_eq!(
+        second.handshake.generation.pid,
+        client.handshake.generation.pid
+    );
+    assert_eq!(
+        second.handshake.generation.start_nonce,
+        client.handshake.generation.start_nonce
+    );
 
     let health = client.health().expect("health");
-    assert_eq!(health.pid, client.handshake.pid);
+    assert_eq!(health.pid, client.handshake.generation.pid);
     let response = client
         .administration_read(StoreAdministrationRead::Status)
         .expect("administration status");
@@ -68,7 +74,7 @@ fn native_client_cold_starts_reuses_and_reads_the_authenticated_core() {
         .workspace_apply(
             None,
             ModuleApplyRequest {
-                version: <nodex_core_contracts::workspace::ProjectWorkspaceContract as VersionedModuleContract>::VERSION,
+                contract_version: <nodex_core_contracts::workspace::ProjectWorkspaceContract as VersionedModuleContract>::VERSION,
                 operation_id: "native-client:create-project".to_owned(),
                 store_epoch: store_epoch.clone(),
                 intent: ProjectWorkspaceIntent::CreateProject {
@@ -86,7 +92,7 @@ fn native_client_cold_starts_reuses_and_reads_the_authenticated_core() {
         .library_apply(
             Some(project_id),
             ModuleApplyRequest {
-                version: nodex_core_contracts::library::LIBRARY_CONTRACT_VERSION,
+                contract_version: nodex_core_contracts::library::LIBRARY_CONTRACT_VERSION,
                 operation_id: "native-client:create-page".to_owned(),
                 store_epoch: store_epoch.clone(),
                 intent: LibraryIntent::CreatePage {
@@ -103,7 +109,7 @@ fn native_client_cold_starts_reuses_and_reads_the_authenticated_core() {
         .library_apply(
             None,
             ModuleApplyRequest {
-                version: nodex_core_contracts::library::LIBRARY_CONTRACT_VERSION,
+                contract_version: nodex_core_contracts::library::LIBRARY_CONTRACT_VERSION,
                 operation_id: "native-client:grant-page".to_owned(),
                 store_epoch,
                 intent: LibraryIntent::GrantProjectAccess {

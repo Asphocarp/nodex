@@ -17,8 +17,8 @@ use crate::document::{
 
 use super::document_repository::{DocumentHeadRow, DocumentReadRepository};
 use super::schema::{
-    CORE_SCHEMA_VERSION, TYPESCRIPT_SCHEMA_VERSION, read_schema_inventory, v84_schema_objects_sql,
-    validate_exact_v84_schema,
+    CORE_SCHEMA_VERSION, TYPESCRIPT_SCHEMA_VERSION, install_v84_schema, read_schema_inventory,
+    schema_inventory_fingerprint, v84_schema_objects_sql, validate_exact_v84_schema,
 };
 use super::sqlite::{
     StoreError, StoreErrorCode, open_immutable_reader, validate_store, with_immediate_transaction,
@@ -1378,6 +1378,37 @@ fn validate_exact_core_schema(
     Err(corrupt(format!(
         "v{schema_version} physical schema does not match the frozen Rust Core schema ({missing} missing, {unexpected} unexpected, {changed} changed objects)"
     )))
+}
+
+pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreError> {
+    let expected = Connection::open_in_memory()?;
+    if version == TYPESCRIPT_SCHEMA_VERSION {
+        install_v84_schema(&expected)?;
+        return read_schema_inventory(&expected)
+            .map(|inventory| schema_inventory_fingerprint(&inventory));
+    }
+    if !(85..=CORE_SCHEMA_VERSION).contains(&version) {
+        return Err(StoreError::new(
+            StoreErrorCode::UnsupportedSchema,
+            format!("No exact Rust Core schema inventory is published for v{version}"),
+            false,
+        ));
+    }
+    expected.execute_batch(v84_schema_objects_sql())?;
+    expected.execute_batch(V85_SCHEMA_SQL)?;
+    expected.execute_batch(V85_EXECUTION_SCHEMA_SQL)?;
+    ensure_automation_definition_revision(&expected)?;
+    ensure_automation_run_revision(&expected)?;
+    if version >= 86 {
+        ensure_v86_execution_profile_schema(&expected)?;
+    }
+    if version >= 87 {
+        ensure_v87_project_session_tabs_schema(&expected)?;
+    }
+    if version >= 88 {
+        ensure_v88_projection_impact_schema(&expected)?;
+    }
+    read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
 
 fn apply_update(

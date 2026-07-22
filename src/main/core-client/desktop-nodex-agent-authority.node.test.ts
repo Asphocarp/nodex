@@ -2,7 +2,10 @@ import { describe, expect, test } from "vitest";
 
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { createDesktopNodexAgentAuthorityPort } from "./desktop-nodex-agent-authority";
-import { FakeCoreClient } from "./testing/fake-core-client";
+import {
+  createFakeCoreHandshake,
+  FakeCoreClient,
+} from "./testing/fake-core-client";
 
 const project = {
   id: "project:one",
@@ -37,11 +40,11 @@ const runtimeFor = (
 ): RustDataAuthorityRuntime => ({
   backend: "rust",
   rootClient: Object.assign(client, {
-    handshake: {
-      library_id: "library:test",
-      profile_id: "profile:test",
-      store_epoch: "epoch:test",
-    },
+    handshake: createFakeCoreHandshake({
+      libraryId: "library:test",
+      profileId: "profile:test",
+      storeEpoch: "epoch:test",
+    }),
   }),
   clientForProject: () => client,
   close: async () => undefined,
@@ -51,7 +54,7 @@ describe("Desktop Nodex Agent Turn authority", () => {
   test("freezes and rereads one exact Turn through Project Workspace Core", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
-      version: 1,
+      contract_version: 1,
       event_head: 1,
       store_epoch: "epoch:test",
       value: { kind: "project", project },
@@ -72,7 +75,7 @@ describe("Desktop Nodex Agent Turn authority", () => {
       store_epoch: "epoch:test",
     });
     client.enqueueWorkspaceRead({
-      version: 1,
+      contract_version: 1,
       event_head: 2,
       store_epoch: "epoch:test",
       value: {
@@ -124,7 +127,7 @@ describe("Desktop Nodex Agent Turn authority", () => {
   test("returns Core's unpersisted Project fallback without freezing it", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
-      version: 1,
+      contract_version: 1,
       event_head: 1,
       store_epoch: "epoch:test",
       value: {
@@ -151,7 +154,7 @@ describe("Desktop Nodex Agent Turn authority", () => {
   test("carries exact parent Turn provenance for inherited Library authority", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
-      version: 1,
+      contract_version: 1,
       event_head: 1,
       store_epoch: "epoch:test",
       value: { kind: "project", project },
@@ -172,7 +175,7 @@ describe("Desktop Nodex Agent Turn authority", () => {
       store_epoch: "epoch:test",
     });
     client.enqueueWorkspaceRead({
-      version: 1,
+      contract_version: 1,
       event_head: 2,
       store_epoch: "epoch:test",
       value: {

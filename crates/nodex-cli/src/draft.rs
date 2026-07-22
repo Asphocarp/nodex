@@ -188,7 +188,7 @@ pub(crate) fn create(
             schema_version: DRAFT_SCHEMA_VERSION,
             metadata_projection_version: METADATA_PROJECTION_VERSION,
             draft_id: draft_id.clone(),
-            profile_id: client.handshake.profile_id.clone(),
+            profile_id: client.handshake.generation.profile_id.clone(),
             project_id: project.id.clone(),
             page_id: page_id.clone(),
             store_epoch: projection.store_epoch.clone(),
@@ -428,7 +428,7 @@ fn validate_manifest_client(
     cwd: &Path,
     manifest: &DraftManifest,
 ) -> Result<(), CliError> {
-    if client.handshake.profile_id != manifest.profile_id {
+    if client.handshake.generation.profile_id != manifest.profile_id {
         return Err(draft_conflict(
             "draft Profile does not match the active Core Profile",
         ));
@@ -983,7 +983,7 @@ fn document_apply_request(
     state: &DraftApplyState,
 ) -> ModuleApplyRequest<OwnedDocumentIntent> {
     ModuleApplyRequest {
-        version: OwnedDocumentContract::VERSION,
+        contract_version: OwnedDocumentContract::VERSION,
         operation_id: state.operation_id.clone(),
         store_epoch: StoreEpoch(manifest.store_epoch.clone()),
         intent: OwnedDocumentIntent::ApplySemanticMutation {

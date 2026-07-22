@@ -8,8 +8,8 @@ use nodex_core_contracts::administration::{
     StoreAdministrationRead, StoreAdministrationReadValue, StoreIntegrity, StoreReadiness,
 };
 use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CoreErrorCode, LibraryId,
-    ModuleApplyRequest, ModuleReadRequest, ProfileId, StoreEpoch,
+    AdapterKind, BoundModuleContext, CoreErrorCode, LibraryId, ModuleApplyRequest,
+    ModuleReadRequest, ProfileId, STORE_ADMINISTRATION_CONTRACT_VERSION, StoreEpoch,
 };
 use tempfile::TempDir;
 
@@ -101,7 +101,7 @@ impl Fixture {
             .read(
                 &self.context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: STORE_ADMINISTRATION_CONTRACT_VERSION,
                     read,
                 },
             )
@@ -129,7 +129,7 @@ impl Fixture {
             .apply(
                 &self.context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: STORE_ADMINISTRATION_CONTRACT_VERSION,
                     operation_id: operation_id.to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: StoreAdministrationIntent::CreateBackup {
@@ -152,7 +152,7 @@ impl Fixture {
             .apply(
                 &self.context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: STORE_ADMINISTRATION_CONTRACT_VERSION,
                     operation_id: operation_id.to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: StoreAdministrationIntent::RestoreBackup {
@@ -173,7 +173,7 @@ impl Fixture {
             .apply(
                 &self.context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: STORE_ADMINISTRATION_CONTRACT_VERSION,
                     operation_id: operation_id.to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: StoreAdministrationIntent::DeleteBackup {
@@ -193,7 +193,7 @@ impl Fixture {
             .apply(
                 &self.context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: STORE_ADMINISTRATION_CONTRACT_VERSION,
                     operation_id: operation_id.to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: StoreAdministrationIntent::PruneBackups { retain_count },
@@ -219,7 +219,7 @@ impl Fixture {
         self.module.apply(
             &self.context(),
             ModuleApplyRequest {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: STORE_ADMINISTRATION_CONTRACT_VERSION,
                 operation_id: operation_id.to_owned(),
                 store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                 intent: StoreAdministrationIntent::RunMaintenance {
@@ -331,7 +331,7 @@ fn rejects_request_collisions_and_symlinked_assets_without_a_receipt() {
         .apply(
             &fixture.context(),
             ModuleApplyRequest {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: STORE_ADMINISTRATION_CONTRACT_VERSION,
                 operation_id: "administration:create-backup:collision".to_owned(),
                 store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                 intent: StoreAdministrationIntent::CreateBackup {
@@ -354,7 +354,7 @@ fn rejects_request_collisions_and_symlinked_assets_without_a_receipt() {
         .apply(
             &fixture.context(),
             ModuleApplyRequest {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: STORE_ADMINISTRATION_CONTRACT_VERSION,
                 operation_id: "administration:create-backup:symlink".to_owned(),
                 store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                 intent: StoreAdministrationIntent::CreateBackup {
@@ -391,7 +391,7 @@ fn adopts_a_published_backup_after_a_pre_receipt_crash_boundary() {
     let fingerprint = serde_json::to_vec(&(
         PROFILE_ID,
         LIBRARY_ID,
-        CORE_CONTRACT_VERSION,
+        STORE_ADMINISTRATION_CONTRACT_VERSION,
         StoreEpoch(STORE_EPOCH.to_owned()),
         &label,
         false,
@@ -461,6 +461,11 @@ fn restores_database_assets_epoch_and_exact_retry_with_a_safety_backup() {
             Ok(())
         })
         .expect("restore probe");
+    fixture.create_backup(
+        "administration:create-backup:epoch-seed",
+        Some("epoch seed"),
+        false,
+    );
     let target = fixture.create_backup(
         "administration:create-backup:restore-target",
         Some("restore target"),
@@ -498,7 +503,7 @@ fn restores_database_assets_epoch_and_exact_retry_with_a_safety_backup() {
         Some(safety_backup_id.as_str())
     );
     assert!(restored.event.is_some());
-    let (marker, live_epoch) = fixture
+    let (marker, live_epoch, event_epochs, receipt_epochs, result_epochs) = fixture
         .kernel
         .readers()
         .read_default(|connection| {
@@ -513,11 +518,30 @@ fn restores_database_assets_epoch_and_exact_retry_with_a_safety_backup() {
                     [],
                     |row| row.get::<_, String>(0),
                 )?,
+                connection.query_row(
+                    "SELECT group_concat(DISTINCT store_epoch) FROM change_log",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?,
+                connection.query_row(
+                    "SELECT group_concat(DISTINCT store_epoch) FROM core_module_receipts",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?,
+                connection.query_row(
+                    "SELECT group_concat(DISTINCT json_extract(result_json, '$.store_epoch')) \
+                     FROM core_module_receipts",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?,
             ))
         })
         .expect("restored authority");
     assert_eq!(marker, "backup");
     assert_eq!(live_epoch, installed_epoch);
+    assert_eq!(event_epochs, installed_epoch);
+    assert_eq!(receipt_epochs, installed_epoch);
+    assert_eq!(result_epochs, installed_epoch);
     assert_eq!(
         fs::read(fixture.home().join("assets/managed.bin")).expect("restored asset"),
         b"backup asset"
@@ -546,7 +570,7 @@ fn restores_database_assets_epoch_and_exact_retry_with_a_safety_backup() {
         .apply(
             &fixture.context(),
             ModuleApplyRequest {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: STORE_ADMINISTRATION_CONTRACT_VERSION,
                 operation_id: "administration:create-backup:stale-after-restore".to_owned(),
                 store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                 intent: StoreAdministrationIntent::CreateBackup {
@@ -613,7 +637,7 @@ fn replacement_hook_failure_rolls_back_the_complete_source_store() {
         .apply(
             &fixture.context(),
             ModuleApplyRequest {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: STORE_ADMINISTRATION_CONTRACT_VERSION,
                 operation_id: "administration:restore-backup:hook-failure".to_owned(),
                 store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                 intent: StoreAdministrationIntent::RestoreBackup {
@@ -690,7 +714,7 @@ fn adopts_a_committed_restore_after_the_pre_receipt_crash_boundary() {
     let fingerprint = serde_json::to_vec(&(
         PROFILE_ID,
         LIBRARY_ID,
-        CORE_CONTRACT_VERSION,
+        STORE_ADMINISTRATION_CONTRACT_VERSION,
         "restore_backup",
         &backup_id,
         create_safety_backup,
@@ -816,7 +840,7 @@ fn rejects_a_corrupt_restore_candidate_without_touching_the_live_store() {
         .apply(
             &fixture.context(),
             ModuleApplyRequest {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: STORE_ADMINISTRATION_CONTRACT_VERSION,
                 operation_id: "administration:restore-backup:corrupt".to_owned(),
                 store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                 intent: StoreAdministrationIntent::RestoreBackup {
@@ -899,7 +923,7 @@ fn deletes_one_backup_with_exact_replay_and_rejects_later_restore() {
         .apply(
             &fixture.context(),
             ModuleApplyRequest {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: STORE_ADMINISTRATION_CONTRACT_VERSION,
                 operation_id: "administration:restore-deleted-backup".to_owned(),
                 store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                 intent: StoreAdministrationIntent::RestoreBackup {
@@ -921,7 +945,7 @@ fn exact_delete_retry_finishes_physical_cleanup_after_receipt_commit() {
     let fingerprint = serde_json::to_vec(&(
         PROFILE_ID,
         LIBRARY_ID,
-        CORE_CONTRACT_VERSION,
+        STORE_ADMINISTRATION_CONTRACT_VERSION,
         StoreEpoch(STORE_EPOCH.to_owned()),
         "delete_backup",
         &backup_id,

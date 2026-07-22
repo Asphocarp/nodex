@@ -11,6 +11,8 @@ use crate::{
     CommittedModuleValue, ModuleMutationReceipt, ModuleName, StoreEpoch, VersionedModuleContract,
 };
 
+pub const OWNED_DOCUMENT_CONTRACT_VERSION: u32 = 1;
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct AgentDocumentSemanticMutation {
     pub document_id: String,
@@ -546,6 +548,6 @@ impl VersionedModuleContract for OwnedDocumentContract {
     type Receipt = OwnedDocumentReceipt;
     type Event = OwnedDocumentEvent;
 
-    const VERSION: u32 = 1;
+    const VERSION: u32 = OWNED_DOCUMENT_CONTRACT_VERSION;
     const MODULE: ModuleName = ModuleName::OwnedDocument;
 }

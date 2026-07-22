@@ -2,7 +2,10 @@ import { describe, expect, test } from "vitest";
 
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { createDesktopNodexAgentResourceAuthorityPort } from "./desktop-nodex-agent-resource-authority";
-import { FakeCoreClient } from "./testing/fake-core-client";
+import {
+  createFakeCoreHandshake,
+  FakeCoreClient,
+} from "./testing/fake-core-client";
 
 const authority = {
   threadId: "thread:one",
@@ -18,11 +21,11 @@ const authority = {
 const runtimeFor = (client: FakeCoreClient): RustDataAuthorityRuntime => ({
   backend: "rust",
   rootClient: Object.assign(client, {
-    handshake: {
-      library_id: "library:test",
-      profile_id: "profile:test",
-      store_epoch: "epoch:test",
-    },
+    handshake: createFakeCoreHandshake({
+      libraryId: "library:test",
+      profileId: "profile:test",
+      storeEpoch: "epoch:test",
+    }),
   }),
   clientForProject: () => client,
   close: async () => undefined,
@@ -32,7 +35,7 @@ describe("Desktop Nodex Agent resource authority", () => {
   test("maps exact-Turn planning and Core's resolved Page consent", async () => {
     const client = new FakeCoreClient();
     client.enqueueRead({
-      version: 1,
+      contract_version: 1,
       event_head: 8,
       store_epoch: "epoch:test",
       value: {
@@ -203,7 +206,7 @@ describe("Desktop Nodex Agent resource authority", () => {
   test("rejects a Core task overlay outside the frozen Turn boundary", async () => {
     const client = new FakeCoreClient();
     client.enqueueRead({
-      version: 1,
+      contract_version: 1,
       event_head: 8,
       store_epoch: "epoch:test",
       value: {

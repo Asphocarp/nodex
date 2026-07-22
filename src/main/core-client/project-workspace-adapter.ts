@@ -28,6 +28,7 @@ import type {
   ProjectSessionPanelState,
   ProjectSessionSummary,
   ProjectSessionTab,
+  ProjectSessionTabVariant,
   ProjectSessionTabCreateInput,
   ProjectSessionTabDeleteInput,
   ProjectSessionTabMoveInput,
@@ -95,6 +96,7 @@ type CoreSessionTab = Extract<
   ProjectWorkspaceReadSnapshot["value"],
   { kind: "session" }
 >["tabs"][number];
+type CoreSessionTabContent = CoreSessionTab["content"];
 type CoreThread = Extract<
   ProjectWorkspaceReadSnapshot["value"],
   { kind: "thread" }
@@ -638,16 +640,145 @@ const fromCoreSessionSummary = (
   updatedAt: session.updated_at,
 });
 
+const fromCoreTabContent = (
+  content: CoreSessionTabContent,
+  owningProjectId: string | null,
+): ProjectSessionTabVariant => {
+  switch (content.kind) {
+    case "db_view":
+      return {
+        browserTabId: null,
+        kind: content.kind,
+        config: parseProjectSessionTabConfig(content.kind, {
+          projectId: owningProjectId,
+          databaseViewId: content.database_view_id,
+          view: content.view,
+        }),
+      };
+    case "page_stage":
+      return {
+        browserTabId: null,
+        kind: content.kind,
+        config: parseProjectSessionTabConfig(content.kind, {
+          projectId: content.project_id,
+          pageId: content.page_id,
+          titleSnapshot: content.title_snapshot,
+        }),
+      };
+    case "terminal":
+      return {
+        browserTabId: null,
+        kind: content.kind,
+        config: parseProjectSessionTabConfig(content.kind, {
+          terminalSessionId: content.terminal_session_id,
+        }),
+      };
+    case "browser":
+      if (!content.browser_tab_id) {
+        throw new Error("Core Browser tab content has no durable browser identity");
+      }
+      return {
+        browserTabId: content.browser_tab_id,
+        kind: content.kind,
+        config: parseProjectSessionTabConfig(content.kind, {
+          projectId: owningProjectId,
+          url: content.url,
+          title: content.title,
+          faviconUrl: content.favicon_url,
+          deviceToolbarVisible: content.device_toolbar_visible,
+        }),
+      };
+    case "review":
+      return {
+        browserTabId: null,
+        kind: content.kind,
+        config: parseProjectSessionTabConfig(content.kind, {
+          projectId: owningProjectId,
+        }),
+      };
+    case "files":
+      return {
+        browserTabId: null,
+        kind: content.kind,
+        config: parseProjectSessionTabConfig(content.kind, {
+          projectId: owningProjectId,
+          hostId: "local",
+          workspaceRoot: content.workspace_root ?? null,
+          cwd: content.cwd ?? null,
+          path: content.path,
+        }),
+      };
+  }
+};
+
+const toCoreTabContent = (
+  kind: ProjectSessionTab["kind"],
+  config: ProjectSessionTab["config"],
+  browserTabId?: string | null,
+): CoreSessionTabContent => {
+  const parsed = parseProjectSessionTabConfig(kind, config);
+  switch (kind) {
+    case "db_view":
+      return {
+        kind,
+        ...("databaseViewId" in parsed && parsed.databaseViewId
+          ? { database_view_id: parsed.databaseViewId }
+          : {}),
+        view: "view" in parsed ? parsed.view : "kanban",
+      };
+    case "page_stage":
+      if (!("pageId" in parsed)) throw new Error("Page tab content is invalid");
+      return {
+        kind,
+        project_id: parsed.projectId,
+        page_id: parsed.pageId,
+        ...(parsed.titleSnapshot !== undefined
+          ? { title_snapshot: parsed.titleSnapshot }
+          : {}),
+      };
+    case "terminal":
+      if (!("terminalSessionId" in parsed)) {
+        throw new Error("Terminal tab content is invalid");
+      }
+      return { kind, terminal_session_id: parsed.terminalSessionId };
+    case "browser":
+      return {
+        kind,
+        ...(browserTabId ? { browser_tab_id: browserTabId } : {}),
+        ...("url" in parsed && parsed.url !== undefined ? { url: parsed.url } : {}),
+        ...("title" in parsed && parsed.title !== undefined
+          ? { title: parsed.title }
+          : {}),
+        ...("faviconUrl" in parsed && parsed.faviconUrl !== undefined
+          ? { favicon_url: parsed.faviconUrl }
+          : {}),
+        ...("deviceToolbarVisible" in parsed &&
+        parsed.deviceToolbarVisible !== undefined
+          ? { device_toolbar_visible: parsed.deviceToolbarVisible }
+          : {}),
+      };
+    case "review":
+      return { kind };
+    case "files":
+      return {
+        kind,
+        ...("workspaceRoot" in parsed && parsed.workspaceRoot !== null
+          ? { workspace_root: parsed.workspaceRoot }
+          : {}),
+        ...("cwd" in parsed && parsed.cwd !== null ? { cwd: parsed.cwd } : {}),
+        ...("path" in parsed && parsed.path !== undefined ? { path: parsed.path } : {}),
+      };
+  }
+};
+
 const fromCoreTab = (tab: CoreSessionTab): ProjectSessionTab => ({
   id: tab.id,
   sessionId: tab.session_id,
   projectId: tab.project_id ?? null,
-  browserTabId: tab.browser_tab_id ?? null,
+  ...fromCoreTabContent(tab.content, tab.project_id ?? null),
   panelId: tab.panel_id,
-  kind: tab.kind,
   title: tab.title,
   order: tab.order,
-  config: parseProjectSessionTabConfig(tab.kind, tab.config),
   stateKey: tab.state_key,
   state: tab.state,
   createdAt: tab.created_at,
@@ -1166,10 +1297,12 @@ export function createCoreProjectWorkspaceAdapter(
           tab_id: tabId,
           panel_id: parsed.panelId,
           target_leaf_id: parsed.targetLeafId ?? null,
-          browser_tab_id: parsed.browserTabId ?? null,
-          tab_kind: parsed.kind,
           title: parsed.title,
-          config: parsed.config,
+          content: toCoreTabContent(
+            parsed.kind,
+            parsed.config,
+            parsed.browserTabId,
+          ),
         },
       });
       const session = await readSession(parsed.sessionId);
@@ -1352,7 +1485,15 @@ export function createCoreProjectWorkspaceAdapter(
           kind: "update_tab",
           tab_id: tabId,
           ...(input.title !== undefined ? { title: input.title } : {}),
-          ...(input.config !== undefined ? { config: input.config } : {}),
+          ...(input.config !== undefined
+            ? {
+                content: toCoreTabContent(
+                  current.kind,
+                  input.config,
+                  current.browserTabId,
+                ),
+              }
+            : {}),
           ...(input.stateKey !== undefined ? { state_key: input.stateKey } : {}),
           ...(hasState ? { state: input.state } : {}),
         },

@@ -47,9 +47,12 @@ the committed row through the same decoder. Store schema v88 records the event
 sequence at which complete impact history begins. A replay request crossing an
 older row returns a resync boundary; missing, malformed, noncanonical, or
 out-of-bound impact at or after that floor is Store corruption. The module
-contract remains version 1, while the private Host/Core transport negotiates
-protocol version 2 only. An incompatible detached Core is replaced through the
-existing authenticated handoff rather than through a compatibility decoder.
+contracts and private Host/Core transport at the time of this decision used
+their then-current versions. ADR 0025 subsequently separates those axes:
+transport 3 and Project Workspace contract 2 carry the compatibility manifest,
+while this committed event contract remains version 2. An incompatible detached
+Core is replaced through authenticated selection rather than through a
+compatibility event decoder.
 
 The Desktop Host has one `ProjectionInvalidationRouter`. It reads only the
 top-level impact, Core cursor, and handshake Library identity. Library streams

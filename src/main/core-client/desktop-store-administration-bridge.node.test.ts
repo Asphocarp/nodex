@@ -5,7 +5,10 @@ import {
   mapCoreStoreAdministrationEvent,
 } from "./desktop-store-administration-bridge";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
-import { FakeCoreClient } from "./testing/fake-core-client";
+import {
+  createFakeCoreHandshake,
+  FakeCoreClient,
+} from "./testing/fake-core-client";
 import type {
   StoreAdministrationCommittedValue,
   StoreAdministrationReadSnapshot,
@@ -27,7 +30,7 @@ const backup = {
 const readSnapshot = (
   value: StoreAdministrationReadSnapshot["value"],
 ): StoreAdministrationReadSnapshot => ({
-  version: 1,
+  contract_version: 1,
   store_epoch: "epoch:test",
   event_head: 4,
   value,
@@ -55,12 +58,11 @@ const committed = (
 const rustRuntime = (client: FakeCoreClient): RustDataAuthorityRuntime => ({
   backend: "rust",
   rootClient: Object.assign(client, {
-    handshake: {
-      library_id: "library:test",
-      profile_id: "profile:test",
-      store_epoch: "epoch:test",
-      event_head: 0,
-    },
+    handshake: createFakeCoreHandshake({
+      libraryId: "library:test",
+      profileId: "profile:test",
+      storeEpoch: "epoch:test",
+    }),
   }),
   clientForProject: () => client,
 }) as unknown as RustDataAuthorityRuntime;
@@ -122,9 +124,9 @@ describe("Desktop Store Administration bridge", () => {
 
   test("maps Store Administration events", () => {
     expect(mapCoreStoreAdministrationEvent({
-      protocol_version: 2,
+      transport_version: 3,
       event: {
-        version: 2,
+        event_version: 2,
         sequence: 5,
         store_epoch: "epoch:test",
         operation_id: "operation:backup",

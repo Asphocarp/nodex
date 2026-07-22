@@ -5,7 +5,11 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 
 import type { CoreEventReplayRequired } from "./types";
-import { CoreEventReplayError, UdsHttpTransport } from "./uds-http";
+import {
+  CoreEventCompatibilityError,
+  CoreEventReplayError,
+  UdsHttpTransport,
+} from "./uds-http";
 
 const servers: Server[] = [];
 const directories: string[] = [];
@@ -14,6 +18,15 @@ const replayBoundary: CoreEventReplayRequired = {
   requested_after: 4,
   oldest_available: 7,
   event_head: 12,
+};
+
+const configureEventContract = (transport: UdsHttpTransport): UdsHttpTransport => {
+  transport.configureEventContract({
+    transportVersion: 3,
+    eventVersion: 2,
+    storeEpoch: "epoch-1",
+  });
+  return transport;
 };
 
 const serveReplayBoundary = async (): Promise<string> => {
@@ -37,14 +50,51 @@ const serveReplayBoundary = async (): Promise<string> => {
   return socketPath;
 };
 
-const serveLargeCommittedEvent = async (): Promise<string> => {
+const serveCommittedEvent = async (event: unknown): Promise<string> => {
   const directory = mkdtempSync(path.join(tmpdir(), "nodex-core-uds-test-"));
   directories.push(directory);
   const socketPath = path.join(directory, "core.sock");
-  const event = {
-    protocol_version: 2,
+  const server = createServer((_request, response) => {
+    response.writeHead(200, {
+      "content-type": "text/event-stream",
+      connection: "close",
+    });
+    response.end(`event: module\ndata: ${JSON.stringify(event)}\n\n`);
+  });
+  servers.push(server);
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+  return socketPath;
+};
+
+const committedEvent = () => ({
+  transport_version: 3,
+  event: {
+    event_version: 2,
+    sequence: 1,
+    store_epoch: "epoch-1",
+    operation_id: null,
+    committed_at: "2026-07-22T00:00:00.000Z",
+    projection_impact: { kind: "none" },
+    payload: {
+      module: "project_workspace",
+      event: {
+        kind: "project_workspace_changed",
+        project_ids: [],
+        catalog_change: "none",
+        session_invalidation: "none",
+      },
+    },
+  },
+});
+
+const serveLargeCommittedEvent = async (): Promise<string> =>
+  await serveCommittedEvent({
+    transport_version: 3,
     event: {
-      version: 2,
+      event_version: 2,
       sequence: 1,
       store_epoch: "epoch-1",
       operation_id: null,
@@ -70,21 +120,7 @@ const serveLargeCommittedEvent = async (): Promise<string> => {
         },
       },
     },
-  };
-  const server = createServer((_request, response) => {
-    response.writeHead(200, {
-      "content-type": "text/event-stream",
-      connection: "close",
-    });
-    response.end(`event: module\ndata: ${JSON.stringify(event)}\n\n`);
   });
-  servers.push(server);
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(socketPath, resolve);
-  });
-  return socketPath;
-};
 
 afterEach(async () => {
   await Promise.all(
@@ -115,7 +151,9 @@ describe("UDS Core event replay boundaries", () => {
   });
 
   test("delivers an explicit resync boundary to a registered consumer", async () => {
-    const transport = new UdsHttpTransport(await serveReplayBoundary(), "test-capability");
+    const transport = configureEventContract(
+      new UdsHttpTransport(await serveReplayBoundary(), "test-capability"),
+    );
     let observed: CoreEventReplayRequired | undefined;
 
     const subscription = await transport.openEventStream(
@@ -134,7 +172,9 @@ describe("UDS Core event replay boundaries", () => {
   });
 
   test("fails closed when a resync boundary has no consumer", async () => {
-    const transport = new UdsHttpTransport(await serveReplayBoundary(), "test-capability");
+    const transport = configureEventContract(
+      new UdsHttpTransport(await serveReplayBoundary(), "test-capability"),
+    );
     const subscription = await transport.openEventStream(4, () => undefined);
 
     await expect(subscription.done).rejects.toEqual(
@@ -143,9 +183,11 @@ describe("UDS Core event replay boundaries", () => {
   });
 
   test("accepts a legal committed event larger than the old 512 KiB budget", async () => {
-    const transport = new UdsHttpTransport(
-      await serveLargeCommittedEvent(),
-      "test-capability",
+    const transport = configureEventContract(
+      new UdsHttpTransport(
+        await serveLargeCommittedEvent(),
+        "test-capability",
+      ),
     );
     let sequence: number | undefined;
     const subscription = await transport.openEventStream(0, (envelope) => {
@@ -154,5 +196,40 @@ describe("UDS Core event replay boundaries", () => {
 
     await expect(subscription.done).resolves.toBeUndefined();
     expect(sequence).toBe(1);
+  });
+
+  test("rejects a legacy transport envelope before delivering it", async () => {
+    const event = committedEvent();
+    event.transport_version = 2;
+    const transport = configureEventContract(
+      new UdsHttpTransport(await serveCommittedEvent(event), "test-capability"),
+    );
+    let deliveries = 0;
+    const subscription = await transport.openEventStream(0, () => {
+      deliveries += 1;
+    });
+
+    await expect(subscription.done).rejects.toEqual(
+      new CoreEventCompatibilityError("Core event transport version is invalid"),
+    );
+    expect(deliveries).toBe(0);
+  });
+
+  test("rejects a committed event without Projection impact before delivery", async () => {
+    const event: { transport_version: number; event: Record<string, unknown> } =
+      committedEvent();
+    delete event.event.projection_impact;
+    const transport = configureEventContract(
+      new UdsHttpTransport(await serveCommittedEvent(event), "test-capability"),
+    );
+    let deliveries = 0;
+    const subscription = await transport.openEventStream(0, () => {
+      deliveries += 1;
+    });
+
+    await expect(subscription.done).rejects.toEqual(
+      new CoreEventCompatibilityError("Core event payload is invalid"),
+    );
+    expect(deliveries).toBe(0);
   });
 });

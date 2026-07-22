@@ -4,6 +4,8 @@ use utoipa::ToSchema;
 
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
+pub const AUTOMATION_CONTRACT_VERSION: u32 = 1;
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AutomationDefinitionKind {
@@ -589,7 +591,7 @@ impl VersionedModuleContract for AutomationContract {
     type Receipt = AutomationReceipt;
     type Event = AutomationEvent;
 
-    const VERSION: u32 = 1;
+    const VERSION: u32 = AUTOMATION_CONTRACT_VERSION;
     const MODULE: ModuleName = ModuleName::Automation;
 }
 

@@ -97,7 +97,7 @@ const stopCore = async (
 ): Promise<void> => {
   const index = runningCores.findIndex((entry) => entry.runtime === runtime);
   if (index >= 0) runningCores.splice(index, 1);
-  const pid = runtime.client.handshake.pid;
+  const pid = runtime.client.handshake.generation.pid;
   const socketPath = path.join(nodexHome, "run/core/core.sock");
   await runtime.client.shutdown().catch(() => undefined);
   const deadline = Date.now() + 5_000;
@@ -350,7 +350,7 @@ describe.runIf(enabled)("Rust Core Gate E runtime", () => {
         logicalCpuCount: os.cpus().length,
         totalMemoryBytes: os.totalmem(),
         node: process.versions.node,
-        corePid: runtime.client.handshake.pid,
+        corePid: runtime.client.handshake.generation.pid,
       },
       fixture: {
         pageCount: pageIds.length,
@@ -380,7 +380,7 @@ describe.runIf(enabled)("Rust Core Gate E runtime", () => {
         },
       },
       process: {
-        residentSetBytes: residentSetBytes(runtime.client.handshake.pid),
+        residentSetBytes: residentSetBytes(runtime.client.handshake.generation.pid),
       },
       healthMetrics: health.metrics,
     };

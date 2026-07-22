@@ -20,9 +20,9 @@ use nodex_core_contracts::document::{
     OwnedDocumentReadValue, OwnedDocumentReceipt,
 };
 use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent,
-    CommittedModuleValue, CoreError, CoreErrorCode, CoreErrorRecovery, ModuleApplyRequest,
-    ModuleMutationReceipt, ModuleReadRequest, ModuleReadSnapshot, StoreEpoch,
+    AdapterKind, BoundModuleContext, CommittedCoreModuleEvent, CommittedModuleValue, CoreError,
+    CoreErrorCode, CoreErrorRecovery, ModuleApplyRequest, ModuleMutationReceipt, ModuleReadRequest,
+    ModuleReadSnapshot, OWNED_DOCUMENT_CONTRACT_VERSION, StoreEpoch,
 };
 #[cfg(test)]
 use nodex_core_contracts::{CoreModuleEventPayload, document::OwnedDocumentEvent};
@@ -235,7 +235,7 @@ impl OwnedDocumentModule {
         request: ModuleReadRequest<OwnedDocumentRead>,
     ) -> Result<ModuleReadSnapshot<OwnedDocumentReadValue>, CoreError> {
         self.validate_context(context)?;
-        if request.version != CORE_CONTRACT_VERSION {
+        if request.contract_version != OWNED_DOCUMENT_CONTRACT_VERSION {
             return Err(invalid("Unsupported Owned Document contract version"));
         }
         match request.read {
@@ -261,7 +261,7 @@ impl OwnedDocumentModule {
                     )?;
                     let store_epoch = read_store_epoch(connection)?;
                     Ok(ModuleReadSnapshot {
-                        version: CORE_CONTRACT_VERSION,
+                        contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                         store_epoch: StoreEpoch(store_epoch.clone()),
                         event_head: read_event_head(connection)?,
                         value: OwnedDocumentReadValue::Descriptor {
@@ -287,7 +287,7 @@ impl OwnedDocumentModule {
                             .sync_diff(connection, &authority.head, &state_vector)?;
                         let store_epoch = read_store_epoch(connection)?;
                         Ok(ModuleReadSnapshot {
-                            version: CORE_CONTRACT_VERSION,
+                            contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                             store_epoch: StoreEpoch(store_epoch.clone()),
                             event_head: read_event_head(connection)?,
                             value: OwnedDocumentReadValue::YjsSync {
@@ -316,7 +316,7 @@ impl OwnedDocumentModule {
                     let (items, next) =
                         list_document_versions(connection, &authority, before.as_ref(), limit)?;
                     Ok(ModuleReadSnapshot {
-                        version: CORE_CONTRACT_VERSION,
+                        contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                         store_epoch: StoreEpoch(read_store_epoch(connection)?),
                         event_head: read_event_head(connection)?,
                         value: OwnedDocumentReadValue::Versions { items, next },
@@ -340,7 +340,7 @@ impl OwnedDocumentModule {
                     let version = get_document_version(connection, &authority, &version_id)?
                         .ok_or_else(|| not_found("Document version was not found"))?;
                     Ok(ModuleReadSnapshot {
-                        version: CORE_CONTRACT_VERSION,
+                        contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                         store_epoch: StoreEpoch(read_store_epoch(connection)?),
                         event_head: read_event_head(connection)?,
                         value: OwnedDocumentReadValue::Version {
@@ -361,7 +361,7 @@ impl OwnedDocumentModule {
                     let loaded = load_canvas_scene(connection, &authority)?;
                     let store_epoch = read_store_epoch(connection)?;
                     Ok(ModuleReadSnapshot {
-                        version: CORE_CONTRACT_VERSION,
+                        contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                         store_epoch: StoreEpoch(store_epoch.clone()),
                         event_head: read_event_head(connection)?,
                         value: OwnedDocumentReadValue::CanvasSync {
@@ -417,7 +417,7 @@ impl OwnedDocumentModule {
         request: ModuleApplyRequest<OwnedDocumentIntent>,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
         self.validate_context(context)?;
-        if request.version != CORE_CONTRACT_VERSION {
+        if request.contract_version != OWNED_DOCUMENT_CONTRACT_VERSION {
             return Err(invalid("Unsupported Owned Document contract version"));
         }
         match request.intent {
@@ -872,7 +872,7 @@ impl OwnedDocumentModule {
                 };
                 transaction.commit()?;
                 Ok(ModuleReadSnapshot {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     store_epoch: StoreEpoch(store_epoch),
                     event_head,
                     value: OwnedDocumentReadValue::AgentSemanticSnapshot {
@@ -1034,7 +1034,7 @@ impl OwnedDocumentModule {
                 footprint,
                 committed,
             } => Ok(ModuleReadSnapshot {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                 store_epoch: StoreEpoch(store_epoch),
                 event_head,
                 value: OwnedDocumentReadValue::AgentSemanticMutationPreparation {
@@ -1059,7 +1059,7 @@ impl OwnedDocumentModule {
                     .issue(preflight.binding)
                     .map_err(core_error)?;
                 Ok(ModuleReadSnapshot {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     store_epoch: StoreEpoch(store_epoch),
                     event_head,
                     value: OwnedDocumentReadValue::AgentSemanticMutationPreparation {
@@ -4639,8 +4639,9 @@ mod tests {
         DocumentSemanticCommand, DocumentVersionCursor, OwnedDocumentIntent, OwnedDocumentRead,
     };
     use nodex_core_contracts::workspace::{
-        ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch, ProjectWorkspaceTurnAuthority,
-        ProjectWorkspaceTurnAuthorityScope, ProjectWorkspaceTurnAuthoritySource,
+        PROJECT_WORKSPACE_CONTRACT_VERSION, ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch,
+        ProjectWorkspaceTurnAuthority, ProjectWorkspaceTurnAuthorityScope,
+        ProjectWorkspaceTurnAuthoritySource,
     };
     use nodex_core_contracts::{
         AdapterKind, LibraryId, ModuleApplyRequest, ModuleReadRequest, PageDocumentHeadImpact,
@@ -5037,7 +5038,7 @@ mod tests {
             .apply(
                 &host,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     operation_id: format!("workspace:agent-thread:{actor_project_id}"),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: ProjectWorkspaceIntent::UpsertThread {
@@ -5058,7 +5059,7 @@ mod tests {
             .apply(
                 &host,
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     operation_id: format!("workspace:agent-turn:{actor_project_id}"),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: ProjectWorkspaceIntent::FreezeTurnAuthority {
@@ -5123,7 +5124,7 @@ mod tests {
         update: Vec<u8>,
     ) -> ModuleApplyRequest<OwnedDocumentIntent> {
         ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
             operation_id: update_id.to_owned(),
             store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
             intent: OwnedDocumentIntent::ApplyYjsUpdate {
@@ -5268,7 +5269,7 @@ mod tests {
         command: DocumentOwnerCommand,
     ) -> ModuleApplyRequest<OwnedDocumentIntent> {
         ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
             operation_id: operation_id.to_owned(),
             store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
             intent: OwnedDocumentIntent::ApplyOwnerCommand { command },
@@ -5356,7 +5357,7 @@ mod tests {
         text: &str,
     ) -> ModuleApplyRequest<OwnedDocumentIntent> {
         ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
             operation_id: operation_id.to_owned(),
             store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
             intent: OwnedDocumentIntent::ApplyCanvasMutation {
@@ -5398,7 +5399,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "canvas:prepare".to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::PrepareOwner {
@@ -5419,7 +5420,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     read: OwnedDocumentRead::SyncCanvas {
                         document_id: DOCUMENT_ID.to_owned(),
                     },
@@ -5469,7 +5470,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "canvas:checkpoint".to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::CreateCheckpoint {
@@ -5491,7 +5492,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     read: OwnedDocumentRead::ListVersions {
                         document_id: DOCUMENT_ID.to_owned(),
                         before: None,
@@ -5624,7 +5625,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "canvas:image:add".to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::ApplyCanvasMutation {
@@ -5686,7 +5687,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "canvas:image:remove".to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::ApplyCanvasMutation {
@@ -5734,7 +5735,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "canvas:restore".to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::RestoreVersion {
@@ -5778,7 +5779,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     read: OwnedDocumentRead::SyncCanvas {
                         document_id: DOCUMENT_ID.to_owned(),
                     },
@@ -5795,7 +5796,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     read: OwnedDocumentRead::GetVersion {
                         document_id: DOCUMENT_ID.to_owned(),
                         version_id: canvas_version_id,
@@ -6366,7 +6367,7 @@ mod tests {
         ] {
             let seeded = pending_module(owner_type, schema_key, schema_version);
             let request = ModuleApplyRequest {
-                version: CORE_CONTRACT_VERSION,
+                contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                 operation_id: format!("prepare:{owner_type}"),
                 store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                 intent: OwnedDocumentIntent::PrepareOwner {
@@ -6443,7 +6444,7 @@ mod tests {
                 .apply(
                     &context(),
                     ModuleApplyRequest {
-                        version: CORE_CONTRACT_VERSION,
+                        contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                         operation_id: format!("prepare-again:{owner_type}"),
                         store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                         intent: OwnedDocumentIntent::PrepareOwner {
@@ -6468,7 +6469,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     read: OwnedDocumentRead::SyncYjs {
                         document_id: DOCUMENT_ID.to_owned(),
                         state_vector: Vec::new(),
@@ -7063,7 +7064,7 @@ mod tests {
         let seeded = seeded_module();
         move_seeded_page_under_database(&seeded);
         let checkpoint_request = ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
             operation_id: "checkpoint:initial".to_owned(),
             store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
             intent: OwnedDocumentIntent::CreateCheckpoint {
@@ -7108,7 +7109,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     read: OwnedDocumentRead::ListVersions {
                         document_id: DOCUMENT_ID.to_owned(),
                         before: None,
@@ -7133,7 +7134,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     read: OwnedDocumentRead::ListVersions {
                         document_id: DOCUMENT_ID.to_owned(),
                         before: Some(cursor.clone()),
@@ -7155,7 +7156,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     read: OwnedDocumentRead::ListVersions {
                         document_id: DOCUMENT_ID.to_owned(),
                         before: Some(tampered_cursor),
@@ -7170,7 +7171,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     read: OwnedDocumentRead::GetVersion {
                         document_id: DOCUMENT_ID.to_owned(),
                         version_id: version_id.clone(),
@@ -7199,7 +7200,7 @@ mod tests {
             )
             .unwrap();
         let restore_request = ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
             operation_id: "restore:initial".to_owned(),
             store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
             intent: OwnedDocumentIntent::RestoreVersion {
@@ -7289,7 +7290,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "restore:already-current".to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::RestoreVersion {
@@ -7358,7 +7359,7 @@ mod tests {
         let seeded = seeded_module();
         let inserted_block_id = "019bf52d-6870-7000-8000-000000000101";
         let insert_request = ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
             operation_id: "document-operation:insert".to_owned(),
             store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
             intent: OwnedDocumentIntent::ApplyOperationBatch {
@@ -7393,7 +7394,7 @@ mod tests {
         assert!(insert_effect.write_fence_block_ids.is_empty());
 
         let update_request = ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
             operation_id: "document-operation:update".to_owned(),
             store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
             intent: OwnedDocumentIntent::ApplyOperationBatch {
@@ -7481,7 +7482,7 @@ mod tests {
             })
             .unwrap();
         let nfm_request = ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
             operation_id: "document-operation:nfm".to_owned(),
             store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
             intent: OwnedDocumentIntent::ReplaceFromNfm {
@@ -7571,7 +7572,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "document-operation:add-second-root".to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::ApplyOperationBatch {
@@ -7594,7 +7595,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "document-operation:delete-original".to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::ApplyOperationBatch {
@@ -7615,7 +7616,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "document-operation:reactivate".to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::ApplyOperationBatch {
@@ -7649,7 +7650,7 @@ mod tests {
                 .apply(
                     &context(),
                     ModuleApplyRequest {
-                        version: CORE_CONTRACT_VERSION,
+                        contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                         operation_id: operation_id.to_owned(),
                         store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                         intent: OwnedDocumentIntent::CreateCheckpoint {
@@ -7672,7 +7673,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     read: OwnedDocumentRead::ListVersions {
                         document_id: DOCUMENT_ID.to_owned(),
                         before: None,
@@ -7698,7 +7699,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     read: OwnedDocumentRead::ListVersions {
                         document_id: DOCUMENT_ID.to_owned(),
                         before: Some(next),
@@ -7759,7 +7760,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     read: OwnedDocumentRead::SyncYjs {
                         document_id: DOCUMENT_ID.to_owned(),
                         state_vector: Vec::new(),
@@ -7807,7 +7808,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "checkpoint:retention-base".to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::CreateCheckpoint {
@@ -7859,7 +7860,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "checkpoint:retention-prune".to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::CreateCheckpoint {
@@ -8015,7 +8016,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "semantic:title-barrier".to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::ApplySemanticMutation {
@@ -8114,7 +8115,7 @@ mod tests {
             .read(
                 &context_for(connection_id),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     read: OwnedDocumentRead::PrepareAgentSemanticMutation {
                         operation_id: operation_id.to_owned(),
                         store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
@@ -8158,7 +8159,7 @@ mod tests {
             .unwrap();
 
         let execute = |token: Option<String>| ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
             operation_id: operation_id.to_owned(),
             store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
             intent: OwnedDocumentIntent::ExecutePreparedAgentSemanticMutation {
@@ -8216,7 +8217,7 @@ mod tests {
             .read(
                 &context_for(connection_id),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     read: OwnedDocumentRead::PrepareAgentSemanticMutation {
                         operation_id: operation_id.to_owned(),
                         store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
@@ -8287,7 +8288,7 @@ mod tests {
             .read(
                 &context_for(connection_id),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     read: OwnedDocumentRead::PrepareAgentSemanticMutation {
                         operation_id: operation_id.to_owned(),
                         store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
@@ -8317,7 +8318,7 @@ mod tests {
             .apply(
                 &context_for(connection_id),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: operation_id.to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::ExecutePreparedAgentSemanticMutation {
@@ -8426,7 +8427,7 @@ mod tests {
             .read(
                 &context_for(connection_id),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     read: OwnedDocumentRead::PrepareAgentSemanticMutation {
                         operation_id: operation_id.to_owned(),
                         store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
@@ -8449,7 +8450,7 @@ mod tests {
             .apply(
                 &context_for(connection_id),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: operation_id.to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::ExecutePreparedAgentSemanticMutation {
@@ -8504,7 +8505,7 @@ mod tests {
             .apply(
                 &context_for(connection_id),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: operation_id.to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::ExecutePreparedAgentSemanticMutation {
@@ -8534,7 +8535,7 @@ mod tests {
                 .read(
                     &context_for(connection_id),
                     ModuleReadRequest {
-                        version: CORE_CONTRACT_VERSION,
+                        contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                         read: OwnedDocumentRead::AgentSemanticSnapshot {
                             store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                             authorization: Box::new(agent_execution_authorization(
@@ -8586,7 +8587,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "semantic:stable-update".to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::ApplySemanticMutation {
@@ -8626,7 +8627,7 @@ mod tests {
             .read(
                 &context_for(connection_id),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     read: OwnedDocumentRead::AgentSemanticSnapshot {
                         store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                         authorization: Box::new(agent_execution_authorization(provenance.clone())),
@@ -8648,7 +8649,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "semantic:stable-update-stale".to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::ApplySemanticMutation {
@@ -8676,7 +8677,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "semantic:stable-move".to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::ApplySemanticMutation {
@@ -8699,7 +8700,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "semantic:stable-delete-stale".to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::ApplySemanticMutation {
@@ -8752,7 +8753,7 @@ mod tests {
             .read(
                 &context_for(connection_id),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     read: OwnedDocumentRead::PrepareAgentSemanticMutation {
                         operation_id: "agent:foreign-library".to_owned(),
                         store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
@@ -8813,7 +8814,7 @@ mod tests {
             .read(
                 &context_for_project(connection_id, ACTOR_PROJECT_ID),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     read: OwnedDocumentRead::PrepareAgentSemanticMutation {
                         operation_id: "agent:unconsented-title".to_owned(),
                         store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
@@ -8835,7 +8836,7 @@ mod tests {
             .read(
                 &context_for_project(connection_id, ACTOR_PROJECT_ID),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     read: OwnedDocumentRead::PrepareAgentSemanticMutation {
                         operation_id: "agent:mismatched-consent-title".to_owned(),
                         store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
@@ -8851,7 +8852,7 @@ mod tests {
             .read(
                 &context_for_project(connection_id, ACTOR_PROJECT_ID),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     read: OwnedDocumentRead::PrepareAgentSemanticMutation {
                         operation_id: operation_id.to_owned(),
                         store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
@@ -8874,7 +8875,7 @@ mod tests {
             .apply(
                 &context_for_project(connection_id, ACTOR_PROJECT_ID),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: operation_id.to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::ExecutePreparedAgentSemanticMutation {
@@ -8940,7 +8941,7 @@ mod tests {
             })
             .unwrap();
         let request = ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
             operation_id: "semantic:title-and-body".to_owned(),
             store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
             intent: OwnedDocumentIntent::ApplySemanticMutation {
@@ -8993,7 +8994,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "semantic:stale-title".to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::ApplySemanticMutation {
@@ -9015,7 +9016,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     read: OwnedDocumentRead::SyncYjs {
                         document_id: DOCUMENT_ID.to_owned(),
                         state_vector: Vec::new(),
@@ -9044,7 +9045,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "semantic:exact-patch-after-renderer".to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::ApplySemanticMutation {
@@ -9067,7 +9068,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "semantic:stale-structural".to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::ApplySemanticMutation {
@@ -9113,7 +9114,7 @@ mod tests {
             expected_etag: title_etag,
         };
         let request = |expected_head_seq| ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
             operation_id: "cli:set-title:replay".to_owned(),
             store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
             intent: OwnedDocumentIntent::ApplySemanticMutation {
@@ -9199,7 +9200,7 @@ mod tests {
             })
             .unwrap();
         let request = |operation_id: &str| ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
             operation_id: operation_id.to_owned(),
             store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
             intent: OwnedDocumentIntent::ApplySemanticMutation {
@@ -9271,7 +9272,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "semantic:patch-errors:seed".to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::ApplySemanticMutation {
@@ -9290,7 +9291,7 @@ mod tests {
             seeded.module.apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: operation_id.to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                     intent: OwnedDocumentIntent::ApplySemanticMutation {

@@ -50,16 +50,19 @@ use nodex_core_contracts::{
 };
 use nodex_core_protocol::{
     AutomationApplyRequest, AutomationApplyResponse, AutomationReadRequest, AutomationReadResponse,
-    ClientKind, CoreHealthMetrics, CoreReadiness, DatabaseApplyRequest, DatabaseApplyResponse,
+    ClientKind, CoreHealthMetrics, CoreReadiness, CoreSelectionDisposition, CoreSelectionPolicy,
+    CoreSelectionReason, CoreSelectionResult, DatabaseApplyRequest, DatabaseApplyResponse,
     DatabaseReadRequest, DatabaseReadResponse, EventEnvelope, EventReplayRequired,
-    HandshakeRequest, HandshakeResponse, HealthDurationMetric, HealthResponse, LibraryApplyRequest,
-    LibraryApplyResponse, LibraryReadRequest, LibraryReadResponse, OwnedDocumentApplyRequest,
-    OwnedDocumentApplyResponse, OwnedDocumentReadRequest, OwnedDocumentReadResponse, PROTOCOL_MAX,
-    PROTOCOL_MIN, ProjectWorkspaceApplyRequest, ProjectWorkspaceApplyResponse,
+    HandshakeRequest, HandshakeResponse, HealthDurationMetric, HealthResponse, LauncherKind,
+    LibraryApplyRequest, LibraryApplyResponse, LibraryReadRequest, LibraryReadResponse,
+    OwnedDocumentApplyRequest, OwnedDocumentApplyResponse, OwnedDocumentReadRequest,
+    OwnedDocumentReadResponse, ProjectWorkspaceApplyRequest, ProjectWorkspaceApplyResponse,
     ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse, ResponseEnvelope, RuntimeDescriptor,
     RuntimeGenerationIdentity, ShutdownRequest, ShutdownResponse, ShutdownStatus,
     StoreAdministrationApplyRequest, StoreAdministrationApplyResponse,
-    StoreAdministrationReadRequest, StoreAdministrationReadResponse, VersionHandoffRequest,
+    StoreAdministrationReadRequest, StoreAdministrationReadResponse, TRANSPORT_PROTOCOL_MAX,
+    TRANSPORT_PROTOCOL_MIN, canonical_manifest_digest, core_client_requirements,
+    core_compatibility_manifest, evaluate_compatibility, replacement_is_forward_safe, store_format,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -74,7 +77,10 @@ use connections::{
 use document_wire::{ApplyFrame, CONTENT_TYPE as DOCUMENT_CONTENT_TYPE};
 use lifecycle::{LifecycleCoordinator, configured_idle_timeout, monitor_idle};
 use metrics::ServerMetrics;
-use runtime_files::{ExistingCore, PRIVATE_FILE_MODE, RuntimePaths, random_hex};
+use runtime_files::{
+    CandidateRuntime, ExistingCore, PRIVATE_FILE_MODE, RuntimePaths, current_artifact_identity,
+    random_hex,
+};
 use transport_bounds::{MAX_DOCUMENT_REQUEST_BYTES, MAX_JSON_REQUEST_BYTES};
 
 const EVENT_CHANNEL_CAPACITY: usize = 64;
@@ -433,20 +439,19 @@ async fn handshake(
         ));
     }
     let descriptor = descriptor_snapshot(&state);
-    let protocol_version = negotiate_protocol(request.protocol_min, request.protocol_max);
-    let compatible = protocol_version.is_some()
-        && request
-            .expected_profile_id
-            .as_ref()
-            .is_none_or(|id| id == &descriptor.profile_id)
-        && request
-            .expected_start_nonce
-            .as_ref()
-            .is_none_or(|nonce| nonce == &descriptor.start_nonce);
-    if !compatible {
+    let generation = RuntimeGenerationIdentity::from(&descriptor);
+    let compatibility = evaluate_compatibility(
+        &request.requirements,
+        &descriptor.manifest,
+        &descriptor.actual_store_format,
+    );
+    if request.expected_generation != generation || compatibility.is_err() {
         return Err(ApiError::new(
             StatusCode::CONFLICT,
-            "protocol or identity mismatch",
+            format!(
+                "Core compatibility or generation mismatch: {:?}",
+                compatibility.err().unwrap_or_default()
+            ),
         ));
     }
     if !valid_binding(&request.connection_id)
@@ -479,7 +484,7 @@ async fn handshake(
             adapter.clone(),
             &peer,
             &request.client.build_id,
-            protocol_version.expect("compatible protocol was selected"),
+            TRANSPORT_PROTOCOL_MAX,
         )
         .map_err(connection_registry_error)?;
     let connection_id = log_identity(&request.connection_id);
@@ -499,25 +504,19 @@ async fn handshake(
         )
     })?;
     Ok(Json(HandshakeResponse {
-        protocol_version: protocol_version.expect("compatible protocol was selected"),
-        build_id: descriptor.build_id,
-        pid: descriptor.pid,
-        start_nonce: descriptor.start_nonce,
-        profile_id: descriptor.profile_id,
+        selected_transport_version: TRANSPORT_PROTOCOL_MAX,
+        selected_event_version: request.requirements.event_version,
+        selected_module_versions: request.requirements.modules,
+        manifest_digest: descriptor.manifest_digest,
+        artifact: descriptor.artifact,
+        actual_store_format: descriptor.actual_store_format,
+        generation,
         library_id: state.library_id.clone(),
         connection_binding,
         store_epoch: descriptor.store_epoch,
         schema_version: state.schema_version,
         event_head,
     }))
-}
-
-fn negotiate_protocol(client_min: u32, client_max: u32) -> Option<u32> {
-    if client_min == 0 || client_min > client_max {
-        return None;
-    }
-    let selected = PROTOCOL_MAX.min(client_max);
-    (selected >= PROTOCOL_MIN && selected >= client_min).then_some(selected)
 }
 
 async fn library_read(
@@ -929,7 +928,8 @@ fn binary_document_apply(
                     &context,
                     &metadata.client_session_id,
                     nodex_core_contracts::ModuleApplyRequest {
-                        version: nodex_core_contracts::CORE_CONTRACT_VERSION,
+                        contract_version:
+                            nodex_core_contracts::document::OWNED_DOCUMENT_CONTRACT_VERSION,
                         operation_id: metadata.update_id.clone(),
                         store_epoch: StoreEpoch(metadata.store_epoch),
                         intent: OwnedDocumentIntent::ApplyYjsUpdate {
@@ -1065,7 +1065,7 @@ async fn events(
         for event in replay.events {
             match event {
                 DocumentRealtimeEvent::Committed(event) => committed.push(EventEnvelope {
-                    protocol_version: PROTOCOL_MAX,
+                    transport_version: TRANSPORT_PROTOCOL_MAX,
                     event: *event,
                 }),
                 DocumentRealtimeEvent::ResyncRequired {
@@ -1119,7 +1119,7 @@ async fn events(
                 events
                     .into_iter()
                     .map(|event| EventEnvelope {
-                        protocol_version: PROTOCOL_MAX,
+                        transport_version: TRANSPORT_PROTOCOL_MAX,
                         event,
                     })
                     .collect(),
@@ -1264,8 +1264,8 @@ async fn shutdown(
     headers: HeaderMap,
     Json(request): Json<ShutdownRequest>,
 ) -> Result<Json<ShutdownResponse>, ApiError> {
-    if let Some(handoff) = request.version_handoff {
-        return version_handoff(&state, handoff);
+    if let ShutdownRequest::Replacement(request) = request {
+        return replacement_handoff(&state, *request);
     }
     let bound = bind_authenticated_connection(&state, &headers, &peer)?;
     if !matches!(
@@ -1290,21 +1290,44 @@ async fn shutdown(
     }))
 }
 
-fn version_handoff(
+fn replacement_handoff(
     state: &Arc<ServerState>,
-    request: VersionHandoffRequest,
+    request: nodex_core_protocol::CoreReplacementRequest,
 ) -> Result<Json<ShutdownResponse>, ApiError> {
     let descriptor = descriptor_snapshot(state);
-    if !valid_version_handoff(&request, &descriptor) {
-        return Err(ApiError::new(
-            StatusCode::CONFLICT,
-            "version handoff identity or protocol range is invalid",
-        ));
-    }
     let runtime = Some(RuntimeGenerationIdentity::from(&descriptor));
+    let manifest_digest = canonical_manifest_digest(&request.candidate_manifest);
+    let forward_safe = replacement_is_forward_safe(
+        &descriptor.manifest,
+        &request.candidate_manifest,
+        &descriptor.actual_store_format,
+    );
+    let contract_changed = request.candidate_manifest != descriptor.manifest;
+    let artifact_changed = request.candidate_artifact.sha256 != descriptor.artifact.sha256;
+    let policy_requires_replacement = contract_changed
+        || (matches!(
+            request.policy,
+            nodex_core_protocol::CoreSelectionPolicy::PreferCurrentArtifact
+        ) && artifact_changed);
+    if request.expected != RuntimeGenerationIdentity::from(&descriptor)
+        || manifest_digest.as_ref() != Ok(&request.candidate_manifest_digest)
+        || forward_safe.is_err()
+        || !policy_requires_replacement
+    {
+        tracing::warn!(
+            reason = "replacement",
+            status = "rejected_downgrade",
+            "Core replacement rejected"
+        );
+        return Ok(Json(ShutdownResponse {
+            status: ShutdownStatus::Incompatible,
+            runtime,
+            retry_after_ms: None,
+        }));
+    }
     if state.lifecycle.is_draining() {
         tracing::debug!(
-            reason = "version_handoff",
+            reason = "replacement",
             status = "already_draining",
             "Core handoff evaluated"
         );
@@ -1318,7 +1341,7 @@ fn version_handoff(
         descriptor_snapshot(state) == descriptor && server_is_idle(state)
     }) {
         tracing::info!(
-            reason = "version_handoff",
+            reason = "replacement",
             status = "accepted",
             "Core drain began"
         );
@@ -1329,7 +1352,7 @@ fn version_handoff(
         }));
     }
     tracing::debug!(
-        reason = "version_handoff",
+        reason = "replacement",
         status = "busy",
         "Core handoff evaluated"
     );
@@ -1338,16 +1361,6 @@ fn version_handoff(
         runtime,
         retry_after_ms: Some(250),
     }))
-}
-
-fn valid_version_handoff(request: &VersionHandoffRequest, descriptor: &RuntimeDescriptor) -> bool {
-    request.protocol_min >= 1
-        && request.protocol_min <= request.protocol_max
-        && negotiate_protocol(request.protocol_min, request.protocol_max).is_none()
-        && !request.build_id.is_empty()
-        && request.build_id.len() <= 128
-        && request.build_id.trim() == request.build_id
-        && request.expected == RuntimeGenerationIdentity::from(descriptor)
 }
 
 fn router(state: Arc<ServerState>) -> Router {
@@ -1478,7 +1491,7 @@ fn json_document_apply_error(error: CoreError) -> Response {
 }
 
 fn require_wire_version(version: u32) -> Result<(), CoreError> {
-    if version == nodex_core_contracts::CORE_CONTRACT_VERSION {
+    if version == nodex_core_contracts::document::OWNED_DOCUMENT_CONTRACT_VERSION {
         return Ok(());
     }
     Err(invalid("Document binary frame version is unsupported"))
@@ -1822,7 +1835,7 @@ fn publish_event(state: &ServerState, event: nodex_core_contracts::CommittedCore
         "Core event published"
     );
     let envelope = EventEnvelope {
-        protocol_version: PROTOCOL_MAX,
+        transport_version: TRANSPORT_PROTOCOL_MAX,
         event,
     };
     let _ = state.event_sender.send(envelope);
@@ -2080,27 +2093,70 @@ fn ensure_local_identity(
 }
 
 pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    run_with_selection(
+        home,
+        CoreSelectionPolicy::Compatible,
+        LauncherKind::NativeCli,
+    )
+    .await
+}
+
+pub async fn run_with_selection(
+    home: PathBuf,
+    selection_policy: CoreSelectionPolicy,
+    launcher: LauncherKind,
+) -> Result<(), Box<dyn std::error::Error>> {
     let idle_timeout = configured_idle_timeout()?;
+    let manifest = core_compatibility_manifest();
+    let manifest_digest = canonical_manifest_digest(&manifest)
+        .map_err(|mismatch| io::Error::other(format!("invalid Core manifest: {mismatch:?}")))?;
+    let artifact = current_artifact_identity()?;
+    let candidate = CandidateRuntime {
+        manifest: manifest.clone(),
+        manifest_digest: manifest_digest.clone(),
+        artifact: artifact.clone(),
+        requirements: core_client_requirements(),
+        policy: selection_policy,
+        launcher,
+    };
     let paths = RuntimePaths::prepare(&home)?;
     let owner_uid = paths.owner_uid()?;
     let lock = paths.open_lock()?;
+    let mut selection_reason = CoreSelectionReason::StartedNoIncumbent;
     match lock.try_lock_exclusive() {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-            match paths.wait_for_running_core(&lock)? {
+            match paths.wait_for_running_core(&lock, &candidate)? {
                 ExistingCore::LockAcquired => {}
-                ExistingCore::Reuse(descriptor) => {
-                    println!("{}", serde_json::to_string(&descriptor)?);
+                ExistingCore::Reuse(descriptor, reason) => {
+                    println!(
+                        "{}",
+                        serde_json::to_string(&CoreSelectionResult {
+                            selection_version: 1,
+                            disposition: CoreSelectionDisposition::Reused,
+                            reason,
+                            descriptor: *descriptor,
+                        })?
+                    );
                     return Ok(());
                 }
-                ExistingCore::HandoffAccepted(descriptor) => {
-                    match paths.wait_for_handoff_completion(&lock, &descriptor)? {
+                ExistingCore::HandoffAccepted(descriptor, reason) => {
+                    selection_reason = reason;
+                    match paths.wait_for_handoff_completion(&lock, &descriptor, &candidate)? {
                         ExistingCore::LockAcquired => {}
-                        ExistingCore::Reuse(descriptor) => {
-                            println!("{}", serde_json::to_string(&descriptor)?);
+                        ExistingCore::Reuse(descriptor, reason) => {
+                            println!(
+                                "{}",
+                                serde_json::to_string(&CoreSelectionResult {
+                                    selection_version: 1,
+                                    disposition: CoreSelectionDisposition::Reused,
+                                    reason,
+                                    descriptor: *descriptor,
+                                })?
+                            );
                             return Ok(());
                         }
-                        ExistingCore::HandoffAccepted(_) => {
+                        ExistingCore::HandoffAccepted(_, _) => {
                             return Err(io::Error::new(
                                 io::ErrorKind::InvalidData,
                                 "replacement Core published another incompatible generation",
@@ -2118,8 +2174,8 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let (logging_guard, logging_handle) = logging::install(&home);
     tracing::info!(
         subsystem = "lifecycle",
-        protocolMin = PROTOCOL_MIN,
-        protocolMax = PROTOCOL_MAX,
+        transportMin = TRANSPORT_PROTOCOL_MIN,
+        transportMax = TRANSPORT_PROTOCOL_MAX,
         "Core startup began"
     );
 
@@ -2128,6 +2184,14 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let proposed_profile_id = profile_id(&home);
     let store = SqliteStoreKernel::open(&home)?;
     let schema_version = u32::try_from(store.preparation().schema_version)?;
+    let actual_store_format = store_format(schema_version).ok_or_else(|| {
+        io::Error::other(format!(
+            "Core Store format v{schema_version} is not declared"
+        ))
+    })?;
+    if actual_store_format != manifest.store.current {
+        return Err(io::Error::other("Core opened a non-current Store format").into());
+    }
     let store_epoch = ensure_store_epoch(&store, random_hex(16)?)?;
     let identity = ensure_local_identity(&store, proposed_profile_id)?;
     let workspace = ProjectWorkspaceModule::new(&identity.profile_id, &identity.library_id, &store)
@@ -2136,9 +2200,10 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let listener = UnixListener::bind(&paths.socket)?;
     fs::set_permissions(&paths.socket, fs::Permissions::from_mode(PRIVATE_FILE_MODE))?;
     let descriptor = RuntimeDescriptor {
-        protocol_min: PROTOCOL_MIN,
-        protocol_max: PROTOCOL_MAX,
-        build_id: env!("CARGO_PKG_VERSION").to_owned(),
+        manifest,
+        manifest_digest,
+        artifact,
+        actual_store_format,
         pid: std::process::id(),
         start_nonce: start_nonce.clone(),
         socket_path: paths.socket.to_string_lossy().into_owned(),
@@ -2150,7 +2215,15 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         &paths.descriptor,
         format!("{}\n", serde_json::to_string(&descriptor)?).as_bytes(),
     )?;
-    println!("{}", serde_json::to_string(&descriptor)?);
+    println!(
+        "{}",
+        serde_json::to_string(&CoreSelectionResult {
+            selection_version: 1,
+            disposition: CoreSelectionDisposition::Started,
+            reason: selection_reason,
+            descriptor: descriptor.clone(),
+        })?
+    );
     tracing::info!(
         subsystem = "lifecycle",
         readinessGeneration = descriptor.readiness_generation,

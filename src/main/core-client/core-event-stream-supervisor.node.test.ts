@@ -4,6 +4,7 @@ import type {
   CoreEventReplayRequired,
 } from "./types";
 import { superviseCoreEventStream } from "./core-event-stream-supervisor";
+import { CoreEventCompatibilityError } from "./uds-http";
 
 function deferred(): {
   readonly promise: Promise<void>;
@@ -18,9 +19,9 @@ function deferred(): {
 
 function envelope(sequence: number): CoreEventEnvelope {
   return {
-    protocol_version: 2,
+    transport_version: 3,
     event: {
-      version: 2,
+      event_version: 2,
       sequence,
       store_epoch: "epoch:test",
       committed_at: "2026-07-22T00:00:00.000Z",
@@ -161,4 +162,30 @@ test("retries from the same cursor when opening the stream fails", async () => {
   expect(interruptions[0]).toEqual(new Error("temporary connection failure"));
   supervisor.close();
   await supervisor.done;
+});
+
+test("fails permanently without retrying a compatibility mismatch", async () => {
+  const mismatch = new CoreEventCompatibilityError(
+    "Core event Store epoch is invalid",
+  );
+  const interruptions: unknown[] = [];
+  let attempts = 0;
+  const supervisor = superviseCoreEventStream({
+    initialAfter: 11,
+    retryDelayMs: 0,
+    open: async () => {
+      attempts += 1;
+      return {
+        done: Promise.reject(mismatch),
+        close: () => undefined,
+      };
+    },
+    onEvent: () => undefined,
+    onResyncRequired: () => undefined,
+    onInterrupted: (error) => interruptions.push(error),
+  });
+
+  await expect(supervisor.done).rejects.toBe(mismatch);
+  expect(attempts).toBe(1);
+  expect(interruptions).toEqual([mismatch]);
 });

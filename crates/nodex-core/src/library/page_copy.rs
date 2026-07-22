@@ -1648,11 +1648,12 @@ mod tests {
         LibraryResourceTarget, LibraryWriteParent,
     };
     use nodex_core_contracts::workspace::{
-        ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch, ProjectWorkspaceTurnAuthority,
-        ProjectWorkspaceTurnAuthorityScope, ProjectWorkspaceTurnAuthoritySource,
+        PROJECT_WORKSPACE_CONTRACT_VERSION, ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch,
+        ProjectWorkspaceTurnAuthority, ProjectWorkspaceTurnAuthorityScope,
+        ProjectWorkspaceTurnAuthoritySource,
     };
     use nodex_core_contracts::{
-        AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CoreErrorCode, LibraryId,
+        AdapterKind, BoundModuleContext, CoreErrorCode, LIBRARY_CONTRACT_VERSION, LibraryId,
         ModuleApplyRequest, ModuleReadRequest, ProfileId, ProjectId, StoreEpoch,
     };
     use tempfile::{TempDir, tempdir};
@@ -1729,7 +1730,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: operation_id.to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreatePage {
@@ -1753,7 +1754,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     operation_id: "operation:create-agent-move-thread".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: ProjectWorkspaceIntent::UpsertThread {
@@ -1774,7 +1775,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     operation_id: "operation:freeze-agent-move-turn".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: ProjectWorkspaceIntent::FreezeTurnAuthority {
@@ -1839,7 +1840,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PrepareAgentMovePages {
                         operation_id: operation_id.to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -1856,7 +1857,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: operation_id.to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::ExecutePreparedAgentMovePages {
@@ -1898,7 +1899,7 @@ mod tests {
         destination: LibraryPageCopyDestination,
     ) -> ModuleApplyRequest<LibraryIntent> {
         ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: LIBRARY_CONTRACT_VERSION,
             operation_id: operation_id.to_owned(),
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent: LibraryIntent::CopyPage {
@@ -1918,7 +1919,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:create-database".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreateDatabase {
@@ -1973,7 +1974,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     operation_id: "operation:create-agent-thread".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: ProjectWorkspaceIntent::UpsertThread {
@@ -1994,7 +1995,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     operation_id: "operation:freeze-agent-copy-turn".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: ProjectWorkspaceIntent::FreezeTurnAuthority {
@@ -2082,7 +2083,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PrepareAgentPageCopy {
                         operation_id: "operation:agent-copy".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -2136,7 +2137,7 @@ mod tests {
         ));
         let token = prepared.preparation.token.expect("single-use token");
         let execute = ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: LIBRARY_CONTRACT_VERSION,
             operation_id: "operation:agent-copy".to_owned(),
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent: LibraryIntent::ExecutePreparedAgentPageCopy {
@@ -2213,7 +2214,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PrepareAgentPageCopy {
                         operation_id: "operation:agent-copy".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -2252,7 +2253,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     operation_id: "operation:create-agent-create-thread".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: ProjectWorkspaceIntent::UpsertThread {
@@ -2273,7 +2274,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     operation_id: "operation:freeze-agent-create-turn".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: ProjectWorkspaceIntent::FreezeTurnAuthority {
@@ -2363,7 +2364,7 @@ mod tests {
                 .read(
                     &context(),
                     ModuleReadRequest {
-                        version: CORE_CONTRACT_VERSION,
+                        contract_version: LIBRARY_CONTRACT_VERSION,
                         read: LibraryRead::PrepareAgentCreatePages {
                             operation_id: "operation:agent-create-pages".to_owned(),
                             store_epoch: "epoch-1".to_owned(),
@@ -2421,7 +2422,7 @@ mod tests {
         );
         let token = value.preparation.token.expect("create token");
         let execute = ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: LIBRARY_CONTRACT_VERSION,
             operation_id: "operation:agent-create-pages".to_owned(),
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent: LibraryIntent::ExecutePreparedAgentCreatePages {
@@ -2581,7 +2582,7 @@ mod tests {
                 .read(
                     &context(),
                     ModuleReadRequest {
-                        version: CORE_CONTRACT_VERSION,
+                        contract_version: LIBRARY_CONTRACT_VERSION,
                         read: LibraryRead::PrepareAgentMovePages {
                             operation_id: "operation:agent-move-pages".to_owned(),
                             store_epoch: "epoch-1".to_owned(),
@@ -2625,7 +2626,7 @@ mod tests {
         );
         let token = value.preparation.token.expect("move token");
         let apply = ModuleApplyRequest {
-            version: CORE_CONTRACT_VERSION,
+            contract_version: LIBRARY_CONTRACT_VERSION,
             operation_id: "operation:agent-move-pages".to_owned(),
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent: LibraryIntent::ExecutePreparedAgentMovePages {
@@ -2736,7 +2737,7 @@ mod tests {
             .apply(
                 &context_for("project-2"),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:create-agent-rehome-target".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreatePage {
@@ -2763,7 +2764,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PrepareAgentMovePages {
                         operation_id: "operation:agent-rehome-move".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -2781,7 +2782,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:agent-rehome-move".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::ExecutePreparedAgentMovePages {
@@ -2888,7 +2889,7 @@ mod tests {
             .apply(
                 &context_for("project-2"),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:create-agent-storage-database".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreateDatabase {
@@ -3127,7 +3128,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PrepareAgentMovePages {
                         operation_id: "operation:agent-database-move-pages".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -3145,7 +3146,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:agent-database-move-pages".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::ExecutePreparedAgentMovePages {
@@ -3207,7 +3208,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PrepareAgentMovePages {
                         operation_id: "operation:agent-same-database-move-pages".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
@@ -3225,7 +3226,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:agent-same-database-move-pages".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::ExecutePreparedAgentMovePages {
@@ -3373,7 +3374,7 @@ mod tests {
             .read(
                 &context(),
                 ModuleReadRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::Children {
                         parent: LibraryNavigationParent::Library,
                         cursor: None,
@@ -3759,7 +3760,7 @@ mod tests {
             .apply(
                 &context_for("project-2"),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:create-project-2-database".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreateDatabase {
@@ -3787,7 +3788,7 @@ mod tests {
             .apply(
                 &context_for("project-2"),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:grant-project-1-target".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::GrantProjectAccess {
@@ -3913,7 +3914,7 @@ mod tests {
             .apply(
                 &context_for("project-2"),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:create-target-page".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreatePage {
@@ -3929,7 +3930,7 @@ mod tests {
             module.apply(
                 &context_for("project-2"),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: operation_id.to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::GrantProjectAccess {
@@ -4028,7 +4029,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:create-canvas".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: OwnedDocumentIntent::ApplyOwnerCommand {
@@ -4046,7 +4047,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    version: CORE_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:edit-canvas".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: OwnedDocumentIntent::ApplyCanvasMutation {

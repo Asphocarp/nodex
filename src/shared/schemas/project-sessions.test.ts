@@ -7,17 +7,23 @@ import {
 describe("project session Terminal config", () => {
   test("persists only the stable terminal session identity", () => {
     expect(parseProjectSessionTabConfig("terminal", {
-      projectId: "legacy-project",
       terminalSessionId: "terminal:one",
     })).toEqual({
       terminalSessionId: "terminal:one",
     });
   });
+
+  test("rejects Project fields that do not belong to Terminal content", () => {
+    expect(() => parseProjectSessionTabConfig("terminal", {
+      projectId: "legacy-project",
+      terminalSessionId: "terminal:one",
+    })).toThrow();
+  });
 });
 
 describe("project session tab create input", () => {
-  test("derives ownership from the session instead of accepting a duplicate Project", () => {
-    expect(ProjectSessionTabCreateInputSchema.parse({
+  test("rejects duplicate ownership and cross-variant Browser identity", () => {
+    expect(() => ProjectSessionTabCreateInputSchema.parse({
       sessionId: "session:one",
       projectId: "legacy-project",
       panelId: "right",
@@ -27,15 +33,15 @@ describe("project session tab create input", () => {
         projectId: "legacy-project",
         terminalSessionId: "terminal:one",
       },
-    })).toEqual({
+    })).toThrow();
+    expect(() => ProjectSessionTabCreateInputSchema.parse({
       sessionId: "session:one",
       panelId: "right",
       kind: "terminal",
       title: "Terminal",
-      config: {
-        terminalSessionId: "terminal:one",
-      },
-    });
+      browserTabId: "browser:wrong-variant",
+      config: { terminalSessionId: "terminal:one" },
+    })).toThrow();
   });
 });
 
@@ -52,8 +58,8 @@ describe("project session Page Stage config", () => {
     });
   });
 
-  test("discards legacy interaction-derived ancestor trails", () => {
-    expect(parseProjectSessionTabConfig("page_stage", {
+  test("rejects interaction-derived ancestor trails at the durable boundary", () => {
+    expect(() => parseProjectSessionTabConfig("page_stage", {
       projectId: "alpha",
       pageId: "nested",
       ancestors: [{
@@ -61,10 +67,7 @@ describe("project session Page Stage config", () => {
         pageId: "root",
         titleSnapshot: "Stale title",
       }],
-    })).toEqual({
-      projectId: "alpha",
-      pageId: "nested",
-    });
+    })).toThrow();
   });
 });
 

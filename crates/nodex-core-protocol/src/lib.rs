@@ -1,8 +1,8 @@
 #![forbid(unsafe_code)]
 
 use nodex_core_contracts::{
-    CommittedCoreModuleEvent, CommittedModuleValue, CoreError, ModuleApplyRequest,
-    ModuleReadRequest, ModuleReadSnapshot,
+    CORE_EVENT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue, CoreError,
+    ModuleApplyRequest, ModuleContractVersion, ModuleName, ModuleReadRequest, ModuleReadSnapshot,
     administration::{
         StoreAdministrationCommitValue, StoreAdministrationIntent, StoreAdministrationRead,
         StoreAdministrationReadValue, StoreAdministrationReceipt,
@@ -25,10 +25,16 @@ use nodex_core_contracts::{
     },
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use utoipa::{OpenApi, ToSchema};
 
-pub const PROTOCOL_MIN: u32 = 2;
-pub const PROTOCOL_MAX: u32 = 2;
+pub const TRANSPORT_PROTOCOL_MIN: u32 = 3;
+pub const TRANSPORT_PROTOCOL_MAX: u32 = 3;
+pub const COMPATIBILITY_MANIFEST_VERSION: u32 = 1;
+pub const STORE_LINEAGE: &str = "nodex-rust-core";
+pub const CURRENT_STORE_VERSION: u32 = 88;
+pub const CURRENT_STORE_SCHEMA_FINGERPRINT: &str =
+    "6e0e0883d80699deddbbc2e857212b048c9ddd58639c1260e993ac429ef2424f";
 /// Maximum decoded UTF-8 size of one JSON string on the Document transport.
 ///
 /// This is also the public Page body input bound: JSON escaping may make the
@@ -37,14 +43,421 @@ pub const MAX_DOCUMENT_JSON_STRING_BYTES: usize = 8 * 1024 * 1024;
 /// Maximum encoded JSON body accepted by a Document HTTP endpoint.
 pub const MAX_DOCUMENT_JSON_REQUEST_BYTES: usize = 64 * 1024 * 1024;
 
+pub fn store_format(version: u32) -> Option<StoreFormatIdentity> {
+    let schema_fingerprint = match version {
+        84 => "be16a390d2be35a036cea413671b531ddbdb6b35d4c1acc24f1ce3dac473f659",
+        85 => "eee7d39ed280a961191aba2b19e9e218638d6f2e9d6fa3807d74807cbb675f2b",
+        86 => "9642837efeaa6f3701d8ec445c6294ecbe5c7186a41e84c50bd520261a5c3e00",
+        87 => "5e069cbccdab8938c2b0676e92eb109ac9e57bcccba7eb40965728140688bf75",
+        88 => CURRENT_STORE_SCHEMA_FINGERPRINT,
+        _ => return None,
+    };
+    Some(StoreFormatIdentity {
+        lineage: STORE_LINEAGE.to_owned(),
+        version,
+        schema_fingerprint: schema_fingerprint.to_owned(),
+    })
+}
+
+pub fn core_compatibility_manifest() -> CoreCompatibilityManifest {
+    CoreCompatibilityManifest {
+        manifest_version: COMPATIBILITY_MANIFEST_VERSION,
+        transport: VersionRange {
+            min: TRANSPORT_PROTOCOL_MIN,
+            max: TRANSPORT_PROTOCOL_MAX,
+        },
+        event_versions: VersionRange::exact(CORE_EVENT_VERSION),
+        modules: nodex_core_contracts::module_contract_manifest()
+            .into_iter()
+            .map(|entry| ModuleContractSupport {
+                module: entry.module,
+                versions: VersionRange::exact(entry.contract_version),
+            })
+            .collect(),
+        store: StoreFormatSupport {
+            readable: vec![store_format(CURRENT_STORE_VERSION).expect("current Store format")],
+            migratable: (84..CURRENT_STORE_VERSION)
+                .map(|version| store_format(version).expect("supported Store format"))
+                .collect(),
+            current: store_format(CURRENT_STORE_VERSION).expect("current Store format"),
+        },
+    }
+}
+
+pub fn core_client_requirements() -> CoreClientRequirements {
+    CoreClientRequirements {
+        transport: VersionRange {
+            min: TRANSPORT_PROTOCOL_MIN,
+            max: TRANSPORT_PROTOCOL_MAX,
+        },
+        event_version: CORE_EVENT_VERSION,
+        modules: nodex_core_contracts::module_contract_manifest().to_vec(),
+        accepted_store_formats: vec![
+            store_format(CURRENT_STORE_VERSION).expect("current Store format"),
+        ],
+    }
+}
+
+pub fn canonical_manifest_digest(
+    manifest: &CoreCompatibilityManifest,
+) -> Result<String, CompatibilityMismatch> {
+    validate_manifest(manifest)?;
+    let encoded = serde_json::to_vec(manifest).map_err(|_| CompatibilityMismatch {
+        axis: CompatibilityAxis::Manifest,
+        required: "canonical JSON".to_owned(),
+        offered: "unencodable manifest".to_owned(),
+    })?;
+    Ok(hex::encode(Sha256::digest(encoded)))
+}
+
+pub fn validate_manifest(
+    manifest: &CoreCompatibilityManifest,
+) -> Result<(), CompatibilityMismatch> {
+    if manifest.manifest_version != COMPATIBILITY_MANIFEST_VERSION
+        || !valid_range(manifest.transport)
+        || !valid_range(manifest.event_versions)
+    {
+        return Err(CompatibilityMismatch {
+            axis: CompatibilityAxis::Manifest,
+            required: format!(
+                "manifest version {COMPATIBILITY_MANIFEST_VERSION} with valid ranges"
+            ),
+            offered: format!("manifest version {}", manifest.manifest_version),
+        });
+    }
+    let expected_modules = nodex_core_contracts::module_contract_manifest();
+    if manifest.modules.len() != expected_modules.len()
+        || manifest
+            .modules
+            .windows(2)
+            .any(|entries| entries[0].module >= entries[1].module)
+        || manifest
+            .modules
+            .iter()
+            .any(|entry| !valid_range(entry.versions))
+        || !manifest
+            .modules
+            .iter()
+            .map(|entry| entry.module)
+            .eq(expected_modules.iter().map(|entry| entry.module))
+    {
+        return Err(CompatibilityMismatch {
+            axis: CompatibilityAxis::Manifest,
+            required: "all six Modules in canonical order with non-zero version ranges".to_owned(),
+            offered: "invalid Module manifest".to_owned(),
+        });
+    }
+    if !valid_store_support(&manifest.store) {
+        return Err(CompatibilityMismatch {
+            axis: CompatibilityAxis::Manifest,
+            required: "canonical, unique Store format identities".to_owned(),
+            offered: "invalid Store support".to_owned(),
+        });
+    }
+    Ok(())
+}
+
+pub fn evaluate_compatibility(
+    requirements: &CoreClientRequirements,
+    manifest: &CoreCompatibilityManifest,
+    actual_store_format: &StoreFormatIdentity,
+) -> Result<(), Vec<CompatibilityMismatch>> {
+    let mut mismatches = Vec::new();
+    if let Err(mismatch) = validate_manifest(manifest) {
+        mismatches.push(mismatch);
+        return Err(mismatches);
+    }
+    if !valid_range(requirements.transport) || !requirements.transport.overlaps(manifest.transport)
+    {
+        mismatches.push(CompatibilityMismatch {
+            axis: CompatibilityAxis::Transport,
+            required: format!(
+                "{}..={}",
+                requirements.transport.min, requirements.transport.max
+            ),
+            offered: format!("{}..={}", manifest.transport.min, manifest.transport.max),
+        });
+    }
+    if !manifest.event_versions.contains(requirements.event_version) {
+        mismatches.push(CompatibilityMismatch {
+            axis: CompatibilityAxis::Event,
+            required: requirements.event_version.to_string(),
+            offered: format!(
+                "{}..={}",
+                manifest.event_versions.min, manifest.event_versions.max
+            ),
+        });
+    }
+    if requirements.modules.len() != nodex_core_contracts::module_contract_manifest().len()
+        || requirements
+            .modules
+            .windows(2)
+            .any(|entries| entries[0].module >= entries[1].module)
+    {
+        mismatches.push(CompatibilityMismatch {
+            axis: CompatibilityAxis::Module,
+            required: "all six Modules in canonical order".to_owned(),
+            offered: "invalid client requirements".to_owned(),
+        });
+    } else {
+        for required in &requirements.modules {
+            let offered = manifest
+                .modules
+                .iter()
+                .find(|entry| entry.module == required.module);
+            if !offered.is_some_and(|entry| entry.versions.contains(required.contract_version)) {
+                mismatches.push(CompatibilityMismatch {
+                    axis: CompatibilityAxis::Module,
+                    required: format!("{:?}={}", required.module, required.contract_version),
+                    offered: offered.map_or_else(
+                        || "missing".to_owned(),
+                        |entry| format!("{}..={}", entry.versions.min, entry.versions.max),
+                    ),
+                });
+            }
+        }
+    }
+    if !requirements
+        .accepted_store_formats
+        .contains(actual_store_format)
+        || (!manifest.store.readable.contains(actual_store_format)
+            && manifest.store.current != *actual_store_format)
+    {
+        mismatches.push(CompatibilityMismatch {
+            axis: CompatibilityAxis::Store,
+            required: format_store_formats(&requirements.accepted_store_formats),
+            offered: format_store_formats(std::slice::from_ref(actual_store_format)),
+        });
+    }
+    if mismatches.is_empty() {
+        Ok(())
+    } else {
+        Err(mismatches)
+    }
+}
+
+pub fn replacement_is_forward_safe(
+    incumbent: &CoreCompatibilityManifest,
+    candidate: &CoreCompatibilityManifest,
+    actual_store_format: &StoreFormatIdentity,
+) -> Result<(), Vec<CompatibilityMismatch>> {
+    let mut mismatches = Vec::new();
+    if let Err(mismatch) = validate_manifest(candidate) {
+        return Err(vec![mismatch]);
+    }
+    let candidate_reads_store = candidate.store.current == *actual_store_format
+        || candidate.store.readable.contains(actual_store_format)
+        || candidate.store.migratable.contains(actual_store_format);
+    if !candidate_reads_store {
+        mismatches.push(CompatibilityMismatch {
+            axis: CompatibilityAxis::Store,
+            required: format_store_formats(std::slice::from_ref(actual_store_format)),
+            offered: format_store_formats(&candidate.store.readable),
+        });
+    }
+    for incumbent_module in &incumbent.modules {
+        let candidate_module = candidate
+            .modules
+            .iter()
+            .find(|entry| entry.module == incumbent_module.module);
+        if !candidate_module
+            .is_some_and(|entry| entry.versions.max >= incumbent_module.versions.max)
+        {
+            mismatches.push(CompatibilityMismatch {
+                axis: CompatibilityAxis::Module,
+                required: format!(
+                    "{:?}>={}",
+                    incumbent_module.module, incumbent_module.versions.max
+                ),
+                offered: candidate_module.map_or_else(
+                    || "missing".to_owned(),
+                    |entry| entry.versions.max.to_string(),
+                ),
+            });
+        }
+    }
+    if candidate.transport.max < incumbent.transport.max
+        || candidate.event_versions.max < incumbent.event_versions.max
+    {
+        mismatches.push(CompatibilityMismatch {
+            axis: CompatibilityAxis::Transport,
+            required: format!(
+                "transport>={}, event>={}",
+                incumbent.transport.max, incumbent.event_versions.max
+            ),
+            offered: format!(
+                "transport={}, event={}",
+                candidate.transport.max, candidate.event_versions.max
+            ),
+        });
+    }
+    if mismatches.is_empty() {
+        Ok(())
+    } else {
+        Err(mismatches)
+    }
+}
+
+fn valid_range(range: VersionRange) -> bool {
+    range.min > 0 && range.min <= range.max
+}
+
+fn valid_store_support(store: &StoreFormatSupport) -> bool {
+    valid_store_identity(&store.current)
+        && sorted_unique_store_formats(&store.readable)
+        && sorted_unique_store_formats(&store.migratable)
+        && !store
+            .readable
+            .iter()
+            .any(|format| store.migratable.contains(format))
+}
+
+fn sorted_unique_store_formats(formats: &[StoreFormatIdentity]) -> bool {
+    formats.iter().all(valid_store_identity)
+        && formats.windows(2).all(|formats| formats[0] < formats[1])
+}
+
+fn valid_store_identity(format: &StoreFormatIdentity) -> bool {
+    !format.lineage.is_empty()
+        && format.version > 0
+        && format.schema_fingerprint.len() == 64
+        && format
+            .schema_fingerprint
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn format_store_formats(formats: &[StoreFormatIdentity]) -> String {
+    formats
+        .iter()
+        .map(|format| {
+            format!(
+                "{}:v{}:{}",
+                format.lineage,
+                format.version,
+                &format.schema_fingerprint[..8.min(format.schema_fingerprint.len())]
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 #[cfg(unix)]
 pub mod client;
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VersionRange {
+    pub min: u32,
+    pub max: u32,
+}
+
+impl VersionRange {
+    pub const fn exact(version: u32) -> Self {
+        Self {
+            min: version,
+            max: version,
+        }
+    }
+
+    pub const fn contains(self, version: u32) -> bool {
+        self.min <= version && version <= self.max
+    }
+
+    pub const fn overlaps(self, other: Self) -> bool {
+        self.min <= other.max && other.min <= self.max
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-pub struct RuntimeDescriptor {
-    pub protocol_min: u32,
-    pub protocol_max: u32,
+#[serde(deny_unknown_fields)]
+pub struct ModuleContractSupport {
+    pub module: ModuleName,
+    pub versions: VersionRange,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StoreFormatIdentity {
+    pub lineage: String,
+    pub version: u32,
+    pub schema_fingerprint: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StoreFormatSupport {
+    pub readable: Vec<StoreFormatIdentity>,
+    pub migratable: Vec<StoreFormatIdentity>,
+    pub current: StoreFormatIdentity,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CoreCompatibilityManifest {
+    pub manifest_version: u32,
+    pub transport: VersionRange,
+    pub event_versions: VersionRange,
+    pub modules: Vec<ModuleContractSupport>,
+    pub store: StoreFormatSupport,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CoreClientRequirements {
+    pub transport: VersionRange,
+    pub event_version: u32,
+    pub modules: Vec<ModuleContractVersion>,
+    pub accepted_store_formats: Vec<StoreFormatIdentity>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CompatibilityAxis {
+    Manifest,
+    Transport,
+    Event,
+    Module,
+    Store,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CompatibilityMismatch {
+    pub axis: CompatibilityAxis,
+    pub required: String,
+    pub offered: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CoreArtifactIdentity {
+    pub sha256: String,
     pub build_id: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CoreSelectionPolicy {
+    Compatible,
+    PreferCurrentArtifact,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LauncherKind {
+    ElectronHost,
+    NativeCli,
+    Test,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeDescriptor {
+    pub manifest: CoreCompatibilityManifest,
+    pub manifest_digest: String,
+    pub artifact: CoreArtifactIdentity,
+    pub actual_store_format: StoreFormatIdentity,
     pub pid: u32,
     pub start_nonce: String,
     pub socket_path: String,
@@ -62,28 +475,31 @@ pub enum ClientKind {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ClientIdentity {
     pub kind: ClientKind,
     pub build_id: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct HandshakeRequest {
-    pub protocol_min: u32,
-    pub protocol_max: u32,
+    pub requirements: CoreClientRequirements,
     pub client: ClientIdentity,
     pub connection_id: String,
-    pub expected_profile_id: Option<String>,
-    pub expected_start_nonce: Option<String>,
+    pub expected_generation: RuntimeGenerationIdentity,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct HandshakeResponse {
-    pub protocol_version: u32,
-    pub build_id: String,
-    pub pid: u32,
-    pub start_nonce: String,
-    pub profile_id: String,
+    pub selected_transport_version: u32,
+    pub selected_event_version: u32,
+    pub selected_module_versions: Vec<ModuleContractVersion>,
+    pub manifest_digest: String,
+    pub artifact: CoreArtifactIdentity,
+    pub actual_store_format: StoreFormatIdentity,
+    pub generation: RuntimeGenerationIdentity,
     pub library_id: String,
     pub connection_binding: String,
     pub store_epoch: String,
@@ -145,10 +561,10 @@ pub enum CoreReadiness {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct RuntimeGenerationIdentity {
-    pub protocol_min: u32,
-    pub protocol_max: u32,
-    pub build_id: String,
+    pub manifest_digest: String,
+    pub artifact_sha256: String,
     pub pid: u32,
     pub start_nonce: String,
     pub profile_id: String,
@@ -159,9 +575,8 @@ pub struct RuntimeGenerationIdentity {
 impl From<&RuntimeDescriptor> for RuntimeGenerationIdentity {
     fn from(descriptor: &RuntimeDescriptor) -> Self {
         Self {
-            protocol_min: descriptor.protocol_min,
-            protocol_max: descriptor.protocol_max,
-            build_id: descriptor.build_id.clone(),
+            manifest_digest: descriptor.manifest_digest.clone(),
+            artifact_sha256: descriptor.artifact.sha256.clone(),
             pid: descriptor.pid,
             start_nonce: descriptor.start_nonce.clone(),
             profile_id: descriptor.profile_id.clone(),
@@ -172,17 +587,27 @@ impl From<&RuntimeDescriptor> for RuntimeGenerationIdentity {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-pub struct VersionHandoffRequest {
-    pub protocol_min: u32,
-    pub protocol_max: u32,
-    pub build_id: String,
+#[serde(deny_unknown_fields)]
+pub struct CoreReplacementRequest {
+    pub candidate_manifest: CoreCompatibilityManifest,
+    pub candidate_manifest_digest: String,
+    pub candidate_artifact: CoreArtifactIdentity,
+    pub policy: CoreSelectionPolicy,
+    pub launcher: LauncherKind,
     pub expected: RuntimeGenerationIdentity,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-pub struct ShutdownRequest {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub version_handoff: Option<VersionHandoffRequest>,
+#[serde(
+    tag = "kind",
+    content = "request",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub enum ShutdownRequest {
+    #[default]
+    Shutdown,
+    Replacement(Box<CoreReplacementRequest>),
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -199,6 +624,32 @@ pub struct ShutdownResponse {
 pub enum ShutdownStatus {
     Draining,
     Busy,
+    Incompatible,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CoreSelectionDisposition {
+    Started,
+    Reused,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CoreSelectionReason {
+    StartedNoIncumbent,
+    ReusedCompatible,
+    ReplacedContract,
+    ReplacedArtifact,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CoreSelectionResult {
+    pub selection_version: u32,
+    pub disposition: CoreSelectionDisposition,
+    pub reason: CoreSelectionReason,
+    pub descriptor: RuntimeDescriptor,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
@@ -209,8 +660,9 @@ pub enum ResponseEnvelope<T> {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct EventEnvelope {
-    pub protocol_version: u32,
+    pub transport_version: u32,
     pub event: CommittedCoreModuleEvent,
 }
 
@@ -454,6 +906,16 @@ mod api {
     ),
     components(schemas(
         RuntimeDescriptor,
+        CoreCompatibilityManifest,
+        CoreClientRequirements,
+        CoreArtifactIdentity,
+        CoreSelectionResult,
+        CoreReplacementRequest,
+        StoreFormatIdentity,
+        StoreFormatSupport,
+        ModuleContractSupport,
+        VersionRange,
+        CompatibilityMismatch,
         HandshakeRequest,
         HandshakeResponse,
         HealthResponse,
@@ -461,7 +923,6 @@ mod api {
         HealthDurationMetric,
         ShutdownRequest,
         ShutdownResponse,
-        VersionHandoffRequest,
         RuntimeGenerationIdentity,
         EventEnvelope,
         EventReplayRequired,
@@ -540,5 +1001,127 @@ mod tests {
     fn openapi_is_version_3_1() {
         let json = serde_json::to_value(openapi()).expect("OpenAPI serializes");
         assert_eq!(json["openapi"], "3.1.0");
+    }
+
+    #[test]
+    fn current_client_and_core_are_compatible_on_every_axis() {
+        assert_eq!(
+            evaluate_compatibility(
+                &core_client_requirements(),
+                &core_compatibility_manifest(),
+                &store_format(CURRENT_STORE_VERSION).expect("current Store"),
+            ),
+            Ok(()),
+        );
+    }
+
+    #[test]
+    fn module_contract_drift_is_not_hidden_by_transport_overlap() {
+        let mut manifest = core_compatibility_manifest();
+        let workspace = manifest
+            .modules
+            .iter_mut()
+            .find(|entry| entry.module == ModuleName::ProjectWorkspace)
+            .expect("Workspace contract");
+        workspace.versions = VersionRange::exact(1);
+
+        let mismatches = evaluate_compatibility(
+            &core_client_requirements(),
+            &manifest,
+            &store_format(CURRENT_STORE_VERSION).expect("current Store"),
+        )
+        .expect_err("Workspace 1 cannot satisfy Workspace 2");
+        assert_eq!(mismatches.len(), 1);
+        assert_eq!(mismatches[0].axis, CompatibilityAxis::Module);
+        assert!(mismatches[0].required.contains("ProjectWorkspace=2"));
+    }
+
+    #[test]
+    fn store_identity_requires_the_exact_published_schema_fingerprint() {
+        let mut impostor = store_format(CURRENT_STORE_VERSION).expect("current Store");
+        impostor.schema_fingerprint = "0".repeat(64);
+
+        let mismatches = evaluate_compatibility(
+            &core_client_requirements(),
+            &core_compatibility_manifest(),
+            &impostor,
+        )
+        .expect_err("version alone cannot identify a Store format");
+        assert!(
+            mismatches
+                .iter()
+                .any(|mismatch| mismatch.axis == CompatibilityAxis::Store)
+        );
+    }
+
+    #[test]
+    fn replacement_refuses_contract_downgrade_and_unknown_store_format() {
+        let incumbent = core_compatibility_manifest();
+        let mut downgraded = incumbent.clone();
+        downgraded
+            .modules
+            .iter_mut()
+            .find(|entry| entry.module == ModuleName::ProjectWorkspace)
+            .expect("Workspace contract")
+            .versions = VersionRange::exact(1);
+        let unknown_store = StoreFormatIdentity {
+            lineage: STORE_LINEAGE.to_owned(),
+            version: 89,
+            schema_fingerprint: "f".repeat(64),
+        };
+
+        let mismatches = replacement_is_forward_safe(&incumbent, &downgraded, &unknown_store)
+            .expect_err("replacement cannot downgrade or open an unknown Store");
+        assert!(
+            mismatches
+                .iter()
+                .any(|mismatch| mismatch.axis == CompatibilityAxis::Module)
+        );
+        assert!(
+            mismatches
+                .iter()
+                .any(|mismatch| mismatch.axis == CompatibilityAxis::Store)
+        );
+    }
+
+    #[test]
+    fn manifest_digest_is_canonical_and_reordered_modules_are_rejected() {
+        let manifest = core_compatibility_manifest();
+        assert_eq!(
+            canonical_manifest_digest(&manifest),
+            canonical_manifest_digest(&manifest.clone()),
+        );
+        let mut reordered = manifest;
+        reordered.modules.swap(0, 1);
+        assert_eq!(
+            canonical_manifest_digest(&reordered)
+                .expect_err("non-canonical Module order must fail")
+                .axis,
+            CompatibilityAxis::Manifest,
+        );
+    }
+
+    #[test]
+    fn transport_three_shutdown_does_not_accept_legacy_handoff_or_extra_fields() {
+        assert!(
+            serde_json::from_value::<ShutdownRequest>(serde_json::json!({
+                "version_handoff": null
+            }))
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<ShutdownRequest>(serde_json::json!({
+                "kind": "shutdown",
+                "version_handoff": null
+            }))
+            .is_err()
+        );
+        assert_eq!(
+            serde_json::from_value::<ShutdownRequest>(serde_json::json!({
+                "kind": "shutdown"
+            }))
+            .expect("strict shutdown"),
+            ShutdownRequest::Shutdown,
+        );
     }
 }
