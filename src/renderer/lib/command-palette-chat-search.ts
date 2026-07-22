@@ -31,7 +31,7 @@ interface ThreadSearchCacheEntry {
   readonly results: readonly CommandPaletteThreadSearchResult[];
 }
 
-const commandPaletteThreadItemsCache = new Map<string, CommandPaletteThread[]>();
+const commandPaletteThreadItemsCache = new Map<string | null, CommandPaletteThread[]>();
 const threadSearchCache = new Map<string, ThreadSearchCacheEntry>();
 const threadSearchInFlight = new Map<string, Promise<readonly CommandPaletteThreadSearchResult[]>>();
 
@@ -69,7 +69,7 @@ export function getCommandPaletteThreadSearchPlan(
 
 export function buildCommandPaletteThreadItem(
   summary: CommandPaletteThreadSummary,
-  activeProjectId: string,
+  activeProjectId: string | null,
 ): CommandPaletteThread {
   return {
     kind: "thread",
@@ -96,7 +96,7 @@ export function buildCommandPaletteThreadItem(
 export async function listCommandPaletteThreadItems({
   activeProjectId,
 }: {
-  activeProjectId: string;
+  activeProjectId: string | null;
 }): Promise<CommandPaletteThread[]> {
   try {
     const summaries = await invoke("codex:threads:palette:list", { scope: "sidebar" });
@@ -112,7 +112,7 @@ export function useCommandPaletteThreadItems({
   refreshKey,
 }: {
   enabled: boolean;
-  activeProjectId: string;
+  activeProjectId: string | null;
   refreshKey: number;
 }): CommandPaletteThreadItemsState {
   const [state, setState] = useState<CommandPaletteThreadItemsState>(() => ({

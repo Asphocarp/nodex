@@ -2059,7 +2059,8 @@ pub(super) fn require_session(
              LEFT JOIN project_session_threads link ON link.session_id = session.id \
              WHERE session.id = ?1 AND (session.project_id IS NULL OR EXISTS(\
                SELECT 1 FROM projects project \
-               WHERE project.id = session.project_id AND project.library_id = ?2\
+               WHERE project.id = session.project_id AND project.library_id = ?2 \
+                 AND project.lifecycle = 'active'\
              ))",
             params![session_id, library_id],
             |row| {

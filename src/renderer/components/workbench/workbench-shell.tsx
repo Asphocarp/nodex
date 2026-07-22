@@ -293,6 +293,7 @@ import type {
   PanelId,
   Project,
   ProjectCreateInput,
+  ProjectLifecycleMutationResult,
   ProjectOrderInput,
   ProjectPinnedInput,
   ProjectPinnedOrderInput,
@@ -880,7 +881,9 @@ function makeSummaryOnlyProjectSession(summary: ProjectSessionSummary): ProjectS
 interface WorkbenchShellProps {
   libraryWorkspaceEnabled: boolean;
   projects: Project[];
-  dbProjectId: string;
+  projectCatalogError?: string | null;
+  onRetryProjects?: () => Promise<void> | void;
+  dbProjectId: string | null;
   initialActiveProjectSessionId?: string | null;
   onActiveProjectSessionChange?: (sessionId: string | null) => void;
   activeView: WorkbenchView;
@@ -914,7 +917,7 @@ interface WorkbenchShellProps {
     projectId: string | null;
     sessionId: string;
   } | null;
-  setDbProject: (projectId: string) => void;
+  setDbProject: (projectId: string | null) => void;
   setSearchQuery: (projectId: string, value: string) => void;
   setDbViewPrefs: (
     projectId: string,
@@ -936,7 +939,7 @@ interface WorkbenchShellProps {
   onLeavePageStage: (snapshot: PageStageSessionSnapshot) => void;
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
-  onDeleteProject: (projectId: string) => Promise<boolean>;
+  onArchiveProject: (projectId: string) => Promise<ProjectLifecycleMutationResult>;
   onReorderProjects: (input: ProjectOrderInput) => Promise<Project[]>;
   onSetProjectPinned: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
   onSetPinnedProjectOrder: (input: ProjectPinnedOrderInput) => Promise<Project[]>;
@@ -1052,7 +1055,7 @@ export function WorkbenchStageToolbar({
   );
 }
 
-function readInitialExpandedProjects(projects: Project[], activeProjectId: string): Set<string> {
+function readInitialExpandedProjects(projects: Project[], activeProjectId: string | null): Set<string> {
   const initial = new Set<string>();
   if (activeProjectId) initial.add(activeProjectId);
   if (projects.length === 1 && projects[0]) initial.add(projects[0].id);
@@ -2292,7 +2295,7 @@ function readPageStagePanelTabPageRef(tab: ProjectSessionTab | null | undefined)
 }
 
 function buildShellNavigationSnapshot(input: {
-  activeProjectId: string;
+  activeProjectId: string | null;
   activeSession: ProjectSession | null;
   activeView: WorkbenchView;
   rightActiveTabId?: string | null;
@@ -2321,6 +2324,8 @@ function buildShellNavigationSnapshot(input: {
 export function WorkbenchShell({
   libraryWorkspaceEnabled,
   projects,
+  projectCatalogError = null,
+  onRetryProjects,
   dbProjectId,
   initialActiveProjectSessionId = null,
   onActiveProjectSessionChange,
@@ -2348,7 +2353,7 @@ export function WorkbenchShell({
   onLeavePageStage,
   onCreateProject,
   onUpdateProject,
-  onDeleteProject,
+  onArchiveProject,
   onReorderProjects,
   onSetProjectPinned,
   onSetPinnedProjectOrder,
@@ -2414,11 +2419,10 @@ export function WorkbenchShell({
     : projectSessionSummaryState.error
       ? "Unable to load project sessions"
       : null;
-  const fallbackProjectId = projects[0]?.id ?? "default";
-  const [activeProjectId, setActiveProjectId] = useState(dbProjectId || fallbackProjectId);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(dbProjectId);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(initialActiveProjectSessionId);
   const [expandedProjectIds, setExpandedProjectIds] = useState(() =>
-    readInitialExpandedProjects(projects, dbProjectId || fallbackProjectId),
+    readInitialExpandedProjects(projects, dbProjectId),
   );
   const [contextMenuSessionId, setContextMenuSessionId] = useState<string | null>(null);
   const [renameSession, setRenameSession] = useState<ProjectSession | null>(null);
@@ -2626,7 +2630,7 @@ export function WorkbenchShell({
   const setRealSidebarOpen = realSidebarMotion.setOpen;
   const setRealSidebarTargetWidth = realSidebarMotion.setTargetWidth;
 
-  const activeProject = projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null;
+  const activeProject = projects.find((project) => project.id === activeProjectId) ?? null;
   const activeSessions = useMemo(
     () => activeProject ? sessionsByProject[activeProject.id] ?? [] : [],
     [activeProject, sessionsByProject],
@@ -2706,7 +2710,8 @@ export function WorkbenchShell({
   const processManagerConversationsById = useConversationSubset(processManagerThreadIds);
   const workbenchCodexControl = useCodexAppServerControl(activeProject?.id ?? activeProjectId);
   const activeProjectKanban = useKanban({
-    projectId: activeProject?.id ?? activeProjectId,
+    projectId: activeProject?.id ?? activeProjectId ?? "",
+    enabled: Boolean(activeProject?.id ?? activeProjectId),
     sessionId: activeSession ? `${activeSession.id}:right-panel-actions` : "right-panel-actions",
   });
   const [pageStageHistoryModal, setPageStageHistoryModal] = useState<PageStageHistoryModalContext | null>(null);
@@ -2790,6 +2795,7 @@ export function WorkbenchShell({
       : null,
     [pageStageHistoryModal, projects],
   );
+  const pageStageHistoryPanelProjectId = pageStageHistoryModal?.projectId ?? activeProject?.id ?? null;
   const rightPanelFullWidth = activeSessionPanelModel?.rightPanelFullWidth ?? false;
   const rightActiveRenderableTab = activeSessionPanelModel?.rightActiveRenderableTab ?? null;
   const rightPanelComposerOverlayEnabled = Boolean(
@@ -2803,7 +2809,6 @@ export function WorkbenchShell({
   const shellCanNavigateForward = shellNavigationHistory.forwardStack.length > 0;
   const currentShellNavigationSnapshot = useMemo<WorkbenchShellNavigationSnapshot | null>(() => {
     const snapshotProjectId = activeProject?.id ?? activeProjectId;
-    if (!snapshotProjectId) return null;
     return buildShellNavigationSnapshot({
       activeProjectId: snapshotProjectId,
       activeSession,
@@ -3368,16 +3373,23 @@ export function WorkbenchShell({
   }, [rootFontSize]);
 
   useEffect(() => {
-    const nextProjectId = projects.some((project) => project.id === dbProjectId)
+    const nextProjectId = dbProjectId && projects.some((project) => project.id === dbProjectId)
       ? dbProjectId
-      : fallbackProjectId;
+      : null;
     if (nextProjectId === activeProjectId) return;
     setActiveProjectId(nextProjectId);
-    setExpandedProjectIds((current) => new Set([...current, nextProjectId]));
-  }, [activeProjectId, dbProjectId, fallbackProjectId, projects]);
+    if (nextProjectId) {
+      setExpandedProjectIds((current) => new Set([...current, nextProjectId]));
+    }
+  }, [activeProjectId, dbProjectId, projects]);
 
   useEffect(() => {
-    if (!activeProject) return;
+    if (!activeProject) {
+      if (activeSessionId && !projectlessSessions.some((session) => session.id === activeSessionId)) {
+        setActiveSessionId(null);
+      }
+      return;
+    }
     if (
       activeSession
       && (activeSession.projectId === activeProject.id || activeSession.projectId === null)
@@ -3387,15 +3399,19 @@ export function WorkbenchShell({
     }
     const fallbackSession = activeSessions[0] ?? null;
     setActiveSessionId(fallbackSession?.id ?? null);
-  }, [activeProject, activeSession, activeSessionId, activeSessions]);
+  }, [activeProject, activeSession, activeSessionId, activeSessions, projectlessSessions]);
 
   useEffect(() => {
     onActiveProjectSessionChange?.(activeSession?.id ?? null);
   }, [activeSession?.id, onActiveProjectSessionChange]);
 
-  const buildSnapshotForSession = useCallback((session: ProjectSession | null, projectId?: string) =>
+  const buildSnapshotForSession = useCallback((session: ProjectSession | null, projectId?: string | null) =>
     buildShellNavigationSnapshot({
-      activeProjectId: projectId ?? session?.projectId ?? activeProjectId,
+      activeProjectId: projectId !== undefined
+        ? projectId
+        : session
+          ? session.projectId
+          : activeProjectId,
       activeSession: session,
       activeView,
       libraryRoute: null,
@@ -3424,14 +3440,14 @@ export function WorkbenchShell({
     const cachedSession = getCachedProjectSessionDetail(queryClient, session.id);
     const targetSession = cachedSession ?? session;
     warmProjectSessionDbViewBoards(targetSession);
-    recordShellNavigation(buildSnapshotForSession(targetSession, targetSession.projectId ?? activeProjectId));
+    recordShellNavigation(buildSnapshotForSession(targetSession, targetSession.projectId));
 
     const revealSession = () => {
       setActiveSessionId(targetSession.id);
+      setActiveProjectId(targetSession.projectId);
+      setDbProject(targetSession.projectId);
       if (targetSession.projectId !== null) {
         const projectId = targetSession.projectId;
-        setActiveProjectId(projectId);
-        setDbProject(projectId);
         setExpandedProjectIds((current) => new Set([...current, projectId]));
       }
     };
@@ -3452,7 +3468,6 @@ export function WorkbenchShell({
         .catch(() => undefined);
     }
   }, [
-    activeProjectId,
     buildSnapshotForSession,
     mergeSessionInState,
     queryClient,
@@ -7373,8 +7388,9 @@ export function WorkbenchShell({
   }, [updateSessionPanel]);
 
   const applyShellNavigationSnapshot = useCallback(async (snapshot: WorkbenchShellNavigationSnapshot) => {
-    const targetProjectExists = projects.some(
-      (candidate) => candidate.id === snapshot.activeProjectId,
+    const targetProjectId = snapshot.activeProjectId;
+    const targetProjectExists = targetProjectId === null || projects.some(
+      (candidate) => candidate.id === targetProjectId,
     );
     const libraryRouteFromSnapshot = libraryWorkspaceEnabled
       ? snapshot.libraryRoute
@@ -7388,11 +7404,15 @@ export function WorkbenchShell({
       setAutomationsPath(null);
       setLibraryRoute(libraryRouteFromSnapshot);
       if (!targetProjectExists) return;
-      setActiveProjectId(snapshot.activeProjectId);
-      setDbProject(snapshot.activeProjectId);
-      setExpandedProjectIds((current) => new Set([...current, snapshot.activeProjectId]));
+      setActiveProjectId(targetProjectId);
+      setDbProject(targetProjectId);
+      if (targetProjectId) {
+        setExpandedProjectIds((current) => new Set([...current, targetProjectId]));
+      }
 
-      const projectSessions = sessionsByProject[snapshot.activeProjectId] ?? await refreshProjectSessions(snapshot.activeProjectId);
+      const projectSessions = targetProjectId === null
+        ? projectlessSessions
+        : sessionsByProject[targetProjectId] ?? await refreshProjectSessions(targetProjectId);
       const targetSession =
         projectSessions.find((session) => session.id === snapshot.activeSessionId)
         ?? projectSessions[0]
@@ -7436,6 +7456,7 @@ export function WorkbenchShell({
   }, [
     applyPanelNavigationSnapshot,
     libraryWorkspaceEnabled,
+    projectlessSessions,
     projects,
     refreshProjectSessions,
     sessionsByProject,
@@ -9155,7 +9176,8 @@ export function WorkbenchShell({
   const commandPaletteCommandContext: Omit<CommandPaletteShellCommandContext, "isMac" | "showMockCommands"> = {
     canGoBack: shellCanNavigateBack,
     canGoForward: shellCanNavigateForward,
-    canStartNewChat: Boolean(activeProjectId),
+    canStartNewChat: true,
+    canStartNewChatInProject: Boolean(activeProjectId),
     hasActiveSession: Boolean(activeSession),
     activeSessionPinned: activeSession?.pinned ?? false,
     hasAttachedThread: Boolean(activeSession?.thread),
@@ -9829,7 +9851,7 @@ export function WorkbenchShell({
                 return await onCreateProject(input);
               }}
               onUpdateProject={onUpdateProject ?? (async () => null)}
-              onDeleteProject={onDeleteProject ?? (async () => false)}
+              onArchiveProject={onArchiveProject ?? (async () => ({ kind: "not-found" }))}
               onReorderProjects={onReorderProjects}
               onSetProjectPinned={onSetProjectPinned}
               onSetPinnedProjectOrder={onSetPinnedProjectOrder}
@@ -9935,7 +9957,7 @@ export function WorkbenchShell({
                     return await onCreateProject(input);
                   }}
                   onUpdateProject={onUpdateProject ?? (async () => null)}
-                  onDeleteProject={onDeleteProject ?? (async () => false)}
+                  onArchiveProject={onArchiveProject ?? (async () => ({ kind: "not-found" }))}
                   onReorderProjects={onReorderProjects}
                   onSetProjectPinned={onSetProjectPinned}
                   onSetPinnedProjectOrder={onSetPinnedProjectOrder}
@@ -10052,24 +10074,53 @@ export function WorkbenchShell({
               >
                 {activeRenderSession ? (
                   renderActiveSession(activeRenderSession)
+                ) : activeProjectId === null ? (
+                  <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 text-center">
+                    <p className="text-sm text-token-description-foreground">
+                      {projectCatalogError ? "Projects could not be loaded" : "No project selected"}
+                    </p>
+                    {projectCatalogError ? (
+                      <p className="max-w-sm text-xs text-token-text-secondary">
+                        {projectCatalogError}
+                      </p>
+                    ) : null}
+                    {projectCatalogError && onRetryProjects ? (
+                      <NodexButton
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => void onRetryProjects()}
+                      >
+                        Retry
+                      </NodexButton>
+                    ) : null}
+                    <NodexButton
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void startNewChatInProject(null)}
+                    >
+                      Start a projectless chat
+                    </NodexButton>
+                  </div>
                 ) : (
                   <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-token-text-secondary">
                     Select a project session.
                   </div>
                 )}
               </main>
-              <HistoryPanel
-                projectId={pageStageHistoryModal?.projectId ?? activeProjectId}
-                pageId={pageStageHistoryModal?.pageId ?? null}
-                pageTitle={pageStageHistoryModal?.pageTitle}
-                pageNfm={pageStageHistoryModal?.pageNfm}
-                projectWorkspacePath={projectWorkspaceRootOrNull(pageStageHistoryModalProject)}
-                open={pageStageHistoryModal !== null}
-                onClose={closePageStageHistoryModal}
-                onPageMutated={() => {
-                  void activeProjectKanban.refresh();
-                }}
-              />
+              {pageStageHistoryPanelProjectId ? (
+                <HistoryPanel
+                  projectId={pageStageHistoryPanelProjectId}
+                  pageId={pageStageHistoryModal?.pageId ?? null}
+                  pageTitle={pageStageHistoryModal?.pageTitle}
+                  pageNfm={pageStageHistoryModal?.pageNfm}
+                  projectWorkspacePath={projectWorkspaceRootOrNull(pageStageHistoryModalProject)}
+                  open={pageStageHistoryModal !== null}
+                  onClose={closePageStageHistoryModal}
+                  onPageMutated={() => {
+                    void activeProjectKanban.refresh();
+                  }}
+                />
+              ) : null}
             </>
           )}
             </>
@@ -10641,7 +10692,7 @@ function SidebarThreadOrganizerSections({
   projectPickerOpenTick,
   onCreateProject,
   onUpdateProject,
-  onDeleteProject,
+  onArchiveProject,
   onReorderProjects,
   onSetProjectPinned,
   onSetPinnedProjectOrder,
@@ -10655,7 +10706,7 @@ function SidebarThreadOrganizerSections({
   activeLibraryTarget,
 }: {
   libraryWorkspaceEnabled: boolean;
-  activeProjectId: string;
+  activeProjectId: string | null;
   activeSessionId: string | null;
   activePendingClientThreadId?: string | null;
   contextMenuSessionId?: string | null;
@@ -10692,7 +10743,7 @@ function SidebarThreadOrganizerSections({
   projectPickerOpenTick: number;
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
-  onDeleteProject: (projectId: string) => Promise<boolean>;
+  onArchiveProject: (projectId: string) => Promise<ProjectLifecycleMutationResult>;
   onReorderProjects: (input: ProjectOrderInput) => Promise<Project[]>;
   onSetProjectPinned: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
   onSetPinnedProjectOrder: (input: ProjectPinnedOrderInput) => Promise<Project[]>;
@@ -11238,8 +11289,7 @@ function SidebarThreadOrganizerSections({
                   onSelectProject={() => onSelectProject(project.id)}
                   onStartNewChat={() => void onStartNewChatInProject(project.id)}
                   onUpdateProject={onUpdateProject}
-                  onDeleteProject={onDeleteProject}
-                  projectArchivingEnabled={libraryWorkspaceEnabled}
+                  onArchiveProject={onArchiveProject}
                   onSetProjectPinned={onSetProjectPinned}
                   onCreateStableWorktree={onCreateStableWorktree}
                   stableWorktreeWorkspaceRootOptions={stableWorktreeWorkspaceRootOptions}
@@ -11479,7 +11529,7 @@ function ProjectSessionSidebar({
   projectPickerOpenTick = 0,
   onCreateProject,
   onUpdateProject,
-  onDeleteProject,
+  onArchiveProject,
   onReorderProjects,
   onSetProjectPinned,
   onSetPinnedProjectOrder,
@@ -11503,7 +11553,7 @@ function ProjectSessionSidebar({
   floating?: boolean;
   header?: ReactNode;
   projectRefs: ProjectRef[];
-  activeProjectId: string;
+  activeProjectId: string | null;
   activeSessionId: string | null;
   activePendingClientThreadId?: string | null;
   contextMenuSessionId?: string | null;
@@ -11559,7 +11609,7 @@ function ProjectSessionSidebar({
   projectPickerOpenTick?: number;
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
-  onDeleteProject: (projectId: string) => Promise<boolean>;
+  onArchiveProject: (projectId: string) => Promise<ProjectLifecycleMutationResult>;
   onReorderProjects: (input: ProjectOrderInput) => Promise<Project[]>;
   onSetProjectPinned: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
   onSetPinnedProjectOrder: (input: ProjectPinnedOrderInput) => Promise<Project[]>;
@@ -11893,7 +11943,7 @@ function ProjectSessionSidebar({
                   projectPickerOpenTick={projectPickerOpenTick}
                   onCreateProject={onCreateProject}
                   onUpdateProject={onUpdateProject}
-                  onDeleteProject={onDeleteProject}
+                  onArchiveProject={onArchiveProject}
                   onReorderProjects={onReorderProjects}
                   onSetProjectPinned={onSetProjectPinned}
                   onSetPinnedProjectOrder={onSetPinnedProjectOrder}

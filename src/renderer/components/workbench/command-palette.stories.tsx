@@ -116,6 +116,7 @@ function CommandPaletteStory({
       canGoBack: false,
       canGoForward: true,
       canStartNewChat: true,
+      canStartNewChatInProject: true,
       hasActiveSession: true,
       activeSessionPinned: true,
       hasAttachedThread: false,

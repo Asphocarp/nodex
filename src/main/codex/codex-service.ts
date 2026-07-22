@@ -214,6 +214,7 @@ import type {
   CodexPromptTextAttachmentInput,
   ManagedWorktreeRecord,
   Project,
+  ProjectArchiveBlocker,
   ProjectSession,
   ProjectSessionForkInput,
   ProjectSessionForkResult,
@@ -617,6 +618,7 @@ import type {
   DesktopProjectWorkspaceThreadPatch,
 } from "../core-client/project-workspace-adapter";
 import { CodexScheduledAutomationRetryError } from "../codex-scheduled-automation-scheduler";
+import { projectRuntimeLifecycleCoordinator } from "../project-runtime-lifecycle-coordinator";
 import {
   buildCodexNewConversationParams,
   parseCodexStoredShellEnvironment,
@@ -3842,6 +3844,35 @@ export class CodexService extends EventEmitter {
 
   getRendererConversationOwner(threadId: string): string | null {
     return this.rendererOwnerClientIdByConversationId.get(threadId) ?? null;
+  }
+
+  listProjectArchiveBlockers(threadIds: readonly string[]): ProjectArchiveBlocker[] {
+    const blockers: ProjectArchiveBlocker[] = [];
+    for (const threadId of new Set(threadIds.map((value) => value.trim()).filter(Boolean))) {
+      const record = this.getMaybeConversationRecord(threadId);
+      const workspaceThread = this.workspaceThreadProjectionById.get(threadId);
+      if (!record && !workspaceThread) continue;
+      const label = record?.detail?.threadName?.trim()
+        || workspaceThread?.threadName?.trim()
+        || null;
+      const hasActiveTurn = workspaceThread?.statusType === "active"
+        || record?.detail?.statusType === "active"
+        || this.listKnownTurns(threadId).some((turn) => turn.status === "inProgress")
+        || hasRunningCollabAgentTranscriptEntry(record?.detail?.transcript ?? [])
+        || record?.threadGoal?.status === "active";
+      if (hasActiveTurn) {
+        blockers.push({ kind: "active-turn", threadId, label });
+      }
+      if (
+        (workspaceThread?.statusActiveFlags.length ?? 0) > 0
+        || (record?.detail?.statusActiveFlags.length ?? 0) > 0
+        || (record?.serverRequests.length ?? 0) > 0
+        || (record ? this.hasPendingThreadGoalSteering(threadId, record) : false)
+      ) {
+        blockers.push({ kind: "pending-request", threadId, label });
+      }
+    }
+    return blockers;
   }
 
   setRendererConversationViewActive(
@@ -17862,6 +17893,16 @@ export class CodexService extends EventEmitter {
     }));
     const startedAt = Date.now();
     const clientUserMessageId = overrides?.clientUserMessageId ?? randomUUID();
+    const projectRuntimeRelease = await projectRuntimeLifecycleCoordinator.acquire(
+      threadRef?.projectId ?? null,
+    );
+    try {
+      if (threadRef?.projectId) {
+        const project = await this.projectWorkspace.getProject(threadRef.projectId);
+        if (project?.lifecycle !== "active") {
+          throw new Error("Codex turns cannot be started for an inactive or removed project");
+        }
+      }
     const authorityLaunch = await this.beginNodexAgentTurnAuthority(
       threadId,
       this.isVerifiedBuiltinFullAccess(threadRef?.projectId ?? null, permissionState),
@@ -17995,7 +18036,10 @@ export class CodexService extends EventEmitter {
     }
 
     await this.markAutomationRunAcceptedForUserContinuation(threadId);
-    if (rendererOwnsState) return turnStartResult;
+    if (rendererOwnsState) {
+      await this.markThreadAsActive(threadId);
+      return turnStartResult;
+    }
 
     const startedTurn = this.asTurnSummary(threadId, turnStartResult.turn);
     if (startedTurn) {
@@ -18031,6 +18075,9 @@ export class CodexService extends EventEmitter {
       durationMs: Date.now() - startedAt,
     });
     return detail.turns[detail.turns.length - 1];
+    } finally {
+      projectRuntimeRelease();
+    }
   }
 
   async startReview(params: ReviewStartParams): Promise<ReviewStartResponse> {

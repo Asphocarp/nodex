@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { Project, ProjectCreateInput, ProjectUpdateInput } from "../../lib/types";
+import type { Project, ProjectCreateInput, ProjectLifecycleMutationResult, ProjectUpdateInput } from "../../lib/types";
 import type { ProjectRef } from "../../lib/use-workbench-state";
 import {
   CodexProjectRow,
@@ -10,11 +10,11 @@ import { SidebarProjectsSectionActions } from "./sidebar-projects-section-action
 interface SidebarProjectsSectionProps {
   projects: Project[];
   projectRefs: ProjectRef[];
-  activeProjectId: string;
+  activeProjectId: string | null;
   onSelectProject: (projectId: string) => void;
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
-  onDeleteProject: (projectId: string) => Promise<boolean>;
+  onArchiveProject: (projectId: string) => Promise<ProjectLifecycleMutationResult>;
   expanded: boolean;
   onToggleExpanded: () => void;
   projectPickerOpenTick: number;
@@ -49,7 +49,7 @@ export function SidebarProjectsSection({
   onToggleExpanded,
   onSelectProject,
   onCreateProject,
-  onDeleteProject,
+  onArchiveProject,
   onUpdateProject,
   projectPickerOpenTick,
 }: SidebarProjectsSectionProps) {
@@ -83,7 +83,7 @@ export function SidebarProjectsSection({
                 expanded={isActive}
                 onActivate={() => onSelectProject(project.id)}
                 onUpdateProject={onUpdateProject}
-                onDeleteProject={onDeleteProject}
+                onArchiveProject={onArchiveProject}
               />
             );
           })}

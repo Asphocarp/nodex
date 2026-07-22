@@ -6,12 +6,15 @@ use utoipa::ToSchema;
 
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 2;
+pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 3;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProjectWorkspaceRead {
     Startup,
+    Projects {
+        include_archived: Option<bool>,
+    },
     Project {
         project_id: String,
     },
@@ -65,6 +68,9 @@ pub enum ProjectWorkspaceReadValue {
     Startup {
         projects: Vec<ProjectWorkspaceProject>,
         sessions: Vec<ProjectWorkspaceSessionSummary>,
+    },
+    Projects {
+        projects: Vec<ProjectWorkspaceProject>,
     },
     Project {
         project: ProjectWorkspaceProject,

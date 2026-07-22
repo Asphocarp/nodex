@@ -416,7 +416,8 @@ fn require_project(
 ) -> Result<(), StoreError> {
     let exists = connection
         .query_row(
-            "SELECT 1 FROM projects WHERE id = ?1 AND library_id = ?2",
+            "SELECT 1 FROM projects \
+             WHERE id = ?1 AND library_id = ?2 AND lifecycle = 'active'",
             params![project_id, library_id],
             |_| Ok(()),
         )
@@ -892,6 +893,89 @@ mod tests {
             !sidebar
                 .project_thread_orders
                 .contains_key("project:default")
+        );
+    }
+
+    #[test]
+    fn archived_project_threads_leave_ordinary_sidebar_and_return_on_restore() {
+        let workspace = seeded_workspace();
+        create_session_thread(
+            &workspace.module,
+            "project-thread",
+            "session:project-thread",
+            "thread:project",
+            Some("project:default"),
+            400,
+        );
+        apply(
+            &workspace.module,
+            "pin-project-thread",
+            ProjectWorkspaceIntent::SetThreadPinned {
+                thread_id: "thread:project".to_owned(),
+                pinned: true,
+                placement: None,
+            },
+        );
+        apply(
+            &workspace.module,
+            "archive-project",
+            ProjectWorkspaceIntent::SetProjectLifecycle {
+                project_id: "project:default".to_owned(),
+                lifecycle: nodex_core_contracts::workspace::ProjectLifecycle::Archived,
+            },
+        );
+
+        let ProjectWorkspaceReadValue::Sidebar { sidebar } = read(
+            &workspace.module,
+            ProjectWorkspaceRead::Sidebar {
+                include_archived: Some(false),
+            },
+        ) else {
+            panic!("ordinary Sidebar snapshot");
+        };
+        assert!(
+            sidebar
+                .threads
+                .iter()
+                .all(|thread| thread.thread_id != "thread:project")
+        );
+
+        let ProjectWorkspaceReadValue::Sidebar { sidebar } = read(
+            &workspace.module,
+            ProjectWorkspaceRead::Sidebar {
+                include_archived: Some(true),
+            },
+        ) else {
+            panic!("historical Sidebar snapshot");
+        };
+        assert!(
+            sidebar
+                .threads
+                .iter()
+                .any(|thread| thread.thread_id == "thread:project")
+        );
+
+        apply(
+            &workspace.module,
+            "restore-project",
+            ProjectWorkspaceIntent::SetProjectLifecycle {
+                project_id: "project:default".to_owned(),
+                lifecycle: nodex_core_contracts::workspace::ProjectLifecycle::Active,
+            },
+        );
+        let ProjectWorkspaceReadValue::Sidebar { sidebar } = read(
+            &workspace.module,
+            ProjectWorkspaceRead::Sidebar {
+                include_archived: Some(false),
+            },
+        ) else {
+            panic!("restored Sidebar snapshot");
+        };
+        assert!(
+            sidebar
+                .threads
+                .iter()
+                .any(|thread| thread.thread_id == "thread:project")
         );
     }
 

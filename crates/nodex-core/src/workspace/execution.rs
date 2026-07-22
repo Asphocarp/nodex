@@ -403,7 +403,7 @@ pub(super) fn mutate_writable_roots(
     if roots.len() > MAX_WRITABLE_ROOT_INPUTS {
         return Err(invalid("Writable root input exceeds its Core bound"));
     }
-    let project_id = require_visible_thread(connection, library_id, thread_id)?;
+    let project_id = require_mutable_thread(connection, library_id, thread_id)?;
     let mut candidates = if merge {
         read_writable_roots(connection, thread_id)?
     } else {
@@ -459,7 +459,7 @@ pub(super) fn upsert_background_process(
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
     let normalized = normalize_background_process(process)?;
     let normalized_thread_id = normalized.thread_id.clone();
-    let project_id = require_visible_thread(connection, library_id, &normalized_thread_id)?;
+    let project_id = require_mutable_thread(connection, library_id, &normalized_thread_id)?;
     let expected_id = format!("{}:{}", normalized.thread_id, normalized.item_id);
     if normalized.id != expected_id {
         return Err(invalid(
@@ -746,7 +746,8 @@ fn require_authority_coordinates(
              FROM projects project \
              JOIN libraries library ON library.id = project.library_id \
              JOIN block_store_metadata metadata ON metadata.id = 1 \
-             WHERE project.id = ?1 AND project.library_id = ?2",
+             WHERE project.id = ?1 AND project.library_id = ?2 \
+               AND project.lifecycle = 'active'",
             params![project_id, library_id],
             |row| {
                 Ok(AuthorityCoordinates {
@@ -758,6 +759,18 @@ fn require_authority_coordinates(
         )
         .optional()?
         .ok_or_else(|| not_found("Turn authority Project is unavailable in this Library"))
+}
+
+fn require_mutable_thread(
+    connection: &Connection,
+    library_id: &str,
+    thread_id: &str,
+) -> Result<Option<String>, StoreError> {
+    let project_id = require_visible_thread(connection, library_id, thread_id)?;
+    if let Some(project_id) = project_id.as_deref() {
+        require_authority_coordinates(connection, library_id, project_id)?;
+    }
+    Ok(project_id)
 }
 
 fn require_visible_thread(

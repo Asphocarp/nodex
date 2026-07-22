@@ -47,7 +47,7 @@ interface LocalEnvironmentsSettingsPageProps {
   open: boolean;
   active: boolean;
   projects: Project[];
-  activeProjectId: string;
+  activeProjectId: string | null;
   initialProjectId?: string | null;
   initialConfigPath?: string | null;
   onAddProject?: () => void;

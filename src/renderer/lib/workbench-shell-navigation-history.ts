@@ -11,7 +11,7 @@ const HISTORY_STORAGE_KEY = "nodex-workbench-shell-navigation-history-v1";
 const MAX_HISTORY_ENTRIES = 50;
 
 export interface WorkbenchShellNavigationSnapshot {
-  activeProjectId: string;
+  activeProjectId: string | null;
   activeSessionId: string | null;
   activeView: WorkbenchView;
   rightActiveTabId: string | null;
@@ -75,7 +75,7 @@ const WorkbenchLibraryRouteSchema = z.discriminatedUnion("kind", [
 });
 
 const WorkbenchShellNavigationSnapshotSchema = z.object({
-  activeProjectId: z.string().min(1),
+  activeProjectId: z.string().min(1).nullable(),
   activeSessionId: z.string().min(1).nullable(),
   activeView: WorkbenchViewSchema,
   rightActiveTabId: z.string().min(1).nullable(),

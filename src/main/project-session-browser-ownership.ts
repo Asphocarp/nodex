@@ -1,5 +1,4 @@
 import type {
-  Project,
   ProjectSession,
   ProjectSessionTab,
   ProjectSessionTabDeleteInput,
@@ -76,35 +75,5 @@ export async function deleteProjectSessionWithBrowserCleanupUsing(
   if (!deleted || !existing) return deleted;
 
   await input.browserRuntime.closeBrowserConversation(existing.id);
-  return true;
-}
-
-export interface DeleteProjectWithBrowserCleanupInput {
-  readonly projectId: string;
-  readonly browserRuntime: ProjectSessionBrowserRuntime;
-  readonly deleteProject: (projectId: string) => boolean | Promise<boolean>;
-  readonly getProject: (projectId: string) => Project | null | Promise<Project | null>;
-  readonly listProjectSessions: (
-    projectId: string,
-  ) => ProjectSession[] | Promise<ProjectSession[]>;
-}
-
-export async function deleteProjectWithBrowserCleanupUsing(
-  input: DeleteProjectWithBrowserCleanupInput,
-): Promise<boolean> {
-  const project = await input.getProject(input.projectId);
-  const canonicalProjectId = project?.id ?? null;
-  const sessions = canonicalProjectId
-    ? await input.listProjectSessions(canonicalProjectId)
-    : [];
-  const deleted = await input.deleteProject(input.projectId);
-  if (!deleted) return false;
-
-  for (const session of sessions) {
-    await input.browserRuntime.closeBrowserConversation(session.id);
-  }
-  await input.browserRuntime.closeBrowserProject?.(
-    canonicalProjectId ?? input.projectId,
-  );
   return true;
 }

@@ -91,7 +91,8 @@ function readWorkbenchV2Flag(): boolean {
   }
 }
 
-function findProjectById(projects: readonly Project[], projectId: string): Project | null {
+function findProjectById(projects: readonly Project[], projectId: string | null): Project | null {
+  if (!projectId) return null;
   return projects.find((project) => project.id === projectId) ?? null;
 }
 
@@ -105,12 +106,13 @@ function readProjectQueryParam(): string | null {
   }
 }
 
-function replaceProjectQueryParam(projectId: string): void {
+function replaceProjectQueryParam(projectId: string | null): void {
   if (typeof window === "undefined") return;
   try {
     const url = new URL(window.location.href);
     if (url.searchParams.get("project") === projectId) return;
-    url.searchParams.set("project", projectId);
+    if (projectId) url.searchParams.set("project", projectId);
+    else url.searchParams.delete("project");
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
   } catch {
     // Ignore URL replacement failures; state reconciliation still selects the canonical project.
@@ -128,13 +130,15 @@ function WorkbenchApp({
   const {
     projects,
     loading,
+    ready: projectsReady,
+    error: projectsError,
+    refresh: refreshProjects,
     createProject,
-    deleteProject,
+    archiveProject,
     updateProject,
     reorderProjects,
     setProjectPinned,
     setPinnedProjectOrder,
-    refresh,
   } = useProjects();
   const {
     dbProjectId,
@@ -188,6 +192,7 @@ function WorkbenchApp({
     buildLayoutSnapshot,
   } = useWorkbenchState(projects, {
     initialLayoutSnapshot: initialWindowSessionBootstrap.session.layout,
+    projectsReady,
   });
   const [projectPickerOpenTick, setProjectPickerOpenTick] = useState(0);
   const [taskSearchOpenTick, setTaskSearchOpenTick] = useState(0);
@@ -297,17 +302,20 @@ function WorkbenchApp({
 
   const resolvedDbProjectId = useMemo(() => {
     const project = findProjectById(projects, dbProjectId);
-    if (project) return project.id;
-    return projects[0]?.id ?? "default";
+    return project?.id ?? null;
   }, [dbProjectId, projects]);
 
   const resolvedView = useMemo<WorkbenchView>(
-    () => viewsByProject[resolvedDbProjectId] ?? activeView,
+    () => resolvedDbProjectId
+      ? viewsByProject[resolvedDbProjectId] ?? activeView
+      : activeView,
     [viewsByProject, resolvedDbProjectId, activeView],
   );
 
   const resolvedSearchQuery = useMemo(
-    () => searchByProject[resolvedDbProjectId] ?? activeSearchQuery,
+    () => resolvedDbProjectId
+      ? searchByProject[resolvedDbProjectId] ?? activeSearchQuery
+      : activeSearchQuery,
     [searchByProject, resolvedDbProjectId, activeSearchQuery],
   );
   const currentNavigationSnapshot = useMemo<NavigationSnapshot>(() => ({
@@ -343,8 +351,8 @@ function WorkbenchApp({
     writeNavigationHistoryState(navigationHistory);
   }, [navigationHistory]);
 
-  const resolveProjectView = useCallback((projectId: string): WorkbenchView => {
-    return viewsByProject[projectId] ?? "kanban";
+  const resolveProjectView = useCallback((projectId: string | null): WorkbenchView => {
+    return projectId ? viewsByProject[projectId] ?? "kanban" : "kanban";
   }, [viewsByProject]);
 
   const recordNavigation = useCallback((nextSnapshot: NavigationSnapshot) => {
@@ -366,7 +374,7 @@ function WorkbenchApp({
   ]);
 
   useEffect(() => {
-    if (loading) return;
+    if (!projectsReady) return;
     if (resumeValidationStartedRef.current) return;
     resumeValidationStartedRef.current = true;
     const initialLayout = initialWindowSessionBootstrap.session.layout;
@@ -436,60 +444,45 @@ function WorkbenchApp({
     return () => {
       cancelled = true;
     };
-  }, [closePageStageState, closeRecentPageSession, initialWindowSessionBootstrap.session.layout, loading]);
+  }, [closePageStageState, closeRecentPageSession, initialWindowSessionBootstrap.session.layout, projectsReady]);
 
   const handleCreateProject = useCallback(
     async (input: ProjectCreateInput) => {
       const result = await createProject(input);
-      if (result) await refresh();
+      if (result) {
+        setDbProjectState(result.id);
+        setThreadsProjectIdState(result.id);
+      }
       return result;
     },
-    [createProject, refresh],
+    [createProject, setDbProjectState, setThreadsProjectIdState],
   );
 
-  const handleDeleteProject = useCallback(
-    async (projectId: string) => {
-      const success = await deleteProject(projectId);
-      if (success) await refresh();
-      return success;
-    },
-    [deleteProject, refresh],
+  const handleArchiveProject = useCallback(
+    async (projectId: string) => await archiveProject(projectId),
+    [archiveProject],
   );
 
   const handleUpdateProject = useCallback(
-    async (projectId: string, updates: ProjectUpdateInput) => {
-      const result = await updateProject(projectId, updates);
-      if (result) await refresh();
-      return result;
-    },
-    [refresh, updateProject],
+    async (projectId: string, updates: ProjectUpdateInput) =>
+      await updateProject(projectId, updates),
+    [updateProject],
   );
 
   const handleReorderProjects = useCallback(
-    async (input: ProjectOrderInput) => {
-      const result = await reorderProjects(input);
-      await refresh();
-      return result;
-    },
-    [refresh, reorderProjects],
+    async (input: ProjectOrderInput) => await reorderProjects(input),
+    [reorderProjects],
   );
 
   const handleSetProjectPinned = useCallback(
-    async (projectId: string, input: ProjectPinnedInput) => {
-      const result = await setProjectPinned(projectId, input);
-      await refresh();
-      return result;
-    },
-    [refresh, setProjectPinned],
+    async (projectId: string, input: ProjectPinnedInput) =>
+      await setProjectPinned(projectId, input),
+    [setProjectPinned],
   );
 
   const handleSetPinnedProjectOrder = useCallback(
-    async (input: ProjectPinnedOrderInput) => {
-      const result = await setPinnedProjectOrder(input);
-      await refresh();
-      return result;
-    },
-    [refresh, setPinnedProjectOrder],
+    async (input: ProjectPinnedOrderInput) => await setPinnedProjectOrder(input),
+    [setPinnedProjectOrder],
   );
 
   const recordPageLeave = useCallback((snapshot: PageStageSessionSnapshot) => {
@@ -1208,6 +1201,8 @@ function WorkbenchApp({
       <WorkbenchShell
       libraryWorkspaceEnabled={productFeatureGates.libraryWorkspace}
       projects={projects}
+      projectCatalogError={projectsError}
+      onRetryProjects={refreshProjects}
       dbProjectId={resolvedDbProjectId}
       threadsProjectId={threadsProjectId}
       activeView={resolvedView}
@@ -1291,7 +1286,7 @@ function WorkbenchApp({
         };
       }}
       onCreateProject={handleCreateProject}
-      onDeleteProject={handleDeleteProject}
+      onArchiveProject={handleArchiveProject}
       onUpdateProject={handleUpdateProject}
       onReorderProjects={handleReorderProjects}
       onSetProjectPinned={handleSetProjectPinned}

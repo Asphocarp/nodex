@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { ZodError } from "zod";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
@@ -45,11 +46,13 @@ import {
   parseOptionalWorkflowStatus,
 } from "../shared/schemas/http";
 import {
+  ProjectLifecycleInputSchema,
   ProjectOrderInputSchema,
   ProjectPinnedInputSchema,
   ProjectPinnedOrderInputSchema,
 } from "../shared/schemas/projects";
 import { codexService } from "./codex/codex-service";
+import { terminalManager } from "./terminal-manager";
 import {
   CodexSidebarChatsThreadOrderInputSchema,
   CodexSidebarProjectThreadOrderInputSchema,
@@ -119,9 +122,12 @@ import {
 import {
   deleteProjectSessionTabWithBrowserCleanupUsing,
   deleteProjectSessionWithBrowserCleanupUsing,
-  deleteProjectWithBrowserCleanupUsing,
   type ProjectSessionBrowserRuntime,
 } from "./project-session-browser-ownership";
+import {
+  createProjectLifecycleService,
+  type ProjectLifecycleService,
+} from "./project-lifecycle-service";
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
 import type { DesktopDatabaseModuleBridge } from "./core-client/desktop-database-module-bridge";
 import type { DesktopLibraryModuleBridge } from "./core-client/desktop-library-module-bridge";
@@ -178,6 +184,7 @@ function boardCardCount(board: { columns: Array<{ cards: unknown[] }> }): number
 
 interface HttpServerDependencies {
   browserRuntime: ProjectSessionBrowserRuntime;
+  projectLifecycleService: ProjectLifecycleService | null;
   transcribeDictation: (input: { contentType: string; base64Payload: string }) => Promise<string>;
   contentModules: HttpContentModuleDependencies;
 }
@@ -244,6 +251,7 @@ const createUnconfiguredHttpContentModules = (): HttpContentModuleDependencies =
 };
 
 const defaultHttpServerDependencies: HttpServerDependencies = {
+  projectLifecycleService: null,
   browserRuntime: {
     closeBrowserConversation: async (browserConversationId) => {
       const { browserSidebarService } = await import("./browser-sidebar-service");
@@ -826,10 +834,26 @@ function normalizePageBody(body: Record<string, unknown>): Record<string, unknow
 const projectWorkspaceAuthority = (): DesktopProjectWorkspacePort =>
   httpServerDependencies.contentModules.projectWorkspace;
 
+const projectLifecycleAuthority = () =>
+  httpServerDependencies.projectLifecycleService ?? createProjectLifecycleService({
+    projectWorkspace: projectWorkspaceAuthority(),
+    browserRuntime: httpServerDependencies.browserRuntime,
+    listCodexBlockers: (threadIds) =>
+      codexService.listProjectArchiveBlockers(threadIds),
+    listBackgroundProcessRows: async (threadId) =>
+      await codexService.listBackgroundProcessRows({ threadId }),
+    listLiveTerminalSessions: (input) =>
+      terminalManager.listLiveSessionsForOwners(input),
+    discardExitedTerminalSessions: (input) =>
+      terminalManager.discardExitedSessionsForOwners(input),
+  });
+
 // === Project routes ===
 
 app.get("/api/projects", async (c) => {
-  const projects = await projectWorkspaceAuthority().listProjects();
+  const projects = await projectWorkspaceAuthority().listProjects({
+    includeArchived: c.req.query("includeArchived") === "true",
+  });
   return c.json({ projects });
 });
 
@@ -919,19 +943,28 @@ app.put("/api/projects/:projectId/pinned", async (c) => {
   }
 });
 
-app.delete("/api/projects/:projectId", async (c) => {
-  const projectId = c.req.param("projectId");
-  const workspace = projectWorkspaceAuthority();
-  const success = await deleteProjectWithBrowserCleanupUsing({
-    projectId,
-    browserRuntime: httpServerDependencies.browserRuntime,
-    getProject: workspace.getProject,
-    listProjectSessions: (targetProjectId) =>
-      workspace.listProjectSessions(targetProjectId, { includeArchived: true }),
-    deleteProject: workspace.deleteProject,
-  });
-  if (!success) return c.json({ error: "Not found" }, 404);
-  return c.json({ success: true });
+app.put("/api/projects/:projectId/lifecycle", async (c) => {
+  try {
+    const input = ProjectLifecycleInputSchema.parse(await c.req.json());
+    const result = await projectLifecycleAuthority().setLifecycle(
+      c.req.param("projectId"),
+      input.lifecycle,
+    );
+    if (result.kind === "not-found") return c.json(result, 404);
+    if (result.kind === "blocked") return c.json(result, 409);
+    return c.json(result);
+  } catch (error) {
+    if (
+      error instanceof CoreModuleResponseError
+      && error.coreError.code === "revision_conflict"
+    ) {
+      return c.json({ error: error.message }, 409);
+    }
+    if (error instanceof ZodError || error instanceof SyntaxError) {
+      return c.json({ error: error.message }, 400);
+    }
+    throw error;
+  }
 });
 
 // === Project session routes ===

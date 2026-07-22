@@ -158,7 +158,7 @@ function MixedSidebarReorderHarness({
                   groupDndController={reorder.controller}
                   onActivate={() => {}}
                   onUpdateProject={async () => project}
-                  onDeleteProject={async () => false}
+                  onArchiveProject={async () => ({ kind: "not-found" })}
                 >
                   <SidebarThreadSortableContext threadKeys={[threadKey]}>
                     <SidebarThreadSortableItem

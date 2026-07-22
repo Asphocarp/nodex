@@ -9,14 +9,14 @@ const HISTORY_STORAGE_KEY = "nodex-workbench-navigation-history-v2";
 const MAX_HISTORY_ENTRIES = 50;
 
 export interface NavigationSnapshot {
-  dbProjectId: string;
+  dbProjectId: string | null;
   activeView: WorkbenchView;
   focusedStage: StageId;
   stageNavDirection: StageNavDirection;
   pageStage: PageStageState;
   activePagesTabId: string;
   activeRecentSessionId: string | null;
-  threadsProjectId: string;
+  threadsProjectId: string | null;
   activeThreadsTabId: string;
   activeFilesTabId: string;
 }

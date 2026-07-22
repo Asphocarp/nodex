@@ -376,6 +376,38 @@ export class TerminalManager {
     return session ? this.snapshotSession(session) : null;
   }
 
+  listLiveSessionsForOwners(input: {
+    conversationIds: ReadonlySet<string>;
+    projectSessionIds: ReadonlySet<string>;
+  }): TerminalSessionSnapshot[] {
+    return [...this.sessionsById.values()]
+      .filter((session) => {
+        if (!session.backend || session.exited) return false;
+        return (session.conversationId !== null && input.conversationIds.has(session.conversationId))
+          || (session.projectSessionId !== null && input.projectSessionIds.has(session.projectSessionId));
+      })
+      .map((session) => this.snapshotSession(session));
+  }
+
+  discardExitedSessionsForOwners(input: {
+    conversationIds: ReadonlySet<string>;
+    projectSessionIds: ReadonlySet<string>;
+  }): string[] {
+    const discardedSessionIds: string[] = [];
+    for (const session of this.sessionsById.values()) {
+      if (!session.exited) continue;
+      const owned = (session.conversationId !== null && input.conversationIds.has(session.conversationId))
+        || (session.projectSessionId !== null && input.projectSessionIds.has(session.projectSessionId));
+      if (!owned) continue;
+
+      this.disposeBackend(session, false);
+      this.unlinkSession(session);
+      this.sessionsById.delete(session.sessionId);
+      discardedSessionIds.push(session.sessionId);
+    }
+    return discardedSessionIds;
+  }
+
   async refreshSessionProcessMetrics(sessionIds: readonly string[]): Promise<void> {
     const uniqueSessionIds = [...new Set(sessionIds.map((sessionId) => sessionId.trim()).filter(Boolean))];
     const sessions = uniqueSessionIds.flatMap((sessionId) => {

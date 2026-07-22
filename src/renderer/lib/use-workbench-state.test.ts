@@ -86,7 +86,48 @@ function renderWithRendererState(element: ReactElement) {
 }
 
 describe("use-workbench-state helpers", () => {
-  test("reconcileProjectOrder keeps known order and appends new projects", () => {
+  test("preserves persisted Project state until the catalog succeeds", async () => {
+    resetStorage();
+    sessionStorageRef.setItem(workbenchStorageKeys.workbench, JSON.stringify({
+      dbProjectId: "ops",
+      threadsProjectId: "ops",
+      viewsByProject: { ops: "calendar" },
+      searchByProject: { ops: "release" },
+      projectOrder: ["default", "ops"],
+    }));
+    const capturedRef: {
+      current: { dbProjectId: string | null; activeView: string } | null;
+    } = { current: null };
+    function Harness({ ready, projects }: { ready: boolean; projects: Project[] }) {
+      const state = useWorkbenchState(projects, { projectsReady: ready });
+      capturedRef.current = {
+        dbProjectId: state.dbProjectId,
+        activeView: state.activeView,
+      };
+      return null;
+    }
+
+    const view = renderWithRendererState(createElement(Harness, {
+      ready: false,
+      projects: [],
+    }));
+    await settleAsyncRender();
+    expect(capturedRef.current?.dbProjectId).toBe("ops");
+    expect(capturedRef.current?.activeView).toBe("calendar");
+
+    view.rerender(createElement(
+      MaitaiProvider,
+      {
+        store: createMaitaiStore(),
+        children: createElement(Harness, { ready: true, projects: PROJECTS }),
+      },
+    ));
+    await settleAsyncRender();
+    expect(capturedRef.current?.dbProjectId).toBe("ops");
+    expect(capturedRef.current?.activeView).toBe("calendar");
+  });
+
+  test("reconcileProjectOrder follows the canonical catalog order", () => {
     resetStorage();
     const result = workbenchTestHelpers.reconcileProjectOrder(
       ["b", "a"],
@@ -97,16 +138,51 @@ describe("use-workbench-state helpers", () => {
       ],
     );
 
-    expect(JSON.stringify(result)).toBe(JSON.stringify(["b", "a", "c"]));
+    expect(JSON.stringify(result)).toBe(JSON.stringify(["a", "b", "c"]));
   });
 
-  test("ensureActiveProject falls back to first project", () => {
+  test("resolves the adjacent project when the active project leaves the catalog", () => {
     resetStorage();
-    const result = workbenchTestHelpers.ensureActiveProject("missing", [
-      makeProject("first", "First"),
-    ]);
+    const result = workbenchTestHelpers.resolveActiveProjectAfterCatalogChange(
+      "second",
+      ["first", "second", "third"],
+      [makeProject("first", "First"), makeProject("third", "Third")],
+    );
 
-    expect(result).toBe("first");
+    expect(result).toBe("third");
+  });
+
+  test("resolves adjacency from the previous displayed order after reordering", () => {
+    resetStorage();
+    const result = workbenchTestHelpers.resolveActiveProjectAfterCatalogChange(
+      "active",
+      ["third", "active", "second"],
+      [makeProject("third", "Third"), makeProject("second", "Second")],
+    );
+
+    expect(result).toBe("second");
+  });
+
+  test("resolves no active project when the final project leaves the catalog", () => {
+    resetStorage();
+    const result = workbenchTestHelpers.resolveActiveProjectAfterCatalogChange(
+      "only",
+      ["only"],
+      [],
+    );
+
+    expect(result).toBeNull();
+  });
+
+  test("preserves an intentional no-project selection when a project is restored", () => {
+    resetStorage();
+    const result = workbenchTestHelpers.resolveActiveProjectAfterCatalogChange(
+      null,
+      [],
+      [makeProject("restored", "Restored")],
+    );
+
+    expect(result).toBeNull();
   });
 
   test("normalizes and validates view map", () => {
@@ -145,8 +221,8 @@ describe("use-workbench-state helpers", () => {
 
     const state = workbenchTestHelpers.loadInitialState();
 
-    expect(state.dbProjectId).toBe("default");
-    expect(state.threadsProjectId).toBe("default");
+    expect(state.dbProjectId).toBeNull();
+    expect(state.threadsProjectId).toBeNull();
     expect(JSON.stringify(state.projectOrder)).toBe(JSON.stringify([]));
     expect(JSON.stringify(state.viewsByProject)).toBe(JSON.stringify({}));
     expect(JSON.stringify(state.searchByProject)).toBe(JSON.stringify({}));
@@ -817,6 +893,21 @@ describe("use-workbench-state helpers", () => {
     expect(workbenchTestHelpers.normalizeSlidingWindowPaneCount(Number.NaN)).toBe(null);
   });
 
+  test("an explicit projectless layout overrides stale persisted Project ids", () => {
+    resetStorage();
+    sessionStorageRef.setItem(
+      workbenchStorageKeys.workbench,
+      JSON.stringify({ dbProjectId: "stale", threadsProjectId: "stale" }),
+    );
+
+    const state = workbenchTestHelpers.loadInitialState({
+      layoutSnapshot: createDefaultWorkbenchLayoutSnapshot(),
+    });
+
+    expect(state.dbProjectId).toBeNull();
+    expect(state.threadsProjectId).toBeNull();
+  });
+
   test("resolves persisted sliding-window pane count from canonical values only", () => {
     const explicit = workbenchTestHelpers.resolvePersistedSlidingWindowPaneCount(3);
     const fallback = workbenchTestHelpers.resolvePersistedSlidingWindowPaneCount(undefined);
@@ -843,7 +934,7 @@ describe("use-workbench-state helpers", () => {
 
     const state = workbenchTestHelpers.loadInitialState();
 
-    expect(state.dbProjectId).toBe("default");
+    expect(state.dbProjectId).toBeNull();
     expect(state.focusedStage).toBe("db");
     expect(state.slidingWindowPaneCount).toBe(2);
     resetStorage();
@@ -862,7 +953,7 @@ describe("use-workbench-state helpers", () => {
     resetStorage();
     type CapturedWorkbenchState = {
       replaceLayoutSnapshot: (layout: WorkbenchLayoutSnapshot) => void;
-      dbProjectId: string;
+      dbProjectId: string | null;
       activeView: string;
       activeSearchQuery: string;
       focusedStage: string;

@@ -1942,7 +1942,7 @@ export interface SettingsRouteShellProps {
   onBackToApp: () => void;
   onRequestProjectPickerOpen: () => void;
   projects: Project[];
-  activeProjectId: string;
+  activeProjectId: string | null;
   initialLocalEnvironmentProjectId?: string | null;
   initialLocalEnvironmentConfigPath?: string | null;
   initialSettingsSearchQuery?: string;

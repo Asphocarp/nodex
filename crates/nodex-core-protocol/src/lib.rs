@@ -1056,10 +1056,10 @@ mod tests {
             &manifest,
             &store_format(CURRENT_STORE_VERSION).expect("current Store"),
         )
-        .expect_err("Workspace 1 cannot satisfy Workspace 2");
+        .expect_err("Workspace 1 cannot satisfy Workspace 3");
         assert_eq!(mismatches.len(), 1);
         assert_eq!(mismatches[0].axis, CompatibilityAxis::Module);
-        assert!(mismatches[0].required.contains("ProjectWorkspace=2"));
+        assert!(mismatches[0].required.contains("ProjectWorkspace=3"));
     }
 
     #[test]

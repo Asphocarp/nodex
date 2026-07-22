@@ -755,7 +755,12 @@ fn update_project(
     if expected_binding_revision < 1 {
         return Err(invalid("expected_binding_revision must be positive"));
     }
-    let (_, binding_revision) = require_project(connection, library_id, project_id)?;
+    let (lifecycle, binding_revision) = require_project(connection, library_id, project_id)?;
+    if lifecycle != "active" {
+        return Err(conflict(
+            "Project must be active to update metadata or sources",
+        ));
+    }
     if binding_revision != expected_binding_revision {
         return Err(StoreError::new(
             StoreErrorCode::RevisionConflict,
@@ -823,6 +828,7 @@ fn update_project(
             ProjectCatalogChangeKind::MetadataUpdated
         },
         project_id,
+        Vec::new(),
         now,
     )
 }
@@ -890,6 +896,7 @@ fn set_project_lifecycle(
         "set_project_lifecycle",
         ProjectCatalogChangeKind::LifecycleUpdated,
         project_id,
+        vec![ProjectSessionInvalidationScope::All],
         now,
     )
 }
@@ -982,7 +989,10 @@ fn set_project_pinned(
     pinned: bool,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
     validate_id("project_id", project_id)?;
-    require_project(connection, library_id, project_id)?;
+    let (lifecycle, _) = require_project(connection, library_id, project_id)?;
+    if lifecycle != "active" {
+        return Err(conflict("Project must be active to change pin state"));
+    }
     let now = sqlite_now(connection)?;
     if pinned {
         connection.execute(
@@ -1009,6 +1019,7 @@ fn set_project_pinned(
         "set_project_pinned",
         ProjectCatalogChangeKind::PinUpdated,
         project_id,
+        Vec::new(),
         now,
     )
 }
@@ -1103,6 +1114,7 @@ fn finish_project_mutation(
     operation_kind: &'static str,
     project_catalog_change: ProjectCatalogChangeKind,
     project_id: &str,
+    session_summary_scopes: Vec<ProjectSessionInvalidationScope>,
     committed_at: String,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
     finish_mutation(
@@ -1118,7 +1130,7 @@ fn finish_project_mutation(
             project_ids: vec![project_id.to_owned()],
             session_ids: Vec::new(),
             thread_ids: Vec::new(),
-            session_summary_scopes: Vec::new(),
+            session_summary_scopes,
             session_detail_ids: Vec::new(),
             block_ids: Vec::new(),
             document_ids: Vec::new(),
@@ -1502,6 +1514,10 @@ fn invalid(message: &str) -> StoreError {
     StoreError::new(StoreErrorCode::InvalidInput, message, false)
 }
 
+fn conflict(message: &str) -> StoreError {
+    StoreError::new(StoreErrorCode::Conflict, message, true)
+}
+
 fn corrupt(message: &str) -> StoreError {
     StoreError::new(StoreErrorCode::StoreCorrupt, message, false)
 }
@@ -1524,6 +1540,7 @@ mod tests {
         ProjectSessionPanelId, ProjectSessionPanelSizePatch, ProjectSessionPanelStatePatch,
         ProjectSessionTabContent, ProjectWorkspaceIntent, ProjectWorkspaceRead,
         ProjectWorkspaceReadValue, ProjectWorkspaceThreadPatch, ProjectWorkspaceThreadStatus,
+        ProjectWorkspaceTurnAuthoritySource,
     };
     use nodex_core_contracts::{
         AdapterKind, BoundModuleContext, CoreErrorCode, CoreModuleEventPayload, LibraryId,
@@ -1779,12 +1796,13 @@ mod tests {
     #[test]
     fn updates_lifecycle_order_and_pinning_with_revision_guards_and_exact_replay() {
         let (_directory, kernel, module) = seeded_module();
-        module
+        let created_native = module
             .apply(
                 &context(),
                 create_request("workspace-create-native", "project-native"),
             )
             .expect("create native Project");
+        let native_session_id = created_native.committed.value.affected_session_ids[0].clone();
         module
             .apply(
                 &context(),
@@ -1903,6 +1921,23 @@ mod tests {
                 ),
             )
             .expect("reorder Projects");
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO codex_threads(\
+                       thread_id, project_id, thread_name, thread_preview, model_provider, \
+                       status_type, status_active_flags_json, archived, created_at, updated_at, \
+                       linked_at\
+                     ) VALUES (\
+                       'thread-archived-owner', 'project-native', '', 'Preview', 'openai', \
+                       'idle', '[]', 0, 1, 2, ?1\
+                     )",
+                    [NOW],
+                )?;
+                Ok(())
+            })
+            .expect("seed archived-owner Thread");
         module
             .apply(
                 &context(),
@@ -1927,6 +1962,111 @@ mod tests {
                 ),
             )
             .expect("archive Project");
+
+        let archived_update = module
+            .apply(
+                &context(),
+                request(
+                    "workspace-update-archived",
+                    ProjectWorkspaceIntent::UpdateProject {
+                        project_id: "project-native".to_owned(),
+                        expected_binding_revision: 3,
+                        name: Some("Must not change".to_owned()),
+                        description: None,
+                        icon: None,
+                        source_roots: None,
+                    },
+                ),
+            )
+            .expect_err("reject archived Project metadata mutation");
+        assert_eq!(archived_update.code, CoreErrorCode::RevisionConflict);
+
+        let archived_session_create = module
+            .apply(
+                &context(),
+                request(
+                    "workspace-create-session-archived",
+                    ProjectWorkspaceIntent::CreateSession {
+                        session_id: "session-archived".to_owned(),
+                        project_id: Some("project-native".to_owned()),
+                        title: "Must not exist".to_owned(),
+                    },
+                ),
+            )
+            .expect_err("reject Session creation for archived Project");
+        assert_eq!(archived_session_create.code, CoreErrorCode::InvalidInput);
+
+        let archived_session_update = module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-update-session-archived",
+                    &native_session_id,
+                    ProjectSessionIntent::Rename {
+                        title: "Must not change".to_owned(),
+                    },
+                ),
+            )
+            .expect_err("reject Session mutation for archived Project");
+        assert_eq!(archived_session_update.code, CoreErrorCode::NotFound);
+
+        for (operation_id, intent) in [
+            (
+                "workspace-update-thread-archived-owner",
+                ProjectWorkspaceIntent::UpdateThread {
+                    thread_id: "thread-archived-owner".to_owned(),
+                    patch: Box::new(ProjectWorkspaceThreadPatch::default()),
+                },
+            ),
+            (
+                "workspace-roots-archived-owner",
+                ProjectWorkspaceIntent::ReplaceThreadWritableRoots {
+                    thread_id: "thread-archived-owner".to_owned(),
+                    roots: vec!["/workspace/rejected".to_owned()],
+                },
+            ),
+        ] {
+            let error = module
+                .apply(&context(), request(operation_id, intent))
+                .expect_err("reject archived-owner Thread mutation");
+            assert_eq!(error.code, CoreErrorCode::NotFound);
+        }
+
+        let authority_read = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
+                    read: ProjectWorkspaceRead::TurnAuthority {
+                        thread_id: "thread-archived-owner".to_owned(),
+                        turn_id: "turn-archived-owner".to_owned(),
+                        root_thread_id: "thread-archived-owner".to_owned(),
+                        actor_project_id: "project-native".to_owned(),
+                    },
+                },
+            )
+            .expect_err("reject turn authority resolution for archived Project");
+        assert_eq!(authority_read.code, CoreErrorCode::NotFound);
+
+        let mut archived_project_context = context();
+        archived_project_context.project_id = Some(ProjectId("project-native".to_owned()));
+        let authority_freeze = module
+            .apply(
+                &archived_project_context,
+                request(
+                    "workspace-freeze-authority-archived-owner",
+                    ProjectWorkspaceIntent::FreezeTurnAuthority {
+                        thread_id: "thread-archived-owner".to_owned(),
+                        turn_id: "turn-archived-owner".to_owned(),
+                        root_thread_id: "thread-archived-owner".to_owned(),
+                        actor_project_id: "project-native".to_owned(),
+                        source: ProjectWorkspaceTurnAuthoritySource::ProjectTurn,
+                        inherited_from: None,
+                    },
+                ),
+            )
+            .expect_err("reject turn authority freeze for archived Project");
+        assert_eq!(authority_freeze.code, CoreErrorCode::NotFound);
 
         let stored = kernel
             .writer()

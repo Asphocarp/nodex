@@ -1721,8 +1721,8 @@ export async function runMainAppStartup(
       const event = rawEvent as IpcMainInvokeEvent;
       const projectId = windowSessionState
         ?.getSessionForWindow(event.sender.id)
-        ?.layout.dbProjectId.trim();
-      if (!projectId || projectId === "default") return null;
+        ?.layout.dbProjectId?.trim();
+      if (!projectId) return null;
       return projectId;
     },
   });

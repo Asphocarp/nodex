@@ -302,6 +302,9 @@ import type {
   CreateBackupInput,
   Project,
   ProjectCreateInput,
+  ProjectLifecycleInput,
+  ProjectLifecycleMutationResult,
+  ProjectListOptions,
   ProjectOrderInput,
   ProjectPinnedInput,
   ProjectPinnedOrderInput,
@@ -734,7 +737,7 @@ export interface IpcApi {
     args: [mutation: PersistedAtomMutation];
     result: PersistedAtomEvent;
   };
-  "projects:list": { args: []; result: Project[] };
+  "projects:list": { args: [options?: ProjectListOptions]; result: Project[] };
   "projects:get": { args: [projectId: string]; result: Project | null };
   "projects:create": { args: [input: ProjectCreateInput]; result: Project };
   "projects:update": {
@@ -755,7 +758,10 @@ export interface IpcApi {
     args: [input?: WorkspacePickDirectoryInput];
     result: string | null;
   };
-  "projects:delete": { args: [projectId: string]; result: boolean };
+  "projects:set-lifecycle": {
+    args: [projectId: string, input: ProjectLifecycleInput];
+    result: ProjectLifecycleMutationResult;
+  };
   "project-sessions:list": {
     args: [projectId: string | null, options?: ProjectSessionListOptions];
     result: ProjectSession[];

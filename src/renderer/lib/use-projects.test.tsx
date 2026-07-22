@@ -1,5 +1,6 @@
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test } from "vitest";
+import { useState } from "react";
 import { render, settleAsyncRender } from "@/test/dom";
 import { installWindowApi } from "@/test/browser-globals";
 import { TestQueryProvider } from "@/test/query";
@@ -27,10 +28,14 @@ function makeProject(id: string, name = id): Project {
 function ProjectsHarness() {
   const first = useProjects();
   const second = useProjects();
+  const [archiveResult, setArchiveResult] = useState("");
 
   return (
     <div>
       <span data-testid="project-count">{first.projects.length}:{second.projects.length}</span>
+      <span data-testid="projects-ready">{String(first.ready)}</span>
+      <span data-testid="projects-error">{first.error ?? ""}</span>
+      <span data-testid="archive-result">{archiveResult}</span>
       <button
         type="button"
         onClick={() => {
@@ -40,6 +45,19 @@ function ProjectsHarness() {
         }}
       >
         Reverse projects
+      </button>
+      <button type="button" onClick={() => void first.refresh()}>
+        Retry projects
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          const projectId = first.projects[0]?.id;
+          if (!projectId) return;
+          void first.archiveProject(projectId).then((result) => setArchiveResult(result.kind));
+        }}
+      >
+        Remove first project
       </button>
     </div>
   );
@@ -68,6 +86,18 @@ describe("useProjects", () => {
             .map((projectId) => projects.find((project) => project.id === projectId))
             .filter((project): project is Project => Boolean(project));
           return projects;
+        }
+
+        if (channel === "projects:set-lifecycle") {
+          const projectId = args[0] as string;
+          const project = projects.find((candidate) => candidate.id === projectId);
+          if (!project) return { kind: "not-found" };
+          projects = projects.filter((candidate) => candidate.id !== projectId);
+          return {
+            kind: "updated",
+            changed: true,
+            project: { ...project, lifecycle: "archived" },
+          };
         }
 
         throw new Error(`Unexpected channel: ${channel}`);
@@ -124,5 +154,55 @@ describe("useProjects", () => {
 
     expect(projects[0]?.id).toBe("beta");
     expect(listCalls).toBe(1);
+  });
+
+  test("archives through the typed lifecycle mutation and invalidates the active catalog", async () => {
+    const view = render(
+      <TestQueryProvider>
+        <ProjectsHarness />
+      </TestQueryProvider>,
+    );
+    await waitFor(() => {
+      expect(view.getByTestId("project-count").textContent).toBe("2:2");
+    });
+
+    fireEvent.click(view.getByRole("button", { name: "Remove first project" }));
+
+    await waitFor(() => {
+      expect(view.getByTestId("archive-result").textContent).toBe("updated");
+      expect(view.getByTestId("project-count").textContent).toBe("1:1");
+    });
+    expect(listCalls).toBe(2);
+  });
+
+  test("stays unready after an initial error and becomes ready after retry", async () => {
+    let attempts = 0;
+    installWindowApi({
+      invoke: async (channel: string) => {
+        if (channel !== "projects:list") throw new Error(`Unexpected channel: ${channel}`);
+        attempts += 1;
+        if (attempts === 1) throw new Error("Project catalog unavailable");
+        return projects;
+      },
+      on: () => () => undefined,
+    });
+    const view = render(
+      <TestQueryProvider>
+        <ProjectsHarness />
+      </TestQueryProvider>,
+    );
+
+    await waitFor(() => {
+      expect(view.getByTestId("projects-ready").textContent).toBe("false");
+      expect(view.getByTestId("projects-error").textContent).toBe("Project catalog unavailable");
+    });
+
+    fireEvent.click(view.getByRole("button", { name: "Retry projects" }));
+
+    await waitFor(() => {
+      expect(view.getByTestId("projects-ready").textContent).toBe("true");
+      expect(view.getByTestId("project-count").textContent).toBe("2:2");
+    });
+    expect(attempts).toBe(2);
   });
 });

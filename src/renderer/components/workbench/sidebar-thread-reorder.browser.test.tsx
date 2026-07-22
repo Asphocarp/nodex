@@ -292,7 +292,7 @@ describe("sidebar thread reorder in Chromium", () => {
               expanded={false}
               onActivate={() => {}}
               onUpdateProject={async () => PROJECT}
-              onDeleteProject={async () => false}
+              onArchiveProject={async () => ({ kind: "not-found" })}
             />
           </div>
         </SidebarReorderDndProvider>

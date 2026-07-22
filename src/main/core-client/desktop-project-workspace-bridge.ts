@@ -21,7 +21,7 @@ export function createDesktopProjectWorkspaceBridge(
   };
 
   return {
-    listProjects: async () => await (await resolve()).listProjects(),
+    listProjects: async (options) => await (await resolve()).listProjects(options),
     getProject: async (projectId) =>
       await (await resolve()).getProject(projectId),
     readProjectPermissionMode: async (projectId) =>
@@ -38,12 +38,14 @@ export function createDesktopProjectWorkspaceBridge(
       await (await resolve()).setProjectPinned(projectId, projectInput),
     setPinnedProjectOrder: async (projectInput) =>
       await (await resolve()).setPinnedProjectOrder(projectInput),
-    deleteProject: async (projectId) =>
-      await (await resolve()).deleteProject(projectId),
+    setProjectLifecycle: async (projectId, lifecycle) =>
+      await (await resolve()).setProjectLifecycle(projectId, lifecycle),
     listProjectSessions: async (projectId, options) =>
       await (await resolve()).listProjectSessions(projectId, options),
     listProjectSessionSummaries: async (projectId, options) =>
       await (await resolve()).listProjectSessionSummaries(projectId, options),
+    listProjectThreads: async (projectId, options) =>
+      await (await resolve()).listProjectThreads(projectId, options),
     getProjectSession: async (sessionId) =>
       await (await resolve()).getProjectSession(sessionId),
     updateProjectSession: async (sessionId, sessionInput) =>

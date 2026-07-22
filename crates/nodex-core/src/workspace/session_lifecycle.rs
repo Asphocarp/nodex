@@ -142,7 +142,7 @@ pub(super) fn move_session(
     validate_id("session_id", session_id)?;
     if let Some(project_id) = project_id {
         validate_id("project_id", project_id)?;
-        require_project(connection, library_id, project_id, false)?;
+        require_project(connection, library_id, project_id, true)?;
     }
     let authority = require_session(connection, library_id, session_id)?;
     let now = sqlite_now(connection)?;
@@ -244,7 +244,7 @@ pub(super) fn reorder_sessions(
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
     if let Some(project_id) = project_id {
         validate_id("project_id", project_id)?;
-        require_project(connection, library_id, project_id, false)?;
+        require_project(connection, library_id, project_id, true)?;
     }
     if selected_session_ids.len() > MAX_SESSION_ORDER_SIZE {
         return Err(invalid("Project Session order exceeds its bound"));

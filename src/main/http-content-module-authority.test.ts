@@ -6,9 +6,11 @@ import type {
 } from "../shared/block-transfer";
 import { decodeBlockTransferHttpResult } from "../shared/block-transfer-transport";
 import type { LibraryModuleApplyResult } from "../shared/library-module";
+import { CoreModuleResponseError } from "./core-client/core-client";
 import {
   __resetHttpServerDependenciesForTests,
   __setHttpContentModuleDependenciesForTests,
+  __setHttpServerDependenciesForTests,
   getHttpServerOptions,
 } from "./http-server";
 
@@ -56,8 +58,204 @@ describe("HTTP content Module authority", () => {
     ));
 
     expect(response.status).toBe(200);
-    expect(listProjects).toHaveBeenCalledOnce();
+    expect(listProjects).toHaveBeenCalledWith({ includeArchived: false });
     await expect(response.json()).resolves.toEqual({ projects: [] });
+  });
+
+  test("opts into archived Project collection reads through the query string", async () => {
+    const listProjects = vi.fn(async () => []);
+    __setHttpContentModuleDependenciesForTests({
+      projectWorkspace: { listProjects } as never,
+    });
+
+    const response = await getHttpServerOptions(PORT).fetch(new Request(
+      `http://127.0.0.1:${PORT}/api/projects?includeArchived=true`,
+    ));
+
+    expect(response.status).toBe(200);
+    expect(listProjects).toHaveBeenCalledWith({ includeArchived: true });
+  });
+
+  test("restores a retained Project through the lifecycle route", async () => {
+    const archivedProject = {
+      id: "project-native",
+      libraryId: "library-native",
+      databaseId: "database-native",
+      lifecycle: "archived" as const,
+      bindingRevision: 3,
+      name: "Native",
+      description: "",
+      sources: [],
+      primaryWorkspaceRoot: null,
+      pinned: false,
+      pinnedOrder: null,
+      created: new Date("2026-01-01T00:00:00.000Z"),
+      updated: new Date("2026-07-22T00:00:00.000Z"),
+    };
+    const setProjectLifecycle = vi.fn(async (_projectId, lifecycle) => ({
+      ...archivedProject,
+      lifecycle,
+      bindingRevision: 4,
+    }));
+    __setHttpContentModuleDependenciesForTests({
+      projectWorkspace: {
+        getProject: async () => archivedProject,
+        setProjectLifecycle,
+      } as never,
+    });
+
+    const response = await getHttpServerOptions(PORT).fetch(new Request(
+      `http://127.0.0.1:${PORT}/api/projects/project-native/lifecycle`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lifecycle: "active" }),
+      },
+    ));
+
+    expect(response.status).toBe(200);
+    expect(setProjectLifecycle).toHaveBeenCalledWith("project-native", "active");
+    await expect(response.json()).resolves.toMatchObject({
+      kind: "updated",
+      changed: true,
+      project: { id: "project-native", lifecycle: "active", bindingRevision: 4 },
+    });
+  });
+
+  test("maps a Project restore binding conflict to HTTP 409", async () => {
+    const archivedProject = {
+      id: "project-native",
+      lifecycle: "archived" as const,
+    };
+    __setHttpContentModuleDependenciesForTests({
+      projectWorkspace: {
+        getProject: async () => archivedProject,
+        setProjectLifecycle: async () => {
+          throw new CoreModuleResponseError({
+            code: "revision_conflict",
+            message: "Project binding is already active",
+            retryable: false,
+            recovery: { kind: "none" },
+          });
+        },
+      } as never,
+    });
+
+    const response = await getHttpServerOptions(PORT).fetch(new Request(
+      `http://127.0.0.1:${PORT}/api/projects/project-native/lifecycle`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lifecycle: "active" }),
+      },
+    ));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "Project binding is already active",
+    });
+  });
+
+  test("rejects unsupported inactive Project lifecycle requests", async () => {
+    const getProject = vi.fn();
+    __setHttpContentModuleDependenciesForTests({
+      projectWorkspace: { getProject } as never,
+    });
+
+    const response = await getHttpServerOptions(PORT).fetch(new Request(
+      `http://127.0.0.1:${PORT}/api/projects/project-native/lifecycle`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lifecycle: "inactive" }),
+      },
+    ));
+
+    expect(response.status).toBe(400);
+    expect(getProject).not.toHaveBeenCalled();
+  });
+
+  test("returns typed archive blockers with HTTP 409", async () => {
+    __setHttpServerDependenciesForTests({
+      projectLifecycleService: {
+        setLifecycle: async () => ({
+          kind: "blocked",
+          project: {
+            id: "project-native",
+            libraryId: "library-native",
+            databaseId: "database-native",
+            lifecycle: "active",
+            bindingRevision: 3,
+            name: "Native",
+            description: "",
+            sources: [],
+            primaryWorkspaceRoot: null,
+            pinned: false,
+            pinnedOrder: null,
+            created: new Date("2026-01-01T00:00:00.000Z"),
+            updated: new Date("2026-07-22T00:00:00.000Z"),
+          },
+          blockers: [{ kind: "active-turn", threadId: "thread-native", label: null }],
+        }),
+      },
+    });
+
+    const response = await getHttpServerOptions(PORT).fetch(new Request(
+      `http://127.0.0.1:${PORT}/api/projects/project-native/lifecycle`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lifecycle: "archived" }),
+      },
+    ));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      kind: "blocked",
+      blockers: [{ kind: "active-turn", threadId: "thread-native" }],
+    });
+  });
+
+  test("returns typed not-found lifecycle results with HTTP 404", async () => {
+    __setHttpServerDependenciesForTests({
+      projectLifecycleService: {
+        setLifecycle: async () => ({ kind: "not-found" }),
+      },
+    });
+
+    const response = await getHttpServerOptions(PORT).fetch(new Request(
+      `http://127.0.0.1:${PORT}/api/projects/missing/lifecycle`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lifecycle: "archived" }),
+      },
+    ));
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ kind: "not-found" });
+  });
+
+  test("does not misclassify lifecycle dependency failures as bad input", async () => {
+    __setHttpServerDependenciesForTests({
+      projectLifecycleService: {
+        setLifecycle: async () => {
+          throw new Error("Core unavailable");
+        },
+      },
+    });
+
+    const response = await getHttpServerOptions(PORT).fetch(new Request(
+      `http://127.0.0.1:${PORT}/api/projects/project-native/lifecycle`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lifecycle: "active" }),
+      },
+    ));
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({ error: "Core unavailable" });
   });
 
   test("routes Board projections through the configured Database authority", async () => {

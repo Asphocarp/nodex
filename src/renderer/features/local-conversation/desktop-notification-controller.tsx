@@ -112,7 +112,7 @@ export function DesktopNotificationController({
 }: {
   activeThreadId: string;
   focusedStage: StageId;
-  threadsProjectId: string;
+  threadsProjectId: string | null;
   onOpenThread: (projectId: string, threadId: string) => void;
 }) {
   const manager = useDefaultCodexAppServerManager();
@@ -261,7 +261,9 @@ export function DesktopNotificationController({
 
   const handleOpenThread = useEffectEvent((threadId: string) => {
     const summary = manager.readThreadSummary(threadId);
-    onOpenThread(summary?.projectId ?? threadsProjectId, threadId);
+    const projectId = summary?.projectId ?? threadsProjectId;
+    if (!projectId) return;
+    onOpenThread(projectId, threadId);
   });
 
   const handleAction = useEffectEvent(async (payload: {

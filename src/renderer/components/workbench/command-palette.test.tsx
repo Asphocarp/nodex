@@ -53,6 +53,7 @@ function makeCommandContext(
     canGoBack: true,
     canGoForward: true,
     canStartNewChat: true,
+    canStartNewChatInProject: true,
     showMockCommands: false,
     hasActiveSession: true,
     activeSessionPinned: false,
@@ -202,6 +203,16 @@ describe("buildCommandPaletteCommands", () => {
     expect(archiveCommand?.disabled).toBe(true);
     expect(sideChatCommand?.disabled).toBe(true);
     expect(dbViewCommand?.disabled).toBe(true);
+  });
+
+  test("keeps general New chat available without an active Project", () => {
+    const commands = buildCommandPaletteCommands(makeCommandContext({
+      canStartNewChat: true,
+      canStartNewChatInProject: false,
+    }));
+
+    expect(commands.find((command) => command.id === "newThread")?.disabled).toBe(false);
+    expect(commands.find((command) => command.id === "newThreadInProject")?.disabled).toBe(true);
   });
 
   test("uses the shared panel eligibility for attached projectless chats", () => {

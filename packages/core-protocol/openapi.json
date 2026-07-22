@@ -14476,6 +14476,26 @@
               {
                 "type": "object",
                 "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "include_archived": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "projects"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "project_id",
                   "kind"
                 ],
@@ -19632,6 +19652,27 @@
                             "type": "array",
                             "items": {
                               "$ref": "#/components/schemas/ProjectWorkspaceSessionSummary"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "projects",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "projects"
+                            ]
+                          },
+                          "projects": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/ProjectWorkspaceProject"
                             }
                           }
                         }

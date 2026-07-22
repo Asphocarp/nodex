@@ -32,7 +32,7 @@ interface CommandPaletteProps {
   initialMode?: CommandMenuMode;
   initialQuery?: string;
   projects: Project[];
-  activeProjectId: string;
+  activeProjectId: string | null;
   recentPageSessions: RecentPageSession[];
   commandContext: Omit<CommandPaletteShellCommandContext, "isMac" | "showMockCommands">;
   commandHandlers: CommandPaletteShellCommandHandlers;
@@ -50,7 +50,7 @@ function isMacPlatform(): boolean {
 function useCommandPalettePages(
   open: boolean,
   projects: Project[],
-  activeProjectId: string,
+  activeProjectId: string | null,
   recentPageSessions: RecentPageSession[],
 ): { pages: CommandPalettePage[]; loading: boolean } {
   const [version, setVersion] = useState(0);

@@ -40,9 +40,9 @@ export interface WorkbenchLayoutDockSnapshot {
 
 export interface WorkbenchLayoutSnapshot {
   version: 2;
-  dbProjectId: string;
+  dbProjectId: string | null;
   activeProjectSessionId: string | null;
-  threadsProjectId: string;
+  threadsProjectId: string | null;
   viewsByProject: Record<string, WorkbenchLayoutView>;
   searchByProject: Record<string, string>;
   dbViewPrefsByProject: Record<string, unknown>;
@@ -81,9 +81,9 @@ function createDefaultDockTree(): WorkbenchLayoutSnapshot["dock"]["tree"] {
 export function createDefaultWorkbenchLayoutSnapshot(): WorkbenchLayoutSnapshot {
   return {
     version: 2,
-    dbProjectId: "default",
+    dbProjectId: null,
     activeProjectSessionId: null,
-    threadsProjectId: "default",
+    threadsProjectId: null,
     viewsByProject: {},
     searchByProject: {},
     dbViewPrefsByProject: {},

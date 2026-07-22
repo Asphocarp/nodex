@@ -3548,6 +3548,10 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "startup";
             } | {
+                readonly include_archived?: boolean | null;
+                /** @enum {string} */
+                readonly kind: "projects";
+            } | {
                 /** @enum {string} */
                 readonly kind: "project";
                 readonly project_id: string;
@@ -4667,6 +4671,10 @@ export interface components {
                     readonly kind: "startup";
                     readonly projects: readonly components["schemas"]["ProjectWorkspaceProject"][];
                     readonly sessions: readonly components["schemas"]["ProjectWorkspaceSessionSummary"][];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "projects";
+                    readonly projects: readonly components["schemas"]["ProjectWorkspaceProject"][];
                 } | {
                     /** @enum {string} */
                     readonly kind: "project";

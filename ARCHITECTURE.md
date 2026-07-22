@@ -509,6 +509,18 @@ restored Project without renumbering surviving gaps. Multi-Project reorder event
 use a deterministic Project anchor for the non-null change ledger coordinate
 while carrying the complete affected order in the Workspace event.
 
+The Desktop Host's `project-lifecycle-service.ts` is the orchestration boundary
+for recoverable Project removal. It derives complete Session/Thread ownership,
+including Project-owned Threads without a Session link, and checks Codex
+requests and turns, Terminals, and background processes before the Core
+lifecycle commit. One main-process per-Project admission coordinator serializes
+that final preflight/commit with Terminal and Codex turn starts across IPC and
+HTTP, so no new runtime can enter between inspection and archive. Post-commit
+Browser and exited-Terminal cleanup is best-effort and idempotent. Restore
+requires no runtime preflight because it only reactivates retained identity and
+authority. Core remains the lifecycle writer and rejects archived-Project
+Thread, Session, and execution mutations at every boundary.
+
 Workspace also owns Session fallback/linked-thread titles, pinned and unread
 state, and links to already-persisted Codex Threads. Link writes require the
 Session, expected Project, and Thread Project to agree exactly and reject a
@@ -755,7 +767,7 @@ or the Electron client from reaching the local store.
 - `main-runtime.ts`: application runtime startup (Core readiness gating, Core-backed adapter construction, HTTP server start, multi-window registry, app-update service, event fanout, renderer permission policy, and shutdown handlers). The app session allows clipboard writes only from top-level app windows; Browser sidebar partitions and embedded/subframe content do not inherit that permission.
 - `instance-scope.ts`: applies Electron `userData` + `sessionData` paths under the resolved Nodex home so each configured Profile owns its own process-lock scope.
 - `http-server.ts`: the embedded Hono loopback Adapter for typed product routes. It binds trusted `http_loopback` identity, validates bounded JSON/binary bodies, authorizes SSE before success, and delegates every durable Project/Workspace/Library/Database/Document/Automation operation to the same Core-backed desktop ports used by IPC. Yjs sync uses bounded binary envelopes, Canvas uses bounded canonical JSON, Awareness remains ephemeral, backup restore schedules the same controlled Host relaunch as IPC, and settings/assets remain Host-owned filesystem concerns. Arbitrary SQL and private Core lifecycle/Store Administration routes are not exposed. Electron starts Hono only after Core readiness and never opens the Profile database.
-- `ipc-handlers.ts`: mirrors core operations through IPC, including lightweight board-summary fetches, on-demand Page detail/search channels, authority-selected Calendar occurrence reads/complete/skip/update commands, mixed Page Property mutation, Project session mutations, side-chat start/discard requests, native context menu selection, asset-path resolution, clipboard paste inspection, prepared owned-Document descriptors, binary Block Document subscription/sync/apply/Awareness, immutable Document version list/get/checkpoint/restore, stable-ID Document mutations, and authority-selected Block transfer restricted to trusted main-frame windows, plus the narrow Hooks registration in `codex-hooks-ipc-handlers.ts`. Backup IPC is registered through `store-administration-ipc-handlers.ts` against the same authority-selected port used by the host scheduler; a native restore schedules a controlled Electron relaunch after its receipt returns. Hook state writes broadcast a host-scoped change only after the app-server config write succeeds.
+- `ipc-handlers.ts`: mirrors core operations through IPC, including lightweight board-summary fetches, on-demand Page detail/search channels, authority-selected Calendar occurrence reads/complete/skip/update commands, mixed Page Property mutation, Project lifecycle and session mutations, side-chat start/discard requests, native context menu selection, asset-path resolution, clipboard paste inspection, prepared owned-Document descriptors, binary Block Document subscription/sync/apply/Awareness, immutable Document version list/get/checkpoint/restore, stable-ID Document mutations, and authority-selected Block transfer restricted to trusted main-frame windows, plus the narrow Hooks registration in `codex-hooks-ipc-handlers.ts`. Project remove/restore delegates to `project-lifecycle-service.ts`, which owns runtime preflight and post-commit Browser cleanup for both IPC and HTTP. Backup IPC is registered through `store-administration-ipc-handlers.ts` against the same authority-selected port used by the host scheduler; a native restore schedules a controlled Electron relaunch after its receipt returns. Hook state writes broadcast a host-scoped change only after the app-server config write succeeds.
 - `core-client/*` and `data-authority.ts`: the only production data-authority Adapter. They launch or reuse the detached Core, authenticate the UDS connection, bind Host/Project/Library identity, map the six generated Module contracts, and fail closed when Core is unavailable. Electron owns no SQLite connection, Y.Doc cache, schema repair, or semantic writer.
 - `library-module-ipc.ts`, `library-module-http.ts`, `document-sync-http.ts`, and `document-sync-transport.ts`: equivalent trusted IPC/loopback Adapters over the same Core Library and Document ports. Subscriptions are opened before sync, durable Yjs/Canvas events preserve their Core head/epoch, Awareness stays ephemeral, and connection teardown closes the exact native subscription.
 - `block-transfer-coordinator.ts`: a Host-only flush/freeze coordinator for mounted editor surfaces. It contributes bounded presentation evidence to a prepared Core command but never owns a Document transaction or persistence state.
@@ -957,8 +969,8 @@ Workbench reopen flow:
 - Block/Page-domain writes must enter the owning Rust Core Module. Electron may
   bind trusted identity, coordinate mounted-surface flush/freeze, and map typed
   results, but it must not open SQLite, reconstruct Yjs authority, or implement
-  a fallback transaction. Project deletion removes execution state and revokes
-  subscriptions only; Library content remains.
+  a fallback transaction. Project removal archives execution authority and
+  revokes runtime access only; Library content remains.
 - Agent-facing Project reads capture effective grant scope, content, and
   pagination authority in one Core read snapshot. Search access and
   lifecycle filters run before candidate limits; exact Document and Source

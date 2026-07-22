@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import type {
   Project,
   ProjectCreateInput,
+  ProjectLifecycleMutationResult,
   ProjectOrderInput,
   ProjectPinnedInput,
   ProjectPinnedOrderInput,
@@ -12,7 +13,7 @@ import { invoke, subscribeProjectChanges } from "./api";
 import { projectsListQueryOptions } from "./query-options";
 import { queryKeys } from "./query-keys";
 
-const PROJECTS_LIST_QUERY_KEY = queryKeys.projects.list();
+const PROJECTS_LIST_QUERY_KEY = queryKeys.projects.list(false);
 const EMPTY_PROJECTS: Project[] = [];
 
 function getErrorMessage(err: unknown): string {
@@ -35,8 +36,7 @@ export function useProjects() {
   useEffect(() => {
     return subscribeProjectChanges(() => {
       void queryClient.invalidateQueries({
-        queryKey: PROJECTS_LIST_QUERY_KEY,
-        exact: true,
+        queryKey: queryKeys.projects.all(),
       });
     });
   }, [queryClient]);
@@ -54,17 +54,21 @@ export function useProjects() {
     },
   });
 
-  const { mutateAsync: deleteProjectRequest } = useMutation({
-    mutationFn: (projectId: string) => invoke("projects:delete", projectId) as Promise<boolean>,
+  const { mutateAsync: archiveProjectRequest } = useMutation({
+    mutationFn: (projectId: string) => invoke(
+      "projects:set-lifecycle",
+      projectId,
+      { lifecycle: "archived" },
+    ) as Promise<ProjectLifecycleMutationResult>,
     onMutate: () => {
       setActionError(null);
     },
     onSuccess: async (result) => {
-      if (!result) return;
+      if (result.kind !== "updated") return;
       await queryClient.invalidateQueries({
-        queryKey: PROJECTS_LIST_QUERY_KEY,
-        exact: true,
+        queryKey: queryKeys.projects.all(),
       });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.projectSessions.all() });
     },
   });
 
@@ -146,16 +150,10 @@ export function useProjects() {
     [createProjectRequest],
   );
 
-  const deleteProject = useCallback(
-    async (projectId: string): Promise<boolean> => {
-      try {
-        return await deleteProjectRequest(projectId);
-      } catch (err) {
-        setActionError(getErrorMessage(err));
-        return false;
-      }
-    },
-    [deleteProjectRequest],
+  const archiveProject = useCallback(
+    async (projectId: string): Promise<ProjectLifecycleMutationResult> =>
+      await archiveProjectRequest(projectId),
+    [archiveProjectRequest],
   );
 
   const updateProject = useCallback(
@@ -211,13 +209,50 @@ export function useProjects() {
   return {
     projects: projectsQuery.data ?? EMPTY_PROJECTS,
     loading: projectsQuery.isPending,
+    ready: projectsQuery.isSuccess,
     error: actionError ?? queryError,
     refresh: refreshProjects,
     createProject,
-    deleteProject,
+    archiveProject,
     updateProject,
     reorderProjects,
     setProjectPinned,
     setPinnedProjectOrder,
+  };
+}
+
+export function useRemovedProjects(open: boolean) {
+  const queryClient = useQueryClient();
+  const projectsQuery = useQuery({
+    ...projectsListQueryOptions({ includeArchived: true }),
+    enabled: open,
+  });
+
+  useEffect(() => subscribeProjectChanges(() => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all() });
+  }), [queryClient]);
+
+  const { mutateAsync: restoreProject, isPending: restoring } = useMutation({
+    mutationFn: (projectId: string) => invoke(
+      "projects:set-lifecycle",
+      projectId,
+      { lifecycle: "active" },
+    ) as Promise<ProjectLifecycleMutationResult>,
+    onSuccess: async (result) => {
+      if (result.kind !== "updated") return;
+      await queryClient.invalidateQueries({ queryKey: queryKeys.projects.all() });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.projectSessions.all() });
+    },
+  });
+
+  return {
+    projects: (projectsQuery.data ?? EMPTY_PROJECTS).filter(
+      (project) => project.lifecycle === "archived",
+    ),
+    loading: projectsQuery.isPending && open,
+    error: projectsQuery.error ? getErrorMessage(projectsQuery.error) : null,
+    retry: projectsQuery.refetch,
+    restoreProject,
+    restoring,
   };
 }

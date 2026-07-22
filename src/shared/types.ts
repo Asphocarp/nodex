@@ -452,8 +452,32 @@ export interface ProjectUpdateInput {
 }
 
 export interface ProjectLifecycleInput {
-  lifecycle: ProjectLifecycle;
+  lifecycle: Extract<ProjectLifecycle, "active" | "archived">;
 }
+
+export interface ProjectListOptions {
+  includeArchived?: boolean;
+}
+
+export type ProjectArchiveBlocker =
+  | { kind: "active-turn"; threadId: string; label: string | null }
+  | { kind: "pending-request"; threadId: string; label: string | null }
+  | {
+    kind: "terminal";
+    terminalSessionId: string;
+    projectSessionId: string | null;
+  }
+  | {
+    kind: "background-process";
+    threadId: string;
+    processId: string | null;
+    label: string | null;
+  };
+
+export type ProjectLifecycleMutationResult =
+  | { kind: "updated"; project: Project; changed: boolean }
+  | { kind: "blocked"; project: Project; blockers: ProjectArchiveBlocker[] }
+  | { kind: "not-found" };
 
 export interface ProjectOrderInput {
   orderedProjectIds: string[];

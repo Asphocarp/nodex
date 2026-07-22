@@ -122,8 +122,12 @@ import {
 import {
   deleteProjectSessionTabWithBrowserCleanupUsing,
   deleteProjectSessionWithBrowserCleanupUsing,
-  deleteProjectWithBrowserCleanupUsing,
 } from "./project-session-browser-ownership";
+import {
+  createProjectLifecycleService,
+  runWithTerminalProjectAdmission,
+} from "./project-lifecycle-service";
+import { ProjectLifecycleInputSchema } from "../shared/schemas/projects";
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
 import type { DesktopDocumentSyncPort } from "./core-client/desktop-document-sync-bridge";
 import type { DesktopLibraryModuleBridge } from "./core-client/desktop-library-module-bridge";
@@ -693,6 +697,18 @@ export function registerIpcHandlers(
   const projectWorkspace: DesktopProjectWorkspacePort =
     options.projectWorkspace
       ?? createUnconfiguredIpcAuthority("Project Workspace authority");
+  const projectLifecycleService = createProjectLifecycleService({
+    projectWorkspace,
+    browserRuntime: browserSidebarService,
+    listCodexBlockers: (threadIds) =>
+      codexService.listProjectArchiveBlockers(threadIds),
+    listBackgroundProcessRows: async (threadId) =>
+      await codexService.listBackgroundProcessRows({ threadId }),
+    listLiveTerminalSessions: (input) =>
+      terminalManager.listLiveSessionsForOwners(input),
+    discardExitedTerminalSessions: (input) =>
+      terminalManager.discardExitedSessionsForOwners(input),
+  });
   const documentSync = options.documentSync
     ?? createUnconfiguredIpcAuthority<DesktopDocumentSyncPort>(
       "Document authority",
@@ -1448,8 +1464,8 @@ export function registerIpcHandlers(
   });
 
   // Projects
-  registerHandle("projects:list", async () =>
-    await projectWorkspace.listProjects(),
+  registerHandle("projects:list", async (_, options) =>
+    await projectWorkspace.listProjects(options),
   );
 
   registerHandle("projects:get", async (_, projectId: string) =>
@@ -1493,17 +1509,15 @@ export function registerIpcHandlers(
     });
   });
 
-  registerHandle("projects:delete", async (_, projectId: string) =>
-    await deleteProjectWithBrowserCleanupUsing({
-      projectId,
-      browserRuntime: browserSidebarService,
-      deleteProject: projectWorkspace.deleteProject,
-      getProject: projectWorkspace.getProject,
-      listProjectSessions: async (targetProjectId) =>
-        await projectWorkspace.listProjectSessions(targetProjectId, {
-          includeArchived: true,
-        }),
-    }),
+  registerHandle(
+    "projects:set-lifecycle",
+    async (_, projectId: string, input) => {
+      const parsed = ProjectLifecycleInputSchema.parse(input);
+      return await projectLifecycleService.setLifecycle(
+        projectId,
+        parsed.lifecycle,
+      );
+    },
   );
 
   // Project sessions
@@ -2477,17 +2491,21 @@ export function registerIpcHandlers(
   );
 
   // Terminal
-  registerHandle("terminal-create", (event, input) => {
+  registerHandle("terminal-create", async (event, input) => {
     const sender = event.sender;
-    terminalManager.create(sender, input, (channel, payload) => {
-      sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
+    await runWithTerminalProjectAdmission(projectWorkspace, input, () => {
+      terminalManager.create(sender, input, (channel, payload) => {
+        sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
+      });
     });
   });
 
-  registerHandle("terminal-attach", (event, input) => {
+  registerHandle("terminal-attach", async (event, input) => {
     const sender = event.sender;
-    terminalManager.attach(sender, input, (channel, payload) => {
-      sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
+    await runWithTerminalProjectAdmission(projectWorkspace, input, () => {
+      terminalManager.attach(sender, input, (channel, payload) => {
+        sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
+      });
     });
   });
 
@@ -2500,8 +2518,10 @@ export function registerIpcHandlers(
 
   registerHandle("terminal-run-action", async (event, input) => {
     const sender = event.sender;
-    await terminalManager.runAction(sender, input, (channel, payload) => {
-      sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
+    await runWithTerminalProjectAdmission(projectWorkspace, input, async () => {
+      await terminalManager.runAction(sender, input, (channel, payload) => {
+        sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
+      });
     });
   });
 
@@ -3102,18 +3122,25 @@ export function registerIpcHandlers(
     "codex:thread:background-processes:run-action",
     async (event, input: CodexBackgroundProcessRunActionInput) => {
       const sender = event.sender;
-      await codexService.registerBackgroundProcessRunAction(input);
-      await terminalManager.runAction(
-        sender,
-        {
-          sessionId: input.terminalSessionId,
-          conversationId: input.threadId,
-          cwd: input.cwd,
-          command: input.command,
-          title: input.command,
-        },
-        (channel, payload) => {
-          sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
+      const terminalInput = {
+        sessionId: input.terminalSessionId,
+        conversationId: input.threadId,
+        cwd: input.cwd,
+        command: input.command,
+        title: input.command,
+      };
+      await runWithTerminalProjectAdmission(
+        projectWorkspace,
+        terminalInput,
+        async () => {
+          await codexService.registerBackgroundProcessRunAction(input);
+          await terminalManager.runAction(
+            sender,
+            terminalInput,
+            (channel, payload) => {
+              sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
+            },
+          );
         },
       );
       return codexService.listBackgroundProcessRows({

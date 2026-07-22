@@ -272,7 +272,7 @@ function SidebarSectionMenuHarness() {
         onOpenSettings={() => {}}
         projectPickerOpenTick={0}
         onCreateProject={async () => PROJECTS[0]}
-        onDeleteProject={async () => true}
+        onArchiveProject={async () => ({ kind: "not-found" })}
         onUpdateProject={async () => PROJECTS[0]}
       />
     </div>
@@ -363,7 +363,7 @@ function StatusGroupOrderHarness() {
         onOpenSettings={() => {}}
         projectPickerOpenTick={0}
         onCreateProject={async () => PROJECTS[0]}
-        onDeleteProject={async () => true}
+        onArchiveProject={async () => ({ kind: "not-found" })}
         onUpdateProject={async () => PROJECTS[0]}
       />
     </div>
@@ -503,7 +503,7 @@ function CodexProjectsHarness({
             onToggleExpanded={() => {}}
             onSelectProject={() => {}}
             onCreateProject={async () => projects[0] ?? null}
-            onDeleteProject={async () => true}
+            onArchiveProject={async () => ({ kind: "not-found" })}
             onUpdateProject={async () => projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null}
             projectPickerOpenTick={0}
           />
@@ -581,7 +581,7 @@ function CodexSortableProjectSections({
       onActivate={() => {}}
       onSelectProject={() => {}}
       onUpdateProject={async () => project}
-      onDeleteProject={async () => false}
+      onArchiveProject={async () => ({ kind: "not-found" })}
       onSetProjectPinned={async (_projectId, input) => {
         onProjectsChange(projects.map((candidate) => candidate.id === project.id
           ? {
@@ -781,7 +781,7 @@ function CodexProjectSessionRowsHarness() {
                   onActivate={() => {}}
                   onStartNewChat={() => {}}
                   onUpdateProject={async () => project}
-                  onDeleteProject={async () => false}
+                  onArchiveProject={async () => ({ kind: "not-found" })}
                 >
                   <CodexProjectSessionList project={project}>
                     {sessions.map((session, index) => (
@@ -1037,7 +1037,7 @@ function CodexPinnedProjectThreadsSortableHarness() {
                 onActivate={() => {}}
                 onStartNewChat={() => {}}
                 onUpdateProject={async () => project}
-                onDeleteProject={async () => false}
+                onArchiveProject={async () => ({ kind: "not-found" })}
               >
                 <CodexProjectSessionList project={project}>
                   <SidebarThreadReorderRows
@@ -1252,7 +1252,7 @@ function CodexCrossProjectThreadDropHarness() {
                     onActivate={() => {}}
                     onStartNewChat={() => {}}
                     onUpdateProject={async () => project}
-                    onDeleteProject={async () => false}
+                    onArchiveProject={async () => ({ kind: "not-found" })}
                   >
                     <CodexProjectSessionList project={project}>
                       <SidebarThreadDropContainer
@@ -1327,7 +1327,7 @@ function CodexSidebarProjectsThreadSyncHarness() {
               onActivate={() => {}}
               onStartNewChat={() => {}}
               onUpdateProject={async () => project}
-              onDeleteProject={async () => false}
+              onArchiveProject={async () => ({ kind: "not-found" })}
             >
               <CodexProjectSessionList project={project}>
                 {projectRows.map((item) => (
@@ -1467,7 +1467,7 @@ function CodexSidebarArchivedHiddenHarness() {
               onActivate={() => {}}
               onStartNewChat={() => {}}
               onUpdateProject={async () => project}
-              onDeleteProject={async () => false}
+              onArchiveProject={async () => ({ kind: "not-found" })}
             >
               <CodexProjectSessionList project={project}>
                 {visibleItems.map((item) => (
@@ -1650,7 +1650,7 @@ function CodexSidebarShowMoreHarness({
               onActivate={() => {}}
               onStartNewChat={() => {}}
               onUpdateProject={async () => project}
-              onDeleteProject={async () => false}
+              onArchiveProject={async () => ({ kind: "not-found" })}
             >
               <CodexProjectSessionList project={project} showAll={expanded}>
                 {pagination.visibleItems.map((item, index) => (

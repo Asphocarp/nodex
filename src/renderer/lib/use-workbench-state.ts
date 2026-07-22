@@ -119,8 +119,8 @@ interface SidebarPrefs {
 }
 
 interface WorkbenchPrefs {
-  dbProjectId?: string;
-  threadsProjectId?: string;
+  dbProjectId?: string | null;
+  threadsProjectId?: string | null;
   viewsByProject: Record<string, WorkbenchView>;
   searchByProject: Record<string, string>;
   dbViewPrefsByProject?: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
@@ -151,8 +151,8 @@ interface DockPrefs {
 }
 
 interface WorkbenchState {
-  dbProjectId: string;
-  threadsProjectId: string;
+  dbProjectId: string | null;
+  threadsProjectId: string | null;
   viewsByProject: Record<string, WorkbenchView>;
   searchByProject: Record<string, string>;
   dbViewPrefsByProject: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
@@ -499,14 +499,13 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
   const persistedDbViewPrefs = readJson<WorkbenchPrefs["dbViewPrefsByProject"]>(DB_VIEW_PREFS_STORAGE_KEY);
   const parsedDockPrefs = parseDockPrefs(persistedDock);
   const layoutSnapshot = options.layoutSnapshot ?? null;
-  const dbProjectId =
-    layoutSnapshot?.dbProjectId ||
-    (typeof persistedWorkbench?.dbProjectId === "string" && persistedWorkbench.dbProjectId) ||
-    "default";
-  const threadsProjectId =
-    layoutSnapshot?.threadsProjectId ||
-    (typeof persistedWorkbench?.threadsProjectId === "string" && persistedWorkbench.threadsProjectId) ||
-    dbProjectId;
+  const dbProjectId = layoutSnapshot
+    ? layoutSnapshot.dbProjectId
+    : (typeof persistedWorkbench?.dbProjectId === "string" && persistedWorkbench.dbProjectId) || null;
+  const threadsProjectId = layoutSnapshot
+    ? layoutSnapshot.threadsProjectId
+    : (typeof persistedWorkbench?.threadsProjectId === "string" && persistedWorkbench.threadsProjectId)
+      || dbProjectId;
   const threadsTabs = ensureThreadsTabs(normalizeThreadsTabs(layoutSnapshot?.threadsTabs ?? persistedWorkbench?.threadsTabs));
   const filesTabs = ensureFilesTabs(normalizeFilesTabs(layoutSnapshot?.filesTabs ?? persistedWorkbench?.filesTabs));
   const focusedStage =
@@ -605,30 +604,34 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
 }
 
 function reconcileProjectOrder(
-  order: string[],
+  _order: string[],
   projects: Project[],
 ): string[] {
-  const projectIds = buildProjectIdSet(projects);
-  const next = order.reduce<string[]>((acc, projectId) => {
-    if (!projectIds.has(projectId) || acc.includes(projectId)) return acc;
-    acc.push(projectId);
-    return acc;
-  }, []);
-
-  projects.forEach((project) => {
-    if (next.includes(project.id)) return;
-    next.push(project.id);
-  });
-
-  return next;
+  return [...new Set(projects.map((project) => project.id))];
 }
 
-function ensureActiveProject(
-  current: string,
-  projects: Project[],
-): string {
-  if (buildProjectIdSet(projects).has(current)) return current;
-  return projects[0]?.id ?? "default";
+export function resolveActiveProjectAfterCatalogChange(
+  current: string | null,
+  previousOrder: readonly string[],
+  projects: readonly Project[],
+  selectFirstWhenEmpty = false,
+): string | null {
+  const nextIds = new Set(projects.map((project) => project.id));
+  if (current && nextIds.has(current)) return current;
+  if (projects.length === 0) return null;
+  if (!current) return selectFirstWhenEmpty ? projects[0]?.id ?? null : null;
+
+  const previousIndex = previousOrder.indexOf(current);
+  if (previousIndex < 0) return projects[0]?.id ?? null;
+  const nextAdjacent = previousOrder
+    .slice(previousIndex + 1)
+    .find((projectId) => nextIds.has(projectId));
+  if (nextAdjacent) return nextAdjacent;
+  const previousAdjacent = previousOrder
+    .slice(0, previousIndex)
+    .reverse()
+    .find((projectId) => nextIds.has(projectId));
+  return previousAdjacent ?? projects[0]?.id ?? null;
 }
 
 function ensureSidebarStageState(
@@ -949,6 +952,7 @@ function makePagesStageTabs(
 
 interface UseWorkbenchStateOptions {
   initialLayoutSnapshot?: WorkbenchLayoutSnapshot | null;
+  projectsReady?: boolean;
 }
 
 export function useWorkbenchState(
@@ -963,6 +967,7 @@ export function useWorkbenchState(
     });
   }
   const initialState = initialStateRef.current;
+  const hasReconciledProjectsRef = useRef(false);
   const state = storedState ?? initialState;
   const setState = useCallback((update: WorkbenchState | ((previous: WorkbenchState) => WorkbenchState)) => {
     setStoredState((current) => {
@@ -976,13 +981,23 @@ export function useWorkbenchState(
   }, [initialState, setStoredState]);
 
   useEffect(() => {
-    if (projects.length === 0) return;
+    if (options.projectsReady === false) return;
 
     setState((prev) => {
       const projectIds = buildProjectIdSet(projects);
       const projectOrder = reconcileProjectOrder(prev.projectOrder, projects);
-      const dbProjectId = ensureActiveProject(prev.dbProjectId, projects);
-      const threadsProjectId = ensureActiveProject(prev.threadsProjectId, projects);
+      const dbProjectId = resolveActiveProjectAfterCatalogChange(
+        prev.dbProjectId,
+        prev.projectOrder,
+        projects,
+        !hasReconciledProjectsRef.current,
+      );
+      const threadsProjectId = resolveActiveProjectAfterCatalogChange(
+        prev.threadsProjectId,
+        prev.projectOrder,
+        projects,
+        !hasReconciledProjectsRef.current,
+      );
 
       const viewsByProject = pruneProjectRecord(prev.viewsByProject, projectIds);
       const searchByProject = pruneProjectRecord(prev.searchByProject, projectIds);
@@ -1089,7 +1104,8 @@ export function useWorkbenchState(
         slidingWindowPaneCount,
       };
     });
-  }, [projects, setState]);
+    hasReconciledProjectsRef.current = true;
+  }, [options.projectsReady, projects, setState]);
 
   useEffect(() => {
     writeJson(WORKBENCH_STORAGE_KEY, {
@@ -1125,10 +1141,16 @@ export function useWorkbenchState(
     [state.projectOrder],
   );
 
-  const activeView = state.viewsByProject[state.dbProjectId] ?? "kanban";
-  const activeSearchQuery = state.searchByProject[state.dbProjectId] ?? "";
+  const activeView = state.dbProjectId
+    ? state.viewsByProject[state.dbProjectId] ?? "kanban"
+    : "kanban";
+  const activeSearchQuery = state.dbProjectId
+    ? state.searchByProject[state.dbProjectId] ?? ""
+    : "";
   const activeDbViewPrefs = viewSupportsDbViewPrefs(activeView)
-    ? state.dbViewPrefsByProject[state.dbProjectId]?.[activeView] ?? getDefaultDbViewPrefs(activeView)
+    ? (state.dbProjectId
+      ? state.dbViewPrefsByProject[state.dbProjectId]?.[activeView]
+      : undefined) ?? getDefaultDbViewPrefs(activeView)
     : null;
   const focusedStage = state.focusedStage;
   const stageNavDirection = state.stageNavDirection;
@@ -1147,14 +1169,14 @@ export function useWorkbenchState(
   const stagePanelWidths = state.stagePanelWidths;
   const slidingWindowPaneCount = clampSlidingWindowPaneCount(state.slidingWindowPaneCount);
 
-  const setDbProject = useCallback((projectId: string) => {
+  const setDbProject = useCallback((projectId: string | null) => {
     setState((prev) => {
       if (prev.dbProjectId === projectId) return prev;
       return { ...prev, dbProjectId: projectId };
     });
   }, [setState]);
 
-  const setThreadsProjectId = useCallback((projectId: string) => {
+  const setThreadsProjectId = useCallback((projectId: string | null) => {
     setState((prev) => {
       if (prev.threadsProjectId === projectId) return prev;
       return { ...prev, threadsProjectId: projectId };
@@ -1512,6 +1534,7 @@ export function useWorkbenchState(
   const cycleProjects = useCallback((direction: -1 | 1) => {
     setState((prev) => {
       if (prev.projectOrder.length <= 1) return prev;
+      if (!prev.dbProjectId) return prev;
       const currentIndex = prev.projectOrder.indexOf(prev.dbProjectId);
       if (currentIndex < 0) return prev;
       const nextIndex =
@@ -1752,7 +1775,7 @@ export const workbenchTestHelpers = {
   normalizeSlidingWindowPaneCount,
   resolvePersistedSlidingWindowPaneCount,
   reconcileProjectOrder,
-  ensureActiveProject,
+  resolveActiveProjectAfterCatalogChange,
   loadInitialState,
   makeProjectRef,
   resolveExpandedStages,

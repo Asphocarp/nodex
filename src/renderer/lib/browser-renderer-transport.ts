@@ -15,6 +15,10 @@ import type {
   WorkbenchLayoutSnapshot,
 } from "./types";
 import { parseProductFeatureGates } from "../../shared/product-feature-gates";
+import {
+  parseProjectLifecycleMutationResult,
+  ProjectLifecycleMutationResultSchema,
+} from "../../shared/schemas/projects";
 import type {
   BoardChangeEvent,
   ProjectSessionsChangeEvent,
@@ -386,7 +390,9 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     case "codex:pending-worktree:discard-fork-side-panel-transfer":
       return undefined;
     case "projects:list": {
-      const res = await fetch(toApiUrl("/api/projects"));
+      const [options] = args as [{ includeArchived?: boolean }?];
+      const query = options?.includeArchived === true ? "?includeArchived=true" : "";
+      const res = await fetch(toApiUrl(`/api/projects${query}`));
       const data = await res.json();
       return data.projects;
     }
@@ -406,13 +412,32 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       });
       return res.json();
     }
-    case "projects:delete": {
-      const [projectId] = args as [string];
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}`), {
-        method: "DELETE",
+    case "projects:set-lifecycle": {
+      const [projectId, input] = args as [
+        string,
+        { lifecycle: "active" | "archived" },
+      ];
+      const res = await fetch(toApiUrl(`/api/projects/${projectId}/lifecycle`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
       });
-      const data = await res.json();
-      return data.success ?? false;
+      const result: unknown = await res.json();
+      if (!res.ok) {
+        if (res.status === 404 || res.status === 409) {
+          const parsed = ProjectLifecycleMutationResultSchema.safeParse(result);
+          if (parsed.success) return parsed.data;
+        }
+        throw new Error(
+          typeof result === "object"
+            && result !== null
+            && "error" in result
+            && typeof result.error === "string"
+            ? result.error
+            : `Project lifecycle request failed with ${res.status}`,
+        );
+      }
+      return parseProjectLifecycleMutationResult(result);
     }
     case "projects:update": {
       const [projectId, updates] = args as [

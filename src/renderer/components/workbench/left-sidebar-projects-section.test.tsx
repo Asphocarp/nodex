@@ -103,7 +103,7 @@ function renderProjectRowWithSessions({
       animateChildren={animateChildren}
       onActivate={() => undefined}
       onUpdateProject={async () => null}
-      onDeleteProject={async () => false}
+      onArchiveProject={async () => ({ kind: "not-found" })}
     >
       <CodexProjectSessionList project={project}>
         <div role="listitem">Alpha session</div>
@@ -126,7 +126,7 @@ describe("SidebarProjectsSection", () => {
         onToggleExpanded={() => undefined}
         onSelectProject={() => undefined}
         onCreateProject={async () => null}
-        onDeleteProject={async () => false}
+        onArchiveProject={async () => ({ kind: "not-found" })}
         onUpdateProject={async () => null}
         projectPickerOpenTick={0}
       />,
@@ -166,7 +166,7 @@ describe("SidebarProjectsSection", () => {
         onToggleExpanded={() => undefined}
         onSelectProject={() => undefined}
         onCreateProject={async () => null}
-        onDeleteProject={async () => false}
+        onArchiveProject={async () => ({ kind: "not-found" })}
         onUpdateProject={async () => null}
         projectPickerOpenTick={0}
       />,
@@ -194,7 +194,7 @@ describe("SidebarProjectsSection", () => {
         onToggleExpanded={() => undefined}
         onSelectProject={() => undefined}
         onCreateProject={async () => null}
-        onDeleteProject={async () => false}
+        onArchiveProject={async () => ({ kind: "not-found" })}
         onUpdateProject={async () => null}
         projectPickerOpenTick={0}
       />,
@@ -207,6 +207,7 @@ describe("SidebarProjectsSection", () => {
 
     await waitFor(() => {
       expect(textContent(document.body).includes("Archive all chats")).toBe(true);
+      expect(textContent(document.body).includes("Removed projects…")).toBe(true);
       expect(textContent(document.body).includes("Organize pins")).toBe(false);
       expect(textContent(document.body).includes("Organize sidebar")).toBe(true);
       expect(textContent(document.body).includes("Sort by")).toBe(true);
@@ -243,7 +244,7 @@ describe("SidebarProjectsSection", () => {
         onToggleExpanded={() => undefined}
         onSelectProject={() => undefined}
         onCreateProject={async () => null}
-        onDeleteProject={async () => false}
+        onArchiveProject={async () => ({ kind: "not-found" })}
         onUpdateProject={async () => null}
         projectPickerOpenTick={0}
       />,
@@ -275,7 +276,7 @@ describe("SidebarProjectsSection", () => {
         onToggleExpanded={() => undefined}
         onSelectProject={() => undefined}
         onCreateProject={async () => null}
-        onDeleteProject={async () => false}
+        onArchiveProject={async () => ({ kind: "not-found" })}
         onUpdateProject={async (projectId, updates) => {
           updateCalls.push([projectId, updates]);
           return null;
@@ -337,7 +338,7 @@ describe("SidebarProjectsSection", () => {
           expanded={false}
           onActivate={() => undefined}
           onUpdateProject={async () => null}
-          onDeleteProject={async () => false}
+          onArchiveProject={async () => ({ kind: "not-found" })}
         >
           <CodexProjectSessionList project={PROJECTS[0] as Project}>
             <div role="listitem">Alpha session</div>

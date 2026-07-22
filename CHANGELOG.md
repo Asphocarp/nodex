@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added recoverable Project removal with active-work protection, a lazy `Removed projects` restore manager, preserved chats/files/Library content, and an explicit projectless Workbench state after the final Project is removed.
 - Projectless chats with an attached thread can now open temporary Side chats and cwd-bound Terminals alongside Browser; exact Output files remain pinnable without enabling the generic Project Files tree.
 - Added an explicit Settings import workflow for Claude Code, Codex, and Open Interpreter history and setup, with selectable previews, independent ThreadStore copies, idempotent session hashes, no-overwrite skills/instructions, sanitized configuration translation, and no runtime fallback to external agent homes.
 - Added provider-aware agent execution through a pinned Open Interpreter runtime, with Anthropic Claude, Kimi K3, Moonshot, OpenRouter, and existing OpenAI model catalogs; per-task provider/model/harness/reasoning persistence across threads, forks, background work, and scheduled tasks; encrypted main-process API-key storage; and deterministic Responses, Chat, Messages, Kimi, and Claude runtime conformance gates.

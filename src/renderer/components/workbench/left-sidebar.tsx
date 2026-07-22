@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dropdown";
 import { cn } from "@/lib/utils";
 import { formatElapsedSince } from "@/lib/elapsed-time";
-import type { Project, ProjectCreateInput, ProjectUpdateInput } from "@/lib/types";
+import type { Project, ProjectCreateInput, ProjectLifecycleMutationResult, ProjectUpdateInput } from "@/lib/types";
 import type { ProjectRef } from "@/lib/use-workbench-state";
 import { resolveStageSidebarSectionRenderState } from "./left-sidebar-section-state";
 import { LeftSidebarFooter, type LeftSidebarFooterProps } from "./left-sidebar-footer";
@@ -71,7 +71,7 @@ export interface StageSidebarGroup {
 interface LeftSidebarProps {
   projects: Project[];
   projectRefs: ProjectRef[];
-  activeProjectId: string;
+  activeProjectId: string | null;
   stageGroups: StageSidebarGroup[];
   collapsed: boolean;
   width: number;
@@ -84,7 +84,7 @@ interface LeftSidebarProps {
   onOpenSettings: () => void;
   projectPickerOpenTick: number;
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
-  onDeleteProject: (projectId: string) => Promise<boolean>;
+  onArchiveProject: (projectId: string) => Promise<ProjectLifecycleMutationResult>;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
   footerAccount?: Omit<LeftSidebarFooterProps, "onOpenSettings">;
 }
@@ -208,7 +208,7 @@ export function LeftSidebar({
   onOpenSettings,
   projectPickerOpenTick,
   onCreateProject,
-  onDeleteProject,
+  onArchiveProject,
   onUpdateProject,
   footerAccount,
 }: LeftSidebarProps) {
@@ -292,7 +292,7 @@ export function LeftSidebar({
           onToggleExpanded={projectsStageGroup?.onToggleExpanded ?? (() => undefined)}
           onSelectProject={onSelectProject}
           onCreateProject={onCreateProject}
-          onDeleteProject={onDeleteProject}
+          onArchiveProject={onArchiveProject}
           onUpdateProject={onUpdateProject}
           projectPickerOpenTick={projectPickerOpenTick}
         />

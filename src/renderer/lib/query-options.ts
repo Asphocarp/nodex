@@ -11,6 +11,7 @@ import type {
   ProtocolExperimentalFeature,
   ProtocolListMcpServerStatusResponse,
   Project,
+  ProjectListOptions,
   ProjectSession,
   ProjectSessionSummary,
   ThreadNotificationSettings,
@@ -35,10 +36,11 @@ import type { AgentProviderCatalog } from "../../shared/agent-runtime";
 
 const MCP_CATALOG_STALE_TIME_MS = 5 * 60_000;
 
-export function projectsListQueryOptions() {
+export function projectsListQueryOptions(options: ProjectListOptions = {}) {
+  const includeArchived = options.includeArchived === true;
   return queryOptions({
-    queryKey: queryKeys.projects.list(),
-    queryFn: () => invoke("projects:list") as Promise<Project[]>,
+    queryKey: queryKeys.projects.list(includeArchived),
+    queryFn: () => invoke("projects:list", { includeArchived }) as Promise<Project[]>,
   });
 }
 

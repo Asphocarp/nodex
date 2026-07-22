@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { FolderMinus } from "lucide-react";
 import type { Project, ProjectCreateInput } from "@/lib/types";
 import {
   CodexArchiveIcon,
@@ -21,6 +22,7 @@ import {
 import type { SidebarProjectGroupCollapseAction } from "@/lib/sidebar-project-group-collapse-action";
 import { CodexSidebarActionButton } from "./codex-sidebar";
 import { SidebarProjectAddMenu } from "./sidebar-project-add-menu";
+import { RemovedProjectsDialog } from "./removed-projects-dialog";
 
 const PROJECT_SIDEBAR_OPTIONS_CONTENT_CLASS = "min-w-[172px] max-w-[240px]";
 const PROJECT_SIDEBAR_OPTIONS_SUBMENU_CLASS = "min-w-[180px]";
@@ -36,6 +38,7 @@ export function SidebarProjectsSectionActions({
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
   openSetupTick: number;
 }) {
+  const [removedProjectsOpen, setRemovedProjectsOpen] = useState(false);
   const collapseActionLabel = projectGroupCollapseAction === "collapse-all"
     ? "Collapse all"
     : projectGroupCollapseAction === "reopen-previous"
@@ -55,16 +58,26 @@ export function SidebarProjectsSectionActions({
             : <CodexProjectReopenPreviousIcon />}
         </CodexSidebarActionButton>
       ) : null}
-      <SidebarProjectOptionsMenu />
+      <SidebarProjectOptionsMenu
+        onOpenRemovedProjects={() => setRemovedProjectsOpen(true)}
+      />
       <SidebarProjectAddMenu
         onCreateProject={onCreateProject}
         openSetupTick={openSetupTick}
+      />
+      <RemovedProjectsDialog
+        open={removedProjectsOpen}
+        onOpenChange={setRemovedProjectsOpen}
       />
     </>
   );
 }
 
-function SidebarProjectOptionsMenu() {
+function SidebarProjectOptionsMenu({
+  onOpenRemovedProjects,
+}: {
+  onOpenRemovedProjects: () => void;
+}) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -89,6 +102,15 @@ function SidebarProjectOptionsMenu() {
         data-app-action-sidebar-project-options-archive-all=""
       >
         Archive all chats
+      </NodexDropdownItem>
+      <NodexDropdownItem
+        leftSlot={<FolderMinus className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />}
+        onSelect={() => {
+          setOpen(false);
+          onOpenRemovedProjects();
+        }}
+      >
+        Removed projects…
       </NodexDropdownItem>
       <NodexDropdownSeparator paddingClassName="pt-1 pb-2" />
       <NodexDropdownFlyoutSubmenuItem

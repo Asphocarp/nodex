@@ -46,6 +46,7 @@ export interface CommandPaletteShellCommandContext {
   canGoBack: boolean;
   canGoForward: boolean;
   canStartNewChat: boolean;
+  canStartNewChatInProject: boolean;
   showMockCommands: boolean;
   hasActiveSession: boolean;
   activeSessionPinned: boolean;
@@ -160,7 +161,7 @@ export function buildCommandPaletteCommands(
       shortcut: shortcutLabel("searchPages", "CmdOrCtrl+P"),
     }),
     ...maybeMockCommand("searchFiles", "Suggested", "Search files", "Search workspace files", ["search", "file", "workspace"], 1180, shortcutLabel("searchFiles")),
-    command("newThread", "Chat", "New chat", "Start a new chat in the active project", ["new", "chat", "thread", "session"], 1120, {
+    command("newThread", "Chat", "New chat", "Start a new chat in the current context", ["new", "chat", "thread", "session"], 1120, {
       shortcut: shortcutLabel("newThread", "CmdOrCtrl+N"),
       disabled: !context.canStartNewChat,
     }),
@@ -238,7 +239,7 @@ export function buildCommandPaletteCommands(
       disabled: !context.panelActionAvailability.db_view,
     }),
     command("newThreadInProject", "Project", "New chat in project", "Start a new chat in the active project", ["new", "chat", "project"], 830, {
-      disabled: !context.canStartNewChat,
+      disabled: !context.canStartNewChatInProject,
     }),
     ...maybeMockCommand("switchProject", "Project", "Switch project", "Switch to another project", ["switch", "project", "workspace"], 820),
     ...maybeMockCommand("openFolder", "Project", "Open folder", "Open a local folder", ["open", "folder", "project"], 810, shortcutLabel("openFolder", "CmdOrCtrl+O")),

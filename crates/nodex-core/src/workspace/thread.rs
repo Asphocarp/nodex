@@ -124,7 +124,7 @@ pub(super) fn read_threads(
 ) -> Result<Vec<ProjectWorkspaceThread>, StoreError> {
     if let Some(project_id) = project_id {
         validate_id("project_id", project_id)?;
-        require_project(connection, library_id, project_id)?;
+        require_known_project(connection, library_id, project_id)?;
     }
     if let Some(parent_thread_id) = parent_thread_id {
         validate_id("parent_thread_id", parent_thread_id)?;
@@ -136,7 +136,8 @@ pub(super) fn read_threads(
          LEFT JOIN codex_unread_threads unread ON unread.thread_id = thread.thread_id \
          WHERE (thread.project_id IS NULL OR EXISTS (\
              SELECT 1 FROM projects project \
-             WHERE project.id = thread.project_id AND project.library_id = ?1\
+             WHERE project.id = thread.project_id AND project.library_id = ?1 \
+               AND (?4 = 1 OR project.lifecycle <> 'archived')\
            )) \
            AND (?2 IS NULL OR thread.project_id = ?2) \
            AND ((?3 IS NULL AND thread.parent_thread_id IS NULL) \
@@ -1151,8 +1152,10 @@ fn require_thread(
     library_id: &str,
     thread_id: &str,
 ) -> Result<ProjectWorkspaceThread, StoreError> {
-    read_thread(connection, library_id, thread_id)?
-        .ok_or_else(|| not_found("Codex Thread is unavailable in this Library"))
+    let thread = read_thread(connection, library_id, thread_id)?
+        .ok_or_else(|| not_found("Codex Thread is unavailable in this Library"))?;
+    assert_project_visible(connection, library_id, thread.project_id.as_deref())?;
+    Ok(thread)
 }
 
 fn pinned_threads(
@@ -1167,7 +1170,8 @@ fn pinned_threads(
          WHERE thread.archived = 0 AND thread.parent_thread_id IS NULL \
            AND (thread.project_id IS NULL OR EXISTS (\
              SELECT 1 FROM projects project \
-             WHERE project.id = thread.project_id AND project.library_id = ?1\
+             WHERE project.id = thread.project_id AND project.library_id = ?1 \
+               AND project.lifecycle <> 'archived'\
            )) \
          ORDER BY pinned.pinned_order, pinned.created_at, thread.thread_id \
          LIMIT ?2"
@@ -1629,6 +1633,26 @@ fn validate_stored_text(field: &str, value: &str, max_bytes: usize) -> Result<()
 }
 
 fn require_project(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+) -> Result<(), StoreError> {
+    if connection
+        .query_row(
+            "SELECT 1 FROM projects \
+             WHERE id = ?1 AND library_id = ?2 AND lifecycle = 'active'",
+            params![project_id, library_id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some()
+    {
+        return Ok(());
+    }
+    Err(not_found("Project is unavailable in this Library"))
+}
+
+fn require_known_project(
     connection: &Connection,
     library_id: &str,
     project_id: &str,

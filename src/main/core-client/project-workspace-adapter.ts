@@ -193,7 +193,7 @@ export interface DesktopProjectWorkspaceExecutionContext {
 }
 
 export interface DesktopProjectWorkspacePort {
-  listProjects(): Promise<Project[]>;
+  listProjects(options?: { includeArchived?: boolean }): Promise<Project[]>;
   getProject(projectId: string): Promise<Project | null>;
   readProjectPermissionMode(
     projectId: string,
@@ -213,7 +213,10 @@ export interface DesktopProjectWorkspacePort {
     input: ProjectPinnedInput,
   ): Promise<Project | null>;
   setPinnedProjectOrder(input: ProjectPinnedOrderInput): Promise<Project[]>;
-  deleteProject(projectId: string): Promise<boolean>;
+  setProjectLifecycle(
+    projectId: string,
+    lifecycle: Project["lifecycle"],
+  ): Promise<Project | null>;
   listProjectSessions(
     projectId: string | null,
     options?: ProjectSessionListOptions,
@@ -222,6 +225,10 @@ export interface DesktopProjectWorkspacePort {
     projectId: string | null,
     options?: ProjectSessionListOptions,
   ): Promise<ProjectSessionSummary[]>;
+  listProjectThreads(
+    projectId: string | null,
+    options?: ProjectSessionListOptions,
+  ): Promise<DesktopProjectWorkspaceThread[]>;
   getProjectSession(sessionId: string): Promise<ProjectSession | null>;
   updateProjectSession(
     sessionId: string,
@@ -941,12 +948,32 @@ export function createCoreProjectWorkspaceAdapter(
     );
   };
 
-  const readProjects = async (): Promise<Project[]> => {
-    const snapshot = await client.workspaceRead({ kind: "startup" });
-    if (snapshot.value.kind !== "startup") {
+  const readProjects = async (
+    options?: { includeArchived?: boolean },
+  ): Promise<Project[]> => {
+    const snapshot = await client.workspaceRead({
+      kind: "projects",
+      include_archived: options?.includeArchived ?? false,
+    });
+    if (snapshot.value.kind !== "projects") {
       throw new Error("Core returned the wrong Project Workspace read variant");
     }
     return snapshot.value.projects.map(fromCoreProject);
+  };
+
+  const listProjectThreads = async (
+    projectId: string | null,
+    options?: ProjectSessionListOptions,
+  ): Promise<DesktopProjectWorkspaceThread[]> => {
+    const snapshot = await client.workspaceRead({
+      kind: "threads",
+      project_id: projectId,
+      include_archived: options?.includeArchived ?? false,
+    });
+    if (snapshot.value.kind !== "threads") {
+      throw new Error("Core returned the wrong Project Workspace read variant");
+    }
+    return snapshot.value.threads.map(fromCoreWorkspaceThread);
   };
 
   const readProjectPermissionMode = async (
@@ -1138,15 +1165,16 @@ export function createCoreProjectWorkspaceAdapter(
       });
       return await readProjects();
     },
-    deleteProject: async (projectId) => {
+    setProjectLifecycle: async (projectId, lifecycle) => {
       const current = await getProject(projectId);
-      if (!current || current.lifecycle === "archived") return false;
+      if (!current) return null;
+      if (current.lifecycle === lifecycle) return current;
       await apply({
         kind: "set_project_lifecycle",
         project_id: projectId,
-        lifecycle: "archived",
+        lifecycle,
       });
-      return true;
+      return await getProject(projectId);
     },
     listProjectSessions: async (projectId, options) => {
       const summaries = await listSummaries(projectId, options);
@@ -1156,6 +1184,7 @@ export function createCoreProjectWorkspaceAdapter(
       return sessions.filter((session): session is ProjectSession => session !== null);
     },
     listProjectSessionSummaries: listSummaries,
+    listProjectThreads,
     getProjectSession: readSession,
     updateProjectSession: async (sessionId, input) => {
       const parsed = ProjectSessionUpdateInputSchema.parse(input);

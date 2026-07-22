@@ -1033,7 +1033,7 @@ fn workspace_contract_mismatch_is_replaced_before_a_projectless_terminal_request
     assert_eq!(replacement.expected, expected_stale_generation);
     assert_eq!(
         replacement.candidate_manifest.modules[3].versions,
-        VersionRange::exact(2)
+        VersionRange::exact(3)
     );
 
     let selected = selection.descriptor;
@@ -1099,7 +1099,7 @@ fn workspace_contract_mismatch_is_replaced_before_a_projectless_terminal_request
         ),
     ] {
         let apply = serde_json::json!({
-            "contract_version": 2,
+            "contract_version": 3,
             "operation_id": operation_id,
             "store_epoch": selected.store_epoch,
             "intent": intent
@@ -1126,7 +1126,7 @@ fn workspace_contract_mismatch_is_replaced_before_a_projectless_terminal_request
         "POST",
         "/core/v1/modules/workspace/read",
         &serde_json::json!({
-            "contract_version": 2,
+            "contract_version": 3,
             "read": {
                 "kind": "session_tab",
                 "tab_id": "tab:projectless-terminal-regression"

@@ -7,7 +7,7 @@ import type {
   ReactNode,
 } from "react";
 import { forwardRef, useEffect, useMemo, useState } from "react";
-import { FolderOpen, FolderPlus, Pencil, Smile, Trash2 } from "lucide-react";
+import { FolderMinus, FolderOpen, FolderPlus, Pencil, Smile } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS, useCombinedRefs, type Transform } from "@dnd-kit/utilities";
@@ -41,7 +41,7 @@ import { NodexTooltip } from "@/components/ui/tooltip";
 import { invoke } from "@/lib/api";
 import { CODEX_SIDEBAR_PROJECT_FOLDER_TRANSITION } from "@/lib/codex-panel-motion";
 import { formatElapsedSince } from "@/lib/elapsed-time";
-import type { CodexSidebarThreadItem, Project, ProjectPinnedInput, ProjectSession, ProjectUpdateInput } from "@/lib/types";
+import type { CodexSidebarThreadItem, Project, ProjectLifecycleMutationResult, ProjectPinnedInput, ProjectSession, ProjectUpdateInput } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
   SIDEBAR_NEW_CHAT_ROW_CLASS,
@@ -59,6 +59,7 @@ import {
 } from "./sidebar-thread-reorder";
 import { StableWorktreeCreateDialog } from "./stable-worktree-create-dialog";
 import { suggestStableWorktreeProjectName } from "./stable-worktree-production";
+import { ProjectRemoveDialog } from "./project-remove-dialog";
 
 type SidebarRowActionEvent =
   | MouseEvent<HTMLElement>
@@ -268,9 +269,8 @@ export function CodexSidebarSection({
 
 export function CodexProjectActionsMenu({
   project,
-  projectArchivingEnabled = true,
   onUpdateProject,
-  onDeleteProject,
+  onArchiveProject,
   onSetProjectPinned,
   onCreateStableWorktree,
   canCreateStableWorktree = false,
@@ -278,9 +278,8 @@ export function CodexProjectActionsMenu({
   stableWorktreeWorkspaceRootLabels = {},
 }: {
   project: Project;
-  projectArchivingEnabled?: boolean;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
-  onDeleteProject: (projectId: string) => Promise<boolean>;
+  onArchiveProject: (projectId: string) => Promise<ProjectLifecycleMutationResult>;
   onSetProjectPinned?: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
   onCreateStableWorktree?: (project: Project, projectName: string) => Promise<void>;
   canCreateStableWorktree?: boolean;
@@ -292,6 +291,7 @@ export function CodexProjectActionsMenu({
   const [iconOpen, setIconOpen] = useState(false);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [createStableWorktreeOpen, setCreateStableWorktreeOpen] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
   const [draftName, setDraftName] = useState(project.name);
   const [draftIcon, setDraftIcon] = useState(project.icon ?? "");
   const [draftSources, setDraftSources] = useState<string[]>(() => normalizeProjectSources(project));
@@ -351,12 +351,6 @@ export function CodexProjectActionsMenu({
     const updated = await onUpdateProject(project.id, { sources });
     if (!updated) return;
     setSourcesOpen(false);
-  };
-
-  const deleteProject = async () => {
-    const confirmed = window.confirm(`Delete ${project.name}?`);
-    if (!confirmed) return;
-    await onDeleteProject(project.id);
   };
 
   return (
@@ -444,20 +438,17 @@ export function CodexProjectActionsMenu({
           >
             Edit sources
           </NodexDropdownItem>
-          {projectArchivingEnabled ? (
-            <>
-              <NodexDropdownSeparator />
-              <NodexDropdownItem
-                leftSlot={<Trash2 className="icon-sm text-(--red-text)" />}
-                className="text-(--red-text)"
-                onSelect={() => {
-                  void deleteProject();
-                }}
-              >
-                Delete project
-              </NodexDropdownItem>
-            </>
-          ) : null}
+          <NodexDropdownSeparator />
+          <NodexDropdownItem
+            leftSlot={<FolderMinus className="icon-sm text-(--red-text)" />}
+            className="text-(--red-text)"
+            onSelect={() => {
+              setOpen(false);
+              setRemoveOpen(true);
+            }}
+          >
+            Remove project
+          </NodexDropdownItem>
         </NodexDropdownMenu>
       </div>
 
@@ -560,6 +551,12 @@ export function CodexProjectActionsMenu({
           await onCreateStableWorktree(project, projectName);
         }}
       />
+      <ProjectRemoveDialog
+        open={removeOpen}
+        project={project}
+        onOpenChange={setRemoveOpen}
+        onArchiveProject={onArchiveProject}
+      />
     </>
   );
 }
@@ -571,12 +568,11 @@ export function CodexProjectRow({
   animateChildren = true,
   groupDndController,
   allowProjectReorder = false,
-  projectArchivingEnabled = true,
   onActivate,
   onSelectProject,
   onStartNewChat,
   onUpdateProject,
-  onDeleteProject,
+  onArchiveProject,
   onSetProjectPinned,
   onCreateStableWorktree,
   stableWorktreeWorkspaceRootOptions,
@@ -589,12 +585,11 @@ export function CodexProjectRow({
   animateChildren?: boolean;
   groupDndController?: SidebarGroupDndController;
   allowProjectReorder?: boolean;
-  projectArchivingEnabled?: boolean;
   onActivate: () => void;
   onSelectProject?: () => void;
   onStartNewChat?: () => void;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
-  onDeleteProject: (projectId: string) => Promise<boolean>;
+  onArchiveProject: (projectId: string) => Promise<ProjectLifecycleMutationResult>;
   onSetProjectPinned?: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
   onCreateStableWorktree?: (project: Project, projectName: string) => Promise<void>;
   stableWorktreeWorkspaceRootOptions?: readonly string[];
@@ -783,9 +778,8 @@ export function CodexProjectRow({
         <div className="flex gap-1">
           <CodexProjectActionsMenu
             project={project}
-            projectArchivingEnabled={projectArchivingEnabled}
             onUpdateProject={onUpdateProject}
-            onDeleteProject={onDeleteProject}
+            onArchiveProject={onArchiveProject}
             onSetProjectPinned={onSetProjectPinned}
             onCreateStableWorktree={onCreateStableWorktree}
             canCreateStableWorktree={canCreateStableWorktree}

@@ -58,6 +58,11 @@ pub(super) fn read(
             projects: read_projects(connection, library_id, false)?,
             sessions: read_sessions(connection, library_id, None, false, true)?,
         }),
+        ProjectWorkspaceRead::Projects { include_archived } => {
+            Ok(ProjectWorkspaceReadValue::Projects {
+                projects: read_projects(connection, library_id, include_archived.unwrap_or(false))?,
+            })
+        }
         ProjectWorkspaceRead::Project { project_id } => {
             validate_id("project_id", &project_id)?;
             Ok(ProjectWorkspaceReadValue::Project {
@@ -798,6 +803,39 @@ mod tests {
         assert_eq!(sessions[1].display_title, "Thread preview");
         assert!(sessions[1].unread);
         assert_eq!(sessions[1].thread_id.as_deref(), Some("thread-1"));
+
+        let ProjectWorkspaceReadValue::Projects { projects } = read(
+            &module,
+            ProjectWorkspaceRead::Projects {
+                include_archived: Some(false),
+            },
+        ) else {
+            panic!("active Projects snapshot");
+        };
+        assert_eq!(
+            projects
+                .iter()
+                .map(|project| project.id.as_str())
+                .collect::<Vec<_>>(),
+            ["project-1"]
+        );
+
+        let ProjectWorkspaceReadValue::Projects { projects } = read(
+            &module,
+            ProjectWorkspaceRead::Projects {
+                include_archived: Some(true),
+            },
+        ) else {
+            panic!("all Projects snapshot");
+        };
+        assert_eq!(
+            projects
+                .iter()
+                .map(|project| project.id.as_str())
+                .collect::<Vec<_>>(),
+            ["project-1", "project-2"]
+        );
+        assert_eq!(projects[1].binding_revision, 2);
 
         let ProjectWorkspaceReadValue::Project { project } = read(
             &module,

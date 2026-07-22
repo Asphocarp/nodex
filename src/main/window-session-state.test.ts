@@ -39,7 +39,8 @@ describe("WindowSessionState", () => {
       const session = state.createSession();
       const catalog = state.readCatalog();
 
-      expect(session.layout.dbProjectId).toBe("default");
+      expect(session.layout.dbProjectId).toBeNull();
+      expect(session.layout.threadsProjectId).toBeNull();
       expect(session.layout.focusedStage).toBe("db");
       expect(catalog?.sessions.length).toBe(1);
       expect(catalog?.lastActiveSessionId).toBe(session.id);

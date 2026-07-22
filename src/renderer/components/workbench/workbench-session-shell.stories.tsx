@@ -823,7 +823,7 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
         onLeavePageStage={() => undefined}
         onCreateProject={async () => null}
         onUpdateProject={async () => null}
-        onDeleteProject={async () => false}
+        onArchiveProject={async () => ({ kind: "not-found" })}
         onReorderProjects={async () => args.workspace === "projectless-only" ? [] : PROJECTS}
         onSetProjectPinned={async () => null}
         onSetPinnedProjectOrder={async () => args.workspace === "projectless-only" ? [] : PROJECTS}

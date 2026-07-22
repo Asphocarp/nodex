@@ -146,9 +146,9 @@ export const WorkbenchLayoutSnapshotSchema = z.preprocess(
   migrateWorkbenchLayoutSnapshot,
   z.object({
     version: z.literal(2),
-    dbProjectId: z.string(),
+    dbProjectId: z.string().nullable(),
     activeProjectSessionId: z.string().nullable().catch(null),
-    threadsProjectId: z.string(),
+    threadsProjectId: z.string().nullable(),
     viewsByProject: ViewRecordSchema,
     searchByProject: StringRecordSchema.catch({}),
     dbViewPrefsByProject: UnknownRecordSchema.catch({}),

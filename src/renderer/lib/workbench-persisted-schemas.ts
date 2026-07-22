@@ -33,14 +33,14 @@ const UnknownRecordSchema = z.record(z.string(), z.unknown());
 const UnknownArraySchema = z.array(z.unknown());
 
 export const NavigationSnapshotSchema = z.object({
-  dbProjectId: z.string().min(1),
+  dbProjectId: z.string().min(1).nullable(),
   activeView: WorkbenchViewSchema,
   focusedStage: WorkbenchStageIdSchema,
   stageNavDirection: WorkbenchStageNavDirectionSchema,
   pageStage: NavigationPageStageStateSchema,
   activePagesTabId: z.string(),
   activeRecentSessionId: z.string().nullable(),
-  threadsProjectId: z.string().min(1),
+  threadsProjectId: z.string().min(1).nullable(),
   activeThreadsTabId: z.string(),
   activeFilesTabId: z.string(),
 }) satisfies z.ZodType<NavigationSnapshot>;

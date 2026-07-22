@@ -2756,7 +2756,7 @@ function renderWorkbench({
     return null;
   };
 
-  const setDbProjectCalls: string[] = [];
+  const setDbProjectCalls: Array<string | null> = [];
   const navigationStateChanges: WorkbenchNavigationCommandState[] = [];
   let requestWorkbenchNavigation: (
     direction: WorkbenchNavigationDirection,
@@ -2773,7 +2773,7 @@ function renderWorkbench({
   type TestSidebarState = NonNullable<ComponentProps<typeof WorkbenchShell>["sidebar"]>;
 
   function WorkbenchShellTestHarness() {
-    const [dbProjectId, setDbProjectId] = useState(projects[0]?.id ?? "alpha");
+    const [dbProjectId, setDbProjectId] = useState<string | null>(projects[0]?.id ?? null);
     const [renderedProjects, setRenderedProjects] = useState(projects);
     const [sidebarState, setSidebarState] = useState<TestSidebarState>(() => ({
       collapsed: false,
@@ -2835,7 +2835,14 @@ function renderWorkbench({
         initialQuery,
       }));
     };
-    replaceProjects = (nextProjects) => setRenderedProjects(nextProjects);
+    replaceProjects = (nextProjects) => {
+      setRenderedProjects(nextProjects);
+      setDbProjectId((current) =>
+        current && !nextProjects.some((project) => project.id === current)
+          ? null
+          : current
+      );
+    };
     return (
       <WorkbenchShell
         libraryWorkspaceEnabled={libraryWorkspaceEnabled}
@@ -2864,7 +2871,7 @@ function renderWorkbench({
         onLeavePageStage={() => undefined}
         onCreateProject={async () => null}
         onUpdateProject={async () => null}
-        onDeleteProject={async () => false}
+        onArchiveProject={async () => ({ kind: "not-found" })}
         onReorderProjects={async () => renderedProjects}
         onSetProjectPinned={async () => null}
         onSetPinnedProjectOrder={async () => renderedProjects}
@@ -3388,6 +3395,58 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(invokeCalls.some((call) =>
       call[0] === "project-sessions:list-summaries" && call[1] === null
     )).toBe(true);
+  });
+
+  test("enters an explicit projectless composition after the final Project disappears", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+
+    await act(async () => {
+      screen.replaceProjects([]);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.getByRole("button", { name: "Start a projectless chat" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Project sidebar options" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add new project" })).toBeTruthy();
+  });
+
+  test("navigates back to the explicit no-Project state after restoring a Project", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+
+    await act(async () => {
+      screen.replaceProjects([]);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await act(async () => {
+      screen.replaceProjects([makeProject()]);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    await selectSidebarSession(screen.container, "Database View");
+    expect(screen.setDbProjectCalls.at(-1)).toBe("alpha");
+    const backButton = screen.getByRole("button", { name: "Back" });
+    const forwardButton = screen.getByRole("button", { name: "Forward" });
+    expect(backButton.hasAttribute("disabled")).toBe(false);
+
+    await act(async () => {
+      fireEvent.click(backButton);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    expect(screen.setDbProjectCalls.at(-1)).toBeNull();
+    expect(forwardButton.hasAttribute("disabled")).toBe(false);
+
+    await act(async () => {
+      fireEvent.click(forwardButton);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    expect(screen.setDbProjectCalls.at(-1)).toBe("alpha");
   });
 
   test("consumes a staged fork side-panel snapshot only after a real target session enters", async () => {
@@ -5354,7 +5413,7 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(within(globalHeader).queryByRole("button", { name: "Forward" }) !== null).toBe(true);
   });
 
-  test("keeps gated Library surfaces and Project archival unavailable", async () => {
+  test("keeps gated Library surfaces unavailable without hiding Project removal", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
@@ -5362,14 +5421,12 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(screen.queryByRole("button", { name: "Open Library" })).toBeNull();
     expect(invokeCalls.some(([channel]) => channel === "library-module:read")).toBe(false);
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", {
-        name: "Project actions for Alpha",
-      }));
-      await Promise.resolve();
-    });
+    await pointerActivate(screen.getByRole("button", {
+      name: "Project actions for Alpha",
+    }));
+    await settleAsyncRender();
 
-    expect(screen.queryByRole("menuitem", { name: "Delete project" })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Remove project" })).toBeTruthy();
   });
 
   test("restores full-width right-panel geometry after returning from settings", async () => {
@@ -12830,6 +12887,47 @@ describe(`workbench session shell / ${scope}`, () => {
     await waitFor(() => {
       expect(textContent(screen.container).includes("DB:alpha:list")).toBe(true);
     });
+  });
+
+  test("projectless chat selection and navigation use the same explicit no-Project state", async () => {
+    const projectSession = makeAttachedSession({
+      id: "session:alpha:work",
+      title: "Project work",
+      threadId: "thread-project-work",
+    });
+    const projectlessSession = makeAttachedSession({
+      id: "session:projectless:loose",
+      projectId: null,
+      title: "Loose chat",
+      threadId: "thread-projectless-loose",
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [projectSession] },
+      projectlessSessions: [projectlessSession],
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Loose chat"));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    expect(screen.setDbProjectCalls.at(-1)).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Project work"));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    expect(screen.setDbProjectCalls.at(-1)).toBe("alpha");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Back" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    expect(screen.setDbProjectCalls.at(-1)).toBeNull();
   });
 
   test("window navigation command requests use the same shell history path", async () => {

@@ -21,7 +21,7 @@ import type { CommandMenuOpenRequest } from "./command-palette";
 
 export interface WorkbenchShortcutActions {
   projectRefs: { projectId: string }[];
-  dbProjectId: string;
+  dbProjectId: string | null;
   focusedStage: StageId;
   focusAdjacentStage: (projectId: string, direction: -1 | 1) => void;
   shiftSlidingWindow: (projectId: string, direction: -1 | 1) => void;
@@ -186,12 +186,14 @@ export function handleWorkbenchShortcut(
 
   if (modifier && !e.altKey && !e.shiftKey && (e.key === "h" || e.key === "H" || e.key === "l" || e.key === "L")) {
     if (targetIsEditable && !targetIsEditorSurface) return false;
+    if (!actions.dbProjectId) return false;
     actions.shiftSlidingWindow(actions.dbProjectId, e.key === "h" || e.key === "H" ? -1 : 1);
     return true;
   }
 
   if (e.ctrlKey && !e.metaKey && !e.altKey && e.key === "Tab") {
     if (targetIsEditable && !targetIsEditorSurface) return false;
+    if (!actions.dbProjectId) return false;
     actions.focusAdjacentStage(actions.dbProjectId, e.shiftKey ? -1 : 1);
     return true;
   }
@@ -209,12 +211,14 @@ export function handleWorkbenchShortcut(
 
   if (!e.altKey && e.key >= "1" && e.key <= "4") {
     if (targetIsEditable && !targetIsEditorSurface) return false;
+    if (!actions.dbProjectId) return false;
     const index = Number.parseInt(e.key, 10) - 1;
     actions.switchToStageIndex(actions.dbProjectId, index);
     return true;
   }
 
   if (matchesCommandShortcut(e, actions, "findInThread", isMac)) {
+    if (!actions.dbProjectId) return false;
     if (actions.focusedStage === "threads" && actions.onRequestContentSearch) {
       actions.onRequestContentSearch(actions.dbProjectId, "conversation");
       return true;
