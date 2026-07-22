@@ -25,6 +25,7 @@ import type {
   WorkspaceFileMetadataInput,
   WorkspaceFileReadResult,
   WorkspaceFileRequest,
+  WorkspaceFileTextReadInput,
 } from "./types";
 import type { GitBranchState } from "../../shared/ipc-api";
 import type { CommandKeymapState } from "../../shared/command-keybindings";
@@ -217,7 +218,7 @@ export function workspaceFileMetadataQueryOptions(input: WorkspaceFileMetadataIn
   });
 }
 
-export function workspaceFileTextQueryOptions(input: WorkspaceFileRequest) {
+export function workspaceFileTextQueryOptions(input: WorkspaceFileTextReadInput) {
   return queryOptions({
     queryKey: queryKeys.workspaceFiles.text(input),
     queryFn: () => invoke("read-file", input) as Promise<WorkspaceFileReadResult>,

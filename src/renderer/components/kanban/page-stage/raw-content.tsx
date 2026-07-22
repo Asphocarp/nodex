@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { LazyVirtualizedTextViewer } from "@/components/ui/lazy-virtualized-text-viewer";
 
 interface PageStageRawContentProps {
   content: string;
@@ -15,7 +16,7 @@ export function PageStageRawContent({
     <section
       aria-label="Raw page content"
       className={cn(
-        "overflow-hidden rounded-xl border border-(--border) bg-foreground-2",
+        "flex h-[70vh] max-h-[48rem] min-h-72 flex-col overflow-hidden rounded-xl border-[0.5px] border-(--border) bg-foreground-2",
         className,
       )}
     >
@@ -29,9 +30,11 @@ export function PageStageRawContent({
       </div>
 
       {hasContent ? (
-        <pre className="overflow-x-auto px-3 py-3 font-mono text-[12px]/5 text-(--foreground)">
-          {content}
-        </pre>
+        <LazyVirtualizedTextViewer
+          value={content}
+          ariaLabel="Raw page source"
+          className="min-h-0 flex-1"
+        />
       ) : (
         <div className="px-3 py-4 font-mono text-[12px]/5 text-(--foreground-tertiary)">
           Description is empty.

@@ -194,6 +194,87 @@ describe("McpToolCall", () => {
     expect(textContent(container).includes("Available Libraries:")).toBe(true);
   });
 
+  test("does not serialize five-megabyte structured content until details expand", async () => {
+    let serializationCalls = 0;
+    const payload = "x".repeat(5 * 1024 * 1024);
+    const structuredContent = {
+      payload,
+      toJSON() {
+        serializationCalls += 1;
+        return { payload };
+      },
+    };
+    const { container, getByRole } = renderMcp(
+      <TooltipProvider>
+        <McpToolCall
+          item={buildMcpEntry({
+            mcpToolCall: buildMcpView({
+              result: {
+                type: "success",
+                content: [],
+                structuredContent: structuredContent as never,
+                raw: {
+                  content: [],
+                  structuredContent: structuredContent as never,
+                  _meta: null,
+                },
+              },
+            }),
+          })}
+        />
+      </TooltipProvider>,
+    );
+    await settleAsyncRender();
+
+    expect(serializationCalls).toBe(0);
+    expect(container.querySelectorAll("pre")).toHaveLength(0);
+
+    fireEvent.click(getByRole("button", { name: /Resolve library id/i }));
+    await settleAsyncRender();
+
+    expect(serializationCalls).toBe(1);
+    expect(Array.from(container.querySelectorAll("pre")).every(
+      (element) => (element.textContent?.length ?? 0) <= 32_000,
+    )).toBe(true);
+    expect(getByRole("button", { name: "View full json" })).toBeTruthy();
+  });
+
+  test("budgets expanded MCP text blocks to 32,000 aggregate characters", async () => {
+    const { container, getByRole } = renderMcp(
+      <TooltipProvider>
+        <McpToolCall
+          item={buildMcpEntry({
+            mcpToolCall: buildMcpView({
+              result: {
+                type: "success",
+                content: [
+                  { type: "text", text: "a".repeat(20_000) },
+                  { type: "text", text: "b".repeat(20_000) },
+                  { type: "text", text: "c".repeat(20_000) },
+                ],
+                structuredContent: null,
+                raw: {
+                  content: [],
+                  structuredContent: null,
+                  _meta: null,
+                },
+              },
+            }),
+          })}
+        />
+      </TooltipProvider>,
+    );
+
+    fireEvent.click(getByRole("button", { name: /Resolve library id/i }));
+    await settleAsyncRender();
+
+    const mountedPreviewCharacters = Array.from(container.querySelectorAll("pre"))
+      .reduce((total, element) => total + (element.textContent?.length ?? 0), 0);
+    expect(mountedPreviewCharacters).toBeLessThanOrEqual(32_000);
+    expect(textContent(container).includes("20,000 additional text characters omitted")).toBe(true);
+    expect(getByRole("button", { name: "View full plaintext" })).toBeTruthy();
+  });
+
 
   test("renders a source icon in the summary row", async () => {
     const { container } = renderMcp(
@@ -381,7 +462,9 @@ describe("McpToolCall", () => {
         ),
       ).toBe(true);
     });
-    expect(Boolean(getByText(/call_9L9LUlz6nkg1Jp2LA4mrAL8o/))).toBe(true);
+    await waitFor(() => {
+      expect(textContent(getByRole("dialog")).includes("call_9L9LUlz6nkg1Jp2LA4mrAL8o")).toBe(true);
+    });
     expect(textContent(container).includes("pluginId")).toBe(false);
     expect(textContent(container).includes("mcpAppResourceUri")).toBe(false);
   });

@@ -91,6 +91,7 @@ import {
   WorkspaceDirectoryEntriesInputSchema,
   WorkspaceFileMetadataInputSchema,
   WorkspaceFileRequestSchema,
+  WorkspaceFileTextReadInputSchema,
   WorkspaceFileWriteInputSchema,
 } from "../shared/schemas/workspace-files";
 import { renameProjectSessionChat } from "./project-session-rename-service";
@@ -2073,7 +2074,7 @@ export function registerIpcHandlers(
 
   registerHandle("read-file", (event, input) =>
     runWorkspaceFileHandler(event, () => readWorkspaceFile(
-      WorkspaceFileRequestSchema.parse(input),
+      WorkspaceFileTextReadInputSchema.parse(input),
     )),
   );
 
@@ -3036,6 +3037,18 @@ export function registerIpcHandlers(
 
   registerHandle("codex:thread:goal:editable-objective:read", (_, objective) =>
     codexService.readThreadGoalEditableObjective(objective),
+  );
+
+  registerHandle("codex:pasted-text:create", (_, input) =>
+    codexService.createPastedTextAttachment(input),
+  );
+
+  registerHandle("codex:pasted-text:read", (_, input) =>
+    codexService.readPastedTextAttachment(input),
+  );
+
+  registerHandle("codex:pasted-text:remove", (_, input) =>
+    codexService.removePastedTextAttachment(input),
   );
 
   registerHandle(

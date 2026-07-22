@@ -44,6 +44,7 @@ import {
   TURN_DIFF_DEFAULT_VISIBLE_FILE_COUNT,
   buildTurnDiffApplyBatches,
   buildTurnDiffDisplayPath,
+  buildTurnDiffModel,
   buildTurnDiffReviewIntent,
   buildTurnDiffRows,
   extractTurnDiffPayload,
@@ -55,6 +56,7 @@ import {
   parseUnifiedDiffFileStats,
   summarizeTurnDiffRows,
   type TurnDiffRowModel,
+  type TurnDiffModel,
   type TurnDiffSummary,
 } from "./turn-diff-model";
 import { DiffStats } from "./tools/diff-file-shared";
@@ -321,6 +323,7 @@ function TurnDiffBanner({
 export function TurnDiffInProgressInlineSummary({
   item,
   rows,
+  model,
   projectWorkspacePath,
   threadCwd,
   reviewSource = "last-turn",
@@ -329,6 +332,7 @@ export function TurnDiffInProgressInlineSummary({
 }: {
   item: CodexTranscriptEntry;
   rows?: readonly TurnDiffRowModel[];
+  model?: TurnDiffModel;
   projectWorkspacePath?: string;
   threadCwd?: string;
   reviewSource?: CodexTurnDiffReviewSource;
@@ -336,11 +340,15 @@ export function TurnDiffInProgressInlineSummary({
   showLeadingSeparator?: boolean;
 }) {
   const payload = extractTurnDiffPayload(item);
-  const resolvedRows = useMemo(
-    () => rows ?? buildTurnDiffRows(item, threadCwd, projectWorkspacePath),
-    [item, projectWorkspacePath, rows, threadCwd],
+  const resolvedModel = useMemo<TurnDiffModel>(
+    () => model ?? (rows
+      ? rows.length > 0
+        ? { kind: "inline", rows, summary: summarizeTurnDiffRows(rows) }
+        : { kind: "empty", rows: [], summary: { fileCount: 0, additions: 0, deletions: 0 } }
+      : buildTurnDiffModel(item, threadCwd, projectWorkspacePath)),
+    [item, model, projectWorkspacePath, rows, threadCwd],
   );
-  const summary = useMemo(() => summarizeTurnDiffRows(resolvedRows), [resolvedRows]);
+  const summary = resolvedModel.summary;
   const reviewIntent = useMemo(
     () => buildTurnDiffReviewIntent({
       item,
@@ -351,7 +359,7 @@ export function TurnDiffInProgressInlineSummary({
     [item, projectWorkspacePath, reviewSource, threadCwd],
   );
 
-  if (!payload || summary.fileCount === 0) return null;
+  if (!payload || resolvedModel.kind === "empty" || summary.fileCount === 0) return null;
 
   const handleOpenReview = onOpenReview && reviewIntent
     ? () => {
@@ -484,8 +492,12 @@ export function TurnDiffSurface({
   deferOffscreenRendering?: boolean;
 }) {
   const payload = extractTurnDiffPayload(item);
-  const rows = useMemo(() => buildTurnDiffRows(item, threadCwd, projectWorkspacePath), [item, projectWorkspacePath, threadCwd]);
-  const summary = useMemo(() => summarizeTurnDiffRows(rows), [rows]);
+  const model = useMemo(
+    () => buildTurnDiffModel(item, threadCwd, projectWorkspacePath),
+    [item, projectWorkspacePath, threadCwd],
+  );
+  const rows = model.rows;
+  const summary = model.summary;
   const reviewIntent = useMemo(
     () => buildTurnDiffReviewIntent({
       item,
@@ -522,7 +534,7 @@ export function TurnDiffSurface({
     setFailure(null);
   }, [item.entryId, item.itemId, payload?.unifiedDiff]);
 
-  if (!payload || summary.fileCount === 0) return null;
+  if (!payload || model.kind === "empty" || summary.fileCount === 0) return null;
 
   const nextPatchAction: TurnDiffPatchAction =
     lastPatchAction?.unifiedDiff === payload.unifiedDiff && lastPatchAction.action === "undo"
@@ -596,8 +608,8 @@ export function TurnDiffSurface({
     return <TurnDiffBanner summary={summary} onReview={handleOpenReview ? () => handleOpenReview() : null} />;
   }
 
-  const visibleRows = getVisibleTurnDiffRows(rows, expanded);
-  const shouldShowFileList = summary.fileCount > 1;
+  const visibleRows = model.kind === "inline" ? getVisibleTurnDiffRows(rows, expanded) : [];
+  const shouldShowFileList = model.kind === "inline" && summary.fileCount > 1;
 
   return (
     <>
@@ -620,11 +632,18 @@ export function TurnDiffSurface({
             </div>
             <div className="flex min-w-0 flex-1 flex-col justify-center">
               <div className="text-size-chat min-w-0 truncate text-token-text-primary">
-                {getTurnDiffTitle(summary, rows[0]?.displayPath ?? null)}
+                {getTurnDiffTitle(summary, model.kind === "inline" ? rows[0]?.displayPath ?? null : null)}
               </div>
               <div className="text-size-chat-sm min-h-5 min-w-0 text-token-description-foreground">
                 <span className="turn-diff-default-subtitle inline-flex min-w-0 items-center">
-                  <DiffStats additions={summary.additions} deletions={summary.deletions} className="text-size-chat-sm" />
+                  {model.kind === "tooLarge" ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span>Too large for inline preview</span>
+                      <DiffStats additions={summary.additions} deletions={summary.deletions} className="text-size-chat-sm" />
+                    </span>
+                  ) : (
+                    <DiffStats additions={summary.additions} deletions={summary.deletions} className="text-size-chat-sm" />
+                  )}
                 </span>
                 <span className="turn-diff-hover-subtitle hidden min-w-0 items-center gap-1 text-token-description-foreground">
                   <span>Review changes</span>
@@ -633,7 +652,7 @@ export function TurnDiffSurface({
               </div>
             </div>
             <div className="pointer-events-auto ml-auto flex shrink-0 items-center gap-2">
-              {payload.showRevertButton && applyBatches.length > 0 ? (
+              {model.kind === "inline" && payload.showRevertButton && applyBatches.length > 0 ? (
                 <TurnDiffToolbarButton
                   label={nextPatchAction === "undo" ? "Undo" : "Reapply"}
                   icon={nextPatchAction}
@@ -683,6 +702,7 @@ export function TurnDiffSurface({
 export const turnDiffSurfaceTestHelpers = {
   buildTurnDiffApplyBatches,
   buildTurnDiffDisplayPath,
+  buildTurnDiffModel,
   buildTurnDiffReviewIntent,
   buildTurnDiffRows,
   extractTurnDiffPayload,

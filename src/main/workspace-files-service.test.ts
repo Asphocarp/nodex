@@ -127,7 +127,7 @@ describe("workspace-files-service exact file resources", () => {
     await writeFile(textPath, "# Notes\n", "utf8");
     await writeFile(binaryPath, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0]));
 
-    const text = await readWorkspaceFile({ path: textPath });
+    const text = await readWorkspaceFile({ path: textPath, maxBytes: 100 });
     const textMetadata = await readWorkspaceFileMetadata({
       path: textPath,
       contentSampleByteLimit: 8_192,
@@ -153,6 +153,9 @@ describe("workspace-files-service exact file resources", () => {
     expect(binary).toEqual({
       contentsBase64: "iVBORw0KGgoA",
       mimeType: "image/png",
+    });
+    await expect(readWorkspaceFile({ path: textPath, maxBytes: 7 })).rejects.toMatchObject({
+      code: "too_large",
     });
   });
 

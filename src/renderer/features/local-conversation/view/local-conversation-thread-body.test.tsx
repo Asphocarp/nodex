@@ -743,6 +743,7 @@ describe("LocalConversationThreadBody", () => {
               phase: "startingThread",
               message: "Sending message…",
               outputText: "",
+              outputTruncated: false,
               updatedAt: 10,
             },
           })}
@@ -772,6 +773,7 @@ describe("LocalConversationThreadBody", () => {
               phase: "failed",
               message: "Message could not be sent.",
               outputText: "network failed",
+              outputTruncated: false,
               updatedAt: 10,
             },
           })}
@@ -787,9 +789,9 @@ describe("LocalConversationThreadBody", () => {
     expect(Boolean(queryByText("Setup"))).toBe(false);
   });
 
-  test("keeps the new-worktree start progress steps and log output", async () => {
+  test("keeps the new-worktree start progress steps and marks a truncated log tail", async () => {
     const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
-    const { getByText } = render(
+    const { container, getByText } = render(
       <TooltipProvider>
         <LocalConversationThreadBody
           model={buildModel({
@@ -800,6 +802,7 @@ describe("LocalConversationThreadBody", () => {
               phase: "runningSetup",
               message: "Preparing worktree…",
               outputText: "setup log\n",
+              outputTruncated: true,
               updatedAt: 10,
             },
           })}
@@ -812,7 +815,7 @@ describe("LocalConversationThreadBody", () => {
     expect(Boolean(getByText("Worktree"))).toBe(true);
     expect(Boolean(getByText("Setup"))).toBe(true);
     expect(Boolean(getByText("Thread"))).toBe(true);
-    expect(Boolean(getByText("setup log"))).toBe(true);
+    expect(container.textContent).toContain("[earlier output truncated]\nsetup log\n");
   });
 
   test("shows archived thread restore action without rendering transcript content", async () => {

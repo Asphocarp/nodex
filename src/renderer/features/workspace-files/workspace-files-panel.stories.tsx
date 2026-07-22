@@ -6,7 +6,12 @@ import { makeProjectSessionPanelLayout } from "../../../shared/project-session-p
 
 const WORKSPACE_ROOT = "/Users/asc/repo/nodex";
 const WORKTREE_FILE = "/Users/asc/.nodex/worktrees/abcd/nodex/README.md";
+const LARGE_MARKDOWN_FILE = `${WORKSPACE_ROOT}/large-notes.md`;
 const CREATED_AT = "2026-06-13T00:00:00.000Z";
+const LARGE_MARKDOWN_SOURCE = Array.from(
+  { length: 6_000 },
+  (_, index) => `- [Reference ${index + 1}](https://example.com/reference/${index + 1}) keeps exact source available.`,
+).join("\n");
 
 const project: Project = {
   id: "nodex",
@@ -59,6 +64,7 @@ const directoryEntries: Record<string, WorkspaceFileDirectoryEntry[]> = {
   "": [
     entry("src", "src", "directory"),
     entry("README.md", "README.md", "file"),
+    entry("large-notes.md", "large-notes.md", "file"),
     entry("CLAUDE.md", "CLAUDE.md", "file"),
   ],
   src: [
@@ -69,6 +75,7 @@ const directoryEntries: Record<string, WorkspaceFileDirectoryEntry[]> = {
 
 const fileContents: Record<string, string> = {
   [`${WORKSPACE_ROOT}/README.md`]: "# Nodex\n\nLocal-first, block-based agent orchestration.",
+  [LARGE_MARKDOWN_FILE]: LARGE_MARKDOWN_SOURCE,
   [`${WORKSPACE_ROOT}/CLAUDE.md`]: "# Agent Notes\n\nUse the Files tab to inspect workspace documents.",
   [WORKTREE_FILE]: "# Worktree\n\nThis file is outside the Project source and still previews.",
 };
@@ -93,6 +100,12 @@ export const EmptySelection: Story = {
 export const MarkdownSelected: Story = {
   render: () => (
     <WorkspaceFilesStoryFrame selectedPath={`${WORKSPACE_ROOT}/README.md`} />
+  ),
+};
+
+export const LargeMarkdownSourceFallback: Story = {
+  render: () => (
+    <WorkspaceFilesStoryFrame selectedPath={LARGE_MARKDOWN_FILE} />
   ),
 };
 

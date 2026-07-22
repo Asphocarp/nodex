@@ -120,6 +120,53 @@ function findButtonByText(container: HTMLElement, label: string): HTMLButtonElem
 }
 
 describe("LocalEnvironmentsSettingsPage", () => {
+  test("presents oversized environment files as a distinct non-editable state", async () => {
+    const tooLargeSnapshot = buildSnapshot("project-alpha", {
+      configs: [{
+        configPath: ".codex/environments/environment.toml",
+        fileName: "environment.toml",
+        state: "tooLarge",
+        exists: true,
+        name: "environment.toml",
+        hasSetupScript: false,
+        hasCleanupScript: false,
+        actionCount: 0,
+        parseErrorMessage: null,
+        readErrorMessage: null,
+        tooLargeMessage: "Environment file exceeds 262,144 bytes",
+        environment: null,
+      }],
+      environment: null,
+      tooLargeMessage: "Environment file exceeds 262,144 bytes",
+    });
+    const view = render(
+      <LocalEnvironmentsSettingsPage
+        open={true}
+        active={true}
+        projects={PROJECTS}
+        activeProjectId="project-alpha"
+        initialProjectId="project-alpha"
+        initialConfigPath=".codex/environments/environment.toml"
+        renderShell={({ title, subtitle, backSlot, children }) => (
+          <SettingsPageSurface title={title} subtitle={subtitle} backSlot={backSlot}>
+            {children}
+          </SettingsPageSurface>
+        )}
+        service={{
+          listConfigs: async () => tooLargeSnapshot.configs,
+          readConfig: async () => tooLargeSnapshot,
+          saveConfig: async () => {
+            throw new Error("Oversized files cannot be edited");
+          },
+        }}
+      />,
+    );
+    await settleAsyncRender();
+
+    expect(textContent(view.container)).toContain("Local environment file is too large to load");
+    expect(view.container.querySelector("textarea")).toBeNull();
+  });
+
   test("loads each workspace config list once per mount in workspace mode", async () => {
     const listCalls: string[] = [];
     const snapshots = new Map<string, WorktreeEnvironmentSettingsSnapshot>([

@@ -28,6 +28,7 @@ export interface NodexDynamicToolCallPresentation {
 const MAX_LABEL_VALUE_LENGTH = 96;
 const MAX_MARKDOWN_DIFF_LINES = 80;
 const MAX_MARKDOWN_PATCH_SIDE_PREVIEW_LINES = 32;
+const MAX_COLLAPSED_TOOL_DERIVATION_CHARS = 32_000;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
@@ -65,6 +66,7 @@ function plural(count: number, singular: string, pluralForm = `${singular}s`): s
 function parseToolOutput(call: CodexDynamicToolCallView): Record<string, unknown> | null {
   const texts = (call.contentItems ?? []).flatMap((item) => item.type === "inputText" ? [item.text] : []);
   for (let index = texts.length - 1; index >= 0; index -= 1) {
+    if ((texts[index]?.length ?? 0) > MAX_COLLAPSED_TOOL_DERIVATION_CHARS) continue;
     try {
       const output = asRecord(JSON.parse(texts[index] ?? ""));
       if (output) return output;
@@ -135,6 +137,7 @@ function buildMarkdownChangePreview(
       : typeof body?.markdown === "string"
         ? body.markdown
         : "";
+    if (content.length > MAX_COLLAPSED_TOOL_DERIVATION_CHARS) return null;
     const additions = contentLineCount(content);
     const lines: NodexMarkdownDiffLine[] = [];
     appendContentPreviewLines(lines, content, "added");
@@ -153,6 +156,7 @@ function buildMarkdownChangePreview(
       : typeof body?.markdown === "string"
         ? body.markdown
         : "";
+    if (content.length > MAX_COLLAPSED_TOOL_DERIVATION_CHARS) return null;
     const additions = contentLineCount(content);
     const lines: NodexMarkdownDiffLine[] = [];
     appendContentPreviewLines(lines, content, "added");
@@ -171,6 +175,7 @@ function buildMarkdownChangePreview(
   const lines: NodexMarkdownDiffLine[] = [];
   let additions = 0;
   let deletions = 0;
+  let inspectedCharacters = 0;
   for (const [patchIndex, patch] of patches.entries()) {
     const value = asRecord(patch);
     const oldMarkdown = typeof value?.oldNfm === "string"
@@ -183,6 +188,8 @@ function buildMarkdownChangePreview(
       : typeof value?.newMarkdown === "string"
         ? value.newMarkdown
         : "";
+    inspectedCharacters += oldMarkdown.length + newMarkdown.length;
+    if (inspectedCharacters > MAX_COLLAPSED_TOOL_DERIVATION_CHARS) return null;
     additions += contentLineCount(newMarkdown);
     deletions += contentLineCount(oldMarkdown);
     if (patchIndex > 0 && lines.length < MAX_MARKDOWN_DIFF_LINES) {

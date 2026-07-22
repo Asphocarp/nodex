@@ -12,22 +12,22 @@ import {
   buildAboveComposerTurnDiffBlock as buildTurnDiffBlock,
 } from "./local-conversation-above-composer-portal.test-fixtures";
 
-const buildTurnDiffRowsCall = vi.hoisted(() => vi.fn());
+const buildTurnDiffModelCall = vi.hoisted(() => vi.fn());
 
 vi.mock("./shared/turn-diff-model", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./shared/turn-diff-model")>();
   return {
     ...actual,
-    buildTurnDiffRows: (...args: Parameters<typeof actual.buildTurnDiffRows>) => {
-      buildTurnDiffRowsCall();
-      return actual.buildTurnDiffRows(...args);
+    buildTurnDiffModel: (...args: Parameters<typeof actual.buildTurnDiffModel>) => {
+      buildTurnDiffModelCall();
+      return actual.buildTurnDiffModel(...args);
     },
   };
 });
 
 describe("LocalConversationAboveComposerPortal", () => {
   beforeEach(() => {
-    buildTurnDiffRowsCall.mockClear();
+    buildTurnDiffModelCall.mockClear();
   });
 
   test("reports actual fixed-host content presence to composer chrome", async () => {
@@ -89,7 +89,7 @@ describe("LocalConversationAboveComposerPortal", () => {
     expect(reviewButton !== null).toBe(true);
     fireEvent.click(reviewButton as HTMLButtonElement);
     expect(openedTurnId).toBe("thread-portal");
-    expect(buildTurnDiffRowsCall).toHaveBeenCalledTimes(1);
+    expect(buildTurnDiffModelCall).toHaveBeenCalledTimes(1);
   });
 
   test("does not render fixed-content chrome for an empty portal", async () => {

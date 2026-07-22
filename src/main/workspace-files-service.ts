@@ -18,6 +18,7 @@ import type {
   WorkspaceFileMetadataInput,
   WorkspaceFileReadResult,
   WorkspaceFileRequest,
+  WorkspaceFileTextReadInput,
   WorkspaceFileWriteInput,
   WorkspaceFileWriteResult,
 } from "../shared/types";
@@ -42,6 +43,7 @@ export type WorkspaceFileUserErrorCode =
   | "invalid_path"
   | "not_found"
   | "outside_workspace"
+  | "too_large"
   | "unauthorized_sender"
   | "unsupported_host";
 
@@ -276,9 +278,33 @@ function detectMimeType(bytes: Buffer): string | undefined {
   return undefined;
 }
 
-export async function readWorkspaceFile(input: WorkspaceFileRequest): Promise<WorkspaceFileReadResult> {
+export async function readWorkspaceFile(input: WorkspaceFileTextReadInput): Promise<WorkspaceFileReadResult> {
   const filePath = resolveFileRequestPath(input);
-  return { contents: await readFile(filePath, "utf8") };
+  const handle = await open(filePath, "r");
+  try {
+    const fileStats = await handle.stat();
+    if (!fileStats.isFile()) {
+      throw new WorkspaceFileUserError("invalid_path", `${filePath} is not a file`);
+    }
+    if (fileStats.size > input.maxBytes) {
+      throw new WorkspaceFileUserError(
+        "too_large",
+        `${basename(filePath)} exceeds the ${input.maxBytes.toLocaleString()} byte text limit`,
+      );
+    }
+
+    const buffer = Buffer.alloc(input.maxBytes + 1);
+    const result = await handle.read(buffer, 0, buffer.length, 0);
+    if (result.bytesRead > input.maxBytes) {
+      throw new WorkspaceFileUserError(
+        "too_large",
+        `${basename(filePath)} changed while reading and now exceeds the text limit`,
+      );
+    }
+    return { contents: buffer.subarray(0, result.bytesRead).toString("utf8") };
+  } finally {
+    await handle.close();
+  }
 }
 
 export async function readWorkspaceFileMetadata(

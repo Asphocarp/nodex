@@ -2,7 +2,7 @@ import type {
   WorkspaceFileMetadata,
   WorkspaceFileMetadataInput,
   WorkspaceFileReadResult,
-  WorkspaceFileRequest,
+  WorkspaceFileTextReadInput,
 } from "./types";
 
 export interface ReadExactWorkspaceTextFileDependencies {
@@ -10,7 +10,7 @@ export interface ReadExactWorkspaceTextFileDependencies {
     input: WorkspaceFileMetadataInput,
   ) => Promise<WorkspaceFileMetadata>;
   readonly readText: (
-    input: WorkspaceFileRequest,
+    input: WorkspaceFileTextReadInput,
   ) => Promise<WorkspaceFileReadResult>;
 }
 
@@ -38,6 +38,6 @@ export async function readExactWorkspaceTextFile(
     return null;
   }
 
-  const result = await dependencies.readText({ path: input.path });
+  const result = await dependencies.readText({ path: input.path, maxBytes: input.maxBytes });
   return result.contents;
 }

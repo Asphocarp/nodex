@@ -11,6 +11,11 @@ import type {
 import type { ThreadStageActions } from "../../../thread-stage-types";
 import { useMcpResource, useMcpServerStatuses } from "../../../../../lib/use-mcp-queries";
 import { cn } from "../../../../../lib/utils";
+import {
+  buildTextPreview,
+  INLINE_TEXT_PREVIEW_MAX_CHARS,
+  type TextPreview,
+} from "../../../../../lib/text-preview";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
 import { useMeasuredElementHeight } from "../use-measured-element-height";
 import { CodexShimmerText } from "../codex-shimmer-text";
@@ -43,6 +48,76 @@ const EMPTY_MCP_SERVER_STATUSES: ProtocolListMcpServerStatusResponse = {
   data: [],
   nextCursor: null,
 };
+const MCP_MINIMUM_USEFUL_TEXT_PREVIEW_CHARS = 64;
+
+interface BudgetedMcpContentBlock {
+  readonly block: CodexMcpToolCallContentBlock;
+  readonly textValue?: string;
+  readonly textPreview?: TextPreview;
+}
+
+function mcpContentBlockText(block: CodexMcpToolCallContentBlock): string | null {
+  if (block.type === "text") {
+    return appendAnnotations(block.text, block.annotations);
+  }
+
+  if (block.type === "resource_link") {
+    const name = block.title ?? block.name ?? block.uri;
+    const annotations = formatAnnotations(block.annotations);
+    return annotations ? `Read ${name}\nAnnotations: ${annotations}` : `Read ${name}`;
+  }
+
+  if (block.type === "embedded_resource") {
+    const resource = block.resource;
+    const fields = [
+      `URI ${resource.uri}`,
+      resource.mimeType ? `MIME type ${resource.mimeType}` : null,
+      formatAnnotations(resource.annotations)
+        ? `Annotations ${formatAnnotations(resource.annotations)}`
+        : null,
+      resource.text ?? resource.blob
+        ? `Content\n${resource.text ?? resource.blob ?? ""}`
+        : null,
+    ].filter((value): value is string => value !== null);
+    return fields.join("\n");
+  }
+
+  if (block.type === "image" || block.type === "audio") {
+    const annotations = formatAnnotations(block.annotations);
+    return annotations ? `Annotations: ${annotations}` : null;
+  }
+
+  return stringifyMcpValue(block.raw, 2);
+}
+
+function budgetMcpContentBlocks(
+  blocks: readonly CodexMcpToolCallContentBlock[],
+): { readonly blocks: readonly BudgetedMcpContentBlock[]; readonly omittedCharacters: number } {
+  const result: BudgetedMcpContentBlock[] = [];
+  let remainingCharacters = INLINE_TEXT_PREVIEW_MAX_CHARS;
+  let omittedCharacters = 0;
+
+  for (const block of blocks) {
+    const textValue = mcpContentBlockText(block);
+    if (textValue === null) {
+      result.push({ block });
+      continue;
+    }
+
+    if (remainingCharacters < MCP_MINIMUM_USEFUL_TEXT_PREVIEW_CHARS) {
+      omittedCharacters += textValue.length;
+      if (block.type === "image" || block.type === "audio") {
+        result.push({ block });
+      }
+      continue;
+    }
+    const textPreview = buildTextPreview(textValue, remainingCharacters);
+    remainingCharacters -= textPreview.text.length;
+    result.push({ block, textValue, textPreview });
+  }
+
+  return { blocks: result, omittedCharacters };
+}
 
 interface McpToolCallProps {
   automaticApprovalReviews?: CodexTranscriptEntry[];
@@ -79,13 +154,27 @@ function appendAnnotations(text: string, annotations: unknown): string {
 
 function McpEmbeddedResourceBlock({
   block,
-}: {
+  textValue,
+  textPreview,
+}: BudgetedMcpContentBlock & {
   block: Extract<CodexMcpToolCallContentBlock, { type: "embedded_resource" }>;
 }) {
   const resource = block.resource;
   const content = resource.text ?? resource.blob ?? "";
   const hasContent = content.length > 0;
   const annotations = formatAnnotations(resource.annotations);
+
+  if (textValue && textPreview?.kind === "omitted") {
+    return (
+      <ToolCallCodePanel
+        title="resource"
+        preview={textPreview}
+        getCopyText={() => textValue}
+        getFullText={() => textValue}
+        preClassName="text-token-description-foreground/80"
+      />
+    );
+  }
 
   return (
     <div className="text-size-chat flex flex-col gap-0.5 text-token-description-foreground/80">
@@ -106,31 +195,49 @@ function McpEmbeddedResourceBlock({
         </div>
       ) : null}
       {hasContent ? (
-        <div className="flex flex-col gap-0.5">
-          <span className="font-medium text-token-foreground">Content</span>
-          <pre className="max-h-48 overflow-auto rounded-md bg-token-input-background px-3 py-2 whitespace-pre-wrap text-token-description-foreground/80">
-            {content}
-          </pre>
-        </div>
+        <ToolCallCodePanel
+          title="Content"
+          preview={buildTextPreview(content, INLINE_TEXT_PREVIEW_MAX_CHARS)}
+          getCopyText={() => content}
+          getFullText={() => content}
+          preClassName="text-token-description-foreground/80"
+        />
       ) : null}
     </div>
   );
 }
 
-function McpUnknownBlock({ value }: { value: unknown }) {
+function McpUnknownBlock({
+  text,
+  preview,
+}: {
+  readonly text: string;
+  readonly preview: TextPreview;
+}) {
   return (
-    <pre className="[&_*]:text-token-non-assistant-body-descendant bg-token-input-background text-token-description-foreground/80 max-h-48 overflow-auto whitespace-pre-wrap rounded-md px-3 py-2 text-size-chat">
-      {stringifyMcpValue(value, 2)}
-    </pre>
+    <ToolCallCodePanel
+      title="json"
+      preview={preview}
+      getCopyText={() => text}
+      getFullText={() => text}
+      preClassName="[&_*]:text-token-non-assistant-body-descendant text-token-description-foreground/80 text-size-chat"
+    />
   );
 }
 
-function McpContentBlock({ block }: { block: CodexMcpToolCallContentBlock }) {
+function McpContentBlock({
+  block,
+  textValue,
+  textPreview,
+}: BudgetedMcpContentBlock) {
   if (block.type === "text") {
+    const value = textValue ?? appendAnnotations(block.text, block.annotations);
     return (
       <ToolCallCodePanel
         title="plaintext"
-        content={appendAnnotations(block.text, block.annotations)}
+        preview={textPreview ?? buildTextPreview(value, INLINE_TEXT_PREVIEW_MAX_CHARS)}
+        getCopyText={() => value}
+        getFullText={() => value}
         preClassName="[&_*]:text-token-non-assistant-body-descendant text-token-description-foreground/80 m-0 whitespace-pre-wrap break-words font-sans text-size-chat leading-relaxed extension:leading-normal"
       />
     );
@@ -139,6 +246,18 @@ function McpContentBlock({ block }: { block: CodexMcpToolCallContentBlock }) {
   if (block.type === "resource_link") {
     const name = block.title ?? block.name ?? block.uri;
     const annotations = formatAnnotations(block.annotations);
+
+    if (textValue && textPreview?.kind === "omitted") {
+      return (
+        <ToolCallCodePanel
+          title="resource"
+          preview={textPreview}
+          getCopyText={() => textValue}
+          getFullText={() => textValue}
+          preClassName="text-token-description-foreground/80"
+        />
+      );
+    }
 
     return (
       <div className="text-size-chat flex flex-col gap-0.5">
@@ -153,7 +272,13 @@ function McpContentBlock({ block }: { block: CodexMcpToolCallContentBlock }) {
   }
 
   if (block.type === "embedded_resource") {
-    return <McpEmbeddedResourceBlock block={block} />;
+    return (
+      <McpEmbeddedResourceBlock
+        block={block}
+        textValue={textValue}
+        textPreview={textPreview}
+      />
+    );
   }
 
   if (block.type === "image") {
@@ -166,7 +291,14 @@ function McpContentBlock({ block }: { block: CodexMcpToolCallContentBlock }) {
           src={`data:${block.mimeType};base64,${block.data}`}
           alt=""
         />
-        {annotations ? (
+        {textValue && textPreview?.kind === "omitted" ? (
+          <ToolCallCodePanel
+            title="annotations"
+            preview={textPreview}
+            getCopyText={() => textValue}
+            getFullText={() => textValue}
+          />
+        ) : annotations ? (
           <p className="text-size-chat whitespace-pre-wrap text-token-description-foreground/80">
             Annotations: {annotations}
           </p>
@@ -181,7 +313,14 @@ function McpContentBlock({ block }: { block: CodexMcpToolCallContentBlock }) {
     return (
       <div className="flex flex-col gap-0.5">
         <audio className="w-full gap-0.5" controls src={`data:${block.mimeType};base64,${block.data}`} preload="metadata" />
-        {annotations ? (
+        {textValue && textPreview?.kind === "omitted" ? (
+          <ToolCallCodePanel
+            title="annotations"
+            preview={textPreview}
+            getCopyText={() => textValue}
+            getFullText={() => textValue}
+          />
+        ) : annotations ? (
           <p className="text-size-chat whitespace-pre-wrap text-token-description-foreground/80">
             Annotations: {annotations}
           </p>
@@ -190,7 +329,8 @@ function McpContentBlock({ block }: { block: CodexMcpToolCallContentBlock }) {
     );
   }
 
-  return <McpUnknownBlock value={block.raw} />;
+  if (!textValue || !textPreview) return null;
+  return <McpUnknownBlock text={textValue} preview={textPreview} />;
 }
 
 function McpAppLoadingPlaceholder({ resource }: { resource: McpRenderableResource | null }) {
@@ -218,7 +358,6 @@ function McpAppTooLargeError() {
 function McpResultBody({
   payload,
   threadId,
-  rawOutput,
   resourceUri,
   hasResourceScope,
   resource,
@@ -230,7 +369,6 @@ function McpResultBody({
 }: {
   payload: CodexMcpToolCallView;
   threadId: string;
-  rawOutput: string;
   resourceUri: string | null;
   hasResourceScope: boolean;
   resource: McpRenderableResource | null;
@@ -243,31 +381,41 @@ function McpResultBody({
   const result = payload.result;
   const successResult = result?.type === "success" ? result : null;
   const errorText = result?.type === "error" ? result.error : null;
-  const structuredContentJson = successResult?.structuredContent != null
-    ? stringifyMcpValue(successResult.structuredContent, 2)
-    : null;
+  const structuredContentJson = useMemo(
+    () => successResult?.structuredContent != null
+      ? stringifyMcpValue(successResult.structuredContent, 2)
+      : null,
+    [successResult],
+  );
   const shouldRenderMcpApp = Boolean(resourceUri) && (!payload.completed || successResult !== null);
   const hasMcpAppBranch = shouldRenderMcpApp && (resourceLoading || Boolean(resourceError) || resource !== null);
   const isMcpAppLoading = shouldRenderMcpApp && resourceLoading && resource === null && !resourceError;
   const mcpAppError = shouldRenderMcpApp && resourceError && resource === null
     ? `Failed to load MCP app: ${resourceError}`
     : null;
-  const { displayContent, displayStructuredContentJson } = successResult
-    ? resolveMcpExpandedSuccessDisplay({
-        content: successResult.content.filter((block) => !shouldHideDuplicateMcpTextContent(block, resource)),
-        structuredContentJson,
-        isExpanded: true,
-      })
-    : {
-        displayContent: [],
-        displayStructuredContentJson: null,
-      };
+  const { displayContent, displayStructuredContentJson } = useMemo(
+    () => successResult
+      ? resolveMcpExpandedSuccessDisplay({
+          content: successResult.content.filter((block) => !shouldHideDuplicateMcpTextContent(block, resource)),
+          structuredContentJson,
+          isExpanded: true,
+        })
+      : {
+          displayContent: [],
+          displayStructuredContentJson: null,
+        },
+    [resource, structuredContentJson, successResult],
+  );
   const shouldShowStructuredContent = shouldShowMcpStructuredContent({
     structuredContentJson: displayStructuredContentJson,
     hasMcpAppBranch,
     hasResourceScope,
   });
   const shouldShowRawDialog = !isMcpAppLoading;
+  const budgetedDisplayContent = useMemo(
+    () => budgetMcpContentBlocks(displayContent),
+    [displayContent],
+  );
 
   const appBody = isMcpAppLoading ? (
     <McpAppLoadingPlaceholder resource={resource} />
@@ -284,9 +432,14 @@ function McpResultBody({
       {hasMcpAppBranch ? appBody : null}
       {!hasMcpAppBranch && displayContent.length > 0 ? (
         <div className="[&_*]:text-token-foreground/50 flex flex-col gap-0.5">
-          {displayContent.map((block, index) => (
-            <McpContentBlock key={index} block={block} />
+          {budgetedDisplayContent.blocks.map((entry, index) => (
+            <McpContentBlock key={index} {...entry} />
           ))}
+          {budgetedDisplayContent.omittedCharacters > 0 ? (
+            <div className="px-2 py-1 text-xs text-token-description-foreground">
+              {budgetedDisplayContent.omittedCharacters.toLocaleString()} additional text characters omitted
+            </div>
+          ) : null}
         </div>
       ) : !hasMcpAppBranch && errorText ? (
         <ToolErrorDetail error={errorText} showLabel={false} />
@@ -296,7 +449,12 @@ function McpResultBody({
       {shouldShowStructuredContent && displayStructuredContentJson ? (
         <ToolCallCodePanel
           title="json"
-          content={displayStructuredContentJson}
+          preview={buildTextPreview(
+            displayStructuredContentJson,
+            INLINE_TEXT_PREVIEW_MAX_CHARS,
+          )}
+          getCopyText={() => displayStructuredContentJson}
+          getFullText={() => displayStructuredContentJson}
           preClassName="font-vscode-editor text-size-chat text-token-description-foreground/80"
         />
       ) : null}
@@ -327,7 +485,12 @@ function McpResultBody({
             open={rawDialogOpen}
             onOpenChange={onRawDialogOpenChange}
             title={`Raw ${payload.invocation.server}.${payload.invocation.tool} tool call output`}
-            rawValue={rawOutput}
+            getRawValue={() => ({
+              callId: payload.callId,
+              invocation: payload.invocation,
+              durationMs: payload.durationMs,
+              result: payload.result,
+            })}
             triggerLabel="Show raw tool call output"
           />
         </div>
@@ -413,14 +576,6 @@ export function McpToolCall({
     && (!payload?.completed || hasSuccessfulResult)
     && (resourceLoading || resourceError || renderableResource),
   );
-  const rawOutput = payload
-    ? stringifyMcpValue({
-        callId: payload.callId,
-        invocation: payload.invocation,
-        durationMs: payload.durationMs,
-        result: payload.result,
-      }, 2)
-    : "";
   const summary = payload ? resolveMcpToolDisplayName(payload) : "";
   const hasApprovalReviews = automaticApprovalReviews.length > 0;
 
@@ -477,7 +632,6 @@ export function McpToolCall({
               <McpResultBody
                 payload={payload}
                 threadId={item.threadId}
-                rawOutput={rawOutput}
                 resourceUri={resourceUri}
                 hasResourceScope={resourceScopeUri !== null}
                 resource={renderableResource}

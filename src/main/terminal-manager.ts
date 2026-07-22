@@ -12,6 +12,7 @@ import type {
   TerminalSize,
 } from "../shared/types";
 import { readTerminalProcessMetricsByRootPid } from "./terminal-process-metrics";
+import { appendTextTail } from "../shared/bounded-text";
 
 export const TERMINAL_BUFFER_LIMIT = 16_000;
 
@@ -134,14 +135,14 @@ function appendBoundedBuffer(
   current: string,
   incoming: string,
 ): { buffer: string; truncated: boolean } {
-  const next = `${current}${incoming}`;
-  if (next.length <= TERMINAL_BUFFER_LIMIT) {
-    return { buffer: next, truncated: false };
-  }
-
+  const next = appendTextTail({
+    current,
+    delta: incoming,
+    maxChars: TERMINAL_BUFFER_LIMIT,
+  });
   return {
-    buffer: next.slice(next.length - TERMINAL_BUFFER_LIMIT),
-    truncated: true,
+    buffer: next.text,
+    truncated: next.didTruncate,
   };
 }
 

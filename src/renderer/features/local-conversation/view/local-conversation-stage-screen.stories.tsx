@@ -80,6 +80,20 @@ export const Resuming: Story = {
   },
 };
 
+export const WorktreeStartupTruncated: Story = {
+  args: {
+    preset: "session-starting-worktree",
+    isQueueingEnabled: false,
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "The live worktree setup panel keeps the newest bounded output and reports that earlier output was omitted.",
+      },
+    },
+  },
+};
+
 export const Streaming: Story = {
   args: {
     preset: "streaming",

@@ -8,7 +8,7 @@ import {
 } from "react";
 import { motion } from "motion/react";
 import { ChevronRightIcon, CodexGoalTargetIcon, CodexHooksIcon } from "@/components/shared/icons";
-import { MarkdownRenderer } from "../shared/markdown/markdown-renderer";
+import { BudgetedMarkdownRenderer } from "../shared/markdown/budgeted-markdown-renderer";
 import { AutomaticApprovalReviewSurface } from "../shared/automatic-approval-review-surface";
 import { MultiAgentActionSurface } from "../shared/multi-agent-action-surface";
 import { ImageViewSurface } from "../shared/image-view-surface";
@@ -1209,10 +1209,12 @@ export function ThreadAssistantBodyBlock({
           className={THREAD_VISUAL_TOKENS.assistantBody}
           data-thread-selected-text-target="true"
         >
-          <MarkdownRenderer
+          <BudgetedMarkdownRenderer
             content={markdownText}
             parseIncompleteMarkdown={isAssistantItemStreaming}
             animateStreamingText={isAssistantItemStreaming}
+            sourceAriaLabel="Assistant message source"
+            sourceIdentity={block.entry.entryId}
           />
         </div>
         {assistantAfter ? (

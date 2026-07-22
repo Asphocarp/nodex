@@ -6,7 +6,7 @@ import {
   CodexPlanSidePanelOpenIcon,
   ComposerPlanModeIcon,
 } from "@/components/shared/icons";
-import { MarkdownRenderer } from "./markdown/markdown-renderer";
+import { BudgetedMarkdownRenderer } from "./markdown/budgeted-markdown-renderer";
 import { cn } from "../../../../lib/utils";
 import {
   AssistantRatingButton,
@@ -153,11 +153,12 @@ export function PlanMessage({
         inert={isSidePanelActive ? true : undefined}
       >
         <div className="px-4 py-3">
-          <MarkdownRenderer
+          <BudgetedMarkdownRenderer
             content={content}
             parseIncompleteMarkdown={parseIncompleteMarkdown}
             animateStreamingText={!completed && parseIncompleteMarkdown}
             className="codex-markdown-plan text-size-chat"
+            sourceAriaLabel="Plan source"
           />
         </div>
       </motion.div>

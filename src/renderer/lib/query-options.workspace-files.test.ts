@@ -42,6 +42,7 @@ describe("workspace file query options", () => {
     const text = workspaceFileTextQueryOptions({
       hostId: "local",
       path: "/tmp/worktree/image.png",
+      maxBytes: 1_500_000,
     });
     const binary = workspaceFileBinaryQueryOptions({
       hostId: "local",
@@ -65,6 +66,7 @@ describe("workspace file query options", () => {
       ["read-file", {
         hostId: "local",
         path: "/tmp/worktree/image.png",
+        maxBytes: 1_500_000,
       }],
       ["read-file-binary", {
         hostId: "local",

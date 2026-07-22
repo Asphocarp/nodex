@@ -2,8 +2,13 @@ import { motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRightIcon } from "@/components/shared/icons";
 import { cn } from "../../../../lib/utils";
+import { classifyContentBudget } from "../../../../lib/content-budget";
 import type { CodexTranscriptEntry } from "../../../../lib/types";
-import { MarkdownRenderer } from "./markdown/markdown-renderer";
+import {
+  BudgetedMarkdownRenderer,
+  RICH_MARKDOWN_MAX_BYTES,
+  RICH_MARKDOWN_MAX_LINES,
+} from "./markdown/budgeted-markdown-renderer";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "./thread-motion";
 import { useMeasuredElementHeight } from "./use-measured-element-height";
 
@@ -147,8 +152,23 @@ export function ReasoningSurface({
   const isInProgress = item.status === "inProgress";
   const elapsedLabel = useReasoningElapsedLabel(isInProgress);
   const summaryLabel = resolveReasoningHeaderLabel(isInProgress, elapsedLabel);
-  const sections = useMemo(() => extractReasoningSections(content), [content]);
-  const previewBody = useMemo(() => stripReasoningPreviewHeading(content).trimStart(), [content]);
+  const richBudget = useMemo(() => classifyContentBudget({
+    value: content,
+    maxBytes: RICH_MARKDOWN_MAX_BYTES,
+    maxLines: RICH_MARKDOWN_MAX_LINES,
+  }), [content]);
+  const sections = useMemo(
+    () => richBudget.kind === "withinBudget"
+      ? extractReasoningSections(content)
+      : { heading: null, body: content },
+    [content, richBudget.kind],
+  );
+  const previewBody = useMemo(
+    () => richBudget.kind === "withinBudget"
+      ? stripReasoningPreviewHeading(content).trimStart()
+      : content,
+    [content, richBudget.kind],
+  );
   const hasCompletedBody = !isInProgress && sections.body.trim().length > 0;
   const [expanded, setExpanded] = useState(isInProgress);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -233,9 +253,10 @@ export function ReasoningSurface({
               ref={scrollContainerRef}
               className="vertical-scroll-fade-mask max-h-[8.75rem] overflow-y-auto [--edge-fade-distance:1rem]"
             >
-              <MarkdownRenderer
+              <BudgetedMarkdownRenderer
                 content={renderedBody}
                 parseIncompleteMarkdown={parseIncompleteMarkdown}
+                sourceAriaLabel="Reasoning source"
                 className={cn(
                   "break-words text-size-chat text-token-foreground/60 [&_*]:text-size-chat [&_*]:text-token-foreground/50 [&_h1]:m-0 [&_h1]:mt-2 [&_h1]:font-semibold [&_h1+*]:mt-1 [&_h2]:m-0 [&_h2]:mt-2 [&_h2]:font-semibold [&_h2+*]:mt-1 [&_h3]:m-0 [&_h3]:mt-2 [&_h3]:font-semibold [&_h3+*]:mt-1 [&_li]:m-0 [&_ol]:my-0 [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:m-0 [&_p]:has-[.inline-markdown]:py-0.5 [&_p+p]:mt-1 [&_ul]:my-0 [&_ul]:list-disc [&_ul]:pl-4",
                 )}

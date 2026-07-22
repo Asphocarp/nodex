@@ -7,6 +7,7 @@ import {
 import { SpinnerIcon } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { LazyVirtualizedTextViewer } from "@/components/ui/lazy-virtualized-text-viewer";
 import {
   NodexDropdownItem,
   NodexDropdownMenu,
@@ -265,9 +266,13 @@ function MultiLineCodePreview({
   }
 
   return (
-    <pre className="scrollbar-token max-h-48 overflow-auto rounded-lg border border-token-border bg-token-input-background px-3 py-2 text-xs text-token-foreground">
-      <code>{script}</code>
-    </pre>
+    <div className="h-48 overflow-hidden rounded-lg border-[0.5px] border-token-border bg-token-input-background">
+      <LazyVirtualizedTextViewer
+        value={script}
+        ariaLabel="Environment script"
+        className="h-full"
+      />
+    </div>
   );
 }
 
@@ -287,6 +292,9 @@ function preferredConfigPath(configs: WorktreeEnvironmentConfigRecord[]): string
 }
 
 function configPrimaryLabel(config: WorktreeEnvironmentConfigRecord): string {
+  if (config.state === "tooLarge") {
+    return "Environment file is too large";
+  }
   if (config.state !== "success") {
     return "Environment needs attention";
   }
@@ -1346,6 +1354,11 @@ export function LocalEnvironmentsSettingsPage({
                   Failed to load local environment data. ({snapshot.readErrorMessage})
                 </div>
               ) : null}
+              {snapshot.tooLargeMessage ? (
+                <div className="mt-2 text-sm text-token-error-foreground">
+                  Local environment file is too large to load. ({snapshot.tooLargeMessage})
+                </div>
+              ) : null}
             </div>
           </PageSection>
 
@@ -1421,6 +1434,11 @@ export function LocalEnvironmentsSettingsPage({
             {snapshot.readErrorMessage ? (
               <div className="mt-2 text-sm text-token-error-foreground">
                 Failed to load local environment data. ({snapshot.readErrorMessage})
+              </div>
+            ) : null}
+            {snapshot.tooLargeMessage ? (
+              <div className="mt-2 text-sm text-token-error-foreground">
+                Local environment file is too large to load. ({snapshot.tooLargeMessage})
               </div>
             ) : null}
           </PageSection>

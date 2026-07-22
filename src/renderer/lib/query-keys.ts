@@ -3,6 +3,7 @@ import type {
   WorkspaceDirectoryEntriesInput,
   WorkspaceFileMetadataInput,
   WorkspaceFileRequest,
+  WorkspaceFileTextReadInput,
 } from "./types";
 
 function normalizeHostId(hostId: string | undefined): string {
@@ -194,8 +195,8 @@ export const queryKeys = {
         input.contentSampleByteLimit ?? 0,
         input.contentSampleMaxFileBytes ?? 0,
       ] as const,
-    text: (input: WorkspaceFileRequest) =>
-      ["workspaceFiles", "text", normalizeHostId(input.hostId), input.path] as const,
+    text: (input: WorkspaceFileTextReadInput) =>
+      ["workspaceFiles", "text", normalizeHostId(input.hostId), input.path, input.maxBytes] as const,
     binary: (input: WorkspaceFileRequest) =>
       ["workspaceFiles", "binary", normalizeHostId(input.hostId), input.path] as const,
   },

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../../components/ui/tooltip";
 import {
@@ -20,6 +20,19 @@ import {
 } from "../../../../../../shared/codex-file-change";
 import { projectCodexItemViewToTranscriptEntry } from "../../../../../../shared/codex-transcript-entry-projection";
 import { FileChangeToolCall, fileChangeToolCallTestHelpers } from "./file-change-tool-call";
+
+const parsePatchFilesCall = vi.hoisted(() => vi.fn());
+
+vi.mock("@pierre/diffs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@pierre/diffs")>();
+  return {
+    ...actual,
+    parsePatchFiles: (...args: Parameters<typeof actual.parsePatchFiles>) => {
+      parsePatchFilesCall();
+      return actual.parsePatchFiles(...args);
+    },
+  };
+});
 
 function buildFileChangeView(changes: CodexFileChange[]): CodexFileChangeView {
   return {
@@ -118,6 +131,7 @@ function fileChangeHeaders(container: HTMLElement): HTMLElement[] {
 
 describe("FileChangeToolCall", () => {
   beforeEach(() => {
+    parsePatchFilesCall.mockClear();
     installElementScrollHeight(96);
     installAsyncRequestAnimationFrame();
     installMeasuredResizeObserver({ blockSize: 96, inlineSize: 320 });
@@ -567,6 +581,34 @@ describe("FileChangeToolCall", () => {
     const expandedBody = container.querySelector<HTMLElement>("[data-file-change-row-body]");
     expect(Boolean(expandedBody?.querySelector("diffs-container"))).toBe(true);
     expect(Boolean(container.querySelector('button[aria-label="Copy diff"]'))).toBe(true);
+  });
+
+  test("skips inline parsing and bounds the fallback for oversized file changes", async () => {
+    const item = buildFileChangeEntry({
+      fileChange: buildFileChangeView([{
+        path: "src/large.ts",
+        type: "update",
+        movePath: null,
+        unifiedDiff: [
+          "@@ -0,0 +1 @@",
+          `+${"x".repeat(256 * 1024)}`,
+        ].join("\n"),
+      }]),
+    });
+
+    const rows = fileChangeToolCallTestHelpers.buildFileChangeRows(item, "/tmp/project", undefined);
+    expect(parsePatchFilesCall).not.toHaveBeenCalled();
+    expect(rows[0]?.preview.kind).toBe("semantic");
+
+    const { container } = render(
+      <TooltipProvider>
+        <FileChangeToolCall item={item} threadCwd="/tmp/project" />
+      </TooltipProvider>,
+    );
+    fireEvent.click(fileChangeHeaders(container)[0] as HTMLElement);
+    await settleAsyncRender();
+
+    expect(container.querySelector("pre")?.textContent?.length ?? 0).toBeLessThanOrEqual(32_000);
   });
 
   test("renders created files from v2 protocol changes as inline diffs", async () => {

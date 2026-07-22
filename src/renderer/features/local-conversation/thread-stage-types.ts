@@ -206,6 +206,7 @@ export interface ThreadStageRouteInput {
     phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
     message: string;
     outputText: string;
+    outputTruncated: boolean;
     updatedAt: number;
   } | null;
   activeThreadId: string | null;
@@ -941,6 +942,7 @@ export interface ThreadBodySurfaceModel {
     phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
     message: string;
     outputText: string;
+    outputTruncated: boolean;
     updatedAt: number;
   } | null;
 }

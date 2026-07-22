@@ -10,6 +10,10 @@ import {
 } from "@/components/shared/icons";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
+import {
+  LazyVirtualizedTextViewer,
+  preloadVirtualizedTextViewer,
+} from "@/components/ui/lazy-virtualized-text-viewer";
 import { invoke } from "@/lib/api";
 import {
   workspaceDirectoryQueryOptions,
@@ -23,6 +27,7 @@ import type {
   WorkspaceFileDirectoryEntry,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { classifyContentBudget } from "@/lib/content-budget";
 import {
   getWorkspaceFileDomTabId,
   getWorkspaceFileName,
@@ -38,9 +43,19 @@ import type { WorkspaceFilesTab, WorkspaceFilePreviewState, WorkspaceFileTreeNod
 const TREE_DEFAULT_WIDTH = 250;
 const TREE_MIN_WIDTH = 190;
 const TREE_MAX_RATIO = 0.6;
-const MAX_TEXT_PREVIEW_BYTES = 1_500_000;
+export const WORKSPACE_TEXT_MAX_BYTES = 1_500_000;
 const MAX_BINARY_PREVIEW_BYTES = 25_000_000;
 const CONTENT_SAMPLE_BYTES = 8_192;
+export const WORKSPACE_RICH_MARKDOWN_MAX_BYTES = 256 * 1024;
+export const WORKSPACE_RICH_MARKDOWN_MAX_LINES = 5_000;
+
+export function classifyWorkspaceMarkdownPreview(value: string) {
+  return classifyContentBudget({
+    value,
+    maxBytes: WORKSPACE_RICH_MARKDOWN_MAX_BYTES,
+    maxLines: WORKSPACE_RICH_MARKDOWN_MAX_LINES,
+  });
+}
 
 type DirectoryLoadState = "idle" | "loading" | "loaded" | "error";
 
@@ -187,6 +202,31 @@ function WorkspaceFilePreview({
   }
 
   if (previewKind === "markdown") {
+    const richPreviewDecision = classifyWorkspaceMarkdownPreview(state.content);
+    if (richPreviewDecision.kind === "tooLarge") {
+      return (
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="flex h-9 shrink-0 items-center justify-between gap-2 px-3 text-xs text-token-description-foreground">
+            <span className="truncate">Rich preview is unavailable for large Markdown files.</span>
+            <button
+              type="button"
+              className="shrink-0 rounded-md px-2 py-1 text-token-foreground hover:bg-token-foreground/5"
+              onClick={onOpenExternal}
+            >
+              Open
+            </button>
+          </div>
+          <LazyVirtualizedTextViewer
+            value={state.content}
+            ariaLabel={`Markdown source for ${getWorkspaceFileName(state.path ?? "file")}`}
+            sourceIdentity={state.path ?? undefined}
+            lineNumbers
+            className="min-h-0 flex-1"
+          />
+        </div>
+      );
+    }
+
     return (
       <div className="h-full overflow-auto px-6 py-4">
         <MarkdownRenderer content={state.content} className="max-w-3xl text-sm leading-6" />
@@ -207,9 +247,13 @@ function WorkspaceFilePreview({
   }
 
   return (
-    <pre className="h-full overflow-auto whitespace-pre-wrap break-words bg-token-main-surface-primary px-6 py-4 font-mono text-[12px] leading-5 text-token-text-primary">
-      {state.content}
-    </pre>
+    <LazyVirtualizedTextViewer
+      value={state.content}
+      ariaLabel={`Source preview for ${getWorkspaceFileName(state.path ?? "file")}`}
+      sourceIdentity={state.path ?? undefined}
+      lineNumbers
+      className="h-full bg-token-main-surface-primary"
+    />
   );
 }
 
@@ -252,6 +296,12 @@ function WorkspaceFileTreeRow({
       }}
       onDoubleClick={() => {
         if (!isDirectory) onOpen(entry);
+      }}
+      onPointerEnter={() => {
+        if (!isDirectory) preloadVirtualizedTextViewer();
+      }}
+      onFocus={() => {
+        if (!isDirectory) preloadVirtualizedTextViewer();
       }}
     >
       <span className="flex icon-2xs shrink-0 items-center justify-center text-token-description-foreground">
@@ -398,7 +448,7 @@ export function WorkspaceFilesPanel({
           return;
         }
 
-        if (metadata.sizeBytes !== null && metadata.sizeBytes > MAX_TEXT_PREVIEW_BYTES) {
+        if (metadata.sizeBytes !== null && metadata.sizeBytes > WORKSPACE_TEXT_MAX_BYTES) {
           if (!cancelled) {
             setPreviewState({
               status: "unsupported",
@@ -415,6 +465,7 @@ export function WorkspaceFilesPanel({
         const text = await queryClient.fetchQuery(workspaceFileTextQueryOptions({
           hostId,
           path: selectedPath,
+          maxBytes: WORKSPACE_TEXT_MAX_BYTES,
         }));
         if (!cancelled) {
           setPreviewState({

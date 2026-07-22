@@ -9,6 +9,7 @@ import type {
   WorkspaceDirectoryEntriesInput,
   WorkspaceFileMetadataInput,
   WorkspaceFileRequest,
+  WorkspaceFileTextReadInput,
 } from "./types";
 
 interface QueryEnabledOptions {
@@ -38,7 +39,7 @@ export function useWorkspaceFileMetadata(
 }
 
 export function useWorkspaceFileText(
-  input: WorkspaceFileRequest,
+  input: WorkspaceFileTextReadInput,
   options: QueryEnabledOptions = {},
 ) {
   const enabled = options.enabled !== false && input.path.trim().length > 0;

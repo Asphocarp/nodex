@@ -114,14 +114,12 @@ export async function prepareCodexPrompt(
       }
     : splitCodexPromptAgentConfigLines(prompt);
   const promptText = parsedPrompt.text;
-  const pastedTextAttachments = (promptInput?.textAttachments ?? []).map((attachment) => ({
+  const pastedTextAttachments: CodexPromptInput["textAttachments"] = (
+    promptInput?.textAttachments ?? []
+  ).map((attachment) => ({
     ...attachment,
     ...(attachment.file === undefined ? {} : { file: { ...attachment.file } }),
   }));
-  const textAttachmentItems = pastedTextAttachments
-    .map((attachment) => attachment.text.trim())
-    .filter(Boolean)
-    .map(createCodexTextUserInput);
   const imageItems = await Promise.all(
     (promptInput?.images ?? []).map((image) => options.resolveImageInput(image.source)),
   );
@@ -155,7 +153,6 @@ export async function prepareCodexPrompt(
   const primaryTextItems = promptText ? [createCodexTextUserInput(promptText)] : [];
   const inputItems: UserInput[] = [
     ...primaryTextItems,
-    ...textAttachmentItems,
     ...commentItems,
     ...imageItems,
     ...mentionItems,
@@ -172,7 +169,7 @@ export async function prepareCodexPrompt(
     inputItems.unshift(createCodexTextUserInput(""));
     pendingInputItems.unshift(createCodexTextUserInput(""));
   }
-  if (inputItems.length === 0) {
+  if (inputItems.length === 0 && pastedTextAttachments.length === 0) {
     throw new Error("Prompt requires non-empty text or at least one image");
   }
 

@@ -6,7 +6,7 @@ import "../../globals.css";
 import { OpenSourceLicensesSettingsPage } from "./open-source-licenses-settings-page";
 
 describe("OpenSourceLicensesSettingsPage browser layout", () => {
-  test("keeps the visual notice document out of nested scroll and wrapped accessibility trees", async () => {
+  test("keeps the exact notice document behind a viewport-rendered visual source", async () => {
     installWindowApi({
       invoke: async () => ({ text: "dependency notices\n" }),
     });
@@ -22,13 +22,9 @@ describe("OpenSourceLicensesSettingsPage browser layout", () => {
     const accessibleDocument = await view.findByRole("document", {
       name: "dependency notices",
     });
-    const notices = accessibleDocument.querySelector("pre");
-    expect(notices).not.toBeNull();
-    expect(notices?.getAttribute("aria-hidden")).toBe("true");
-    if (!notices) throw new Error("Expected the visual third-party notices document");
-    const computedStyle = getComputedStyle(notices);
-
-    expect(computedStyle.overflowX).toBe("visible");
-    expect(computedStyle.overflowY).toBe("visible");
+    expect(accessibleDocument.getAttribute("aria-label")).toBe("dependency notices\n");
+    expect(accessibleDocument.querySelector("pre")).toBeNull();
+    expect(await view.findByLabelText("Open source license text")).toBeDefined();
+    expect(accessibleDocument.querySelectorAll(".cm-line").length).toBeLessThan(100);
   });
 });

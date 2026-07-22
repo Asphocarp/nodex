@@ -48,6 +48,7 @@ interface ComposerSendButtonStoryProps {
   savedGoalState: "none" | "active";
   seedPromptHistory: boolean;
   seedCompletedContext: boolean;
+  pastedTextState: "none" | "pending" | "ready" | "failed";
   multiProviderCatalog: boolean;
 }
 
@@ -401,45 +402,81 @@ function buildActions(): ThreadStageActions {
   };
 }
 
-function ComposerCompletedContextSeeder({ enabled }: { enabled: boolean }) {
+function ComposerCompletedContextSeeder({
+  enabled,
+  pastedTextState,
+}: {
+  enabled: boolean;
+  pastedTextState: ComposerSendButtonStoryProps["pastedTextState"];
+}) {
   const setFileAttachments = useSetScopedAtom(composerFileAttachmentsAtom);
   const setPastedTextAttachments = useSetScopedAtom(composerPastedTextAttachmentsAtom);
   const setSkillMentions = useSetScopedAtom(composerSkillMentionsAtom);
 
   useLayoutEffect(() => {
-    if (!enabled) {
+    if (!enabled && pastedTextState === "none") {
       setFileAttachments([]);
       setPastedTextAttachments([]);
       setSkillMentions([]);
       return;
     }
 
-    setFileAttachments([{
+    setFileAttachments(enabled ? [{
       uiId: "story-file-view-state-ownership",
       attachment: {
         label: "renderer-view-state-ownership.md",
         path: "docs/renderer-view-state-ownership.md",
         fsPath: "/workspace/nodex/docs/renderer-view-state-ownership.md",
       },
-    }]);
-    setPastedTextAttachments([{
+    }] : []);
+
+    const resolvedPastedTextState = pastedTextState === "none" && enabled
+      ? "ready"
+      : pastedTextState;
+    const pastedTextBase = {
       id: "story-pasted-acceptance-notes",
-      text: "Verify one header, restored draft context, and stable transcript geometry after A → B → A.",
       preview: "Verify one header, restored draft context…",
-      characterCount: 88,
-    }]);
-    setSkillMentions([{
+      characterCount: 5_000,
+    };
+    if (resolvedPastedTextState === "pending") {
+      setPastedTextAttachments([{ ...pastedTextBase, status: "pending", generation: 1 }]);
+    } else if (resolvedPastedTextState === "failed") {
+      setPastedTextAttachments([{
+        ...pastedTextBase,
+        status: "failed",
+        generation: 1,
+        error: "Could not save pasted text. Try again.",
+      }]);
+    } else if (resolvedPastedTextState === "ready") {
+      setPastedTextAttachments([{
+        ...pastedTextBase,
+        status: "ready",
+        attachment: {
+          file: {
+            label: "Pasted text.txt",
+            path: "/workspace/.nodex/pasted-text.txt",
+            fsPath: "/workspace/.nodex/pasted-text.txt",
+          },
+          preview: pastedTextBase.preview,
+          characterCount: pastedTextBase.characterCount,
+        },
+      }]);
+    } else {
+      setPastedTextAttachments([]);
+    }
+
+    setSkillMentions(enabled ? [{
       id: "story-skill-feature-dev",
       name: "feature-dev",
       path: "/workspace/.agents/skills/feature-dev/SKILL.md",
-    }]);
+    }] : []);
 
     return () => {
       setFileAttachments([]);
       setPastedTextAttachments([]);
       setSkillMentions([]);
     };
-  }, [enabled, setFileAttachments, setPastedTextAttachments, setSkillMentions]);
+  }, [enabled, pastedTextState, setFileAttachments, setPastedTextAttachments, setSkillMentions]);
 
   return null;
 }
@@ -480,7 +517,10 @@ function ComposerSendButtonStory(args: ComposerSendButtonStoryProps) {
       <TooltipProvider>
         <div className={surfaceWidthClassName}>
           <TestComposerScopePath>
-            <ComposerCompletedContextSeeder enabled={args.seedCompletedContext} />
+            <ComposerCompletedContextSeeder
+              enabled={args.seedCompletedContext}
+              pastedTextState={args.pastedTextState}
+            />
             <ThreadComposer
               model={buildModel(args)}
               actions={buildActions()}
@@ -514,6 +554,7 @@ const meta = {
     savedGoalState: "none",
     seedPromptHistory: false,
     seedCompletedContext: false,
+    pastedTextState: "none",
     multiProviderCatalog: false,
   },
   argTypes: {
@@ -574,6 +615,10 @@ const meta = {
     },
     seedCompletedContext: {
       control: "boolean",
+    },
+    pastedTextState: {
+      control: "inline-radio",
+      options: ["none", "pending", "ready", "failed"],
     },
     multiProviderCatalog: {
       control: "boolean",
@@ -688,6 +733,27 @@ export const RestoredDraftAndCompletedContext: Story = {
         story: "Composer restoration acceptance state with authored prompt text plus completed file, pasted-text, and skill context owned by the current ComposerScope.",
       },
     },
+  },
+};
+
+export const PastedTextPending: Story = {
+  args: {
+    pastedTextState: "pending",
+    surfaceWidth: "narrow",
+  },
+};
+
+export const PastedTextReady: Story = {
+  args: {
+    pastedTextState: "ready",
+    surfaceWidth: "narrow",
+  },
+};
+
+export const PastedTextFailed: Story = {
+  args: {
+    pastedTextState: "failed",
+    surfaceWidth: "narrow",
   },
 };
 

@@ -5,7 +5,7 @@ import {
 } from "./codex-prompt-preparation";
 
 describe("Codex prompt preparation", () => {
-  test("compiles one exact input for optimistic state and transport", async () => {
+  test("keeps pasted text as a bounded sidecar until the main command boundary", async () => {
     const resolveImageInput = vi.fn(async (source: string) => ({
       type: "localImage" as const,
       path: `/resolved/${source.split("/").at(-1)}`,
@@ -38,7 +38,6 @@ describe("Codex prompt preparation", () => {
     expect(prepared.inputItems.map((item) => item.type)).toEqual([
       "text",
       "text",
-      "text",
       "localImage",
       "mention",
       "skill",
@@ -55,6 +54,7 @@ describe("Codex prompt preparation", () => {
       "localImage",
       "skill",
     ]);
+    expect(prepared.pastedTextAttachments).toEqual([{ text: "pasted context" }]);
   });
 
   test("extracts inline agent config without sending it as prompt text", () => {

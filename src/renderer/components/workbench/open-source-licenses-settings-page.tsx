@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { NodexButton } from "@/components/ui/button";
+import { LazyVirtualizedTextViewer } from "@/components/ui/lazy-virtualized-text-viewer";
 import {
   NodexSettingsPageSurface as SettingsPageSurface,
   NodexSettingsSection as SettingsSection,
@@ -31,13 +32,18 @@ export function OpenSourceLicensesSettingsPage({
     content = (
       <SettingsSection cardClassName="overflow-hidden rounded-2xl">
         {noticesText ? (
-          <div role="document" aria-label={noticesText}>
-            <pre
-              aria-hidden="true"
-              className="rounded bg-token-surface-secondary p-3 text-xs leading-relaxed break-words whitespace-pre-wrap text-token-text-primary"
-            >
-              {noticesText}
-            </pre>
+          <div
+            role="document"
+            aria-label={noticesText}
+            className="h-[min(70vh,48rem)] min-h-96 overflow-hidden rounded bg-token-surface-secondary"
+          >
+            <LazyVirtualizedTextViewer
+              value={noticesText}
+              ariaLabel="Open source license text"
+              sourceIdentity="open-source-licenses"
+              wrap
+              className="h-full"
+            />
           </div>
         ) : (
           <div className="text-sm text-token-text-secondary">

@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 import {
   CODEX_PENDING_WORKTREE_CONTINUE_WITHOUT_SETUP_OUTPUT,
   CODEX_PENDING_WORKTREE_CREATION_STARTED_OUTPUT,
-  CODEX_PENDING_WORKTREE_OUTPUT_TAIL_LENGTH,
   CodexPendingWorktreeStateStore,
   appendCodexPendingWorktreeOutputTail,
   getCodexPendingWorktreeConversationStartSnapshot,
@@ -11,6 +10,7 @@ import {
   type CodexPendingWorktreeAction,
   type CodexPendingWorktreeEffect,
 } from "./codex-pending-worktree-state";
+import { WORKTREE_OUTPUT_TAIL_MAX_CHARS } from "../../shared/worktree-output";
 
 function createStartRequest(
   id = "pending-1",
@@ -172,13 +172,13 @@ describe("Codex pending worktree state", () => {
     dispatch(store, {
       type: "appendOutput",
       pendingWorktreeId: "pending-1",
-      output: "w".repeat(CODEX_PENDING_WORKTREE_OUTPUT_TAIL_LENGTH + 7),
+      output: "w".repeat(WORKTREE_OUTPUT_TAIL_MAX_CHARS + 7),
     });
     dispatch(store, { type: "setupStarted", pendingWorktreeId: "pending-1" });
     dispatch(store, {
       type: "appendOutput",
       pendingWorktreeId: "pending-1",
-      output: "s".repeat(CODEX_PENDING_WORKTREE_OUTPUT_TAIL_LENGTH + 9),
+      output: "s".repeat(WORKTREE_OUTPUT_TAIL_MAX_CHARS + 9),
     });
     dispatch(store, {
       type: "worktreeFailed",
@@ -187,9 +187,9 @@ describe("Codex pending worktree state", () => {
     });
 
     const entry = store.getSnapshot()[0];
-    expect(entry?.worktreeOutputText.length).toBe(CODEX_PENDING_WORKTREE_OUTPUT_TAIL_LENGTH);
-    expect(entry?.worktreeOutputText).toBe("w".repeat(CODEX_PENDING_WORKTREE_OUTPUT_TAIL_LENGTH));
-    expect(entry?.setupOutputText.length).toBe(CODEX_PENDING_WORKTREE_OUTPUT_TAIL_LENGTH);
+    expect(entry?.worktreeOutputText.length).toBe(WORKTREE_OUTPUT_TAIL_MAX_CHARS);
+    expect(entry?.worktreeOutputText).toBe("w".repeat(WORKTREE_OUTPUT_TAIL_MAX_CHARS));
+    expect(entry?.setupOutputText.length).toBe(WORKTREE_OUTPUT_TAIL_MAX_CHARS);
     expect(entry?.setupOutputText.endsWith("[stderr] setup exited 1\n")).toBe(true);
     expect(entry?.phase).toBe("failed");
     expect(entry?.needsAttention).toBe(true);

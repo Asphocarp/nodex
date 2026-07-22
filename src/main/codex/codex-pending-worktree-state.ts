@@ -3,6 +3,8 @@ import type {
   CodexPendingWorktreeRequest,
   CodexPendingWorktreeThreadResolution,
 } from "../../shared/codex-pending-worktree";
+import { appendTextTail } from "../../shared/bounded-text";
+import { WORKTREE_OUTPUT_TAIL_MAX_CHARS } from "../../shared/worktree-output";
 
 export type {
   CodexPendingForkConversationRequest,
@@ -14,8 +16,6 @@ export type {
   CodexPendingWorktreeStartingState,
   CodexPendingWorktreeThreadResolution,
 } from "../../shared/codex-pending-worktree";
-
-export const CODEX_PENDING_WORKTREE_OUTPUT_TAIL_LENGTH = 32_000;
 
 export const CODEX_PENDING_WORKTREE_CREATION_STARTED_OUTPUT =
   "[info] Starting worktree creation\n";
@@ -166,9 +166,11 @@ export function appendCodexPendingWorktreeOutputTail(
   output: string,
 ): string {
   if (!output) return current;
-  const next = `${current}${output}`;
-  if (next.length <= CODEX_PENDING_WORKTREE_OUTPUT_TAIL_LENGTH) return next;
-  return next.slice(-CODEX_PENDING_WORKTREE_OUTPUT_TAIL_LENGTH);
+  return appendTextTail({
+    current,
+    delta: output,
+    maxChars: WORKTREE_OUTPUT_TAIL_MAX_CHARS,
+  }).text;
 }
 
 export function getCodexPendingWorktreeSnapshot(

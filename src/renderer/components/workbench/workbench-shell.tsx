@@ -105,6 +105,7 @@ import { NodexButton, NodexIconButton } from "@/components/ui/button";
 import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
 import { NodexTooltip, NodexTooltipProvider } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
+import { LazyVirtualizedTextViewer } from "@/components/ui/lazy-virtualized-text-viewer";
 import {
   NodexDialog,
   NodexDialogContent,
@@ -12774,9 +12775,12 @@ function ProcessOutputPanelTabView({ tab }: { tab: ProcessOutputPanelTab }) {
         ) : null}
       </div>
       {displayOutput ? (
-        <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-xs leading-5 text-token-foreground">
-          {displayOutput}
-        </pre>
+        <LazyVirtualizedTextViewer
+          value={displayOutput}
+          ariaLabel={`Process output for ${displayCommand}`}
+          sourceIdentity={tab.terminalSessionId ?? `${tab.threadId}:${tab.itemId}`}
+          className="min-h-0 flex-1"
+        />
       ) : (
         <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-center text-sm text-token-description-foreground">
           No output yet

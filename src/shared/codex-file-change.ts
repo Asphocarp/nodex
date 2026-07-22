@@ -14,6 +14,7 @@ import {
   classifyReviewTextPayload,
   REVIEW_RENDERABLE_TEXT_MAX_BYTES,
 } from "./review-file-safety";
+import { classifyContentBudget } from "./content-budget";
 
 export type CodexFileChangeDisplayStatus = "applied" | "pending" | "rejected" | "streaming" | "stopped";
 export type CodexFileChangePatchAction = "create" | "delete" | "edit";
@@ -43,6 +44,17 @@ export interface CodexFileChangePatchSummary {
   deletions: number;
   firstPath: string | null;
   hasChanges: boolean;
+}
+
+export const CODEX_FILE_CHANGE_MAX_INLINE_BYTES = 256 * 1024;
+export const CODEX_FILE_CHANGE_MAX_INLINE_LINES = 5_000;
+
+export function canParseCodexFileChangeInline(diffText: string): boolean {
+  return classifyContentBudget({
+    value: diffText,
+    maxBytes: CODEX_FILE_CHANGE_MAX_INLINE_BYTES,
+    maxLines: CODEX_FILE_CHANGE_MAX_INLINE_LINES,
+  }).kind === "withinBudget";
 }
 
 const CODEX_VISUALIZATION_PATH_PATTERN =
@@ -361,10 +373,19 @@ export function buildCodexFileChangeUnifiedDiff(
 function summarizeDiffByLineScan(diffText: string): { additions: number; deletions: number } {
   let additions = 0;
   let deletions = 0;
-  for (const line of diffText.split(/\r?\n/)) {
-    if (line.startsWith("+++") || line.startsWith("---")) continue;
-    if (line.startsWith("+")) additions += 1;
-    if (line.startsWith("-")) deletions += 1;
+  let start = 0;
+
+  while (start <= diffText.length) {
+    const lineEnd = diffText.indexOf("\n", start);
+    const end = lineEnd < 0 ? diffText.length : lineEnd;
+    const line = diffText.slice(start, end).replace(/\r$/u, "");
+    if (!line.startsWith("+++") && !line.startsWith("---")) {
+      if (line.startsWith("+")) additions += 1;
+      if (line.startsWith("-")) deletions += 1;
+    }
+
+    if (lineEnd < 0) break;
+    start = lineEnd + 1;
   }
   return { additions, deletions };
 }
@@ -408,6 +429,11 @@ export function summarizeCodexUnifiedDiff(
   if (!diffText) return null;
 
   const fallback = summarizeDiffByLineScan(diffText);
+  if (!canParseCodexFileChangeInline(diffText)) {
+    return fallback.additions === 0 && fallback.deletions === 0
+      ? null
+      : { ...fallback, openLine: 1 };
+  }
   const fileDiff = parseFirstFileDiff(diffText);
   if (fileDiff) {
     const parsed = countFileDiffMetadataLines(fileDiff);

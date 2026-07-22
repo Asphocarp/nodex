@@ -69,6 +69,12 @@ import type { AdditionalDocumentCommandResult } from "../../shared/additional-do
 import type { PublicAdditionalDocumentCommandRequest } from "../../shared/additional-document-command-transport";
 import type { BlockTransferCommandResult } from "../../shared/block-transfer";
 import type { PublicBlockTransferIntent } from "../../shared/block-transfer-transport";
+import type {
+  CreatePastedTextAttachmentInput,
+  CreatePastedTextAttachmentResult,
+  ReadPastedTextAttachmentInput,
+  RemovePastedTextAttachmentInput,
+} from "../../shared/pasted-text-attachments";
 
 const BROWSER_CODEX_INVOKE_CHANNELS = new Set<string>([
   "codex:sidebar:thread:move",
@@ -182,6 +188,24 @@ export function transferBlocks(
   intent: PublicBlockTransferIntent,
 ): Promise<BlockTransferCommandResult> {
   return resolveRendererTransport().transferBlocks(projectId, intent);
+}
+
+export function createPastedTextAttachment(
+  input: CreatePastedTextAttachmentInput,
+): Promise<CreatePastedTextAttachmentResult> {
+  return invoke("codex:pasted-text:create", input);
+}
+
+export function readPastedTextAttachment(
+  input: ReadPastedTextAttachmentInput,
+): Promise<string> {
+  return invoke("codex:pasted-text:read", input);
+}
+
+export function removePastedTextAttachment(
+  input: RemovePastedTextAttachmentInput,
+): Promise<void> {
+  return invoke("codex:pasted-text:remove", input);
 }
 
 export function createDocumentVersionCheckpoint(

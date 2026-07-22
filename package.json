@@ -108,12 +108,15 @@
     "package:all": "pnpm run build && pnpm run stage:codex-runtime:mac && electron-builder -mwl",
     "dev:storybook": "pnpm --filter @nodex/storybook storybook",
     "build:storybook": "pnpm --filter @nodex/storybook build",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p packages/landing/tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.e2e.json && tsc --noEmit -p packages/landing/tsconfig.json",
     "lint": "eslint src/ packages/storybook/.storybook/ packages/landing/vite.config.ts packages/landing/src/",
     "lint:tailwind:fix": "ESLINT_BETTER_TAILWIND=1 eslint src/ --fix",
     "postinstall": "electron-builder install-app-deps && node scripts/ensure-node-pty-permissions.mjs"
   },
   "dependencies": {
+    "@codemirror/search": "6.7.1",
+    "@codemirror/state": "6.7.1",
+    "@codemirror/view": "6.43.6",
     "@hono/node-server": "2.0.5",
     "@sentry/electron": "7.13.0",
     "electron-updater": "6.8.9",

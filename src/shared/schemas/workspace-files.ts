@@ -3,6 +3,7 @@ import type {
   WorkspaceDirectoryEntriesInput,
   WorkspaceFileMetadataInput,
   WorkspaceFileRequest,
+  WorkspaceFileTextReadInput,
   WorkspaceFileWriteInput,
 } from "../types";
 
@@ -22,6 +23,10 @@ export const WorkspaceFileRequestSchema = z.object({
   hostId: hostIdSchema,
   path: pathSchema,
 }).strict() satisfies z.ZodType<WorkspaceFileRequest>;
+
+export const WorkspaceFileTextReadInputSchema = WorkspaceFileRequestSchema.extend({
+  maxBytes: positiveByteLimitSchema,
+}).strict() satisfies z.ZodType<WorkspaceFileTextReadInput>;
 
 export const WorkspaceFileMetadataInputSchema = WorkspaceFileRequestSchema.extend({
   contentSampleByteLimit: positiveByteLimitSchema.optional(),

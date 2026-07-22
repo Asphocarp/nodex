@@ -3,7 +3,7 @@ import { writeTextToClipboard } from "../../../../../lib/clipboard";
 import { MarkdownCore } from "./markdown-core";
 import type { CSSProperties, MouseEvent } from "react";
 
-interface MarkdownRendererProps {
+export interface MarkdownRendererProps {
   content: string;
   className?: string;
   style?: CSSProperties;

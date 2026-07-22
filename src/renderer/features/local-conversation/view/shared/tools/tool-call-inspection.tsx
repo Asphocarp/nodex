@@ -1,4 +1,4 @@
-import { useId, useRef } from "react";
+import { useId, useRef, useState } from "react";
 import { CodeBracketsIcon } from "@/components/shared/icons";
 import {
   NodexDialog as Dialog,
@@ -9,6 +9,15 @@ import {
 import { NodexTooltip } from "../../../../../components/ui/tooltip";
 import { cn } from "../../../../../lib/utils";
 import { CopyMessageActionButton } from "../thread-message-actions";
+import {
+  LazyVirtualizedTextViewer,
+  preloadVirtualizedTextViewer,
+} from "@/components/ui/lazy-virtualized-text-viewer";
+import {
+  buildTextPreview,
+  INLINE_TEXT_PREVIEW_MAX_CHARS,
+  type TextPreview,
+} from "@/lib/text-preview";
 
 const electronToolIconSizeClassName = `electron:[&>svg]:${"icon-sm"}`;
 
@@ -26,19 +35,25 @@ export function stringifyToolCallValue(value: unknown): string {
 
 export function ToolCallCodePanel({
   title,
-  content,
-  copyText,
+  preview,
+  getCopyText,
+  getFullText,
   bodyClassName,
   preClassName,
   stickyHeaderClassName,
 }: {
   title: string;
-  content: string;
-  copyText?: string;
+  preview: TextPreview;
+  getCopyText?: () => string;
+  getFullText?: () => string;
   bodyClassName?: string;
   preClassName?: string;
   stickyHeaderClassName?: string;
 }) {
+  const [fullTextOpen, setFullTextOpen] = useState(false);
+  const boundedPreview = preview.text.length <= INLINE_TEXT_PREVIEW_MAX_CHARS
+    ? preview
+    : buildTextPreview(preview.text, INLINE_TEXT_PREVIEW_MAX_CHARS);
   return (
     <div
       className="bg-token-text-code-block-background border-token-border-heavy relative overflow-clip rounded-lg border contain-inline-size dark"
@@ -52,9 +67,20 @@ export function ToolCallCodePanel({
       >
         <div className="min-w-0 truncate">{title}</div>
         <div className="flex items-center">
-          {copyText ? (
+          {boundedPreview.kind === "omitted" && getFullText ? (
+            <ToolCallRawDialog
+              open={fullTextOpen}
+              onOpenChange={setFullTextOpen}
+              title={`Full ${title}`}
+              getRawText={getFullText}
+              triggerLabel={`View full ${title}`}
+              triggerKind="text"
+              triggerText="View full"
+            />
+          ) : null}
+          {getCopyText ? (
             <CopyMessageActionButton
-              text={copyText}
+              getText={getCopyText}
               label="Copy"
               copiedLabel="Copied"
               tooltipLabel="Copy"
@@ -65,7 +91,7 @@ export function ToolCallCodePanel({
         </div>
       </div>
       <div className={cn("text-size-chat max-h-48 overflow-y-auto p-2", bodyClassName)} dir="ltr">
-        <pre className={cn("m-0 whitespace-pre-wrap break-words", preClassName)}>{content}</pre>
+        <pre className={cn("m-0 whitespace-pre-wrap break-words", preClassName)}>{boundedPreview.text}</pre>
       </div>
     </div>
   );
@@ -75,16 +101,20 @@ export function ToolCallRawDialog({
   open,
   onOpenChange,
   title,
-  rawValue,
+  getRawText,
+  getRawValue,
   triggerLabel,
   triggerKind = "icon",
+  triggerText = "Raw",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
-  rawValue: string;
+  getRawText?: () => string;
+  getRawValue?: () => unknown;
   triggerLabel: string;
   triggerKind?: "icon" | "text";
+  triggerText?: string;
 }) {
   const dialogId = useId();
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -106,9 +136,11 @@ export function ToolCallRawDialog({
       onClick={() => {
         onOpenChange(true);
       }}
+      onPointerEnter={preloadVirtualizedTextViewer}
+      onFocus={preloadVirtualizedTextViewer}
     >
       <CodeBracketsIcon />
-      {triggerKind === "text" ? <span>Raw</span> : null}
+      {triggerKind === "text" ? <span>{triggerText}</span> : null}
     </button>
   );
 
@@ -139,17 +171,51 @@ export function ToolCallRawDialog({
               </DialogTitle>
             </DialogHeader>
           </div>
-          <div className="flex w-full flex-col pt-3 first:pt-0">
-            <ToolCallCodePanel
-              title="json"
-              content={rawValue}
-              copyText={rawValue}
-              bodyClassName="max-h-128 overflow-auto p-2"
-              stickyHeaderClassName="rounded-t-lg"
-            />
+          <div className="flex h-[min(65vh,40rem)] w-full min-h-72 flex-col pt-3 first:pt-0">
+            {open ? (
+              <ToolCallRawContent
+                title={title}
+                getRawText={getRawText}
+                getRawValue={getRawValue}
+              />
+            ) : null}
           </div>
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ToolCallRawContent({
+  title,
+  getRawText,
+  getRawValue,
+}: {
+  readonly title: string;
+  readonly getRawText?: () => string;
+  readonly getRawValue?: () => unknown;
+}) {
+  const [rawText] = useState(() => (
+    getRawText ? getRawText() : stringifyToolCallValue(getRawValue?.())
+  ));
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg bg-token-text-code-block-background dark" data-theme="dark">
+      <div className="flex h-8 shrink-0 items-center justify-between px-2 text-sm text-token-description-foreground">
+        <span>json</span>
+        <CopyMessageActionButton
+          getText={() => rawText}
+          label="Copy"
+          copiedLabel="Copied"
+          tooltipLabel="Copy"
+          copiedTooltipLabel="Copied"
+        />
+      </div>
+      <LazyVirtualizedTextViewer
+        value={rawText}
+        ariaLabel={title}
+        className="min-h-0 flex-1"
+      />
+    </div>
   );
 }

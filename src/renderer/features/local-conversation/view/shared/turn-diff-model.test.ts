@@ -7,7 +7,9 @@ vi.mock("@pierre/diffs", () => ({ parsePatchFiles }));
 
 import {
   TURN_DIFF_MAX_INLINE_LINES,
-  buildTurnDiffRows,
+  TURN_DIFF_MAX_INLINE_BYTES,
+  buildTurnDiffModel,
+  classifyInlineTurnDiff,
 } from "./turn-diff-model";
 
 function buildTurnDiffItem(unifiedDiff: string): CodexConversationItem {
@@ -29,7 +31,7 @@ function buildTurnDiffItem(unifiedDiff: string): CodexConversationItem {
   };
 }
 
-describe("buildTurnDiffRows", () => {
+describe("buildTurnDiffModel", () => {
   beforeEach(() => {
     parsePatchFiles.mockClear();
   });
@@ -47,17 +49,16 @@ describe("buildTurnDiffRows", () => {
       ...additions,
     ].join("\n");
 
-    const rows = buildTurnDiffRows(
+    const model = buildTurnDiffModel(
       buildTurnDiffItem(unifiedDiff),
       "/tmp/project",
       undefined,
     );
 
     expect(parsePatchFiles).not.toHaveBeenCalled();
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.isTooLarge).toBe(true);
-    expect(rows[0]?.additions).toBe(TURN_DIFF_MAX_INLINE_LINES + 1);
-    expect(rows[0]?.fileDiff).toBe(null);
+    expect(model.kind).toBe("tooLarge");
+    expect(model.summary.additions).toBe(TURN_DIFF_MAX_INLINE_LINES + 1);
+    expect(model.rows).toHaveLength(0);
   });
 
   test("parses patches when at least one file can render inline", () => {
@@ -70,7 +71,7 @@ describe("buildTurnDiffRows", () => {
       "+after",
     ].join("\n");
 
-    buildTurnDiffRows(
+    const model = buildTurnDiffModel(
       buildTurnDiffItem(unifiedDiff),
       "/tmp/project",
       undefined,
@@ -78,5 +79,39 @@ describe("buildTurnDiffRows", () => {
 
     expect(parsePatchFiles).toHaveBeenCalledTimes(1);
     expect(parsePatchFiles).toHaveBeenCalledWith(unifiedDiff);
+    expect(model.kind).toBe("inline");
+  });
+
+  test("skips parsing when bytes exceed the inline budget before the line budget", () => {
+    const unifiedDiff = [
+      "diff --git a/src/large.ts b/src/large.ts",
+      "--- a/src/large.ts",
+      "+++ b/src/large.ts",
+      "@@ -0,0 +1 @@",
+      `+${"x".repeat(TURN_DIFF_MAX_INLINE_BYTES)}`,
+    ].join("\n");
+
+    const model = buildTurnDiffModel(
+      buildTurnDiffItem(unifiedDiff),
+      "/tmp/project",
+      undefined,
+    );
+
+    expect(model.kind).toBe("tooLarge");
+    expect(model.kind === "tooLarge" ? model.budget.reason : null).toBe("bytes");
+    expect(parsePatchFiles).not.toHaveBeenCalled();
+  });
+
+  test("keeps byte and line limits inclusive", () => {
+    expect(classifyInlineTurnDiff("x".repeat(TURN_DIFF_MAX_INLINE_BYTES)).kind).toBe("withinBudget");
+    const byteOverflow = classifyInlineTurnDiff("x".repeat(TURN_DIFF_MAX_INLINE_BYTES + 1));
+    expect(byteOverflow.kind).toBe("tooLarge");
+    expect(byteOverflow.kind === "tooLarge" ? byteOverflow.reason : null).toBe("bytes");
+
+    const exactLines = `${"x\n".repeat(TURN_DIFF_MAX_INLINE_LINES - 1)}x`;
+    expect(classifyInlineTurnDiff(exactLines).kind).toBe("withinBudget");
+    const lineOverflow = classifyInlineTurnDiff(`${exactLines}\nx`);
+    expect(lineOverflow.kind).toBe("tooLarge");
+    expect(lineOverflow.kind === "tooLarge" ? lineOverflow.reason : null).toBe("lines");
   });
 });

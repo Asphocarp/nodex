@@ -25,6 +25,7 @@ describe("readExactWorkspaceTextFile", () => {
     });
     expect(readText).toHaveBeenCalledWith({
       path: "/tmp/worktree/README.md",
+      maxBytes: 1_000,
     });
   });
 

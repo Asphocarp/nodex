@@ -17,7 +17,7 @@ import type {
   ThreadTranscriptBlockModel,
 } from "../thread-stage-types";
 import { parseTodoSteps, TodoListCompactPillContent } from "./shared/todo-list-surface";
-import { buildTurnDiffRows, extractTurnDiffPayload } from "./shared/turn-diff-model";
+import { buildTurnDiffModel, extractTurnDiffPayload } from "./shared/turn-diff-model";
 import { TurnDiffInProgressInlineSummary } from "./shared/turn-diff-surface";
 import { usePortalHost } from "./use-portal-host";
 
@@ -226,19 +226,19 @@ function AboveComposerFixedContentLayer({
     ? todoCandidate
     : null;
   const turnDiffCandidate = blocks.find((block) => block.type === "turnDiff") ?? null;
-  const turnDiffRows = useMemo(
+  const turnDiffModel = useMemo(
     () => turnDiffCandidate
-      ? buildTurnDiffRows(
+      ? buildTurnDiffModel(
           turnDiffCandidate.entry,
           threadCwd ?? undefined,
           projectWorkspacePath ?? undefined,
         )
-      : [],
+      : null,
     [projectWorkspacePath, threadCwd, turnDiffCandidate],
   );
   const turnDiffBlock = turnDiffCandidate
     && extractTurnDiffPayload(turnDiffCandidate.entry)
-    && turnDiffRows.length > 0
+    && turnDiffModel?.kind !== "empty"
     ? turnDiffCandidate
     : null;
   const hasFixedContent = todoBlock !== null || turnDiffBlock !== null;
@@ -299,7 +299,7 @@ function AboveComposerFixedContentLayer({
                   >
                     <TurnDiffInProgressInlineSummary
                       item={turnDiffBlock.entry}
-                      rows={turnDiffRows}
+                      model={turnDiffModel ?? undefined}
                       projectWorkspacePath={projectWorkspacePath ?? undefined}
                       threadCwd={threadCwd ?? undefined}
                       onOpenReview={onOpenTurnDiffReview}

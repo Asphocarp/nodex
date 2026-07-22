@@ -1,7 +1,11 @@
-import { useId, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { CodeBracketsIcon } from "@/components/shared/icons";
 import type { CodexDynamicToolCallView, CodexTranscriptEntry } from "../../../../../lib/types";
 import { cn } from "../../../../../lib/utils";
+import {
+  buildTextPreview,
+  INLINE_TEXT_PREVIEW_MAX_CHARS,
+} from "../../../../../lib/text-preview";
 import type {
   NodexDynamicToolCallPresentation,
   NodexMarkdownChangePreview,
@@ -13,6 +17,10 @@ import {
 } from "./tool-call-inspection";
 
 function parseDynamicToolTextContent(text: string): { content: string; format: "json" | "plaintext" } {
+  if (text.length > INLINE_TEXT_PREVIEW_MAX_CHARS) {
+    return { content: text, format: "plaintext" };
+  }
+
   try {
     return {
       content: stringifyToolCallValue(JSON.parse(text)),
@@ -144,22 +152,97 @@ function DynamicToolOutput({
           );
         }
 
-        const parsed = parseDynamicToolTextContent(contentItem.text);
-        const title = call.contentItems && call.contentItems.length > 1
-          ? `Output ${index + 1} · ${parsed.format}`
-          : `Output · ${parsed.format}`;
         return (
-          <ToolCallCodePanel
+          <DynamicToolTextOutput
             key={`${contentItem.type}-${index}`}
-            title={title}
-            content={parsed.content}
-            copyText={contentItem.text}
-            preClassName={parsed.format === "json"
-              ? "font-vscode-editor text-size-chat text-token-description-foreground/80"
-              : "font-sans text-size-chat leading-relaxed text-token-description-foreground/80"}
+            text={contentItem.text}
+            titlePrefix={call.contentItems && call.contentItems.length > 1
+              ? `Output ${index + 1}`
+              : "Output"}
           />
         );
       })}
+    </div>
+  );
+}
+
+function DynamicToolTextOutput({
+  text,
+  titlePrefix,
+}: {
+  readonly text: string;
+  readonly titlePrefix: string;
+}) {
+  const parsed = useMemo(() => parseDynamicToolTextContent(text), [text]);
+
+  return (
+    <ToolCallCodePanel
+      title={`${titlePrefix} · ${parsed.format}`}
+      preview={buildTextPreview(parsed.content, INLINE_TEXT_PREVIEW_MAX_CHARS)}
+      getCopyText={() => text}
+      getFullText={() => parsed.content}
+      preClassName={parsed.format === "json"
+        ? "font-vscode-editor text-size-chat text-token-description-foreground/80"
+        : "font-sans text-size-chat leading-relaxed text-token-description-foreground/80"}
+    />
+  );
+}
+
+function DynamicToolExpandedDetails({
+  item,
+  call,
+  nodexPresentation,
+  qualifiedName,
+  bodyId,
+}: {
+  readonly item: CodexTranscriptEntry;
+  readonly call: CodexDynamicToolCallView;
+  readonly nodexPresentation: NodexDynamicToolCallPresentation | null;
+  readonly qualifiedName: string;
+  readonly bodyId: string;
+}) {
+  const [isRawDialogOpen, setIsRawDialogOpen] = useState(false);
+  const argumentsValue = useMemo(
+    () => stringifyToolCallValue(call.arguments),
+    [call.arguments],
+  );
+  const statusDetails = [
+    call.status ?? (call.completed ? "completed" : "inProgress"),
+    call.durationMs === null || call.durationMs === undefined ? null : `${call.durationMs} ms`,
+  ].filter((value): value is string => Boolean(value));
+
+  return (
+    <div
+      id={bodyId}
+      className="mt-1.5 ml-1 flex min-w-0 flex-col gap-1.5 border-l-[0.5px] border-token-border-light pl-3"
+    >
+      <div className="flex min-w-0 items-center justify-between gap-2 text-xs text-token-description-foreground">
+        <code className="min-w-0 truncate font-vscode-editor text-token-foreground/80">
+          {qualifiedName}
+        </code>
+        <div className="flex shrink-0 items-center gap-2">
+          <span>{statusDetails.join(" · ")}</span>
+          <ToolCallRawDialog
+            open={isRawDialogOpen}
+            onOpenChange={setIsRawDialogOpen}
+            title={`Raw ${qualifiedName} tool call`}
+            getRawValue={() => buildDynamicToolRawItem(item, call)}
+            triggerLabel={`Show raw ${qualifiedName} tool call`}
+            triggerKind="text"
+          />
+        </div>
+      </div>
+      {nodexPresentation?.markdownChange ? (
+        <MarkdownChangePreview change={nodexPresentation.markdownChange} compact={false} />
+      ) : null}
+      <ToolCallCodePanel
+        title="Arguments"
+        preview={buildTextPreview(argumentsValue, INLINE_TEXT_PREVIEW_MAX_CHARS)}
+        getCopyText={() => argumentsValue}
+        getFullText={() => argumentsValue}
+        preClassName="font-vscode-editor text-size-chat text-token-description-foreground/80"
+      />
+      <DynamicToolOutput call={call} qualifiedName={qualifiedName} />
     </div>
   );
 }
@@ -177,14 +260,7 @@ export function DynamicToolCallInspector({
 }) {
   const bodyId = useId();
   const [isExpanded, setIsExpanded] = useState(false);
-  const [isRawDialogOpen, setIsRawDialogOpen] = useState(false);
   const qualifiedName = call.namespace ? `${call.namespace}.${call.tool}` : call.tool;
-  const rawValue = stringifyToolCallValue(buildDynamicToolRawItem(item, call));
-  const argumentsValue = stringifyToolCallValue(call.arguments);
-  const statusDetails = [
-    call.status ?? (call.completed ? "completed" : "inProgress"),
-    call.durationMs === null || call.durationMs === undefined ? null : `${call.durationMs} ms`,
-  ].filter((value): value is string => Boolean(value));
 
   return (
     <div className="group/dynamic-tool min-w-0">
@@ -210,37 +286,13 @@ export function DynamicToolCallInspector({
         </button>
       </div>
       {isExpanded ? (
-        <div
-          id={bodyId}
-          className="mt-1.5 ml-1 flex min-w-0 flex-col gap-1.5 border-l-[0.5px] border-token-border-light pl-3"
-        >
-          <div className="flex min-w-0 items-center justify-between gap-2 text-xs text-token-description-foreground">
-            <code className="min-w-0 truncate font-vscode-editor text-token-foreground/80">
-              {qualifiedName}
-            </code>
-            <div className="flex shrink-0 items-center gap-2">
-              <span>{statusDetails.join(" · ")}</span>
-              <ToolCallRawDialog
-                open={isRawDialogOpen}
-                onOpenChange={setIsRawDialogOpen}
-                title={`Raw ${qualifiedName} tool call`}
-                rawValue={rawValue}
-                triggerLabel={`Show raw ${qualifiedName} tool call`}
-                triggerKind="text"
-              />
-            </div>
-          </div>
-          {nodexPresentation?.markdownChange ? (
-            <MarkdownChangePreview change={nodexPresentation.markdownChange} compact={false} />
-          ) : null}
-          <ToolCallCodePanel
-            title="Arguments"
-            content={argumentsValue}
-            copyText={argumentsValue}
-            preClassName="font-vscode-editor text-size-chat text-token-description-foreground/80"
-          />
-          <DynamicToolOutput call={call} qualifiedName={qualifiedName} />
-        </div>
+        <DynamicToolExpandedDetails
+          item={item}
+          call={call}
+          nodexPresentation={nodexPresentation}
+          qualifiedName={qualifiedName}
+          bodyId={bodyId}
+        />
       ) : null}
     </div>
   );

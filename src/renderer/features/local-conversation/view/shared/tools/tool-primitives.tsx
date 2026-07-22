@@ -3,6 +3,8 @@ import type { CSSProperties, ReactNode } from "react";
 import { ChevronRightIcon } from "@/components/shared/icons";
 import { motion } from "motion/react";
 import { cn } from "../../../../../lib/utils";
+import { buildTextPreview, INLINE_TEXT_PREVIEW_MAX_CHARS } from "../../../../../lib/text-preview";
+import { ToolCallCodePanel } from "./tool-call-inspection";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
 
 const THREAD_ACTIVITY_SUMMARY_DEFER_MS = 1000;
@@ -564,5 +566,13 @@ export function JsonBlock({ value }: { value: unknown }) {
     }
   }, [value]);
 
-  return <CodeBlock>{text}</CodeBlock>;
+  return (
+    <ToolCallCodePanel
+      title="json"
+      preview={buildTextPreview(text, INLINE_TEXT_PREVIEW_MAX_CHARS)}
+      getCopyText={() => text}
+      getFullText={() => text}
+      preClassName="font-mono text-xs/normal"
+    />
+  );
 }

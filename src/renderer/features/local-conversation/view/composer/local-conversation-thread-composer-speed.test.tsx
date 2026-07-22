@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { AppProviders } from "@/app-providers";
 import {
@@ -347,8 +347,11 @@ async function submitCurrentComposerDraft(view: ReturnType<typeof render>): Prom
 }
 
 function readComposerText(view: ReturnType<typeof render>): string {
-  return view.container.querySelector<HTMLElement>('[data-codex-composer="true"]')
-    ?.textContent ?? "";
+  const composer = view.container.querySelector<HTMLElement>('[data-codex-composer="true"]');
+  if (!composer) return "";
+  return Array.from(composer.children)
+    .map((child) => child.textContent ?? "")
+    .join("\n");
 }
 
 function buildActiveTurn(): NonNullable<ThreadFooterModel["activeTurn"]> {
@@ -427,6 +430,112 @@ async function keyDownComposer(
 describe("ThreadComposer speed menu", () => {
   beforeEach(() => {
     __resetNodexToastStoreForTests();
+  });
+
+  test("turns a one-megabyte paste into a pending owned attachment without growing ProseMirror", async () => {
+    resetStorage();
+    const source = "x".repeat(1_000_000);
+    type CreateResult = {
+      file: { label: string; path: string; fsPath: string };
+      preview: string;
+      characterCount: number;
+    };
+    let resolveCreateRequest: (result: CreateResult) => void = () => undefined;
+    const createRequest = new Promise<CreateResult>((resolve) => {
+      resolveCreateRequest = resolve;
+    });
+    let capturedTextLength = 0;
+    const view = await renderComposer(undefined, undefined, async (channel, ...args) => {
+      if (channel === "codex:pasted-text:create") {
+        capturedTextLength = (args[0] as { text: string }).text.length;
+        return await createRequest;
+      }
+      if (channel === "codex:pasted-text:remove") return undefined;
+      return undefined;
+    });
+    const composer = view.container.querySelector<HTMLElement>('[data-codex-composer="true"]');
+    if (!composer) throw new Error("Expected composer editor");
+
+    await act(async () => {
+      fireEvent.paste(composer, {
+        clipboardData: {
+          files: [],
+          items: [],
+          getData: (format: string) => format === "text/plain" ? source : "",
+        },
+      });
+      await Promise.resolve();
+    });
+
+    expect(capturedTextLength).toBe(source.length);
+    expect(readComposerText(view)).toBe("");
+    expect(view.getByText("Adding pasted text…")).toBeDefined();
+    expect((view.getByLabelText("Send prompt") as HTMLButtonElement).disabled).toBe(true);
+
+    resolveCreateRequest({
+      file: {
+        label: "Pasted text.txt",
+        path: "/attachments/large/pasted-text.txt",
+        fsPath: "/attachments/large/pasted-text.txt",
+      },
+      preview: "xxxxxxxx",
+      characterCount: source.length,
+    });
+    await waitFor(() => {
+      expect(view.getByText("Pasted text.txt")).toBeDefined();
+    });
+  });
+
+  test("restores the exact owned paste in one editor replacement and cleans its source", async () => {
+    resetStorage();
+    const source = `  leading\n${"x".repeat(5_000)}\ntrailing  `;
+    const file = {
+      label: "Pasted text.txt",
+      path: "/attachments/exact/pasted-text.txt",
+      fsPath: "/attachments/exact/pasted-text.txt",
+    };
+    const removedPaths: string[] = [];
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const view = await renderComposer(undefined, undefined, async (channel, ...args) => {
+      if (channel === "codex:pasted-text:create") {
+        return { file, preview: "leading x", characterCount: source.length };
+      }
+      if (channel === "codex:pasted-text:read") return source;
+      if (channel === "codex:pasted-text:remove") {
+        removedPaths.push((args[0] as { file: { path: string } }).file.path);
+      }
+      return undefined;
+    });
+    const composer = view.container.querySelector<HTMLElement>('[data-codex-composer="true"]');
+    if (!composer) throw new Error("Expected composer editor");
+
+    try {
+      await act(async () => {
+        fireEvent.paste(composer, {
+          clipboardData: {
+            files: [],
+            items: [],
+            getData: (format: string) => format === "text/plain" ? source : "",
+          },
+        });
+        await Promise.resolve();
+      });
+      const showInField = await view.findByRole("button", { name: "Show in text field" });
+
+      await act(async () => {
+        fireEvent.click(showInField);
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(readComposerText(view)).toBe(source);
+        expect(removedPaths).toEqual([file.path]);
+      });
+      expect(confirm).toHaveBeenCalledOnce();
+      expect(view.queryByText("Pasted text.txt")).toBe(null);
+    } finally {
+      confirm.mockRestore();
+    }
   });
 
   test("cmd-enter queues instead of steering while running in enter mode with queueing disabled", async () => {
@@ -1045,8 +1154,18 @@ describe("ThreadComposer speed menu", () => {
         imageAttachments: [{ id: "image_1", filename: "diagram.png", path: "/tmp/diagram.png", dataUrl: "data:image/png;base64,aW1hZ2U=" }],
         pastedTextAttachments: [{
           id: "pasted_text_1",
-          text: "Pasted requirements",
+          status: "ready",
+          preview: "Pasted requirements",
           characterCount: 19,
+          attachment: {
+            file: {
+              label: "Pasted text.txt",
+              path: "/tmp/pasted-text.txt",
+              fsPath: "/tmp/pasted-text.txt",
+            },
+            preview: "Pasted requirements",
+            characterCount: 19,
+          },
         }],
         skillMentions: [{ id: "skill_1", name: "Computer Use", path: "/plugins/computer-use" }],
         commentAttachments: [],
@@ -1054,7 +1173,7 @@ describe("ThreadComposer speed menu", () => {
     });
 
     expect(JSON.stringify(promptInput)).toBe(
-      "{\"text\":\"  Use these\\n\",\"images\":[{\"source\":\"data:image/png;base64,aW1hZ2U=\",\"caption\":\"diagram.png\"}],\"textAttachments\":[{\"text\":\"Pasted requirements\",\"characterCount\":19}],\"fileAttachments\":[{\"label\":\"notes.md\",\"path\":\"/tmp/notes.md\",\"fsPath\":\"/tmp/notes.md\"}],\"addedFiles\":[{\"label\":\"generated.md\",\"path\":\"/tmp/generated.md\",\"fsPath\":\"/tmp/generated.md\"}],\"skills\":[{\"name\":\"Computer Use\",\"path\":\"/plugins/computer-use\"}]}",
+      "{\"text\":\"  Use these\\n\",\"images\":[{\"source\":\"data:image/png;base64,aW1hZ2U=\",\"caption\":\"diagram.png\"}],\"textAttachments\":[{\"file\":{\"label\":\"Pasted text.txt\",\"path\":\"/tmp/pasted-text.txt\",\"fsPath\":\"/tmp/pasted-text.txt\"},\"preview\":\"Pasted requirements\",\"characterCount\":19}],\"fileAttachments\":[{\"label\":\"notes.md\",\"path\":\"/tmp/notes.md\",\"fsPath\":\"/tmp/notes.md\"}],\"addedFiles\":[{\"label\":\"generated.md\",\"path\":\"/tmp/generated.md\",\"fsPath\":\"/tmp/generated.md\"}],\"skills\":[{\"name\":\"Computer Use\",\"path\":\"/plugins/computer-use\"}]}",
     );
     expect(__composerAddContextTestUtils.isComposerImageFile({ label: "diagram.png", path: "/tmp/diagram.png" })).toBe(true);
     expect(__composerAddContextTestUtils.isComposerImageFile({ label: "notes.md", path: "/tmp/notes.md" })).toBe(false);
@@ -1087,7 +1206,6 @@ describe("ThreadComposer speed menu", () => {
     expect(JSON.stringify(roundTripped)).toBe(JSON.stringify({
       text: "",
       textAttachments: [{
-        text: "Exact pasted bytes",
         file: {
           label: "Pasted text.txt",
           path: "/attachments/id/pasted-text.txt",
@@ -1472,7 +1590,15 @@ describe("ThreadComposer speed menu", () => {
               source: "data:image/png;base64,aW1hZ2U=",
               caption: "diagram.png",
             }],
-            textAttachments: [{ text: "Pasted requirements" }],
+            textAttachments: [{
+              file: {
+                label: "Pasted text.txt",
+                path: "/attachments/goal/pasted-text.txt",
+                fsPath: "/attachments/goal/pasted-text.txt",
+              },
+              preview: "Pasted requirements",
+              characterCount: 19,
+            }],
           },
         },
       },
@@ -1513,7 +1639,15 @@ describe("ThreadComposer speed menu", () => {
         localPath: "data:image/png;base64,aW1hZ2U=",
         filename: "diagram.png",
       }],
-      pastedTextAttachments: [{ text: "Pasted requirements" }],
+      pastedTextAttachments: [{
+        file: {
+          label: "Pasted text.txt",
+          path: "/attachments/goal/pasted-text.txt",
+          fsPath: "/attachments/goal/pasted-text.txt",
+        },
+        preview: "Pasted requirements",
+        characterCount: 19,
+      }],
     }));
     expect(Object.prototype.hasOwnProperty.call(
       start.threadGoalDraft ?? {},
@@ -1546,7 +1680,15 @@ describe("ThreadComposer speed menu", () => {
               source: "data:image/png;base64,aW1hZ2U=",
               caption: "diagram.png",
             }],
-            textAttachments: [{ text: "Pasted requirements" }],
+            textAttachments: [{
+              file: {
+                label: "Pasted text.txt",
+                path: "/attachments/goal/pasted-text.txt",
+                fsPath: "/attachments/goal/pasted-text.txt",
+              },
+              preview: "Pasted requirements",
+              characterCount: 19,
+            }],
           },
         },
       },
@@ -1583,7 +1725,15 @@ describe("ThreadComposer speed menu", () => {
         localPath: "data:image/png;base64,aW1hZ2U=",
         filename: "diagram.png",
       }],
-      pastedTextAttachments: [{ text: "Pasted requirements" }],
+      pastedTextAttachments: [{
+        file: {
+          label: "Pasted text.txt",
+          path: "/attachments/goal/pasted-text.txt",
+          fsPath: "/attachments/goal/pasted-text.txt",
+        },
+        preview: "Pasted requirements",
+        characterCount: 19,
+      }],
     }));
     expect(start.prompt).toBe("Materialized local objective");
     expect(JSON.stringify(start.threadGoalDraft)).toBe(JSON.stringify({
@@ -1593,7 +1743,15 @@ describe("ThreadComposer speed menu", () => {
         localPath: "data:image/png;base64,aW1hZ2U=",
         filename: "diagram.png",
       }],
-      pastedTextAttachments: [{ text: "Pasted requirements" }],
+      pastedTextAttachments: [{
+        file: {
+          label: "Pasted text.txt",
+          path: "/attachments/goal/pasted-text.txt",
+          fsPath: "/attachments/goal/pasted-text.txt",
+        },
+        preview: "Pasted requirements",
+        characterCount: 19,
+      }],
     }));
     expect(JSON.stringify(start.threadGoalMaterializedDraft)).toBe(JSON.stringify({
       objective: "Materialized local objective",

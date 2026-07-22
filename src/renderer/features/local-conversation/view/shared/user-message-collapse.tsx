@@ -1,8 +1,21 @@
 import type { CSSProperties } from "react";
+import { useRef, useState } from "react";
 import { ChevronDownIcon } from "@/components/shared/icons";
 import { cn } from "../../../../lib/utils";
 import { MarkdownRenderer } from "./markdown/markdown-renderer";
-import { useMeasuredTextCollapse } from "./use-measured-text-collapse";
+import { useClippedFocusSafety } from "./use-clipped-focus-safety";
+import { useContentOverflow } from "./use-content-overflow";
+import {
+  LazyVirtualizedTextViewer,
+  preloadVirtualizedTextViewer,
+} from "@/components/ui/lazy-virtualized-text-viewer";
+import {
+  NodexDialog,
+  NodexDialogContent,
+  NodexDialogHeader,
+  NodexDialogTitle,
+} from "@/components/ui/dialog";
+import { buildTextPreview, INLINE_TEXT_PREVIEW_MAX_CHARS } from "@/lib/text-preview";
 
 export const DEFAULT_USER_MESSAGE_COLLAPSED_LINES = 20;
 
@@ -12,52 +25,98 @@ interface UserMessageTextProps {
 }
 
 const USER_MESSAGE_COLLAPSED_STYLE: CSSProperties = {
-  display: "-webkit-box",
   overflow: "hidden",
-  WebkitBoxOrient: "vertical",
 };
 
-export function UserMessageText({
+function LargeUserMessageText({
   text,
-  collapsedLineCount = DEFAULT_USER_MESSAGE_COLLAPSED_LINES,
-}: UserMessageTextProps) {
-  const {
-    setTextContentMeasurementRef,
-    collapseState,
-    handleToggleExpansion,
-  } = useMeasuredTextCollapse({
-    text,
-    collapsedLineCount,
-    fallbackFontSizePx: 13,
-  });
+  collapsedLineCount,
+}: {
+  readonly text: string;
+  readonly collapsedLineCount: number;
+}) {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const preview = buildTextPreview(text, INLINE_TEXT_PREVIEW_MAX_CHARS);
 
-  const expanded = collapseState === "expanded";
-  const collapsedStyle = collapseState === "collapsed"
+  return (
+    <div className="flex w-full flex-col items-start gap-1.5">
+      <div
+        className="scrollbar-token text-size-chat w-full overflow-auto whitespace-pre-wrap"
+        style={{ maxHeight: `${collapsedLineCount * 1.5}em` }}
+      >
+        {preview.text}
+      </div>
+      <button
+        type="button"
+        className="text-size-chat cursor-interaction text-token-description-foreground hover:text-token-foreground"
+        onClick={() => setDialogOpen(true)}
+        onPointerEnter={preloadVirtualizedTextViewer}
+        onFocus={preloadVirtualizedTextViewer}
+      >
+        View full message
+      </button>
+      <NodexDialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <NodexDialogContent
+          aria-describedby={undefined}
+          className="codex-dialog fixed left-1/2 top-1/2 z-50 flex h-[min(80vh,48rem)] w-[min(92vw,64rem)] -translate-x-1/2 -translate-y-1/2 flex-col gap-0 overflow-hidden rounded-3xl border-none bg-token-dropdown-background/95 p-0 text-token-foreground shadow-lg ring-[0.5px] ring-token-border backdrop-blur-xl outline-none"
+        >
+          <NodexDialogHeader className="shrink-0 px-4 py-3 text-left">
+            <NodexDialogTitle className="heading-dialog">Full message</NodexDialogTitle>
+            <div className="text-xs tabular-nums text-token-description-foreground">
+              {text.length.toLocaleString()} characters
+            </div>
+          </NodexDialogHeader>
+          <LazyVirtualizedTextViewer
+            value={text}
+            ariaLabel="Full user message"
+            className="min-h-0 flex-1"
+          />
+        </NodexDialogContent>
+      </NodexDialog>
+    </div>
+  );
+}
+
+function CollapsibleUserMessageText({
+  text,
+  collapsedLineCount,
+}: Required<UserMessageTextProps>) {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [expandedText, setExpandedText] = useState<string | null>(null);
+  const { collapsedHeightPx, isOverflowing } = useContentOverflow(
+    contentRef,
+    collapsedLineCount,
+  );
+
+  const expanded = expandedText === text;
+  const collapsed = isOverflowing && !expanded;
+  useClippedFocusSafety(contentRef, collapsed);
+  const collapsedStyle = collapsed && collapsedHeightPx !== null
     ? {
         ...USER_MESSAGE_COLLAPSED_STYLE,
-        WebkitLineClamp: collapsedLineCount,
+        maxHeight: collapsedHeightPx,
       }
     : undefined;
 
   return (
     <div className="flex flex-col items-end gap-1">
       <div
-        ref={setTextContentMeasurementRef}
+        ref={contentRef}
         className="text-size-chat relative w-full min-w-0"
+        style={collapsedStyle}
       >
         <MarkdownRenderer
           content={text}
           preserveLineBreaks
           className="codex-markdown-user text-size-chat"
-          style={collapsedStyle}
         />
       </div>
-      {collapseState === "uncollapsible" ? null : (
+      {!isOverflowing ? null : (
         <button
           type="button"
           aria-expanded={expanded}
           className="text-size-chat mt-1.5 inline-flex cursor-interaction items-center gap-1 self-start text-token-description-foreground hover:text-token-foreground"
-          onClick={handleToggleExpansion}
+          onClick={() => setExpandedText((current) => current === text ? null : text)}
         >
           <span>{expanded ? "Show less" : "Show more"}</span>
           <ChevronDownIcon
@@ -69,5 +128,20 @@ export function UserMessageText({
         </button>
       )}
     </div>
+  );
+}
+
+export function UserMessageText({
+  text,
+  collapsedLineCount = DEFAULT_USER_MESSAGE_COLLAPSED_LINES,
+}: UserMessageTextProps) {
+  if (text.length > INLINE_TEXT_PREVIEW_MAX_CHARS) {
+    return (
+      <LargeUserMessageText text={text} collapsedLineCount={collapsedLineCount} />
+    );
+  }
+
+  return (
+    <CollapsibleUserMessageText text={text} collapsedLineCount={collapsedLineCount} />
   );
 }

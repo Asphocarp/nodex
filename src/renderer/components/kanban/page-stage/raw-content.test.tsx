@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { waitFor } from "@testing-library/react";
 import { render, textContent } from "../../../test/dom";
 
 describe("page stage raw content", () => {
@@ -10,7 +11,9 @@ describe("page stage raw content", () => {
 
     expect(getByText("Raw format").textContent).toBe("Raw format");
     expect(getByText("Read-only").textContent).toBe("Read-only");
-    expect(textContent(container).includes('<image source="nodex://assets/demo.png" />')).toBe(true);
+    await waitFor(() => {
+      expect(textContent(container).includes('<image source="nodex://assets/demo.png" />')).toBe(true);
+    });
   });
 
   test("renders an empty-state hint when the description is blank", async () => {

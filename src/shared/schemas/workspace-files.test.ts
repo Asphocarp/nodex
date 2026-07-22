@@ -3,6 +3,7 @@ import {
   WorkspaceDirectoryEntriesInputSchema,
   WorkspaceFileMetadataInputSchema,
   WorkspaceFileRequestSchema,
+  WorkspaceFileTextReadInputSchema,
   WorkspaceFileWriteInputSchema,
 } from "./workspace-files";
 
@@ -45,6 +46,19 @@ describe("workspace file IPC schemas", () => {
     expect(() => WorkspaceFileMetadataInputSchema.parse({
       path: "/worktree/file.ts",
       contentSampleByteLimit: 0,
+    })).toThrow();
+  });
+
+  test("requires a bounded text-read limit", () => {
+    expect(WorkspaceFileTextReadInputSchema.parse({
+      path: "/worktree/file.ts",
+      maxBytes: 1_500_000,
+    })).toEqual({
+      path: "/worktree/file.ts",
+      maxBytes: 1_500_000,
+    });
+    expect(() => WorkspaceFileTextReadInputSchema.parse({
+      path: "/worktree/file.ts",
     })).toThrow();
   });
 

@@ -454,6 +454,38 @@ export const ParseError: Story = {
   ),
 };
 
+export const TooLarge: Story = {
+  render: () => (
+    <LocalEnvironmentsStory
+      initialProjectId="project-beta"
+      snapshots={{
+        "project-alpha": buildSnapshot("project-alpha"),
+        "project-beta": buildSnapshot("project-beta", {
+          configExists: true,
+          environment: null,
+          tooLargeMessage: "File exceeds the 256 KiB local-environment limit.",
+          configs: [
+            {
+              configPath: ".codex/environments/environment.toml",
+              fileName: "environment.toml",
+              state: "tooLarge",
+              exists: true,
+              name: "environment",
+              hasSetupScript: false,
+              hasCleanupScript: false,
+              actionCount: 0,
+              parseErrorMessage: null,
+              readErrorMessage: null,
+              tooLargeMessage: "File exceeds the 256 KiB local-environment limit.",
+              environment: null,
+            },
+          ],
+        }),
+      }}
+    />
+  ),
+};
+
 export const CreateNewConfig: Story = {
   args: {
     initialProjectId: "project-alpha",

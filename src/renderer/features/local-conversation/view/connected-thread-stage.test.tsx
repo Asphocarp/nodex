@@ -973,6 +973,7 @@ describe("ConnectedThreadStage new-chat home", () => {
         phase: "ready",
         message: "Message sent.",
         outputText: "",
+        outputTruncated: false,
         updatedAt: 10,
       },
     });

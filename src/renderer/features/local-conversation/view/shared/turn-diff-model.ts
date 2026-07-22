@@ -19,9 +19,11 @@ import {
   summarizeDiff,
   summarizeFileDiffMetadata,
 } from "./tools/diff-file-shared";
+import { classifyContentBudget, type ContentBudgetDecision } from "@/lib/content-budget";
 
 export const TURN_DIFF_DEFAULT_VISIBLE_FILE_COUNT = 3;
 export const TURN_DIFF_MAX_INLINE_LINES = 5000;
+export const TURN_DIFF_MAX_INLINE_BYTES = 256 * 1024;
 
 export interface TurnDiffPayload {
   unifiedDiff: string;
@@ -42,6 +44,24 @@ export interface TurnDiffSummary {
   additions: number;
   deletions: number;
 }
+
+export type TurnDiffModel =
+  | {
+      readonly kind: "empty";
+      readonly rows: readonly [];
+      readonly summary: TurnDiffSummary;
+    }
+  | {
+      readonly kind: "inline";
+      readonly rows: readonly TurnDiffRowModel[];
+      readonly summary: TurnDiffSummary;
+    }
+  | {
+      readonly kind: "tooLarge";
+      readonly rows: readonly [];
+      readonly summary: TurnDiffSummary;
+      readonly budget: Extract<ContentBudgetDecision, { kind: "tooLarge" }>;
+    };
 
 export interface TurnDiffRowModel {
   key: string;
@@ -162,6 +182,47 @@ export function parseUnifiedDiffFileStats(diffText: string): TurnDiffFileStat[] 
   return fallbackPatchStats(diffText);
 }
 
+function summarizeOversizedUnifiedDiff(diffText: string): TurnDiffSummary {
+  const paths = new Set<string>();
+  let additions = 0;
+  let deletions = 0;
+  let inHunk = false;
+  let start = 0;
+
+  while (start <= diffText.length) {
+    const lineEnd = diffText.indexOf("\n", start);
+    const end = lineEnd < 0 ? diffText.length : lineEnd;
+    const line = diffText.slice(start, end).replace(/\r$/u, "");
+    const nextPath = parseDiffGitHeaderPath(line);
+    if (nextPath !== null) {
+      paths.add(stripPatchPrefix(nextPath));
+      inHunk = false;
+    } else if (line.startsWith("@@")) {
+      inHunk = true;
+    } else if (inHunk && !line.startsWith("+++")) {
+      if (line.startsWith("+")) additions += 1;
+      else if (line.startsWith("-") && !line.startsWith("---")) deletions += 1;
+    }
+
+    if (lineEnd < 0) break;
+    start = lineEnd + 1;
+  }
+
+  return {
+    fileCount: Math.max(paths.size, additions > 0 || deletions > 0 ? 1 : 0),
+    additions,
+    deletions,
+  };
+}
+
+export function classifyInlineTurnDiff(unifiedDiff: string): ContentBudgetDecision {
+  return classifyContentBudget({
+    value: unifiedDiff,
+    maxBytes: TURN_DIFF_MAX_INLINE_BYTES,
+    maxLines: TURN_DIFF_MAX_INLINE_LINES,
+  });
+}
+
 export function isLargeTurnDiffFile(input: {
   additions: number;
   deletions: number;
@@ -186,7 +247,7 @@ export function buildTurnDiffDisplayPath(path: string, basePath: string | null):
   return relativePath.length > 0 ? relativePath : basename(normalizedPath);
 }
 
-export function buildTurnDiffRows(
+function buildInlineTurnDiffRows(
   item: CodexTranscriptEntry,
   threadCwd: string | undefined,
   projectWorkspacePath: string | undefined,
@@ -243,6 +304,42 @@ export function buildTurnDiffRows(
       isTooLarge: isLargeTurnDiffFile({ additions, deletions, renderedLineEstimate }),
     };
   });
+}
+
+export function buildTurnDiffModel(
+  item: CodexTranscriptEntry,
+  threadCwd: string | undefined,
+  projectWorkspacePath: string | undefined,
+): TurnDiffModel {
+  const payload = extractTurnDiffPayload(item);
+  if (!payload) {
+    return { kind: "empty", rows: [], summary: { fileCount: 0, additions: 0, deletions: 0 } };
+  }
+
+  const budget = classifyInlineTurnDiff(payload.unifiedDiff);
+  if (budget.kind === "tooLarge") {
+    return {
+      kind: "tooLarge",
+      rows: [],
+      summary: summarizeOversizedUnifiedDiff(payload.unifiedDiff),
+      budget,
+    };
+  }
+
+  const rows = buildInlineTurnDiffRows(item, threadCwd, projectWorkspacePath);
+  if (rows.length === 0) {
+    return { kind: "empty", rows: [], summary: { fileCount: 0, additions: 0, deletions: 0 } };
+  }
+  return { kind: "inline", rows, summary: summarizeTurnDiffRows(rows) };
+}
+
+export function buildTurnDiffRows(
+  item: CodexTranscriptEntry,
+  threadCwd: string | undefined,
+  projectWorkspacePath: string | undefined,
+): TurnDiffRowModel[] {
+  const model = buildTurnDiffModel(item, threadCwd, projectWorkspacePath);
+  return model.kind === "inline" ? [...model.rows] : [];
 }
 
 export function summarizeTurnDiffRows(rows: readonly TurnDiffRowModel[]): TurnDiffSummary {

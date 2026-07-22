@@ -38,6 +38,65 @@ const WORKTREE_ENVIRONMENT_ACTION_ICONS: WorktreeEnvironmentActionIcon[] = [
   "test",
 ];
 
+export const WORKTREE_ENVIRONMENT_MAX_BYTES = 256 * 1024;
+export const WORKTREE_ENVIRONMENT_NAME_MAX_CHARS = 256;
+export const WORKTREE_ENVIRONMENT_SCRIPT_MAX_BYTES = 128 * 1024;
+export const WORKTREE_ENVIRONMENT_ACTION_NAME_MAX_CHARS = 256;
+export const WORKTREE_ENVIRONMENT_ACTION_COMMAND_MAX_BYTES = 32 * 1024;
+export const WORKTREE_ENVIRONMENT_ACTION_MAX_COUNT = 100;
+
+function assertMaximumCharacters(value: string, maxChars: number, label: string): void {
+  if (value.length <= maxChars) return;
+  throw new Error(`${label} must be at most ${maxChars.toLocaleString()} characters`);
+}
+
+function assertMaximumBytes(value: string, maxBytes: number, label: string): void {
+  if (Buffer.byteLength(value, "utf8") <= maxBytes) return;
+  throw new Error(`${label} must be at most ${maxBytes.toLocaleString()} bytes`);
+}
+
+function validateScriptDefinition(
+  definition: WorktreeEnvironmentScriptDefinition,
+  label: string,
+): void {
+  if (definition.script !== null) {
+    assertMaximumBytes(definition.script, WORKTREE_ENVIRONMENT_SCRIPT_MAX_BYTES, `${label} script`);
+  }
+  for (const [platform, script] of Object.entries(definition.platformScripts)) {
+    if (script === undefined) continue;
+    assertMaximumBytes(
+      script,
+      WORKTREE_ENVIRONMENT_SCRIPT_MAX_BYTES,
+      `${label} ${platform} script`,
+    );
+  }
+}
+
+function validateEnvironmentDefinition(environment: WorktreeEnvironmentDefinition): void {
+  assertMaximumCharacters(
+    environment.name,
+    WORKTREE_ENVIRONMENT_NAME_MAX_CHARS,
+    "Environment name",
+  );
+  validateScriptDefinition(environment.setup, "Setup");
+  validateScriptDefinition(environment.cleanup, "Cleanup");
+  if (environment.actions.length > WORKTREE_ENVIRONMENT_ACTION_MAX_COUNT) {
+    throw new Error(`Environment can contain at most ${WORKTREE_ENVIRONMENT_ACTION_MAX_COUNT} actions`);
+  }
+  for (const [index, action] of environment.actions.entries()) {
+    assertMaximumCharacters(
+      action.name,
+      WORKTREE_ENVIRONMENT_ACTION_NAME_MAX_CHARS,
+      `Action ${index + 1} name`,
+    );
+    assertMaximumBytes(
+      action.command,
+      WORKTREE_ENVIRONMENT_ACTION_COMMAND_MAX_BYTES,
+      `Action ${index + 1} command`,
+    );
+  }
+}
+
 function toPosixPath(value: string): string {
   return value.split(path.sep).join("/");
 }
@@ -179,13 +238,15 @@ function parseEnvironmentDefinition(raw: string, absolutePath: string): Worktree
   const parsed = parseEnvironmentToml(raw);
   const version = typeof parsed.version === "number" ? Math.trunc(parsed.version) : 1;
 
-  return {
+  const environment = {
     version: Number.isFinite(version) && version > 0 ? version : 1,
     name: normalizeEnvironmentName(parsed.name, absolutePath),
     setup: parsePlatformScripts(parsed.setup),
     cleanup: parsePlatformScripts(parsed.cleanup),
     actions: parseActions(parsed.actions),
   };
+  validateEnvironmentDefinition(environment);
+  return environment;
 }
 
 function countOwnValues(value: Record<string, string>): number {
@@ -199,6 +260,7 @@ function buildConfigRecord(input: {
   environment: WorktreeEnvironmentDefinition | null;
   parseErrorMessage?: string | null;
   readErrorMessage?: string | null;
+  tooLargeMessage?: string | null;
 }): WorktreeEnvironmentConfigRecord {
   const absolutePath = path.resolve(input.workspacePath, input.configPath);
   const environment = input.environment;
@@ -216,6 +278,7 @@ function buildConfigRecord(input: {
     actionCount: environment?.actions.length ?? 0,
     parseErrorMessage: input.parseErrorMessage ?? null,
     readErrorMessage: input.readErrorMessage ?? null,
+    tooLargeMessage: input.tooLargeMessage ?? null,
     environment,
   };
 }
@@ -311,6 +374,7 @@ function buildSerializableActions(
 export function serializeWorktreeEnvironmentDefinition(
   environment: WorktreeEnvironmentDefinition,
 ): string {
+  validateEnvironmentDefinition(environment);
   const normalizedName = environment.name.trim();
   if (!normalizedName) {
     throw new Error("Environment name is required");
@@ -338,11 +402,13 @@ export function serializeWorktreeEnvironmentDefinition(
     serialized.actions = actions;
   }
 
-  return [
+  const raw = [
     "# Managed by Nodex local environment settings.",
     stringifyToml(serialized).trim(),
     "",
   ].join("\n");
+  assertMaximumBytes(raw, WORKTREE_ENVIRONMENT_MAX_BYTES, "Environment file");
+  return raw;
 }
 
 export async function listWorktreeEnvironmentConfigs(
@@ -364,6 +430,27 @@ export async function listWorktreeEnvironmentConfigs(
 
     const absolutePath = path.resolve(environmentRoot, entry.name);
     const configPath = toPosixPath(path.relative(resolvedWorkspacePath, absolutePath));
+    const fileStat = await stat(absolutePath).catch((error) => {
+      records.push(buildConfigRecord({
+        workspacePath: resolvedWorkspacePath,
+        configPath,
+        state: "readError",
+        environment: null,
+        readErrorMessage: error instanceof Error ? error.message : "Could not inspect file",
+      }));
+      return null;
+    });
+    if (fileStat === null) continue;
+    if (fileStat.size > WORKTREE_ENVIRONMENT_MAX_BYTES) {
+      records.push(buildConfigRecord({
+        workspacePath: resolvedWorkspacePath,
+        configPath,
+        state: "tooLarge",
+        environment: null,
+        tooLargeMessage: `Environment file exceeds ${WORKTREE_ENVIRONMENT_MAX_BYTES.toLocaleString()} bytes`,
+      }));
+      continue;
+    }
     const raw = await readFile(absolutePath, "utf8").catch((error) => {
       records.push(buildConfigRecord({
         workspacePath: resolvedWorkspacePath,
@@ -445,6 +532,12 @@ async function readWorktreeEnvironmentRecord(input: {
     throw new Error(`Environment file not found: ${relativePath}`);
   }
 
+  if (fileStat.size > WORKTREE_ENVIRONMENT_MAX_BYTES) {
+    throw new Error(
+      `Environment file is too large: ${relativePath} exceeds ${WORKTREE_ENVIRONMENT_MAX_BYTES.toLocaleString()} bytes`,
+    );
+  }
+
   const raw = await readFile(resolvedEnvironmentFilePath, "utf8");
 
   try {
@@ -509,6 +602,7 @@ export async function readWorktreeEnvironmentSettingsSnapshot(input: {
     environment: selectedRecord?.environment ?? null,
     parseErrorMessage: selectedRecord?.parseErrorMessage ?? null,
     readErrorMessage: selectedRecord?.readErrorMessage ?? null,
+    tooLargeMessage: selectedRecord?.tooLargeMessage ?? null,
   };
 }
 

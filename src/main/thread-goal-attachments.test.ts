@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/
 import { basename, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import type { CodexPromptTextAttachmentInput } from "../shared/types";
+import { COMPOSER_PASTED_TEXT_MAX_BYTES } from "../shared/pasted-text-attachments";
 import {
   getThreadGoalAttachmentsRoot,
   parseThreadGoalObjectiveFileReference,
@@ -24,6 +25,30 @@ afterEach(async () => {
 });
 
 describe("thread goal attachment materialization", () => {
+  test("accepts the exact UTF-8 paste limit and reads only registry-owned sources", async () => {
+    const attachmentsRoot = await createTempGoalRoot();
+    const manager = new PastedTextAttachmentManager({ attachmentsRoot });
+    const exactText = "é".repeat(COMPOSER_PASTED_TEXT_MAX_BYTES / 2);
+    const attachment = await manager.createRawSource({ text: exactText });
+
+    expect(await manager.readRawSource(attachment.file)).toBe(exactText);
+    await expect(manager.readRawSource({
+      label: "outside",
+      path: join(dirname(attachmentsRoot), "outside.txt"),
+      fsPath: join(dirname(attachmentsRoot), "outside.txt"),
+    })).rejects.toThrow("Unknown pasted text attachment");
+  });
+
+  test("rejects one UTF-8 byte over the paste limit before writing", async () => {
+    const attachmentsRoot = await createTempGoalRoot();
+    const manager = new PastedTextAttachmentManager({ attachmentsRoot });
+    const oversizedText = `${"é".repeat(COMPOSER_PASTED_TEXT_MAX_BYTES / 2)}a`;
+
+    await expect(manager.createRawSource({ text: oversizedText }))
+      .rejects.toThrow("Pasted text must be 10 MB or smaller.");
+    expect(await readdir(attachmentsRoot).catch(() => [])).toEqual([]);
+  });
+
   test("materializes each raw pasted source in its own UUID directory with the exact filename and preview", async () => {
     const attachmentsRoot = await createTempGoalRoot();
     const longText = `  ${"x".repeat(82)}  `;

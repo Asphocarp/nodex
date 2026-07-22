@@ -32,6 +32,31 @@ const promptSchema = new Schema({
   marks: {},
 });
 
+export const COMPOSER_LARGE_PASTE_CHAR_THRESHOLD = 5_000;
+
+export function classifyComposerPaste(text: string): "inline" | "attachment" {
+  return text.length >= COMPOSER_LARGE_PASTE_CHAR_THRESHOLD
+    ? "attachment"
+    : "inline";
+}
+
+function handleComposerLargeTextPaste(
+  event: ClipboardEvent,
+  onLargeTextPaste: ((text: string) => boolean) | undefined,
+): boolean {
+  const clipboard = event.clipboardData;
+  if (!clipboard) return false;
+  const hasFiles = (clipboard.files?.length ?? 0) > 0
+    || Array.from(clipboard.items ?? []).some((item) => item.kind === "file");
+  if (hasFiles) return false;
+
+  const text = clipboard.getData("text/plain");
+  if (classifyComposerPaste(text) !== "attachment") return false;
+  if (onLargeTextPaste?.(text) !== true) return false;
+  event.preventDefault();
+  return true;
+}
+
 const promptEditingKeymapPlugin = keymap({
   ...baseKeymap,
   "Shift-Enter": baseKeymap.Enter,
@@ -66,12 +91,13 @@ interface ComposerPromptEditorProps {
   disabled: boolean;
   onChange: (value: string) => void;
   onKeyDown: (event: KeyboardEvent) => boolean;
+  onLargeTextPaste?: (text: string) => boolean;
   onSlashTriggerChange?: (state: ComposerSlashTriggerState) => void;
   "data-composer-prompt-frame"?: "true";
   className?: string;
 }
 
-function buildPromptDoc(value: string): ProseMirrorNode {
+export function buildPromptDoc(value: string): ProseMirrorNode {
   const lines = value.split(/\r\n?|\n/u);
   const paragraphType = promptSchema.nodes.paragraph;
   const paragraphs = (lines.length > 0 ? lines : [""]).map((line) =>
@@ -107,12 +133,26 @@ function promptDocPositionToTextOffset(doc: ProseMirrorNode, position: number): 
   return doc.textBetween(0, position, "\n").length;
 }
 
-function promptTextOffsetToDocPosition(doc: ProseMirrorNode, offset: number): number {
+export function promptTextOffsetToDocPosition(doc: ProseMirrorNode, offset: number): number {
   const targetOffset = Math.max(0, offset);
-  for (let position = 0; position <= doc.content.size; position += 1) {
-    if (doc.textBetween(0, position, "\n").length >= targetOffset) {
-      return position;
+  if (targetOffset === 0) return 0;
+
+  let textOffset = 0;
+  let documentPosition = 0;
+  for (let index = 0; index < doc.childCount; index += 1) {
+    const paragraph = doc.child(index);
+    if (index > 0) {
+      textOffset += 1;
+      if (targetOffset <= textOffset) return documentPosition + 1;
     }
+
+    const paragraphTextLength = paragraph.textContent.length;
+    if (targetOffset <= textOffset + paragraphTextLength) {
+      return documentPosition + 1 + (targetOffset - textOffset);
+    }
+
+    textOffset += paragraphTextLength;
+    documentPosition += paragraph.nodeSize;
   }
 
   return doc.content.size;
@@ -169,6 +209,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
     disabled,
     onChange,
     onKeyDown,
+    onLargeTextPaste,
     onSlashTriggerChange,
     "data-composer-prompt-frame": dataComposerPromptFrame,
     className,
@@ -178,12 +219,14 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
     const valueRef = useRef(value);
     const onChangeRef = useRef(onChange);
     const onKeyDownRef = useRef(onKeyDown);
+    const onLargeTextPasteRef = useRef(onLargeTextPaste);
     const onSlashTriggerChangeRef = useRef(onSlashTriggerChange);
     const placeholderRef = useRef(placeholder);
     const disabledRef = useRef(disabled);
     valueRef.current = value;
     onChangeRef.current = onChange;
     onKeyDownRef.current = onKeyDown;
+    onLargeTextPasteRef.current = onLargeTextPaste;
     onSlashTriggerChangeRef.current = onSlashTriggerChange;
     placeholderRef.current = placeholder;
     disabledRef.current = disabled;
@@ -322,6 +365,10 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
           style: "font-size: var(--codex-chat-font-size); height: auto; resize: none; min-height: 2.75rem;",
         },
         handleKeyDown: (_view, event) => onKeyDownRef.current(event),
+        handlePaste: (_view, event) => handleComposerLargeTextPaste(
+          event,
+          onLargeTextPasteRef.current,
+        ),
         handleDOMEvents: {
           mouseup(view) {
             window.setTimeout(() => emitSlashTriggerState(view), 0);
@@ -362,6 +409,10 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
       view.setProps({
         editable: () => !disabled,
         handleKeyDown: (_currentView, event) => onKeyDownRef.current(event),
+        handlePaste: (_currentView, event) => handleComposerLargeTextPaste(
+          event,
+          onLargeTextPasteRef.current,
+        ),
         handleDOMEvents: {
           mouseup(view) {
             window.setTimeout(() => emitSlashTriggerState(view), 0);

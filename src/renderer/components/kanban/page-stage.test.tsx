@@ -311,14 +311,15 @@ describe("page stage", () => {
     }
   });
 
-  test("raw mode reads the live Y.Doc projection, not the Page row projection", () => {
+  test("raw mode reads the live Y.Doc projection, not the Page row projection", async () => {
     writePageStageShowRawContentPreference(true);
-    const { container, getByText, queryByText } = renderStage();
+    const { findByLabelText, getByText, queryByText } = renderStage();
 
     expect(getByText("Raw format").textContent).toBe("Raw format");
     expect(queryByText("Mock collaborative editor")).toBe(null);
-    expect(textContent(container).includes("Live collaborative body")).toBe(true);
-    expect(textContent(container).includes("Stale projected body")).toBe(false);
+    const rawContent = await findByLabelText("Raw page source");
+    expect(textContent(rawContent).includes("Live collaborative body")).toBe(true);
+    expect(textContent(rawContent).includes("Stale projected body")).toBe(false);
   });
 
   test("full width changes only the Page Detail presentation lane", async () => {

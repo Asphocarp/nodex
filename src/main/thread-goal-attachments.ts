@@ -10,6 +10,7 @@ import type {
   CodexThreadGoalMaterializedDraft,
   CodexThreadGoalPastedTextAttachmentInput,
 } from "../shared/types";
+import { COMPOSER_PASTED_TEXT_MAX_BYTES } from "../shared/pasted-text-attachments";
 
 const THREAD_GOAL_ATTACHMENTS_DIR = "attachments";
 const PASTED_TEXT_ATTACHMENT_FILE = "pasted-text.txt";
@@ -96,6 +97,10 @@ export class PastedTextAttachmentManager {
     readonly preview?: string;
     readonly hostId?: string;
   }): Promise<CodexPastedTextAttachment> {
+    if (Buffer.byteLength(input.text, "utf8") > COMPOSER_PASTED_TEXT_MAX_BYTES) {
+      throw new Error("Pasted text must be 10 MB or smaller.");
+    }
+
     const file = await this.#createManagedFile({
       data: Buffer.from(input.text, "utf8"),
       filename: PASTED_TEXT_ATTACHMENT_FILE,
@@ -164,6 +169,15 @@ export class PastedTextAttachmentManager {
       const excerpt = state.textExcerptsByPath.get(attachment.path);
       return excerpt === undefined ? [] : [excerpt];
     });
+  }
+
+  async readRawSource(file: CodexLiveFileAttachment): Promise<string> {
+    const state = await this.#getState();
+    if (file.path !== file.fsPath || !state.attachmentPaths.has(file.path)) {
+      throw new Error("Unknown pasted text attachment");
+    }
+
+    return (await this.#fileSystem.readFile(file.path)).toString("utf8");
   }
 
   async remove(path: string): Promise<void> {

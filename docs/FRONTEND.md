@@ -127,6 +127,8 @@
 - For Card Stage rich-editor typing performance, follow `docs/card-stage-rich-editor-performance.md`.
 
 ## Styling Conventions
+- A scroll container does not bound browser work: `max-height`, `overflow`, and line clamping can still leave every text, DOM, and accessibility node mounted. Never use those styles as the sole large-content strategy.
+- Exact large source belongs in `VirtualizedTextViewer` through `LazyVirtualizedTextViewer`, which keeps selection and search while mounting only viewport-scale CodeMirror DOM. Rich Markdown, diff, JSON, and other tree-building representations must pass their feature budget before parsing; over-budget content uses exact source or an explicit domain rejection. Small inline previews may use `buildTextPreview`, but their full/copy action must read the canonical value lazily rather than silently truncating it.
 - Global styles in `src/renderer/globals.css`.
 - Hidden action chrome keeps visual reveal and sequential focus as separate contracts:
   - use hover, active, and open states for low-emphasis visual reveal by default

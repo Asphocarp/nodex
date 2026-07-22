@@ -274,7 +274,7 @@ describe("TurnDiffSurface", () => {
     expect(Boolean(container.textContent?.includes("src/one.ts"))).toBe(false);
   });
 
-  test("shows a large-file fallback row in the multi-file list", () => {
+  test("summarizes an oversized multi-file diff before inline parsing", () => {
     const largeDiff = [
       "diff --git a/src/huge.ts b/src/huge.ts",
       "--- a/src/huge.ts",
@@ -285,7 +285,7 @@ describe("TurnDiffSurface", () => {
       diffForPath("src/small.ts"),
     ].join("\n");
 
-    const { container } = render(
+    const { getByText } = render(
       <TooltipProvider>
         <TurnDiffSurface
           item={buildTurnDiffEntry({ unifiedDiff: largeDiff })}
@@ -296,7 +296,7 @@ describe("TurnDiffSurface", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(container.textContent?.includes("Too large to render inline"))).toBe(true);
+    expect(getByText("Too large for inline preview")).toBeDefined();
   });
 
   test("shows the streaming summary with the in-progress state attribute", () => {

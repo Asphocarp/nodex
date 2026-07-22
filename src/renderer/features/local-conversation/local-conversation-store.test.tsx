@@ -16427,7 +16427,9 @@ describe("local-conversation-store", () => {
       return createElement(
         "div",
         null,
-        `${permissionMode}:${progress?.phase ?? "none"}:${progress?.outputText ?? "empty"}`,
+        progress
+          ? `${permissionMode}:${progress.phase}:${progress.outputText.length}:${progress.outputTruncated}`
+          : `${permissionMode}:none:empty`,
       );
     }
 
@@ -16457,7 +16459,53 @@ describe("local-conversation-store", () => {
     });
     await settleAsyncRender();
 
-    expect(textContent(container)).toBe("custom:runningSetup:hello");
+    expect(textContent(container)).toBe("custom:runningSetup:5:false");
+
+    await act(async () => {
+      hostMessageListener?.({
+        type: "sharedObjectUpdated",
+        hostId: "default",
+        object: {
+          objectType: "threadStartProgress",
+          objectId: "project-1:session-1",
+          value: {
+            projectId: "project-1",
+            sessionId: "session-1",
+            runInTarget: "newWorktree",
+            threadId: "thread-1",
+            phase: "runningSetup",
+            message: "Running setup",
+            outputDelta: "x".repeat(10 * 1024 * 1024),
+            updatedAt: 11,
+          },
+        },
+      });
+    });
+    await settleAsyncRender();
+    expect(textContent(container)).toBe("custom:runningSetup:32000:true");
+
+    await act(async () => {
+      hostMessageListener?.({
+        type: "sharedObjectUpdated",
+        hostId: "default",
+        object: {
+          objectType: "threadStartProgress",
+          objectId: "project-1:session-1",
+          value: {
+            projectId: "project-1",
+            sessionId: "session-1",
+            runInTarget: "newWorktree",
+            threadId: "thread-1",
+            phase: "startingThread",
+            message: "Starting thread",
+            clearOutput: true,
+            updatedAt: 12,
+          },
+        },
+      });
+    });
+    await settleAsyncRender();
+    expect(textContent(container)).toBe("custom:startingThread:0:false");
   });
 
   test("project thread summary subscriptions lazily hydrate once per project", async () => {

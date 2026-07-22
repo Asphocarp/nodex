@@ -122,6 +122,12 @@ import type {
   AgentImportScanInput,
 } from "./agent-import";
 import type { ThirdPartyNotices } from "./third-party-notices";
+import type {
+  CreatePastedTextAttachmentInput,
+  CreatePastedTextAttachmentResult,
+  ReadPastedTextAttachmentInput,
+  RemovePastedTextAttachmentInput,
+} from "./pasted-text-attachments";
 
 import type {
   BackupRecord,
@@ -1686,6 +1692,18 @@ export interface IpcApi {
   "codex:thread:goal:editable-objective:read": {
     args: [objective: string];
     result: string;
+  };
+  "codex:pasted-text:create": {
+    args: [input: CreatePastedTextAttachmentInput];
+    result: CreatePastedTextAttachmentResult;
+  };
+  "codex:pasted-text:read": {
+    args: [input: ReadPastedTextAttachmentInput];
+    result: string;
+  };
+  "codex:pasted-text:remove": {
+    args: [input: RemovePastedTextAttachmentInput];
+    result: void;
   };
   "codex:thread:memory-mode:set": {
     args: [threadId: string, mode: ThreadMemoryMode];

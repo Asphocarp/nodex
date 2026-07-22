@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useMemo } from "react";
 import type {
   CodexLiveFileAttachment,
+  CodexPastedTextAttachment,
   CodexReviewDiffCommentAttachment,
 } from "@/lib/types";
 import {
@@ -37,14 +38,26 @@ export interface ComposerImageAttachment {
   readonly dataUrl: string;
 }
 
-export interface ComposerPastedTextAttachment {
+interface ComposerPastedTextAttachmentBase {
   readonly id: string;
-  readonly text: string;
-  readonly file?: CodexLiveFileAttachment;
-  readonly preview?: string;
-  readonly hostId?: string;
-  readonly characterCount?: number;
+  readonly preview: string;
+  readonly characterCount: number;
 }
+
+export type ComposerPastedTextAttachment =
+  | ComposerPastedTextAttachmentBase & {
+      readonly status: "pending";
+      readonly generation: number;
+    }
+  | ComposerPastedTextAttachmentBase & {
+      readonly status: "ready";
+      readonly attachment: CodexPastedTextAttachment;
+    }
+  | ComposerPastedTextAttachmentBase & {
+      readonly status: "failed";
+      readonly generation: number;
+      readonly error: string;
+    };
 
 export interface ComposerSkillMentionAttachment {
   readonly id: string;
@@ -218,6 +231,9 @@ export function createComposerDraftTransfer(
   if (!normalizedConversationId) throw new Error("Composer transfer requires a target conversation id");
   return {
     ...snapshot,
+    pastedTextAttachments: snapshot.pastedTextAttachments.filter(
+      (attachment) => attachment.status === "ready",
+    ),
     transferId: createTransferId(),
     targetConversationId: normalizedConversationId,
   };

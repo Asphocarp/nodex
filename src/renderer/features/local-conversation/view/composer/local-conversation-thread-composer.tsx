@@ -18,6 +18,11 @@ import type { ComposerPickedFile } from "../../../../../shared/ipc-api";
 import { dedupeCodexLiveFileAttachments } from "../../../../../shared/codex-live-file-attachments";
 import { useCodexServiceTierSettings } from "@/lib/use-codex-service-tier-settings";
 import {
+  createPastedTextAttachment,
+  readPastedTextAttachment,
+  removePastedTextAttachment,
+} from "@/lib/api";
+import {
   findAgentModel,
   findAgentProvider,
   isAgentProviderCredentialReady,
@@ -98,6 +103,7 @@ import {
   ThreadComposerStatusStrip,
 } from "./local-conversation-thread-composer-status-strip";
 import {
+  COMPOSER_LARGE_PASTE_CHAR_THRESHOLD,
   ComposerPromptEditor,
   type ComposerPromptEditorHandle,
   type ComposerPromptEditorKeyboardEvent,
@@ -297,15 +303,11 @@ function buildComposerPromptInput(input: {
     source: attachment.dataUrl,
     caption: attachment.filename,
   }));
-  const textAttachments = input.attachments.pastedTextAttachments.map((attachment) => ({
-    text: attachment.text,
-    ...(attachment.file === undefined ? {} : { file: { ...attachment.file } }),
-    ...(attachment.preview === undefined ? {} : { preview: attachment.preview }),
-    ...(attachment.hostId === undefined ? {} : { hostId: attachment.hostId }),
-    ...(attachment.characterCount === undefined
-      ? {}
-      : { characterCount: attachment.characterCount }),
-  }));
+  const textAttachments = input.attachments.pastedTextAttachments.flatMap((attachment) => (
+    attachment.status === "ready"
+      ? [{ ...attachment.attachment, file: { ...attachment.attachment.file } }]
+      : []
+  ));
   const fileAttachments = dedupeCodexLiveFileAttachments(
     input.attachments.fileAttachments.map((item) => item.attachment),
   ).map((attachment) => ({ ...attachment }));
@@ -372,16 +374,44 @@ function buildComposerAttachmentStateFromPromptInput(promptInput?: CodexPromptIn
       path: image.source,
       dataUrl: image.source,
     })),
-    pastedTextAttachments: (promptInput?.textAttachments ?? []).map((attachment) => ({
-      id: createComposerAttachmentId("pasted_text"),
-      text: attachment.text,
-      ...(attachment.file === undefined ? {} : { file: { ...attachment.file } }),
-      ...(attachment.preview === undefined ? {} : { preview: attachment.preview }),
-      ...(attachment.hostId === undefined ? {} : { hostId: attachment.hostId }),
-      ...(attachment.characterCount === undefined
-        ? {}
-        : { characterCount: attachment.characterCount }),
-    })),
+    pastedTextAttachments: (promptInput?.textAttachments ?? []).map((attachment) => {
+      const id = createComposerAttachmentId("pasted_text");
+      if (!("text" in attachment)) {
+        const fileBacked = { ...attachment, file: { ...attachment.file } };
+        return {
+          id,
+          status: "ready" as const,
+          preview: fileBacked.preview,
+          characterCount: fileBacked.characterCount ?? 0,
+          attachment: fileBacked,
+        };
+      }
+
+      if (attachment.file) {
+        const fileBacked = {
+          file: { ...attachment.file },
+          preview: attachment.preview ?? summarizeComposerPastedText(attachment.text),
+          ...(attachment.hostId === undefined ? {} : { hostId: attachment.hostId }),
+          characterCount: attachment.characterCount ?? attachment.text.length,
+        };
+        return {
+          id,
+          status: "ready" as const,
+          preview: fileBacked.preview,
+          characterCount: fileBacked.characterCount,
+          attachment: fileBacked,
+        };
+      }
+
+      return {
+        id,
+        status: "failed" as const,
+        generation: 0,
+        preview: attachment.preview ?? summarizeComposerPastedText(attachment.text),
+        characterCount: attachment.characterCount ?? attachment.text.length,
+        error: "Paste this text again to attach it.",
+      };
+    }),
     fileAttachments,
     addedFiles,
     skillMentions: (promptInput?.skills ?? []).map((skill) => ({
@@ -411,6 +441,22 @@ function hasComposerAttachmentStateContent(attachments: ComposerAttachmentState)
     || attachments.commentAttachments.length > 0;
 }
 
+function hasSubmittableComposerAttachmentState(attachments: ComposerAttachmentState): boolean {
+  return attachments.fileAttachments.length > 0
+    || attachments.addedFiles.length > 0
+    || attachments.imageAttachments.length > 0
+    || attachments.pastedTextAttachments.some((attachment) => attachment.status === "ready")
+    || attachments.skillMentions.length > 0
+    || attachments.commentAttachments.length > 0;
+}
+
+function summarizeComposerPastedText(text: string): string {
+  const normalized = text.trim().replace(/\s+/gu, " ");
+  if (normalized.length === 0) return "Pasted text";
+  if (normalized.length <= 80) return normalized;
+  return `${normalized.slice(0, 79)}…`;
+}
+
 function buildThreadGoalSubmissionDraft(
   draft: ComposerThreadGoalDraft,
   attachments: ComposerAttachmentState,
@@ -422,15 +468,11 @@ function buildThreadGoalSubmissionDraft(
       localPath: attachment.path,
       filename: attachment.filename,
     })),
-    pastedTextAttachments: attachments.pastedTextAttachments.map((attachment) => ({
-      text: attachment.text,
-      ...(attachment.file === undefined ? {} : { file: { ...attachment.file } }),
-      ...(attachment.preview === undefined ? {} : { preview: attachment.preview }),
-      ...(attachment.hostId === undefined ? {} : { hostId: attachment.hostId }),
-      ...(attachment.characterCount === undefined
-        ? {}
-        : { characterCount: attachment.characterCount }),
-    })),
+    pastedTextAttachments: attachments.pastedTextAttachments.flatMap((attachment) => (
+      attachment.status === "ready"
+        ? [{ ...attachment.attachment, file: { ...attachment.attachment.file } }]
+        : []
+    )),
     hasUnsupportedAttachments: attachments.fileAttachments.length > 0
       || attachments.addedFiles.length > 0
       || attachments.skillMentions.length > 0
@@ -1645,6 +1687,10 @@ function HydratedThreadComposer({
   const resetPromptHistorySelectionRef = useRef<() => void>(() => {});
   const dictationShortcutActiveRef = useRef(false);
   const attachmentGenerationRef = useRef(0);
+  const pastedTextSourcesRef = useRef(new Map<string, string>());
+  const pastedTextOperationGenerationRef = useRef(new Map<string, number>());
+  const pastedTextOperationCounterRef = useRef(0);
+  const composerMountedRef = useRef(true);
   const { serviceTierSettings, setServiceTier } = useCodexServiceTierSettings();
   const composerThreadId = model.conversation?.threadId ?? model.threadId;
   const commentAttachments = useScopedAtomValue(
@@ -1659,8 +1705,132 @@ function HydratedThreadComposer({
     commentAttachments,
   }), [addedFiles, commentAttachments, fileAttachments, imageAttachments, pastedTextAttachments, skillMentions]);
   const hasAttachments = hasComposerAttachmentStateContent(attachmentState);
+  const hasSubmittableAttachments = hasSubmittableComposerAttachmentState(attachmentState);
+  const hasPendingPastedTextAttachments = pastedTextAttachments.some(
+    (attachment) => attachment.status === "pending",
+  );
+  const pastedTextAttachmentsRef = useRef(pastedTextAttachments);
+  pastedTextAttachmentsRef.current = pastedTextAttachments;
   const incrementAttachmentGeneration = useCallback(() => {
     attachmentGenerationRef.current += 1;
+  }, []);
+
+  const runPastedTextMaterialization = useCallback((input: {
+    readonly id: string;
+    readonly text: string;
+    readonly preview: string;
+    readonly characterCount: number;
+    readonly generation: number;
+  }) => {
+    void createPastedTextAttachment({ text: input.text })
+      .then((attachment) => {
+        const isCurrent = composerMountedRef.current
+          && pastedTextOperationGenerationRef.current.get(input.id) === input.generation;
+        if (!isCurrent) {
+          return removePastedTextAttachment({ file: attachment.file }).catch(() => undefined);
+        }
+
+        pastedTextSourcesRef.current.delete(input.id);
+        pastedTextOperationGenerationRef.current.delete(input.id);
+        setPastedTextAttachments((current) => current.map((item) => (
+          item.id === input.id && item.status === "pending" && item.generation === input.generation
+            ? {
+                id: input.id,
+                status: "ready",
+                preview: attachment.preview,
+                characterCount: attachment.characterCount ?? input.characterCount,
+                attachment,
+              }
+            : item
+        )));
+      })
+      .catch((error: unknown) => {
+        if (
+          !composerMountedRef.current
+          || pastedTextOperationGenerationRef.current.get(input.id) !== input.generation
+        ) {
+          return;
+        }
+
+        setPastedTextAttachments((current) => current.map((item) => (
+          item.id === input.id && item.status === "pending" && item.generation === input.generation
+            ? {
+                id: input.id,
+                status: "failed",
+                generation: input.generation,
+                preview: input.preview,
+                characterCount: input.characterCount,
+                error: error instanceof Error ? error.message : "Could not add pasted text.",
+              }
+            : item
+        )));
+      });
+  }, [setPastedTextAttachments]);
+
+  const handleLargeTextPaste = useCallback((text: string): boolean => {
+    const id = createComposerAttachmentId("pasted_text");
+    pastedTextOperationCounterRef.current += 1;
+    const generation = pastedTextOperationCounterRef.current;
+    const preview = summarizeComposerPastedText(text);
+    pastedTextSourcesRef.current.set(id, text);
+    pastedTextOperationGenerationRef.current.set(id, generation);
+    setPastedTextAttachments((current) => [
+      ...current,
+      {
+        id,
+        status: "pending",
+        generation,
+        preview,
+        characterCount: text.length,
+      },
+    ]);
+    runPastedTextMaterialization({
+      id,
+      text,
+      preview,
+      characterCount: text.length,
+      generation,
+    });
+    return true;
+  }, [runPastedTextMaterialization, setPastedTextAttachments]);
+
+  const handleRetryPastedTextAttachment = useCallback((attachmentId: string) => {
+    const text = pastedTextSourcesRef.current.get(attachmentId);
+    const attachment = pastedTextAttachmentsRef.current.find((item) => item.id === attachmentId);
+    if (!text || !attachment || attachment.status !== "failed") return;
+
+    pastedTextOperationCounterRef.current += 1;
+    const generation = pastedTextOperationCounterRef.current;
+    pastedTextOperationGenerationRef.current.set(attachmentId, generation);
+    setPastedTextAttachments((current) => current.map((item) => (
+      item.id === attachmentId
+        ? {
+            id: item.id,
+            status: "pending",
+            generation,
+            preview: item.preview,
+            characterCount: item.characterCount,
+          }
+        : item
+    )));
+    runPastedTextMaterialization({
+      id: attachmentId,
+      text,
+      preview: attachment.preview,
+      characterCount: attachment.characterCount,
+      generation,
+    });
+  }, [runPastedTextMaterialization, setPastedTextAttachments]);
+
+  useEffect(() => {
+    const pastedTextSources = pastedTextSourcesRef.current;
+    const pastedTextOperationGenerations = pastedTextOperationGenerationRef.current;
+    composerMountedRef.current = true;
+    return () => {
+      composerMountedRef.current = false;
+      pastedTextSources.clear();
+      pastedTextOperationGenerations.clear();
+    };
   }, []);
   const recordSuccessfulPromptSubmit = useCallback((text: string) => {
     appendPromptToHistoryRef.current(text);
@@ -1671,6 +1841,14 @@ function HydratedThreadComposer({
     incrementAttachmentGeneration();
     clearSubmittedDraft();
   }, [clearSubmittedDraft, incrementAttachmentGeneration, recordSuccessfulPromptSubmit]);
+  const cleanupSubmittedPastedTextAttachments = useCallback(async () => {
+    const readyAttachments = pastedTextAttachmentsRef.current.flatMap((attachment) => (
+      attachment.status === "ready" ? [attachment.attachment.file] : []
+    ));
+    await Promise.allSettled(
+      readyAttachments.map((file) => removePastedTextAttachment({ file })),
+    );
+  }, []);
 
   const submitThreadGoalDraft = useCallback(async (
     draft: ThreadGoalSubmissionDraft,
@@ -1791,6 +1969,7 @@ function HydratedThreadComposer({
       submitAction: StageThreadsComposerSubmitAction | null;
     },
   ) => {
+    if (hasPendingPastedTextAttachments) return;
     const nextPrompt = input.prompt;
     const trimmedPrompt = nextPrompt.trim();
     const promptInput = buildComposerPromptInput({
@@ -1806,7 +1985,7 @@ function HydratedThreadComposer({
       promptRaw: input.prompt,
       goalActionAvailable,
       goalModeActive,
-      hasAttachments,
+      hasAttachments: hasSubmittableAttachments,
     });
 
     if (goalDraftResult.status === "empty") {
@@ -1865,6 +2044,7 @@ function HydratedThreadComposer({
               }
             : undefined,
         });
+        await cleanupSubmittedPastedTextAttachments();
         completeSuccessfulSubmission(sideChatPrompt);
       } catch {
         toast.danger("Failed to open side chat", {
@@ -1928,6 +2108,9 @@ function HydratedThreadComposer({
           promptInput,
         });
       }
+      if (target?.runInTarget !== "newWorktree") {
+        await cleanupSubmittedPastedTextAttachments();
+      }
       completeSuccessfulSubmission(nextPrompt);
     } catch (error) {
       onErrorMessage(error instanceof Error ? error.message : "Could not send prompt");
@@ -1940,13 +2123,15 @@ function HydratedThreadComposer({
     canStartNewThread,
     completeSuccessfulSubmission,
     goalModeActive,
-    hasAttachments,
+    hasSubmittableAttachments,
+    hasPendingPastedTextAttachments,
     model.activeTurn,
     model.conversation,
     model.isThreadRunning,
     model.newThreadTarget,
     model.selectedCollaborationMode,
     onErrorMessage,
+    cleanupSubmittedPastedTextAttachments,
     setGoalModeActive,
     submitThreadGoalDraft,
   ]);
@@ -2125,7 +2310,7 @@ function HydratedThreadComposer({
           canSendPrompt: model.conversation !== null || canStartNewThread,
           isThreadRunning: model.isThreadRunning,
           busyAction,
-          hasDraftContent: nextPrompt.trim().length > 0 || hasAttachments || goalModeActive,
+          hasDraftContent: nextPrompt.trim().length > 0 || hasSubmittableAttachments || goalModeActive,
           isQueueingEnabled: model.isQueueingEnabled,
         });
         void submitPrompt({
@@ -2276,9 +2461,48 @@ function HydratedThreadComposer({
   }, [incrementAttachmentGeneration, setImageAttachments]);
 
   const handleRemovePastedTextAttachment = useCallback((attachmentId: string) => {
+    const attachment = pastedTextAttachmentsRef.current.find((item) => item.id === attachmentId);
+    if (!attachment) return;
+
+    pastedTextOperationGenerationRef.current.delete(attachmentId);
+    pastedTextSourcesRef.current.delete(attachmentId);
     incrementAttachmentGeneration();
     setPastedTextAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId));
-  }, [incrementAttachmentGeneration, setPastedTextAttachments]);
+    if (attachment.status === "ready") {
+      void removePastedTextAttachment({ file: attachment.attachment.file }).catch((error: unknown) => {
+        onErrorMessage(error instanceof Error ? error.message : "Could not remove pasted text");
+      });
+    }
+  }, [incrementAttachmentGeneration, onErrorMessage, setPastedTextAttachments]);
+
+  const handleShowPastedTextInField = useCallback((attachmentId: string) => {
+    const item = pastedTextAttachmentsRef.current.find((attachment) => attachment.id === attachmentId);
+    if (!item || item.status !== "ready") return;
+
+    void readPastedTextAttachment({ file: item.attachment.file })
+      .then(async (text) => {
+        if (
+          text.length >= COMPOSER_LARGE_PASTE_CHAR_THRESHOLD
+          && !window.confirm("This pasted text is large and may make the editor slower. Show it anyway?")
+        ) {
+          return;
+        }
+
+        const editor = promptEditorRef.current;
+        if (editor) {
+          editor.setText(text);
+        } else {
+          setPrompt(text);
+        }
+        setPastedTextAttachments((current) => current.filter(
+          (attachment) => attachment.id !== attachmentId,
+        ));
+        await removePastedTextAttachment({ file: item.attachment.file });
+      })
+      .catch((error: unknown) => {
+        onErrorMessage(error instanceof Error ? error.message : "Could not restore pasted text");
+      });
+  }, [onErrorMessage, setPastedTextAttachments, setPrompt]);
 
   const handleRemoveSkillMention = useCallback((attachmentId: string) => {
     incrementAttachmentGeneration();
@@ -2518,7 +2742,7 @@ function HydratedThreadComposer({
       canSendPrompt: model.conversation !== null || canStartNewThread,
       isThreadRunning: model.isThreadRunning,
       busyAction,
-      hasDraftContent: prompt.trim().length > 0 || hasAttachments || goalModeActive,
+      hasDraftContent: prompt.trim().length > 0 || hasSubmittableAttachments || goalModeActive,
       isQueueingEnabled: model.isQueueingEnabled,
     });
 
@@ -2551,7 +2775,7 @@ function HydratedThreadComposer({
     canStartNewThread,
     closeSlashMenu,
     goalModeActive,
-    hasAttachments,
+    hasSubmittableAttachments,
     highlightedInlineSlashCommandId,
     model.composerEnterBehavior,
     model.conversation,
@@ -2568,7 +2792,7 @@ function HydratedThreadComposer({
     togglePlanMode,
   ]);
 
-  const hasDraftContent = prompt.trim().length > 0 || hasAttachments || goalModeActive;
+  const hasDraftContent = prompt.trim().length > 0 || hasSubmittableAttachments || goalModeActive;
   const hasFooterGoalChip = goalModeActive || Boolean(model.conversation?.threadGoal && actions.onClearThreadGoal);
   const hasMultilinePrompt = prompt.includes("\n");
   const isMacPlatform = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
@@ -2583,6 +2807,7 @@ function HydratedThreadComposer({
   const isSendPending = busyAction === "send" && composerActionState.action === "send";
   const canRunPrimaryAction = Boolean(
     hasDraftContent &&
+    !hasPendingPastedTextAttachments &&
     (model.conversation !== null || canStartNewThread),
   );
   const handleCancelGoalReplacement = useCallback(() => {
@@ -2702,17 +2927,53 @@ function HydratedThreadComposer({
                     </button>
                   ))}
                   {pastedTextAttachments.map((attachment, index) => (
-                    <button
+                    <div
                       key={attachment.id}
-                      type="button"
-                      className="inline-flex max-w-48 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
-                      onClick={() => handleRemovePastedTextAttachment(attachment.id)}
-                      title={`Remove pasted text ${index + 1}`}
+                      className="inline-flex max-w-72 items-center gap-1 rounded-full bg-token-foreground/5 py-1 pr-1 pl-2 text-xs text-token-foreground"
+                      title={attachment.status === "failed" ? attachment.error : attachment.preview}
                     >
-                      <ComposerAddFilesIcon className="size-3 text-token-description-foreground" />
-                      <span className="min-w-0 truncate">Pasted text {index + 1}</span>
-                      <span className="text-token-description-foreground">x</span>
-                    </button>
+                      {attachment.status === "pending" ? (
+                        <SpinnerIcon className="size-3 text-token-description-foreground" />
+                      ) : (
+                        <ComposerAddFilesIcon className="size-3 text-token-description-foreground" />
+                      )}
+                      <span className="min-w-0 truncate">
+                        {attachment.status === "pending"
+                          ? "Adding pasted text…"
+                          : attachment.status === "failed"
+                            ? "Pasted text failed"
+                            : "Pasted text.txt"}
+                      </span>
+                      <span className="shrink-0 text-token-description-foreground">
+                        {attachment.characterCount.toLocaleString()} chars
+                      </span>
+                      {attachment.status === "failed" ? (
+                        <button
+                          type="button"
+                          className="rounded px-1 hover:bg-token-foreground/10"
+                          onClick={() => handleRetryPastedTextAttachment(attachment.id)}
+                        >
+                          Retry
+                        </button>
+                      ) : null}
+                      {attachment.status === "ready" ? (
+                        <button
+                          type="button"
+                          className="rounded px-1 hover:bg-token-foreground/10"
+                          onClick={() => handleShowPastedTextInField(attachment.id)}
+                        >
+                          Show in text field
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="rounded px-1 text-token-description-foreground hover:bg-token-foreground/10"
+                        onClick={() => handleRemovePastedTextAttachment(attachment.id)}
+                        aria-label={`Remove pasted text ${index + 1}`}
+                      >
+                        x
+                      </button>
+                    </div>
                   ))}
                   {fileAttachments.map((attachment) => (
                     <button
@@ -2791,6 +3052,7 @@ function HydratedThreadComposer({
                   disabled={isPromptEditorDisabled}
                   onChange={setPrompt}
                   onKeyDown={handleKeyDown}
+                  onLargeTextPaste={handleLargeTextPaste}
                   onSlashTriggerChange={handleSlashTriggerChange}
                 />
               </div>

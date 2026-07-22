@@ -71,6 +71,7 @@ import { LOCAL_CONVERSATION_CONTENT_CLASS_NAME } from "./shared/local-conversati
 import { createLocalConversationSearchSource } from "./local-conversation-search-source";
 import { LocalConversationSelectedTextSideChatOverlay } from "./local-conversation-selected-text-side-chat-overlay";
 import { ThreadUserMessageNavigationRailLazy } from "./thread-user-message-navigation-rail-lazy";
+import { formatBoundedWorktreeOutput } from "../../../../shared/worktree-output";
 
 const PROGRESS_PHASES = [
   { key: "creatingWorktree", label: "Worktree" },
@@ -144,7 +145,7 @@ function resolvePhaseIndex(
   return -1;
 }
 
-function ThreadStartProgressPanel({
+export function ThreadStartProgressPanel({
   progress,
   outputText,
   setupProgressLogRef,
@@ -155,6 +156,7 @@ function ThreadStartProgressPanel({
     phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
     message: string;
     outputText: string;
+    outputTruncated: boolean;
     updatedAt: number;
   }>;
   outputText: string;
@@ -299,6 +301,7 @@ interface LocalConversationThreadBodyOwnerProps {
     phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
     message: string;
     outputText: string;
+    outputTruncated: boolean;
     updatedAt: number;
   } | null;
   actions: ThreadStageActions;
@@ -759,7 +762,10 @@ export function LocalConversationThreadBodyOwner({
           <div className="flex items-center justify-center py-10">
             <ThreadStartProgressPanel
               progress={threadStartProgress}
-              outputText={threadStartProgress.outputText}
+              outputText={formatBoundedWorktreeOutput({
+                text: threadStartProgress.outputText,
+                didTruncate: threadStartProgress.outputTruncated,
+              })}
               setupProgressLogRef={setupProgressLogRef}
             />
           </div>

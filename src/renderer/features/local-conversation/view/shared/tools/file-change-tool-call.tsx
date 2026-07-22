@@ -12,12 +12,14 @@ import { useScopedAtomValue } from "@/lib/maitai";
 import type { CodexVisualizationActivity } from "../../../../../../shared/types";
 import {
   buildCodexFileChangePatchRows,
+  canParseCodexFileChangeInline,
   resolveCodexFileChangeDisplayStatus,
   type CodexFileChangePatchAction,
   type CodexFileChangePatchRow,
   type CodexFileChangeDisplayStatus,
   type CodexUnifiedDiffSummary,
 } from "../../../../../../shared/codex-file-change";
+import { buildTextPreview, INLINE_TEXT_PREVIEW_MAX_CHARS } from "../../../../../lib/text-preview";
 import { invoke } from "../../../../../lib/api";
 import {
   NODEX_DIFF_HOST_CLASS,
@@ -109,6 +111,7 @@ function resolveVisualizationActivityKind(
 
 function parseSingleFilePatch(patch: string | null): FileDiffMetadata | null {
   if (!patch) return null;
+  if (!canParseCodexFileChangeInline(patch)) return null;
 
   try {
     const parsed = parsePatchFiles(patch);
@@ -260,9 +263,10 @@ export function buildFileChangeRows(
 }
 
 function FileChangeCodePreview({ content }: { content: string }) {
+  const preview = buildTextPreview(content, INLINE_TEXT_PREVIEW_MAX_CHARS);
   return (
     <CodeBlock className="vertical-scroll-fade-mask max-h-40 rounded-none border-0 bg-transparent px-2 py-2 text-size-chat [--edge-fade-distance:1rem]">
-      {content}
+      {preview.text}
     </CodeBlock>
   );
 }

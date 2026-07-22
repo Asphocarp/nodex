@@ -9,6 +9,7 @@ import type {
   CodexProtocolRequestId,
 } from "../../../../../lib/types";
 import { cn } from "../../../../../lib/utils";
+import { buildTextPreview, INLINE_TEXT_PREVIEW_MAX_CHARS } from "../../../../../lib/text-preview";
 import {
   buildCodexMcpElicitationFormModel,
   buildCodexMcpServerElicitationResponse,
@@ -22,6 +23,7 @@ import {
   ToolActivityIcon,
   resolveMcpElicitationIcon,
 } from "../../shared/tools/tool-call-icons";
+import { ToolCallCodePanel, stringifyToolCallValue } from "../../shared/tools/tool-call-inspection";
 
 interface CodexMcpElicitationRequestCardProps {
   request: CodexMcpServerElicitationRequest;
@@ -485,11 +487,16 @@ function CompactMcpRequestCard({
   request,
   onRespond,
 }: CodexMcpElicitationRequestCardProps) {
-  const [detailsExpanded, setDetailsExpanded] = useState(true);
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
   const serverName = formatServerName(request.serverName);
-  const detailsText = request.mode === "url"
-    ? request.url ?? ""
-    : JSON.stringify(request.requestedSchema ?? {}, null, 2);
+  const hasDetails = request.mode === "url"
+    ? Boolean(request.url)
+    : request.requestedSchema !== undefined;
+  const detailsText = useMemo(() => {
+    if (!detailsExpanded) return null;
+    if (request.mode === "url") return request.url ?? "";
+    return stringifyToolCallValue(request.requestedSchema ?? {});
+  }, [detailsExpanded, request.mode, request.requestedSchema, request.url]);
 
   return (
     <div className="text-size-chat border-token-border bg-token-input-background/70 flex flex-col overflow-hidden rounded-2xl border text-token-foreground backdrop-blur-sm">
@@ -499,7 +506,7 @@ function CompactMcpRequestCard({
           <span>{serverName}</span>
         </div>
         <div className="text-base leading-tight font-medium">{request.message}</div>
-        {detailsText ? (
+        {hasDetails ? (
           <div className="flex flex-col gap-2">
             <button
               type="button"
@@ -511,10 +518,14 @@ function CompactMcpRequestCard({
               <span>Details</span>
               <ChevronDownIcon className={cn("transition-transform duration-200", detailsExpanded && "rotate-180")} />
             </button>
-            {detailsExpanded ? (
-              <div className="bg-token-text-code-block-background border-token-border/70 max-h-48 overflow-auto rounded-lg border p-2 font-mono text-xs whitespace-pre-wrap text-token-description-foreground">
-                {detailsText}
-              </div>
+            {detailsExpanded && detailsText ? (
+              <ToolCallCodePanel
+                title={request.mode === "url" ? "URL" : "json"}
+                preview={buildTextPreview(detailsText, INLINE_TEXT_PREVIEW_MAX_CHARS)}
+                getCopyText={() => detailsText}
+                getFullText={() => detailsText}
+                preClassName="font-mono text-xs text-token-description-foreground"
+              />
             ) : null}
           </div>
         ) : null}

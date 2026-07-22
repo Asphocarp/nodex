@@ -9681,6 +9681,43 @@ describe("codex-service approval fallback", () => {
     }
   });
 
+  test("materializes an owned pasted-text source exactly at the main-process turn boundary", async () => {
+    const attachmentRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nodex-pasted-text-turn-"),
+    );
+    const service = createService({
+      resolveThreadGoalAttachmentsRoot: () => attachmentRoot,
+    });
+    const serviceInternals = service as unknown as {
+      createPastedTextAttachment: CodexService["createPastedTextAttachment"];
+      preparePromptForTurn: (
+        prompt: string,
+        promptInput: CodexPromptInput,
+      ) => Promise<{
+        inputItems: Array<{ type: string; text?: string }>;
+        pastedTextAttachments: CodexPromptInput["textAttachments"];
+      }>;
+    };
+    const pastedText = "  leading\ntrailing  \n";
+
+    try {
+      const attachment = await serviceInternals.createPastedTextAttachment({ text: pastedText });
+      const prepared = await serviceInternals.preparePromptForTurn("Prompt", {
+        text: "Prompt",
+        textAttachments: [attachment],
+      });
+
+      expect(prepared.inputItems.map((item) => item.text)).toEqual([
+        "Prompt",
+        pastedText,
+      ]);
+      expect(prepared.pastedTextAttachments).toEqual([attachment]);
+    } finally {
+      await service.shutdown();
+      fs.rmSync(attachmentRoot, { recursive: true, force: true });
+    }
+  });
+
   test("queues the exact dynamic pending-worktree contract and returns only its client id", async () => {
     const service = createService();
     const captured: CodexPendingStartConversationRequest[] = [];

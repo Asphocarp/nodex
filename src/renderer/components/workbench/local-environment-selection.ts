@@ -10,7 +10,7 @@ export type LocalEnvironmentSelectionsByWorkspace = Record<
 
 interface LocalEnvironmentConfigCandidate {
   readonly configPath: string;
-  readonly state: "success" | "parseError" | "readError";
+  readonly state: "success" | "parseError" | "readError" | "tooLarge";
 }
 
 function normalizePath(value: string): string {

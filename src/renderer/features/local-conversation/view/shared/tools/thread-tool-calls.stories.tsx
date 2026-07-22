@@ -133,6 +133,27 @@ function buildMcpResultStoryItem(
   };
 }
 
+function buildLargeMcpTextResult(prefix: string): CodexMcpToolCallNormalizedResult {
+  const content = [{
+    type: "text" as const,
+    text: Array.from(
+      { length: 2_000 },
+      (_value, index) => `${prefix} ${index + 1}: exact connector output remains available without mounting the complete payload inline.`,
+    ).join("\n"),
+  }];
+
+  return {
+    type: "success",
+    content,
+    structuredContent: null,
+    raw: {
+      content,
+      structuredContent: null,
+      _meta: null,
+    },
+  };
+}
+
 const MCP_RARE_CONTENT_BLOCKS: CodexMcpToolCallContentBlock[] = [
   {
     type: "text",
@@ -1933,6 +1954,33 @@ export const McpRawOutputDialog: Story = {
       description="The raw-output dialog opened from the Codex-style MCP call footer action."
     >
       <AutoOpenMcpToolCall item={THREAD_TOOL_CALL_STORY_ITEMS.mcp} rawDialogOpen />
+    </StorySurface>
+  ),
+};
+
+export const McpToolCallLargePreview: Story = {
+  render: () => (
+    <StorySurface
+      title="MCP Tool Call Large Preview"
+      description="A large text result mounts a bounded preview, reports omitted content, and keeps exact text behind View full and Raw."
+    >
+      <AutoOpenMcpToolCall
+        item={buildMcpResultStoryItem("mcp-large-preview", buildLargeMcpTextResult("Result line"))}
+      />
+    </StorySurface>
+  ),
+};
+
+export const McpLargeRawOutputDialog: Story = {
+  render: () => (
+    <StorySurface
+      title="MCP Large Raw Output Dialog"
+      description="Opening Raw derives the complete payload once and hands it to the lazy viewport-rendered reader."
+    >
+      <AutoOpenMcpToolCall
+        item={buildMcpResultStoryItem("mcp-large-raw", buildLargeMcpTextResult("Raw result line"))}
+        rawDialogOpen
+      />
     </StorySurface>
   ),
 };

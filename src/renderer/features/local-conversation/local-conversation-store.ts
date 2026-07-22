@@ -138,6 +138,8 @@ import type {
   CodexTurnStatus,
 } from "../../../shared/types";
 import { getCodexThreadOwnerNotificationThreadId } from "../../../shared/types";
+import { applyTerminalTextDelta } from "../../../shared/terminal-text";
+import { WORKTREE_OUTPUT_TAIL_MAX_CHARS } from "../../../shared/worktree-output";
 import {
   applyCodexConversationStateUpdates,
   buildCodexConversationStateUpdates,
@@ -553,6 +555,7 @@ interface CodexThreadStartProgressState {
   message: string;
   outputText: string;
   outputCarriageReturnPending: boolean;
+  outputTruncated: boolean;
   updatedAt: number;
 }
 
@@ -1028,48 +1031,6 @@ function cleanupListenerSet<T>(
 
 function getThreadStartProgressTargetKey(projectId: string | null, sessionId: string | null): string {
   return `${projectId ?? "projectless"}:${sessionId ?? "sessionless"}`;
-}
-
-function applyTerminalOutputDelta(input: {
-  existingText: string;
-  outputDelta: string;
-  outputCarriageReturnPending: boolean;
-}): { outputText: string; outputCarriageReturnPending: boolean } {
-  let outputText = input.existingText;
-  let outputCarriageReturnPending = input.outputCarriageReturnPending;
-
-  for (const character of input.outputDelta) {
-    if (outputCarriageReturnPending) {
-      if (character === "\n") {
-        outputText += "\n";
-        outputCarriageReturnPending = false;
-        continue;
-      }
-
-      const lastLineBreakIndex = outputText.lastIndexOf("\n");
-      outputText = lastLineBreakIndex >= 0 ? outputText.slice(0, lastLineBreakIndex + 1) : "";
-      outputCarriageReturnPending = false;
-    }
-
-    if (character === "\r") {
-      outputCarriageReturnPending = true;
-      continue;
-    }
-
-    if (character === "\b") {
-      if (outputText.length > 0) {
-        outputText = outputText.slice(0, -1);
-      }
-      continue;
-    }
-
-    outputText += character;
-  }
-
-  return {
-    outputText,
-    outputCarriageReturnPending,
-  };
 }
 
 function areStringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
@@ -8788,15 +8749,21 @@ export class CodexAppServerManager {
     const previousCarriageReturnPending = event.clearOutput
       ? false
       : previous?.outputCarriageReturnPending ?? false;
+    const previousOutputTruncated = event.clearOutput
+      ? false
+      : previous?.outputTruncated ?? false;
     const mergedOutput = event.outputDelta
-      ? applyTerminalOutputDelta({
-          existingText: previousText,
-          outputDelta: event.outputDelta,
-          outputCarriageReturnPending: previousCarriageReturnPending,
+      ? applyTerminalTextDelta({
+          currentText: previousText,
+          delta: event.outputDelta,
+          carriageReturnPending: previousCarriageReturnPending,
+          didTruncate: previousOutputTruncated,
+          maxChars: WORKTREE_OUTPUT_TAIL_MAX_CHARS,
         })
       : {
-          outputText: previousText,
-          outputCarriageReturnPending: previousCarriageReturnPending,
+          text: previousText,
+          carriageReturnPending: previousCarriageReturnPending,
+          didTruncate: previousOutputTruncated,
         };
 
     const nextState: CodexThreadStartProgressState = {
@@ -8806,8 +8773,9 @@ export class CodexAppServerManager {
       threadId: event.threadId,
       phase: event.phase,
       message: event.message,
-      outputText: mergedOutput.outputText,
-      outputCarriageReturnPending: mergedOutput.outputCarriageReturnPending,
+      outputText: mergedOutput.text,
+      outputCarriageReturnPending: mergedOutput.carriageReturnPending,
+      outputTruncated: mergedOutput.didTruncate,
       updatedAt: event.updatedAt,
     };
     if (areThreadStartProgressStatesEqual(previous, nextState)) {
@@ -9825,6 +9793,7 @@ function areThreadStartProgressStatesEqual(
     && left.message === right.message
     && left.outputText === right.outputText
     && left.outputCarriageReturnPending === right.outputCarriageReturnPending
+    && left.outputTruncated === right.outputTruncated
     && left.updatedAt === right.updatedAt
   );
 }
@@ -10262,6 +10231,7 @@ export function useCodexThreadStartProgress(
         phase: progress.phase,
         message: progress.message,
         outputText: progress.outputText,
+        outputTruncated: progress.outputTruncated,
         updatedAt: progress.updatedAt,
       };
     },

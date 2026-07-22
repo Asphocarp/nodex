@@ -68,6 +68,7 @@ export type {
   WorkspaceFileMetadataInput,
   WorkspaceFileReadResult,
   WorkspaceFileRequest,
+  WorkspaceFileTextReadInput,
   WorkspaceFileWriteInput,
   WorkspaceFileWriteResult,
   PanelId,

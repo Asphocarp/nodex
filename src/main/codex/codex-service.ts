@@ -132,6 +132,7 @@ import type {
   CodexHostMessage,
   CodexItemView,
   CodexLiveFileAttachment,
+  CodexPastedTextAttachment,
   CodexMcpServerElicitationAction,
   CodexMcpServerElicitationRequest,
   CodexMcpServerElicitationResponse,
@@ -2069,7 +2070,6 @@ function readOwnerPreparedPrompt(value: unknown): CodexPreparedPrompt {
   }
   if (
     !Array.isArray(prepared.inputItems)
-    || prepared.inputItems.length === 0
     || !prepared.inputItems.every(isOwnerTurnUserInput)
     || !Array.isArray(prepared.pendingInputItems)
     || !prepared.pendingInputItems.every(isOwnerTurnUserInput)
@@ -2086,6 +2086,9 @@ function readOwnerPreparedPrompt(value: unknown): CodexPreparedPrompt {
     || !Array.isArray(prepared.agentConfigs)
   ) {
     throw new Error("Owner turn/start request has invalid prepared sidecars");
+  }
+  if (prepared.inputItems.length === 0 && prepared.pastedTextAttachments.length === 0) {
+    throw new Error("Owner turn/start request requires prepared input or pasted text");
   }
   if (
     prepared.additionalContext !== undefined
@@ -2235,7 +2238,11 @@ function buildInitialAutoTitlePromptItems(input: {
 }): CodexUserInputItem[] {
   const textItems = input.promptText.trim() ? [createTextUserInput(input.promptText.trim())] : [];
   const pastedTextExcerpts = (input.promptInput?.textAttachments ?? [])
-    .map((attachment) => attachment.text.trim().slice(0, CODEX_THREAD_TITLE_PROMPT_MAX_CHARS))
+    .map((attachment) => (
+      "text" in attachment
+        ? attachment.text.trim()
+        : attachment.preview.trim()
+    ).slice(0, CODEX_THREAD_TITLE_PROMPT_MAX_CHARS))
     .filter((text) => text.length > 0);
   if (pastedTextExcerpts.length === 0) {
     return textItems;
@@ -10913,7 +10920,7 @@ export class CodexService extends EventEmitter {
       allowEmptyTextPlaceholder: options.allowEmptyTextPlaceholder,
     });
 
-    return {
+    return await this.materializePreparedPromptTextAttachments({
       promptText: prepared.promptText,
       inputItems: [...prepared.inputItems],
       pendingInputItems: [...prepared.pendingInputItems],
@@ -10923,13 +10930,13 @@ export class CodexService extends EventEmitter {
       ...(prepared.additionalContext ? { additionalContext: prepared.additionalContext } : {}),
       commentAttachments: [...prepared.commentAttachments],
       agentConfigOverrides: await this.resolveAgentConfigOverrides([...prepared.agentConfigs]),
-    };
+    });
   }
 
   private async usePreparedPromptForTurn(
     prepared: CodexPreparedPrompt,
   ): Promise<PreparedPromptForTurn> {
-    return {
+    return await this.materializePreparedPromptTextAttachments({
       promptText: prepared.promptText,
       inputItems: [...prepared.inputItems],
       pendingInputItems: [...prepared.pendingInputItems],
@@ -10939,6 +10946,38 @@ export class CodexService extends EventEmitter {
       ...(prepared.additionalContext ? { additionalContext: prepared.additionalContext } : {}),
       commentAttachments: [...prepared.commentAttachments],
       agentConfigOverrides: await this.resolveAgentConfigOverrides([...prepared.agentConfigs]),
+    });
+  }
+
+  private async materializePreparedPromptTextAttachments(
+    prepared: PreparedPromptForTurn,
+  ): Promise<PreparedPromptForTurn> {
+    if (prepared.pastedTextAttachments.length === 0) return prepared;
+
+    const manager = await this.getPastedTextAttachmentManager();
+    const attachmentTexts = await Promise.all(
+      prepared.pastedTextAttachments.map((attachment) => (
+        "text" in attachment
+          ? Promise.resolve(attachment.text)
+          : manager.readRawSource(attachment.file)
+      )),
+    );
+    const attachmentItems = attachmentTexts.flatMap((text) => (
+      text.trim().length > 0 ? [createTextUserInput(text)] : []
+    ));
+    if (attachmentItems.length === 0) return prepared;
+
+    const firstItem = prepared.inputItems[0];
+    const insertAfterPrimaryText = firstItem?.type === "text"
+      && firstItem.text === prepared.promptText;
+    const insertionIndex = insertAfterPrimaryText ? 1 : 0;
+    return {
+      ...prepared,
+      inputItems: [
+        ...prepared.inputItems.slice(0, insertionIndex),
+        ...attachmentItems,
+        ...prepared.inputItems.slice(insertionIndex),
+      ],
     };
   }
 
@@ -17077,7 +17116,9 @@ export class CodexService extends EventEmitter {
       : undefined;
     const hasInitialPrompt = Boolean(
       input.prompt?.trim()
-      || promptInput?.textAttachments?.some((attachment) => attachment.text.trim().length > 0)
+      || promptInput?.textAttachments?.some((attachment) => (
+        "text" in attachment ? attachment.text.trim().length > 0 : true
+      ))
       || promptInput?.images?.length
       || promptInput?.mentions?.length
       || promptInput?.skills?.length
@@ -17520,6 +17561,25 @@ export class CodexService extends EventEmitter {
     draft: CodexThreadGoalDraftInput,
   ): Promise<CodexThreadGoalMaterializedDraft> {
     return await (await this.getThreadGoalDirectoryManager()).materializeDraft(draft);
+  }
+
+  async createPastedTextAttachment(input: {
+    readonly text: string;
+    readonly hostId?: string;
+  }): Promise<CodexPastedTextAttachment> {
+    return await (await this.getPastedTextAttachmentManager()).createRawSource(input);
+  }
+
+  async readPastedTextAttachment(input: {
+    readonly file: CodexLiveFileAttachment;
+  }): Promise<string> {
+    return await (await this.getPastedTextAttachmentManager()).readRawSource(input.file);
+  }
+
+  async removePastedTextAttachment(input: {
+    readonly file: CodexLiveFileAttachment;
+  }): Promise<void> {
+    await (await this.getPastedTextAttachmentManager()).remove(input.file.path);
   }
 
   async cleanupThreadGoalMaterializedDraft(

@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useEffect, useRef, type ComponentProps } from "react";
 import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import type { CodexConversationTurn } from "../../../lib/types";
 import type { VisibleConversationTurnEntry } from "../selectors";
@@ -496,6 +497,27 @@ const multilineUserMessageTurn = buildStoryConversationTurn({
   ],
 });
 
+const veryLargeUserMessageTurn = buildStoryConversationTurn({
+  turnId: "turn_story_very_large_user_message",
+  status: "completed",
+  items: [
+    buildStoryConversationItem({
+      turnId: "turn_story_very_large_user_message",
+      itemId: "user_story_very_large_user_message",
+      type: "user_message",
+      kind: "userMessage",
+      semanticKind: "userMessage",
+      role: "user",
+      markdownText: Array.from(
+        { length: 1_200 },
+        (_value, index) => `Exact legacy prompt line ${index + 1}: preserve full source without mounting every line in the transcript.`,
+      ).join("\n"),
+      createdAt: 1_000,
+      updatedAt: 1_000,
+    }),
+  ],
+});
+
 const remoteImageTurn = buildStoryConversationTurn({
   turnId: "turn_story_remote_image",
   status: "completed",
@@ -656,6 +678,39 @@ function storyEntry(
   };
 }
 
+function AutoOpenUserMessage({
+  buttonLabel,
+  ...props
+}: ComponentProps<typeof LocalConversationTurnEntry> & { buttonLabel: string }) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    let attemptsRemaining = 20;
+    let timeoutId = 0;
+    const open = () => {
+      const button = Array.from(rootRef.current?.querySelectorAll("button") ?? []).find(
+        (candidate) => candidate.textContent?.trim() === buttonLabel,
+      );
+      if (button) {
+        button.click();
+        return;
+      }
+      attemptsRemaining -= 1;
+      if (attemptsRemaining > 0) {
+        timeoutId = window.setTimeout(open, 50);
+      }
+    };
+    timeoutId = window.setTimeout(open, 50);
+    return () => window.clearTimeout(timeoutId);
+  }, [buttonLabel]);
+
+  return (
+    <div ref={rootRef}>
+      <LocalConversationTurnEntry {...props} />
+    </div>
+  );
+}
+
 const meta = {
   title: "Workbench/Threads/Turn Entry",
   component: LocalConversationTurnEntry,
@@ -781,6 +836,20 @@ export const LongUserMessageCollapsed: Story = {
   args: {
     entry: storyEntry(longUserMessageTurn),
   },
+};
+
+export const LongUserMessageExpanded: Story = {
+  args: {
+    entry: storyEntry(longUserMessageTurn),
+  },
+  render: (args) => <AutoOpenUserMessage {...args} buttonLabel="Show more" />,
+};
+
+export const VeryLargeUserMessageFullSource: Story = {
+  args: {
+    entry: storyEntry(veryLargeUserMessageTurn),
+  },
+  render: (args) => <AutoOpenUserMessage {...args} buttonLabel="View full message" />,
 };
 
 export const MultilineUserMessageCollapsed: Story = {

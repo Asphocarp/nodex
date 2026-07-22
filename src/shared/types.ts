@@ -649,6 +649,10 @@ export interface WorkspaceFileRequest {
   path: string;
 }
 
+export interface WorkspaceFileTextReadInput extends WorkspaceFileRequest {
+  maxBytes: number;
+}
+
 export interface WorkspaceFileMetadataInput extends WorkspaceFileRequest {
   contentSampleByteLimit?: number;
   contentSampleMaxFileBytes?: number;
@@ -1153,7 +1157,7 @@ export interface WorktreeEnvironmentDefinition {
 }
 
 export type WorktreeEnvironmentConfigState =
-  "success" | "parseError" | "readError";
+  "success" | "parseError" | "readError" | "tooLarge";
 
 export interface WorktreeEnvironmentConfigRecord {
   configPath: string;
@@ -1166,6 +1170,7 @@ export interface WorktreeEnvironmentConfigRecord {
   actionCount: number;
   parseErrorMessage: string | null;
   readErrorMessage: string | null;
+  tooLargeMessage?: string | null;
   environment: WorktreeEnvironmentDefinition | null;
 }
 
@@ -1180,6 +1185,7 @@ export interface WorktreeEnvironmentSettingsSnapshot {
   environment: WorktreeEnvironmentDefinition | null;
   parseErrorMessage: string | null;
   readErrorMessage: string | null;
+  tooLargeMessage?: string | null;
 }
 
 export interface UpdateWorktreeEnvironmentConfigInput {
@@ -1775,9 +1781,7 @@ export interface CodexThreadGoalDraftInput {
   readonly imageAttachments: readonly CodexThreadGoalImageAttachmentInput[];
 }
 
-export type CodexThreadGoalPastedTextAttachmentInput =
-  | CodexPromptTextAttachmentInput
-  | CodexPastedTextAttachment;
+export type CodexThreadGoalPastedTextAttachmentInput = CodexPromptTextAttachmentInput;
 
 export interface CodexThreadGoalImageAttachmentInput {
   readonly src: string;
@@ -1902,7 +1906,7 @@ export interface CodexPromptSkillInput {
   path: string;
 }
 
-export interface CodexPromptTextAttachmentInput {
+export interface CodexRawPromptTextAttachmentInput {
   text: string;
   file?: CodexLiveFileAttachment;
   preview?: string;
@@ -1928,6 +1932,10 @@ export interface CodexPastedTextAttachment {
   hostId?: string;
   characterCount?: number;
 }
+
+export type CodexPromptTextAttachmentInput =
+  | CodexRawPromptTextAttachmentInput
+  | CodexPastedTextAttachment;
 
 export type ReviewDiffAnnotationSide = "additions" | "deletions";
 

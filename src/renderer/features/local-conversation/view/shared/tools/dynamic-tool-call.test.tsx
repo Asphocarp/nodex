@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { act, fireEvent } from "@testing-library/react";
+import { act, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../../components/ui/tooltip";
@@ -83,6 +83,45 @@ describe("DynamicToolCall", () => {
       getByRole("button", { name: "Show codex_app.read_thread tool call details" })
         .getAttribute("aria-expanded"),
     ).toBe("false");
+  });
+
+  test("does not serialize a five-megabyte generic payload until details expand", async () => {
+    let serializationCalls = 0;
+    const payload = "x".repeat(5 * 1024 * 1024);
+    const argumentsValue = {
+      payload,
+      toJSON() {
+        serializationCalls += 1;
+        return { payload };
+      },
+    };
+    const { container, getByRole } = render(
+      <TooltipProvider>
+        <DynamicToolCall
+          item={buildDynamicEntry({
+            namespace: "example",
+            tool: "large_payload",
+            arguments: argumentsValue as never,
+            contentItems: [{ type: "inputText", text: payload }],
+          })}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(serializationCalls).toBe(0);
+    expect(container.querySelectorAll("pre")).toHaveLength(0);
+
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "Show example.large_payload tool call details" }));
+      await Promise.resolve();
+    });
+
+    expect(serializationCalls).toBe(1);
+    expect(Array.from(container.querySelectorAll("pre")).every(
+      (element) => (element.textContent?.length ?? 0) <= 32_000,
+    )).toBe(true);
+    expect(getByRole("button", { name: "View full Arguments" })).toBeTruthy();
+    expect(getByRole("button", { name: /View full Output/ })).toBeTruthy();
   });
 
   test("renders navigable Codex app thread rows through the registry renderer", () => {
@@ -337,9 +376,11 @@ describe("DynamicToolCall", () => {
 
     const dialog = getByRole("dialog");
     expect(textContent(dialog).includes("Raw nodex_app.edit_document tool call")).toBe(true);
-    expect(textContent(dialog).includes('"type": "dynamicToolCall"')).toBe(true);
-    expect(textContent(dialog).includes('"id": "dynamic-1"')).toBe(true);
-    expect(textContent(dialog).includes('"durationMs": 37')).toBe(true);
+    await waitFor(() => {
+      expect(textContent(dialog).includes('"type": "dynamicToolCall"')).toBe(true);
+      expect(textContent(dialog).includes('"id": "dynamic-1"')).toBe(true);
+      expect(textContent(dialog).includes('"durationMs": 37')).toBe(true);
+    });
   });
 
   test("shows both sides of an NFM patch before the details inspector is opened", () => {
@@ -428,7 +469,9 @@ describe("DynamicToolCall", () => {
       }));
       await Promise.resolve();
     });
-    expect(textContent(getByRole("dialog")).includes('"oldMarkdown": "Status: Draft"')).toBe(true);
+    await waitFor(() => {
+      expect(textContent(getByRole("dialog")).includes('"oldMarkdown": "Status: Draft"')).toBe(true);
+    });
   });
 
   test("uses active fallback labels for in-progress generic dynamic tools", () => {

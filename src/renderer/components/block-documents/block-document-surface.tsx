@@ -22,6 +22,7 @@ import {
   type BlockDocumentSurfaceFailureReason,
 } from "@/lib/block-document-surface-failure";
 import { writeTextToClipboard } from "@/lib/clipboard";
+import { buildTextPreview, INLINE_TEXT_PREVIEW_MAX_CHARS } from "@/lib/text-preview";
 import {
   BlockDocumentSurfaceRuntime,
   type BlockDocumentSurfaceReloadContext,
@@ -155,6 +156,10 @@ export function BlockDocumentSurfaceFailureState({
     error,
     reason,
   });
+  const diagnosticsPreview = buildTextPreview(
+    presentation.diagnostics,
+    INLINE_TEXT_PREVIEW_MAX_CHARS,
+  );
 
   const copyDiagnostics = async (): Promise<void> => {
     const copied = await writeTextToClipboard(presentation.diagnostics);
@@ -230,7 +235,7 @@ export function BlockDocumentSurfaceFailureState({
               </NodexButton>
             </div>
             <pre className="scrollbar-token overflow-x-auto whitespace-pre-wrap break-words text-xs leading-5 text-token-description-foreground">
-              {presentation.diagnostics}
+              {diagnosticsPreview.text}
             </pre>
           </div>
         ) : null}

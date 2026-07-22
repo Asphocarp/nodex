@@ -122,6 +122,7 @@ export function CopyMessageIcon({ className }: { className?: string }) {
 
 export function CopyMessageActionButton({
   text,
+  getText,
   label = "Copy message",
   copiedLabel = "Copied",
   tooltipLabel = "Copy",
@@ -131,7 +132,8 @@ export function CopyMessageActionButton({
   stopPropagation = false,
   className,
 }: {
-  text: string;
+  text?: string;
+  getText?: () => string;
   label?: string;
   copiedLabel?: string;
   tooltipLabel?: string;
@@ -153,7 +155,7 @@ export function CopyMessageActionButton({
   }, []);
 
   const handleCopy = async () => {
-    const didCopy = await writeTextToClipboard(text);
+    const didCopy = await writeTextToClipboard(getText?.() ?? text ?? "");
     if (!didCopy) return;
 
     if (resetTimerRef.current !== null) {

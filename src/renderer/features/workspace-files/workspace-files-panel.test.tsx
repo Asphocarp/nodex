@@ -14,6 +14,7 @@ let openFileTabCalls: { path: string; title: string; panelId: WorkspaceFilesTab[
 const WORKSPACE_ROOT = "/workspace";
 const WORKTREE_FILE = "/profile/worktrees/abcd/project/README.md";
 const HUGE_FILE = "/profile/worktrees/abcd/project/huge.txt";
+const LARGE_MARKDOWN_FILE = `${WORKSPACE_ROOT}/large.md`;
 const CREATED_AT = "2026-06-13T00:00:00.000Z";
 
 const directoryEntries: Record<string, WorkspaceFileDirectoryEntry[]> = {
@@ -31,6 +32,7 @@ const fileContents: Record<string, string> = {
   [`${WORKSPACE_ROOT}/README.md`]: "# Project\n\nWorkspace notes.",
   [`${WORKSPACE_ROOT}/src/index.ts`]: "export const value = 1;\n",
   [WORKTREE_FILE]: "# Project\n\nWorktree notes.",
+  [LARGE_MARKDOWN_FILE]: `# Large\n\n${"linked content\n".repeat(20_000)}`,
 };
 
 vi.mock("@/lib/api", () => ({
@@ -172,6 +174,22 @@ describe("WorkspaceFilesPanel", () => {
 
     expect(view.getByText("huge.txt is too large to preview.") !== null).toBe(true);
     expect(invokeCalls.some((call) => call[0] === "read-file")).toBe(false);
+  });
+
+  test("routes large Markdown to exact source without mounting the rich renderer", async () => {
+    const view = renderPanel(LARGE_MARKDOWN_FILE);
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(view.getByText("Rich preview is unavailable for large Markdown files.")).not.toBeNull();
+    expect(view.container.querySelector(
+      "[data-virtualized-text-viewer='true'], [aria-label^='Loading Markdown source']",
+    )).not.toBeNull();
+    expect(view.container.querySelector(".codex-markdown-user")).toBe(null);
+    expect(invokeCalls.some((call) => (
+      call[0] === "read-file"
+      && (call[1] as { maxBytes?: number }).maxBytes === 1_500_000
+    ))).toBe(true);
   });
 
   test("renders unsupported binaries with external-open action", async () => {

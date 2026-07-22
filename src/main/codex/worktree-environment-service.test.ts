@@ -3,6 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  WORKTREE_ENVIRONMENT_ACTION_COMMAND_MAX_BYTES,
+  WORKTREE_ENVIRONMENT_ACTION_MAX_COUNT,
+  WORKTREE_ENVIRONMENT_ACTION_NAME_MAX_CHARS,
+  WORKTREE_ENVIRONMENT_MAX_BYTES,
+  WORKTREE_ENVIRONMENT_NAME_MAX_CHARS,
+  WORKTREE_ENVIRONMENT_SCRIPT_MAX_BYTES,
   listWorktreeEnvironmentConfigs,
   listWorktreeEnvironmentOptions,
   readWorktreeEnvironmentDefinition,
@@ -272,5 +278,132 @@ describe("worktree-environment-service", () => {
     } finally {
       removeWorkspace(workspacePath);
     }
+  });
+
+  test("classifies oversized configs before reading or parsing them", async () => {
+    const workspacePath = createWorkspace();
+    writeEnvironmentFile(
+      workspacePath,
+      "huge.toml",
+      "x".repeat(WORKTREE_ENVIRONMENT_MAX_BYTES + 1),
+    );
+
+    try {
+      const configs = await listWorktreeEnvironmentConfigs(workspacePath);
+      expect(configs[0]?.state).toBe("tooLarge");
+      expect(configs[0]?.environment).toBe(null);
+      expect(configs[0]?.parseErrorMessage).toBe(null);
+      expect(configs[0]?.tooLargeMessage).toContain("exceeds");
+      await expect(readWorktreeEnvironmentDefinition({
+        workspacePath,
+        environmentPath: ".codex/environments/huge.toml",
+      })).rejects.toThrow("too large");
+    } finally {
+      removeWorkspace(workspacePath);
+    }
+  });
+
+  test("accepts an exact-size config and rejects oversized parsed fields", async () => {
+    const workspacePath = createWorkspace();
+    const prefix = 'name = "Boundary"\n';
+    writeEnvironmentFile(
+      workspacePath,
+      "boundary.toml",
+      `${prefix}#${"x".repeat(WORKTREE_ENVIRONMENT_MAX_BYTES - Buffer.byteLength(prefix) - 1)}`,
+    );
+    writeEnvironmentFile(
+      workspacePath,
+      "oversized-script.toml",
+      [
+        'name = "Oversized script"',
+        "[setup]",
+        `script = "${"x".repeat(WORKTREE_ENVIRONMENT_SCRIPT_MAX_BYTES + 1)}"`,
+      ].join("\n"),
+    );
+
+    try {
+      const configs = await listWorktreeEnvironmentConfigs(workspacePath);
+      expect(configs.find((config) => config.configPath.endsWith("boundary.toml"))?.state).toBe("success");
+      const invalid = configs.find((config) => config.configPath.endsWith("oversized-script.toml"));
+      expect(invalid?.state).toBe("parseError");
+      expect(invalid?.parseErrorMessage).toContain("Setup script");
+    } finally {
+      removeWorkspace(workspacePath);
+    }
+  });
+
+  test("enforces field and aggregate limits at the serialization boundary", () => {
+    const base = {
+      version: 1,
+      name: "Local",
+      setup: { script: null, platformScripts: {} },
+      cleanup: { script: null, platformScripts: {} },
+      actions: [],
+    } satisfies Parameters<typeof serializeWorktreeEnvironmentDefinition>[0];
+
+    expect(() => serializeWorktreeEnvironmentDefinition({
+      ...base,
+      setup: {
+        script: "x".repeat(WORKTREE_ENVIRONMENT_SCRIPT_MAX_BYTES + 1),
+        platformScripts: {},
+      },
+    })).toThrow("Setup script");
+    expect(() => serializeWorktreeEnvironmentDefinition({
+      ...base,
+      actions: [{
+        id: "action-1",
+        name: "Run",
+        icon: "run",
+        command: "x".repeat(WORKTREE_ENVIRONMENT_ACTION_COMMAND_MAX_BYTES + 1),
+        platform: null,
+      }],
+    })).toThrow("Action 1 command");
+    expect(() => serializeWorktreeEnvironmentDefinition({
+      ...base,
+      actions: Array.from({ length: WORKTREE_ENVIRONMENT_ACTION_MAX_COUNT + 1 }, (_, index) => ({
+        id: `action-${index}`,
+        name: `Action ${index}`,
+        icon: "run" as const,
+        command: "true",
+        platform: null,
+      })),
+    })).toThrow("at most 100 actions");
+    expect(() => serializeWorktreeEnvironmentDefinition({
+      ...base,
+      setup: {
+        script: "x".repeat(WORKTREE_ENVIRONMENT_SCRIPT_MAX_BYTES),
+        platformScripts: {},
+      },
+      cleanup: {
+        script: "y".repeat(WORKTREE_ENVIRONMENT_SCRIPT_MAX_BYTES),
+        platformScripts: {},
+      },
+    })).toThrow("Environment file");
+
+    expect(() => serializeWorktreeEnvironmentDefinition({
+      ...base,
+      name: "n".repeat(WORKTREE_ENVIRONMENT_NAME_MAX_CHARS),
+      setup: {
+        script: "s".repeat(WORKTREE_ENVIRONMENT_SCRIPT_MAX_BYTES),
+        platformScripts: {},
+      },
+      actions: [{
+        id: "action-boundary",
+        name: "a".repeat(WORKTREE_ENVIRONMENT_ACTION_NAME_MAX_CHARS),
+        icon: "run",
+        command: "c".repeat(WORKTREE_ENVIRONMENT_ACTION_COMMAND_MAX_BYTES),
+        platform: null,
+      }],
+    })).not.toThrow();
+    expect(() => serializeWorktreeEnvironmentDefinition({
+      ...base,
+      actions: Array.from({ length: WORKTREE_ENVIRONMENT_ACTION_MAX_COUNT }, (_, index) => ({
+        id: `action-${index}`,
+        name: `Action ${index}`,
+        icon: "run" as const,
+        command: "true",
+        platform: null,
+      })),
+    })).not.toThrow();
   });
 });
