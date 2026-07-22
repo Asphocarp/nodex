@@ -7,6 +7,7 @@ import type {
   CommandPaletteThread,
 } from "@/lib/command-palette";
 import { createCommandPalettePageSearchIndex } from "@/lib/command-palette-page-search";
+import type { CommandPalettePageDescriptionSearchBatch } from "@/lib/command-palette-page-results";
 import { createCommandPaletteThreadSearchIndex } from "@/lib/command-palette-thread-search";
 import type { CommandPaletteThreadSearchBatch } from "@/lib/command-palette-chat-search";
 import { buildCommandPaletteCommands } from "@/lib/command-palette-commands";
@@ -85,11 +86,13 @@ function CommandPaletteStory({
   initialQuery,
   mode,
   includeThreads = false,
+  pageDescriptionSearchBatch,
   threadSearchBatch,
 }: {
   initialQuery: string;
   mode: CommandMenuMode;
   includeThreads?: boolean;
+  pageDescriptionSearchBatch?: CommandPalettePageDescriptionSearchBatch;
   threadSearchBatch?: CommandPaletteThreadSearchBatch;
 }) {
   const [open, setOpen] = useState(true);
@@ -203,6 +206,7 @@ function CommandPaletteStory({
           threads={threads}
           pageSearchIndex={pageSearchIndex}
           threadSearchIndex={threadSearchIndex}
+          pageDescriptionSearchBatch={pageDescriptionSearchBatch}
           threadSearchBatch={threadSearchBatch}
           loading={false}
           pagesLoading={false}
@@ -233,6 +237,24 @@ export const RootCommands: Story = {
 
 export const RootMetadataChats: Story = {
   render: () => <CommandPaletteStory mode="root" initialQuery="pa" includeThreads />,
+};
+
+export const RootCommandsChatsAndPages: Story = {
+  render: () => (
+    <CommandPaletteStory
+      mode="root"
+      initialQuery="palette"
+      includeThreads
+      pageDescriptionSearchBatch={{
+        query: "palette",
+        scopeKey: "codex\nnodex",
+        results: [],
+        status: "success",
+        error: null,
+      }}
+      threadSearchBatch={{ query: "palette", loading: false, error: null, results: [] }}
+    />
+  ),
 };
 
 export const RootCommandsAndHistory: Story = {
@@ -299,6 +321,22 @@ export const RootHistoryFailureFallback: Story = {
 
 export const PageSearch: Story = {
   render: () => <CommandPaletteStory mode="pages" initialQuery="palette" />,
+};
+
+export const PageSearchPending: Story = {
+  render: () => (
+    <CommandPaletteStory
+      mode="pages"
+      initialQuery="vector clocks"
+      pageDescriptionSearchBatch={{
+        query: "previous query",
+        scopeKey: "codex\nnodex",
+        results: [],
+        status: "success",
+        error: null,
+      }}
+    />
+  ),
 };
 
 export const ChatSearch: Story = {

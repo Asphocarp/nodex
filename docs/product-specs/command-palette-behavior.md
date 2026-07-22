@@ -4,7 +4,7 @@
 The command palette is the global launcher for fast workbench navigation.
 It has explicit entry modes while keeping root search useful when users type a task title without switching modes first:
 
-- root mode searches commands immediately and progressively adds chats as the query becomes specific
+- root mode searches commands immediately and progressively adds chats and Pages as the query becomes specific
 - chats mode searches the current non-archived sidebar chats
 - page mode searches Library Pages and owns the Page filter controls
 - files mode keeps the command-menu shell available for future file-search work, but file search stays a development-only disabled mock until Nodex has a real file-search backend
@@ -33,12 +33,15 @@ Root command mode is opened by `Cmd/Ctrl+K` and `Cmd/Ctrl+Shift+P`.
 
 - Root mode always searches command/action rows.
 - A root query shorter than `2` characters remains command-only.
-- At `2` characters, matching local chat metadata appears in a trailing `Chats` section while commands remain visible.
-- At `3` characters, the same section also merges bounded app-server chat-history results.
+- At `2` Unicode characters, matching local chat and Page metadata appears in trailing `Chats` and `Pages` sections while commands remain visible.
+- At `2` Unicode characters, root mode also starts a bounded Page-body search. At `3` characters, the `Chats` section additionally merges bounded app-server chat-history results.
 - Chats and Pages are represented as explicit command rows such as `Search chats` and `Search Pages`.
 - Executing `Search chats` switches to chats mode. Executing `Search Pages` switches to page mode.
 - `Search files` appears only in development as a disabled mock row until real file search exists.
-- Pages remain hidden in root mode; chats are progressively disclosed by query length.
+- Root results remain grouped as commands, Chats, then Pages; scores from different result types are never interleaved.
+- Pages use only the discovery-row budget left after commands, Chats, and visible search-status rows. Root mode has no separate Page-result cap, so Pages can fill every remaining row.
+- For queries that include app-server chat history, root mode waits for that Chat result count to settle before revealing Pages so the final section does not appear and disappear as Chats arrive.
+- Root Page discovery ignores persisted Page-mode filters because those controls are not visible in root mode.
 - Disabled commands remain visible so users can understand available affordances, but they are skipped by keyboard selection and cannot be executed.
 - Commands use customized command-keymap shortcut labels where a matching command id exists.
 - Commands are grouped as Suggested, Chat, Navigation, Panels, Project, Configure, Skills, and App.
@@ -61,6 +64,7 @@ Page mode is opened by `Cmd/Ctrl+P`, the sidebar `Search` row, or the root-mode 
 - Commands and chats are hidden entirely in page mode.
 - Empty query shows default Page suggestions.
 - Page mode keeps a trailing `Filter` button on the search-input row.
+- Local Page metadata matches remain visible while Page-body search is pending. A fixed-height `Searching page contents...` status occupies the async result slot, and `No matching pages.` appears only after the current query and Project scope have settled with no matches.
 - Clicking `Filter` opens a transient popover with property filters for status, priority, tags, assignee, and project.
 - When any palette filters are active, the palette shows a compact summary row directly under the input, using the same compact pill language as the DB view toolbar.
 - Palette Page filters persist across palette reopen and app reload, but the free-text query still clears on close.
@@ -131,6 +135,7 @@ For empty queries, Page results skip MiniSearch and sort by:
 - The app also keeps an in-memory copy of the most recent palette index so reopening the palette in the same session does not rebuild it.
 - When the current Page set changes, the palette hydrates the cached MiniSearch index and diffs Pages by per-Page search signature instead of rebuilding everything from scratch.
 - Signature changes include all indexed text, so Page edits plus project-name or column-name changes invalidate the affected cached entries.
+- Bounded Page-body searches use a 150 ms debounce, deduplicate identical in-flight requests, and reuse successful results for 30 seconds. Root mode requests at most `12` body candidates; focused Page mode requests at most `60`.
 
 ## Page Result Presentation
 
@@ -164,6 +169,8 @@ If the query matched description text, the result renders a contextual preview b
 - matched spans are highlighted inline
 
 If a result matched only non-description fields, no description preview is shown.
+
+In root mode, Page rows stay compact: metadata badges are omitted and a body excerpt is clamped to one line. Focused Page mode retains the full Page row treatment above.
 
 ## Chat Search Model
 
@@ -239,7 +246,7 @@ Metadata matches highlight title, project/Chats context, cwd, branch, and previe
 - When the query is empty, standard dialog close behavior applies.
 
 ## Result Limits
-- root mode shows up to `100` command rows plus up to `9` progressive chat rows; one chat slot is reserved for the loading row while server search is pending
+- root mode shows up to `100` matching command rows and up to `9` progressive chat rows; Pages appear only when the combined command, Chat, and status-row count is below the `7`-row discovery budget, then fill the remaining budget without a separate Page cap
 - chats mode shows up to `9` chat rows
 - page mode shows up to `12` Page rows
 - files mode shows only its mock/empty state until real file search exists

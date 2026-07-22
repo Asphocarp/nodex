@@ -15,6 +15,7 @@ import {
 import type { DatabasePageSummary } from "@/lib/types";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import { createCommandPalettePageSearchIndex } from "../../lib/command-palette-page-search";
+import type { CommandPalettePageDescriptionSearchBatch } from "../../lib/command-palette-page-results";
 import { createCommandPaletteThreadSearchIndex } from "../../lib/command-palette-thread-search";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
 import { createCommandKeymapState } from "../../../shared/command-keybindings";
@@ -329,6 +330,18 @@ function makePaletteCommand(overrides: Partial<CommandPaletteCommand> = {}): Com
   };
 }
 
+function makePageDescriptionSearchBatch(
+  overrides: Partial<CommandPalettePageDescriptionSearchBatch> = {},
+): CommandPalettePageDescriptionSearchBatch {
+  return {
+    query: overrides.query ?? "page",
+    scopeKey: overrides.scopeKey ?? "default",
+    results: overrides.results ?? [],
+    status: overrides.status ?? "success",
+    error: overrides.error ?? null,
+  };
+}
+
 describe("CommandPaletteSurface", () => {
   test("opens the top fuzzy description match when the selected result is activated", async () => {
     const { CommandPaletteSurface } = await import("./command-palette-surface");
@@ -380,7 +393,7 @@ describe("CommandPaletteSurface", () => {
     expect(executedItems[0]?.page.id).toBe("page-1");
   });
 
-  test("root mode searches commands without the legacy > prefix", async () => {
+  test("root mode searches commands without the legacy > prefix or unrelated Pages", async () => {
     const { CommandPaletteSurface } = await import("./command-palette-surface");
     const { container, getByLabelText } = render(
       <CommandPaletteSurface
@@ -423,6 +436,216 @@ describe("CommandPaletteSurface", () => {
     expect(resultButtons.length).toBe(1);
     expect(textContent(container).includes("Misc task")).toBe(false);
     expect(textContent(container).includes("Settings")).toBe(true);
+  });
+
+  test("keeps Page search pending instead of flashing a false empty state", async () => {
+    const { CommandPaletteSurface } = await import("./command-palette-surface");
+    const pages = [makePalettePage({
+      page: makePage({
+        id: "unrelated-page",
+        title: "Release checklist",
+        descriptionPreview: "Prepare the packaged build.",
+      }),
+    })];
+    const { container } = render(
+      <CommandPaletteSurface
+        open
+        openTriggerTick={21}
+        mode="pages"
+        initialQuery="vector clocks"
+        commands={[]}
+        pages={pages}
+        pageSearchIndex={createCommandPalettePageSearchIndex(pages)}
+        pageDescriptionSearchBatch={makePageDescriptionSearchBatch({
+          query: "previous query",
+        })}
+        loading={false}
+        pagesLoading={false}
+        chatsLoading={false}
+        onChangeMode={() => undefined}
+        onRequestClose={() => undefined}
+        onExecute={() => undefined}
+      />,
+    );
+
+    await settleAsyncRender();
+
+    expect(textContent(container)).toContain("Searching page contents");
+    expect(textContent(container)).not.toContain("No matching pages");
+  });
+
+  test("shows the Page empty state only after the current search settles", async () => {
+    const { CommandPaletteSurface } = await import("./command-palette-surface");
+    const pages = [makePalettePage({
+      page: makePage({
+        id: "unrelated-page",
+        title: "Release checklist",
+        descriptionPreview: "Prepare the packaged build.",
+      }),
+    })];
+    const { container } = render(
+      <CommandPaletteSurface
+        open
+        openTriggerTick={22}
+        mode="pages"
+        initialQuery="vector clocks"
+        commands={[]}
+        pages={pages}
+        pageSearchIndex={createCommandPalettePageSearchIndex(pages)}
+        pageDescriptionSearchBatch={makePageDescriptionSearchBatch({
+          query: "vector clocks",
+        })}
+        loading={false}
+        pagesLoading={false}
+        chatsLoading={false}
+        onChangeMode={() => undefined}
+        onRequestClose={() => undefined}
+        onExecute={() => undefined}
+      />,
+    );
+
+    await settleAsyncRender();
+
+    expect(textContent(container)).toContain("No matching pages");
+    expect(textContent(container)).not.toContain("Searching page contents");
+  });
+
+  test("fills the root discovery budget with Pages without an independent Page cap", async () => {
+    const { CommandPaletteSurface } = await import("./command-palette-surface");
+    const pages = Array.from({ length: 10 }, (_, index) => makePalettePage({
+      id: `default:page-result-${index}`,
+      boardIndex: index,
+      page: makePage({
+        id: `page-result-${index}`,
+        title: `Page result ${index}`,
+        descriptionPreview: "Root discovery result.",
+      }),
+    }));
+    const { container } = render(
+      <CommandPaletteSurface
+        open
+        openTriggerTick={23}
+        mode="root"
+        initialQuery="page"
+        commands={[]}
+        pages={pages}
+        threads={[]}
+        pageSearchIndex={createCommandPalettePageSearchIndex(pages)}
+        threadSearchIndex={createCommandPaletteThreadSearchIndex([])}
+        pageDescriptionSearchBatch={makePageDescriptionSearchBatch()}
+        threadSearchBatch={{ query: "page", results: [], loading: false, error: null }}
+        loading={false}
+        pagesLoading={false}
+        chatsLoading={false}
+        onChangeMode={() => undefined}
+        onRequestClose={() => undefined}
+        onExecute={() => undefined}
+      />,
+    );
+
+    await settleAsyncRender();
+
+    const pageButtons = Array.from(container.querySelectorAll("button[cmdk-item]"))
+      .filter((button) => button.textContent?.includes("Page result"));
+    expect(pageButtons).toHaveLength(7);
+    expect(textContent(container)).toContain("Pages");
+  });
+
+  test("surfaces Page body-only matches in root mode", async () => {
+    const { CommandPaletteSurface } = await import("./command-palette-surface");
+    const pages = [makePalettePage({
+      page: makePage({
+        id: "body-only-page",
+        title: "Replication design note",
+        descriptionPreview: "No local metadata match.",
+      }),
+    })];
+    const { container } = render(
+      <CommandPaletteSurface
+        open
+        openTriggerTick={231}
+        mode="root"
+        initialQuery="vector clocks"
+        commands={[]}
+        pages={pages}
+        threads={[]}
+        pageSearchIndex={createCommandPalettePageSearchIndex(pages)}
+        threadSearchIndex={createCommandPaletteThreadSearchIndex([])}
+        pageDescriptionSearchBatch={makePageDescriptionSearchBatch({
+          query: "vector clocks",
+          results: [{
+            projectId: "default",
+            pageId: "body-only-page",
+            status: "build",
+            score: -1,
+            excerpt: "Document vector clocks and replicated queue recovery.",
+          }],
+        })}
+        threadSearchBatch={{ query: "vector clocks", results: [], loading: false, error: null }}
+        loading={false}
+        pagesLoading={false}
+        chatsLoading={false}
+        onChangeMode={() => undefined}
+        onRequestClose={() => undefined}
+        onExecute={() => undefined}
+      />,
+    );
+
+    await settleAsyncRender();
+
+    expect(textContent(container)).toContain("Replication design note");
+    expect(textContent(container)).toContain("vector clocks");
+    expect(textContent(container)).toContain("Pages");
+  });
+
+  test("uses only the root budget remaining after commands and chats for Pages", async () => {
+    const { CommandPaletteSurface } = await import("./command-palette-surface");
+    const pages = Array.from({ length: 8 }, (_, index) => makePalettePage({
+      id: `default:page-result-${index}`,
+      boardIndex: index,
+      page: makePage({
+        id: `page-result-${index}`,
+        title: `Page result ${index}`,
+      }),
+    }));
+    const threads = Array.from({ length: 2 }, (_, index) => makePaletteThread({
+      id: `thread:page-chat-${index}`,
+      threadId: `page-chat-${index}`,
+      title: `Page chat ${index}`,
+    }));
+    const commands = Array.from({ length: 2 }, (_, index) => makePaletteCommand({
+      id: `page-command-${index}`,
+      title: `Page command ${index}`,
+      keywords: ["page"],
+    }));
+    const { container } = render(
+      <CommandPaletteSurface
+        open
+        openTriggerTick={24}
+        mode="root"
+        initialQuery="page"
+        commands={commands}
+        pages={pages}
+        threads={threads}
+        pageSearchIndex={createCommandPalettePageSearchIndex(pages)}
+        threadSearchIndex={createCommandPaletteThreadSearchIndex(threads)}
+        pageDescriptionSearchBatch={makePageDescriptionSearchBatch()}
+        threadSearchBatch={{ query: "page", results: [], loading: false, error: null }}
+        loading={false}
+        pagesLoading={false}
+        chatsLoading={false}
+        onChangeMode={() => undefined}
+        onRequestClose={() => undefined}
+        onExecute={() => undefined}
+      />,
+    );
+
+    await settleAsyncRender();
+
+    const pageButtons = Array.from(container.querySelectorAll("button[cmdk-item]"))
+      .filter((button) => button.textContent?.includes("Page result"));
+    expect(container.querySelectorAll("button[cmdk-item]")).toHaveLength(7);
+    expect(pageButtons).toHaveLength(3);
   });
 
   test("renders and executes chat results from chats mode", async () => {
@@ -710,6 +933,34 @@ describe("CommandPaletteSurface", () => {
     await searchCommandPaletteThreads({ query: "refresh" });
 
     expect(searchedQueries).toEqual(["refresh"]);
+    apiMock.invokeImplementation = async () => [];
+  });
+
+  test("deduplicates concurrent Page body searches and reuses the short-lived cache", async () => {
+    const {
+      clearCommandPalettePageDescriptionSearchCacheForTests,
+      searchCommandPalettePageDescriptions,
+    } = await import("../../lib/command-palette-page-results");
+    const searchedQueries: string[] = [];
+    apiMock.invokeImplementation = async (channel: unknown, input: unknown) => {
+      if (channel === "pages:search") {
+        const query = typeof input === "object" && input !== null && "query" in input
+          ? String((input as { query?: unknown }).query ?? "")
+          : "";
+        searchedQueries.push(query);
+        return [];
+      }
+      return [];
+    };
+    clearCommandPalettePageDescriptionSearchCacheForTests();
+
+    await Promise.all([
+      searchCommandPalettePageDescriptions({ projectIds: ["default"], query: "page cache" }),
+      searchCommandPalettePageDescriptions({ projectIds: ["default"], query: "page cache" }),
+    ]);
+    await searchCommandPalettePageDescriptions({ projectIds: ["default"], query: "page cache" });
+
+    expect(searchedQueries).toEqual(["page cache"]);
     apiMock.invokeImplementation = async () => [];
   });
 

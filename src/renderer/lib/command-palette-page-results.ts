@@ -5,6 +5,7 @@ import {
   getDefaultCommandPalettePageFilters,
   matchesCommandPalettePageFilters,
   prioritizeActiveProjectItems,
+  type CommandMenuMode,
   type CommandPalettePage,
   type CommandPalettePageFilters,
 } from "./command-palette";
@@ -25,18 +26,86 @@ import type {
 const DEFAULT_METADATA_PAGE_LIMIT = 12;
 const DEFAULT_MERGED_PAGE_LIMIT = 24;
 const DEFAULT_DESCRIPTION_SEARCH_LIMIT = 60;
+const ROOT_DESCRIPTION_SEARCH_LIMIT = 12;
+const PAGE_SEARCH_DEBOUNCE_MS = 150;
+const PAGE_SEARCH_CACHE_TTL_MS = 30_000;
+
+type CommandPalettePageDescriptionSearchStatus = "idle" | "pending" | "success" | "error";
+
+interface PageDescriptionSearchCacheEntry {
+  readonly expiresAt: number;
+  readonly results: readonly PageSearchResult[];
+}
+
+const pageDescriptionSearchCache = new Map<string, PageDescriptionSearchCacheEntry>();
+const pageDescriptionSearchInFlight = new Map<string, Promise<readonly PageSearchResult[]>>();
 
 export interface CommandPalettePageDescriptionSearchBatch {
   query: string;
   scopeKey: string;
   results: readonly PageSearchResult[];
-  loading: boolean;
+  status: CommandPalettePageDescriptionSearchStatus;
+  error: string | null;
+}
+
+export interface CommandPalettePageSearchPlan {
+  includeContentResults: boolean;
+  searchLimit: number;
 }
 
 export function buildCommandPalettePageDescriptionSearchScopeKey(
   projectIds: readonly string[],
 ): string {
   return Array.from(new Set(projectIds)).sort((left, right) => left.localeCompare(right)).join("\n");
+}
+
+export function getCommandPalettePageSearchPlan(
+  mode: CommandMenuMode,
+  query: string,
+): CommandPalettePageSearchPlan | null {
+  const queryLength = Array.from(normalizeCommandPaletteSearchText(query)).length;
+  if (mode === "pages") {
+    return {
+      includeContentResults: queryLength > 0,
+      searchLimit: DEFAULT_DESCRIPTION_SEARCH_LIMIT,
+    };
+  }
+
+  if (mode === "root" && queryLength >= 2) {
+    return {
+      includeContentResults: true,
+      searchLimit: ROOT_DESCRIPTION_SEARCH_LIMIT,
+    };
+  }
+
+  return null;
+}
+
+function buildPageDescriptionSearchCacheKey({
+  projectIds,
+  query,
+  limit,
+}: {
+  projectIds: readonly string[];
+  query: string;
+  limit: number;
+}): string {
+  return [
+    buildCommandPalettePageDescriptionSearchScopeKey(projectIds),
+    normalizeCommandPaletteSearchText(query),
+    limit,
+  ].join("\u0000");
+}
+
+function readCachedPageDescriptionSearch(
+  key: string,
+  now = Date.now(),
+): readonly PageSearchResult[] | null {
+  const cached = pageDescriptionSearchCache.get(key);
+  if (!cached) return null;
+  if (cached.expiresAt > now) return cached.results;
+  pageDescriptionSearchCache.delete(key);
+  return null;
 }
 
 export function buildCommandPalettePageItemsFromBoardSummaries({
@@ -87,16 +156,67 @@ export async function searchCommandPalettePageDescriptions({
     return [];
   }
 
-  try {
+  const normalizedLimit = Math.max(1, Math.floor(limit));
+  const cacheKey = buildPageDescriptionSearchCacheKey({
+    projectIds: scopedProjectIds,
+    query: queryText,
+    limit: normalizedLimit,
+  });
+  const cached = readCachedPageDescriptionSearch(cacheKey);
+  if (cached) return [...cached];
+  const existing = pageDescriptionSearchInFlight.get(cacheKey);
+  if (existing) return [...await existing];
+
+  const request = (async () => {
     const results = await invoke("pages:search", {
       projectIds: scopedProjectIds,
       query: queryText,
-      limit,
+      limit: normalizedLimit,
     });
-    return Array.isArray(results) ? results : [];
-  } catch {
-    return [];
-  }
+    const normalizedResults = Array.isArray(results) ? results : [];
+    pageDescriptionSearchCache.set(cacheKey, {
+      expiresAt: Date.now() + PAGE_SEARCH_CACHE_TTL_MS,
+      results: normalizedResults,
+    });
+    return normalizedResults;
+  })().finally(() => {
+    pageDescriptionSearchInFlight.delete(cacheKey);
+  });
+  pageDescriptionSearchInFlight.set(cacheKey, request);
+  return [...await request];
+}
+
+export function isCommandPalettePageDescriptionSearchPending({
+  batch,
+  enabled,
+  query,
+  scopeKey,
+}: {
+  batch: CommandPalettePageDescriptionSearchBatch | null | undefined;
+  enabled: boolean;
+  query: string;
+  scopeKey: string;
+}): boolean {
+  const normalizedQuery = normalizeCommandPaletteSearchText(query);
+  if (!enabled || normalizedQuery.length === 0 || scopeKey.length === 0) return false;
+  if (!batch) return true;
+  if (batch.query !== normalizedQuery || batch.scopeKey !== scopeKey) return true;
+  return batch.status === "idle" || batch.status === "pending";
+}
+
+export function getCommandPalettePageDescriptionSearchError({
+  batch,
+  query,
+  scopeKey,
+}: {
+  batch: CommandPalettePageDescriptionSearchBatch | null | undefined;
+  query: string;
+  scopeKey: string;
+}): string | null {
+  if (!batch || batch.status !== "error") return null;
+  if (batch.query !== normalizeCommandPaletteSearchText(query)) return null;
+  if (batch.scopeKey !== scopeKey) return null;
+  return batch.error ?? "Page content search is unavailable";
 }
 
 export function buildCommandPalettePageDescriptionSearchPreview(
@@ -140,6 +260,7 @@ export function selectCommandPalettePageResults({
   });
 
   const descriptionResults = pageDescriptionSearchBatch
+    && pageDescriptionSearchBatch.status === "success"
     && normalizeCommandPaletteSearchText(pageDescriptionSearchBatch.query) === results.query
     && (
       pageDescriptionSearchScopeKey === undefined
@@ -197,16 +318,19 @@ export function useCommandPalettePageDescriptionSearch({
   enabled,
   query,
   projectIds,
+  limit = DEFAULT_DESCRIPTION_SEARCH_LIMIT,
 }: {
   enabled: boolean;
   query: string;
   projectIds: readonly string[];
+  limit?: number;
 }): CommandPalettePageDescriptionSearchBatch {
   const [batch, setBatch] = useState<CommandPalettePageDescriptionSearchBatch>({
     query: "",
     scopeKey: "",
     results: [],
-    loading: false,
+    status: "idle",
+    error: null,
   });
   const projectIdsKey = useMemo(
     () => buildCommandPalettePageDescriptionSearchScopeKey(projectIds),
@@ -219,47 +343,68 @@ export function useCommandPalettePageDescriptionSearch({
     const scopedProjectIds = projectIdsKey ? projectIdsKey.split("\n") : [];
     if (!enabled || normalizedQuery.length === 0 || scopedProjectIds.length === 0) {
       setBatch((current) => (
-        current.query === "" && current.scopeKey === "" && current.results.length === 0 && !current.loading
+        current.query === ""
+          && current.scopeKey === ""
+          && current.results.length === 0
+          && current.status === "idle"
           ? current
-          : { query: "", scopeKey: "", results: [], loading: false }
+          : { query: "", scopeKey: "", results: [], status: "idle", error: null }
       ));
       return;
     }
 
     let cancelled = false;
-    setBatch((current) => current.loading && current.query === normalizedQuery && current.scopeKey === projectIdsKey
+    setBatch((current) => current.status === "pending"
+      && current.query === normalizedQuery
+      && current.scopeKey === projectIdsKey
       ? current
-      : { ...current, loading: true });
-    void searchCommandPalettePageDescriptions({
-      projectIds: scopedProjectIds,
-      query: queryText,
-      limit: DEFAULT_DESCRIPTION_SEARCH_LIMIT,
-    })
-      .then((nextResults) => {
-        if (cancelled) return;
-        setBatch({
-          query: normalizedQuery,
-          scopeKey: projectIdsKey,
-          results: nextResults,
-          loading: false,
-        });
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setBatch({
+      : {
           query: normalizedQuery,
           scopeKey: projectIdsKey,
           results: [],
-          loading: false,
+          status: "pending",
+          error: null,
         });
-      });
+    const timer = setTimeout(() => {
+      void searchCommandPalettePageDescriptions({
+        projectIds: scopedProjectIds,
+        query: queryText,
+        limit,
+      })
+        .then((nextResults) => {
+          if (cancelled) return;
+          setBatch({
+            query: normalizedQuery,
+            scopeKey: projectIdsKey,
+            results: nextResults,
+            status: "success",
+            error: null,
+          });
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          setBatch({
+            query: normalizedQuery,
+            scopeKey: projectIdsKey,
+            results: [],
+            status: "error",
+            error: error instanceof Error ? error.message : "Page content search is unavailable",
+          });
+        });
+    }, PAGE_SEARCH_DEBOUNCE_MS);
 
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
-  }, [enabled, projectIdsKey, query]);
+  }, [enabled, limit, projectIdsKey, query]);
 
   return batch;
+}
+
+export function clearCommandPalettePageDescriptionSearchCacheForTests(): void {
+  pageDescriptionSearchCache.clear();
+  pageDescriptionSearchInFlight.clear();
 }
 
 export function useSelectedCommandPalettePageResults({

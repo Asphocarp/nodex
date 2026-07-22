@@ -2,6 +2,8 @@ import { describe, expect, test } from "vitest";
 import type { CommandPalettePage } from "./command-palette";
 import {
   buildCommandPalettePageItemsFromBoardSummaries,
+  getCommandPalettePageSearchPlan,
+  isCommandPalettePageDescriptionSearchPending,
   type CommandPalettePageDescriptionSearchBatch,
   selectCommandPalettePageResults,
 } from "./command-palette-page-results";
@@ -95,11 +97,39 @@ function makeDescriptionBatch(
     query,
     scopeKey: "",
     results,
-    loading: false,
+    status: "success",
+    error: null,
   };
 }
 
 describe("command palette page result selection", () => {
+  test("plans focused and root Page content searches from user intent", () => {
+    expect(getCommandPalettePageSearchPlan("pages", "x")?.searchLimit).toBe(60);
+    expect(getCommandPalettePageSearchPlan("root", "x")).toBeNull();
+    expect(getCommandPalettePageSearchPlan("root", "页面")?.searchLimit).toBe(12);
+  });
+
+  test("treats a mismatched settled batch as pending for the requested Page query", () => {
+    expect(isCommandPalettePageDescriptionSearchPending({
+      batch: {
+        ...makeDescriptionBatch("previous query", []),
+        scopeKey: "default",
+      },
+      enabled: true,
+      query: "current query",
+      scopeKey: "default",
+    })).toBe(true);
+    expect(isCommandPalettePageDescriptionSearchPending({
+      batch: {
+        ...makeDescriptionBatch("current query", []),
+        scopeKey: "default",
+      },
+      enabled: true,
+      query: "current query",
+      scopeKey: "default",
+    })).toBe(false);
+  });
+
   test("returns metadata fuzzy and prefix matches through the shared page selector", () => {
     const target = makePalettePage({
       page: makePage({ id: "target", title: "Command palette page search" }),

@@ -34,6 +34,9 @@ import {
 } from "../../lib/command-palette-chat-search";
 import {
   buildCommandPalettePageDescriptionSearchScopeKey,
+  getCommandPalettePageDescriptionSearchError,
+  getCommandPalettePageSearchPlan,
+  isCommandPalettePageDescriptionSearchPending,
   selectCommandPalettePageResults,
   type CommandPalettePageDescriptionSearchBatch,
   useCommandPalettePageDescriptionSearch,
@@ -74,6 +77,7 @@ interface CommandPaletteSurfaceProps {
   threads?: CommandPaletteThread[];
   pageSearchIndex?: CommandPalettePageSearchIndex | null;
   threadSearchIndex?: CommandPaletteThreadSearchIndex | null;
+  pageDescriptionSearchBatch?: CommandPalettePageDescriptionSearchBatch;
   loading: boolean;
   pagesLoading: boolean;
   chatsLoading: boolean;
@@ -93,6 +97,7 @@ const COMMAND_GROUP_ORDER: CommandPaletteCommandGroup[] = [
   "Skills",
   "App",
 ];
+const ROOT_DISCOVERY_ROW_BUDGET = 7;
 
 function getPaletteItemDomId(listId: string, index: number): string {
   return `${listId}-item-${index}`;
@@ -106,7 +111,7 @@ function getModePlaceholder(mode: CommandMenuMode): string {
   if (mode === "chats") return "Search chats";
   if (mode === "pages") return "Search pages";
   if (mode === "files") return "Search files";
-  return "Search commands and chats";
+  return "Search chats and Pages, or run a command";
 }
 
 function getEmptyMessage(mode: CommandMenuMode, query: string, loading: boolean): string {
@@ -120,7 +125,7 @@ function getEmptyMessage(mode: CommandMenuMode, query: string, loading: boolean)
   if (mode === "chats") return query.length > 0 ? "No matching chats." : "No chats.";
   if (mode === "pages") return query.length > 0 ? "No matching pages." : "No pages.";
   if (mode === "files") return "File search is not available in Nodex yet.";
-  return "No matching commands.";
+  return "No matching results.";
 }
 
 function resolveSelectableIndex(
@@ -159,6 +164,12 @@ interface CommandPaletteSectionsModel {
   query: string;
   sections: PaletteSectionModel[];
   flatItems: PaletteItem[];
+  pageSearchError: string | null;
+  pageSearchPending: boolean;
+  showPageSearchStatus: boolean;
+  showThreadSearchStatus: boolean;
+  threadSearchError: string | null;
+  threadSearchPending: boolean;
 }
 
 function buildCommandPaletteSectionsModel({
@@ -188,26 +199,48 @@ function buildCommandPaletteSectionsModel({
   const visiblePages = selectCommandPalettePageResults({
     query,
     pages,
-    pageFilters,
+    pageFilters: mode === "pages" ? pageFilters : undefined,
     pageSearchIndex,
     pageDescriptionSearchBatch,
     pageDescriptionSearchScopeKey,
+    metadataPageLimit: mode === "root" ? ROOT_DISCOVERY_ROW_BUDGET : undefined,
+    mergedPageLimit: mode === "root" ? ROOT_DISCOVERY_ROW_BUDGET : undefined,
   });
   const threadSearchPlan = getCommandPaletteThreadSearchPlan(mode, query);
-  const currentSearchLoading = Boolean(
+  const normalizedQuery = normalizeCommandPaletteSearchText(query);
+  const currentThreadSearchBatch = threadSearchBatch
+    && normalizeCommandPaletteSearchText(threadSearchBatch.query) === normalizedQuery
+      ? threadSearchBatch
+      : null;
+  const threadSearchPending = Boolean(
     threadSearchPlan?.includeContentResults
-    && threadSearchBatch?.loading
-    && normalizeCommandPaletteSearchText(threadSearchBatch.query) === normalizeCommandPaletteSearchText(query),
+    && (!currentThreadSearchBatch || currentThreadSearchBatch.loading),
   );
+  const threadSearchError = threadSearchPlan?.includeContentResults
+    ? currentThreadSearchBatch?.error ?? null
+    : null;
   const visibleThreads = threadSearchPlan
     ? selectCommandPaletteChatResults({
         query,
         threads,
         threadSearchIndex,
         threadSearchBatch,
-        threadLimit: Math.max(threadSearchPlan.maxResults - (currentSearchLoading ? 1 : 0), 0),
+        threadLimit: Math.max(threadSearchPlan.maxResults - (threadSearchPending ? 1 : 0), 0),
       })
     : [];
+  const pageSearchPlan = getCommandPalettePageSearchPlan(mode, query);
+  const pageSearchPending = isCommandPalettePageDescriptionSearchPending({
+    batch: pageDescriptionSearchBatch,
+    enabled: pageSearchPlan?.includeContentResults === true,
+    query,
+    scopeKey: pageDescriptionSearchScopeKey ?? "",
+  });
+  const pageSearchError = getCommandPalettePageDescriptionSearchError({
+    batch: pageDescriptionSearchBatch,
+    query,
+    scopeKey: pageDescriptionSearchScopeKey ?? "",
+  });
+  let showPageSearchStatus = false;
   const sections: PaletteSectionModel[] = (() => {
     if (mode === "root") {
       const commandSections = COMMAND_GROUP_ORDER
@@ -216,8 +249,24 @@ function buildCommandPaletteSectionsModel({
           items: results.commands.filter((item) => item.group === title),
         }))
         .filter((section) => section.items.length > 0);
-      if (!threadSearchPlan || visibleThreads.length === 0) return commandSections;
-      return [...commandSections, { title: "Chats", items: visibleThreads }];
+      const sectionsWithChats = visibleThreads.length > 0
+        ? [...commandSections, { title: "Chats", items: visibleThreads }]
+        : commandSections;
+      if (!pageSearchPlan || threadSearchPending) return sectionsWithChats;
+
+      const threadStatusRows = threadSearchPending || threadSearchError ? 1 : 0;
+      const remainingRows = Math.max(
+        ROOT_DISCOVERY_ROW_BUDGET
+          - results.commands.length
+          - visibleThreads.length
+          - threadStatusRows,
+        0,
+      );
+      showPageSearchStatus = remainingRows > 0 && (pageSearchPending || pageSearchError !== null);
+      const pageCapacity = Math.max(remainingRows - (showPageSearchStatus ? 1 : 0), 0);
+      const rootPages = visiblePages.slice(0, pageCapacity);
+      if (rootPages.length === 0) return sectionsWithChats;
+      return [...sectionsWithChats, { title: "Pages", items: rootPages }];
     }
 
     if (mode === "chats") {
@@ -225,6 +274,7 @@ function buildCommandPaletteSectionsModel({
     }
 
     if (mode === "pages") {
+      showPageSearchStatus = pageSearchPending || pageSearchError !== null;
       return [{ title: "Pages", items: visiblePages }];
     }
 
@@ -235,6 +285,15 @@ function buildCommandPaletteSectionsModel({
     query: results.query,
     sections,
     flatItems: sections.flatMap((section) => section.items),
+    pageSearchError,
+    pageSearchPending,
+    showPageSearchStatus,
+    showThreadSearchStatus: Boolean(
+      threadSearchPlan?.includeContentResults
+      && (threadSearchPending || threadSearchError),
+    ),
+    threadSearchError,
+    threadSearchPending,
   };
 }
 
@@ -370,10 +429,12 @@ function renderSegments(
 }
 
 function PageRow({
+  compact,
   item,
   selected,
   showSubtitle,
 }: {
+  compact: boolean;
   item: CommandPalettePage;
   selected: boolean;
   showSubtitle: boolean;
@@ -407,7 +468,7 @@ function PageRow({
             {item.recentIndex !== null ? " / Recent" : ""}
           </div>
         ) : null}
-        {decorations && decorations.badges.length > 0 ? (
+        {!compact && decorations && decorations.badges.length > 0 ? (
           <div className="mt-1 flex flex-wrap gap-1">
             {decorations.badges.map((badge) => (
               <span
@@ -426,7 +487,10 @@ function PageRow({
           </div>
         ) : null}
         {item.searchPreview ? (
-          <div className="mt-1 line-clamp-3 text-xs/relaxed wrap-break-word text-token-description-foreground/90">
+          <div className={cn(
+            "mt-1 text-xs/relaxed wrap-break-word text-token-description-foreground/90",
+            compact ? "line-clamp-1" : "line-clamp-3",
+          )}>
             {renderSegments(item.searchPreview.segments, `${item.id}:preview`)}
           </div>
         ) : null}
@@ -496,6 +560,7 @@ function ThreadRow({
 }
 
 function PaletteSection({
+  compactPages,
   title,
   items,
   listId,
@@ -505,6 +570,7 @@ function PaletteSection({
   onExecute,
   showSubtitle,
 }: {
+  compactPages: boolean;
   title: string;
   items: PaletteItem[];
   listId: string;
@@ -551,7 +617,12 @@ function PaletteSection({
                 <CommandRow item={item} selected={selected} showSubtitle={showSubtitle} />
               ) : (
                 item.kind === "page" ? (
-                  <PageRow item={item} selected={selected} showSubtitle={showSubtitle} />
+                  <PageRow
+                    compact={compactPages}
+                    item={item}
+                    selected={selected}
+                    showSubtitle={showSubtitle}
+                  />
                 ) : (
                   <ThreadRow item={item} selected={selected} />
                 )
@@ -561,6 +632,17 @@ function PaletteSection({
         })}
       </div>
     </section>
+  );
+}
+
+function SearchStatusRow({ children }: { children: string }) {
+  return (
+    <div
+      className="flex min-h-[calc(var(--spacing)*8)] items-center px-[calc(var(--spacing)*2.5)] py-[calc(var(--spacing)*1.5)] text-sm text-token-description-foreground"
+      role="status"
+    >
+      {children}
+    </div>
   );
 }
 
@@ -574,6 +656,7 @@ export function CommandPaletteSurface({
   threads = [],
   pageSearchIndex,
   threadSearchIndex,
+  pageDescriptionSearchBatch: injectedPageDescriptionSearchBatch,
   loading,
   pagesLoading,
   chatsLoading,
@@ -599,10 +682,6 @@ export function CommandPaletteSurface({
     limit: threadSearchPlan?.maxResults ?? 9,
   });
   const threadSearchBatch = injectedThreadSearchBatch ?? fetchedThreadSearchBatch;
-  const currentThreadSearchBatch = normalizeCommandPaletteSearchText(threadSearchBatch.query)
-    === normalizeCommandPaletteSearchText(deferredQuery)
-      ? threadSearchBatch
-      : null;
   const availableTags = useMemo(
     () => Array.from(new Set(pages.flatMap((item) => item.page.tags))).sort((left, right) => left.localeCompare(right)),
     [pages],
@@ -633,7 +712,7 @@ export function CommandPaletteSurface({
     }),
     [availableAssignees, availableProjects, availableTags, pageFilters],
   );
-  const projectIdsForSearch = useMemo(() => {
+  const filteredProjectIdsForSearch = useMemo(() => {
     const allProjectIds = availableProjects.map((project) => project.id);
     if (normalizedPageFilters.projectIds.length === 0) {
       return allProjectIds;
@@ -642,15 +721,25 @@ export function CommandPaletteSurface({
     const selectedProjectIds = new Set(normalizedPageFilters.projectIds);
     return allProjectIds.filter((projectId) => selectedProjectIds.has(projectId));
   }, [availableProjects, normalizedPageFilters.projectIds]);
+  const allProjectIdsForSearch = useMemo(
+    () => availableProjects.map((project) => project.id),
+    [availableProjects],
+  );
+  const pageSearchPlan = getCommandPalettePageSearchPlan(mode, deferredQuery);
+  const projectIdsForSearch = mode === "pages"
+    ? filteredProjectIdsForSearch
+    : allProjectIdsForSearch;
   const pageDescriptionSearchScopeKey = useMemo(
     () => buildCommandPalettePageDescriptionSearchScopeKey(projectIdsForSearch),
     [projectIdsForSearch],
   );
-  const descriptionSearchBatch = useCommandPalettePageDescriptionSearch({
-    enabled: mode === "pages" && open,
+  const fetchedDescriptionSearchBatch = useCommandPalettePageDescriptionSearch({
+    enabled: open && pageSearchPlan?.includeContentResults === true,
     query: deferredQuery,
     projectIds: projectIdsForSearch,
+    limit: pageSearchPlan?.searchLimit,
   });
+  const descriptionSearchBatch = injectedPageDescriptionSearchBatch ?? fetchedDescriptionSearchBatch;
   const visibleModel = useMemo(
     () => buildCommandPaletteSectionsModel({
       query: deferredQuery,
@@ -794,11 +883,11 @@ export function CommandPaletteSurface({
   });
   const modeCanWaitForFreshRows = mode === "pages" || mode === "chats" || mode === "root";
   const visibleRowsLoading = mode === "pages"
-    ? pagesLoading || descriptionSearchBatch.loading
+    ? pagesLoading || visibleModel.pageSearchPending
     : mode === "chats"
-      ? chatsLoading || currentThreadSearchBatch?.loading === true
+      ? chatsLoading || visibleModel.threadSearchPending
       : mode === "root"
-        ? loading || currentThreadSearchBatch?.loading === true
+        ? loading || visibleModel.threadSearchPending || visibleModel.pageSearchPending
         : loading;
 
   useEffect(() => {
@@ -961,6 +1050,9 @@ export function CommandPaletteSurface({
   const activeDescendantId = selectedIndex >= 0 && selectedIndex < flatItems.length
     ? getPaletteItemDomId(listId, selectedIndex)
     : undefined;
+  const showThreadSearchStatus = !rowsStale && visibleModel.showThreadSearchStatus;
+  const showPageSearchStatus = !rowsStale && visibleModel.showPageSearchStatus;
+  const hasVisibleSearchStatus = showThreadSearchStatus || showPageSearchStatus;
 
   return (
     <div
@@ -1061,6 +1153,7 @@ export function CommandPaletteSurface({
           return (
             <PaletteSection
               key={section.title}
+              compactPages={mode === "root"}
               title={section.title}
               items={section.items}
               listId={listId}
@@ -1078,17 +1171,23 @@ export function CommandPaletteSurface({
             />
           );
         })}
-        {threadSearchPlan?.includeContentResults && currentThreadSearchBatch?.loading ? (
-          <div className="px-[calc(var(--spacing)*2.5)] py-[calc(var(--spacing)*1.5)] text-sm text-token-description-foreground" role="status">
-            Searching chat history...
-          </div>
+        {showThreadSearchStatus && visibleModel.threadSearchPending ? (
+          <SearchStatusRow>Searching chat history...</SearchStatusRow>
         ) : null}
-        {threadSearchPlan?.includeContentResults && currentThreadSearchBatch?.error ? (
-          <div className="px-[calc(var(--spacing)*2.5)] py-[calc(var(--spacing)*1.5)] text-sm text-token-description-foreground" role="status">
+        {showThreadSearchStatus && visibleModel.threadSearchError ? (
+          <SearchStatusRow>
             Chat content search is unavailable. Local matches are still shown.
-          </div>
+          </SearchStatusRow>
         ) : null}
-        {flatItems.length === 0 ? (
+        {showPageSearchStatus && visibleModel.pageSearchPending ? (
+          <SearchStatusRow>Searching page contents...</SearchStatusRow>
+        ) : null}
+        {showPageSearchStatus && visibleModel.pageSearchError ? (
+          <SearchStatusRow>
+            Page content search is unavailable. Metadata matches are still shown.
+          </SearchStatusRow>
+        ) : null}
+        {flatItems.length === 0 && (rowsStale || !hasVisibleSearchStatus) ? (
           <div data-cmdk-empty className="flex min-h-[calc(var(--spacing)*8)] items-center justify-center px-[calc(var(--spacing)*2.5)] py-[calc(var(--spacing)*1.5)] text-center text-sm text-token-description-foreground">
             {rowsStale ? "Updating..." : getEmptyMessage(mode, visibleModel.query, mode === "chats" ? chatsLoading : mode === "pages" ? pagesLoading : loading)}
           </div>

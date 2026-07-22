@@ -1160,7 +1160,8 @@ export function useNfmMentionGetItems({
               query,
               scopeKey: pageDescriptionSearchScopeKey,
               results: asyncResults.pageDescriptionSearchResults,
-              loading: false,
+              status: "success",
+              error: null,
             }
           : undefined;
       const threadSearchBatch:
