@@ -32,7 +32,7 @@ pub const TRANSPORT_PROTOCOL_MIN: u32 = 3;
 pub const TRANSPORT_PROTOCOL_MAX: u32 = 3;
 pub const COMPATIBILITY_MANIFEST_VERSION: u32 = 1;
 pub const STORE_LINEAGE: &str = "nodex-rust-core";
-pub const CURRENT_STORE_VERSION: u32 = 88;
+pub const CURRENT_STORE_VERSION: u32 = 89;
 pub const CURRENT_STORE_SCHEMA_FINGERPRINT: &str =
     "6e0e0883d80699deddbbc2e857212b048c9ddd58639c1260e993ac429ef2424f";
 /// Maximum decoded UTF-8 size of one JSON string on the Document transport.
@@ -49,7 +49,7 @@ pub fn store_format(version: u32) -> Option<StoreFormatIdentity> {
         85 => "eee7d39ed280a961191aba2b19e9e218638d6f2e9d6fa3807d74807cbb675f2b",
         86 => "9642837efeaa6f3701d8ec445c6294ecbe5c7186a41e84c50bd520261a5c3e00",
         87 => "5e069cbccdab8938c2b0676e92eb109ac9e57bcccba7eb40965728140688bf75",
-        88 => CURRENT_STORE_SCHEMA_FINGERPRINT,
+        88 | 89 => CURRENT_STORE_SCHEMA_FINGERPRINT,
         _ => return None,
     };
     Some(StoreFormatIdentity {

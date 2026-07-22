@@ -410,7 +410,7 @@ tests for each deep transaction aggregate and for pre-transaction rejection,
 post-commit Document cache/publication recovery, published legacy imports and
 exact v84 import, online backup,
 restore journaling/runtime reset, and abrupt WAL exit. It also starts from a
-fresh restricted `.generated` Profile and reports the reopened v88 Store's
+fresh restricted `.generated` Profile and reports the reopened v89 Store's
 durable head, integrity result, and foreign-key result. The Electron loopback
 test in the same gate proves that private Core health/lifecycle/Store
 Administration UDS paths remain unreachable over the public HTTP adapter.
@@ -433,16 +433,24 @@ sidebar snapshot.
 Profile/Library Adapter identity, Project lifecycle, primary Database bindings,
 JSON bounds, store epoch, and event head are validated by the Module; incomplete
 bindings and cross-Library rows fail closed.
+Codex app-server Thread timestamps are source observations, not a second durable
+clock. On first materialization, the Host derives creation from the Thread's
+UUIDv7 timestamp when available and normalizes it to the protocol's second
+precision. Existing creation is immutable, while every later observation can
+advance `updatedAt` but can never move it behind either the durable creation or
+the previous update. Store v89 applies the same canonicalization to persisted
+UUIDv7 Threads and repairs any remaining inverted custom-id pair before current
+Store validation.
 Automation now
 owns its accepted definition, lease, run, reminder, and Scheduled Page
-occurrence surface. Store Administration owns v88 readiness, backup listing,
+occurrence surface. Store Administration owns v89 readiness, backup listing,
 online SQLite backup creation, and whole-store restore through the same
 generated `read`/`apply` boundary. A backup uses a deterministic operation-owned
 directory, publishes a v2-compatible manifest last, validates the immutable
 snapshot, fsyncs database, assets, manifest, and directories, then commits its
 receipt/event. A retry after filesystem publication but before the SQLite
 receipt adopts only an exact operation/request-fingerprint match. Restore
-semantically validates the complete v88 Document/Canvas/projection/managed-asset
+semantically validates the complete v89 Document/Canvas/projection/managed-asset
 closure, optionally creates a safety backup inside one maintenance generation,
 installs through the Core-owned journal, rotates `storeEpoch`, resets Document
 cache and realtime state, republishes the runtime descriptor, and clears the
@@ -864,7 +872,7 @@ or the Electron client from reaching the local store.
 
 Block-first migration foundation:
 
-1. Core accepts the exact published v26, v57, v68, v82, and v83 TypeScript inventories as historical import sources, the exact final TypeScript v84 inventory as its direct handoff, and exact Rust-owned v85/v86/v87/v88 stores. For a historical source, Core identifies the complete normalized physical inventory, takes an online database snapshot plus a validated asset-tree backup, and invokes the bundled hash-pinned migrator only inside a staging Profile until it reaches exact v84. Core then reconstructs authoritative Yjs content through Yrs, rebuilds only derived projections, validates the complete v84 handoff, and atomically publishes Rust ownership as v88 under a crash-recovery journal. Rust-owned v85, v86, and v87 stores are validated exactly, backed up, and atomically upgraded before v88 publication. The v87 forward migration widens null tab ownership to Browser, Terminal, and exact-file Files while removing legacy Terminal config Project fields; v88 adds required projection impact plus its honest replay floor without changing the frozen v84 artifact. Unpublished same-version lineages, near-matches, ambiguous owners, and future stores fail closed; a Rust-owned v88 store is likewise validated exactly and is never silently repaired.
+1. Core accepts the exact published v26, v57, v68, v82, and v83 TypeScript inventories as historical import sources, the exact final TypeScript v84 inventory as its direct handoff, and exact Rust-owned v85/v86/v87/v88 stores. For a historical source, Core identifies the complete normalized physical inventory, takes an online database snapshot plus a validated asset-tree backup, and invokes the bundled hash-pinned migrator only inside a staging Profile until it reaches exact v84. Core then reconstructs authoritative Yjs content through Yrs, rebuilds only derived projections, validates the complete v84 handoff, and atomically publishes Rust ownership as v89 under a crash-recovery journal. Rust-owned v85 through v88 stores are validated exactly, backed up, and atomically upgraded before v89 publication. The v87 forward migration widens null tab ownership to Browser, Terminal, and exact-file Files while removing legacy Terminal config Project fields; v88 adds required projection impact plus its honest replay floor without changing the frozen v84 artifact; v89 is a data-only migration that canonicalizes Codex Thread creation from UUIDv7 evidence and repairs remaining inverted timestamp pairs. Unpublished same-version lineages, near-matches, ambiguous owners, and future stores fail closed; a Rust-owned v89 store is validated exactly and never silently repaired.
 2. A successful Document apply tentatively reconstructs and validates a Y.Doc, derives the changed title/Block identities from before/after state, reconciles the registry/index, and writes the binary update, immutable receipt, exact-blob checksum, state vector, reconstruction fingerprint, and new head under one immediate SQLite transaction. Receipts remain independently of update payload retention; compaction verifies a full snapshot at the current head, advances the physical reconstruction fingerprint, then atomically removes only its covered payload tail. Store epoch, Document generation, update identity, `headSeq`, Yjs state vector, exact-blob integrity, and non-canonical reconstruction fingerprint remain separate concepts.
 3. Production Page Stage prepares the exact owned descriptor before rendering content. Only a ready `yjs`/`block_tree` descriptor enters the Page editor: it mounts one independent Y.Doc surface, completes state-vector sync before resolving `Y.Text("title")` / `Y.XmlFragment("body")`, and binds BlockNote through its collaboration extension without projection-based initialization. Every active BlockNote-backed Document contains at least one registered application Block; a semantically blank Page is one stable-ID empty paragraph whose NFM/plain-text projections remain blank.
 4. A writable Block Document runtime normally belongs to one visible React effect incarnation. A durable PageTab is the explicit exception: its ProjectSession/tab-keyed model session retains the Y.Doc/provider, BlockNote editor, and UndoManager while the inactive React body and EditorView are absent. Switching away removes local Awareness and backgrounds a bounded persist without disconnecting the provider; returning mounts a fresh EditorView, reconciles current CRDT state, restores the selection from Yjs-relative positions plus PageTab-local scroll, and reactivates the main NFM editor only when it owned the Page's last focus intent. Tab close, ProjectSession archive, store-epoch/Document-generation/schema/owner identity replacement, or terminal reload destroys the retained model and provider exactly once; renderer close flushes every ready retained session before acknowledging shutdown. An unpromoted preview disposes on final view teardown, while promotion keeps its stable model identity. This is a deep runtime Module, never hidden DOM or Maitai state. Normal durable ACKs are quiet; sustained pending/offline/error/reset states are the only Page Stage sync chrome.

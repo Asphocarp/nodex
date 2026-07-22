@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 
+use super::migration::validate_codex_thread_timestamp_invariants;
 use super::schema::CORE_SCHEMA_VERSION;
 use super::sqlite::{StoreError, StoreErrorCode, open_writer, validate_store};
 use super::store::STORE_FILE_NAME;
@@ -335,6 +336,7 @@ pub fn validate_live_store(
     let connection = open_writer(&live_database_path(profile_home))?;
     validate_store(&connection)?;
     validate_core_metadata(&connection)?;
+    validate_codex_thread_timestamp_invariants(&connection)?;
     let store_epoch = connection
         .query_row(
             "SELECT store_epoch FROM block_store_metadata WHERE id = 1",
@@ -364,6 +366,7 @@ pub fn validate_store_path(path: &Path) -> Result<String, StoreError> {
     let connection = super::sqlite::open_immutable_reader(path)?;
     validate_store(&connection)?;
     validate_core_metadata(&connection)?;
+    validate_codex_thread_timestamp_invariants(&connection)?;
     connection
         .query_row(
             "SELECT store_epoch FROM block_store_metadata WHERE id = 1",

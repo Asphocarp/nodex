@@ -294,6 +294,7 @@ import {
   buildTurnPermissionOverrides,
   resolveCodexPermissionState,
 } from "./codex-permission-resolver";
+import { reconcileCodexThreadTimestamps } from "./codex-thread-timestamps";
 import {
   nodexAgentAuthorityFingerprint,
   type FrozenNodexAgentTurnAuthority,
@@ -13475,6 +13476,12 @@ export class CodexService extends EventEmitter {
     if (typeof forkedThreadId !== "string" || forkedThreadId.length === 0) {
       throw new Error("Thread fork did not return a valid thread id");
     }
+    const timestamps = reconcileCodexThreadTimestamps({
+      threadId: forkedThreadId,
+      observedCreatedAt: thread.createdAt,
+      observedUpdatedAt: thread.updatedAt,
+      existing: null,
+    });
 
     return applyThreadAgentMetadata({
       threadId: forkedThreadId,
@@ -13501,8 +13508,8 @@ export class CodexService extends EventEmitter {
       threadRuntimeStatus: { type: "idle" },
       archived: false,
       hasUnreadTurn: false,
-      createdAt: normalizeTimestamp(thread.createdAt),
-      updatedAt: normalizeTimestamp(thread.updatedAt),
+      createdAt: timestamps.createdAt,
+      updatedAt: timestamps.updatedAt,
       linkedAt: new Date().toISOString(),
       latestCollaborationMode: input.latestCollaborationMode,
       latestThreadSettings: {
@@ -13763,6 +13770,12 @@ export class CodexService extends EventEmitter {
       ?? ref?.projectlessWorkspaceBrowserRoot
       ?? null;
     const projectId = ref ? ref.projectId : existing?.projectId ?? null;
+    const timestamps = reconcileCodexThreadTimestamps({
+      threadId: candidate.id as string,
+      observedCreatedAt: candidate.createdAt,
+      observedUpdatedAt: candidate.updatedAt,
+      existing,
+    });
     const patch: DesktopProjectWorkspaceThreadPatch = {
       projectId,
       ...(parentThreadId ? { parentThreadId } : {}),
@@ -13785,9 +13798,9 @@ export class CodexService extends EventEmitter {
       },
       archived: existing?.archived ?? false,
       ...(!existing
-        ? { createdAt: normalizeTimestamp(candidate.createdAt) }
+        ? { createdAt: timestamps.createdAt }
         : {}),
-      updatedAt: normalizeTimestamp(candidate.updatedAt),
+      updatedAt: timestamps.updatedAt,
       ...(subagentMetadata.hasAgentNickname
         ? { agentNickname: subagentMetadata.agentNickname }
         : {}),
@@ -13910,10 +13923,8 @@ export class CodexService extends EventEmitter {
       statusType: parsedStatus.statusType,
       statusActiveFlags: parsedStatus.statusActiveFlags,
       archived: existing?.archived ?? false,
-      ...(!existing
-        ? { createdAt: normalizeTimestamp(candidate.createdAt) }
-        : {}),
-      updatedAt: normalizeTimestamp(candidate.updatedAt),
+      ...(patch.createdAt === undefined ? {} : { createdAt: patch.createdAt }),
+      updatedAt: patch.updatedAt,
     });
     const persisted = await this.readWorkspaceThread(candidate.id);
     if (!persisted) {

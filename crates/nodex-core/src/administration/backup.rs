@@ -7,6 +7,7 @@ use rusqlite::{Connection, MAIN_DB, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::infrastructure::migration::validate_codex_thread_timestamp_invariants;
 use crate::infrastructure::schema::CORE_SCHEMA_VERSION;
 use crate::infrastructure::sqlite::{
     StoreError, StoreErrorCode, open_immutable_reader, validate_store,
@@ -630,6 +631,7 @@ fn validate_backup_database(path: &Path) -> Result<(u32, String), StoreError> {
     let result = (|| {
         let connection = open_immutable_reader(path)?;
         validate_store(&connection)?;
+        validate_codex_thread_timestamp_invariants(&connection)?;
         let schema_version =
             connection.query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))?;
         if schema_version != u32::try_from(CORE_SCHEMA_VERSION).expect("schema version fits u32") {

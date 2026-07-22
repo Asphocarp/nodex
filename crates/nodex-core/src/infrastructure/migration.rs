@@ -33,6 +33,7 @@ const MAX_LEGACY_WRITABLE_ROOTS_FILE_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_AUTOMATION_JITTER_SALT_BYTES: u64 = 512;
 const MAX_WRITABLE_ROOTS_PER_THREAD: usize = 128;
 const MAX_WRITABLE_ROOT_BYTES: usize = 16_384;
+const UUID_V7_UNIX_TIMESTAMP_HEX_DIGITS: usize = 12;
 const V85_SCHEMA_SQL: &str = r#"
 CREATE TABLE core_store_metadata (
   id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -330,6 +331,7 @@ pub fn prepare_profile_store_with_observer(
         let now = unix_time_millis()?;
         create_fresh_store(connection, profile_home, now)?;
         validate_store(connection)?;
+        validate_codex_thread_timestamp_invariants(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: true,
@@ -351,6 +353,7 @@ pub fn prepare_profile_store_with_observer(
         validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
         validate_exact_current_schema(connection)?;
         validate_store(connection)?;
+        validate_codex_thread_timestamp_invariants(connection)?;
         let validated_yjs_documents: i64 = connection.query_row(
             "SELECT count(*) FROM document_engine_fingerprints",
             [],
@@ -371,7 +374,7 @@ pub fn prepare_profile_store_with_observer(
         });
     }
 
-    if matches!(version, 85..=87) {
+    if matches!(version, 85..=88) {
         return upgrade_owned_store(connection, profile_home, version, observer);
     }
 
@@ -412,6 +415,7 @@ pub fn prepare_profile_store_with_observer(
     )?;
     validate_store(connection)?;
     validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
+    validate_codex_thread_timestamp_invariants(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -463,6 +467,7 @@ pub(crate) fn prepare_legacy_import_candidate(
     validate_store(connection)?;
     validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
     validate_exact_current_schema(connection)?;
+    validate_codex_thread_timestamp_invariants(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -494,6 +499,7 @@ fn upgrade_owned_store(
         85 => validate_exact_v85_schema(connection)?,
         86 => validate_exact_v86_schema(connection)?,
         87 => validate_exact_v87_schema(connection)?,
+        88 => validate_exact_v88_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -515,6 +521,7 @@ fn upgrade_owned_store(
         }
         ensure_v87_project_session_tabs_schema(transaction)?;
         ensure_v88_projection_impact_schema(transaction)?;
+        repair_v89_codex_thread_timestamps(transaction)?;
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
              WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
@@ -532,6 +539,7 @@ fn upgrade_owned_store(
     validate_store(connection)?;
     validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
     validate_exact_current_schema(connection)?;
+    validate_codex_thread_timestamp_invariants(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -797,6 +805,7 @@ fn publish_current_store(
         ensure_v87_project_session_tabs_schema(transaction)?;
         write_v85_metadata(transaction, migrated_from, backup_name, now, fingerprints)?;
         ensure_v88_projection_impact_schema(transaction)?;
+        repair_v89_codex_thread_timestamps(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -817,6 +826,7 @@ fn create_fresh_store(
         ensure_v87_project_session_tabs_schema(transaction)?;
         write_v85_metadata(transaction, None, None, now, &[])?;
         ensure_v88_projection_impact_schema(transaction)?;
+        repair_v89_codex_thread_timestamps(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -903,6 +913,91 @@ fn ensure_v88_projection_impact_schema(connection: &Connection) -> Result<(), St
            END;",
     )?;
     Ok(())
+}
+
+fn uuid_v7_timestamp_seconds_ms(thread_id: &str) -> Option<i64> {
+    let bytes = thread_id.as_bytes();
+    if bytes.len() != 36
+        || bytes[8] != b'-'
+        || bytes[13] != b'-'
+        || bytes[18] != b'-'
+        || bytes[23] != b'-'
+        || bytes[14] != b'7'
+        || !matches!(bytes[19].to_ascii_lowercase(), b'8' | b'9' | b'a' | b'b')
+    {
+        return None;
+    }
+    if bytes
+        .iter()
+        .enumerate()
+        .any(|(index, byte)| !matches!(index, 8 | 13 | 18 | 23) && !byte.is_ascii_hexdigit())
+    {
+        return None;
+    }
+
+    let timestamp_hex = thread_id
+        .chars()
+        .filter(|character| *character != '-')
+        .take(UUID_V7_UNIX_TIMESTAMP_HEX_DIGITS)
+        .collect::<String>();
+    let timestamp = i64::from_str_radix(&timestamp_hex, 16).ok()?;
+    Some(timestamp - timestamp.rem_euclid(1_000))
+}
+
+fn repaired_codex_thread_created_at(thread_id: &str, created_at: i64, updated_at: i64) -> i64 {
+    uuid_v7_timestamp_seconds_ms(thread_id)
+        .unwrap_or(created_at)
+        .min(updated_at)
+}
+
+fn repair_v89_codex_thread_timestamps(connection: &Connection) -> Result<(), StoreError> {
+    let rows = connection
+        .prepare("SELECT thread_id, created_at, updated_at FROM codex_threads ORDER BY thread_id")?
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let mut update = connection.prepare(
+        "UPDATE codex_threads SET created_at = ?1 WHERE thread_id = ?2 AND created_at = ?3",
+    )?;
+    for (thread_id, created_at, updated_at) in rows {
+        let repaired_created_at =
+            repaired_codex_thread_created_at(&thread_id, created_at, updated_at);
+        if repaired_created_at == created_at {
+            continue;
+        }
+        let updated = update.execute(params![repaired_created_at, thread_id, created_at])?;
+        if updated != 1 {
+            return Err(corrupt(
+                "Codex Thread timestamp changed during v89 migration",
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Validates the durable Thread clock at startup and store-copy boundaries.
+pub(crate) fn validate_codex_thread_timestamp_invariants(
+    connection: &Connection,
+) -> Result<(), StoreError> {
+    let invalid_thread_id = connection
+        .query_row(
+            "SELECT thread_id FROM codex_threads WHERE updated_at < created_at LIMIT 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if invalid_thread_id.is_none() {
+        return Ok(());
+    }
+    Err(corrupt(
+        "Codex Thread update time precedes creation in the current Store",
+    ))
 }
 
 fn ensure_optional_text_column(
@@ -1349,6 +1444,10 @@ fn validate_exact_v87_schema(connection: &Connection) -> Result<(), StoreError> 
     validate_exact_core_schema(connection, true, true, false, 87)
 }
 
+fn validate_exact_v88_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, 88)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(connection, true, true, true, CORE_SCHEMA_VERSION)
 }
@@ -1673,6 +1772,50 @@ mod tests {
         .expect("seed v86 store");
     }
 
+    fn seed_owned_v88_store_with_noncanonical_threads(home: &Path) {
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v88 writer");
+        install_v84_schema(&connection).expect("v84 schema");
+        with_immediate_transaction(&mut connection, |transaction| {
+            transaction.execute_batch(V85_SCHEMA_SQL)?;
+            transaction.execute_batch(V85_EXECUTION_SCHEMA_SQL)?;
+            ensure_automation_definition_revision(transaction)?;
+            ensure_automation_run_revision(transaction)?;
+            ensure_v86_execution_profile_schema(transaction)?;
+            ensure_v87_project_session_tabs_schema(transaction)?;
+            ensure_v88_projection_impact_schema(transaction)?;
+            transaction.execute(
+                "INSERT INTO core_store_metadata(\
+                   id, schema_owner, store_format_version, migrated_from_version, \
+                   migration_backup_name, migrated_at_unix_ms, projection_event_v2_floor\
+                 ) VALUES (1, ?1, 88, NULL, NULL, 1, 1)",
+                [CORE_SCHEMA_OWNER],
+            )?;
+            transaction.execute(
+                "INSERT INTO codex_threads(\
+                   thread_id, thread_preview, model_provider, status_type, \
+                   status_active_flags_json, archived, created_at, updated_at, linked_at\
+                 ) VALUES (\
+                   '019f2321-8ed9-74d0-a2cc-48856e20cf0c', '', 'openai', 'notLoaded', \
+                   '[]', 0, 1783029629000, 1783000989000, '2026-07-02T14:00:29Z'\
+                 )",
+                [],
+            )?;
+            transaction.execute(
+                "INSERT INTO codex_threads(\
+                   thread_id, thread_preview, model_provider, status_type, \
+                   status_active_flags_json, archived, created_at, updated_at, linked_at\
+                 ) VALUES (\
+                   '019f8b12-45fe-7e53-a8ba-bd0c0d5b4e88', '', 'openai', 'notLoaded', \
+                   '[]', 0, 1784744661000, 1784744712000, '2026-07-22T09:04:18Z'\
+                 )",
+                [],
+            )?;
+            transaction.pragma_update(None, "user_version", 88)?;
+            Ok(())
+        })
+        .expect("seed v88 store");
+    }
+
     fn open_error(home: &Path) -> StoreError {
         match SqliteStoreKernel::open(home) {
             Ok(_) => panic!("store open unexpectedly succeeded"),
@@ -1731,6 +1874,97 @@ mod tests {
         drop(kernel);
         let reopened = SqliteStoreKernel::open(&home).expect("reopen current store");
         assert!(!reopened.preparation().created_fresh);
+    }
+
+    #[test]
+    fn v88_upgrade_canonicalizes_codex_thread_creation_and_repairs_inversion() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v88_store_with_noncanonical_threads(&home);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v88 Core store");
+        assert_eq!(upgraded.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(88));
+        let backup_path = upgraded
+            .preparation()
+            .migration_backup_path
+            .as_ref()
+            .expect("v88 migration backup");
+        let backup = open_immutable_reader(backup_path).expect("backup opens");
+        assert_eq!(
+            backup
+                .query_row(
+                    "SELECT created_at FROM codex_threads WHERE thread_id = \
+                     '019f2321-8ed9-74d0-a2cc-48856e20cf0c'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("backup creation time"),
+            1_783_029_629_000
+        );
+
+        let timestamps = upgraded
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT created_at, updated_at FROM codex_threads WHERE thread_id = \
+                         '019f2321-8ed9-74d0-a2cc-48856e20cf0c'",
+                        [],
+                        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("repaired Thread timestamps");
+        assert_eq!(timestamps, (1_783_000_829_000, 1_783_000_989_000));
+        let cold_restart_timestamps = upgraded
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT created_at, updated_at FROM codex_threads WHERE thread_id = \
+                         '019f8b12-45fe-7e53-a8ba-bd0c0d5b4e88'",
+                        [],
+                        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("canonical cold-restart Thread timestamps");
+        assert_eq!(
+            cold_restart_timestamps,
+            (1_784_744_658_000, 1_784_744_712_000)
+        );
+
+        drop(upgraded);
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen current v89 store");
+        assert_eq!(reopened.preparation().migrated_from_version, None);
+    }
+
+    #[test]
+    fn current_store_rejects_inverted_codex_thread_timestamps() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh Core store");
+        drop(kernel);
+
+        let connection = open_writer(&home.join("nodex.db")).expect("current writer");
+        connection
+            .execute(
+                "INSERT INTO codex_threads(\
+                   thread_id, thread_preview, model_provider, status_type, \
+                   status_active_flags_json, archived, created_at, updated_at, linked_at\
+                 ) VALUES (\
+                   'thread-invalid-clock', '', 'openai', 'notLoaded', '[]', 0, \
+                   2000, 1000, '2026-07-23T00:00:00Z'\
+                 )",
+                [],
+            )
+            .expect("seed invalid Thread clock");
+        drop(connection);
+
+        let error = open_error(&home);
+        assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+        assert!(error.message.contains("update time precedes creation"));
     }
 
     #[test]

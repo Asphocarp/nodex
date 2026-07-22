@@ -806,7 +806,7 @@ mod tests {
 
     #[test]
     fn store_format_fingerprints_match_exact_core_schema_inventories() {
-        let actual = (84..=88)
+        let actual = (84..=nodex_core_protocol::CURRENT_STORE_VERSION)
             .map(|version| {
                 (
                     version,
@@ -817,7 +817,7 @@ mod tests {
                 )
             })
             .collect::<Vec<_>>();
-        let published = (84..=88)
+        let published = (84..=nodex_core_protocol::CURRENT_STORE_VERSION)
             .map(|version| {
                 (
                     version,
@@ -871,7 +871,10 @@ mod tests {
             manifest: manifest.clone(),
             manifest_digest: manifest_digest.clone(),
             artifact: artifact.clone(),
-            actual_store_format: nodex_core_protocol::store_format(88).expect("Store format"),
+            actual_store_format: nodex_core_protocol::store_format(
+                nodex_core_protocol::CURRENT_STORE_VERSION,
+            )
+            .expect("Store format"),
             pid: std::process::id(),
             start_nonce: "a".repeat(32),
             socket_path: paths.socket.to_string_lossy().into_owned(),

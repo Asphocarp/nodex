@@ -544,7 +544,7 @@ describe("CoreClient over a Unix socket", () => {
       expect(administrationStatus.value).toEqual({
         kind: "status",
         readiness: "ready",
-        schema_version: 88,
+        schema_version: 89,
         schema_owner: "rust",
         integrity: "unknown",
       });

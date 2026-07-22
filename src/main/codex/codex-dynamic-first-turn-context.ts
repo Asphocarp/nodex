@@ -1,8 +1,6 @@
 import path from "node:path";
 import type { CodexDynamicCreatePermissionContext } from "./codex-dynamic-create-permissions";
-
-const UUID_V7_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+import { readCodexThreadUuidV7TimestampMs } from "./codex-thread-timestamps";
 
 function appendUniqueRoots(current: readonly string[], additions: readonly string[]): string[] {
   const roots = [...current];
@@ -17,8 +15,8 @@ export function resolveCodexThreadVisualizationDirectory(
   codexHome: string,
   threadId: string,
 ): string | null {
-  if (!UUID_V7_PATTERN.test(threadId)) return null;
-  const timestamp = Number.parseInt(`${threadId.slice(0, 8)}${threadId.slice(9, 13)}`, 16);
+  const timestamp = readCodexThreadUuidV7TimestampMs(threadId);
+  if (timestamp === null) return null;
   const date = new Date(timestamp);
   if (!Number.isFinite(date.getTime())) return null;
   return path.join(

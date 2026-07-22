@@ -4428,6 +4428,66 @@ describe("codex-service readThread fallback", () => {
 
 describe("codex-service session-backed transcript recovery", () => {
 
+  test("reconciles historically inverted and stale app-server Thread timestamps", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      buildWorkspaceThreadMaterialization: (input: {
+        candidate: Record<string, unknown>;
+        existing: CodexThreadSummary | null;
+        ref: null;
+      }) => {
+        patch: {
+          createdAt?: number;
+          updatedAt?: number;
+        };
+      };
+    };
+    const threadId = "019f2321-8ed9-74d0-a2cc-48856e20cf0c";
+
+    try {
+      const repaired = serviceInternals.buildWorkspaceThreadMaterialization({
+        candidate: {
+          id: threadId,
+          createdAt: 1_783_029_629,
+          updatedAt: 1_783_000_989,
+        },
+        existing: null,
+        ref: null,
+      });
+      expect(repaired.patch.createdAt).toBe(1_783_000_829_000);
+      expect(repaired.patch.updatedAt).toBe(1_783_000_989_000);
+
+      const coldRestartThreadId = "019f8b12-45fe-7e53-a8ba-bd0c0d5b4e88";
+      const monotonic = serviceInternals.buildWorkspaceThreadMaterialization({
+        candidate: {
+          id: coldRestartThreadId,
+          createdAt: 1_784_744_658,
+          updatedAt: 1_784_744_658,
+        },
+        existing: {
+          threadId: coldRestartThreadId,
+          projectId: null,
+          source: null,
+          threadName: null,
+          threadPreview: "",
+          modelProvider: "openai",
+          cwd: null,
+          statusType: "notLoaded",
+          statusActiveFlags: [],
+          archived: false,
+          createdAt: 1_784_744_661_000,
+          updatedAt: 1_784_744_712_000,
+          linkedAt: "2026-07-22T09:04:18.000Z",
+        },
+        ref: null,
+      });
+      expect(monotonic.patch.createdAt).toBeUndefined();
+      expect(monotonic.patch.updatedAt).toBe(1_784_744_712_000);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
   test("normal resume pre-reads metadata, sends exact nullable fields, and gates an existing owner", async () => {
     const service = createService();
     const threadId = "thr_exact_resume_params";
