@@ -163,7 +163,7 @@ var init_sqlite_adapter = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/error.js
+// ../../../../node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/error.js
 function getLineColFromPtr(string4, ptr) {
   let lines = string4.slice(0, ptr).split(/\r\n|\n|\r/g);
   return [lines.length, lines.pop().length + 1];
@@ -189,7 +189,7 @@ function makeCodeBlock(string4, line, column) {
 }
 var TomlError;
 var init_error = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/error.js"() {
+  "../../../../node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/error.js"() {
     TomlError = class extends Error {
       line;
       column;
@@ -208,7 +208,7 @@ ${codeblock}`, options);
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/util.js
+// ../../../../node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/util.js
 function isEscaped(str, ptr) {
   let i2 = 0;
   while (str[ptr - ++i2] === "\\")
@@ -287,15 +287,15 @@ function getStringEnd(str, seek) {
   return seek;
 }
 var init_util = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/util.js"() {
+  "../../../../node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/util.js"() {
     init_error();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/date.js
+// ../../../../node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/date.js
 var DATE_TIME_RE, TomlDate;
 var init_date = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/date.js"() {
+  "../../../../node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/date.js"() {
     DATE_TIME_RE = /^(\d{4}-\d{2}-\d{2})?[T ]?(?:(\d{2}):\d{2}(?::\d{2}(?:\.\d+)?)?)?(Z|[-+]\d{2}:\d{2})?$/i;
     TomlDate = class _TomlDate extends Date {
       #hasDate = false;
@@ -389,7 +389,7 @@ var init_date = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/primitive.js
+// ../../../../node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/primitive.js
 function parseString(str, ptr = 0, endPtr = str.length) {
   let isLiteral = str[ptr] === "'";
   let isMultiline = str[ptr++] === str[ptr] && str[ptr] === str[ptr + 1];
@@ -515,7 +515,7 @@ function parseValue(value, toml, ptr, integersAsBigInt) {
 }
 var INT_REGEX, FLOAT_REGEX, LEADING_ZERO, ESCAPE_REGEX, ESC_MAP;
 var init_primitive = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/primitive.js"() {
+  "../../../../node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/primitive.js"() {
     init_util();
     init_date();
     init_error();
@@ -536,7 +536,7 @@ var init_primitive = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/extract.js
+// ../../../../node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/extract.js
 function sliceAndTrimEndOf(str, startPtr, endPtr) {
   let value = str.slice(startPtr, endPtr);
   let commentIdx = value.indexOf("#");
@@ -603,7 +603,7 @@ function extractValue(str, ptr, end, depth, integersAsBigInt) {
   ];
 }
 var init_extract = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/extract.js"() {
+  "../../../../node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/extract.js"() {
     init_primitive();
     init_struct();
     init_util();
@@ -611,7 +611,7 @@ var init_extract = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/struct.js
+// ../../../../node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/struct.js
 function parseKey(str, ptr, end = "=") {
   let dot = ptr - 1;
   let parsed = [];
@@ -759,7 +759,7 @@ function parseArray(str, ptr, depth, integersAsBigInt) {
 }
 var KEY_PART_RE;
 var init_struct = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/struct.js"() {
+  "../../../../node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/struct.js"() {
     init_primitive();
     init_extract();
     init_util();
@@ -768,7 +768,7 @@ var init_struct = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/parse.js
+// ../../../../node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/parse.js
 function peekTable(key, table, meta3, type) {
   let t = table;
   let m = meta3;
@@ -893,7 +893,7 @@ function parse(toml, { maxDepth = 1e3, integersAsBigInt } = {}) {
   return res;
 }
 var init_parse = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/parse.js"() {
+  "../../../../node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/parse.js"() {
     init_struct();
     init_extract();
     init_util();
@@ -901,15 +901,15 @@ var init_parse = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/stringify.js
+// ../../../../node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/stringify.js
 var init_stringify = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/stringify.js"() {
+  "../../../../node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/stringify.js"() {
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/index.js
+// ../../../../node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/index.js
 var init_dist = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/index.js"() {
+  "../../../../node_modules/.pnpm/smol-toml@1.6.1/node_modules/smol-toml/dist/index.js"() {
     init_parse();
     init_stringify();
     init_date();
@@ -3821,33 +3821,33 @@ var init_block_property_mutations = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/regex.js
+// ../../../../node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/regex.js
 var regex_default;
 var init_regex = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/regex.js"() {
+  "../../../../node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/regex.js"() {
     regex_default = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/i;
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/validate.js
+// ../../../../node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/validate.js
 function validate(uuid3) {
   return typeof uuid3 === "string" && regex_default.test(uuid3);
 }
 var validate_default;
 var init_validate = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/validate.js"() {
+  "../../../../node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/validate.js"() {
     init_regex();
     validate_default = validate;
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/stringify.js
+// ../../../../node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/stringify.js
 function unsafeStringify(arr, offset = 0) {
   return (byteToHex[arr[offset + 0]] + byteToHex[arr[offset + 1]] + byteToHex[arr[offset + 2]] + byteToHex[arr[offset + 3]] + "-" + byteToHex[arr[offset + 4]] + byteToHex[arr[offset + 5]] + "-" + byteToHex[arr[offset + 6]] + byteToHex[arr[offset + 7]] + "-" + byteToHex[arr[offset + 8]] + byteToHex[arr[offset + 9]] + "-" + byteToHex[arr[offset + 10]] + byteToHex[arr[offset + 11]] + byteToHex[arr[offset + 12]] + byteToHex[arr[offset + 13]] + byteToHex[arr[offset + 14]] + byteToHex[arr[offset + 15]]).toLowerCase();
 }
 var byteToHex;
 var init_stringify2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/stringify.js"() {
+  "../../../../node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/stringify.js"() {
     byteToHex = [];
     for (let i2 = 0; i2 < 256; ++i2) {
       byteToHex.push((i2 + 256).toString(16).slice(1));
@@ -3855,18 +3855,18 @@ var init_stringify2 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/rng.js
+// ../../../../node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/rng.js
 function rng() {
   return crypto.getRandomValues(rnds8);
 }
 var rnds8;
 var init_rng = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/rng.js"() {
+  "../../../../node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/rng.js"() {
     rnds8 = new Uint8Array(16);
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/v7.js
+// ../../../../node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/v7.js
 function v7(options, buf, offset) {
   let bytes;
   if (options) {
@@ -3927,7 +3927,7 @@ function v7Bytes(rnds, msecs, seq, buf, offset = 0) {
 }
 var _state, v7_default;
 var init_v7 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/v7.js"() {
+  "../../../../node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/v7.js"() {
     init_rng();
     init_stringify2();
     _state = {};
@@ -3935,7 +3935,7 @@ var init_v7 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/version.js
+// ../../../../node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/version.js
 function version(uuid3) {
   if (!validate_default(uuid3)) {
     throw TypeError("Invalid UUID");
@@ -3944,15 +3944,15 @@ function version(uuid3) {
 }
 var version_default;
 var init_version = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/version.js"() {
+  "../../../../node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/version.js"() {
     init_validate();
     version_default = version;
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/index.js
+// ../../../../node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/index.js
 var init_dist_node = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/index.js"() {
+  "../../../../node_modules/.pnpm/uuid@14.0.0/node_modules/uuid/dist-node/index.js"() {
     init_v7();
     init_validate();
     init_version();
@@ -4533,7 +4533,7 @@ var init_browser_sidebar = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/core.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/core.js
 // @__NO_SIDE_EFFECTS__
 function $constructor(name, initializer3, params2) {
   function init(inst, def) {
@@ -4593,7 +4593,7 @@ function config(newConfig) {
 }
 var _a, NEVER, $brand, $ZodAsyncError, $ZodEncodeError, globalConfig;
 var init_core = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/core.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/core.js"() {
     NEVER = /* @__PURE__ */ Object.freeze({
       status: "aborted"
     });
@@ -4614,7 +4614,7 @@ var init_core = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/util.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/util.js
 var util_exports = {};
 __export(util_exports, {
   BIGINT_FORMAT_RANGES: () => BIGINT_FORMAT_RANGES,
@@ -5225,7 +5225,7 @@ function uint8ArrayToHex(bytes) {
 }
 var EVALUATING, captureStackTrace, allowsEval, getParsedType, propertyKeyTypes, primitiveTypes, NUMBER_FORMAT_RANGES, BIGINT_FORMAT_RANGES, Class;
 var init_util2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/util.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/util.js"() {
     init_core();
     EVALUATING = /* @__PURE__ */ Symbol("evaluating");
     captureStackTrace = "captureStackTrace" in Error ? Error.captureStackTrace : (..._args) => {
@@ -5316,7 +5316,7 @@ var init_util2 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/errors.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/errors.js
 function flattenError(error51, mapper = (issue3) => issue3.message) {
   const fieldErrors = {};
   const formErrors = [];
@@ -5438,7 +5438,7 @@ function prettifyError(error51) {
 }
 var initializer, $ZodError, $ZodRealError;
 var init_errors = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/errors.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/errors.js"() {
     init_core();
     init_util2();
     initializer = (inst, def) => {
@@ -5462,10 +5462,10 @@ var init_errors = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/parse.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/parse.js
 var _parse, parse2, _parseAsync, parseAsync, _safeParse, safeParse, _safeParseAsync, safeParseAsync, _encode, encode, _decode, decode, _encodeAsync, encodeAsync, _decodeAsync, decodeAsync, _safeEncode, safeEncode, _safeDecode, safeDecode, _safeEncodeAsync, safeEncodeAsync, _safeDecodeAsync, safeDecodeAsync;
 var init_parse2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/parse.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/parse.js"() {
     init_core();
     init_errors();
     init_util2();
@@ -5558,7 +5558,7 @@ var init_parse2 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/regexes.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/regexes.js
 var regexes_exports = {};
 __export(regexes_exports, {
   base64: () => base64,
@@ -5650,7 +5650,7 @@ function fixedBase64url(length2) {
 }
 var cuid, cuid2, ulid, xid, ksuid, nanoid, duration, extendedDuration, guid, uuid, uuid4, uuid6, uuid7, email, html5Email, rfc5322Email, unicodeEmail, idnEmail, browserEmail, _emoji, ipv4, ipv6, mac, cidrv4, cidrv6, base64, base64url, hostname, domain, httpProtocol, e164, dateSource, date, string, bigint, integer, number, boolean, _null, _undefined, lowercase, uppercase, hex, md5_hex, md5_base64, md5_base64url, sha1_hex, sha1_base64, sha1_base64url, sha256_hex, sha256_base64, sha256_base64url, sha384_hex, sha384_base64, sha384_base64url, sha512_hex, sha512_base64, sha512_base64url;
 var init_regexes = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/regexes.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/regexes.js"() {
     init_util2();
     cuid = /^[cC][0-9a-z]{6,}$/;
     cuid2 = /^[0-9a-z]+$/;
@@ -5723,7 +5723,7 @@ var init_regexes = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/checks.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/checks.js
 function handleCheckPropertyResult(result, payload, property) {
   if (result.issues.length) {
     payload.issues.push(...prefixIssues(property, result.issues));
@@ -5731,7 +5731,7 @@ function handleCheckPropertyResult(result, payload, property) {
 }
 var $ZodCheck, numericOriginMap, $ZodCheckLessThan, $ZodCheckGreaterThan, $ZodCheckMultipleOf, $ZodCheckNumberFormat, $ZodCheckBigIntFormat, $ZodCheckMaxSize, $ZodCheckMinSize, $ZodCheckSizeEquals, $ZodCheckMaxLength, $ZodCheckMinLength, $ZodCheckLengthEquals, $ZodCheckStringFormat, $ZodCheckRegex, $ZodCheckLowerCase, $ZodCheckUpperCase, $ZodCheckIncludes, $ZodCheckStartsWith, $ZodCheckEndsWith, $ZodCheckProperty, $ZodCheckMimeType, $ZodCheckOverwrite;
 var init_checks = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/checks.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/checks.js"() {
     init_core();
     init_regexes();
     init_util2();
@@ -6279,10 +6279,10 @@ var init_checks = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/doc.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/doc.js
 var Doc;
 var init_doc = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/doc.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/doc.js"() {
     Doc = class {
       constructor(args2 = []) {
         this.content = [];
@@ -6320,10 +6320,10 @@ var init_doc = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/versions.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/versions.js
 var version2;
 var init_versions = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/versions.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/versions.js"() {
     version2 = {
       major: 4,
       minor: 4,
@@ -6332,7 +6332,7 @@ var init_versions = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/schemas.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/schemas.js
 function isValidBase64(data) {
   if (data === "")
     return true;
@@ -6738,7 +6738,7 @@ function handleRefineResult(result, payload, input, inst) {
 }
 var $ZodType, $ZodString, $ZodStringFormat, $ZodGUID, $ZodUUID, $ZodEmail, $ZodURL, $ZodEmoji, $ZodNanoID, $ZodCUID, $ZodCUID2, $ZodULID, $ZodXID, $ZodKSUID, $ZodISODateTime, $ZodISODate, $ZodISOTime, $ZodISODuration, $ZodIPv4, $ZodIPv6, $ZodMAC, $ZodCIDRv4, $ZodCIDRv6, $ZodBase64, $ZodBase64URL, $ZodE164, $ZodJWT, $ZodCustomStringFormat, $ZodNumber, $ZodNumberFormat, $ZodBoolean, $ZodBigInt, $ZodBigIntFormat, $ZodSymbol, $ZodUndefined, $ZodNull, $ZodAny, $ZodUnknown, $ZodNever, $ZodVoid, $ZodDate, $ZodArray, $ZodObject, $ZodObjectJIT, $ZodUnion, $ZodXor, $ZodDiscriminatedUnion, $ZodIntersection, $ZodTuple, $ZodRecord, $ZodMap, $ZodSet, $ZodEnum, $ZodLiteral, $ZodFile, $ZodTransform, $ZodOptional, $ZodExactOptional, $ZodNullable, $ZodDefault, $ZodPrefault, $ZodNonOptional, $ZodSuccess, $ZodCatch, $ZodNaN, $ZodPipe, $ZodCodec, $ZodPreprocess, $ZodReadonly, $ZodTemplateLiteral, $ZodFunction, $ZodPromise, $ZodLazy, $ZodCustom;
 var init_schemas = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/schemas.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/schemas.js"() {
     init_checks();
     init_core();
     init_doc();
@@ -8438,7 +8438,7 @@ var init_schemas = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ar.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ar.js
 function ar_default() {
   return {
     localeError: error()
@@ -8446,7 +8446,7 @@ function ar_default() {
 }
 var error;
 var init_ar = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ar.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ar.js"() {
     init_util2();
     error = () => {
       const Sizable = {
@@ -8551,7 +8551,7 @@ var init_ar = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/az.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/az.js
 function az_default() {
   return {
     localeError: error2()
@@ -8559,7 +8559,7 @@ function az_default() {
 }
 var error2;
 var init_az = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/az.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/az.js"() {
     init_util2();
     error2 = () => {
       const Sizable = {
@@ -8663,7 +8663,7 @@ var init_az = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/be.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/be.js
 function getBelarusianPlural(count, one, few, many) {
   const absCount = Math.abs(count);
   const lastDigit = absCount % 10;
@@ -8686,7 +8686,7 @@ function be_default() {
 }
 var error3;
 var init_be = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/be.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/be.js"() {
     init_util2();
     error3 = () => {
       const Sizable = {
@@ -8826,7 +8826,7 @@ var init_be = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/bg.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/bg.js
 function bg_default() {
   return {
     localeError: error4()
@@ -8834,7 +8834,7 @@ function bg_default() {
 }
 var error4;
 var init_bg = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/bg.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/bg.js"() {
     init_util2();
     error4 = () => {
       const Sizable = {
@@ -8953,7 +8953,7 @@ var init_bg = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ca.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ca.js
 function ca_default() {
   return {
     localeError: error5()
@@ -8961,7 +8961,7 @@ function ca_default() {
 }
 var error5;
 var init_ca = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ca.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ca.js"() {
     init_util2();
     error5 = () => {
       const Sizable = {
@@ -9068,7 +9068,7 @@ var init_ca = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/cs.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/cs.js
 function cs_default() {
   return {
     localeError: error6()
@@ -9076,7 +9076,7 @@ function cs_default() {
 }
 var error6;
 var init_cs = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/cs.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/cs.js"() {
     init_util2();
     error6 = () => {
       const Sizable = {
@@ -9186,7 +9186,7 @@ var init_cs = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/da.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/da.js
 function da_default() {
   return {
     localeError: error7()
@@ -9194,7 +9194,7 @@ function da_default() {
 }
 var error7;
 var init_da = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/da.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/da.js"() {
     init_util2();
     error7 = () => {
       const Sizable = {
@@ -9308,7 +9308,7 @@ var init_da = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/de.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/de.js
 function de_default() {
   return {
     localeError: error8()
@@ -9316,7 +9316,7 @@ function de_default() {
 }
 var error8;
 var init_de = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/de.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/de.js"() {
     init_util2();
     error8 = () => {
       const Sizable = {
@@ -9423,7 +9423,7 @@ var init_de = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/el.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/el.js
 function el_default() {
   return {
     localeError: error9()
@@ -9431,7 +9431,7 @@ function el_default() {
 }
 var error9;
 var init_el = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/el.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/el.js"() {
     init_util2();
     error9 = () => {
       const Sizable = {
@@ -9539,7 +9539,7 @@ var init_el = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/en.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/en.js
 function en_default() {
   return {
     localeError: error10()
@@ -9547,7 +9547,7 @@ function en_default() {
 }
 var error10;
 var init_en = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/en.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/en.js"() {
     init_util2();
     error10 = () => {
       const Sizable = {
@@ -9658,7 +9658,7 @@ var init_en = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/eo.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/eo.js
 function eo_default() {
   return {
     localeError: error11()
@@ -9666,7 +9666,7 @@ function eo_default() {
 }
 var error11;
 var init_eo = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/eo.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/eo.js"() {
     init_util2();
     error11 = () => {
       const Sizable = {
@@ -9774,7 +9774,7 @@ var init_eo = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/es.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/es.js
 function es_default() {
   return {
     localeError: error12()
@@ -9782,7 +9782,7 @@ function es_default() {
 }
 var error12;
 var init_es = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/es.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/es.js"() {
     init_util2();
     error12 = () => {
       const Sizable = {
@@ -9913,7 +9913,7 @@ var init_es = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fa.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fa.js
 function fa_default() {
   return {
     localeError: error13()
@@ -9921,7 +9921,7 @@ function fa_default() {
 }
 var error13;
 var init_fa = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fa.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fa.js"() {
     init_util2();
     error13 = () => {
       const Sizable = {
@@ -10034,7 +10034,7 @@ var init_fa = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fi.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fi.js
 function fi_default() {
   return {
     localeError: error14()
@@ -10042,7 +10042,7 @@ function fi_default() {
 }
 var error14;
 var init_fi = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fi.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fi.js"() {
     init_util2();
     error14 = () => {
       const Sizable = {
@@ -10153,7 +10153,7 @@ var init_fi = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fr.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fr.js
 function fr_default() {
   return {
     localeError: error15()
@@ -10161,7 +10161,7 @@ function fr_default() {
 }
 var error15;
 var init_fr = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fr.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fr.js"() {
     init_util2();
     error15 = () => {
       const Sizable = {
@@ -10285,7 +10285,7 @@ var init_fr = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fr-CA.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fr-CA.js
 function fr_CA_default() {
   return {
     localeError: error16()
@@ -10293,7 +10293,7 @@ function fr_CA_default() {
 }
 var error16;
 var init_fr_CA = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fr-CA.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fr-CA.js"() {
     init_util2();
     error16 = () => {
       const Sizable = {
@@ -10399,7 +10399,7 @@ var init_fr_CA = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/he.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/he.js
 function he_default() {
   return {
     localeError: error17()
@@ -10407,7 +10407,7 @@ function he_default() {
 }
 var error17;
 var init_he = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/he.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/he.js"() {
     init_util2();
     error17 = () => {
       const TypeNames = {
@@ -10600,7 +10600,7 @@ var init_he = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hr.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hr.js
 function hr_default() {
   return {
     localeError: error18()
@@ -10608,7 +10608,7 @@ function hr_default() {
 }
 var error18;
 var init_hr = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hr.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hr.js"() {
     init_util2();
     error18 = () => {
       const Sizable = {
@@ -10729,7 +10729,7 @@ var init_hr = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hu.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hu.js
 function hu_default() {
   return {
     localeError: error19()
@@ -10737,7 +10737,7 @@ function hu_default() {
 }
 var error19;
 var init_hu = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hu.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hu.js"() {
     init_util2();
     error19 = () => {
       const Sizable = {
@@ -10844,7 +10844,7 @@ var init_hu = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hy.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hy.js
 function getArmenianPlural(count, one, many) {
   return Math.abs(count) === 1 ? one : many;
 }
@@ -10862,7 +10862,7 @@ function hy_default() {
 }
 var error20;
 var init_hy = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hy.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hy.js"() {
     init_util2();
     error20 = () => {
       const Sizable = {
@@ -10998,7 +10998,7 @@ var init_hy = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/id.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/id.js
 function id_default() {
   return {
     localeError: error21()
@@ -11006,7 +11006,7 @@ function id_default() {
 }
 var error21;
 var init_id = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/id.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/id.js"() {
     init_util2();
     error21 = () => {
       const Sizable = {
@@ -11111,7 +11111,7 @@ var init_id = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/is.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/is.js
 function is_default() {
   return {
     localeError: error22()
@@ -11119,7 +11119,7 @@ function is_default() {
 }
 var error22;
 var init_is = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/is.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/is.js"() {
     init_util2();
     error22 = () => {
       const Sizable = {
@@ -11227,7 +11227,7 @@ var init_is = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/it.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/it.js
 function it_default() {
   return {
     localeError: error23()
@@ -11235,7 +11235,7 @@ function it_default() {
 }
 var error23;
 var init_it = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/it.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/it.js"() {
     init_util2();
     error23 = () => {
       const Sizable = {
@@ -11342,7 +11342,7 @@ var init_it = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ja.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ja.js
 function ja_default() {
   return {
     localeError: error24()
@@ -11350,7 +11350,7 @@ function ja_default() {
 }
 var error24;
 var init_ja = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ja.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ja.js"() {
     init_util2();
     error24 = () => {
       const Sizable = {
@@ -11456,7 +11456,7 @@ var init_ja = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ka.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ka.js
 function ka_default() {
   return {
     localeError: error25()
@@ -11464,7 +11464,7 @@ function ka_default() {
 }
 var error25;
 var init_ka = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ka.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ka.js"() {
     init_util2();
     error25 = () => {
       const Sizable = {
@@ -11575,7 +11575,7 @@ var init_ka = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/km.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/km.js
 function km_default() {
   return {
     localeError: error26()
@@ -11583,7 +11583,7 @@ function km_default() {
 }
 var error26;
 var init_km = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/km.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/km.js"() {
     init_util2();
     error26 = () => {
       const Sizable = {
@@ -11692,17 +11692,17 @@ var init_km = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/kh.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/kh.js
 function kh_default() {
   return km_default();
 }
 var init_kh = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/kh.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/kh.js"() {
     init_km();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ko.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ko.js
 function ko_default() {
   return {
     localeError: error27()
@@ -11710,7 +11710,7 @@ function ko_default() {
 }
 var error27;
 var init_ko = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ko.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ko.js"() {
     init_util2();
     error27 = () => {
       const Sizable = {
@@ -11820,7 +11820,7 @@ var init_ko = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/lt.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/lt.js
 function getUnitTypeFromNumber(number4) {
   const abs2 = Math.abs(number4);
   const last2 = abs2 % 10;
@@ -11838,7 +11838,7 @@ function lt_default() {
 }
 var capitalizeFirstCharacter, error28;
 var init_lt = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/lt.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/lt.js"() {
     init_util2();
     capitalizeFirstCharacter = (text) => {
       return text.charAt(0).toUpperCase() + text.slice(1);
@@ -12030,7 +12030,7 @@ var init_lt = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/mk.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/mk.js
 function mk_default() {
   return {
     localeError: error29()
@@ -12038,7 +12038,7 @@ function mk_default() {
 }
 var error29;
 var init_mk = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/mk.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/mk.js"() {
     init_util2();
     error29 = () => {
       const Sizable = {
@@ -12146,7 +12146,7 @@ var init_mk = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ms.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ms.js
 function ms_default() {
   return {
     localeError: error30()
@@ -12154,7 +12154,7 @@ function ms_default() {
 }
 var error30;
 var init_ms = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ms.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ms.js"() {
     init_util2();
     error30 = () => {
       const Sizable = {
@@ -12260,7 +12260,7 @@ var init_ms = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/nl.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/nl.js
 function nl_default() {
   return {
     localeError: error31()
@@ -12268,7 +12268,7 @@ function nl_default() {
 }
 var error31;
 var init_nl = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/nl.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/nl.js"() {
     init_util2();
     error31 = () => {
       const Sizable = {
@@ -12377,7 +12377,7 @@ var init_nl = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/no.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/no.js
 function no_default() {
   return {
     localeError: error32()
@@ -12385,7 +12385,7 @@ function no_default() {
 }
 var error32;
 var init_no = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/no.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/no.js"() {
     init_util2();
     error32 = () => {
       const Sizable = {
@@ -12492,7 +12492,7 @@ var init_no = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ota.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ota.js
 function ota_default() {
   return {
     localeError: error33()
@@ -12500,7 +12500,7 @@ function ota_default() {
 }
 var error33;
 var init_ota = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ota.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ota.js"() {
     init_util2();
     error33 = () => {
       const Sizable = {
@@ -12608,7 +12608,7 @@ var init_ota = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ps.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ps.js
 function ps_default() {
   return {
     localeError: error34()
@@ -12616,7 +12616,7 @@ function ps_default() {
 }
 var error34;
 var init_ps = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ps.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ps.js"() {
     init_util2();
     error34 = () => {
       const Sizable = {
@@ -12729,7 +12729,7 @@ var init_ps = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/pl.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/pl.js
 function pl_default() {
   return {
     localeError: error35()
@@ -12737,7 +12737,7 @@ function pl_default() {
 }
 var error35;
 var init_pl = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/pl.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/pl.js"() {
     init_util2();
     error35 = () => {
       const Sizable = {
@@ -12845,7 +12845,7 @@ var init_pl = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/pt.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/pt.js
 function pt_default() {
   return {
     localeError: error36()
@@ -12853,7 +12853,7 @@ function pt_default() {
 }
 var error36;
 var init_pt = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/pt.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/pt.js"() {
     init_util2();
     error36 = () => {
       const Sizable = {
@@ -12960,7 +12960,7 @@ var init_pt = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ro.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ro.js
 function ro_default() {
   return {
     localeError: error37()
@@ -12968,7 +12968,7 @@ function ro_default() {
 }
 var error37;
 var init_ro = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ro.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ro.js"() {
     init_util2();
     error37 = () => {
       const Sizable = {
@@ -13086,7 +13086,7 @@ var init_ro = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ru.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ru.js
 function getRussianPlural(count, one, few, many) {
   const absCount = Math.abs(count);
   const lastDigit = absCount % 10;
@@ -13109,7 +13109,7 @@ function ru_default() {
 }
 var error38;
 var init_ru = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ru.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ru.js"() {
     init_util2();
     error38 = () => {
       const Sizable = {
@@ -13249,7 +13249,7 @@ var init_ru = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/sl.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/sl.js
 function sl_default() {
   return {
     localeError: error39()
@@ -13257,7 +13257,7 @@ function sl_default() {
 }
 var error39;
 var init_sl = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/sl.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/sl.js"() {
     init_util2();
     error39 = () => {
       const Sizable = {
@@ -13365,7 +13365,7 @@ var init_sl = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/sv.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/sv.js
 function sv_default() {
   return {
     localeError: error40()
@@ -13373,7 +13373,7 @@ function sv_default() {
 }
 var error40;
 var init_sv = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/sv.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/sv.js"() {
     init_util2();
     error40 = () => {
       const Sizable = {
@@ -13482,7 +13482,7 @@ var init_sv = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ta.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ta.js
 function ta_default() {
   return {
     localeError: error41()
@@ -13490,7 +13490,7 @@ function ta_default() {
 }
 var error41;
 var init_ta = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ta.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ta.js"() {
     init_util2();
     error41 = () => {
       const Sizable = {
@@ -13599,7 +13599,7 @@ var init_ta = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/th.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/th.js
 function th_default() {
   return {
     localeError: error42()
@@ -13607,7 +13607,7 @@ function th_default() {
 }
 var error42;
 var init_th = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/th.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/th.js"() {
     init_util2();
     error42 = () => {
       const Sizable = {
@@ -13716,7 +13716,7 @@ var init_th = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/tr.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/tr.js
 function tr_default() {
   return {
     localeError: error43()
@@ -13724,7 +13724,7 @@ function tr_default() {
 }
 var error43;
 var init_tr = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/tr.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/tr.js"() {
     init_util2();
     error43 = () => {
       const Sizable = {
@@ -13828,7 +13828,7 @@ var init_tr = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/uk.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/uk.js
 function uk_default() {
   return {
     localeError: error44()
@@ -13836,7 +13836,7 @@ function uk_default() {
 }
 var error44;
 var init_uk = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/uk.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/uk.js"() {
     init_util2();
     error44 = () => {
       const Sizable = {
@@ -13943,17 +13943,17 @@ var init_uk = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ua.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ua.js
 function ua_default() {
   return uk_default();
 }
 var init_ua = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ua.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ua.js"() {
     init_uk();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ur.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ur.js
 function ur_default() {
   return {
     localeError: error45()
@@ -13961,7 +13961,7 @@ function ur_default() {
 }
 var error45;
 var init_ur = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ur.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ur.js"() {
     init_util2();
     error45 = () => {
       const Sizable = {
@@ -14070,7 +14070,7 @@ var init_ur = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/uz.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/uz.js
 function uz_default() {
   return {
     localeError: error46()
@@ -14078,7 +14078,7 @@ function uz_default() {
 }
 var error46;
 var init_uz = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/uz.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/uz.js"() {
     init_util2();
     error46 = () => {
       const Sizable = {
@@ -14187,7 +14187,7 @@ var init_uz = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/vi.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/vi.js
 function vi_default() {
   return {
     localeError: error47()
@@ -14195,7 +14195,7 @@ function vi_default() {
 }
 var error47;
 var init_vi = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/vi.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/vi.js"() {
     init_util2();
     error47 = () => {
       const Sizable = {
@@ -14302,7 +14302,7 @@ var init_vi = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/zh-CN.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/zh-CN.js
 function zh_CN_default() {
   return {
     localeError: error48()
@@ -14310,7 +14310,7 @@ function zh_CN_default() {
 }
 var error48;
 var init_zh_CN = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/zh-CN.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/zh-CN.js"() {
     init_util2();
     error48 = () => {
       const Sizable = {
@@ -14418,7 +14418,7 @@ var init_zh_CN = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/zh-TW.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/zh-TW.js
 function zh_TW_default() {
   return {
     localeError: error49()
@@ -14426,7 +14426,7 @@ function zh_TW_default() {
 }
 var error49;
 var init_zh_TW = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/zh-TW.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/zh-TW.js"() {
     init_util2();
     error49 = () => {
       const Sizable = {
@@ -14532,7 +14532,7 @@ var init_zh_TW = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/yo.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/yo.js
 function yo_default() {
   return {
     localeError: error50()
@@ -14540,7 +14540,7 @@ function yo_default() {
 }
 var error50;
 var init_yo = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/yo.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/yo.js"() {
     init_util2();
     error50 = () => {
       const Sizable = {
@@ -14646,7 +14646,7 @@ var init_yo = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/index.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/index.js
 var locales_exports = {};
 __export(locales_exports, {
   ar: () => ar_default,
@@ -14703,7 +14703,7 @@ __export(locales_exports, {
   zhTW: () => zh_TW_default
 });
 var init_locales = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/index.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/index.js"() {
     init_ar();
     init_az();
     init_be();
@@ -14759,13 +14759,13 @@ var init_locales = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/registries.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/registries.js
 function registry() {
   return new $ZodRegistry();
 }
 var _a2, $output, $input, $ZodRegistry, globalRegistry;
 var init_registries = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/registries.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/registries.js"() {
     $output = /* @__PURE__ */ Symbol("ZodOutput");
     $input = /* @__PURE__ */ Symbol("ZodInput");
     $ZodRegistry = class {
@@ -14813,7 +14813,7 @@ var init_registries = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/api.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/api.js
 // @__NO_SIDE_EFFECTS__
 function _string(Class2, params2) {
   return new Class2({
@@ -15846,7 +15846,7 @@ function _stringFormat(Class2, format, fnOrRegex, _params = {}) {
 }
 var TimePrecision;
 var init_api = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/api.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/api.js"() {
     init_checks();
     init_registries();
     init_schemas();
@@ -15861,7 +15861,7 @@ var init_api = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/to-json-schema.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/to-json-schema.js
 function initializeContext(params2) {
   let target = params2?.target ?? "draft-2020-12";
   if (target === "draft-4")
@@ -16208,7 +16208,7 @@ function isTransforming(_schema, _ctx) {
 }
 var createToJSONSchemaMethod, createStandardJSONSchemaMethod;
 var init_to_json_schema = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/to-json-schema.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/to-json-schema.js"() {
     init_registries();
     createToJSONSchemaMethod = (schema, processors = {}) => (params2) => {
       const ctx = initializeContext({ ...params2, processors });
@@ -16226,7 +16226,7 @@ var init_to_json_schema = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema-processors.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema-processors.js
 function toJSONSchema(input, params2) {
   if ("_idmap" in input) {
     const registry2 = input;
@@ -16263,7 +16263,7 @@ function toJSONSchema(input, params2) {
 }
 var formatMap, stringProcessor, numberProcessor, booleanProcessor, bigintProcessor, symbolProcessor, nullProcessor, undefinedProcessor, voidProcessor, neverProcessor, anyProcessor, unknownProcessor, dateProcessor, enumProcessor, literalProcessor, nanProcessor, templateLiteralProcessor, fileProcessor, successProcessor, customProcessor, functionProcessor, transformProcessor, mapProcessor, setProcessor, arrayProcessor, objectProcessor, unionProcessor, intersectionProcessor, tupleProcessor, recordProcessor, nullableProcessor, nonoptionalProcessor, defaultProcessor, prefaultProcessor, catchProcessor, pipeProcessor, readonlyProcessor, promiseProcessor, optionalProcessor, lazyProcessor, allProcessors;
 var init_json_schema_processors = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema-processors.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema-processors.js"() {
     init_to_json_schema();
     init_util2();
     formatMap = {
@@ -16777,10 +16777,10 @@ var init_json_schema_processors = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema-generator.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema-generator.js
 var JSONSchemaGenerator;
 var init_json_schema_generator = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema-generator.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema-generator.js"() {
     init_json_schema_processors();
     init_to_json_schema();
     JSONSchemaGenerator = class {
@@ -16859,14 +16859,14 @@ var init_json_schema_generator = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema.js
 var json_schema_exports = {};
 var init_json_schema = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema.js"() {
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/index.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/index.js
 var core_exports2 = {};
 __export(core_exports2, {
   $ZodAny: () => $ZodAny,
@@ -17145,7 +17145,7 @@ __export(core_exports2, {
   version: () => version2
 });
 var init_core2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/index.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/index.js"() {
     init_core();
     init_parse2();
     init_errors();
@@ -17165,7 +17165,7 @@ var init_core2 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/checks.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/checks.js
 var checks_exports2 = {};
 __export(checks_exports2, {
   endsWith: () => _endsWith,
@@ -17199,12 +17199,12 @@ __export(checks_exports2, {
   uppercase: () => _uppercase
 });
 var init_checks2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/checks.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/checks.js"() {
     init_core2();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/iso.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/iso.js
 var iso_exports = {};
 __export(iso_exports, {
   ZodISODate: () => ZodISODate,
@@ -17230,7 +17230,7 @@ function duration2(params2) {
 }
 var ZodISODateTime, ZodISODate, ZodISOTime, ZodISODuration;
 var init_iso = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/iso.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/iso.js"() {
     init_core2();
     init_schemas2();
     ZodISODateTime = /* @__PURE__ */ $constructor("ZodISODateTime", (inst, def) => {
@@ -17252,10 +17252,10 @@ var init_iso = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/errors.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/errors.js
 var initializer2, ZodError, ZodRealError;
 var init_errors2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/errors.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/errors.js"() {
     init_core2();
     init_core2();
     init_util2();
@@ -17300,10 +17300,10 @@ var init_errors2 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/parse.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/parse.js
 var parse3, parseAsync2, safeParse2, safeParseAsync2, encode2, decode2, encodeAsync2, decodeAsync2, safeEncode2, safeDecode2, safeEncodeAsync2, safeDecodeAsync2;
 var init_parse3 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/parse.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/parse.js"() {
     init_core2();
     init_errors2();
     parse3 = /* @__PURE__ */ _parse(ZodRealError);
@@ -17321,7 +17321,7 @@ var init_parse3 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/schemas.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/schemas.js
 var schemas_exports2 = {};
 __export(schemas_exports2, {
   ZodAny: () => ZodAny,
@@ -18005,7 +18005,7 @@ function preprocess(fn, schema) {
 }
 var _installedGroups, ZodType, _ZodString, ZodString, ZodStringFormat, ZodEmail, ZodGUID, ZodUUID, ZodURL, ZodEmoji, ZodNanoID, ZodCUID, ZodCUID2, ZodULID, ZodXID, ZodKSUID, ZodIPv4, ZodMAC, ZodIPv6, ZodCIDRv4, ZodCIDRv6, ZodBase64, ZodBase64URL, ZodE164, ZodJWT, ZodCustomStringFormat, ZodNumber, ZodNumberFormat, ZodBoolean, ZodBigInt, ZodBigIntFormat, ZodSymbol, ZodUndefined, ZodNull, ZodAny, ZodUnknown, ZodNever, ZodVoid, ZodDate, ZodArray, ZodObject, ZodUnion, ZodXor, ZodDiscriminatedUnion, ZodIntersection, ZodTuple, ZodRecord, ZodMap, ZodSet, ZodEnum, ZodLiteral, ZodFile, ZodTransform, ZodOptional, ZodExactOptional, ZodNullable, ZodDefault, ZodPrefault, ZodNonOptional, ZodSuccess, ZodCatch, ZodNaN, ZodPipe, ZodCodec, ZodPreprocess, ZodReadonly, ZodTemplateLiteral, ZodLazy, ZodPromise, ZodFunction, ZodCustom, describe2, meta2, stringbool;
 var init_schemas2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/schemas.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/schemas.js"() {
     init_core2();
     init_core2();
     init_json_schema_processors();
@@ -18792,7 +18792,7 @@ var init_schemas2 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/compat.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/compat.js
 function setErrorMap(map3) {
   config({
     customError: map3
@@ -18803,7 +18803,7 @@ function getErrorMap() {
 }
 var ZodIssueCode, ZodFirstPartyTypeKind;
 var init_compat = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/compat.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/compat.js"() {
     init_core2();
     ZodIssueCode = {
       invalid_type: "invalid_type",
@@ -18823,7 +18823,7 @@ var init_compat = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/from-json-schema.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/from-json-schema.js
 function detectVersion(schema, defaultTarget) {
   const $schema = schema.$schema;
   if ($schema === "https://json-schema.org/draft/2020-12/schema") {
@@ -19228,7 +19228,7 @@ function fromJSONSchema(schema, params2) {
 }
 var z, RECOGNIZED_KEYS;
 var init_from_json_schema = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/from-json-schema.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/from-json-schema.js"() {
     init_registries();
     init_checks2();
     init_iso();
@@ -19312,7 +19312,7 @@ var init_from_json_schema = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/coerce.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/coerce.js
 var coerce_exports = {};
 __export(coerce_exports, {
   bigint: () => bigint3,
@@ -19337,13 +19337,13 @@ function date4(params2) {
   return _coercedDate(ZodDate, params2);
 }
 var init_coerce = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/coerce.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/coerce.js"() {
     init_core2();
     init_schemas2();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/external.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/external.js
 var external_exports = {};
 __export(external_exports, {
   $brand: () => $brand,
@@ -19586,7 +19586,7 @@ __export(external_exports, {
   xor: () => xor
 });
 var init_external = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/external.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/external.js"() {
     init_core2();
     init_schemas2();
     init_checks2();
@@ -19606,9 +19606,9 @@ var init_external = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/index.js
+// ../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/index.js
 var init_zod = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/zod@4.4.3/node_modules/zod/index.js"() {
+  "../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/index.js"() {
     init_external();
     init_external();
   }
@@ -19651,10 +19651,10 @@ var init_workbench = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/packages/codex-app-server-protocol/runtime-schemas/ModeKind.schema.json
+// ../../../../packages/codex-app-server-protocol/runtime-schemas/ModeKind.schema.json
 var ModeKind_schema_default;
 var init_ModeKind_schema = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/packages/codex-app-server-protocol/runtime-schemas/ModeKind.schema.json"() {
+  "../../../../packages/codex-app-server-protocol/runtime-schemas/ModeKind.schema.json"() {
     ModeKind_schema_default = {
       $schema: "http://json-schema.org/draft-07/schema#",
       definitions: {},
@@ -19669,10 +19669,10 @@ var init_ModeKind_schema = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/packages/codex-app-server-protocol/runtime-schemas/ReasoningEffort.schema.json
+// ../../../../packages/codex-app-server-protocol/runtime-schemas/ReasoningEffort.schema.json
 var ReasoningEffort_schema_default;
 var init_ReasoningEffort_schema = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/packages/codex-app-server-protocol/runtime-schemas/ReasoningEffort.schema.json"() {
+  "../../../../packages/codex-app-server-protocol/runtime-schemas/ReasoningEffort.schema.json"() {
     ReasoningEffort_schema_default = {
       $schema: "http://json-schema.org/draft-07/schema#",
       definitions: {},
@@ -19684,10 +19684,10 @@ var init_ReasoningEffort_schema = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/packages/codex-app-server-protocol/runtime-schemas/ThreadActiveFlag.schema.json
+// ../../../../packages/codex-app-server-protocol/runtime-schemas/ThreadActiveFlag.schema.json
 var ThreadActiveFlag_schema_default;
 var init_ThreadActiveFlag_schema = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/packages/codex-app-server-protocol/runtime-schemas/ThreadActiveFlag.schema.json"() {
+  "../../../../packages/codex-app-server-protocol/runtime-schemas/ThreadActiveFlag.schema.json"() {
     ThreadActiveFlag_schema_default = {
       $schema: "http://json-schema.org/draft-07/schema#",
       definitions: {},
@@ -19701,10 +19701,10 @@ var init_ThreadActiveFlag_schema = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/packages/codex-app-server-protocol/runtime-schemas/ThreadGoal.schema.json
+// ../../../../packages/codex-app-server-protocol/runtime-schemas/ThreadGoal.schema.json
 var ThreadGoal_schema_default;
 var init_ThreadGoal_schema = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/packages/codex-app-server-protocol/runtime-schemas/ThreadGoal.schema.json"() {
+  "../../../../packages/codex-app-server-protocol/runtime-schemas/ThreadGoal.schema.json"() {
     ThreadGoal_schema_default = {
       $schema: "http://json-schema.org/draft-07/schema#",
       definitions: {
@@ -19769,10 +19769,10 @@ var init_ThreadGoal_schema = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/packages/codex-app-server-protocol/runtime-schemas/ThreadGoalStatus.schema.json
+// ../../../../packages/codex-app-server-protocol/runtime-schemas/ThreadGoalStatus.schema.json
 var ThreadGoalStatus_schema_default;
 var init_ThreadGoalStatus_schema = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/packages/codex-app-server-protocol/runtime-schemas/ThreadGoalStatus.schema.json"() {
+  "../../../../packages/codex-app-server-protocol/runtime-schemas/ThreadGoalStatus.schema.json"() {
     ThreadGoalStatus_schema_default = {
       $schema: "http://json-schema.org/draft-07/schema#",
       definitions: {},
@@ -19790,10 +19790,10 @@ var init_ThreadGoalStatus_schema = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/packages/codex-app-server-protocol/runtime-schemas/ThreadStatus.schema.json
+// ../../../../packages/codex-app-server-protocol/runtime-schemas/ThreadStatus.schema.json
 var ThreadStatus_schema_default;
 var init_ThreadStatus_schema = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/packages/codex-app-server-protocol/runtime-schemas/ThreadStatus.schema.json"() {
+  "../../../../packages/codex-app-server-protocol/runtime-schemas/ThreadStatus.schema.json"() {
     ThreadStatus_schema_default = {
       $schema: "http://json-schema.org/draft-07/schema#",
       definitions: {
@@ -19883,10 +19883,10 @@ var init_ThreadStatus_schema = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/packages/codex-app-server-protocol/runtime-schemas/ThreadTokenUsage.schema.json
+// ../../../../packages/codex-app-server-protocol/runtime-schemas/ThreadTokenUsage.schema.json
 var ThreadTokenUsage_schema_default;
 var init_ThreadTokenUsage_schema = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/packages/codex-app-server-protocol/runtime-schemas/ThreadTokenUsage.schema.json"() {
+  "../../../../packages/codex-app-server-protocol/runtime-schemas/ThreadTokenUsage.schema.json"() {
     ThreadTokenUsage_schema_default = {
       $schema: "http://json-schema.org/draft-07/schema#",
       definitions: {
@@ -19948,10 +19948,10 @@ var init_ThreadTokenUsage_schema = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/packages/codex-app-server-protocol/runtime-schemas/TokenUsageBreakdown.schema.json
+// ../../../../packages/codex-app-server-protocol/runtime-schemas/TokenUsageBreakdown.schema.json
 var TokenUsageBreakdown_schema_default;
 var init_TokenUsageBreakdown_schema = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/packages/codex-app-server-protocol/runtime-schemas/TokenUsageBreakdown.schema.json"() {
+  "../../../../packages/codex-app-server-protocol/runtime-schemas/TokenUsageBreakdown.schema.json"() {
     TokenUsageBreakdown_schema_default = {
       $schema: "http://json-schema.org/draft-07/schema#",
       definitions: {},
@@ -20588,10 +20588,10 @@ var init_block_first_legacy_schema = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/map.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/map.js
 var create, copy, setIfUndefined, any2;
 var init_map = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/map.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/map.js"() {
     create = () => /* @__PURE__ */ new Map();
     copy = (m) => {
       const r = create();
@@ -20618,18 +20618,18 @@ var init_map = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/set.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/set.js
 var create2;
 var init_set = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/set.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/set.js"() {
     create2 = () => /* @__PURE__ */ new Set();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/array.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/array.js
 var last, appendTo, from, every, some, unfold, isArray;
 var init_array = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/array.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/array.js"() {
     last = (arr) => arr[arr.length - 1];
     appendTo = (dest, src) => {
       for (let i2 = 0; i2 < src.length; i2++) {
@@ -20664,10 +20664,10 @@ var init_array = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/observable.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/observable.js
 var ObservableV2;
 var init_observable = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/observable.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/observable.js"() {
     init_map();
     init_set();
     init_array();
@@ -20743,10 +20743,10 @@ var init_observable = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/math.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/math.js
 var floor, abs, min, max, isNaN2, isNegativeZero;
 var init_math = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/math.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/math.js"() {
     floor = Math.floor;
     abs = Math.abs;
     min = (a, b) => a < b ? a : b;
@@ -20756,10 +20756,10 @@ var init_math = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/binary.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/binary.js
 var BIT1, BIT2, BIT3, BIT4, BIT6, BIT7, BIT8, BIT18, BIT19, BIT20, BIT21, BIT22, BIT23, BIT24, BIT25, BIT26, BIT27, BIT28, BIT29, BIT30, BIT31, BIT32, BITS5, BITS6, BITS7, BITS17, BITS18, BITS19, BITS20, BITS21, BITS22, BITS23, BITS24, BITS25, BITS26, BITS27, BITS28, BITS29, BITS30, BITS31;
 var init_binary = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/binary.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/binary.js"() {
     BIT1 = 1;
     BIT2 = 2;
     BIT3 = 4;
@@ -20803,10 +20803,10 @@ var init_binary = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/number.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/number.js
 var MAX_SAFE_INTEGER, MIN_SAFE_INTEGER, LOWEST_INT32, isInteger, isNaN3, parseInt2;
 var init_number = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/number.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/number.js"() {
     init_math();
     MAX_SAFE_INTEGER = Number.MAX_SAFE_INTEGER;
     MIN_SAFE_INTEGER = Number.MIN_SAFE_INTEGER;
@@ -20817,10 +20817,10 @@ var init_number = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/string.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/string.js
 var fromCharCode, fromCodePoint, MAX_UTF16_CHARACTER, toLowerCase, trimLeftRegex, trimLeft, fromCamelCaseRegex, fromCamelCase, _encodeUtf8Polyfill, utf8TextEncoder, _encodeUtf8Native, encodeUtf8, utf8TextDecoder, repeat;
 var init_string = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/string.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/string.js"() {
     init_array();
     fromCharCode = String.fromCharCode;
     fromCodePoint = String.fromCodePoint;
@@ -20852,10 +20852,10 @@ var init_string = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/encoding.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/encoding.js
 var Encoder, createEncoder, encode3, length, toUint8Array, verifyLen, write, writeUint8, writeVarUint, writeVarInt, _strBuffer, _maxStrBSize, _writeVarStringNative, _writeVarStringPolyfill, writeVarString, writeUint8Array, writeVarUint8Array, writeOnDataView, writeFloat32, writeFloat64, writeBigInt64, floatTestBed, isFloat32, writeAny, RleEncoder, flushUintOptRleEncoder, UintOptRleEncoder, flushIntDiffOptRleEncoder, IntDiffOptRleEncoder, StringEncoder;
 var init_encoding = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/encoding.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/encoding.js"() {
     init_math();
     init_number();
     init_binary();
@@ -21174,10 +21174,10 @@ var init_encoding = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/error.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/error.js
 var create3, methodUnimplemented, unexpectedCase;
 var init_error2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/error.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/error.js"() {
     create3 = (s) => new Error(s);
     methodUnimplemented = () => {
       throw create3("Method unimplemented");
@@ -21188,10 +21188,10 @@ var init_error2 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/decoding.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/decoding.js
 var errorUnexpectedEndOfArray, errorIntegerOutOfRange, Decoder, createDecoder, hasContent, readUint8Array, readVarUint8Array, readUint8, readVarUint, readVarInt, _readVarStringPolyfill, _readVarStringNative, readVarString, readFromDataView, readFloat32, readFloat64, readBigInt64, readAnyLookupTable, readAny, RleDecoder, UintOptRleDecoder, IntDiffOptRleDecoder, StringDecoder;
 var init_decoding = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/decoding.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/decoding.js"() {
     init_binary();
     init_math();
     init_number();
@@ -21441,11 +21441,11 @@ var init_decoding = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/webcrypto.node.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/webcrypto.node.js
 import { webcrypto } from "node:crypto";
 var subtle, getRandomValues;
 var init_webcrypto_node = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/webcrypto.node.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/webcrypto.node.js"() {
     subtle = /** @type {any} */
     webcrypto.subtle;
     getRandomValues = /** @type {any} */
@@ -21453,10 +21453,10 @@ var init_webcrypto_node = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/random.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/random.js
 var rand, uint322, oneOf, uuidv4Template, uuidv42;
 var init_random = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/random.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/random.js"() {
     init_math();
     init_webcrypto_node();
     rand = Math.random;
@@ -21471,18 +21471,18 @@ var init_random = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/time.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/time.js
 var getUnixTime;
 var init_time = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/time.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/time.js"() {
     getUnixTime = Date.now;
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/promise.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/promise.js
 var create4, all;
 var init_promise = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/promise.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/promise.js"() {
     create4 = (f) => (
       /** @type {Promise<T>} */
       new Promise(f)
@@ -21491,18 +21491,18 @@ var init_promise = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/conditions.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/conditions.js
 var undefinedToNull;
 var init_conditions = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/conditions.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/conditions.js"() {
     undefinedToNull = (v) => v === void 0 ? null : v;
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/storage.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/storage.js
 var VarStoragePolyfill, _localStorage, usePolyfill, varStorage;
 var init_storage = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/storage.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/storage.js"() {
     VarStoragePolyfill = class {
       constructor() {
         this.map = /* @__PURE__ */ new Map();
@@ -21534,19 +21534,19 @@ var init_storage = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/trait/equality.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/trait/equality.js
 var EqualityTraitSymbol, equals;
 var init_equality = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/trait/equality.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/trait/equality.js"() {
     EqualityTraitSymbol = /* @__PURE__ */ Symbol("Equality");
     equals = (a, b) => a === b || !!a?.[EqualityTraitSymbol]?.(b) || false;
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/object.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/object.js
 var isObject2, assign, keys, forEach, size, isEmpty, every2, hasProperty, equalFlat, freeze, deepFreeze;
 var init_object = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/object.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/object.js"() {
     init_equality();
     isObject2 = (o) => typeof o === "object";
     assign = Object.assign;
@@ -21586,10 +21586,10 @@ var init_object = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/function.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/function.js
 var callAll, id, equalityDeep, isOneOf;
 var init_function = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/function.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/function.js"() {
     init_object();
     init_equality();
     callAll = (fs10, args2, i2 = 0) => {
@@ -21682,10 +21682,10 @@ var init_function = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/environment.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/environment.js
 var isNode, isBrowser, isMac, params, args, computeParams, hasParam, getVariable, hasConf, production, forceColor, supportsColor;
 var init_environment = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/environment.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/environment.js"() {
     init_map();
     init_string();
     init_conditions();
@@ -21745,10 +21745,10 @@ var init_environment = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/buffer.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/buffer.js
 var createUint8ArrayFromLen, toBase64Browser, toBase64Node, toBase64, copyUint8Array, encodeAny;
 var init_buffer = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/buffer.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/buffer.js"() {
     init_string();
     init_environment();
     init_encoding();
@@ -21771,18 +21771,18 @@ var init_buffer = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/symbol.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/symbol.js
 var create5;
 var init_symbol = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/symbol.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/symbol.js"() {
     create5 = Symbol;
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/logging.common.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/logging.common.js
 var BOLD, UNBOLD, BLUE, GREY, GREEN, RED, PURPLE, ORANGE, UNCOLOR, computeNoColorLoggingArgs, lastLoggingTime;
 var init_logging_common = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/logging.common.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/logging.common.js"() {
     init_symbol();
     init_time();
     BOLD = create5();
@@ -21828,10 +21828,10 @@ var init_logging_common = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/logging.node.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/logging.node.js
 var _nodeStyleMap, computeNodeLoggingArgs, computeLoggingArgs, print, warn;
 var init_logging_node = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/logging.node.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/logging.node.js"() {
     init_environment();
     init_logging_common();
     init_logging_common();
@@ -21892,10 +21892,10 @@ var init_logging_node = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/iterator.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/iterator.js
 var createIterator, iteratorFilter, iteratorMap;
 var init_iterator = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/iterator.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/iterator.js"() {
     createIterator = (next) => ({
       /**
        * @return {IterableIterator<T>}
@@ -21920,7 +21920,7 @@ var init_iterator = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/yjs@13.6.31/node_modules/yjs/dist/yjs.mjs
+// ../../../../node_modules/.pnpm/yjs@13.6.31/node_modules/yjs/dist/yjs.mjs
 function* lazyStructReaderGenerator(decoder) {
   const numOfStateUpdates = readVarUint(decoder.restDecoder);
   for (let i2 = 0; i2 < numOfStateUpdates; i2++) {
@@ -21965,7 +21965,7 @@ function* lazyStructReaderGenerator(decoder) {
 }
 var DeleteItem, DeleteSet, iterateDeletedStructs, findIndexDS, isDeleted, sortAndMergeDeleteSet, mergeDeleteSets, addToDeleteSet, createDeleteSet, createDeleteSetFromStructStore, writeDeleteSet, readDeleteSet, readAndApplyDeleteSet, generateNewClientId, Doc2, DSDecoderV1, UpdateDecoderV1, DSDecoderV2, UpdateDecoderV2, DSEncoderV1, UpdateEncoderV1, DSEncoderV2, UpdateEncoderV2, writeStructs, writeClientsStructs, readClientsStructRefs, integrateStructs, writeStructsFromTransaction, readUpdateV2, applyUpdateV2, applyUpdate, writeStateAsUpdate, encodeStateAsUpdateV2, encodeStateAsUpdate, readStateVector, decodeStateVector, writeStateVector, writeDocumentStateVector, encodeStateVectorV2, encodeStateVector, EventHandler, createEventHandler, addEventHandlerListener, removeEventHandlerListener, callEventHandlerListeners, ID, compareIDs, createID, findRootTypeKey, isParentOf, RelativePosition, createRelativePositionFromJSON, AbsolutePosition, createAbsolutePosition, createRelativePosition, createRelativePositionFromTypeIndex, getItemWithOffset, createAbsolutePositionFromRelativePosition, compareRelativePositions, Snapshot, createSnapshot, emptySnapshot, snapshot, isVisible, splitSnapshotAffectedStructs, StructStore, getStateVector, getState, addStruct, findIndexSS, find, getItem, findIndexCleanStart, getItemCleanStart, getItemCleanEnd, replaceStruct, iterateStructs, Transaction, writeUpdateMessageFromTransaction, addChangedTypeToTransaction, tryToMergeWithLefts, tryGcDeleteSet, tryMergeDeleteSet, cleanupTransactions, transact, StackItem, clearUndoManagerStackItem, popStackItem, UndoManager, LazyStructReader, LazyStructWriter, mergeUpdates, sliceStruct, mergeUpdatesV2, diffUpdateV2, flushLazyStructWriter, writeStructToLazyStructWriter, finishLazyStructWriting, convertUpdateFormat, convertUpdateFormatV2ToV1, errorComputeChanges, YEvent, getPathTo, warnPrematureAccess, maxSearchMarker, globalSearchMarkerTimestamp, ArraySearchMarker, refreshMarkerTimestamp, overwriteMarker, markPosition, findMarker, updateMarkerChanges, callTypeObservers, AbstractType, typeListSlice, typeListToArray, typeListToArraySnapshot, typeListForEach, typeListMap, typeListCreateIterator, typeListGet, typeListInsertGenericsAfter, lengthExceeded, typeListInsertGenerics, typeListPushGenerics, typeListDelete, typeMapDelete, typeMapSet, typeMapGet, typeMapGetAll, typeMapHas, typeMapGetAllSnapshot, createMapIterator, YArrayEvent, YArray, readYArray, YMapEvent, YMap, readYMap, equalAttrs, ItemTextListPosition, findNextPosition, findPosition, insertNegatedAttributes, updateCurrentAttributes, minimizeAttributeChanges, insertAttributes, insertText, formatText, cleanupFormattingGap, cleanupContextlessFormattingGap, cleanupYTextFormatting, cleanupYTextAfterTransaction, deleteText, YTextEvent, YText, readYText, YXmlTreeWalker, YXmlFragment, readYXmlFragment, YXmlElement, readYXmlElement, YXmlEvent, YXmlHook, readYXmlHook, YXmlText, readYXmlText, AbstractStruct, structGCRefNumber, GC, ContentBinary, readContentBinary, ContentDeleted, readContentDeleted, createDocFromOpts, ContentDoc, readContentDoc, ContentEmbed, readContentEmbed, ContentFormat, readContentFormat, ContentJSON, readContentJSON, isDevMode, ContentAny, readContentAny, ContentString, readContentString, typeRefs, YArrayRefID, YMapRefID, YTextRefID, YXmlElementRefID, YXmlFragmentRefID, YXmlHookRefID, YXmlTextRefID, ContentType, readContentType, followRedone, keepItem, splitItem, isDeletedByUndoStack, redoItem, Item, readItemContent, contentRefs, structSkipRefNumber, Skip, glo, importIdentifier;
 var init_yjs = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/yjs@13.6.31/node_modules/yjs/dist/yjs.mjs"() {
+  "../../../../node_modules/.pnpm/yjs@13.6.31/node_modules/yjs/dist/yjs.mjs"() {
     init_observable();
     init_array();
     init_math();
@@ -31163,13 +31163,13 @@ var init_canvas_scene_http_contract = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/orderedmap@2.1.1/node_modules/orderedmap/dist/index.js
+// ../../../../node_modules/.pnpm/orderedmap@2.1.1/node_modules/orderedmap/dist/index.js
 function OrderedMap(content) {
   this.content = content;
 }
 var dist_default;
 var init_dist2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/orderedmap@2.1.1/node_modules/orderedmap/dist/index.js"() {
+  "../../../../node_modules/.pnpm/orderedmap@2.1.1/node_modules/orderedmap/dist/index.js"() {
     OrderedMap.prototype = {
       constructor: OrderedMap,
       find: function(key) {
@@ -31287,7 +31287,7 @@ var init_dist2 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-model@1.25.9/node_modules/prosemirror-model/dist/index.js
+// ../../../../node_modules/.pnpm/prosemirror-model@1.25.9/node_modules/prosemirror-model/dist/index.js
 function findDiffStart(a, b, pos) {
   for (let i2 = 0; ; i2++) {
     if (i2 == a.childCount || i2 == b.childCount)
@@ -31931,7 +31931,7 @@ function renderSpec(doc4, structure, xmlNS, blockArraysIn) {
 }
 var Fragment, found, Mark, ReplaceError, Slice, ResolvedPos, ResolveCache, resolveCacheSize, resolveCache, NodeRange, emptyAttrs, Node2, TextNode, ContentMatch, TokenStream, NodeType, Attribute, MarkType, Schema, DOMParser2, blockTags, ignoreTags, listTags, OPT_PRESERVE_WS, OPT_PRESERVE_WS_FULL, OPT_OPEN_LEFT, NodeContext, ParseContext, DOMSerializer, suspiciousAttributeCache;
 var init_dist3 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-model@1.25.9/node_modules/prosemirror-model/dist/index.js"() {
+  "../../../../node_modules/.pnpm/prosemirror-model@1.25.9/node_modules/prosemirror-model/dist/index.js"() {
     init_dist2();
     Fragment = class _Fragment {
       /**
@@ -34509,7 +34509,7 @@ var init_dist3 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-transform@1.12.0/node_modules/prosemirror-transform/dist/index.js
+// ../../../../node_modules/.pnpm/prosemirror-transform@1.12.0/node_modules/prosemirror-transform/dist/index.js
 function makeRecover(index, offset) {
   return index + offset * factor16;
 }
@@ -35130,7 +35130,7 @@ function coveredDepths($from, $to) {
 }
 var lower16, factor16, DEL_BEFORE, DEL_AFTER, DEL_ACROSS, DEL_SIDE, MapResult, StepMap, Mapping, stepsByID, Step, StepResult, AddMarkStep, RemoveMarkStep, AddNodeMarkStep, RemoveNodeMarkStep, ReplaceStep, ReplaceAroundStep, Fitter, AttrStep, DocAttrStep, TransformError, Transform;
 var init_dist4 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-transform@1.12.0/node_modules/prosemirror-transform/dist/index.js"() {
+  "../../../../node_modules/.pnpm/prosemirror-transform@1.12.0/node_modules/prosemirror-transform/dist/index.js"() {
     init_dist3();
     lower16 = 65535;
     factor16 = Math.pow(2, 16);
@@ -36374,14 +36374,14 @@ var init_dist4 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/transform/index.js
+// ../../../../node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/transform/index.js
 var init_transform = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/transform/index.js"() {
+  "../../../../node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/transform/index.js"() {
     init_dist4();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-state@1.4.4/node_modules/prosemirror-state/dist/index.js
+// ../../../../node_modules/.pnpm/prosemirror-state@1.4.4/node_modules/prosemirror-state/dist/index.js
 function checkTextSelection($pos) {
   if (!warnedAboutTextSelection && !$pos.parent.inlineContent) {
     warnedAboutTextSelection = true;
@@ -36440,7 +36440,7 @@ function createKey(name) {
 }
 var classesById, Selection, SelectionRange, warnedAboutTextSelection, TextSelection, TextBookmark, NodeSelection, NodeBookmark, AllSelection, AllBookmark, UPDATED_SEL, UPDATED_MARKS, UPDATED_SCROLL, Transaction2, FieldDesc, baseFields, Configuration, EditorState, Plugin, keys2, PluginKey;
 var init_dist5 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-state@1.4.4/node_modules/prosemirror-state/dist/index.js"() {
+  "../../../../node_modules/.pnpm/prosemirror-state@1.4.4/node_modules/prosemirror-state/dist/index.js"() {
     init_dist3();
     init_dist4();
     classesById = /* @__PURE__ */ Object.create(null);
@@ -37314,7 +37314,7 @@ var init_dist5 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-commands@1.7.1/node_modules/prosemirror-commands/dist/index.js
+// ../../../../node_modules/.pnpm/prosemirror-commands@1.7.1/node_modules/prosemirror-commands/dist/index.js
 function atBlockStart(state, view) {
   let { $cursor } = state.selection;
   if (!$cursor || (view ? !view.endOfTextblock("backward", state) : $cursor.parentOffset > 0))
@@ -37580,7 +37580,7 @@ function chainCommands(...commands) {
 }
 var deleteSelection, joinBackward, joinTextblockBackward, joinTextblockForward, selectNodeBackward, joinForward, selectNodeForward, joinUp, joinDown, lift2, newlineInCode, exitCode, createParagraphNear, liftEmptyBlock, splitBlock, selectParentNode, selectAll, selectTextblockStart, selectTextblockEnd, backspace, del, pcBaseKeymap, macBaseKeymap, mac3;
 var init_dist6 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-commands@1.7.1/node_modules/prosemirror-commands/dist/index.js"() {
+  "../../../../node_modules/.pnpm/prosemirror-commands@1.7.1/node_modules/prosemirror-commands/dist/index.js"() {
     init_dist4();
     init_dist3();
     init_dist5();
@@ -37848,28 +37848,28 @@ var init_dist6 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/commands/index.js
+// ../../../../node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/commands/index.js
 var init_commands = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/commands/index.js"() {
+  "../../../../node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/commands/index.js"() {
     init_dist6();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/state/index.js
+// ../../../../node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/state/index.js
 var init_state = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/state/index.js"() {
+  "../../../../node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/state/index.js"() {
     init_dist5();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/model/index.js
+// ../../../../node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/model/index.js
 var init_model = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/model/index.js"() {
+  "../../../../node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/model/index.js"() {
     init_dist3();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-schema-list@1.5.1/node_modules/prosemirror-schema-list/dist/index.js
+// ../../../../node_modules/.pnpm/prosemirror-schema-list@1.5.1/node_modules/prosemirror-schema-list/dist/index.js
 function wrapInList(listType, attrs = null) {
   return function(state, dispatch) {
     let { $from, $to } = state.selection;
@@ -37993,20 +37993,20 @@ function sinkListItem(itemType) {
   };
 }
 var init_dist7 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-schema-list@1.5.1/node_modules/prosemirror-schema-list/dist/index.js"() {
+  "../../../../node_modules/.pnpm/prosemirror-schema-list@1.5.1/node_modules/prosemirror-schema-list/dist/index.js"() {
     init_dist4();
     init_dist3();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/schema-list/index.js
+// ../../../../node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/schema-list/index.js
 var init_schema_list = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/schema-list/index.js"() {
+  "../../../../node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/schema-list/index.js"() {
     init_dist7();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-view@1.41.9/node_modules/prosemirror-view/dist/index.js
+// ../../../../node_modules/.pnpm/prosemirror-view@1.41.9/node_modules/prosemirror-view/dist/index.js
 function scanFor(node, off, targetNode, targetOff, dir) {
   var _a3;
   for (; ; ) {
@@ -40568,7 +40568,7 @@ function checkStateComponent(plugin) {
 }
 var domIndex, parentNode, reusedRange, textRange, clearReusedRange, isEquivalentPosition, atomElements, selectionCollapsed, nav, doc2, agent, ie_edge, ie_upto10, ie_11up, ie, ie_version, gecko, _chrome, chrome, chrome_version, safari, ios, mac4, windows, android, webkit, webkit_version, preventScrollSupported, BIDI, maybeRTL, cachedState, cachedDir, cachedResult, NOT_DIRTY, CHILD_DIRTY, CONTENT_DIRTY, NODE_DIRTY, ViewDesc, WidgetViewDesc, CompositionViewDesc, MarkViewDesc, NodeViewDesc, TextViewDesc, TrailingHackViewDesc, CustomNodeViewDesc, OuterDecoLevel, noDeco, ViewTreeUpdater, brokenSelectBetweenUneditable, inlineParents, wrapMap, _detachedDoc, _policy, handlers, editHandlers, passiveHandlers, InputState, selectNodeModifier, MouseDown, LeftMouseDown, TripleClickDrag, timeoutComposition, brokenClipboardAPI, Dragging, dragCopyModifier, WidgetType, InlineType, NodeType2, Decoration, none, noSpec, DecorationSet, empty, DecorationGroup, observeOptions, useCharData, SelectionState, DOMObserver, cssChecked, cssCheckWarned, isInline, EditorView;
 var init_dist8 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-view@1.41.9/node_modules/prosemirror-view/dist/index.js"() {
+  "../../../../node_modules/.pnpm/prosemirror-view@1.41.9/node_modules/prosemirror-view/dist/index.js"() {
     init_dist5();
     init_dist3();
     init_dist4();
@@ -43283,14 +43283,14 @@ var init_dist8 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/view/index.js
+// ../../../../node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/view/index.js
 var init_view = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/view/index.js"() {
+  "../../../../node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/view/index.js"() {
     init_dist8();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/w3c-keyname@2.2.8/node_modules/w3c-keyname/index.js
+// ../../../../node_modules/.pnpm/w3c-keyname@2.2.8/node_modules/w3c-keyname/index.js
 function keyName(event) {
   var ignoreKey = mac5 && event.metaKey && event.shiftKey && !event.ctrlKey && !event.altKey || ie2 && event.shiftKey && event.key && event.key.length == 1 || event.key == "Unidentified";
   var name = !ignoreKey && event.key || (event.shiftKey ? shift : base)[event.keyCode] || event.key || "Unidentified";
@@ -43304,7 +43304,7 @@ function keyName(event) {
 }
 var base, shift, mac5, ie2, i, i, i, code;
 var init_w3c_keyname = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/w3c-keyname@2.2.8/node_modules/w3c-keyname/index.js"() {
+  "../../../../node_modules/.pnpm/w3c-keyname@2.2.8/node_modules/w3c-keyname/index.js"() {
     base = {
       8: "Backspace",
       9: "Tab",
@@ -43397,7 +43397,7 @@ var init_w3c_keyname = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-keymap@1.2.3/node_modules/prosemirror-keymap/dist/index.js
+// ../../../../node_modules/.pnpm/prosemirror-keymap@1.2.3/node_modules/prosemirror-keymap/dist/index.js
 function normalizeKeyName2(name) {
   let parts = name.split(/-(?!$)/), result = parts[parts.length - 1];
   if (result == "Space")
@@ -43475,7 +43475,7 @@ function keydownHandler(bindings) {
 }
 var mac6, windows2;
 var init_dist9 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-keymap@1.2.3/node_modules/prosemirror-keymap/dist/index.js"() {
+  "../../../../node_modules/.pnpm/prosemirror-keymap@1.2.3/node_modules/prosemirror-keymap/dist/index.js"() {
     init_w3c_keyname();
     init_dist5();
     mac6 = typeof navigator != "undefined" && /Mac|iP(hone|[oa]d)/.test(navigator.platform);
@@ -43483,14 +43483,14 @@ var init_dist9 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/keymap/index.js
+// ../../../../node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/keymap/index.js
 var init_keymap = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/keymap/index.js"() {
+  "../../../../node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/keymap/index.js"() {
     init_dist9();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+core@3.27.0_@tiptap+pm@3.27.0/node_modules/@tiptap/core/dist/index.js
+// ../../../../node_modules/.pnpm/@tiptap+core@3.27.0_@tiptap+pm@3.27.0/node_modules/@tiptap/core/dist/index.js
 function createChainableState(config2) {
   const { state, transaction } = config2;
   let { selection } = transaction;
@@ -45789,7 +45789,7 @@ function markPasteRule(config2) {
 }
 var __defProp2, __export2, CommandManager, commands_exports, blur, clearContent, clearNodes, command2, createParagraphNear2, cut, deleteCurrentNode, deleteNode, deleteRange2, hasTextContent, expandSelectionForSide, expandSelectionForInlineText, deleteSelection2, enter, exitCode2, extendMarkRange, first, focus, forEach2, insertContent, removeWhitespaces, isFragment, insertContentAt, joinUp2, joinDown2, joinBackward2, joinForward2, joinItemBackward, joinItemForward, joinTextblockBackward2, joinTextblockForward2, keyboardShortcut, lift3, liftEmptyBlock2, liftListItem2, newlineInCode2, resetAttributes, scrollIntoView, selectAll2, selectNodeBackward2, selectNodeForward2, selectParentNode2, selectTextblockEnd2, selectTextblockStart2, setContent, getTextContentFromNodes, MappablePosition, setMark, setMeta, setNode, setNodeSelection, setTextDirection, setTextSelection, sinkListItem2, splitBlock2, splitListItem, joinListBackwards, joinListForwards, toggleList, toggleMark, toggleNode, toggleWrap, undoInputRule, unsetAllMarks, unsetMark, unsetTextDirection, updateAttributes, wrapIn2, wrapInList2, EventEmitter, markdown_exports, InputRule, inputRuleMatcherHandler, Extendable, Mark2, PasteRule, pasteRuleMatcherHandler, tiptapDragFromOtherEditor, createClipboardPasteEvent, ExtensionManager, extensions_exports, Extension, ClipboardTextSerializer, Commands, Delete, Drop, Editable, focusEventsPluginKey, FocusEvents, Keymap, Paste, Tabindex, TextDirection, NodePos, style, Editor, Node3;
 var init_dist10 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+core@3.27.0_@tiptap+pm@3.27.0/node_modules/@tiptap/core/dist/index.js"() {
+  "../../../../node_modules/.pnpm/@tiptap+core@3.27.0_@tiptap+pm@3.27.0/node_modules/@tiptap/core/dist/index.js"() {
     init_transform();
     init_commands();
     init_state();
@@ -49079,7 +49079,7 @@ img.ProseMirror-separator {
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/UniqueID/UniqueID.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/UniqueID/UniqueID.ts
 function removeDuplicates2(array2, by = JSON.stringify) {
   const seen = {};
   return array2.filter((item) => {
@@ -49096,7 +49096,7 @@ function findDuplicates2(items) {
 }
 var UniqueID;
 var init_UniqueID = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/UniqueID/UniqueID.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/UniqueID/UniqueID.ts"() {
     "use strict";
     init_dist10();
     init_dist3();
@@ -49337,7 +49337,7 @@ var init_UniqueID = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/inlineContent/types.ts
+// ../../../../third_party/blocknote/packages/core/src/schema/inlineContent/types.ts
 function isLinkInlineContent(content) {
   return content.type === "link";
 }
@@ -49348,12 +49348,12 @@ function isStyledTextInlineContent(content) {
   return typeof content !== "string" && content.type === "text";
 }
 var init_types2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/inlineContent/types.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/schema/inlineContent/types.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/util/table.ts
+// ../../../../third_party/blocknote/packages/core/src/util/table.ts
 function mapTableCell(content) {
   return isTableCell(content) ? { ...content } : isPartialTableCell(content) ? {
     type: "tableCell",
@@ -49396,15 +49396,15 @@ function getRowspan(cell) {
   return 1;
 }
 var init_table2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/util/table.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/util/table.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/util/typescript.ts
+// ../../../../third_party/blocknote/packages/core/src/util/typescript.ts
 var UnreachableCaseError;
 var init_typescript = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/util/typescript.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/util/typescript.ts"() {
     "use strict";
     UnreachableCaseError = class extends Error {
       constructor(val) {
@@ -49414,7 +49414,7 @@ var init_typescript = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/util/browser.ts
+// ../../../../third_party/blocknote/packages/core/src/util/browser.ts
 function mergeCSSClasses(...classes) {
   return [
     // Converts to & from set to remove duplicates.
@@ -49424,12 +49424,12 @@ function mergeCSSClasses(...classes) {
   ].join(" ");
 }
 var init_browser = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/util/browser.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/util/browser.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/defaultBlockHelpers.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/defaultBlockHelpers.ts
 function createDefaultBlockDOMOutputSpec(blockName, htmlTag, blockContentHTMLAttributes, inlineContentHTMLAttributes) {
   const blockContent = document.createElement("div");
   blockContent.className = mergeCSSClasses(
@@ -49473,7 +49473,7 @@ function mergeParagraphs(element, separator = "<br>") {
 }
 var defaultBlockToHTML;
 var init_defaultBlockHelpers = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/defaultBlockHelpers.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/defaultBlockHelpers.ts"() {
     "use strict";
     init_blockToNode();
     init_browser();
@@ -49499,7 +49499,7 @@ var init_defaultBlockHelpers = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/util/string.ts
+// ../../../../third_party/blocknote/packages/core/src/util/string.ts
 function camelToDataKebab(str) {
   return "data-" + str.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
 }
@@ -49524,12 +49524,12 @@ function isVideoUrl(url2) {
   }
 }
 var init_string2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/util/string.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/util/string.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/blocks/internal.ts
+// ../../../../third_party/blocknote/packages/core/src/schema/blocks/internal.ts
 function propsToAttributes(propSchema) {
   const tiptapAttributes = {};
   Object.entries(propSchema).forEach(([name, spec]) => {
@@ -49640,7 +49640,7 @@ function createBlockSpecFromTiptapNode(config2, propSchema, extensions) {
   };
 }
 var init_internal = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/blocks/internal.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/schema/blocks/internal.ts"() {
     "use strict";
     init_defaultBlockHelpers();
     init_browser();
@@ -49648,7 +49648,7 @@ var init_internal = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/blocks/createSpec.ts
+// ../../../../third_party/blocknote/packages/core/src/schema/blocks/createSpec.ts
 function applyNonSelectableBlockFix(nodeView, editor) {
   nodeView.stopEvent = (event) => {
     if (event.type === "mousedown") {
@@ -49863,7 +49863,7 @@ function createBlockSpec(blockConfigOrCreator, blockImplementationOrCreator, ext
   };
 }
 var init_createSpec = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/blocks/createSpec.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/schema/blocks/createSpec.ts"() {
     "use strict";
     init_dist10();
     init_model();
@@ -49872,14 +49872,14 @@ var init_createSpec = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/blocks/types.ts
+// ../../../../third_party/blocknote/packages/core/src/schema/blocks/types.ts
 var init_types3 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/blocks/types.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/schema/blocks/types.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/getBlockInfoFromPos.ts
+// ../../../../third_party/blocknote/packages/core/src/api/getBlockInfoFromPos.ts
 function getNearestBlockPos(doc4, pos) {
   const $pos = doc4.resolve(pos);
   if ($pos.nodeAfter && $pos.nodeAfter.type.isInGroup("bnBlock")) {
@@ -49999,12 +49999,12 @@ function getBlockInfoFromTransaction(tr) {
   return getBlockInfo(posInfo);
 }
 var init_getBlockInfoFromPos = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/getBlockInfoFromPos.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/getBlockInfoFromPos.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/pmUtil.ts
+// ../../../../third_party/blocknote/packages/core/src/api/pmUtil.ts
 function getPmSchema(trOrNode) {
   if ("doc" in trOrNode) {
     return trOrNode.doc.type.schema;
@@ -50037,12 +50037,12 @@ function getBlockCache(schema) {
   return getBlockNoteEditor(schema).blockCache;
 }
 var init_pmUtil = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/pmUtil.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/pmUtil.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/nodeConversions/nodeToBlock.ts
+// ../../../../third_party/blocknote/packages/core/src/api/nodeConversions/nodeToBlock.ts
 function contentNodeToTableContent(contentNode, inlineContentSchema, styleSchema) {
   const ret = {
     type: "tableContent",
@@ -50484,7 +50484,7 @@ function prosemirrorSliceToSlicedBlocks(slice2, schema, blockSchema = getBlockSc
   );
 }
 var init_nodeToBlock = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/nodeConversions/nodeToBlock.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/nodeConversions/nodeToBlock.ts"() {
     "use strict";
     init_UniqueID();
     init_types2();
@@ -50494,7 +50494,7 @@ var init_nodeToBlock = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/inlineContent/internal.ts
+// ../../../../third_party/blocknote/packages/core/src/schema/inlineContent/internal.ts
 function addInlineContentAttributes(element, inlineContentType, inlineContentProps, propSchema) {
   element.dom.setAttribute("data-inline-content-type", inlineContentType);
   Object.entries(inlineContentProps).filter(([prop, value]) => {
@@ -50541,13 +50541,13 @@ function getInlineContentSchemaFromSpecs(specs) {
   );
 }
 var init_internal2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/inlineContent/internal.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/schema/inlineContent/internal.ts"() {
     "use strict";
     init_string2();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/inlineContent/createSpec.ts
+// ../../../../third_party/blocknote/packages/core/src/schema/inlineContent/createSpec.ts
 function getInlineContentParseRules(config2, customParseFunction) {
   const rules = [
     {
@@ -50676,7 +50676,7 @@ function createInlineContentSpec(inlineContentConfig, inlineContentImplementatio
   );
 }
 var init_createSpec2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/inlineContent/createSpec.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/schema/inlineContent/createSpec.ts"() {
     "use strict";
     init_dist10();
     init_blockToNode();
@@ -50686,14 +50686,14 @@ var init_createSpec2 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/propTypes.ts
+// ../../../../third_party/blocknote/packages/core/src/schema/propTypes.ts
 var init_propTypes = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/propTypes.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/schema/propTypes.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/styles/internal.ts
+// ../../../../third_party/blocknote/packages/core/src/schema/styles/internal.ts
 function stylePropsToAttributes(propSchema) {
   if (propSchema === "boolean") {
     return {};
@@ -50784,13 +50784,13 @@ function getStyleSchemaFromSpecs(specs) {
   );
 }
 var init_internal3 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/styles/internal.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/schema/styles/internal.ts"() {
     "use strict";
     init_model();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/styles/createSpec.ts
+// ../../../../third_party/blocknote/packages/core/src/schema/styles/createSpec.ts
 function getStyleParseRules(config2, customParseFunction) {
   const rules = [
     {
@@ -50879,21 +50879,21 @@ function createStyleSpec(styleConfig, styleImplementation) {
   });
 }
 var init_createSpec3 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/styles/createSpec.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/schema/styles/createSpec.ts"() {
     "use strict";
     init_dist10();
     init_internal3();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/styles/types.ts
+// ../../../../third_party/blocknote/packages/core/src/schema/styles/types.ts
 var init_types4 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/styles/types.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/schema/styles/types.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/util/topo-sort.ts
+// ../../../../third_party/blocknote/packages/core/src/util/topo-sort.ts
 function toposort(dag) {
   const inDegrees = countInDegrees(dag);
   let { roots, nonRoots } = getRootsAndNonRoots(inDegrees);
@@ -51001,12 +51001,12 @@ function sortByDependencies(items) {
   };
 }
 var init_topo_sort = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/util/topo-sort.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/util/topo-sort.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/schema.ts
+// ../../../../third_party/blocknote/packages/core/src/schema/schema.ts
 function removeUndefined(obj) {
   if (!obj) {
     return obj;
@@ -51017,7 +51017,7 @@ function removeUndefined(obj) {
 }
 var CustomBlockNoteSchema;
 var init_schema = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/schema.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/schema/schema.ts"() {
     "use strict";
     init_topo_sort();
     init_schema2();
@@ -51155,9 +51155,9 @@ var init_schema = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/index.ts
+// ../../../../third_party/blocknote/packages/core/src/schema/index.ts
 var init_schema2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/schema/index.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/schema/index.ts"() {
     "use strict";
     init_createSpec();
     init_internal();
@@ -51173,7 +51173,7 @@ var init_schema2 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/tables/tables.ts
+// ../../../../third_party/blocknote/packages/core/src/api/blockManipulation/tables/tables.ts
 function getTableCellOccupancyGrid(block) {
   const { height, width } = getDimensionsOfTable(block);
   const grid = new Array(height).fill(false).map(() => new Array(width).fill(null));
@@ -51486,14 +51486,14 @@ function areInSameColumn(from3, to, block) {
   return anchorAbsoluteCellIndices.col === headAbsoluteCellIndices.col;
 }
 var init_tables = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/tables/tables.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/blockManipulation/tables/tables.ts"() {
     "use strict";
     init_schema2();
     init_table2();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/nodeConversions/blockToNode.ts
+// ../../../../third_party/blocknote/packages/core/src/api/nodeConversions/blockToNode.ts
 function styledTextToNodes(styledText, schema, styleSchema, blockType) {
   const marks = [];
   for (const [style2, value] of Object.entries(styledText.styles || {})) {
@@ -51724,7 +51724,7 @@ function blockToNode(block, schema, styleSchema = getStyleSchema(schema), genera
   }
 }
 var init_blockToNode = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/nodeConversions/blockToNode.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/nodeConversions/blockToNode.ts"() {
     "use strict";
     init_UniqueID();
     init_types2();
@@ -51735,7 +51735,7 @@ var init_blockToNode = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/nodeUtil.ts
+// ../../../../third_party/blocknote/packages/core/src/api/nodeUtil.ts
 function getNodeById(id2, doc4) {
   let targetNode = void 0;
   let posBeforeNode = void 0;
@@ -51762,12 +51762,12 @@ function isNodeBlock(node) {
   return node.type.isInGroup("bnBlock");
 }
 var init_nodeUtil = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/nodeUtil.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/nodeUtil.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/commands/insertBlocks/insertBlocks.ts
+// ../../../../third_party/blocknote/packages/core/src/api/blockManipulation/commands/insertBlocks/insertBlocks.ts
 function insertBlocks(tr, blocksToInsert, referenceBlock, placement = "before") {
   const id2 = typeof referenceBlock === "string" ? referenceBlock : referenceBlock.id;
   const pmSchema = getPmSchema(tr);
@@ -51793,7 +51793,7 @@ function insertBlocks(tr, blocksToInsert, referenceBlock, placement = "before") 
   return insertedBlocks;
 }
 var init_insertBlocks = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/commands/insertBlocks/insertBlocks.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/blockManipulation/commands/insertBlocks/insertBlocks.ts"() {
     "use strict";
     init_dist3();
     init_dist4();
@@ -51804,7 +51804,7 @@ var init_insertBlocks = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/commands/replaceBlocks/util/fixColumnList.ts
+// ../../../../third_party/blocknote/packages/core/src/api/blockManipulation/commands/replaceBlocks/util/fixColumnList.ts
 function isEmptyColumn(column) {
   if (!column || column.type.name !== "column") {
     throw new Error("Invalid columnPos: does not point to column node.");
@@ -51905,14 +51905,14 @@ function fixColumnList(tr, columnListPos) {
   }
 }
 var init_fixColumnList = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/commands/replaceBlocks/util/fixColumnList.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/blockManipulation/commands/replaceBlocks/util/fixColumnList.ts"() {
     "use strict";
     init_dist3();
     init_dist4();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/commands/replaceBlocks/replaceBlocks.ts
+// ../../../../third_party/blocknote/packages/core/src/api/blockManipulation/commands/replaceBlocks/replaceBlocks.ts
 function removeAndInsertBlocks(tr, blocksToRemove, blocksToInsert) {
   const pmSchema = getPmSchema(tr);
   const nodesToInsert = blocksToInsert.map((block) => {
@@ -51973,7 +51973,7 @@ function removeAndInsertBlocks(tr, blocksToRemove, blocksToInsert) {
   return { insertedBlocks, removedBlocks };
 }
 var init_replaceBlocks = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/commands/replaceBlocks/replaceBlocks.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/blockManipulation/commands/replaceBlocks/replaceBlocks.ts"() {
     "use strict";
     init_blockToNode();
     init_nodeToBlock();
@@ -51982,7 +51982,7 @@ var init_replaceBlocks = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-tables@1.8.5/node_modules/prosemirror-tables/dist/index.js
+// ../../../../node_modules/.pnpm/prosemirror-tables@1.8.5/node_modules/prosemirror-tables/dist/index.js
 function computeMap(table) {
   if (table.type.spec.tableRole != "table") throw new RangeError("Not a table node: " + table.type.name);
   const width = findWidth(table), height = table.childCount;
@@ -53338,7 +53338,7 @@ function tableEditing({ allowTableNodeSelection = false } = {}) {
 }
 var readFromCache, addToCache, TableMap, tableEditingKey, CellSelection, CellBookmark, fixTablesKey, toggleHeaderRow, toggleHeaderColumn, toggleHeaderCell, handleKeyDown, TableView, columnResizingPluginKey, ResizeState;
 var init_dist11 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-tables@1.8.5/node_modules/prosemirror-tables/dist/index.js"() {
+  "../../../../node_modules/.pnpm/prosemirror-tables@1.8.5/node_modules/prosemirror-tables/dist/index.js"() {
     init_dist5();
     init_dist3();
     init_dist8();
@@ -53684,7 +53684,7 @@ var init_dist11 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/commands/updateBlock/updateBlock.ts
+// ../../../../third_party/blocknote/packages/core/src/api/blockManipulation/commands/updateBlock/updateBlock.ts
 function updateBlockTr(tr, posBeforeBlock, block, replaceFromPos, replaceToPos) {
   const blockInfo = getBlockInfoFromResolvedPos(tr.doc.resolve(posBeforeBlock));
   let cellAnchor = null;
@@ -53928,7 +53928,7 @@ function restoreCellAnchor(tr, blockInfo, a) {
 }
 var updateBlockCommand;
 var init_updateBlock = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/commands/updateBlock/updateBlock.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/blockManipulation/commands/updateBlock/updateBlock.ts"() {
     "use strict";
     init_dist3();
     init_dist5();
@@ -53954,7 +53954,7 @@ var init_updateBlock = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/exporters/html/util/serializeBlocksExternalHTML.ts
+// ../../../../third_party/blocknote/packages/core/src/api/exporters/html/util/serializeBlocksExternalHTML.ts
 function addAttributesAndRemoveClasses(element) {
   const className = Array.from(element.classList).filter(
     (className2) => !className2.startsWith("bn-")
@@ -54168,7 +54168,7 @@ function serializeBlock(fragment, editor, block, serializer, orderedListItemBloc
 }
 var serializeBlocksToFragment, serializeBlocksExternalHTML;
 var init_serializeBlocksExternalHTML = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/exporters/html/util/serializeBlocksExternalHTML.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/exporters/html/util/serializeBlocksExternalHTML.ts"() {
     "use strict";
     init_dist3();
     init_typescript();
@@ -54206,10 +54206,10 @@ var init_serializeBlocksExternalHTML = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/exporters/html/externalHTMLExporter.ts
+// ../../../../third_party/blocknote/packages/core/src/api/exporters/html/externalHTMLExporter.ts
 var createExternalHTMLExporter;
 var init_externalHTMLExporter = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/exporters/html/externalHTMLExporter.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/exporters/html/externalHTMLExporter.ts"() {
     "use strict";
     init_dist3();
     init_serializeBlocksExternalHTML();
@@ -54245,10 +54245,10 @@ var init_externalHTMLExporter = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/defaultColors.ts
+// ../../../../third_party/blocknote/packages/core/src/editor/defaultColors.ts
 var COLORS_DEFAULT;
 var init_defaultColors = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/defaultColors.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/editor/defaultColors.ts"() {
     "use strict";
     COLORS_DEFAULT = {
       gray: {
@@ -54291,10 +54291,10 @@ var init_defaultColors = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/defaultProps.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/defaultProps.ts
 var defaultProps, parseDefaultProps, addDefaultPropsExternalHTML, getBackgroundColorAttribute, getTextColorAttribute;
 var init_defaultProps = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/defaultProps.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/defaultProps.ts"() {
     "use strict";
     init_defaultColors();
     defaultProps = {
@@ -54380,10 +54380,10 @@ var init_defaultProps = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/File/helpers/parse/parseFigureElement.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/File/helpers/parse/parseFigureElement.ts
 var parseFigureElement;
 var init_parseFigureElement = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/File/helpers/parse/parseFigureElement.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/File/helpers/parse/parseFigureElement.ts"() {
     "use strict";
     parseFigureElement = (figureElement, targetTag) => {
       const targetElement = figureElement.querySelector(
@@ -54399,7 +54399,7 @@ var init_parseFigureElement = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tanstack+store@0.7.7/node_modules/@tanstack/store/dist/esm/scheduler.js
+// ../../../../node_modules/.pnpm/@tanstack+store@0.7.7/node_modules/@tanstack/store/dist/esm/scheduler.js
 function __flush_internals(relatedVals) {
   const sorted = Array.from(relatedVals).sort((a, b) => {
     if (a instanceof Derived && a.options.deps.includes(b)) return 1;
@@ -54479,7 +54479,7 @@ function __flush(store) {
 }
 var __storeToDerived, __derivedToStore, __depsThatHaveWrittenThisTick, __isFlushing, __batchDepth, __pendingUpdates, __initialBatchValues;
 var init_scheduler = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tanstack+store@0.7.7/node_modules/@tanstack/store/dist/esm/scheduler.js"() {
+  "../../../../node_modules/.pnpm/@tanstack+store@0.7.7/node_modules/@tanstack/store/dist/esm/scheduler.js"() {
     init_derived();
     __storeToDerived = /* @__PURE__ */ new WeakMap();
     __derivedToStore = /* @__PURE__ */ new WeakMap();
@@ -54493,19 +54493,19 @@ var init_scheduler = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tanstack+store@0.7.7/node_modules/@tanstack/store/dist/esm/types.js
+// ../../../../node_modules/.pnpm/@tanstack+store@0.7.7/node_modules/@tanstack/store/dist/esm/types.js
 function isUpdaterFunction(updater) {
   return typeof updater === "function";
 }
 var init_types5 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tanstack+store@0.7.7/node_modules/@tanstack/store/dist/esm/types.js"() {
+  "../../../../node_modules/.pnpm/@tanstack+store@0.7.7/node_modules/@tanstack/store/dist/esm/types.js"() {
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tanstack+store@0.7.7/node_modules/@tanstack/store/dist/esm/store.js
+// ../../../../node_modules/.pnpm/@tanstack+store@0.7.7/node_modules/@tanstack/store/dist/esm/store.js
 var Store;
 var init_store = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tanstack+store@0.7.7/node_modules/@tanstack/store/dist/esm/store.js"() {
+  "../../../../node_modules/.pnpm/@tanstack+store@0.7.7/node_modules/@tanstack/store/dist/esm/store.js"() {
     init_scheduler();
     init_types5();
     Store = class {
@@ -54543,10 +54543,10 @@ var init_store = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tanstack+store@0.7.7/node_modules/@tanstack/store/dist/esm/derived.js
+// ../../../../node_modules/.pnpm/@tanstack+store@0.7.7/node_modules/@tanstack/store/dist/esm/derived.js
 var Derived;
 var init_derived = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tanstack+store@0.7.7/node_modules/@tanstack/store/dist/esm/derived.js"() {
+  "../../../../node_modules/.pnpm/@tanstack+store@0.7.7/node_modules/@tanstack/store/dist/esm/derived.js"() {
     init_store();
     init_scheduler();
     Derived = class _Derived {
@@ -54663,23 +54663,23 @@ var init_derived = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tanstack+store@0.7.7/node_modules/@tanstack/store/dist/esm/index.js
+// ../../../../node_modules/.pnpm/@tanstack+store@0.7.7/node_modules/@tanstack/store/dist/esm/index.js
 var init_esm = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tanstack+store@0.7.7/node_modules/@tanstack/store/dist/esm/index.js"() {
+  "../../../../node_modules/.pnpm/@tanstack+store@0.7.7/node_modules/@tanstack/store/dist/esm/index.js"() {
     init_store();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/managers/ExtensionManager/symbol.ts
+// ../../../../third_party/blocknote/packages/core/src/editor/managers/ExtensionManager/symbol.ts
 var originalFactorySymbol;
 var init_symbol2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/managers/ExtensionManager/symbol.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/editor/managers/ExtensionManager/symbol.ts"() {
     "use strict";
     originalFactorySymbol = /* @__PURE__ */ Symbol("originalFactory");
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/BlockNoteExtension.ts
+// ../../../../third_party/blocknote/packages/core/src/editor/BlockNoteExtension.ts
 function createExtension(factory) {
   if (typeof factory === "object" && "key" in factory) {
     return function factoryFn() {
@@ -54702,17 +54702,17 @@ function createStore(initialState, options) {
   return new Store(initialState, options);
 }
 var init_BlockNoteExtension = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/BlockNoteExtension.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/editor/BlockNoteExtension.ts"() {
     "use strict";
     init_esm();
     init_symbol2();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/FilePanel/FilePanel.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/FilePanel/FilePanel.ts
 var FilePanelExtension;
 var init_FilePanel = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/FilePanel/FilePanel.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/FilePanel/FilePanel.ts"() {
     "use strict";
     init_BlockNoteExtension();
     FilePanelExtension = createExtension(({ editor }) => {
@@ -54748,10 +54748,10 @@ var init_FilePanel = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/File/helpers/render/createAddFileButton.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/File/helpers/render/createAddFileButton.ts
 var createAddFileButton;
 var init_createAddFileButton = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/File/helpers/render/createAddFileButton.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/File/helpers/render/createAddFileButton.ts"() {
     "use strict";
     init_FilePanel();
     createAddFileButton = (block, editor, buttonIcon) => {
@@ -54804,10 +54804,10 @@ var init_createAddFileButton = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/File/helpers/render/createFileNameWithIcon.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/File/helpers/render/createFileNameWithIcon.ts
 var FILE_ICON_SVG, createFileNameWithIcon;
 var init_createFileNameWithIcon = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/File/helpers/render/createFileNameWithIcon.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/File/helpers/render/createFileNameWithIcon.ts"() {
     "use strict";
     FILE_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M3 8L9.00319 2H19.9978C20.5513 2 21 2.45531 21 2.9918V21.0082C21 21.556 20.5551 22 20.0066 22H3.9934C3.44476 22 3 21.5501 3 20.9932V8ZM10 4V9H5V20H19V4H10Z"></path></svg>`;
     createFileNameWithIcon = (block) => {
@@ -54828,10 +54828,10 @@ var init_createFileNameWithIcon = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/File/helpers/render/createFileBlockWrapper.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/File/helpers/render/createFileBlockWrapper.ts
 var createFileBlockWrapper;
 var init_createFileBlockWrapper = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/File/helpers/render/createFileBlockWrapper.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/File/helpers/render/createFileBlockWrapper.ts"() {
     "use strict";
     init_createAddFileButton();
     init_createFileNameWithIcon();
@@ -54880,10 +54880,10 @@ var init_createFileBlockWrapper = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/File/helpers/toExternalHTML/createFigureWithCaption.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/File/helpers/toExternalHTML/createFigureWithCaption.ts
 var createFigureWithCaption;
 var init_createFigureWithCaption = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/File/helpers/toExternalHTML/createFigureWithCaption.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/File/helpers/toExternalHTML/createFigureWithCaption.ts"() {
     "use strict";
     createFigureWithCaption = (element, caption) => {
       const figure = document.createElement("figure");
@@ -54896,10 +54896,10 @@ var init_createFigureWithCaption = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/File/helpers/toExternalHTML/createLinkWithCaption.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/File/helpers/toExternalHTML/createLinkWithCaption.ts
 var createLinkWithCaption;
 var init_createLinkWithCaption = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/File/helpers/toExternalHTML/createLinkWithCaption.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/File/helpers/toExternalHTML/createLinkWithCaption.ts"() {
     "use strict";
     createLinkWithCaption = (element, caption) => {
       const wrapper = document.createElement("div");
@@ -54914,10 +54914,10 @@ var init_createLinkWithCaption = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Audio/parseAudioElement.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/Audio/parseAudioElement.ts
 var parseAudioElement;
 var init_parseAudioElement = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Audio/parseAudioElement.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/Audio/parseAudioElement.ts"() {
     "use strict";
     parseAudioElement = (audioElement) => {
       const url2 = audioElement.src || void 0;
@@ -54926,10 +54926,10 @@ var init_parseAudioElement = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Audio/block.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/Audio/block.ts
 var FILE_AUDIO_ICON_SVG, createAudioBlockConfig, audioParse, audioRender, audioToExternalHTML, createAudioBlockSpec;
 var init_block = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Audio/block.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/Audio/block.ts"() {
     "use strict";
     init_schema2();
     init_defaultProps();
@@ -55052,7 +55052,7 @@ var init_block = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-highlight@0.15.2_@shikijs+types@4.3.1_@types+hast@3.0.5_prosemirror-model@1_f5c67fda36211c0613300f9a00d7fc48/node_modules/prosemirror-highlight/dist/index.js
+// ../../../../node_modules/.pnpm/prosemirror-highlight@0.15.2_@shikijs+types@4.3.1_@types+hast@3.0.5_prosemirror-model@1_f5c67fda36211c0613300f9a00d7fc48/node_modules/prosemirror-highlight/dist/index.js
 function createHighlightPlugin({ parser, nodeTypes = ["code_block", "codeBlock"], languageExtractor = (node) => node.attrs.language }) {
   const key = new PluginKey("prosemirror-highlight");
   return new Plugin({
@@ -55157,7 +55157,7 @@ function collectCodeBlocks(doc4, nodeTypes) {
 }
 var DecorationCache;
 var init_dist12 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-highlight@0.15.2_@shikijs+types@4.3.1_@types+hast@3.0.5_prosemirror-model@1_f5c67fda36211c0613300f9a00d7fc48/node_modules/prosemirror-highlight/dist/index.js"() {
+  "../../../../node_modules/.pnpm/prosemirror-highlight@0.15.2_@shikijs+types@4.3.1_@types+hast@3.0.5_prosemirror-model@1_f5c67fda36211c0613300f9a00d7fc48/node_modules/prosemirror-highlight/dist/index.js"() {
     init_dist5();
     init_dist8();
     DecorationCache = class DecorationCache2 {
@@ -55229,7 +55229,7 @@ var init_dist12 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-highlight@0.15.2_@shikijs+types@4.3.1_@types+hast@3.0.5_prosemirror-model@1_f5c67fda36211c0613300f9a00d7fc48/node_modules/prosemirror-highlight/dist/shiki.js
+// ../../../../node_modules/.pnpm/prosemirror-highlight@0.15.2_@shikijs+types@4.3.1_@types+hast@3.0.5_prosemirror-model@1_f5c67fda36211c0613300f9a00d7fc48/node_modules/prosemirror-highlight/dist/shiki.js
 function createParser(highlighter, options) {
   return function parser({ content, language, pos, size: size2 }) {
     const decorations = [];
@@ -55263,12 +55263,12 @@ function stringifyTokenStyle(token) {
   return Object.entries(token).map(([key, value]) => `${key}:${value}`).join(";");
 }
 var init_shiki = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-highlight@0.15.2_@shikijs+types@4.3.1_@types+hast@3.0.5_prosemirror-model@1_f5c67fda36211c0613300f9a00d7fc48/node_modules/prosemirror-highlight/dist/shiki.js"() {
+  "../../../../node_modules/.pnpm/prosemirror-highlight@0.15.2_@shikijs+types@4.3.1_@types+hast@3.0.5_prosemirror-model@1_f5c67fda36211c0613300f9a00d7fc48/node_modules/prosemirror-highlight/dist/shiki.js"() {
     init_dist8();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Code/shiki.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/Code/shiki.ts
 function lazyShikiPlugin(options) {
   const globalThisForShiki = globalThis;
   let highlighter;
@@ -55313,7 +55313,7 @@ function lazyShikiPlugin(options) {
 }
 var shikiParserSymbol, shikiHighlighterPromiseSymbol;
 var init_shiki2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Code/shiki.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/Code/shiki.ts"() {
     "use strict";
     init_dist12();
     init_shiki();
@@ -55325,7 +55325,7 @@ var init_shiki2 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Code/block.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/Code/block.ts
 function getLanguageId(options, languageName) {
   return Object.entries(options.supportedLanguages ?? {}).find(
     ([id2, { aliases }]) => {
@@ -55335,7 +55335,7 @@ function getLanguageId(options, languageName) {
 }
 var createCodeBlockConfig, createCodeBlockSpec;
 var init_block2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Code/block.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/Code/block.ts"() {
     "use strict";
     init_BlockNoteExtension();
     init_schema2();
@@ -55537,10 +55537,10 @@ var init_block2 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Divider/block.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/Divider/block.ts
 var createDividerBlockConfig, createDividerBlockSpec;
 var init_block3 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Divider/block.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/Divider/block.ts"() {
     "use strict";
     init_BlockNoteExtension();
     init_schema2();
@@ -55587,10 +55587,10 @@ var init_block3 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/File/helpers/parse/parseEmbedElement.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/File/helpers/parse/parseEmbedElement.ts
 var parseEmbedElement;
 var init_parseEmbedElement = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/File/helpers/parse/parseEmbedElement.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/File/helpers/parse/parseEmbedElement.ts"() {
     "use strict";
     parseEmbedElement = (embedElement) => {
       const url2 = embedElement.src || void 0;
@@ -55599,10 +55599,10 @@ var init_parseEmbedElement = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/File/block.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/File/block.ts
 var createFileBlockConfig, fileParse, createFileBlockSpec;
 var init_block4 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/File/block.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/File/block.ts"() {
     "use strict";
     init_schema2();
     init_defaultProps();
@@ -55685,7 +55685,7 @@ var init_block4 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/getDetailsContent.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/getDetailsContent.ts
 function getDetailsContent(details, schema, nodeName) {
   const parser = DOMParser2.fromSchema(schema);
   const summary = details.querySelector(":scope > summary");
@@ -55723,17 +55723,17 @@ function getDetailsContent(details, schema, nodeName) {
   return blockGroup.content.size > 0 ? contentNode.content.addToEnd(blockGroup) : contentNode.content;
 }
 var init_getDetailsContent = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/getDetailsContent.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/getDetailsContent.ts"() {
     "use strict";
     init_dist3();
     init_defaultBlockHelpers();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/ToggleWrapper/createToggleWrapper.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/ToggleWrapper/createToggleWrapper.ts
 var toggledStateStorageKey, readPersistedToggledState, writePersistedToggledState, defaultToggledState, createToggleWrapper;
 var init_createToggleWrapper = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/ToggleWrapper/createToggleWrapper.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/ToggleWrapper/createToggleWrapper.ts"() {
     "use strict";
     toggledStateStorageKey = (blockId) => `toggle-${blockId}`;
     readPersistedToggledState = (blockId) => {
@@ -55872,10 +55872,10 @@ var init_createToggleWrapper = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Heading/block.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/Heading/block.ts
 var HEADING_LEVELS, createHeadingKeyboardShortcut, createHeadingBlockConfig, createHeadingBlockSpec;
 var init_block5 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Heading/block.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/Heading/block.ts"() {
     "use strict";
     init_BlockNoteExtension();
     init_schema2();
@@ -56026,10 +56026,10 @@ var init_block5 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/File/helpers/render/createResizableFileBlockWrapper.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/File/helpers/render/createResizableFileBlockWrapper.ts
 var createResizableFileBlockWrapper;
 var init_createResizableFileBlockWrapper = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/File/helpers/render/createResizableFileBlockWrapper.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/File/helpers/render/createResizableFileBlockWrapper.ts"() {
     "use strict";
     init_createFileBlockWrapper();
     createResizableFileBlockWrapper = (block, editor, element, resizeHandlesContainerElement, buttonIcon) => {
@@ -56208,10 +56208,10 @@ var init_createResizableFileBlockWrapper = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Image/parseImageElement.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/Image/parseImageElement.ts
 var parseImageElement;
 var init_parseImageElement = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Image/parseImageElement.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/Image/parseImageElement.ts"() {
     "use strict";
     parseImageElement = (imageElement) => {
       const url2 = imageElement.src || void 0;
@@ -56222,10 +56222,10 @@ var init_parseImageElement = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Image/block.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/Image/block.ts
 var FILE_IMAGE_ICON_SVG, createImageBlockConfig, imageParse, imageRender, imageToExternalHTML, createImageBlockSpec;
 var init_block6 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Image/block.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/Image/block.ts"() {
     "use strict";
     init_schema2();
     init_defaultProps();
@@ -56365,10 +56365,10 @@ var init_block6 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/commands/splitBlock/splitBlock.ts
+// ../../../../third_party/blocknote/packages/core/src/api/blockManipulation/commands/splitBlock/splitBlock.ts
 var splitBlockCommand, splitBlockTr;
 var init_splitBlock = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/commands/splitBlock/splitBlock.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/blockManipulation/commands/splitBlock/splitBlock.ts"() {
     "use strict";
     init_getBlockInfoFromPos();
     init_pmUtil();
@@ -56407,10 +56407,10 @@ var init_splitBlock = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/utils/listItemEnterHandler.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/utils/listItemEnterHandler.ts
 var handleEnter;
 var init_listItemEnterHandler = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/utils/listItemEnterHandler.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/utils/listItemEnterHandler.ts"() {
     "use strict";
     init_splitBlock();
     init_updateBlock();
@@ -56448,7 +56448,7 @@ var init_listItemEnterHandler = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/ListItem/getListItemContent.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/ListItem/getListItemContent.ts
 function getListItemContent(_node, schema, name) {
   const parser = DOMParser2.fromSchema(schema);
   const node = _node;
@@ -56487,16 +56487,16 @@ function getListItemContent(_node, schema, name) {
   return listItemNode.content;
 }
 var init_getListItemContent = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/ListItem/getListItemContent.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/ListItem/getListItemContent.ts"() {
     "use strict";
     init_dist3();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/ListItem/BulletListItem/block.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/ListItem/BulletListItem/block.ts
 var createBulletListItemBlockConfig, createBulletListItemBlockSpec;
 var init_block7 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/ListItem/BulletListItem/block.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/ListItem/BulletListItem/block.ts"() {
     "use strict";
     init_getBlockInfoFromPos();
     init_BlockNoteExtension();
@@ -56595,10 +56595,10 @@ var init_block7 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/ListItem/CheckListItem/block.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/ListItem/CheckListItem/block.ts
 var createCheckListItemConfig, createCheckListItemBlockSpec;
 var init_block8 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/ListItem/CheckListItem/block.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/ListItem/CheckListItem/block.ts"() {
     "use strict";
     init_BlockNoteExtension();
     init_schema2();
@@ -56744,7 +56744,7 @@ var init_block8 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/ListItem/NumberedListItem/IndexingPlugin.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/ListItem/NumberedListItem/IndexingPlugin.ts
 function calculateListItemIndex(node, pos, tr, map3) {
   const hasStart = !!node.firstChild.attrs["start"];
   const blockInfo = getBlockInfo({ posBeforeNode: pos, node });
@@ -56866,7 +56866,7 @@ function getDecorations(tr, previousPluginState) {
 }
 var NumberedListIndexingDecorationPlugin;
 var init_IndexingPlugin = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/ListItem/NumberedListItem/IndexingPlugin.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/ListItem/NumberedListItem/IndexingPlugin.ts"() {
     "use strict";
     init_state();
     init_view();
@@ -56897,10 +56897,10 @@ var init_IndexingPlugin = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/ListItem/NumberedListItem/block.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/ListItem/NumberedListItem/block.ts
 var createNumberedListItemBlockConfig, createNumberedListItemBlockSpec;
 var init_block9 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/ListItem/NumberedListItem/block.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/ListItem/NumberedListItem/block.ts"() {
     "use strict";
     init_getBlockInfoFromPos();
     init_BlockNoteExtension();
@@ -57013,10 +57013,10 @@ var init_block9 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/ListItem/ToggleListItem/block.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/ListItem/ToggleListItem/block.ts
 var createToggleListItemBlockConfig, createToggleListItemBlockSpec;
 var init_block10 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/ListItem/ToggleListItem/block.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/ListItem/ToggleListItem/block.ts"() {
     "use strict";
     init_BlockNoteExtension();
     init_schema2();
@@ -57117,10 +57117,10 @@ var init_block10 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/PageBreak/block.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/PageBreak/block.ts
 var createPageBreakBlockConfig, createPageBreakBlockSpec;
 var init_block11 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/PageBreak/block.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/PageBreak/block.ts"() {
     "use strict";
     init_schema2();
     createPageBreakBlockConfig = createBlockConfig(
@@ -57158,10 +57158,10 @@ var init_block11 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Paragraph/block.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/Paragraph/block.ts
 var createParagraphBlockConfig, createParagraphBlockSpec;
 var init_block12 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Paragraph/block.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/Paragraph/block.ts"() {
     "use strict";
     init_BlockNoteExtension();
     init_schema2();
@@ -57227,10 +57227,10 @@ var init_block12 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Quote/block.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/Quote/block.ts
 var createQuoteBlockConfig, createQuoteBlockSpec;
 var init_block13 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Quote/block.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/Quote/block.ts"() {
     "use strict";
     init_BlockNoteExtension();
     init_schema2();
@@ -57316,10 +57316,10 @@ var init_block13 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Table/TableExtension.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/Table/TableExtension.ts
 var RESIZE_MIN_WIDTH, EMPTY_CELL_WIDTH, TableExtension;
 var init_TableExtension = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Table/TableExtension.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/Table/TableExtension.ts"() {
     "use strict";
     init_dist10();
     init_dist5();
@@ -57399,7 +57399,7 @@ var init_TableExtension = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Table/block.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/Table/block.ts
 function parseTableContent(node, schema) {
   const parser = DOMParser2.fromSchema(schema);
   const parsedContent = parser.parse(node, {
@@ -57417,7 +57417,7 @@ function parseTableContent(node, schema) {
 }
 var tablePropSchema, TiptapTableHeader, TiptapTableCell, TiptapTableNode, TiptapTableParagraph, TiptapTableRow, createTableBlockSpec;
 var init_block14 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Table/block.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/Table/block.ts"() {
     "use strict";
     init_dist10();
     init_dist3();
@@ -57761,10 +57761,10 @@ var init_block14 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Video/parseVideoElement.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/Video/parseVideoElement.ts
 var parseVideoElement;
 var init_parseVideoElement = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Video/parseVideoElement.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/Video/parseVideoElement.ts"() {
     "use strict";
     parseVideoElement = (videoElement) => {
       const url2 = videoElement.src || void 0;
@@ -57775,10 +57775,10 @@ var init_parseVideoElement = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Video/block.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/Video/block.ts
 var FILE_VIDEO_ICON_SVG, createVideoBlockConfig, videoParse, createVideoBlockSpec;
 var init_block15 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/Video/block.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/Video/block.ts"() {
     "use strict";
     init_schema2();
     init_defaultProps();
@@ -57900,14 +57900,14 @@ var init_block15 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/File/helpers/uploadToTmpFilesDotOrg_DEV_ONLY.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/File/helpers/uploadToTmpFilesDotOrg_DEV_ONLY.ts
 var init_uploadToTmpFilesDotOrg_DEV_ONLY = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/File/helpers/uploadToTmpFilesDotOrg_DEV_ONLY.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/File/helpers/uploadToTmpFilesDotOrg_DEV_ONLY.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/defaultBlockTypeGuards.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/defaultBlockTypeGuards.ts
 function editorHasBlockWithType(editor, blockType, props) {
   if (!(blockType in editor.schema.blockSpecs)) {
     return false;
@@ -57953,16 +57953,16 @@ function isTableCellSelection(selection) {
   return selection instanceof CellSelection;
 }
 var init_defaultBlockTypeGuards = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/defaultBlockTypeGuards.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/defaultBlockTypeGuards.ts"() {
     "use strict";
     init_dist11();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/FormattingToolbar/FormattingToolbar.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/FormattingToolbar/FormattingToolbar.ts
 var FormattingToolbarExtension;
 var init_FormattingToolbar = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/FormattingToolbar/FormattingToolbar.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/FormattingToolbar/FormattingToolbar.ts"() {
     "use strict";
     init_dist5();
     init_BlockNoteExtension();
@@ -58057,16 +58057,16 @@ var init_FormattingToolbar = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/y-protocols@1.0.7_yjs@13.6.31/node_modules/y-protocols/awareness.js
+// ../../../../node_modules/.pnpm/y-protocols@1.0.7_yjs@13.6.31/node_modules/y-protocols/awareness.js
 var init_awareness = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/y-protocols@1.0.7_yjs@13.6.31/node_modules/y-protocols/awareness.js"() {
+  "../../../../node_modules/.pnpm/y-protocols@1.0.7_yjs@13.6.31/node_modules/y-protocols/awareness.js"() {
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/mutex.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/mutex.js
 var createMutex;
 var init_mutex = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/mutex.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/mutex.js"() {
     createMutex = () => {
       let token = true;
       return (f, g) => {
@@ -58085,10 +58085,10 @@ var init_mutex = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/diff.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/diff.js
 var highSurrogateRegex, lowSurrogateRegex, simpleDiffString, simpleDiff;
 var init_diff = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/diff.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/diff.js"() {
     highSurrogateRegex = /[\uD800-\uDBFF]/;
     lowSurrogateRegex = /[\uDC00-\uDFFF]/;
     simpleDiffString = (a, b) => {
@@ -58112,10 +58112,10 @@ var init_diff = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/plugins/keys.js
+// ../../../../node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/plugins/keys.js
 var ySyncPluginKey, yUndoPluginKey, yCursorPluginKey;
 var init_keys = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/plugins/keys.js"() {
+  "../../../../node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/plugins/keys.js"() {
     init_dist5();
     ySyncPluginKey = new PluginKey("y-sync");
     yUndoPluginKey = new PluginKey("y-undo");
@@ -58123,10 +58123,10 @@ var init_keys = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/prng.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/prng.js
 var bool, int53, int322, int31, letter, word, oneOf2;
 var init_prng = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/prng.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/prng.js"() {
     init_string();
     init_math();
     bool = (gen) => gen.next() >= 0.5;
@@ -58146,10 +58146,10 @@ var init_prng = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/schema.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/schema.js
 var schemaSymbol, ValidationError, shapeExtends, Schema6, $ConstructedBy, $constructedBy, $$constructedBy, $Custom, $custom, $$custom, $Literal, $literal, $$literal, _regexEscape, _schemaStringTemplateToRegex, $StringTemplate, $$stringTemplate, isOptionalSymbol, $Optional, $$optional, $Never, $never, $$never, $Object, $object, $$object, $objectAny, $Record, $record, $$record, $Tuple, $tuple, $$tuple, $Array, $array, $$array, $arrayAny, $InstanceOf, $instanceOf, $$instanceOf, $$schema, $Lambda, $$lambda, $function, $Intersection, $$intersect, $Union, $union, $$union, _t, $any, $$any, $bigint, $$bigint, $symbol, $$symbol, $number, $$number, $string, $$string, $boolean, $$boolean, $undefined, $$undefined, $void, $null, $$null, $uint8Array, $$uint8Array, $primitive, $json, $, assert2, PatternMatcher, match, _random, random;
 var init_schema3 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/schema.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/schema.js"() {
     init_object();
     init_array();
     init_error2();
@@ -58872,10 +58872,10 @@ ${err.toString()}`);
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/dom.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/dom.js
 var doc3, $fragment, domParser, $element, $text, ELEMENT_NODE, TEXT_NODE, CDATA_SECTION_NODE, COMMENT_NODE, DOCUMENT_NODE, DOCUMENT_TYPE_NODE, DOCUMENT_FRAGMENT_NODE, $node;
 var init_dom = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/dom.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/dom.js"() {
     init_schema3();
     doc3 = /** @type {Document} */
     typeof document !== "undefined" ? document : {};
@@ -58895,10 +58895,10 @@ var init_dom = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/eventloop.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/eventloop.js
 var createTimeoutClass, Timeout, timeout, Interval, Animation, Idle;
 var init_eventloop = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/eventloop.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/eventloop.js"() {
     createTimeoutClass = (clearFunction) => class TT {
       /**
        * @param {number} timeoutId
@@ -58918,11 +58918,11 @@ var init_eventloop = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/hash/sha256.node.js
+// ../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/hash/sha256.node.js
 import { createHash } from "node:crypto";
 var digest;
 var init_sha256_node = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/hash/sha256.node.js"() {
+  "../../../../node_modules/.pnpm/lib0@0.2.117/node_modules/lib0/hash/sha256.node.js"() {
     digest = (data) => {
       const hasher = createHash("sha256");
       hasher.update(data);
@@ -58931,10 +58931,10 @@ var init_sha256_node = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/utils.js
+// ../../../../node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/utils.js
 var _convolute, hashOfJSON;
 var init_utils = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/utils.js"() {
+  "../../../../node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/utils.js"() {
     init_sha256_node();
     init_buffer();
     _convolute = (digest2) => {
@@ -58948,10 +58948,10 @@ var init_utils = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/plugins/sync-plugin.js
+// ../../../../node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/plugins/sync-plugin.js
 var createEmptyMeta, isVisible2, defaultColors, getUserColor, ySyncPlugin, restoreRelativeSelection, getRelativeSelection, ProsemirrorBinding, createNodeIfNotExists, createNodeFromYElement, createTextNodesFromYText, createTypeFromTextNodes, createTypeFromElementNode, createTypeFromTextOrElementNode, isObject3, equalAttrs2, normalizePNodeContent, equalYTextPText, equalYTypePNode, mappedIdentity, computeChildEqualityFactor, ytextTrans, updateYText, hashedMarkNameRegex, yattr2markname, attributesToMarks, marksToAttributes, updateYFragment, matchNodeName;
 var init_sync_plugin = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/plugins/sync-plugin.js"() {
+  "../../../../node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/plugins/sync-plugin.js"() {
     init_mutex();
     init_dist3();
     init_dist5();
@@ -59898,7 +59898,7 @@ var init_sync_plugin = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/lib.js
+// ../../../../node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/lib.js
 function prosemirrorToYXmlFragment(doc4, xmlFragment) {
   const type = xmlFragment || new YXmlFragment();
   const ydoc = type.doc ? type.doc : { transact: (transaction) => transaction(void 0) };
@@ -59907,7 +59907,7 @@ function prosemirrorToYXmlFragment(doc4, xmlFragment) {
 }
 var viewsToUpdate, updateMetas, setMeta2, absolutePositionToRelativePosition, createRelativePosition2, relativePositionToAbsolutePosition, yXmlFragmentToProseMirrorFragment, yXmlFragmentToProseMirrorRootNode;
 var init_lib = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/lib.js"() {
+  "../../../../node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/lib.js"() {
     init_sync_plugin();
     init_keys();
     init_yjs();
@@ -60105,10 +60105,10 @@ var init_lib = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/plugins/cursor-plugin.js
+// ../../../../node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/plugins/cursor-plugin.js
 var defaultAwarenessStateFilter, defaultCursorBuilder, defaultSelectionBuilder, rxValidColor, createDecorations, yCursorPlugin;
 var init_cursor_plugin = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/plugins/cursor-plugin.js"() {
+  "../../../../node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/plugins/cursor-plugin.js"() {
     init_yjs();
     init_dist8();
     init_dist5();
@@ -60290,10 +60290,10 @@ var init_cursor_plugin = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/plugins/undo-plugin.js
+// ../../../../node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/plugins/undo-plugin.js
 var undo, redo, undoCommand, redoCommand, defaultProtectedNodes, defaultDeleteFilter;
 var init_undo_plugin = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/plugins/undo-plugin.js"() {
+  "../../../../node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/plugins/undo-plugin.js"() {
     init_yjs();
     init_keys();
     undo = (state) => yUndoPluginKey.getState(state)?.undoManager?.undo() != null;
@@ -60305,9 +60305,9 @@ var init_undo_plugin = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/y-prosemirror.js
+// ../../../../node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/y-prosemirror.js
 var init_y_prosemirror = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/y-prosemirror.js"() {
+  "../../../../node_modules/.pnpm/y-prosemirror@1.3.7_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1_054141e3ea6857427e054ef8bc743b52/node_modules/y-prosemirror/src/y-prosemirror.js"() {
     init_cursor_plugin();
     init_sync_plugin();
     init_undo_plugin();
@@ -60316,7 +60316,7 @@ var init_y_prosemirror = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/positionMapping.ts
+// ../../../../third_party/blocknote/packages/core/src/api/positionMapping.ts
 function getMapping(editor) {
   if (editorToMapping.has(editor)) {
     return editorToMapping.get(editor);
@@ -60365,7 +60365,7 @@ function trackPosition(editor, position, side = "left") {
 }
 var editorToMapping;
 var init_positionMapping = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/positionMapping.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/positionMapping.ts"() {
     "use strict";
     init_dist4();
     init_y_prosemirror();
@@ -60373,10 +60373,10 @@ var init_positionMapping = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/SuggestionMenu/SuggestionMenu.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/SuggestionMenu/SuggestionMenu.ts
 var findBlock, SuggestionMenuView, suggestionMenuPluginKey, SuggestionMenu;
 var init_SuggestionMenu = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/SuggestionMenu/SuggestionMenu.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/SuggestionMenu/SuggestionMenu.ts"() {
     "use strict";
     init_dist10();
     init_dist5();
@@ -60645,24 +60645,24 @@ var init_SuggestionMenu = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/SuggestionMenu/getDefaultSlashMenuItems.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/SuggestionMenu/getDefaultSlashMenuItems.ts
 var init_getDefaultSlashMenuItems = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/SuggestionMenu/getDefaultSlashMenuItems.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/SuggestionMenu/getDefaultSlashMenuItems.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/PageBreak/getPageBreakSlashMenuItems.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/PageBreak/getPageBreakSlashMenuItems.ts
 var init_getPageBreakSlashMenuItems = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/PageBreak/getPageBreakSlashMenuItems.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/PageBreak/getPageBreakSlashMenuItems.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+core@3.27.0_@tiptap+pm@3.27.0/node_modules/@tiptap/core/dist/jsx-runtime/jsx-runtime.js
+// ../../../../node_modules/.pnpm/@tiptap+core@3.27.0_@tiptap+pm@3.27.0/node_modules/@tiptap/core/dist/jsx-runtime/jsx-runtime.js
 var h;
 var init_jsx_runtime = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+core@3.27.0_@tiptap+pm@3.27.0/node_modules/@tiptap/core/dist/jsx-runtime/jsx-runtime.js"() {
+  "../../../../node_modules/.pnpm/@tiptap+core@3.27.0_@tiptap+pm@3.27.0/node_modules/@tiptap/core/dist/jsx-runtime/jsx-runtime.js"() {
     h = (tag, attributes) => {
       if (tag === "slot") {
         return 0;
@@ -60681,17 +60681,17 @@ var init_jsx_runtime = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+core@3.27.0_@tiptap+pm@3.27.0/node_modules/@tiptap/core/jsx-runtime/index.js
+// ../../../../node_modules/.pnpm/@tiptap+core@3.27.0_@tiptap+pm@3.27.0/node_modules/@tiptap/core/jsx-runtime/index.js
 var init_jsx_runtime2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+core@3.27.0_@tiptap+pm@3.27.0/node_modules/@tiptap/core/jsx-runtime/index.js"() {
+  "../../../../node_modules/.pnpm/@tiptap+core@3.27.0_@tiptap+pm@3.27.0/node_modules/@tiptap/core/jsx-runtime/index.js"() {
     init_jsx_runtime();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+extension-bold@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-bold/dist/index.js
+// ../../../../node_modules/.pnpm/@tiptap+extension-bold@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-bold/dist/index.js
 var starInputRegex, starPasteRegex, underscoreInputRegex, underscorePasteRegex, Bold, index_default;
 var init_dist13 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+extension-bold@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-bold/dist/index.js"() {
+  "../../../../node_modules/.pnpm/@tiptap+extension-bold@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-bold/dist/index.js"() {
     init_dist10();
     init_jsx_runtime2();
     starInputRegex = /(?:^|\s)(\*\*(?!\s+\*\*)((?:[^*]+))\*\*(?!\s+\*\*))$/;
@@ -60788,10 +60788,10 @@ var init_dist13 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+extension-italic@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-italic/dist/index.js
+// ../../../../node_modules/.pnpm/@tiptap+extension-italic@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-italic/dist/index.js
 var starInputRegex2, starPasteRegex2, underscoreInputRegex2, underscorePasteRegex2, Italic, index_default2;
 var init_dist14 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+extension-italic@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-italic/dist/index.js"() {
+  "../../../../node_modules/.pnpm/@tiptap+extension-italic@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-italic/dist/index.js"() {
     init_dist10();
     starInputRegex2 = /(?:^|\s)(\*(?!\s+\*)((?:[^*]+))\*(?!\s+\*))$/;
     starPasteRegex2 = /(?:^|\s)(\*(?!\s+\*)((?:[^*]+))\*(?!\s+\*))/g;
@@ -60886,10 +60886,10 @@ var init_dist14 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+extension-strike@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-strike/dist/index.js
+// ../../../../node_modules/.pnpm/@tiptap+extension-strike@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-strike/dist/index.js
 var inputRegex, pasteRegex, Strike, index_default3;
 var init_dist15 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+extension-strike@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-strike/dist/index.js"() {
+  "../../../../node_modules/.pnpm/@tiptap+extension-strike@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-strike/dist/index.js"() {
     init_dist10();
     inputRegex = /(?:^|\s)(~~(?!\s+~~)((?:[^~]+))~~(?!\s+~~))$/;
     pasteRegex = /(?:^|\s)(~~(?!\s+~~)((?:[^~]+))~~(?!\s+~~))/g;
@@ -60967,10 +60967,10 @@ var init_dist15 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+extension-underline@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-underline/dist/index.js
+// ../../../../node_modules/.pnpm/@tiptap+extension-underline@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-underline/dist/index.js
 var Underline, index_default4;
 var init_dist16 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+extension-underline@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-underline/dist/index.js"() {
+  "../../../../node_modules/.pnpm/@tiptap+extension-underline@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-underline/dist/index.js"() {
     init_dist10();
     Underline = Mark2.create({
       name: "underline",
@@ -61045,10 +61045,10 @@ var init_dist16 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+extension-code@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-code/dist/index.js
+// ../../../../node_modules/.pnpm/@tiptap+extension-code@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-code/dist/index.js
 var inputRegexMatch, pasteRegexMatch, Code, index_default5;
 var init_dist17 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+extension-code@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-code/dist/index.js"() {
+  "../../../../node_modules/.pnpm/@tiptap+extension-code@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-code/dist/index.js"() {
     init_dist10();
     inputRegexMatch = (text) => {
       const match2 = /`([^`]+)`(?!`)$/.exec(text);
@@ -61145,7 +61145,7 @@ var init_dist17 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/InlineCode/InlineCode.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/InlineCode/InlineCode.ts
 function isWhitespace(character) {
   return /\s/u.test(character);
 }
@@ -61218,7 +61218,7 @@ function createInlineCodeInputRule(type) {
 }
 var INLINE_CODE_DELIMITER, InlineCode;
 var init_InlineCode = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/InlineCode/InlineCode.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/InlineCode/InlineCode.ts"() {
     "use strict";
     init_dist10();
     init_dist17();
@@ -61231,10 +61231,10 @@ var init_InlineCode = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/defaultBlocks.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/defaultBlocks.ts
 var defaultBlockSpecs, TextColor, BackgroundColor, defaultStyleSpecs, defaultStyleSchema, defaultInlineContentSpecs, defaultInlineContentSchema;
 var init_defaultBlocks = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/defaultBlocks.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/defaultBlocks.ts"() {
     "use strict";
     init_dist13();
     init_dist14();
@@ -61343,10 +61343,10 @@ var init_defaultBlocks = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/BlockNoteSchema.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/BlockNoteSchema.ts
 var BlockNoteSchema;
 var init_BlockNoteSchema = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/BlockNoteSchema.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/BlockNoteSchema.ts"() {
     "use strict";
     init_schema2();
     init_defaultBlocks();
@@ -61362,9 +61362,9 @@ var init_BlockNoteSchema = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/index.ts
+// ../../../../third_party/blocknote/packages/core/src/blocks/index.ts
 var init_blocks = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/blocks/index.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/blocks/index.ts"() {
     "use strict";
     init_block();
     init_parseAudioElement();
@@ -61394,7 +61394,7 @@ var init_blocks = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/exporters/html/util/serializeBlocksInternalHTML.ts
+// ../../../../third_party/blocknote/packages/core/src/api/exporters/html/util/serializeBlocksInternalHTML.ts
 function serializeInlineContentInternalHTML(editor, blockContent, serializer, blockType, options) {
   let nodes;
   if (!blockContent) {
@@ -61538,7 +61538,7 @@ function serializeBlocks(editor, blocks, serializer, options) {
 }
 var serializeBlocksInternalHTML;
 var init_serializeBlocksInternalHTML = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/exporters/html/util/serializeBlocksInternalHTML.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/exporters/html/util/serializeBlocksInternalHTML.ts"() {
     "use strict";
     init_dist3();
     init_typescript();
@@ -61554,10 +61554,10 @@ var init_serializeBlocksInternalHTML = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/exporters/html/internalHTMLSerializer.ts
+// ../../../../third_party/blocknote/packages/core/src/api/exporters/html/internalHTMLSerializer.ts
 var addIndexToNumberedListItems, makeCheckListItemsReadOnly, forceToggleBlocksShow, addTableMinCellWidths, addTableWrappers, addTrailingBreakToEmptyInlineContent, createInternalHTMLSerializer;
 var init_internalHTMLSerializer = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/exporters/html/internalHTMLSerializer.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/exporters/html/internalHTMLSerializer.ts"() {
     "use strict";
     init_dist3();
     init_blocks();
@@ -61667,9 +61667,9 @@ var init_internalHTMLSerializer = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js
+// ../../../../node_modules/.pnpm/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js
 var require_fast_deep_equal = __commonJS({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js"(exports, module) {
+  "../../../../node_modules/.pnpm/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js"(exports, module) {
     "use strict";
     module.exports = function equal(a, b) {
       if (a === b) return true;
@@ -61702,7 +61702,7 @@ var require_fast_deep_equal = __commonJS({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/getBlocksChangedByTransaction.ts
+// ../../../../third_party/blocknote/packages/core/src/api/getBlocksChangedByTransaction.ts
 function getParentBlockId(doc4, pos) {
   if (pos === 0) {
     return void 0;
@@ -61933,7 +61933,7 @@ function getBlocksChangedByTransaction(transaction, appendedTransactions = []) {
 }
 var import_fast_deep_equal;
 var init_getBlocksChangedByTransaction = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/getBlocksChangedByTransaction.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/getBlocksChangedByTransaction.ts"() {
     "use strict";
     init_dist10();
     import_fast_deep_equal = __toESM(require_fast_deep_equal(), 1);
@@ -61943,10 +61943,10 @@ var init_getBlocksChangedByTransaction = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/BlockChange/BlockChange.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/BlockChange/BlockChange.ts
 var BlockChangeExtension;
 var init_BlockChange = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/BlockChange/BlockChange.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/BlockChange/BlockChange.ts"() {
     "use strict";
     init_dist5();
     init_getBlocksChangedByTransaction();
@@ -61995,7 +61995,7 @@ var init_BlockChange = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/Collaboration/YCursorPlugin.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/Collaboration/YCursorPlugin.ts
 function isDarkColor(bgColor) {
   const color = bgColor.charAt(0) === "#" ? bgColor.substring(1, 7) : bgColor;
   const r = parseInt(color.substring(0, 2), 16);
@@ -62036,7 +62036,7 @@ function defaultCursorRender(user) {
 }
 var YCursorExtension;
 var init_YCursorPlugin = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/Collaboration/YCursorPlugin.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/Collaboration/YCursorPlugin.ts"() {
     "use strict";
     init_y_prosemirror();
     init_BlockNoteExtension();
@@ -62128,10 +62128,10 @@ var init_YCursorPlugin = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/Collaboration/YSync.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/Collaboration/YSync.ts
 var YSyncExtension;
 var init_YSync = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/Collaboration/YSync.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/Collaboration/YSync.ts"() {
     "use strict";
     init_y_prosemirror();
     init_BlockNoteExtension();
@@ -62147,7 +62147,7 @@ var init_YSync = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/Collaboration/YUndo.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/Collaboration/YUndo.ts
 function createSurfaceUndoController() {
   let manager = null;
   let disposed = false;
@@ -62244,7 +62244,7 @@ function createSurfaceYUndoPlugin(controller) {
 }
 var YUndoExtension;
 var init_YUndo = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/Collaboration/YUndo.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/Collaboration/YUndo.ts"() {
     "use strict";
     init_dist5();
     init_y_prosemirror();
@@ -62264,7 +62264,7 @@ var init_YUndo = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/Collaboration/ForkYDoc.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/Collaboration/ForkYDoc.ts
 function findTypeInOtherYdoc(ytype, otherYdoc) {
   const ydoc = ytype.doc;
   if (ytype._item === null) {
@@ -62286,7 +62286,7 @@ function findTypeInOtherYdoc(ytype, otherYdoc) {
 }
 var ForkYDocExtension;
 var init_ForkYDoc = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/Collaboration/ForkYDoc.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/Collaboration/ForkYDoc.ts"() {
     "use strict";
     init_y_prosemirror();
     init_yjs();
@@ -62373,10 +62373,10 @@ var init_ForkYDoc = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/Collaboration/schemaMigration/migrationRules/moveColorAttributes.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/Collaboration/schemaMigration/migrationRules/moveColorAttributes.ts
 var traverseElement, moveColorAttributes;
 var init_moveColorAttributes = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/Collaboration/schemaMigration/migrationRules/moveColorAttributes.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/Collaboration/schemaMigration/migrationRules/moveColorAttributes.ts"() {
     "use strict";
     init_yjs();
     init_defaultProps();
@@ -62429,20 +62429,20 @@ var init_moveColorAttributes = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/Collaboration/schemaMigration/migrationRules/index.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/Collaboration/schemaMigration/migrationRules/index.ts
 var migrationRules_default;
 var init_migrationRules = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/Collaboration/schemaMigration/migrationRules/index.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/Collaboration/schemaMigration/migrationRules/index.ts"() {
     "use strict";
     init_moveColorAttributes();
     migrationRules_default = [moveColorAttributes];
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/Collaboration/schemaMigration/SchemaMigration.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/Collaboration/schemaMigration/SchemaMigration.ts
 var SchemaMigration;
 var init_SchemaMigration = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/Collaboration/schemaMigration/SchemaMigration.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/Collaboration/schemaMigration/SchemaMigration.ts"() {
     "use strict";
     init_state();
     init_BlockNoteExtension();
@@ -62486,7 +62486,7 @@ var init_SchemaMigration = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/DropCursor/utils.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/DropCursor/utils.ts
 function hasExclusionClassname(element, exclude) {
   if (!element || !exclude) {
     return false;
@@ -62585,15 +62585,15 @@ function getParentOffsets(parent) {
   };
 }
 var init_utils2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/DropCursor/utils.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/DropCursor/utils.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/DropCursor/DropCursor.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/DropCursor/DropCursor.ts
 var DRAG_EXCLUSION_CLASSNAME, DropCursorExtension;
 var init_DropCursor = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/DropCursor/DropCursor.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/DropCursor/DropCursor.ts"() {
     "use strict";
     init_dist4();
     init_utils2();
@@ -62764,10 +62764,10 @@ var init_DropCursor = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/rope-sequence@1.3.4/node_modules/rope-sequence/dist/index.js
+// ../../../../node_modules/.pnpm/rope-sequence@1.3.4/node_modules/rope-sequence/dist/index.js
 var GOOD_LEAF_SIZE, RopeSequence, Leaf, Append, dist_default2;
 var init_dist18 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/rope-sequence@1.3.4/node_modules/rope-sequence/dist/index.js"() {
+  "../../../../node_modules/.pnpm/rope-sequence@1.3.4/node_modules/rope-sequence/dist/index.js"() {
     GOOD_LEAF_SIZE = 200;
     RopeSequence = function RopeSequence2() {
     };
@@ -62952,7 +62952,7 @@ var init_dist18 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-history@1.5.0/node_modules/prosemirror-history/dist/index.js
+// ../../../../node_modules/.pnpm/prosemirror-history@1.5.0/node_modules/prosemirror-history/dist/index.js
 function cutOffEvents(items, n) {
   let cutPoint;
   items.forEach((item, i2) => {
@@ -63090,7 +63090,7 @@ function buildCommand(redo3, scroll) {
 }
 var max_empty_items, Branch, Item2, HistoryState, DEPTH_OVERFLOW, cachedPreserveItems, cachedPreserveItemsPlugins, historyKey, closeHistoryKey, undo2, redo2, undoNoScroll, redoNoScroll;
 var init_dist19 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-history@1.5.0/node_modules/prosemirror-history/dist/index.js"() {
+  "../../../../node_modules/.pnpm/prosemirror-history@1.5.0/node_modules/prosemirror-history/dist/index.js"() {
     init_dist18();
     init_dist4();
     init_dist5();
@@ -63316,17 +63316,17 @@ var init_dist19 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/history/index.js
+// ../../../../node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/history/index.js
 var init_history = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/history/index.js"() {
+  "../../../../node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/history/index.js"() {
     init_dist19();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/History/History.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/History/History.ts
 var HistoryExtension;
 var init_History = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/History/History.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/History/History.ts"() {
     "use strict";
     init_history();
     init_BlockNoteExtension();
@@ -63341,10 +63341,10 @@ var init_History = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/LinkToolbar/LinkToolbar.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/LinkToolbar/LinkToolbar.ts
 var LinkToolbarExtension;
 var init_LinkToolbar = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/LinkToolbar/LinkToolbar.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/LinkToolbar/LinkToolbar.ts"() {
     "use strict";
     init_dist10();
     init_BlockNoteExtension();
@@ -63412,17 +63412,17 @@ var init_LinkToolbar = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/LinkToolbar/protocols.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/LinkToolbar/protocols.ts
 var init_protocols = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/LinkToolbar/protocols.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/LinkToolbar/protocols.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/NodeSelectionKeyboard/NodeSelectionKeyboard.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/NodeSelectionKeyboard/NodeSelectionKeyboard.ts
 var PLUGIN_KEY, NodeSelectionKeyboardExtension;
 var init_NodeSelectionKeyboard = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/NodeSelectionKeyboard/NodeSelectionKeyboard.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/NodeSelectionKeyboard/NodeSelectionKeyboard.ts"() {
     "use strict";
     init_dist5();
     init_BlockNoteExtension();
@@ -63470,10 +63470,10 @@ var init_NodeSelectionKeyboard = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/Placeholder/Placeholder.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/Placeholder/Placeholder.ts
 var PLUGIN_KEY2, PlaceholderExtension;
 var init_Placeholder = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/Placeholder/Placeholder.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/Placeholder/Placeholder.ts"() {
     "use strict";
     init_dist5();
     init_dist8();
@@ -63589,10 +63589,10 @@ var init_Placeholder = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/PreviousBlockType/PreviousBlockType.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/PreviousBlockType/PreviousBlockType.ts
 var PLUGIN_KEY3, nodeAttributes, PreviousBlockTypeExtension;
 var init_PreviousBlockType = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/PreviousBlockType/PreviousBlockType.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/PreviousBlockType/PreviousBlockType.ts"() {
     "use strict";
     init_dist10();
     init_dist5();
@@ -63738,10 +63738,10 @@ var init_PreviousBlockType = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/ShowSelection/ShowSelection.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/ShowSelection/ShowSelection.ts
 var PLUGIN_KEY4, ShowSelectionExtension;
 var init_ShowSelection = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/ShowSelection/ShowSelection.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/ShowSelection/ShowSelection.ts"() {
     "use strict";
     init_dist5();
     init_dist8();
@@ -63795,10 +63795,10 @@ var init_ShowSelection = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/SideMenu/MultipleNodeSelection.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/SideMenu/MultipleNodeSelection.ts
 var MultipleNodeSelection;
 var init_MultipleNodeSelection = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/SideMenu/MultipleNodeSelection.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/SideMenu/MultipleNodeSelection.ts"() {
     "use strict";
     init_dist3();
     init_dist5();
@@ -63861,7 +63861,7 @@ var init_MultipleNodeSelection = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/SideMenu/dropSelection.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/SideMenu/dropSelection.ts
 function toUniqueBlockIds(blockIds) {
   return Array.from(new Set(blockIds.filter((id2) => id2.length > 0)));
 }
@@ -63930,14 +63930,14 @@ function createSideMenuDroppedBlockSelection(doc4, blockIds) {
   );
 }
 var init_dropSelection = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/SideMenu/dropSelection.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/SideMenu/dropSelection.ts"() {
     "use strict";
     init_nodeUtil();
     init_MultipleNodeSelection();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/getDraggableBlockFromElement.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/getDraggableBlockFromElement.ts
 function getDraggableBlockFromElement(element, view) {
   while (element && element.parentElement && element.parentElement !== view.dom && element.getAttribute?.("data-node-type") !== "blockContainer") {
     element = element.parentElement;
@@ -63948,12 +63948,12 @@ function getDraggableBlockFromElement(element, view) {
   return { node: element, id: element.getAttribute("data-id") };
 }
 var init_getDraggableBlockFromElement = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/getDraggableBlockFromElement.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/getDraggableBlockFromElement.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/exporters/markdown/htmlToMarkdown.ts
+// ../../../../third_party/blocknote/packages/core/src/api/exporters/markdown/htmlToMarkdown.ts
 function htmlToMarkdown(html) {
   const container = document.createElement("div");
   container.innerHTML = html;
@@ -64544,12 +64544,12 @@ function trimHardBreaks(content) {
   return result;
 }
 var init_htmlToMarkdown = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/exporters/markdown/htmlToMarkdown.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/exporters/markdown/htmlToMarkdown.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/exporters/markdown/markdownExporter.ts
+// ../../../../third_party/blocknote/packages/core/src/api/exporters/markdown/markdownExporter.ts
 function cleanHTMLToMarkdown(cleanHTMLString) {
   return htmlToMarkdown(cleanHTMLString);
 }
@@ -64559,14 +64559,14 @@ function blocksToMarkdown(blocks, schema, editor, options) {
   return cleanHTMLToMarkdown(externalHTML);
 }
 var init_markdownExporter = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/exporters/markdown/markdownExporter.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/exporters/markdown/markdownExporter.ts"() {
     "use strict";
     init_externalHTMLExporter();
     init_htmlToMarkdown();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/nodeConversions/fragmentToBlocks.ts
+// ../../../../third_party/blocknote/packages/core/src/api/nodeConversions/fragmentToBlocks.ts
 function fragmentToBlocks(fragment) {
   const blocks = [];
   fragment.descendants((node) => {
@@ -64591,14 +64591,14 @@ function fragmentToBlocks(fragment) {
   return blocks;
 }
 var init_fragmentToBlocks = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/nodeConversions/fragmentToBlocks.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/nodeConversions/fragmentToBlocks.ts"() {
     "use strict";
     init_pmUtil();
     init_nodeToBlock();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/SideMenu/dragging.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/SideMenu/dragging.ts
 function blockPositionsFromSelection(selection, doc4) {
   let beforeFirstBlockPos;
   let afterLastBlockPos;
@@ -64908,7 +64908,7 @@ function dragStart(e, block, editor) {
 }
 var dragImageElement;
 var init_dragging = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/SideMenu/dragging.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/SideMenu/dragging.ts"() {
     "use strict";
     init_dist5();
     init_externalHTMLExporter();
@@ -64921,7 +64921,7 @@ var init_dragging = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/SideMenu/SideMenu.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/SideMenu/SideMenu.ts
 function getComposedParentElement(element) {
   if (element.assignedSlot) {
     return element.assignedSlot;
@@ -65072,7 +65072,7 @@ function eventTargetsEditorContent(event, editorElement) {
 }
 var DISTANCE_TO_CONSIDER_EDITOR_BOUNDS, SideMenuView, sideMenuPluginKey, SideMenuExtension;
 var init_SideMenu = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/SideMenu/SideMenu.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/SideMenu/SideMenu.ts"() {
     "use strict";
     init_model();
     init_state();
@@ -65676,28 +65676,28 @@ var init_SideMenu = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/SuggestionMenu/getDefaultEmojiPickerItems.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/SuggestionMenu/getDefaultEmojiPickerItems.ts
 var init_getDefaultEmojiPickerItems = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/SuggestionMenu/getDefaultEmojiPickerItems.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/SuggestionMenu/getDefaultEmojiPickerItems.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/SuggestionMenu/DefaultSuggestionItem.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/SuggestionMenu/DefaultSuggestionItem.ts
 var init_DefaultSuggestionItem = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/SuggestionMenu/DefaultSuggestionItem.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/SuggestionMenu/DefaultSuggestionItem.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/SuggestionMenu/DefaultGridSuggestionItem.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/SuggestionMenu/DefaultGridSuggestionItem.ts
 var init_DefaultGridSuggestionItem = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/SuggestionMenu/DefaultGridSuggestionItem.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/SuggestionMenu/DefaultGridSuggestionItem.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/TableHandles/TableHandles.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/TableHandles/TableHandles.ts
 function setHiddenDragImage(rootEl) {
   if (dragImageElement2) {
     return;
@@ -65756,7 +65756,7 @@ function hideElements(selector, rootEl) {
 }
 var dragImageElement2, TableHandlesView, tableHandlesPluginKey, TableHandlesExtension;
 var init_TableHandles = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/TableHandles/TableHandles.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/TableHandles/TableHandles.ts"() {
     "use strict";
     init_dist5();
     init_dist11();
@@ -66492,7 +66492,7 @@ var init_TableHandles = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/TrailingNode/TrailingNode.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/TrailingNode/TrailingNode.ts
 function shouldShowTrailingWidget(doc4, isEditable) {
   if (!isEditable) {
     return false;
@@ -66504,7 +66504,7 @@ function shouldShowTrailingWidget(doc4, isEditable) {
 }
 var PLUGIN_KEY5, TrailingNodeExtension;
 var init_TrailingNode = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/TrailingNode/TrailingNode.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/TrailingNode/TrailingNode.ts"() {
     "use strict";
     init_dist5();
     init_dist8();
@@ -66597,9 +66597,9 @@ var init_TrailingNode = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/index.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/index.ts
 var init_extensions = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/index.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/index.ts"() {
     "use strict";
     init_BlockChange();
     init_ForkYDoc();
@@ -66630,24 +66630,24 @@ var init_extensions = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/ar.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/ar.ts
 var init_ar2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/ar.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/ar.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/de.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/de.ts
 var init_de2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/de.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/de.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/en.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/en.ts
 var en;
 var init_en2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/en.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/en.ts"() {
     "use strict";
     en = {
       slash_menu: {
@@ -67058,149 +67058,149 @@ var init_en2 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/es.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/es.ts
 var init_es2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/es.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/es.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/fa.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/fa.ts
 var init_fa2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/fa.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/fa.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/fr.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/fr.ts
 var init_fr2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/fr.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/fr.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/he.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/he.ts
 var init_he2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/he.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/he.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/hr.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/hr.ts
 var init_hr2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/hr.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/hr.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/is.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/is.ts
 var init_is2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/is.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/is.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/it.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/it.ts
 var init_it2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/it.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/it.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/ja.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/ja.ts
 var init_ja2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/ja.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/ja.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/ko.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/ko.ts
 var init_ko2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/ko.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/ko.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/nl.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/nl.ts
 var init_nl2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/nl.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/nl.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/no.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/no.ts
 var init_no2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/no.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/no.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/pl.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/pl.ts
 var init_pl2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/pl.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/pl.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/pt.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/pt.ts
 var init_pt2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/pt.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/pt.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/ru.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/ru.ts
 var init_ru2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/ru.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/ru.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/sk.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/sk.ts
 var init_sk = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/sk.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/sk.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/uk.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/uk.ts
 var init_uk2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/uk.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/uk.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/vi.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/vi.ts
 var init_vi2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/vi.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/vi.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/zh.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/zh.ts
 var init_zh = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/zh.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/zh.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/zh-tw.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/zh-tw.ts
 var init_zh_tw = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/zh-tw.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/zh-tw.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/uz.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/uz.ts
 var init_uz2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/uz.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/uz.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/index.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/locales/index.ts
 var init_locales2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/locales/index.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/locales/index.ts"() {
     "use strict";
     init_ar2();
     init_de2();
@@ -67228,10 +67228,10 @@ var init_locales2 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/util/EventEmitter.ts
+// ../../../../third_party/blocknote/packages/core/src/util/EventEmitter.ts
 var EventEmitter2;
 var init_EventEmitter = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/util/EventEmitter.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/util/EventEmitter.ts"() {
     "use strict";
     EventEmitter2 = class {
       // eslint-disable-next-line @typescript-eslint/ban-types
@@ -67266,7 +67266,7 @@ var init_EventEmitter = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/editorInteractionScopes.ts
+// ../../../../third_party/blocknote/packages/core/src/editor/editorInteractionScopes.ts
 function isElement(value) {
   return "nodeType" in value && value.nodeType === 1;
 }
@@ -67324,13 +67324,13 @@ function getEditorInteractionOwnership(owner, target) {
 }
 var interactionRootOwners;
 var init_editorInteractionScopes = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/editorInteractionScopes.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/editor/editorInteractionScopes.ts"() {
     "use strict";
     interactionRootOwners = /* @__PURE__ */ new WeakMap();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/commands/moveBlocks/moveBlocks.ts
+// ../../../../third_party/blocknote/packages/core/src/api/blockManipulation/commands/moveBlocks/moveBlocks.ts
 function getBlockSelectionData(editor) {
   return editor.transact((tr) => {
     const anchorBlockPosInfo = getNearestBlockPos(tr.doc, tr.selection.anchor);
@@ -67550,7 +67550,7 @@ function moveBlocksDown(editor, blockIdentifier) {
   });
 }
 var init_moveBlocks = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/commands/moveBlocks/moveBlocks.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/blockManipulation/commands/moveBlocks/moveBlocks.ts"() {
     "use strict";
     init_dist5();
     init_dist11();
@@ -67559,7 +67559,7 @@ var init_moveBlocks = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/commands/nestBlock/nestBlock.ts
+// ../../../../third_party/blocknote/packages/core/src/api/blockManipulation/commands/nestBlock/nestBlock.ts
 function sinkItem(tr, itemType, groupType) {
   const { $from, $to } = tr.selection;
   const range = $from.blockRange(
@@ -67695,7 +67695,7 @@ function canUnnestBlock(editor) {
   });
 }
 var init_nestBlock = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/commands/nestBlock/nestBlock.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/blockManipulation/commands/nestBlock/nestBlock.ts"() {
     "use strict";
     init_dist3();
     init_dist4();
@@ -67703,7 +67703,7 @@ var init_nestBlock = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/getBlock/getBlock.ts
+// ../../../../third_party/blocknote/packages/core/src/api/blockManipulation/getBlock/getBlock.ts
 function getBlock(doc4, blockIdentifier) {
   const id2 = typeof blockIdentifier === "string" ? blockIdentifier : blockIdentifier.id;
   const pmSchema = getPmSchema(doc4);
@@ -67760,7 +67760,7 @@ function getParentBlock(doc4, blockIdentifier) {
   return nodeToBlock(nodeToConvert, pmSchema);
 }
 var init_getBlock = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/getBlock/getBlock.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/blockManipulation/getBlock/getBlock.ts"() {
     "use strict";
     init_nodeToBlock();
     init_nodeUtil();
@@ -67768,10 +67768,10 @@ var init_getBlock = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/managers/BlockManager.ts
+// ../../../../third_party/blocknote/packages/core/src/editor/managers/BlockManager.ts
 var BlockManager;
 var init_BlockManager = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/managers/BlockManager.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/editor/managers/BlockManager.ts"() {
     "use strict";
     init_insertBlocks();
     init_moveBlocks();
@@ -67955,13 +67955,13 @@ var init_BlockManager = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/managers/EventManager.ts
+// ../../../../third_party/blocknote/packages/core/src/editor/managers/EventManager.ts
 function isRemoteTransaction(transaction) {
   return !!transaction.getMeta("y-sync$");
 }
 var EventManager;
 var init_EventManager = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/managers/EventManager.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/editor/managers/EventManager.ts"() {
     "use strict";
     init_getBlocksChangedByTransaction();
     init_EventEmitter();
@@ -68050,7 +68050,7 @@ var init_EventManager = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/parsers/html/util/nestedLists.ts
+// ../../../../third_party/blocknote/packages/core/src/api/parsers/html/util/nestedLists.ts
 function getChildIndex2(node) {
   return Array.prototype.indexOf.call(node.parentElement.childNodes, node);
 }
@@ -68111,13 +68111,13 @@ function nestedListsToBlockNoteStructure(elementOrHTML) {
 }
 var _detachedDoc2;
 var init_nestedLists = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/parsers/html/util/nestedLists.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/parsers/html/util/nestedLists.ts"() {
     "use strict";
     _detachedDoc2 = null;
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/parsers/html/util/normalizeWhitespace.ts
+// ../../../../third_party/blocknote/packages/core/src/api/parsers/html/util/normalizeWhitespace.ts
 function isNotionHTML(element) {
   const walker = element.ownerDocument.createTreeWalker(
     element,
@@ -68168,12 +68168,12 @@ function preprocessHTMLWhitespace(element) {
   }
 }
 var init_normalizeWhitespace = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/parsers/html/util/normalizeWhitespace.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/parsers/html/util/normalizeWhitespace.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/parsers/html/parseHTML.ts
+// ../../../../third_party/blocknote/packages/core/src/api/parsers/html/parseHTML.ts
 function HTMLToBlocks(html, pmSchema) {
   const htmlNode = nestedListsToBlockNoteStructure(html);
   preprocessHTMLWhitespace(htmlNode);
@@ -68188,7 +68188,7 @@ function HTMLToBlocks(html, pmSchema) {
   return blocks;
 }
 var init_parseHTML = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/parsers/html/parseHTML.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/parsers/html/parseHTML.ts"() {
     "use strict";
     init_dist3();
     init_nodeToBlock();
@@ -68197,7 +68197,7 @@ var init_parseHTML = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/parsers/markdown/markdownToHtml.ts
+// ../../../../third_party/blocknote/packages/core/src/api/parsers/markdown/markdownToHtml.ts
 function escapeHtml(str) {
   return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -69006,7 +69006,7 @@ function markdownToHtml(markdown) {
 }
 var INLINE_HTML_TAG_RE, HTML_COMMENT_RE, HTML_CDATA_RE, HTML_PI_RE, HTML_DECL_RE, SPECIAL_CHARS, inlineTokenizers, HTML_BLOCK_TAGS;
 var init_markdownToHtml = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/parsers/markdown/markdownToHtml.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/parsers/markdown/markdownToHtml.ts"() {
     "use strict";
     init_string2();
     INLINE_HTML_TAG_RE = /^<\/?[a-zA-Z][a-zA-Z0-9-]*(?:\s+[a-zA-Z_:][a-zA-Z0-9_.:-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*\s*\/?>/;
@@ -69098,7 +69098,7 @@ var init_markdownToHtml = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/parsers/markdown/parseMarkdown.ts
+// ../../../../third_party/blocknote/packages/core/src/api/parsers/markdown/parseMarkdown.ts
 function markdownToHTML(markdown) {
   return markdownToHtml(markdown);
 }
@@ -69107,17 +69107,17 @@ function markdownToBlocks(markdown, pmSchema) {
   return HTMLToBlocks(htmlString, pmSchema);
 }
 var init_parseMarkdown = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/parsers/markdown/parseMarkdown.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/parsers/markdown/parseMarkdown.ts"() {
     "use strict";
     init_parseHTML();
     init_markdownToHtml();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/managers/ExportManager.ts
+// ../../../../third_party/blocknote/packages/core/src/editor/managers/ExportManager.ts
 var ExportManager;
 var init_ExportManager = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/managers/ExportManager.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/editor/managers/ExportManager.ts"() {
     "use strict";
     init_externalHTMLExporter();
     init_internalHTMLSerializer();
@@ -69223,7 +69223,7 @@ var init_ExportManager = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@handlewithcare+prosemirror-inputrules@0.1.4_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1.41.9/node_modules/@handlewithcare/prosemirror-inputrules/dist/inputrules.js
+// ../../../../node_modules/.pnpm/@handlewithcare+prosemirror-inputrules@0.1.4_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1.41.9/node_modules/@handlewithcare/prosemirror-inputrules/dist/inputrules.js
 function stringHandler(string4) {
   return function(state, match2, start, end) {
     let insert = string4;
@@ -69312,7 +69312,7 @@ function run3(view, from3, to, text, rules, plugin) {
 }
 var InputRule2, MAX_MATCH;
 var init_inputrules = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@handlewithcare+prosemirror-inputrules@0.1.4_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1.41.9/node_modules/@handlewithcare/prosemirror-inputrules/dist/inputrules.js"() {
+  "../../../../node_modules/.pnpm/@handlewithcare+prosemirror-inputrules@0.1.4_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1.41.9/node_modules/@handlewithcare/prosemirror-inputrules/dist/inputrules.js"() {
     init_dist19();
     init_dist5();
     InputRule2 = class {
@@ -69350,10 +69350,10 @@ var init_inputrules = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@handlewithcare+prosemirror-inputrules@0.1.4_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1.41.9/node_modules/@handlewithcare/prosemirror-inputrules/dist/rules.js
+// ../../../../node_modules/.pnpm/@handlewithcare+prosemirror-inputrules@0.1.4_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1.41.9/node_modules/@handlewithcare/prosemirror-inputrules/dist/rules.js
 var emDash, ellipsis, openDoubleQuote, closeDoubleQuote, openSingleQuote, closeSingleQuote;
 var init_rules = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@handlewithcare+prosemirror-inputrules@0.1.4_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1.41.9/node_modules/@handlewithcare/prosemirror-inputrules/dist/rules.js"() {
+  "../../../../node_modules/.pnpm/@handlewithcare+prosemirror-inputrules@0.1.4_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1.41.9/node_modules/@handlewithcare/prosemirror-inputrules/dist/rules.js"() {
     init_inputrules();
     emDash = new InputRule2(/--$/, "\u2014", { inCodeMark: false });
     ellipsis = new InputRule2(/\.\.\.$/, "\u2026", { inCodeMark: false });
@@ -69364,23 +69364,23 @@ var init_rules = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@handlewithcare+prosemirror-inputrules@0.1.4_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1.41.9/node_modules/@handlewithcare/prosemirror-inputrules/dist/rulebuilders.js
+// ../../../../node_modules/.pnpm/@handlewithcare+prosemirror-inputrules@0.1.4_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1.41.9/node_modules/@handlewithcare/prosemirror-inputrules/dist/rulebuilders.js
 var init_rulebuilders = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@handlewithcare+prosemirror-inputrules@0.1.4_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1.41.9/node_modules/@handlewithcare/prosemirror-inputrules/dist/rulebuilders.js"() {
+  "../../../../node_modules/.pnpm/@handlewithcare+prosemirror-inputrules@0.1.4_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1.41.9/node_modules/@handlewithcare/prosemirror-inputrules/dist/rulebuilders.js"() {
     init_inputrules();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@handlewithcare+prosemirror-inputrules@0.1.4_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1.41.9/node_modules/@handlewithcare/prosemirror-inputrules/dist/index.js
+// ../../../../node_modules/.pnpm/@handlewithcare+prosemirror-inputrules@0.1.4_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1.41.9/node_modules/@handlewithcare/prosemirror-inputrules/dist/index.js
 var init_dist20 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@handlewithcare+prosemirror-inputrules@0.1.4_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1.41.9/node_modules/@handlewithcare/prosemirror-inputrules/dist/index.js"() {
+  "../../../../node_modules/.pnpm/@handlewithcare+prosemirror-inputrules@0.1.4_prosemirror-model@1.25.9_prosemirror-state@1.4.4_prosemirror-view@1.41.9/node_modules/@handlewithcare/prosemirror-inputrules/dist/index.js"() {
     init_inputrules();
     init_rules();
     init_rulebuilders();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/selections/textCursorPosition.ts
+// ../../../../third_party/blocknote/packages/core/src/api/blockManipulation/selections/textCursorPosition.ts
 function getTextCursorPosition(tr) {
   const { bnBlock } = getBlockInfoFromTransaction(tr);
   const pmSchema = getPmSchema(tr.doc);
@@ -69446,7 +69446,7 @@ function setTextCursorPosition(tr, targetBlock, placement = "start") {
   }
 }
 var init_textCursorPosition = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/selections/textCursorPosition.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/blockManipulation/selections/textCursorPosition.ts"() {
     "use strict";
     init_dist5();
     init_typescript();
@@ -69457,7 +69457,7 @@ var init_textCursorPosition = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-gapcursor@1.4.1/node_modules/prosemirror-gapcursor/dist/index.js
+// ../../../../node_modules/.pnpm/prosemirror-gapcursor@1.4.1/node_modules/prosemirror-gapcursor/dist/index.js
 function needsGap(type) {
   return type.isAtom || type.spec.isolating || type.spec.createGapCursor;
 }
@@ -69563,7 +69563,7 @@ function drawGapCursor(state) {
 }
 var GapCursor, GapBookmark, handleKeyDown2;
 var init_dist21 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/prosemirror-gapcursor@1.4.1/node_modules/prosemirror-gapcursor/dist/index.js"() {
+  "../../../../node_modules/.pnpm/prosemirror-gapcursor@1.4.1/node_modules/prosemirror-gapcursor/dist/index.js"() {
     init_dist9();
     init_dist5();
     init_dist3();
@@ -69680,17 +69680,17 @@ var init_dist21 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/gapcursor/index.js
+// ../../../../node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/gapcursor/index.js
 var init_gapcursor = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/gapcursor/index.js"() {
+  "../../../../node_modules/.pnpm/@tiptap+pm@3.27.0/node_modules/@tiptap/pm/dist/gapcursor/index.js"() {
     init_dist21();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+extensions@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0__@tiptap+pm@3.27.0/node_modules/@tiptap/extensions/dist/gap-cursor/index.js
+// ../../../../node_modules/.pnpm/@tiptap+extensions@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0__@tiptap+pm@3.27.0/node_modules/@tiptap/extensions/dist/gap-cursor/index.js
 var Gapcursor;
 var init_gap_cursor = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+extensions@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0__@tiptap+pm@3.27.0/node_modules/@tiptap/extensions/dist/gap-cursor/index.js"() {
+  "../../../../node_modules/.pnpm/@tiptap+extensions@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0__@tiptap+pm@3.27.0/node_modules/@tiptap/extensions/dist/gap-cursor/index.js"() {
     init_dist10();
     init_gapcursor();
     Gapcursor = Extension.create({
@@ -69713,16 +69713,16 @@ var init_gap_cursor = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/tlds.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/tlds.ts
 var ENCODED_TLDS;
 var init_tlds = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/tlds.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/tlds.ts"() {
     "use strict";
     ENCODED_TLDS = "aaa1rp3bb0ott3vie4c1le2ogado5udhabi7c0ademy5centure6ountant0s9o1tor4d0s1ult4e0g1ro2tna4f0l1rica5g0akhan5ency5i0g1rbus3force5tel5kdn3l0ibaba4pay4lfinanz6state5y2sace3tom5m0azon4ericanexpress7family11x2fam3ica3sterdam8nalytics7droid5quan4z2o0l2partments8p0le4q0uarelle8r0ab1mco4chi3my2pa2t0e3s0da2ia2sociates9t0hleta5torney7u0ction5di0ble3o3spost5thor3o0s4w0s2x0a2z0ure5ba0by2idu3namex4d1k2r0celona5laycard4s5efoot5gains6seball5ketball8uhaus5yern5b0c1t1va3cg1n2d1e0ats2uty4er2rlin4st0buy5t2f1g1h0arti5i0ble3d1ke2ng0o3o1z2j1lack0friday9ockbuster8g1omberg7ue3m0s1w2n0pparibas9o0ats3ehringer8fa2m1nd2o0k0ing5sch2tik2on4t1utique6x2r0adesco6idgestone9oadway5ker3ther5ussels7s1t1uild0ers6siness6y1zz3v1w1y1z0h3ca0b1fe2l0l1vinklein9m0era3p2non3petown5ital0one8r0avan4ds2e0er0s4s2sa1e1h1ino4t0ering5holic7ba1n1re3c1d1enter4o1rn3f0a1d2g1h0anel2nel4rity4se2t2eap3intai5ristmas6ome4urch5i0priani6rcle4sco3tadel4i0c2y3k1l0aims4eaning6ick2nic1que6othing5ud3ub0med6m1n1o0ach3des3ffee4llege4ogne5m0mbank4unity6pany2re3uter5sec4ndos3struction8ulting7tact3ractors9oking4l1p2rsica5untry4pon0s4rses6pa2r0edit0card4union9icket5own3s1uise0s6u0isinella9v1w1x1y0mru3ou3z2dad1nce3ta1e1ing3sun4y2clk3ds2e0al0er2s3gree4livery5l1oitte5ta3mocrat6ntal2ist5si0gn4v2hl2iamonds6et2gital5rect0ory7scount3ver5h2y2j1k1m1np2o0cs1tor4g1mains5t1wnload7rive4tv2ubai3pont4rban5vag2r2z2earth3t2c0o2deka3u0cation8e1g1mail3erck5nergy4gineer0ing9terprises10pson4quipment8r0icsson6ni3s0q1tate5t1u0rovision8s2vents5xchange6pert3osed4ress5traspace10fage2il1rwinds6th3mily4n0s2rm0ers5shion4t3edex3edback6rrari3ero6i0delity5o2lm2nal1nce1ial7re0stone6mdale6sh0ing5t0ness6j1k1lickr3ghts4r2orist4wers5y2m1o0o0d1tball6rd1ex2sale4um3undation8x2r0ee1senius7l1ogans4ntier7tr2ujitsu5n0d2rniture7tbol5yi3ga0l0lery3o1up4me0s3p1rden4y2b0iz3d0n2e0a1nt0ing5orge5f1g0ee3h1i0ft0s3ves2ing5l0ass3e1obal2o4m0ail3bh2o1x2n1odaddy5ld0point6f2odyear5g0le4p1t1v2p1q1r0ainger5phics5tis4een3ipe3ocery4up4s1t1u0cci3ge2ide2tars5ru3w1y2hair2mburg5ngout5us3bo2dfc0bank7ealth0care8lp1sinki6re1mes5iphop4samitsu7tachi5v2k0t2m1n1ockey4ldings5iday5medepot5goods5s0ense7nda3rse3spital5t0ing5t0els3mail5use3w2r1sbc3t1u0ghes5yatt3undai7ibm2cbc2e1u2d1e0ee3fm2kano4l1m0amat4db2mo0bilien9n0c1dustries8finiti5o2g1k1stitute6urance4e4t0ernational10uit4vestments10o1piranga7q1r0ish4s0maili5t0anbul7t0au2v3jaguar4va3cb2e0ep2tzt3welry6io2ll2m0p2nj2o0bs1urg4t1y2p0morgan6rs3uegos4niper7kaufen5ddi3e0rryhotels6properties14fh2g1h1i0a1ds2m1ndle4tchen5wi3m1n1oeln3matsu5sher5p0mg2n2r0d1ed3uokgroup8w1y0oto4z2la0caixa5mborghini8er3nd0rover6xess5salle5t0ino3robe5w0yer5b1c1ds2ease3clerc5frak4gal2o2xus4gbt3i0dl2fe0insurance9style7ghting6ke2lly3mited4o2ncoln4k2ve1ing5k1lc1p2oan0s3cker3us3l1ndon4tte1o3ve3pl0financial11r1s1t0d0a3u0ndbeck6xe1ury5v1y2ma0drid4if1son4keup4n0agement7go3p1rket0ing3s4riott5shalls7ttel5ba2c0kinsey7d1e0d0ia3et2lbourne7me1orial6n0u2rck0msd7g1h1iami3crosoft7l1ni1t2t0subishi9k1l0b1s2m0a2n1o0bi0le4da2e1i1m1nash3ey2ster5rmon3tgage6scow4to0rcycles9v0ie4p1q1r1s0d2t0n1r2u0seum3ic4v1w1x1y1z2na0b1goya4me2vy3ba2c1e0c1t0bank4flix4work5ustar5w0s2xt0direct7us4f0l2g0o2hk2i0co2ke1on3nja3ssan1y5l1o0kia3rton4w0ruz3tv4p1r0a1w2tt2u1yc2z2obi1server7ffice5kinawa6layan0group9lo3m0ega4ne1g1l0ine5oo2pen3racle3nge4g0anic5igins6saka4tsuka4t2vh3pa0ge2nasonic7ris2s1tners4s1y3y2ccw3e0t2f0izer5g1h0armacy6d1ilips5one2to0graphy6s4ysio5ics1tet2ures6d1n0g1k2oneer5zza4k1l0ace2y0station9umbing5s3m1n0c2ohl2ker3litie5rn2st3r0axi3ess3ime3o0d0uctions8f1gressive8mo2perties3y5tection8u0dential9s1t1ub2w0c2y2qa1pon3uebec3st5racing4dio4e0ad1lestate6tor2y4cipes5d0umbrella9hab3ise0n3t2liance6n0t0als5pair3ort3ublican8st0aurant8view0s5xroth6ich0ardli6oh3l1o1p2o0cks3deo3gers4om3s0vp3u0gby3hr2n2w0e2yukyu6sa0arland6fe0ty4kura4le1on3msclub4ung5ndvik0coromant12ofi4p1rl2s1ve2xo3b0i1s2c0b1haeffler7midt4olarships8ol3ule3warz5ience5ot3d1e0arch3t2cure1ity6ek2lect4ner3rvices6ven3w1x0y3fr2g1h0angrila6rp3ell3ia1ksha5oes2p0ping5uji3w3i0lk2na1gles5te3j1k0i0n2y0pe4l0ing4m0art3ile4n0cf3o0ccer3ial4ftbank4ware6hu2lar2utions7ng1y2y2pa0ce3ort2t3r0l2s1t0ada2ples4r1tebank4farm7c0group6ockholm6rage3e3ream4udio2y3yle4u0cks3pplies3y2ort5rf1gery5zuki5v1watch4iss4x1y0dney4stems6z2tab1ipei4lk2obao4rget4tamotors6r2too4x0i3c0i2d0k2eam2ch0nology8l1masek5nnis4va3f1g1h0d1eater2re6iaa2ckets5enda4ps2res2ol4j0maxx4x2k0maxx5l1m0all4n1o0day3kyo3ols3p1ray3shiba5tal3urs3wn2yota3s3r0ade1ing4ining5vel0ers0insurance16ust3v2t1ube2i1nes3shu4v0s2w1z2ua1bank3s2g1k1nicom3versity8o2ol2ps2s1y1z2va0cations7na1guard7c1e0gas3ntures6risign5sicherung10t2g1i0ajes4deo3g1king4llas4n1p1rgin4sa1ion4va1o3laanderen9n1odka3lvo3te1ing3o2yage5u2wales2mart4ter4ng0gou5tch0es6eather0channel12bcam3er2site5d0ding5ibo2r3f1hoswho6ien2ki2lliamhill9n0dows4e1ners6me2oodside6rk0s2ld3w2s1tc1f3xbox3erox4ihuan4n2xx2yz3yachts4hoo3maxun5ndex5e1odobashi7ga2kohama6u0tube6t1un3za0ppos4ra3ero3ip2m1one3uerich6w2";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/linkDetector.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/linkDetector.ts
 function decodeTlds(encoded) {
   const words = [];
   const stack = [];
@@ -69957,7 +69957,7 @@ function nonLinkToken(value, start, end) {
 }
 var TLD_SET, SPECIAL_HOSTS, TRAILING_PUNCT, PROTOCOL_RE, MAILTO_RE, EMAIL_RE, SCHEMELESS_RE;
 var init_linkDetector = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/linkDetector.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/linkDetector.ts"() {
     "use strict";
     init_tlds();
     TLD_SET = new Set(decodeTlds(ENCODED_TLDS));
@@ -69970,10 +69970,10 @@ var init_linkDetector = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/whitespace.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/whitespace.ts
 var UNICODE_WHITESPACE_PATTERN, UNICODE_WHITESPACE_REGEX, UNICODE_WHITESPACE_REGEX_END, UNICODE_WHITESPACE_REGEX_GLOBAL;
 var init_whitespace = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/whitespace.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/whitespace.ts"() {
     "use strict";
     UNICODE_WHITESPACE_PATTERN = "[\0- \xA0\u1680\u180E\u2000-\u2029\u205F\u3000]";
     UNICODE_WHITESPACE_REGEX = new RegExp(UNICODE_WHITESPACE_PATTERN);
@@ -69987,7 +69987,7 @@ var init_whitespace = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/autolink.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/autolink.ts
 function isValidLinkStructure(tokens) {
   if (tokens.length === 1) {
     return tokens[0].isLink;
@@ -70101,7 +70101,7 @@ function autolink(options) {
   });
 }
 var init_autolink = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/autolink.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/autolink.ts"() {
     "use strict";
     init_dist10();
     init_state();
@@ -70110,7 +70110,7 @@ var init_autolink = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/clickHandler.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/clickHandler.ts
 function clickHandler(options) {
   return new Plugin({
     key: new PluginKey("handleClickLink"),
@@ -70162,14 +70162,14 @@ function clickHandler(options) {
   });
 }
 var init_clickHandler = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/clickHandler.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/clickHandler.ts"() {
     "use strict";
     init_dist10();
     init_state();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/pasteHandler.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/pasteHandler.ts
 function pasteHandler(options) {
   return new Plugin({
     key: new PluginKey("handlePasteLink"),
@@ -70200,14 +70200,14 @@ function pasteHandler(options) {
   });
 }
 var init_pasteHandler = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/pasteHandler.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/helpers/pasteHandler.ts"() {
     "use strict";
     init_state();
     init_linkDetector();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/link.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/link.ts
 function isAllowedUri(uri) {
   if (!uri) {
     return true;
@@ -70233,7 +70233,7 @@ function shouldAutoLink(url2) {
 }
 var DEFAULT_PROTOCOL, ALLOWED_URI_REGEX, Link, LinkExtension;
 var init_link = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/link.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/link.ts"() {
     "use strict";
     init_dist10();
     init_BlockNoteExtension();
@@ -70386,10 +70386,10 @@ var init_link = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+extension-text@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-text/dist/index.js
+// ../../../../node_modules/.pnpm/@tiptap+extension-text@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-text/dist/index.js
 var Text;
 var init_dist22 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/node_modules/.pnpm/@tiptap+extension-text@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-text/dist/index.js"() {
+  "../../../../node_modules/.pnpm/@tiptap+extension-text@3.27.0_@tiptap+core@3.27.0_@tiptap+pm@3.27.0_/node_modules/@tiptap/extension-text/dist/index.js"() {
     init_dist10();
     Text = Node3.create({
       name: "text",
@@ -70405,10 +70405,10 @@ var init_dist22 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/clipboard/fromClipboard/acceptedMIMETypes.ts
+// ../../../../third_party/blocknote/packages/core/src/api/clipboard/fromClipboard/acceptedMIMETypes.ts
 var acceptedMIMETypes;
 var init_acceptedMIMETypes = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/clipboard/fromClipboard/acceptedMIMETypes.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/clipboard/fromClipboard/acceptedMIMETypes.ts"() {
     "use strict";
     acceptedMIMETypes = [
       "vscode-editor-data",
@@ -70421,7 +70421,7 @@ var init_acceptedMIMETypes = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/clipboard/fromClipboard/handleFileInsertion.ts
+// ../../../../third_party/blocknote/packages/core/src/api/clipboard/fromClipboard/handleFileInsertion.ts
 function checkFileExtensionsMatch(fileExtension1, fileExtension2) {
   if (!fileExtension1.startsWith(".") || !fileExtension2.startsWith(".")) {
     throw new Error(`The strings provided are not valid file extensions.`);
@@ -70549,17 +70549,17 @@ async function handleFileInsertion(event, editor) {
   }
 }
 var init_handleFileInsertion = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/clipboard/fromClipboard/handleFileInsertion.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/clipboard/fromClipboard/handleFileInsertion.ts"() {
     "use strict";
     init_getBlockInfoFromPos();
     init_acceptedMIMETypes();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/clipboard/fromClipboard/fileDropExtension.ts
+// ../../../../third_party/blocknote/packages/core/src/api/clipboard/fromClipboard/fileDropExtension.ts
 var createDropFileExtension;
 var init_fileDropExtension = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/clipboard/fromClipboard/fileDropExtension.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/clipboard/fromClipboard/fileDropExtension.ts"() {
     "use strict";
     init_dist10();
     init_dist5();
@@ -70601,10 +70601,10 @@ var init_fileDropExtension = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/parsers/markdown/detectMarkdown.ts
+// ../../../../third_party/blocknote/packages/core/src/api/parsers/markdown/detectMarkdown.ts
 var h1, bold, link, code2, ul, ol, hr, fences, title, blockquote, tableHeader, tableDivider, tableRow, isMarkdown;
 var init_detectMarkdown = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/parsers/markdown/detectMarkdown.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/parsers/markdown/detectMarkdown.ts"() {
     "use strict";
     h1 = /(^|\n) {0,3}#{1,6} {1,8}[^\n]{1,64}\r?\n\r?\n\s{0,32}\S/;
     bold = /(_|__|\*|\*\*|~~|==|\+\+)(?!\s)(?:[^\s](?:.{0,62}[^\s])?|\S)(?=\1)/;
@@ -70623,7 +70623,7 @@ var init_detectMarkdown = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/clipboard/fromClipboard/handleVSCodePaste.ts
+// ../../../../third_party/blocknote/packages/core/src/api/clipboard/fromClipboard/handleVSCodePaste.ts
 function handleVSCodePaste(event, view) {
   const { schema } = view.state;
   if (!event.clipboardData) {
@@ -70651,12 +70651,12 @@ function handleVSCodePaste(event, view) {
   return true;
 }
 var init_handleVSCodePaste = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/clipboard/fromClipboard/handleVSCodePaste.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/clipboard/fromClipboard/handleVSCodePaste.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/clipboard/fromClipboard/pasteExtension.ts
+// ../../../../third_party/blocknote/packages/core/src/api/clipboard/fromClipboard/pasteExtension.ts
 function defaultPasteHandler({
   event,
   editor,
@@ -70722,7 +70722,7 @@ function defaultPasteHandler({
 }
 var createPasteFromClipboardExtension;
 var init_pasteExtension = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/clipboard/fromClipboard/pasteExtension.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/clipboard/fromClipboard/pasteExtension.ts"() {
     "use strict";
     init_dist10();
     init_dist5();
@@ -70767,7 +70767,7 @@ var init_pasteExtension = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/clipboard/toClipboard/copyExtension.ts
+// ../../../../third_party/blocknote/packages/core/src/api/clipboard/toClipboard/copyExtension.ts
 function fragmentToExternalHTML(view, selectedFragment, editor) {
   let isWithinBlockContent = false;
   const isWithinTable = view.state.selection instanceof CellSelection;
@@ -70845,7 +70845,7 @@ function selectedFragmentToHTML(view, editor) {
 }
 var checkIfSelectionInNonEditableBlock, copyToClipboard, createCopyToClipboardExtension;
 var init_copyExtension = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/clipboard/toClipboard/copyExtension.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/clipboard/toClipboard/copyExtension.ts"() {
     "use strict";
     init_dist10();
     init_dist5();
@@ -70939,10 +70939,10 @@ var init_copyExtension = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/BackgroundColor/BackgroundColorExtension.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/BackgroundColor/BackgroundColorExtension.ts
 var BackgroundColorExtension;
 var init_BackgroundColorExtension = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/BackgroundColor/BackgroundColorExtension.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/BackgroundColor/BackgroundColorExtension.ts"() {
     "use strict";
     init_dist10();
     init_defaultProps();
@@ -70962,10 +70962,10 @@ var init_BackgroundColorExtension = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/HardBreak/HardBreak.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/HardBreak/HardBreak.ts
 var HardBreak;
 var init_HardBreak = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/HardBreak/HardBreak.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/HardBreak/HardBreak.ts"() {
     "use strict";
     init_dist10();
     HardBreak = Node3.create({
@@ -70988,10 +70988,10 @@ var init_HardBreak = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/commands/mergeBlocks/mergeBlocks.ts
+// ../../../../third_party/blocknote/packages/core/src/api/blockManipulation/commands/mergeBlocks/mergeBlocks.ts
 var getParentBlockInfo, getPrevBlockInfo, getNextBlockInfo, getBottomNestedBlockInfo, canMerge, mergeBlocks, mergeBlocksCommand;
 var init_mergeBlocks = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/commands/mergeBlocks/mergeBlocks.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/blockManipulation/commands/mergeBlocks/mergeBlocks.ts"() {
     "use strict";
     init_getBlockInfoFromPos();
     getParentBlockInfo = (doc4, beforePos) => {
@@ -71107,10 +71107,10 @@ var init_mergeBlocks = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/KeyboardShortcuts/KeyboardShortcutsExtension.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/KeyboardShortcuts/KeyboardShortcutsExtension.ts
 var KeyboardShortcutsExtension;
 var init_KeyboardShortcutsExtension = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/KeyboardShortcuts/KeyboardShortcutsExtension.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/KeyboardShortcuts/KeyboardShortcutsExtension.ts"() {
     "use strict";
     init_dist10();
     init_dist3();
@@ -71787,10 +71787,10 @@ var init_KeyboardShortcutsExtension = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Suggestions/SuggestionMarks.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Suggestions/SuggestionMarks.ts
 var SuggestionAddMark, SuggestionDeleteMark, SuggestionModificationMark;
 var init_SuggestionMarks = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Suggestions/SuggestionMarks.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Suggestions/SuggestionMarks.ts"() {
     "use strict";
     init_dist10();
     SuggestionAddMark = Mark2.create({
@@ -71962,10 +71962,10 @@ var init_SuggestionMarks = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/TextAlignment/TextAlignmentExtension.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/TextAlignment/TextAlignmentExtension.ts
 var TextAlignmentExtension;
 var init_TextAlignmentExtension = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/TextAlignment/TextAlignmentExtension.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/TextAlignment/TextAlignmentExtension.ts"() {
     "use strict";
     init_dist10();
     TextAlignmentExtension = Extension.create({
@@ -72001,10 +72001,10 @@ var init_TextAlignmentExtension = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/TextColor/TextColorExtension.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/TextColor/TextColorExtension.ts
 var TextColorExtension;
 var init_TextColorExtension = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/TextColor/TextColorExtension.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/TextColor/TextColorExtension.ts"() {
     "use strict";
     init_dist10();
     init_defaultProps();
@@ -72024,9 +72024,9 @@ var init_TextColorExtension = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/index.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/index.ts
 var init_tiptap_extensions = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/tiptap-extensions/index.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/tiptap-extensions/index.ts"() {
     "use strict";
     init_BackgroundColorExtension();
     init_HardBreak();
@@ -72038,10 +72038,10 @@ var init_tiptap_extensions = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/pm-nodes/BlockContainer.ts
+// ../../../../third_party/blocknote/packages/core/src/pm-nodes/BlockContainer.ts
 var BlockAttributes, BlockContainer;
 var init_BlockContainer = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/pm-nodes/BlockContainer.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/pm-nodes/BlockContainer.ts"() {
     "use strict";
     init_dist10();
     init_browser();
@@ -72116,10 +72116,10 @@ var init_BlockContainer = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/pm-nodes/BlockGroup.ts
+// ../../../../third_party/blocknote/packages/core/src/pm-nodes/BlockGroup.ts
 var BlockGroup;
 var init_BlockGroup = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/pm-nodes/BlockGroup.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/pm-nodes/BlockGroup.ts"() {
     "use strict";
     init_dist10();
     init_browser();
@@ -72169,10 +72169,10 @@ var init_BlockGroup = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/pm-nodes/Doc.ts
+// ../../../../third_party/blocknote/packages/core/src/pm-nodes/Doc.ts
 var Doc3;
 var init_Doc = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/pm-nodes/Doc.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/pm-nodes/Doc.ts"() {
     "use strict";
     init_dist10();
     Doc3 = Node3.create({
@@ -72184,9 +72184,9 @@ var init_Doc = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/pm-nodes/index.ts
+// ../../../../third_party/blocknote/packages/core/src/pm-nodes/index.ts
 var init_pm_nodes = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/pm-nodes/index.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/pm-nodes/index.ts"() {
     "use strict";
     init_BlockContainer();
     init_BlockGroup();
@@ -72194,10 +72194,10 @@ var init_pm_nodes = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/Collaboration/Collaboration.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions/Collaboration/Collaboration.ts
 var CollaborationExtension;
 var init_Collaboration = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions/Collaboration/Collaboration.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions/Collaboration/Collaboration.ts"() {
     "use strict";
     init_BlockNoteExtension();
     init_ForkYDoc();
@@ -72222,7 +72222,7 @@ var init_Collaboration = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/managers/ExtensionManager/extensions.ts
+// ../../../../third_party/blocknote/packages/core/src/editor/managers/ExtensionManager/extensions.ts
 function getDefaultTiptapExtensions(editor, options) {
   const tiptapExtensions = [
     extensions_exports.ClipboardTextSerializer,
@@ -72345,7 +72345,7 @@ function getDefaultExtensions(editor, options) {
 }
 var isCollaborationChangeOrigin;
 var init_extensions2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/managers/ExtensionManager/extensions.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/editor/managers/ExtensionManager/extensions.ts"() {
     "use strict";
     init_dist10();
     init_gap_cursor();
@@ -72367,10 +72367,10 @@ var init_extensions2 = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/managers/ExtensionManager/index.ts
+// ../../../../third_party/blocknote/packages/core/src/editor/managers/ExtensionManager/index.ts
 var ExtensionManager2;
 var init_ExtensionManager = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/managers/ExtensionManager/index.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/editor/managers/ExtensionManager/index.ts"() {
     "use strict";
     init_dist20();
     init_dist10();
@@ -72782,7 +72782,7 @@ var init_ExtensionManager = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/util/expandToWords.ts
+// ../../../../third_party/blocknote/packages/core/src/util/expandToWords.ts
 function expandPMRangeToWords(doc4, range) {
   let { $from, $to } = range;
   if ($from.pos > $from.start() && $from.pos < doc4.content.size) {
@@ -72808,12 +72808,12 @@ function expandPMRangeToWords(doc4, range) {
   return { $from, $to, from: $from.pos, to: $to.pos };
 }
 var init_expandToWords = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/util/expandToWords.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/util/expandToWords.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/selections/selection.ts
+// ../../../../third_party/blocknote/packages/core/src/api/blockManipulation/selections/selection.ts
 function getSelection2(tr) {
   const pmSchema = getPmSchema(tr);
   if (tr.selection.empty || "node" in tr.selection) {
@@ -72951,7 +72951,7 @@ function getSelectionCutBlocks(tr, expandToWords = false) {
   };
 }
 var init_selection = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/selections/selection.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/blockManipulation/selections/selection.ts"() {
     "use strict";
     init_dist5();
     init_dist11();
@@ -72963,10 +72963,10 @@ var init_selection = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/managers/SelectionManager.ts
+// ../../../../third_party/blocknote/packages/core/src/editor/managers/SelectionManager.ts
 var SelectionManager;
 var init_SelectionManager = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/managers/SelectionManager.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/editor/managers/SelectionManager.ts"() {
     "use strict";
     init_dist10();
     init_selection();
@@ -73050,10 +73050,10 @@ var init_SelectionManager = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/managers/StateManager.ts
+// ../../../../third_party/blocknote/packages/core/src/editor/managers/StateManager.ts
 var StateManager;
 var init_StateManager = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/managers/StateManager.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/editor/managers/StateManager.ts"() {
     "use strict";
     StateManager = class {
       constructor(editor) {
@@ -73255,7 +73255,7 @@ var init_StateManager = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/insertContentAt.ts
+// ../../../../third_party/blocknote/packages/core/src/api/blockManipulation/insertContentAt.ts
 function insertContentAt2(tr, position, nodes, options = { updateSelection: true }) {
   let { from: from3, to } = typeof position === "number" ? { from: position, to: position } : { from: position.from, to: position.to };
   let isOnlyTextContent = true;
@@ -73289,16 +73289,16 @@ function insertContentAt2(tr, position, nodes, options = { updateSelection: true
   return true;
 }
 var init_insertContentAt = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/blockManipulation/insertContentAt.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/blockManipulation/insertContentAt.ts"() {
     "use strict";
     init_dist10();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/managers/StyleManager.ts
+// ../../../../third_party/blocknote/packages/core/src/editor/managers/StyleManager.ts
 var StyleManager;
 var init_StyleManager = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/managers/StyleManager.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/editor/managers/StyleManager.ts"() {
     "use strict";
     init_dist10();
     init_insertContentAt();
@@ -73515,9 +73515,9 @@ var init_StyleManager = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/managers/index.ts
+// ../../../../third_party/blocknote/packages/core/src/editor/managers/index.ts
 var init_managers = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/managers/index.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/editor/managers/index.ts"() {
     "use strict";
     init_BlockManager();
     init_EventManager();
@@ -73529,7 +73529,7 @@ var init_managers = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/transformPasted.ts
+// ../../../../third_party/blocknote/packages/core/src/editor/transformPasted.ts
 function isInTableCell(view) {
   return findParentNodeClosestToPos(view.state.selection.$from, (n) => {
     return n.type.name === "tableCell" || n.type.name === "tableHeader";
@@ -73682,7 +73682,7 @@ function shouldApplyFix(fragment, view) {
   return true;
 }
 var init_transformPasted = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/transformPasted.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/editor/transformPasted.ts"() {
     "use strict";
     init_model();
     init_getBlockInfoFromPos();
@@ -73690,10 +73690,10 @@ var init_transformPasted = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/BlockNoteEditor.ts
+// ../../../../third_party/blocknote/packages/core/src/editor/BlockNoteEditor.ts
 var blockNoteTipTapOptions, BlockNoteEditor;
 var init_BlockNoteEditor = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/BlockNoteEditor.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/editor/BlockNoteEditor.ts"() {
     "use strict";
     init_dist10();
     init_dist3();
@@ -74590,67 +74590,67 @@ var init_BlockNoteEditor = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/selectionTypes.ts
+// ../../../../third_party/blocknote/packages/core/src/editor/selectionTypes.ts
 var init_selectionTypes = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/editor/selectionTypes.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/editor/selectionTypes.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/exporter/Exporter.ts
+// ../../../../third_party/blocknote/packages/core/src/exporter/Exporter.ts
 var init_Exporter = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/exporter/Exporter.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/exporter/Exporter.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/exporter/mapping.ts
+// ../../../../third_party/blocknote/packages/core/src/exporter/mapping.ts
 var init_mapping = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/exporter/mapping.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/exporter/mapping.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/exporter/index.ts
+// ../../../../third_party/blocknote/packages/core/src/exporter/index.ts
 var init_exporter = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/exporter/index.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/exporter/index.ts"() {
     "use strict";
     init_Exporter();
     init_mapping();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions-shared/UiElementPosition.ts
+// ../../../../third_party/blocknote/packages/core/src/extensions-shared/UiElementPosition.ts
 var init_UiElementPosition = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/extensions-shared/UiElementPosition.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/extensions-shared/UiElementPosition.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/dictionary.ts
+// ../../../../third_party/blocknote/packages/core/src/i18n/dictionary.ts
 var init_dictionary = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/i18n/dictionary.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/i18n/dictionary.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/util/combineByGroup.ts
+// ../../../../third_party/blocknote/packages/core/src/util/combineByGroup.ts
 var init_combineByGroup = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/util/combineByGroup.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/util/combineByGroup.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/collaborativeSelection.ts
+// ../../../../third_party/blocknote/packages/core/src/api/collaborativeSelection.ts
 var init_collaborativeSelection = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/api/collaborativeSelection.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/api/collaborativeSelection.ts"() {
     "use strict";
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/index.ts
+// ../../../../third_party/blocknote/packages/core/src/index.ts
 var init_src = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/index.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/index.ts"() {
     "use strict";
     init_insertBlocks();
     init_replaceBlocks();
@@ -74691,7 +74691,7 @@ var init_src = __esm({
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/yjs/utils.ts
+// ../../../../third_party/blocknote/packages/core/src/yjs/utils.ts
 function _blocksToProsemirrorNode(editor, blocks) {
   const pmNodes = blocks.map((b) => blockToNode(b, editor.pmSchema));
   const doc4 = editor.pmSchema.topNodeType.create(
@@ -74714,16 +74714,16 @@ function blocksToYXmlFragment(editor, blocks, xmlFragment) {
   );
 }
 var init_utils3 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/yjs/utils.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/yjs/utils.ts"() {
     "use strict";
     init_y_prosemirror();
     init_src();
   }
 });
 
-// ../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/yjs/index.ts
+// ../../../../third_party/blocknote/packages/core/src/yjs/index.ts
 var init_yjs2 = __esm({
-  "../../../../../../../../Users/asc/repo/nodex3/third_party/blocknote/packages/core/src/yjs/index.ts"() {
+  "../../../../third_party/blocknote/packages/core/src/yjs/index.ts"() {
     "use strict";
     init_utils3();
   }

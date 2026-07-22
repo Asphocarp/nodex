@@ -57,6 +57,9 @@ jobs:
     - name: Install dependencies
       run: pnpm install --frozen-lockfile
 
+    - name: Verify frozen legacy migrator reproducibility
+      run: pnpm run legacy-profile-migrator:verify-reproducible
+
     - name: Install Playwright Chromium dependencies
       run: pnpm exec playwright install --with-deps chromium
 
