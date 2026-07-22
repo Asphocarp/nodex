@@ -43,18 +43,25 @@ export function NodexSettingsRow({
 export function NodexSettingsSection({
   title,
   children,
+  cardClassName,
 }: {
-  title: string;
+  title?: string;
   children: ReactNode;
+  cardClassName?: string;
 }) {
   return (
     <section className="flex flex-col">
-      <div className="flex h-toolbar items-center justify-between gap-2 px-0 py-0">
-        <div className="text-base font-medium text-token-text-primary">{title}</div>
-      </div>
+      {title ? (
+        <div className="flex h-toolbar items-center justify-between gap-2 px-0 py-0">
+          <div className="text-base font-medium text-token-text-primary">{title}</div>
+        </div>
+      ) : null}
       <div className="flex flex-col gap-1.5">
         <div
-          className="border-token-border flex flex-col divide-y-[0.5px] divide-token-border rounded-lg border"
+          className={cn(
+            "border-token-border flex flex-col divide-y-[0.5px] divide-token-border rounded-lg border",
+            cardClassName,
+          )}
           style={{ backgroundColor: "var(--color-background-panel, var(--color-token-bg-fog))" }}
         >
           {children}

@@ -121,6 +121,7 @@ import type {
   AgentImportScan,
   AgentImportScanInput,
 } from "./agent-import";
+import type { ThirdPartyNotices } from "./third-party-notices";
 
 import type {
   BackupRecord,
@@ -985,6 +986,10 @@ export interface IpcApi {
   "settings:git:update": {
     args: [input: UpdateCodexGitSettingsInput];
     result: CodexGitSettings;
+  };
+  "settings:third-party-notices:get": {
+    args: [];
+    result: ThirdPartyNotices;
   };
   "codex-command-keymap-state": { args: []; result: CommandKeymapState };
   "set-codex-command-keybinding": {

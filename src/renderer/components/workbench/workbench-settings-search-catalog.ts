@@ -138,6 +138,11 @@ const SETTINGS_SEARCH_PANELS = {
             "Optionally send anonymous product events and filtered technical web analytics to Statsig. Prompts, transcripts, card text, and file paths are not sent.",
             ["anonymous product events", "technical web analytics", "Statsig"],
           ),
+          entry(
+            "Open source licenses",
+            "Third-party notices for bundled dependencies.",
+            ["open source", "licenses", "dependencies"],
+          ),
         ],
       },
     ],

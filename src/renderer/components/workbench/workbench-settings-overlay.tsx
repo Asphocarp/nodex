@@ -1,6 +1,8 @@
 import { useForm, useStore } from "@tanstack/react-form";
 import {
+  lazy,
   startTransition,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -126,8 +128,14 @@ import {
 import { SettingsSidebar } from "./workbench-settings-sidebar";
 import {
   buildSettingsPath,
+  OPEN_SOURCE_LICENSES_SETTINGS_PATH,
   resolveSettingsShellState,
 } from "./workbench-settings-routes";
+
+const OpenSourceLicensesSettingsPage = lazy(async () => {
+  const module = await import("./open-source-licenses-settings-page");
+  return { default: module.OpenSourceLicensesSettingsPage };
+});
 
 const BACKUP_TRIGGER_LABELS: Record<BackupRecord["trigger"], string> = {
   manual: "Manual",
@@ -1979,7 +1987,7 @@ interface SettingsSectionPageProps extends Pick<
   onPathChange: (path: string) => void;
 }
 
-function GeneralSettingsPage({ open }: SettingsSectionPageProps) {
+function GeneralSettingsPage({ open, onPathChange }: SettingsSectionPageProps) {
   return (
     <SettingsPageSurface
       title="General"
@@ -2021,6 +2029,22 @@ function GeneralSettingsPage({ open }: SettingsSectionPageProps) {
           description="Optionally send anonymous product events and filtered technical web analytics to Statsig. Prompts, transcripts, card text, and file paths are not sent."
         >
           <TelemetrySettingControl open={open} />
+        </SettingRow>
+        <SettingRow
+          label="Open source licenses"
+          description="Third-party notices for bundled dependencies"
+        >
+          <NodexButton
+            variant="secondary"
+            size="xs"
+            onClick={() => {
+              startTransition(() => {
+                onPathChange(OPEN_SOURCE_LICENSES_SETTINGS_PATH);
+              });
+            }}
+          >
+            View
+          </NodexButton>
         </SettingRow>
       </SectionBlock>
     </SettingsPageSurface>
@@ -2744,7 +2768,12 @@ export function SettingsRouteShell({
 }: SettingsRouteShellProps) {
   const isMacPlatform = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
   const shellRef = useRef<HTMLDivElement>(null);
-  const { activeSectionId, redirectPath, visibleSections } = resolveSettingsShellState(path);
+  const {
+    activeSectionId,
+    detailPageId,
+    redirectPath,
+    visibleSections,
+  } = resolveSettingsShellState(path);
   const activeSection = visibleSections.find((section) => section.id === activeSectionId) ?? null;
   const settingsSearchContext = useMemo(() => {
     const activeProject = projects.find((project) => project.id === activeProjectId) ?? null;
@@ -2822,40 +2851,50 @@ export function SettingsRouteShell({
               });
             }}
           />
-          {shouldRenderPlaceholder ? (
-            <SettingsPlaceholderPage
-              label={activeSection?.label ?? "Settings"}
-              message={
-                activeSection?.placeholderKind === "external"
-                  ? "This settings page opens outside the app."
-                  : "This settings page is not available yet."
-              }
-            />
-          ) : (
-            <ActiveSectionComponent
-              open={true}
-              path={path}
-              onPathChange={onPathChange}
-              isMacPlatform={isMacPlatform}
-              projects={projects}
-              activeProjectId={activeProjectId}
-              initialLocalEnvironmentProjectId={initialLocalEnvironmentProjectId}
-              initialLocalEnvironmentConfigPath={initialLocalEnvironmentConfigPath}
-              onRequestProjectPickerOpen={onRequestProjectPickerOpen}
-              threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
-              onThreadQueueFollowUpsEnabledChange={onThreadQueueFollowUpsEnabledChange}
-              composerEnterBehavior={composerEnterBehavior}
-              onComposerEnterBehaviorChange={onComposerEnterBehaviorChange}
-              worktreeStartMode={worktreeStartMode}
-              onWorktreeStartModeChange={onWorktreeStartModeChange}
-              worktreeAutoBranchPrefix={worktreeAutoBranchPrefix}
-              onWorktreeAutoBranchPrefixChange={onWorktreeAutoBranchPrefixChange}
-              smartPrefixParsingEnabled={smartPrefixParsingEnabled}
-              onSmartPrefixParsingEnabledChange={onSmartPrefixParsingEnabledChange}
-              stripSmartPrefixFromTitleEnabled={stripSmartPrefixFromTitleEnabled}
-              onStripSmartPrefixFromTitleEnabledChange={onStripSmartPrefixFromTitleEnabledChange}
-            />
-          )}
+          <Suspense fallback={null}>
+            {detailPageId === "open-source-licenses" ? (
+              <OpenSourceLicensesSettingsPage
+                onBack={() => {
+                  startTransition(() => {
+                    onPathChange(buildSettingsPath("general-settings"));
+                  });
+                }}
+              />
+            ) : shouldRenderPlaceholder ? (
+              <SettingsPlaceholderPage
+                label={activeSection?.label ?? "Settings"}
+                message={
+                  activeSection?.placeholderKind === "external"
+                    ? "This settings page opens outside the app."
+                    : "This settings page is not available yet."
+                }
+              />
+            ) : (
+              <ActiveSectionComponent
+                open={true}
+                path={path}
+                onPathChange={onPathChange}
+                isMacPlatform={isMacPlatform}
+                projects={projects}
+                activeProjectId={activeProjectId}
+                initialLocalEnvironmentProjectId={initialLocalEnvironmentProjectId}
+                initialLocalEnvironmentConfigPath={initialLocalEnvironmentConfigPath}
+                onRequestProjectPickerOpen={onRequestProjectPickerOpen}
+                threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
+                onThreadQueueFollowUpsEnabledChange={onThreadQueueFollowUpsEnabledChange}
+                composerEnterBehavior={composerEnterBehavior}
+                onComposerEnterBehaviorChange={onComposerEnterBehaviorChange}
+                worktreeStartMode={worktreeStartMode}
+                onWorktreeStartModeChange={onWorktreeStartModeChange}
+                worktreeAutoBranchPrefix={worktreeAutoBranchPrefix}
+                onWorktreeAutoBranchPrefixChange={onWorktreeAutoBranchPrefixChange}
+                smartPrefixParsingEnabled={smartPrefixParsingEnabled}
+                onSmartPrefixParsingEnabledChange={onSmartPrefixParsingEnabledChange}
+                stripSmartPrefixFromTitleEnabled={stripSmartPrefixFromTitleEnabled}
+                onStripSmartPrefixFromTitleEnabledChange={onStripSmartPrefixFromTitleEnabledChange}
+              />
+            )}
+          </Suspense>
         </div>
       </div>
     </div>

@@ -108,6 +108,7 @@ import type {
   WindowSessionSeed,
 } from "../shared/window-session";
 import { productFeatureGates } from "./product-feature-gates";
+import { readThirdPartyNotices } from "./third-party-notices";
 import type {
   NativeContextMenuItem,
   NativeContextMenuOptions,
@@ -1920,6 +1921,15 @@ export function registerIpcHandlers(
 
   registerHandle("settings:git:update", (_, input) =>
     updateCodexGitSettings(input),
+  );
+
+  registerHandle("settings:third-party-notices:get", () =>
+    readThirdPartyNotices({
+      appPath: app.getAppPath(),
+      cwd: process.cwd(),
+      isPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+    }),
   );
 
   registerHandle("desktop-notification:show", (event, notification) => {

@@ -37,6 +37,7 @@ describe("workbench settings search catalog", () => {
 
   test("indexes setting row descriptions and option labels across panels", () => {
     expect(hasSectionResult("masked session replays", "general-settings")).toBe(true);
+    expect(hasSectionResult("third-party notices", "general-settings")).toBe(true);
     expect(hasSectionResult("force fixed theme", "appearance")).toBe(true);
     expect(hasSectionResult("danger-full-access", "agent")).toBe(true);
     expect(hasSectionResult("materialize inflating note", "editor")).toBe(true);

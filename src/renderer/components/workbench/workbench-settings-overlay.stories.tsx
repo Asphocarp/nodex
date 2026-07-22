@@ -11,7 +11,10 @@ import type {
   WorktreeEnvironmentSettingsSnapshot,
 } from "@/lib/types";
 import { SettingsRouteShell } from "./workbench-settings-overlay";
-import { buildSettingsPath } from "./workbench-settings-routes";
+import {
+  buildSettingsPath,
+  OPEN_SOURCE_LICENSES_SETTINGS_PATH,
+} from "./workbench-settings-routes";
 import {
   applyCommandKeybindingUpdate,
   createCommandKeymapState,
@@ -194,6 +197,16 @@ function ensureStorybookElectronBridge({
       switch (channel) {
         case "settings:git:get":
           return gitSettings;
+        case "settings:third-party-notices:get":
+          return {
+            text: [
+              "NODEX THIRD-PARTY NOTICES",
+              "",
+              "react@19.2.7 — MIT — https://react.dev",
+              "",
+              "Permission is hereby granted, free of charge, to any person obtaining a copy...",
+            ].join("\n"),
+          };
         case "settings:git:update":
           gitSettings = { ...gitSettings, ...(args[0] as Partial<typeof gitSettings>) };
           return gitSettings;
@@ -509,6 +522,10 @@ type Story = StoryObj<typeof meta>;
 
 export const General: Story = {
   render: () => <SettingsRouteShellStory initialPath={buildSettingsPath("general-settings")} />,
+};
+
+export const OpenSourceLicenses: Story = {
+  render: () => <SettingsRouteShellStory initialPath={OPEN_SOURCE_LICENSES_SETTINGS_PATH} />,
 };
 
 export const DefaultGroupedSidebar: Story = {

@@ -6,6 +6,9 @@ import {
 } from "./workbench-settings-sections";
 
 export const SETTINGS_ROOT_PATH = "/settings";
+export const OPEN_SOURCE_LICENSES_SETTINGS_PATH = "/settings/open-source-licenses";
+
+export type SettingsDetailPageId = "open-source-licenses";
 
 function normalizeSettingsPath(path: string | null | undefined): string {
   if (!path) {
@@ -48,6 +51,7 @@ export function parseSettingsPath(path: string | null | undefined): SettingsSect
 
 export interface ResolvedSettingsShellState {
   activeSectionId: SettingsSectionId;
+  detailPageId: SettingsDetailPageId | null;
   redirectPath: string | null;
   visibleSections: SettingsSectionDefinition[];
 }
@@ -57,16 +61,24 @@ export function resolveSettingsShellState(
 ): ResolvedSettingsShellState {
   const visibleSections = resolveVisibleSettingsSections();
   const defaultSectionId = resolveDefaultSettingsSectionId(visibleSections);
-  const requestedSectionId = parseSettingsPath(path);
+  const normalizedPath = normalizeSettingsPath(path);
+  const detailPageId = normalizedPath === OPEN_SOURCE_LICENSES_SETTINGS_PATH
+    ? "open-source-licenses"
+    : null;
+  const requestedSectionId = detailPageId
+    ? "general-settings"
+    : parseSettingsPath(path);
   const activeSectionId = visibleSections.some((section) => section.id === requestedSectionId)
     ? (requestedSectionId as SettingsSectionId)
     : defaultSectionId;
-  const canonicalPath = buildSettingsPath(activeSectionId);
-  const normalizedPath = normalizeSettingsPath(path);
+  const canonicalPath = detailPageId
+    ? OPEN_SOURCE_LICENSES_SETTINGS_PATH
+    : buildSettingsPath(activeSectionId);
   const redirectPath = normalizedPath === canonicalPath ? null : canonicalPath;
 
   return {
     activeSectionId,
+    detailPageId,
     redirectPath,
     visibleSections,
   };

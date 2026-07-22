@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   buildSettingsPath,
+  OPEN_SOURCE_LICENSES_SETTINGS_PATH,
   parseSettingsPath,
   resolveSettingsShellState,
 } from "./workbench-settings-routes";
@@ -41,6 +42,14 @@ describe("workbench settings routes", () => {
   test("keeps canonical paths stable when the section exists", () => {
     const resolved = resolveSettingsShellState("/settings/worktrees");
     expect(resolved.activeSectionId).toBe("worktrees");
+    expect(resolved.redirectPath).toBe(null);
+  });
+
+  test("keeps the licenses detail page nested under General without adding a sidebar section", () => {
+    const resolved = resolveSettingsShellState(OPEN_SOURCE_LICENSES_SETTINGS_PATH);
+
+    expect(resolved.activeSectionId).toBe("general-settings");
+    expect(resolved.detailPageId).toBe("open-source-licenses");
     expect(resolved.redirectPath).toBe(null);
   });
 });
