@@ -57,10 +57,7 @@ import type {
   WorkbenchLayoutSnapshot,
   WindowSessionBootstrap,
 } from "@/lib/types";
-import type {
-  AppInitializationStep,
-  DatabaseMigrationProgress,
-} from "../shared/app-startup";
+import type { AppInitializationStep } from "../shared/app-startup";
 import {
   DEFAULT_PRODUCT_FEATURE_GATES,
   type ProductFeatureGates,
@@ -84,6 +81,7 @@ import type {
 } from "../shared/window-navigation";
 
 const WORKBENCH_V2_FLAG_KEY = "workbenchV2";
+const rendererBootstrapStartedAt = performance.now();
 
 function readWorkbenchV2Flag(): boolean {
   try {
@@ -1310,17 +1308,17 @@ function WorkbenchApp({
 
 export default function App() {
   const [bootstrapState, setBootstrapState] = useState<{
+    failed: boolean;
     ready: boolean;
     windowSession: WindowSessionBootstrap | null;
     productFeatureGates: ProductFeatureGates;
     step: AppInitializationStep;
-    migrationProgress: DatabaseMigrationProgress | null;
   }>({
+    failed: false,
     ready: false,
     windowSession: null,
     productFeatureGates: DEFAULT_PRODUCT_FEATURE_GATES,
-    step: { phase: "app_waiting" },
-    migrationProgress: null,
+    step: { phase: "opening" },
   });
 
   useEffect(() => {
@@ -1336,15 +1334,6 @@ export default function App() {
       );
     }
 
-    if (window.api?.onDatabaseMigrationProgress) {
-      unsubscribers.push(
-        window.api.onDatabaseMigrationProgress((migrationProgress) => {
-          if (cancelled) return;
-          setBootstrapState((current) => ({ ...current, migrationProgress }));
-        }),
-      );
-    }
-
     const loadBootstrap = () => Promise.all([
       bootstrapWindowSession(),
       loadProductFeatureGates(),
@@ -1356,22 +1345,30 @@ export default function App() {
     void bootstrapPromise
       .then(([windowSession, productFeatureGates]) => {
         if (cancelled) return;
+        window.api?.reportInitializationReady?.({
+          durationMs: performance.now() - rendererBootstrapStartedAt,
+          outcome: "ready",
+        });
         setBootstrapState({
+          failed: false,
           ready: true,
           windowSession,
           productFeatureGates,
           step: { phase: "done" },
-          migrationProgress: { type: "Done" },
         });
       })
       .catch(() => {
         if (cancelled) return;
+        window.api?.reportInitializationReady?.({
+          durationMs: performance.now() - rendererBootstrapStartedAt,
+          outcome: "failed",
+        });
         setBootstrapState({
-          ready: true,
+          failed: true,
+          ready: false,
           windowSession: null,
           productFeatureGates: DEFAULT_PRODUCT_FEATURE_GATES,
-          step: { phase: "done" },
-          migrationProgress: { type: "Done" },
+          step: { phase: "failed" },
         });
       });
 
@@ -1381,13 +1378,10 @@ export default function App() {
     };
   }, []);
 
-  if (!bootstrapState.ready) {
+  if (!bootstrapState.ready || bootstrapState.failed) {
     return (
       <NodexToastProvider>
-        <AppStartupScreen
-          step={bootstrapState.step}
-          migrationProgress={bootstrapState.migrationProgress}
-        />
+        <AppStartupScreen step={bootstrapState.step} />
       </NodexToastProvider>
     );
   }
@@ -1400,10 +1394,7 @@ export default function App() {
           productFeatureGates={bootstrapState.productFeatureGates}
         />
       ) : (
-        <AppStartupScreen
-          step={{ phase: "done" }}
-          migrationProgress={{ type: "Done" }}
-        />
+        <AppStartupScreen step={{ phase: "failed" }} />
       )}
     </NodexToastProvider>
   );

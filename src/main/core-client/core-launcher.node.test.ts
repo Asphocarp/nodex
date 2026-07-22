@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   connectOrStartCore,
+  parseCoreStartupEventFrame,
   resolveCoreExecutable,
   resolveLegacyMigratorEnvironment,
 } from "./core-launcher";
@@ -24,6 +25,22 @@ const waitUntil = async (
 };
 
 describe("native Core launcher", () => {
+  test("parses only bounded versioned startup frames", () => {
+    expect(parseCoreStartupEventFrame({
+      startup_event_version: 1,
+      event: { kind: "migration_started", from_version: 86, to_version: 88 },
+    })).toEqual({ kind: "migration_started", fromVersion: 86, toVersion: 88 });
+    expect(parseCoreStartupEventFrame({ selection_version: 1 })).toBeNull();
+    expect(() => parseCoreStartupEventFrame({
+      startup_event_version: 2,
+      event: { kind: "migration_started", from_version: 86, to_version: 88 },
+    })).toThrow("version is unsupported");
+    expect(() => parseCoreStartupEventFrame({
+      startup_event_version: 1,
+      event: { kind: "invented" },
+    })).toThrow("kind is unsupported");
+  });
+
   test("resolves explicit, packaged, and development executables", () => {
     expect(
       resolveCoreExecutable({
@@ -95,15 +112,27 @@ describe("native Core launcher", () => {
       nodexHome,
     } as const;
     let first: Awaited<ReturnType<typeof connectOrStartCore>> | null = null;
+    const startupEvents: string[] = [];
 
     try {
-      first = await connectOrStartCore(input);
+      first = await connectOrStartCore({
+        ...input,
+        onStartupEvent: (event) => startupEvents.push(event.kind),
+      });
       expect(first.startedProcessId).not.toBeNull();
+      expect(startupEvents).toEqual(["candidate_checked", "store_ready"]);
+      expect(first.timings.disposition).toBe("started");
       expect(first.client.handshake.generation.pid).toBe(first.startedProcessId);
       await expect(first.client.health()).resolves.toMatchObject({ status: "ready" });
 
-      const reused = await connectOrStartCore(input);
+      const reusedEvents: string[] = [];
+      const reused = await connectOrStartCore({
+        ...input,
+        onStartupEvent: (event) => reusedEvents.push(event.kind),
+      });
       expect(reused.startedProcessId).toBeNull();
+      expect(reusedEvents).toEqual(["candidate_checked"]);
+      expect(reused.timings.disposition).toBe("reused");
       expect(reused.client.handshake.generation.pid).toBe(first.client.handshake.generation.pid);
 
       await first.client.shutdown();

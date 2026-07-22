@@ -9,6 +9,7 @@ export type AgentRuntimeReleaseAsset = {
   archiveSha256: string;
   archiveSize: number;
   assetName: string;
+  runtimeMetadataSha256: string;
   targetTriple: string;
   url: string;
 };
@@ -81,6 +82,10 @@ function parseAsset(value: unknown, label: string): AgentRuntimeReleaseAsset {
     archiveSha256: requireSha256(value.archiveSha256, `${label}.archiveSha256`),
     archiveSize: value.archiveSize as number,
     assetName: requireString(value.assetName, `${label}.assetName`),
+    runtimeMetadataSha256: requireSha256(
+      value.runtimeMetadataSha256,
+      `${label}.runtimeMetadataSha256`,
+    ),
     targetTriple: requireString(value.targetTriple, `${label}.targetTriple`),
     url,
   };

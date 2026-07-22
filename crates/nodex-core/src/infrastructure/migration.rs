@@ -303,9 +303,22 @@ pub struct StorePreparation {
     pub validated_yjs_documents: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StorePreparationEvent {
+    MigrationStarted { from_version: i64, to_version: i64 },
+}
+
 pub fn prepare_profile_store(
     connection: &mut Connection,
     profile_home: &Path,
+) -> Result<StorePreparation, StoreError> {
+    prepare_profile_store_with_observer(connection, profile_home, &mut |_| {})
+}
+
+pub fn prepare_profile_store_with_observer(
+    connection: &mut Connection,
+    profile_home: &Path,
+    observer: &mut dyn FnMut(StorePreparationEvent),
 ) -> Result<StorePreparation, StoreError> {
     let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     let object_count: i64 = connection.query_row(
@@ -359,7 +372,7 @@ pub fn prepare_profile_store(
     }
 
     if matches!(version, 85..=87) {
-        return upgrade_owned_store(connection, profile_home, version);
+        return upgrade_owned_store(connection, profile_home, version, observer);
     }
 
     validate_store(connection)?;
@@ -373,6 +386,10 @@ pub fn prepare_profile_store(
             false,
         ));
     }
+    observer(StorePreparationEvent::MigrationStarted {
+        from_version: source_version,
+        to_version: CORE_SCHEMA_VERSION,
+    });
     let backup_path = create_migration_backup(connection, profile_home, now, source_version)?;
     let fingerprints = validate_live_yjs_documents(connection)?;
     let backup_name = backup_path
@@ -469,6 +486,7 @@ fn upgrade_owned_store(
     connection: &mut Connection,
     profile_home: &Path,
     source_version: i64,
+    observer: &mut dyn FnMut(StorePreparationEvent),
 ) -> Result<StorePreparation, StoreError> {
     validate_store(connection)?;
     validate_core_metadata(connection, source_version)?;
@@ -478,6 +496,11 @@ fn upgrade_owned_store(
         87 => validate_exact_v87_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
+
+    observer(StorePreparationEvent::MigrationStarted {
+        from_version: source_version,
+        to_version: CORE_SCHEMA_VERSION,
+    });
 
     let now = unix_time_millis()?;
     let backup_path = create_migration_backup(connection, profile_home, now, source_version)?;
@@ -1822,7 +1845,16 @@ mod tests {
             r#"{"projectId":"migration-project","terminalSessionId":"terminal:legacy"}"#,
         );
 
-        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v86 Core store");
+        let mut events = Vec::new();
+        let upgraded = SqliteStoreKernel::open_with_observer(&home, |event| events.push(event))
+            .expect("upgrade v86 Core store");
+        assert_eq!(
+            events,
+            [StorePreparationEvent::MigrationStarted {
+                from_version: 86,
+                to_version: CORE_SCHEMA_VERSION,
+            }]
+        );
         assert_eq!(upgraded.preparation().migrated_from_version, Some(86));
         let backup_path = upgraded
             .preparation()
@@ -1884,10 +1916,36 @@ mod tests {
             })
             .expect("verify v87 portable tab migration");
         drop(upgraded);
-        let reopened = SqliteStoreKernel::open(&home).expect("validate current v87 store exactly");
+        let mut reopen_events = Vec::new();
+        let reopened =
+            SqliteStoreKernel::open_with_observer(&home, |event| reopen_events.push(event))
+                .expect("validate current v87 store exactly");
+        assert!(reopen_events.is_empty());
         assert_eq!(reopened.preparation().schema_version, CORE_SCHEMA_VERSION);
         assert_eq!(reopened.preparation().migrated_from_version, None);
         assert!(reopened.preparation().migration_backup_path.is_none());
+    }
+
+    #[test]
+    fn drifted_v86_store_fails_before_migration_is_announced() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v86_store(
+            &home,
+            r#"{"projectId":"migration-project","terminalSessionId":"terminal:legacy"}"#,
+        );
+        let connection = open_writer(&home.join("nodex.db")).expect("v86 writer");
+        connection
+            .execute("DROP TABLE project_session_tabs", [])
+            .expect("drift v86 schema");
+        drop(connection);
+
+        let mut events = Vec::new();
+        let error = SqliteStoreKernel::open_with_observer(&home, |event| events.push(event))
+            .err()
+            .expect("drifted v86 rejected");
+        assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+        assert!(events.is_empty());
     }
 
     #[test]

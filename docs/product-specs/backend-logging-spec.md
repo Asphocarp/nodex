@@ -293,6 +293,13 @@ observable even if the file sink is under pressure.
 
 - bootstrap startup/import failures
 - main-process startup
+- each retained initialization phase transition and its preceding duration
+- native Core selection disposition/reason plus Host artifact validation,
+  selection, authenticated connection, and total launch durations
+- candidate artifact-hash duration, Store-open duration, and preparation outcome
+  forwarded through the Core startup advisory stream
+- renderer document-load and renderer bootstrap completion duration/outcome,
+  once per owned window
 - fatal startup failure
 - `before-quit`
 - `window-all-closed`

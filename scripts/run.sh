@@ -11,6 +11,7 @@ copy_codex_config="false"
 keep_run_root="false"
 requested_run_root=""
 run_script="build:run"
+reuse_build="false"
 
 run_root=""
 isolated_codex_home=""
@@ -33,6 +34,9 @@ Options:
       --global-nodex
                     Use the inherited or default global NODEX_HOME.
   -d, --dev         Run the development server instead of the built app.
+      --reuse-build Require a content-verified production build and fail if it
+                    is stale. Normal production runs reuse it automatically
+                    when verification succeeds, otherwise they rebuild.
   -k, --keep        Preserve the run root after Nodex exits.
   -r, --root DIR    Use DIR as the run root. DIR may already exist with --keep.
   -h, --help        Show this help message.
@@ -44,6 +48,7 @@ Examples:
   pnpm run build:run:isolated -- -ac
   pnpm run build:run:isolated -- -dak
   scripts/run.sh --root /tmp/nodex-manual-run --keep
+  scripts/run.sh --root /tmp/nodex-manual-run --keep --reuse-build
   scripts/run.sh --global-codex --global-nodex --dev
 EOF
 }
@@ -73,6 +78,10 @@ while (($# > 0)); do
     ;;
   -d | --dev)
     run_script="dev"
+    shift
+    ;;
+  --reuse-build)
+    reuse_build="true"
     shift
     ;;
   -k | --keep)
@@ -117,6 +126,11 @@ while (($# > 0)); do
     ;;
   esac
 done
+
+if [[ "${reuse_build}" == "true" ]]; then
+  [[ "${run_script}" != "dev" ]] || fail "--reuse-build cannot be combined with --dev."
+  run_script="build:run:prepared"
+fi
 
 if [[ "${use_codex_home}" != "true" && ("${copy_codex_auth}" == "true" || "${copy_codex_config}" == "true") ]]; then
   fail "--global-codex cannot be combined with --auth or --config."

@@ -1258,7 +1258,7 @@ function installStoryApi(
       on: () => () => undefined,
       awaitInitialization: async () => undefined,
       onInitializationStep: () => () => undefined,
-      onDatabaseMigrationProgress: () => () => undefined,
+      reportInitializationReady: () => undefined,
       requestMicrophonePermission: () => undefined,
       serverUrl: undefined,
       assetPathPrefix: undefined,

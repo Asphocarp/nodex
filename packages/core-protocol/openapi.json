@@ -3013,6 +3013,103 @@
         },
         "additionalProperties": false
       },
+      "CoreStartupEvent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "artifact_hash_ms",
+              "kind"
+            ],
+            "properties": {
+              "artifact_hash_ms": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "candidate_checked"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "from_version",
+              "to_version",
+              "kind"
+            ],
+            "properties": {
+              "from_version": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "migration_started"
+                ]
+              },
+              "to_version": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "created_fresh",
+              "store_open_ms",
+              "kind"
+            ],
+            "properties": {
+              "created_fresh": {
+                "type": "boolean"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "store_ready"
+                ]
+              },
+              "migrated_from_version": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64"
+              },
+              "store_open_ms": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          }
+        ]
+      },
+      "CoreStartupEventFrame": {
+        "type": "object",
+        "required": [
+          "startup_event_version",
+          "event"
+        ],
+        "properties": {
+          "event": {
+            "$ref": "#/components/schemas/CoreStartupEvent"
+          },
+          "startup_event_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
       "DatabaseAgentQuery": {
         "type": "object",
         "required": [

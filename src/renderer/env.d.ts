@@ -1,7 +1,4 @@
-import type {
-  AppInitializationStep,
-  DatabaseMigrationProgress,
-} from "../shared/app-startup";
+import type { AppInitializationStep } from "../shared/app-startup";
 import type {
   AppUpdateStatus,
   ClipboardPastePayload,
@@ -38,9 +35,10 @@ declare global {
       onInitializationStep?: (
         callback: (step: AppInitializationStep) => void,
       ) => () => void;
-      onDatabaseMigrationProgress?: (
-        callback: (progress: DatabaseMigrationProgress) => void,
-      ) => () => void;
+      reportInitializationReady?: (input: {
+        durationMs: number;
+        outcome: "failed" | "ready";
+      }) => void;
       onNavigateBack?: (callback: () => void) => () => void;
       onNavigateForward?: (callback: () => void) => () => void;
       onToggleSidebar?: (callback: () => void) => () => void;

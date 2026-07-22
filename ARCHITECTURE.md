@@ -74,9 +74,18 @@ single-winner selector. Under the Profile lifetime lock, that selector either
 starts the candidate or authenticates and reuses an incumbent that satisfies the
 generated transport, event, per-Module, exact Store-format, and launcher
 freshness policy. Its bounded selection result identifies one exact generation;
-only the following authenticated handshake proves authority. Main initialization routes
-every durable port through Core and starts the public loopback server only after
-Core reports ready; disconnecting
+only the following authenticated handshake proves authority. Electron may opt
+the launched candidate into a private, versioned, bounded NDJSON startup-event
+prefix on the same machine stdout channel. Those best-effort frames expose
+candidate timing and a Store migration only after Core has authoritatively
+classified a supported older schema and before its first migration write; they
+cannot select a process, extend authority, or replace the terminal selection
+result and authenticated generation handshake. Native CLI launch does not opt
+in and continues to receive the selection result as the first line. Main
+retains a monotonic UI projection so a window created after the event still
+receives the true migration state. Main initialization routes every durable
+port through Core and starts the public loopback server only after Core reports
+ready; disconnecting
 Electron does not terminate the detached Core. The active
 proxy slices cover the established Library catalog/navigation `read`/`apply`
 IPC pair, Project/Library Page Detail, Project-scoped Page references and

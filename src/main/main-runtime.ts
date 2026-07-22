@@ -15,6 +15,7 @@ import {
   type WebContents,
 } from "electron";
 import { join, resolve } from "path";
+import { performance } from "node:perf_hooks";
 import type { AppInitializationStep } from "../shared/app-startup";
 import type { AppUpdateStatus } from "../shared/types";
 import {
@@ -182,8 +183,10 @@ const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 1500;
 let windowSessionState: WindowSessionState | null = null;
 let appQuitRequested = false;
 let lastClosedWindowSessionId: string | null = null;
-let appInitializationStep: AppInitializationStep = { phase: "app_waiting" };
+let appInitializationStep: AppInitializationStep = { phase: "opening" };
+let appInitializationStepChangedAt = performance.now();
 let appInitializationPromise: Promise<void> = Promise.resolve();
+const rendererInitializationReports = new Set<number>();
 let appUpdateService: AppUpdateService | null = null;
 let scheduledAutomationScheduler: CodexScheduledAutomationScheduler | null = null;
 let appPermissionHandlersRegistered = false;
@@ -558,7 +561,27 @@ function broadcastToWindows(channel: string, payload: unknown): void {
 }
 
 function setAppInitializationStep(step: AppInitializationStep): void {
+  if (appInitializationStep.phase === "done") return;
+  if (appInitializationStep.phase === "migrating" && step.phase === "opening") return;
+  if (
+    appInitializationStep.phase === step.phase
+    && (
+      step.phase !== "migrating"
+      || (
+        appInitializationStep.phase === "migrating"
+        && appInitializationStep.fromVersion === step.fromVersion
+        && appInitializationStep.toVersion === step.toVersion
+      )
+    )
+  ) return;
+  const now = performance.now();
+  logger.info("App initialization phase changed", {
+    previousPhase: appInitializationStep.phase,
+    phase: step.phase,
+    previousPhaseDurationMs: Math.round(now - appInitializationStepChangedAt),
+  });
   appInitializationStep = step;
+  appInitializationStepChangedAt = now;
   broadcastToWindows("app:init-step", step);
 }
 
@@ -583,6 +606,27 @@ function registerInitializationIpcHandlers(): void {
   ipcMain.handle("app:await-initialization", (event) => {
     safeSendToWebContents(event.sender, "app:init-step", [appInitializationStep]);
     return appInitializationPromise;
+  });
+  ipcMain.removeAllListeners("app:renderer-initialization-finished");
+  ipcMain.on("app:renderer-initialization-finished", (event, input: unknown) => {
+    if (!openWindows.has(event.sender.id) || rendererInitializationReports.has(event.sender.id)) {
+      return;
+    }
+    if (typeof input !== "object" || input === null || Array.isArray(input)) return;
+    const candidate = input as { durationMs?: unknown; outcome?: unknown };
+    if (
+      typeof candidate.durationMs !== "number"
+      || !Number.isFinite(candidate.durationMs)
+      || candidate.durationMs < 0
+      || candidate.durationMs > 10 * 60_000
+      || (candidate.outcome !== "ready" && candidate.outcome !== "failed")
+    ) return;
+    rendererInitializationReports.add(event.sender.id);
+    logger.info("Renderer initialization finished", {
+      durationMs: Math.round(candidate.durationMs),
+      outcome: candidate.outcome,
+      webContentsId: event.sender.id,
+    });
   });
 }
 
@@ -823,6 +867,7 @@ function createWindow(
   serverUrl: string,
   options: { session: WindowSessionRecord },
 ): BrowserWindow {
+  const windowCreatedAt = performance.now();
   const shouldUseSavedBounds = isWindowSessionBoundsVisible(
     options.session.bounds,
     screen.getAllDisplays(),
@@ -1005,6 +1050,10 @@ function createWindow(
     safeSendToWindow(window, "electron-window:focus-changed", [{ isFocused: false }]);
   });
   window.webContents.on("did-finish-load", () => {
+    logger.info("Renderer document finished loading", {
+      durationMs: Math.round(performance.now() - windowCreatedAt),
+      webContentsId,
+    });
     syncMacWindowTitle(window);
     applyElectronWindowBackdrop(window, true);
     const appUpdateStatus = appUpdateService?.getStatus();
@@ -1039,6 +1088,7 @@ function createWindow(
     pendingCloseResolvers.delete(webContentsId);
     allowImmediateWindowClose.delete(webContentsId);
     electronWindowOpaqueSurfaceModes.delete(window.id);
+    rendererInitializationReports.delete(webContentsId);
     openWindows.delete(webContentsId);
     if (lastFocusedWindowId === webContentsId) {
       lastFocusedWindowId = null;
@@ -1138,7 +1188,18 @@ async function initializeDesktopApp(
   serverPort: number,
   authority: Promise<DesktopDataAuthorityRuntime>,
 ): Promise<void> {
+  const initializationStartedAt = performance.now();
   desktopDataAuthorityRuntime = await authority;
+  const servicesStartedAt = performance.now();
+  logger.info("Native Core authority ready", {
+    ...desktopDataAuthorityRuntime.launch.timings,
+    artifactValidationMs: Math.round(
+      desktopDataAuthorityRuntime.launch.timings.artifactValidationMs,
+    ),
+    connectMs: Math.round(desktopDataAuthorityRuntime.launch.timings.connectMs),
+    selectionMs: Math.round(desktopDataAuthorityRuntime.launch.timings.selectionMs),
+    totalMs: Math.round(desktopDataAuthorityRuntime.launch.timings.totalMs),
+  });
   registerDatabaseNotifierBridges();
   const coreClient = desktopDataAuthorityRuntime.rootClient;
   setProjectionInvalidationRouter(new ProjectionInvalidationRouter({
@@ -1213,6 +1274,10 @@ async function initializeDesktopApp(
   startRuntimeScheduledAutomationScheduler();
   registerDesktopActivationHandler();
   setAppInitializationStep({ phase: "done" });
+  logger.info("Desktop app initialization finished", {
+    authorityAndServicesMs: Math.round(performance.now() - initializationStartedAt),
+    servicesMs: Math.round(performance.now() - servicesStartedAt),
+  });
   maybeStartAutomaticAppUpdateChecks();
 }
 
@@ -1590,12 +1655,37 @@ export async function runMainAppStartup(
   appUpdateService.initialize();
 
   const serverPort = getPort();
-  setAppInitializationStep({ phase: "sqlite_waiting" });
+  setAppInitializationStep({ phase: "opening" });
   const dataAuthority = initializeDesktopDataAuthority({
     appResourcesPath: app.isPackaged ? process.resourcesPath : undefined,
     buildId: `nodex-desktop/${app.getVersion()}`,
     isPackaged: app.isPackaged,
     nodexHome: getNodexHome(),
+    onStartupEvent: (event) => {
+      if (event.kind === "migration_started") {
+        setAppInitializationStep({
+          phase: "migrating",
+          fromVersion: event.fromVersion,
+          toVersion: event.toVersion,
+        });
+        logger.info("Native Core Store migration started", {
+          fromVersion: event.fromVersion,
+          toVersion: event.toVersion,
+        });
+        return;
+      }
+      if (event.kind === "candidate_checked") {
+        logger.info("Native Core candidate checked", {
+          artifactHashMs: event.artifactHashMs,
+        });
+        return;
+      }
+      logger.info("Native Core Store ready", {
+        createdFresh: event.createdFresh,
+        migratedFromVersion: event.migratedFromVersion,
+        storeOpenMs: event.storeOpenMs,
+      });
+    },
     repositoryRoot: app.getAppPath(),
   });
   codexService.setNodexAgentAuthorityPort(

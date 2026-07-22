@@ -9,7 +9,7 @@ use rusqlite::{Connection, MAIN_DB};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::migration::{StorePreparation, prepare_legacy_import_candidate};
+use super::migration::{StorePreparation, StorePreparationEvent, prepare_legacy_import_candidate};
 use super::schema::{CORE_SCHEMA_VERSION, read_schema_inventory, validate_exact_v84_schema};
 use super::sqlite::{StoreError, StoreErrorCode, open_reader, open_writer, validate_store};
 use super::store::STORE_FILE_NAME;
@@ -70,14 +70,19 @@ struct LegacyMigratorCommand {
     script: PathBuf,
 }
 
-pub(crate) fn migrate_legacy_profile_if_needed(
+pub(crate) fn migrate_legacy_profile_if_needed_with_observer(
     profile_home: &Path,
+    observer: &mut dyn FnMut(StorePreparationEvent),
 ) -> Result<Option<StorePreparation>, StoreError> {
     recover_interrupted_legacy_import(profile_home)?;
     let Some(source) = detect_legacy_source(profile_home)? else {
         return Ok(None);
     };
     let migrator = LegacyMigratorCommand::from_environment()?;
+    observer(StorePreparationEvent::MigrationStarted {
+        from_version: source.version,
+        to_version: CORE_SCHEMA_VERSION,
+    });
     migrate_legacy_source(profile_home, source, &migrator).map(Some)
 }
 

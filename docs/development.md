@@ -29,6 +29,30 @@ Protocol endpoint on `127.0.0.1:9333` for local debugging. Both commands first
 build the development `target/debug/nodex-core` executable so Electron cannot
 start a stale native authority after a branch switch or rebase.
 
+After one successful `pnpm run build` or ordinary isolated run, subsequent
+production-mode `scripts/run.sh` launches automatically reuse the prepared
+Electron bundle when it still verifies. To require reuse and fail instead of
+falling back to a full rebuild, use:
+
+```bash
+scripts/run.sh -ck -r /tmp/nodex-library --reuse-build
+```
+
+Prepared reuse is fail-closed. It hashes the complete Electron input closure,
+the production build context, dynamically read development resources, and the
+exact `out/` inventory. A changed, missing, added, or symlinked input/output
+requires one normal build. The build wrapper fingerprints inputs before and
+after `electron-vite` and again after recording outputs, so an edit made during
+the build cannot produce a reusable stamp. The path still runs Cargo's
+incremental Core build on every launch; the native authority is never reused
+from a source-blind build stamp. Use `--dev` instead when actively editing and
+needing Vite HMR; `--dev` and `--reuse-build` are mutually exclusive.
+
+Development startup also reuses the staged agent runtime only after its target,
+release-lock-bound metadata, exact artifact closure, modes, sizes, and SHA-256
+digests validate. A miss performs the normal archive-backed atomic restage.
+Packaging always performs a full target-specific native runtime stage.
+
 Run Nodex against disposable Codex and Nodex state when checking first-run or
 profile-scoped behavior:
 

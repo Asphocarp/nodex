@@ -1,18 +1,33 @@
-import { describe, expect, test } from "vitest";
+import { act } from "react";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { AppStartupScreen } from "./app-startup-screen";
 import { render } from "../test/dom";
 
 describe("AppStartupScreen", () => {
-  test("renders migration messaging and the current progress label", () => {
-    const { getByRole, getByText } = render(
-      <AppStartupScreen
-        step={{ phase: "sqlite_waiting" }}
-        migrationProgress={{ type: "InProgress", value: 67 }}
-      />,
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  test("keeps generic opening copy visually quiet until startup takes time", async () => {
+    const { getByRole, queryByText } = render(
+      <AppStartupScreen step={{ phase: "opening" }} />,
     );
 
-    expect(getByText("Applying local data updates").textContent).toBe("Applying local data updates");
-    expect(getByRole("progressbar", { name: "Database migration progress" }).getAttribute("aria-label")).toBe("Database migration progress");
-    expect(getByText("67%").textContent).toBe("67%");
+    expect(getByRole("status").textContent).toContain("Opening Nodex…");
+    expect(queryByText("Opening Nodex…", { selector: "p" })).toBeNull();
+
+    await act(async () => {
+      vi.advanceTimersByTime(1800);
+    });
+    expect(queryByText("Opening Nodex…", { selector: "p" })).not.toBeNull();
+  });
+
+  test("shows only real migration status and no fake progressbar", () => {
+    const { getByRole, queryByRole, getByText } = render(
+      <AppStartupScreen step={{ phase: "migrating", fromVersion: 86, toVersion: 88 }} />,
+    );
+
+    expect(getByRole("status").textContent).toContain("Updating local data…");
+    expect(getByText("Updating local data…", { selector: "p" })).not.toBeNull();
+    expect(queryByRole("progressbar")).toBeNull();
   });
 });

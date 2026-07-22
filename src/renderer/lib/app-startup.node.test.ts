@@ -1,40 +1,22 @@
 import { describe, expect, test } from "vitest";
-import {
-  getStartupProgressValue,
-  getStartupStatus,
-} from "./app-startup";
+import { getStartupStatus } from "./app-startup";
 
 describe("app startup helpers", () => {
   test("returns bootstrap copy while initialization is running", () => {
-    expect(getStartupStatus({ phase: "app_waiting" }, 0)).toBe(
-      "Preparing your workspace...",
-    );
+    expect(getStartupStatus({ phase: "opening" })).toBe("Opening Nodex…");
   });
 
   test("returns migration copy while sqlite work is running", () => {
-    expect(getStartupStatus({ phase: "sqlite_waiting" }, 1)).toBe(
-      "Migrating your local database",
+    expect(getStartupStatus({ phase: "migrating", fromVersion: 86, toVersion: 88 })).toBe(
+      "Updating local data…",
     );
   });
 
-  test("returns ready copy after initialization", () => {
-    expect(getStartupStatus({ phase: "done" }, 0)).toBe("Ready");
+  test("keeps generic copy until the renderer is actually ready", () => {
+    expect(getStartupStatus({ phase: "done" })).toBe("Opening Nodex…");
   });
 
-  test("uses the baseline progress while initialization is running", () => {
-    expect(getStartupProgressValue({ phase: "app_waiting" }, null)).toBe(18);
-  });
-
-  test("clamps startup progress to a visible baseline during migrations", () => {
-    expect(
-      getStartupProgressValue(
-        { phase: "sqlite_waiting" },
-        { type: "InProgress", value: 3 },
-      ),
-    ).toBe(24);
-  });
-
-  test("returns full progress once initialization is done", () => {
-    expect(getStartupProgressValue({ phase: "done" }, { type: "Done" })).toBe(100);
+  test("returns explicit failure copy", () => {
+    expect(getStartupStatus({ phase: "failed" })).toBe("Nodex could not finish opening.");
   });
 });

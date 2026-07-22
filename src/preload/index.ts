@@ -1,10 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type {
-  AppInitializationStep,
-  DatabaseMigrationProgress,
-} from "../shared/app-startup";
+import type { AppInitializationStep } from "../shared/app-startup";
 import {
   CLOSE_PANEL_TAB_HOST_CHANNEL,
   CYCLE_PANEL_TAB_NEXT_HOST_CHANNEL,
@@ -77,17 +74,8 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.removeListener("app:init-step", listener);
     };
   },
-  onDatabaseMigrationProgress: (
-    callback: (progress: DatabaseMigrationProgress) => void,
-  ) => {
-    const listener = (
-      _event: Electron.IpcRendererEvent,
-      progress: DatabaseMigrationProgress,
-    ) => callback(progress);
-    ipcRenderer.on("db:migration-progress", listener);
-    return () => {
-      ipcRenderer.removeListener("db:migration-progress", listener);
-    };
+  reportInitializationReady: (input: { durationMs: number; outcome: "failed" | "ready" }) => {
+    ipcRenderer.send("app:renderer-initialization-finished", input);
   },
   onNavigateBack: (callback: () => void) => {
     const listener = () => callback();

@@ -858,6 +858,32 @@ export interface components {
             /** Format: int32 */
             readonly selection_version: number;
         };
+        readonly CoreStartupEvent: {
+            /** Format: int64 */
+            readonly artifact_hash_ms: number;
+            /** @enum {string} */
+            readonly kind: "candidate_checked";
+        } | {
+            /** Format: int64 */
+            readonly from_version: number;
+            /** @enum {string} */
+            readonly kind: "migration_started";
+            /** Format: int64 */
+            readonly to_version: number;
+        } | {
+            readonly created_fresh: boolean;
+            /** @enum {string} */
+            readonly kind: "store_ready";
+            /** Format: int64 */
+            readonly migrated_from_version?: number | null;
+            /** Format: int64 */
+            readonly store_open_ms: number;
+        };
+        readonly CoreStartupEventFrame: {
+            readonly event: components["schemas"]["CoreStartupEvent"];
+            /** Format: int32 */
+            readonly startup_event_version: number;
+        };
         readonly DatabaseAgentQuery: {
             readonly authorization: components["schemas"]["AgentExecutionAuthorization"];
             readonly cursor?: string | null;

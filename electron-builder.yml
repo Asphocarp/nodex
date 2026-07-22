@@ -41,8 +41,9 @@ extraResources:
 - from: .generated/codex-runtime/bin
   to: bin
   filter:
-  - "**/*"
-  - "!nodex-service"
+  - nodex
+  - nodex-core
+  - rust-core-runtime.json
 - from: .generated/codex-runtime/agent-runtime
   to: agent-runtime
   filter:

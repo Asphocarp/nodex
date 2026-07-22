@@ -644,6 +644,30 @@ pub enum CoreSelectionReason {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CoreStartupEvent {
+    CandidateChecked {
+        artifact_hash_ms: u64,
+    },
+    MigrationStarted {
+        from_version: i64,
+        to_version: i64,
+    },
+    StoreReady {
+        created_fresh: bool,
+        migrated_from_version: Option<i64>,
+        store_open_ms: u64,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CoreStartupEventFrame {
+    pub startup_event_version: u32,
+    pub event: CoreStartupEvent,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CoreSelectionResult {
     pub selection_version: u32,
@@ -909,6 +933,8 @@ mod api {
         CoreCompatibilityManifest,
         CoreClientRequirements,
         CoreArtifactIdentity,
+        CoreStartupEvent,
+        CoreStartupEventFrame,
         CoreSelectionResult,
         CoreReplacementRequest,
         StoreFormatIdentity,

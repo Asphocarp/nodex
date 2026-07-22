@@ -1,8 +1,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::legacy_migration::migrate_legacy_profile_if_needed;
-use super::migration::{StorePreparation, prepare_profile_store};
+use super::legacy_migration::migrate_legacy_profile_if_needed_with_observer;
+use super::migration::{
+    StorePreparation, StorePreparationEvent, prepare_profile_store_with_observer,
+};
 use super::sqlite::{StoreError, StoreErrorCode, open_writer};
 use super::store_lock::ProfileStoreLock;
 use super::store_replacement::recover_interrupted_store_replacement;
@@ -22,9 +24,17 @@ pub struct SqliteStoreKernel {
 
 impl SqliteStoreKernel {
     pub fn open(profile_home: &Path) -> Result<Self, StoreError> {
+        Self::open_with_observer(profile_home, |_| {})
+    }
+
+    pub fn open_with_observer(
+        profile_home: &Path,
+        mut observer: impl FnMut(StorePreparationEvent),
+    ) -> Result<Self, StoreError> {
         let lock = ProfileStoreLock::acquire(profile_home)?;
         recover_interrupted_store_replacement(profile_home)?;
-        let legacy_preparation = migrate_legacy_profile_if_needed(profile_home)?;
+        let legacy_preparation =
+            migrate_legacy_profile_if_needed_with_observer(profile_home, &mut observer)?;
         let database_path = profile_home.join(STORE_FILE_NAME);
         if fs::symlink_metadata(&database_path)
             .is_ok_and(|metadata| metadata.file_type().is_symlink())
@@ -38,7 +48,11 @@ impl SqliteStoreKernel {
         let mut migration_connection = open_writer(&database_path)?;
         let preparation = match legacy_preparation {
             Some(preparation) => preparation,
-            None => prepare_profile_store(&mut migration_connection, profile_home)?,
+            None => prepare_profile_store_with_observer(
+                &mut migration_connection,
+                profile_home,
+                &mut observer,
+            )?,
         };
         drop(migration_connection);
 

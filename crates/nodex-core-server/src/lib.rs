@@ -10,7 +10,7 @@ mod transport_bounds;
 
 use std::convert::Infallible;
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -35,6 +35,7 @@ use nodex_core::document::{
 };
 use nodex_core::infrastructure::event_log::{CoreEventLog, CoreEventReplay};
 use nodex_core::infrastructure::metrics::DurationMetricSnapshot;
+use nodex_core::infrastructure::migration::StorePreparationEvent;
 use nodex_core::infrastructure::sqlite::{
     StoreError, StoreErrorCode, transaction_duration_metrics, with_immediate_transaction,
 };
@@ -51,18 +52,19 @@ use nodex_core_contracts::{
 use nodex_core_protocol::{
     AutomationApplyRequest, AutomationApplyResponse, AutomationReadRequest, AutomationReadResponse,
     ClientKind, CoreHealthMetrics, CoreReadiness, CoreSelectionDisposition, CoreSelectionPolicy,
-    CoreSelectionReason, CoreSelectionResult, DatabaseApplyRequest, DatabaseApplyResponse,
-    DatabaseReadRequest, DatabaseReadResponse, EventEnvelope, EventReplayRequired,
-    HandshakeRequest, HandshakeResponse, HealthDurationMetric, HealthResponse, LauncherKind,
-    LibraryApplyRequest, LibraryApplyResponse, LibraryReadRequest, LibraryReadResponse,
-    OwnedDocumentApplyRequest, OwnedDocumentApplyResponse, OwnedDocumentReadRequest,
-    OwnedDocumentReadResponse, ProjectWorkspaceApplyRequest, ProjectWorkspaceApplyResponse,
-    ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse, ResponseEnvelope, RuntimeDescriptor,
-    RuntimeGenerationIdentity, ShutdownRequest, ShutdownResponse, ShutdownStatus,
-    StoreAdministrationApplyRequest, StoreAdministrationApplyResponse,
-    StoreAdministrationReadRequest, StoreAdministrationReadResponse, TRANSPORT_PROTOCOL_MAX,
-    TRANSPORT_PROTOCOL_MIN, canonical_manifest_digest, core_client_requirements,
-    core_compatibility_manifest, evaluate_compatibility, replacement_is_forward_safe, store_format,
+    CoreSelectionReason, CoreSelectionResult, CoreStartupEvent, CoreStartupEventFrame,
+    DatabaseApplyRequest, DatabaseApplyResponse, DatabaseReadRequest, DatabaseReadResponse,
+    EventEnvelope, EventReplayRequired, HandshakeRequest, HandshakeResponse, HealthDurationMetric,
+    HealthResponse, LauncherKind, LibraryApplyRequest, LibraryApplyResponse, LibraryReadRequest,
+    LibraryReadResponse, OwnedDocumentApplyRequest, OwnedDocumentApplyResponse,
+    OwnedDocumentReadRequest, OwnedDocumentReadResponse, ProjectWorkspaceApplyRequest,
+    ProjectWorkspaceApplyResponse, ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse,
+    ResponseEnvelope, RuntimeDescriptor, RuntimeGenerationIdentity, ShutdownRequest,
+    ShutdownResponse, ShutdownStatus, StoreAdministrationApplyRequest,
+    StoreAdministrationApplyResponse, StoreAdministrationReadRequest,
+    StoreAdministrationReadResponse, TRANSPORT_PROTOCOL_MAX, TRANSPORT_PROTOCOL_MIN,
+    canonical_manifest_digest, core_client_requirements, core_compatibility_manifest,
+    evaluate_compatibility, replacement_is_forward_safe, store_format,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -94,6 +96,28 @@ const LIBRARY_DOCUMENT_SCOPE: &str = "library";
 const DATABASE_SCOPE_HEADER: &str = "x-nodex-database-scope";
 const LIBRARY_DATABASE_SCOPE: &str = "library";
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
+const INTERNAL_STARTUP_EVENTS_ENV: &str = "NODEX_INTERNAL_STARTUP_EVENTS_VERSION";
+const INTERNAL_STARTUP_EVENTS_VERSION: u32 = 1;
+
+fn report_internal_startup_event(event: CoreStartupEvent) {
+    if std::env::var(INTERNAL_STARTUP_EVENTS_ENV).as_deref() != Ok("1") {
+        return;
+    }
+    let Ok(line) = serde_json::to_string(&CoreStartupEventFrame {
+        startup_event_version: INTERNAL_STARTUP_EVENTS_VERSION,
+        event,
+    }) else {
+        return;
+    };
+    let stdout = io::stdout();
+    let mut writer = stdout.lock();
+    let _ = writeln!(writer, "{line}");
+    let _ = writer.flush();
+}
+
+fn duration_millis(duration: std::time::Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
 
 struct ServerState {
     auth_header: String,
@@ -2110,7 +2134,11 @@ pub async fn run_with_selection(
     let manifest = core_compatibility_manifest();
     let manifest_digest = canonical_manifest_digest(&manifest)
         .map_err(|mismatch| io::Error::other(format!("invalid Core manifest: {mismatch:?}")))?;
+    let artifact_started_at = Instant::now();
     let artifact = current_artifact_identity()?;
+    report_internal_startup_event(CoreStartupEvent::CandidateChecked {
+        artifact_hash_ms: duration_millis(artifact_started_at.elapsed()),
+    });
     let candidate = CandidateRuntime {
         manifest: manifest.clone(),
         manifest_digest: manifest_digest.clone(),
@@ -2182,7 +2210,21 @@ pub async fn run_with_selection(
     let auth = random_hex(32)?;
     let start_nonce = random_hex(16)?;
     let proposed_profile_id = profile_id(&home);
-    let store = SqliteStoreKernel::open(&home)?;
+    let store_started_at = Instant::now();
+    let store = SqliteStoreKernel::open_with_observer(&home, |event| match event {
+        StorePreparationEvent::MigrationStarted {
+            from_version,
+            to_version,
+        } => report_internal_startup_event(CoreStartupEvent::MigrationStarted {
+            from_version,
+            to_version,
+        }),
+    })?;
+    report_internal_startup_event(CoreStartupEvent::StoreReady {
+        created_fresh: store.preparation().created_fresh,
+        migrated_from_version: store.preparation().migrated_from_version,
+        store_open_ms: duration_millis(store_started_at.elapsed()),
+    });
     let schema_version = u32::try_from(store.preparation().schema_version)?;
     let actual_store_format = store_format(schema_version).ok_or_else(|| {
         io::Error::other(format!(

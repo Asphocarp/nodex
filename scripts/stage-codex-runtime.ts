@@ -18,7 +18,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { pipeline } from "node:stream/promises";
@@ -28,6 +28,7 @@ import {
   type AgentRuntimeArtifact,
   type BundledAgentRuntimeMetadata,
   type OpenInterpreterPackageManifest,
+  parseBundledAgentRuntimeMetadata,
 } from "../src/shared/codex-runtime-metadata";
 import {
   readOpenInterpreterReleaseLock,
@@ -36,6 +37,7 @@ import {
   type AgentRuntimeTargetPlatform,
   type OpenInterpreterReleaseLock,
 } from "./agent-runtime-release-lock";
+import { replaceOwnedDirectory } from "./replace-owned-directory";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDir, "..");
@@ -46,6 +48,7 @@ type StageAgentRuntimeOptions = {
   lockPath?: string;
   outputPath: string;
   projectRootPath?: string;
+  reuseExisting?: boolean;
   sourceRoot?: string;
   targetArch: AgentRuntimeTargetArch;
   targetPlatform: AgentRuntimeTargetPlatform;
@@ -87,26 +90,6 @@ function readSha256(filePath: string): string {
     }
   } finally {
     closeSync(fileDescriptor);
-  }
-}
-
-function replaceDirectory(sourceDir: string, destinationDir: string): void {
-  if (!existsSync(destinationDir)) {
-    renameSync(sourceDir, destinationDir);
-    return;
-  }
-
-  const backupDir = mkdtempSync(join(dirname(destinationDir), `${basename(destinationDir)}-backup-`));
-  rmSync(backupDir, { recursive: true, force: true });
-  renameSync(destinationDir, backupDir);
-  try {
-    renameSync(sourceDir, destinationDir);
-    rmSync(backupDir, { recursive: true, force: true });
-  } catch (error) {
-    if (!existsSync(destinationDir) && existsSync(backupDir)) {
-      renameSync(backupDir, destinationDir);
-    }
-    throw error;
   }
 }
 
@@ -166,6 +149,111 @@ function listRuntimeArtifacts(runtimeRoot: string, currentPath = runtimeRoot): A
     });
   }
   return artifacts.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+const canonicalJson = (value: unknown): string => {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(",")}]`;
+  }
+  if (typeof value === "object" && value !== null) {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+};
+
+export const bundledAgentRuntimeMetadataSha256 = (
+  metadata: BundledAgentRuntimeMetadata,
+): string => createHash("sha256")
+  .update(canonicalJson(metadata))
+  .digest("hex");
+
+const metadataMatchesLock = (input: {
+  lock: OpenInterpreterReleaseLock;
+  metadata: BundledAgentRuntimeMetadata;
+  target: AgentRuntimeTarget;
+}): boolean => {
+  const { lock, metadata, target } = input;
+  const asset = lock.assets[target.targetKey];
+  return bundledAgentRuntimeMetadataSha256(metadata) === asset.runtimeMetadataSha256
+    && metadata.codexCompatibilityVersion === lock.codexCompatibilityVersion
+    && metadata.entrypoint === lock.packageManifest.entrypoint
+    && metadata.packageManifest.layoutVersion === lock.packageManifest.layoutVersion
+    && metadata.packageManifest.pathDir === lock.packageManifest.pathDir
+    && metadata.packageManifest.resourcesDir === lock.packageManifest.resourcesDir
+    && metadata.packageManifest.target === target.targetTriple
+    && metadata.packageManifest.variant === lock.packageManifest.variant
+    && metadata.packageManifest.version === lock.packageManifest.version
+    && metadata.runtimeFamily === lock.runtimeFamily
+    && metadata.runtimeVersion === lock.runtimeVersion
+    && JSON.stringify(metadata.searchPaths) === JSON.stringify([lock.packageManifest.pathDir])
+    && metadata.sourceRelease.archiveSha256 === asset.archiveSha256
+    && metadata.sourceRelease.assetName === asset.assetName
+    && metadata.sourceRelease.repository === lock.repository
+    && metadata.sourceRelease.tag === lock.tag
+    && metadata.targetArch === target.targetArch
+    && metadata.targetPlatform === target.targetPlatform
+    && metadata.targetTriple === target.targetTriple;
+};
+
+function readReusableRuntime(input: {
+  lock: OpenInterpreterReleaseLock;
+  outputPath: string;
+  repositoryRoot: string;
+  target: AgentRuntimeTarget;
+}): BundledAgentRuntimeMetadata | null {
+  const runtimeRoot = join(input.outputPath, "agent-runtime");
+  const metadataPath = join(runtimeRoot, "runtime.json");
+  let metadata: BundledAgentRuntimeMetadata | null;
+  try {
+    const runtimeRootStats = lstatSync(runtimeRoot);
+    if (!runtimeRootStats.isDirectory() || runtimeRootStats.isSymbolicLink()) return null;
+    const stats = lstatSync(metadataPath);
+    if (!stats.isFile() || stats.isSymbolicLink()) return null;
+    metadata = parseBundledAgentRuntimeMetadata(
+      JSON.parse(readFileSync(metadataPath, "utf8")) as unknown,
+    );
+  } catch {
+    return null;
+  }
+  if (!metadata || !metadataMatchesLock({ lock: input.lock, metadata, target: input.target })) {
+    return null;
+  }
+
+  const expectedPaths = [
+    ...input.lock.requiredArtifacts,
+    "third-party/open-interpreter/LICENSE",
+    "third-party/open-interpreter/NOTICE",
+  ].sort((left, right) => left.localeCompare(right));
+  if (JSON.stringify(metadata.artifacts.map(({ path }) => path)) !== JSON.stringify(expectedPaths)) {
+    return null;
+  }
+
+  let actualArtifacts: AgentRuntimeArtifact[];
+  try {
+    actualArtifacts = listRuntimeArtifacts(runtimeRoot)
+      .filter(({ path }) => path !== "runtime.json");
+  } catch {
+    return null;
+  }
+  if (JSON.stringify(actualArtifacts) !== JSON.stringify(metadata.artifacts)) return null;
+  for (const artifact of metadata.artifacts) {
+    const mode = lstatSync(join(runtimeRoot, ...artifact.path.split("/"))).mode & 0o777;
+    if (mode !== (artifact.executable ? 0o755 : 0o644)) return null;
+  }
+
+  const licensePath = join(input.repositoryRoot, ...input.lock.notices.licensePath.split("/"));
+  const noticePath = join(input.repositoryRoot, ...input.lock.notices.noticePath.split("/"));
+  try {
+    if (
+      readSha256(licensePath) !== input.lock.notices.licenseSha256
+      || readSha256(noticePath) !== input.lock.notices.noticeSha256
+    ) return null;
+  } catch {
+    return null;
+  }
+  return metadata;
 }
 
 function readAndValidatePackageManifest(
@@ -317,7 +405,23 @@ export async function stageCodexRuntime(
   const outputPath = resolve(options.outputPath);
   const outputParent = dirname(outputPath);
   mkdirSync(outputParent, { recursive: true });
-  const tempOutputPath = mkdtempSync(join(outputParent, `${basename(outputPath)}-`));
+  if (existsSync(outputPath) && lstatSync(outputPath).isSymbolicLink()) {
+    throw new Error(`Agent runtime output root must not be a symlink: ${outputPath}`);
+  }
+  mkdirSync(outputPath, { recursive: true });
+  if (options.reuseExisting) {
+    const reusable = readReusableRuntime({
+      lock,
+      outputPath,
+      repositoryRoot,
+      target,
+    });
+    if (reusable) {
+      process.stderr.write("Reused verified staged agent runtime.\n");
+      return reusable;
+    }
+  }
+  const tempOutputPath = mkdtempSync(join(outputPath, ".agent-runtime-stage-"));
   const tempRuntimeRoot = join(tempOutputPath, "agent-runtime");
   const cachePath = resolve(options.cachePath ?? join(repositoryRoot, ".generated", "agent-runtime-cache"));
   let sourceCleanup = (): void => undefined;
@@ -359,6 +463,13 @@ export async function stageCodexRuntime(
     });
 
     const artifacts = listRuntimeArtifacts(tempRuntimeRoot);
+    for (const artifact of artifacts) {
+      const expectedMode = artifact.executable ? 0o755 : 0o644;
+      const artifactPath = join(tempRuntimeRoot, ...artifact.path.split("/"));
+      if ((lstatSync(artifactPath).mode & 0o777) !== expectedMode) {
+        throw new Error(`Staged agent runtime artifact has an unsafe mode: ${artifact.path}`);
+      }
+    }
     const artifactByPath = new Map(artifacts.map((artifact) => [artifact.path, artifact]));
     for (const artifactPath of lock.requiredArtifacts) {
       if (!artifactByPath.has(artifactPath)) {
@@ -390,8 +501,15 @@ export async function stageCodexRuntime(
       targetTriple: target.targetTriple,
     };
 
+    const metadataSha256 = bundledAgentRuntimeMetadataSha256(metadata);
+    if (metadataSha256 !== asset.runtimeMetadataSha256) {
+      throw new Error(
+        `Staged agent runtime metadata does not match the release lock for ${target.targetKey}: ${metadataSha256}`,
+      );
+    }
+
     writeFileSync(join(tempRuntimeRoot, "runtime.json"), `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
-    replaceDirectory(tempOutputPath, outputPath);
+    replaceOwnedDirectory(tempRuntimeRoot, join(outputPath, "agent-runtime"));
     return metadata;
   } finally {
     sourceCleanup();
@@ -405,6 +523,7 @@ function parseCliOptions(argv: string[]): CliOptions {
   let targetArch: AgentRuntimeTargetArch | null = null;
   let outputPath: string | null = null;
   let archivePath: string | undefined;
+  let reuseExisting = false;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -438,12 +557,16 @@ function parseCliOptions(argv: string[]): CliOptions {
       index += 1;
       continue;
     }
+    if (arg === "--reuse-existing") {
+      reuseExisting = true;
+      continue;
+    }
     throw new Error(`Unexpected argument: ${arg}`);
   }
 
   if (!targetPlatform || !targetArch || !outputPath) {
     throw new Error(
-      "Usage: stage-codex-runtime.ts --target-platform darwin --target-arch <arm64|x64> --out <dir> [--archive <tar.gz>]",
+      "Usage: stage-codex-runtime.ts --target-platform darwin --target-arch <arm64|x64> --out <dir> [--archive <tar.gz>] [--reuse-existing]",
     );
   }
   return {
@@ -451,6 +574,7 @@ function parseCliOptions(argv: string[]): CliOptions {
     targetPlatform,
     targetArch,
     outputPath: resolve(projectRoot, outputPath),
+    reuseExisting,
   };
 }
 
