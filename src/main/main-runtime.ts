@@ -134,6 +134,11 @@ import {
   type DesktopStoreAdministrationPort,
 } from "./core-client";
 import { createDesktopNodexAgentV3DynamicService } from "./core-client/desktop-nodex-agent-dynamic-service";
+import { superviseCoreEventStream } from "./core-client/core-event-stream-supervisor";
+import {
+  allProjectSessionInvalidation,
+  planCoreWorkspaceNotifications,
+} from "./core-client/core-project-workspace-invalidation";
 import { configureNodexAgentV3DynamicService } from "./codex/nodex-agent-dynamic-tool-runtime";
 import { createDesktopNodexAgentAuthorityPort } from "./core-client/desktop-nodex-agent-authority";
 import { createDesktopNodexAgentResourceAuthorityPort } from "./core-client/desktop-nodex-agent-resource-authority";
@@ -179,11 +184,6 @@ let desktopAutomationModule: DesktopAutomationModulePort | null = null;
 let desktopLibraryModule: DesktopLibraryModuleBridge | null = null;
 let desktopStoreAdministration: DesktopStoreAdministrationPort | null = null;
 let coreEventSubscription: CoreEventSubscription | null = null;
-let coreEventCursor = 0;
-let coreEventStreamGeneration = 0;
-let coreEventReconnectTimer: ReturnType<typeof setTimeout> | null = null;
-let coreEventReconnectDelayMs = 250;
-const MAX_CORE_EVENT_RECONNECT_DELAY_MS = 5_000;
 let storeAdministrationBackupScheduler: StoreAdministrationBackupScheduler | null = null;
 let storeAdministrationMaintenanceScheduler:
   StoreAdministrationMaintenanceScheduler | null = null;
@@ -1033,39 +1033,21 @@ function registerDatabaseNotifierBridges(): void {
     recordDevRuntimeMetricCounter(
       "db.project_sessions_changed.broadcast",
       {
-        projectId: event.projectId,
+        summaryScopeCount: event.summaryScopes.length,
         changeType: event.changeType,
-        sessionId: event.sessionId ?? null,
+        detailScope: event.detailInvalidation.kind,
+        detailSessionCount: event.detailInvalidation.kind === "sessions"
+          ? event.detailInvalidation.sessionIds.length
+          : 0,
         windowCount: openWindows.size,
       },
-      { groupBy: ["projectId", "changeType", "windowCount"] },
+      { groupBy: ["changeType", "windowCount"] },
     );
     broadcastToWindows("project-sessions-changed", event);
   });
   dbNotifier.on("projects-changed", (event) => {
     broadcastToWindows("projects-changed", event);
   });
-}
-
-function scheduleCoreEventStreamReconnect(error?: unknown): void {
-  if (runtimeShutdownStarted || coreEventReconnectTimer) return;
-  if (error) {
-    logger.warn("Native Core event stream ended; scheduling replay", {
-      error: error instanceof Error ? error.message : String(error),
-      after: coreEventCursor,
-    });
-  }
-  const delayMs = coreEventReconnectDelayMs;
-  coreEventReconnectDelayMs = Math.min(
-    coreEventReconnectDelayMs * 2,
-    MAX_CORE_EVENT_RECONNECT_DELAY_MS,
-  );
-  coreEventReconnectTimer = setTimeout(() => {
-    coreEventReconnectTimer = null;
-    void openCoreEventStream(coreEventCursor).catch((reconnectError) => {
-      scheduleCoreEventStreamReconnect(reconnectError);
-    });
-  }, delayMs);
 }
 
 function publishAuthorityResync(eventHead: number): void {
@@ -1088,51 +1070,9 @@ function publishAuthorityResync(eventHead: number): void {
     affectedViewIds: [],
   });
   dbNotifier.notifyProjectsChanged("update");
-  dbNotifier.notifyProjectSessionsChanged(null, "update");
-}
-
-async function openCoreEventStream(after: number): Promise<void> {
-  const runtime = desktopDataAuthorityRuntime;
-  if (!runtime || runtimeShutdownStarted) return;
-  const generation = ++coreEventStreamGeneration;
-  const subscription = await runtime.rootClient.openEventStream(
-    after,
-    publishCoreModuleEvent,
-    (resync) => {
-      coreEventCursor = Math.max(coreEventCursor, resync.event_head);
-      publishAuthorityResync(resync.event_head);
-      void openCoreEventStream(resync.event_head).catch((error) => {
-        scheduleCoreEventStreamReconnect(error);
-      });
-    },
+  dbNotifier.notifyProjectSessionInvalidation(
+    allProjectSessionInvalidation(),
   );
-  if (runtimeShutdownStarted || generation !== coreEventStreamGeneration) {
-    subscription.close();
-    return;
-  }
-
-  const previous = coreEventSubscription;
-  coreEventSubscription = subscription;
-  coreEventCursor = Math.max(coreEventCursor, after);
-  coreEventReconnectDelayMs = 250;
-  previous?.close();
-  void subscription.done.then(() => {
-    if (
-      runtimeShutdownStarted
-      || generation !== coreEventStreamGeneration
-      || coreEventSubscription !== subscription
-    ) return;
-    coreEventSubscription = null;
-    scheduleCoreEventStreamReconnect();
-  }).catch((error) => {
-    if (
-      runtimeShutdownStarted
-      || generation !== coreEventStreamGeneration
-      || coreEventSubscription !== subscription
-    ) return;
-    coreEventSubscription = null;
-    scheduleCoreEventStreamReconnect(error);
-  });
 }
 
 async function initializeDesktopApp(
@@ -1141,8 +1081,31 @@ async function initializeDesktopApp(
 ): Promise<void> {
   desktopDataAuthorityRuntime = await authority;
   registerDatabaseNotifierBridges();
-  coreEventCursor = desktopDataAuthorityRuntime.rootClient.handshake.event_head;
-  await openCoreEventStream(coreEventCursor);
+  const coreClient = desktopDataAuthorityRuntime.rootClient;
+
+  coreEventSubscription = superviseCoreEventStream({
+    initialAfter: coreClient.handshake.event_head,
+    open: (after, onEvent, onResyncRequired) =>
+      coreClient.openEventStream(
+        after,
+        onEvent,
+        onResyncRequired,
+      ),
+    onEvent: publishCoreModuleEvent,
+    onResyncRequired: (resync) => {
+      publishAuthorityResync(resync.event_head);
+    },
+    onInterrupted: (error) => {
+      if (runtimeShutdownStarted) return;
+      logger.warn("Native Core event stream interrupted; reconnecting", {
+        error: error instanceof Error
+          ? error.message
+          : error === null
+            ? "stream ended"
+            : String(error),
+      });
+    },
+  });
   databaseReady = true;
   await resolvePendingPageDeepLink();
   await resolvePendingSessionDeepLink();
@@ -1163,7 +1126,6 @@ function publishCoreModuleEvent(envelope: CoreEventEnvelope): void {
     envelope,
     desktopDataAuthorityRuntime.rootClient.handshake.library_id,
   );
-  coreEventCursor = Math.max(coreEventCursor, envelope.event.sequence);
 }
 
 function publishCoreModuleEventToNotifiers(
@@ -1237,25 +1199,15 @@ function publishCoreModuleEventToNotifiers(
   }
   const workspaceEvent = mapCoreProjectWorkspaceEvent(envelope);
   if (!workspaceEvent) return;
-  const projectId = workspaceEvent.projectIds.length === 1
-    ? workspaceEvent.projectIds[0]
-    : undefined;
-  if (workspaceEvent.projectCatalogChanged) {
-    dbNotifier.notifyProjectsChanged("update", projectId);
-  }
-  const sessionProjectId = projectId ?? null;
-  if (workspaceEvent.sessionIds.length === 0) {
-    if (workspaceEvent.threadIds.length > 0) {
-      dbNotifier.notifyProjectSessionsChanged(sessionProjectId, "thread");
-    }
-    return;
-  }
-  for (const sessionId of workspaceEvent.sessionIds) {
-    dbNotifier.notifyProjectSessionsChanged(
-      sessionProjectId,
-      "update",
-      sessionId,
+  const notifications = planCoreWorkspaceNotifications(workspaceEvent);
+  if (notifications.project) {
+    dbNotifier.notifyProjectsChanged(
+      notifications.project.changeType,
+      notifications.project.projectId,
     );
+  }
+  if (notifications.sessions) {
+    dbNotifier.notifyProjectSessionInvalidation(notifications.sessions);
   }
 }
 
@@ -1383,11 +1335,6 @@ function collectStartupDeepLinks(context: MainRuntimeStartupContext): string[][]
 function beginMainRuntimeShutdown(): void {
   if (runtimeShutdownStarted) return;
   runtimeShutdownStarted = true;
-  coreEventStreamGeneration += 1;
-  if (coreEventReconnectTimer) {
-    clearTimeout(coreEventReconnectTimer);
-    coreEventReconnectTimer = null;
-  }
   appQuitRequested = true;
   retainRestorableWindowSessions();
   logger.info("Nodex before-quit");

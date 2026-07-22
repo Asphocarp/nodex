@@ -12,7 +12,9 @@ use crate::domain::identity::stable_uuid_v7;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::ProjectWorkspaceApplyOutcome;
-use super::mutation::{WorkspaceMutationEffects, finish_mutation, workspace_event_anchor};
+use super::mutation::{
+    WorkspaceMutationEffects, finish_mutation, project_session_scope, workspace_event_anchor,
+};
 use super::panel_layout::{
     PanelStates, panel_id_sql, parse_panel_id, parse_panels, stringify_panels,
 };
@@ -30,6 +32,13 @@ pub(super) struct SessionAuthority {
     pub(super) pinned: bool,
     pub(super) pinned_order: Option<i64>,
     pub(super) thread_id: Option<String>,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum SessionInvalidationKind {
+    None,
+    Detail,
+    SummaryAndDetail,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -272,6 +281,11 @@ fn patch_view_state(
     {
         return Err(invalid("Project Session view patch is empty"));
     }
+    let invalidation = if fallback_title.is_some() || left_pane_collapsed.is_some() {
+        SessionInvalidationKind::SummaryAndDetail
+    } else {
+        SessionInvalidationKind::Detail
+    };
     for patch in [right_panel, bottom_panel].into_iter().flatten() {
         if !panel_patch_has_value(patch) {
             return Err(invalid("Project Session panel patch is empty"));
@@ -347,6 +361,7 @@ fn patch_view_state(
         session_id,
         authority,
         Vec::new(),
+        invalidation,
         now,
     )
 }
@@ -399,6 +414,7 @@ fn replace_panel_layout(
         session_id,
         authority,
         Vec::new(),
+        SessionInvalidationKind::Detail,
         now,
     )
 }
@@ -451,6 +467,7 @@ fn create_tab(
             session_id,
             authority,
             Vec::new(),
+            SessionInvalidationKind::Detail,
             now,
         );
     }
@@ -549,6 +566,7 @@ fn create_tab(
         session_id,
         authority,
         Vec::new(),
+        SessionInvalidationKind::Detail,
         now,
     )
 }
@@ -598,6 +616,7 @@ fn delete_tab(
         session_id,
         authority,
         Vec::new(),
+        SessionInvalidationKind::Detail,
         now,
     )
 }
@@ -701,6 +720,7 @@ fn move_tab(
         session_id,
         authority,
         Vec::new(),
+        SessionInvalidationKind::Detail,
         now,
     )
 }
@@ -815,6 +835,7 @@ fn update_tab(
         session_id,
         authority,
         Vec::new(),
+        SessionInvalidationKind::Detail,
         now,
     )
 }
@@ -870,6 +891,7 @@ fn replace_tab_state(
         session_id,
         authority,
         Vec::new(),
+        SessionInvalidationKind::Detail,
         now,
     )
 }
@@ -1482,6 +1504,7 @@ fn rename_session(
         session_id,
         authority,
         authority.thread_id.iter().cloned().collect(),
+        SessionInvalidationKind::SummaryAndDetail,
         now,
     )
 }
@@ -1535,6 +1558,7 @@ fn set_session_pinned(
         session_id,
         authority,
         Vec::new(),
+        SessionInvalidationKind::SummaryAndDetail,
         now,
     )
 }
@@ -1570,6 +1594,7 @@ fn set_session_unread(
         session_id,
         authority,
         authority.thread_id.iter().cloned().collect(),
+        SessionInvalidationKind::SummaryAndDetail,
         now,
     )
 }
@@ -1620,6 +1645,7 @@ fn set_session_archived(
         session_id,
         authority,
         Vec::new(),
+        SessionInvalidationKind::SummaryAndDetail,
         now,
     )
 }
@@ -1717,6 +1743,7 @@ fn link_thread(
         operation_id,
         request_hash,
         "link_session_thread",
+        vec![project_session_scope(authority.project_id.as_deref())],
         project_ids.into_iter().collect(),
         session_ids.into_iter().collect(),
         thread_ids.into_iter().collect(),
@@ -1766,6 +1793,7 @@ fn unlink_thread(
         session_id,
         authority,
         vec![thread_id.to_owned()],
+        SessionInvalidationKind::SummaryAndDetail,
         now,
     )
 }
@@ -1782,6 +1810,7 @@ pub(super) fn finish_session_mutation(
     session_id: &str,
     authority: &SessionAuthority,
     thread_ids: Vec<String>,
+    invalidation: SessionInvalidationKind,
     committed_at: String,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
     let project_ids = authority.project_id.iter().cloned().collect::<Vec<_>>();
@@ -1797,11 +1826,23 @@ pub(super) fn finish_session_mutation(
         request_hash,
         WorkspaceMutationEffects {
             operation_kind,
-            project_catalog_changed: false,
+            project_catalog_change: None,
             change_project_id,
             project_ids,
             session_ids: vec![session_id.to_owned()],
             thread_ids,
+            session_summary_scopes: match invalidation {
+                SessionInvalidationKind::None | SessionInvalidationKind::Detail => Vec::new(),
+                SessionInvalidationKind::SummaryAndDetail => {
+                    vec![project_session_scope(authority.project_id.as_deref())]
+                }
+            },
+            session_detail_ids: match invalidation {
+                SessionInvalidationKind::None => Vec::new(),
+                SessionInvalidationKind::Detail | SessionInvalidationKind::SummaryAndDetail => {
+                    vec![session_id.to_owned()]
+                }
+            },
             block_ids: Vec::new(),
             document_ids: Vec::new(),
             database_ids: Vec::new(),

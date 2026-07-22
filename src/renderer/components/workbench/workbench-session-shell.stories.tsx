@@ -31,6 +31,7 @@ import {
 import { WorkbenchShell } from "./workbench-shell";
 
 type ShellStoryArgs = {
+  workspace: "projects" | "projectless-only";
   activeTab: "browser" | "terminal" | "db" | "page" | "cross-project-card" | "missing-card" | "loading-card" | "review" | "empty";
   thread: "empty" | "attached";
   rightPanel: "regular" | "collapsed" | "full";
@@ -55,6 +56,7 @@ const meta = {
     },
   },
   args: {
+    workspace: "projects",
     activeTab: "browser",
     thread: "empty",
     rightPanel: "regular",
@@ -68,6 +70,10 @@ const meta = {
     longNames: false,
   },
   argTypes: {
+    workspace: {
+      control: "inline-radio",
+      options: ["projects", "projectless-only"],
+    },
     activeTab: {
       control: "inline-radio",
       options: ["browser", "terminal", "db", "page", "cross-project-card", "missing-card", "loading-card", "review", "empty"],
@@ -574,28 +580,61 @@ function writeStoryNavigationHistory(
 
 function ProjectSessionShellStory(args: ShellStoryArgs) {
   const initialSessionsByProject = useMemo<Record<string, ProjectSession[]>>(
-    () => ({
-      nodex: [makeSession(args), makeSecondarySession(args)],
-      "codex-readable": [
-        withPanelLayouts({
-          ...makeSession({ ...args, activeTab: "browser", thread: "empty" }),
-          id: "session:codex-database-view",
-          projectId: "codex-readable",
-          noThreadFallbackTitle: "Database View",
-          displayTitle: "Database View",
-          tabs: [
-            makeTab({
-              id: "tab:codex-browser",
-              sessionId: "session:codex-database-view",
-              projectId: "codex-readable",
-              kind: "browser",
-              title: "Browser",
-              config: { projectId: "codex-readable", title: "Browser" },
-            }),
-          ],
-        }, { right: "tab:codex-browser" }),
-      ],
-    }),
+    () => {
+      if (args.workspace === "projectless-only") {
+        const session = (() => {
+        const session = makeSession({
+          ...args,
+          activeTab: "empty",
+          thread: "attached",
+        });
+        const id = "session:projectless:story";
+          return {
+          ...session,
+          id,
+          projectId: null,
+          noThreadFallbackTitle: "Projectless workspace task",
+          displayTitle: "Projectless workspace task",
+          thread: session.thread
+            ? { ...session.thread, sessionId: id, projectId: null }
+            : null,
+          tabs: [],
+          panels: makePanels({
+            rightTabIds: [],
+            rightActiveTabId: null,
+            rightCollapsed: true,
+            rightFullWidth: false,
+            bottomTabIds: [],
+            bottomActiveTabId: null,
+            bottomCollapsed: true,
+          }),
+          };
+        })();
+        return { __projectless__: [session] } as Record<string, ProjectSession[]>;
+      }
+      return {
+        nodex: [makeSession(args), makeSecondarySession(args)],
+        "codex-readable": [
+          withPanelLayouts({
+            ...makeSession({ ...args, activeTab: "browser", thread: "empty" }),
+            id: "session:codex-database-view",
+            projectId: "codex-readable",
+            noThreadFallbackTitle: "Database View",
+            displayTitle: "Database View",
+            tabs: [
+              makeTab({
+                id: "tab:codex-browser",
+                sessionId: "session:codex-database-view",
+                projectId: "codex-readable",
+                kind: "browser",
+                title: "Browser",
+                config: { projectId: "codex-readable", title: "Browser" },
+              }),
+            ],
+          }, { right: "tab:codex-browser" }),
+        ],
+      } as Record<string, ProjectSession[]>;
+    },
     [args],
   );
   const [sessionsByProject, setSessionsByProject] = useState(initialSessionsByProject);
@@ -608,7 +647,10 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
     chats: false,
   });
 
-  writeStoryNavigationHistory(args.navigationHistory, initialSessionsByProject);
+  writeStoryNavigationHistory(
+    args.workspace === "projectless-only" ? "disabled" : args.navigationHistory,
+    initialSessionsByProject,
+  );
 
   installStoryApi(sessionsByProject, setSessionsByProject);
 
@@ -665,15 +707,15 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
     <div className="h-screen">
       <WorkbenchShell
         libraryWorkspaceEnabled={args.libraryWorkspace}
-        key={`${args.thread}:${args.rightPanel}:${args.rightPanelGroups}:${args.bottomPanel}:${args.activeTab}:${args.sidebar}:${args.sidebarReveal}:${args.sidebarWidth}:${args.navigationHistory}:${args.longNames ? "long" : "normal"}`}
-        projects={PROJECTS}
-        dbProjectId="nodex"
+        key={`${args.workspace}:${args.thread}:${args.rightPanel}:${args.rightPanelGroups}:${args.bottomPanel}:${args.activeTab}:${args.sidebar}:${args.sidebarReveal}:${args.sidebarWidth}:${args.navigationHistory}:${args.longNames ? "long" : "normal"}`}
+        projects={args.workspace === "projectless-only" ? [] : PROJECTS}
+        dbProjectId={args.workspace === "projectless-only" ? "" : "nodex"}
         activeView={"kanban" as WorkbenchView}
         activeSearchQuery=""
         activeDbViewPrefs={null}
-        searchByProject={{ nodex: "" }}
+        searchByProject={args.workspace === "projectless-only" ? {} : { nodex: "" }}
         dbViewPrefsByProject={{}}
-        projectRefs={PROJECT_REFS}
+        projectRefs={args.workspace === "projectless-only" ? [] : PROJECT_REFS}
         sidebar={{
           collapsed: sidebarCollapsed,
           width: sidebarWidth,
@@ -696,9 +738,9 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
         onCreateProject={async () => null}
         onUpdateProject={async () => null}
         onDeleteProject={async () => false}
-        onReorderProjects={async () => PROJECTS}
+        onReorderProjects={async () => args.workspace === "projectless-only" ? [] : PROJECTS}
         onSetProjectPinned={async () => null}
-        onSetPinnedProjectOrder={async () => PROJECTS}
+        onSetPinnedProjectOrder={async () => args.workspace === "projectless-only" ? [] : PROJECTS}
         onRequestProjectPickerOpen={() => undefined}
         threadSearchOpenTick={0}
       />
@@ -777,8 +819,9 @@ function installStoryApi(
     configurable: true,
     value: {
       invoke: async (channel: string, ...args: unknown[]) => {
-        if (channel === "project-sessions:list") {
-          return sessionsByProject[String(args[0])] ?? [];
+        if (channel === "project-sessions:list" || channel === "project-sessions:list-summaries") {
+          const scopeKey = args[0] === null ? "__projectless__" : String(args[0]);
+          return sessionsByProject[scopeKey] ?? [];
         }
         if (channel === "board:summary:get") {
           return STORY_BOARD;
@@ -1233,6 +1276,22 @@ export const ExpandedSidebarParity: Story = {
     docs: {
       description: {
         story: "Expanded Codex sidebar parity state with the real app-shell left panel mounted at the 300px default width and enabled Back/Forward chrome in the titlebar.",
+      },
+    },
+  },
+};
+
+export const ProjectlessOnlyWorkspace: Story = {
+  args: {
+    workspace: "projectless-only",
+    thread: "attached",
+    activeTab: "empty",
+    navigationHistory: "disabled",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "The Workbench remains mounted with its global Chats lane when no Projects exist.",
       },
     },
   },

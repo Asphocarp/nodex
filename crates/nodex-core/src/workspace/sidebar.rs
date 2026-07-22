@@ -78,6 +78,7 @@ pub(super) fn set_project_thread_order(
             operation_id,
             request_hash,
             "set_project_thread_order",
+            Vec::new(),
             vec![project_id.to_owned()],
             Vec::new(),
             Vec::new(),
@@ -113,6 +114,7 @@ pub(super) fn set_project_thread_order(
         operation_id,
         request_hash,
         "set_project_thread_order",
+        Vec::new(),
         vec![project_id.to_owned()],
         Vec::new(),
         next,
@@ -187,6 +189,7 @@ pub(super) fn set_projectless_thread_order(
         "set_projectless_thread_order",
         Vec::new(),
         Vec::new(),
+        Vec::new(),
         next,
     )
 }
@@ -252,6 +255,12 @@ pub(super) fn move_thread(
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
+    let mut session_summary_scopes =
+        vec![super::mutation::project_session_scope(source_project_id)];
+    let target_scope = super::mutation::project_session_scope(target_project_id);
+    if !session_summary_scopes.contains(&target_scope) {
+        session_summary_scopes.push(target_scope);
+    }
     finish_thread_mutation(
         connection,
         library_id,
@@ -260,6 +269,7 @@ pub(super) fn move_thread(
         operation_id,
         request_hash,
         "move_thread",
+        session_summary_scopes,
         project_ids,
         vec![owner.session_id],
         vec![thread_id.to_owned()],

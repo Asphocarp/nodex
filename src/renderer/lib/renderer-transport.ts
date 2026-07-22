@@ -135,7 +135,6 @@ export interface RendererTransport {
     ) => void,
   ) => () => void;
   subscribeProjectSessionChanges: (
-    projectId: string | null,
     callback: (
       event: import("../../shared/ipc-api").ProjectSessionsChangeEvent,
     ) => void,

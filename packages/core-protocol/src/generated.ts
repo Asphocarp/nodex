@@ -3623,6 +3623,8 @@ export interface components {
             /** Format: int32 */
             readonly offsetMinutes: number;
         };
+        /** @enum {string} */
+        readonly ProjectCatalogChangeKind: "created" | "metadata_updated" | "sources_updated" | "lifecycle_updated" | "reordered" | "pin_updated";
         readonly ProjectedIdentityV1: {
             readonly id: string;
             readonly name: string;
@@ -3755,6 +3757,17 @@ export interface components {
             readonly kind: "unlink_thread";
             readonly thread_id: string;
         };
+        readonly ProjectSessionInvalidationScope: {
+            /** @enum {string} */
+            readonly kind: "project";
+            readonly project_id: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "projectless";
+        } | {
+            /** @enum {string} */
+            readonly kind: "all";
+        };
         /** @enum {string} */
         readonly ProjectSessionPanelId: "right" | "bottom";
         readonly ProjectSessionPanelSizePatch: {
@@ -3805,9 +3818,11 @@ export interface components {
         };
         readonly ProjectWorkspaceEvent: {
             readonly kind: components["schemas"]["ProjectWorkspaceEventKind"];
-            readonly project_catalog_changed: boolean;
+            readonly project_catalog_change?: null | components["schemas"]["ProjectCatalogChangeKind"];
             readonly project_ids: readonly string[];
+            readonly session_detail_ids: readonly string[];
             readonly session_ids: readonly string[];
+            readonly session_summary_scopes: readonly components["schemas"]["ProjectSessionInvalidationScope"][];
             readonly thread_ids: readonly string[];
         };
         /** @enum {string} */

@@ -809,10 +809,32 @@ pub struct ProjectWorkspaceReceipt {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct ProjectWorkspaceEvent {
     pub kind: ProjectWorkspaceEventKind,
-    pub project_catalog_changed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_catalog_change: Option<ProjectCatalogChangeKind>,
     pub project_ids: Vec<String>,
     pub session_ids: Vec<String>,
     pub thread_ids: Vec<String>,
+    pub session_summary_scopes: Vec<ProjectSessionInvalidationScope>,
+    pub session_detail_ids: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectCatalogChangeKind {
+    Created,
+    MetadataUpdated,
+    SourcesUpdated,
+    LifecycleUpdated,
+    Reordered,
+    PinUpdated,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ProjectSessionInvalidationScope {
+    Project { project_id: String },
+    Projectless,
+    All,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

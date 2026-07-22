@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { browserRendererTransport } from "./browser-renderer-transport";
 
 describe("Database event renderer transport", () => {
-  test("multiplexes one Project SSE across target, Board, Database, sessions, and two windows", () => {
+  test("keeps global Session invalidations separate from multiplexed Project events", () => {
     const originalEventSource = globalThis.EventSource;
     class FakeEventSource {
       static readonly instances: FakeEventSource[] = [];
@@ -76,16 +76,22 @@ describe("Database event renderer transport", () => {
         );
       unsubscribeSessions =
         browserRendererTransport.subscribeProjectSessionChanges(
-          "project-1",
           () => {
             sessionEvents += 1;
           },
         );
-      expect(FakeEventSource.instances.length).toBe(1);
+      expect(FakeEventSource.instances.length).toBe(2);
       FakeEventSource.instances[0]?.onmessage?.({
         data: JSON.stringify({ event: "connected" }),
       } as MessageEvent<string>);
       expect(authorityResyncEvents).toBe(1);
+      const sessionSource = FakeEventSource.instances.find((source) =>
+        String(source.url).includes("/api/project-sessions/events")
+      );
+      sessionSource?.onmessage?.({
+        data: JSON.stringify({ event: "connected" }),
+      } as MessageEvent<string>);
+      expect(sessionEvents).toBe(1);
       const payload = JSON.stringify({
         event: "database-changed",
         version: 2,
@@ -102,7 +108,7 @@ describe("Database event renderer transport", () => {
       expect(firstWindowEvents).toBe(1);
       expect(secondWindowEvents).toBe(1);
       expect(boardEvents).toBe(0);
-      expect(sessionEvents).toBe(0);
+      expect(sessionEvents).toBe(1);
       expect(pageTargetEvents).toBe(0);
       expect(ownershipPathEvents).toBe(0);
 
@@ -135,11 +141,19 @@ describe("Database event renderer transport", () => {
           changeKind: "location",
         }),
       } as MessageEvent<string>);
-      FakeEventSource.instances[0]?.onmessage?.({
-        data: JSON.stringify({ event: "project-sessions-changed" }),
+      sessionSource?.onmessage?.({
+        data: JSON.stringify({
+          event: "project-sessions-changed",
+          summaryScopes: [{ kind: "projectless" }],
+          detailInvalidation: {
+            kind: "sessions",
+            sessionIds: ["session-1"],
+          },
+          changeType: "update",
+        }),
       } as MessageEvent<string>);
       expect(boardEvents).toBe(1);
-      expect(sessionEvents).toBe(1);
+      expect(sessionEvents).toBe(2);
       expect(pageTargetEvents).toBe(1);
       expect(ownershipPathEvents).toBe(1);
 

@@ -2699,18 +2699,42 @@ function subscribeBrowserLibraryAuthorityResync(
 }
 
 function subscribeProjectSessionChanges(
-  projectId: string | null,
   callback: (event: ProjectSessionsChangeEvent) => void,
 ): () => void {
-  if (projectId === null) {
-    void callback;
+  if (typeof EventSource === "undefined") {
     return () => {};
   }
-  return subscribeBrowserProjectEvent(
-    projectId,
-    "project-sessions-changed",
-    () => callback({ projectId, changeType: "update" }),
-  );
+  const eventSource = new EventSource(toApiUrl("/api/project-sessions/events"));
+  eventSource.onmessage = (message) => {
+    try {
+      const data = JSON.parse(message.data) as ProjectSessionsChangeEvent & {
+        event?: string;
+      };
+      if (data.event === "connected") {
+        callback({
+          summaryScopes: [{ kind: "all" }],
+          detailInvalidation: { kind: "all" },
+          changeType: "update",
+        });
+        return;
+      }
+      if (data.event !== "project-sessions-changed") return;
+      if (!Array.isArray(data.summaryScopes)) return;
+      if (!data.detailInvalidation || typeof data.detailInvalidation !== "object") return;
+      if (
+        data.detailInvalidation.kind === "sessions"
+        && !Array.isArray(data.detailInvalidation.sessionIds)
+      ) return;
+      if (
+        data.detailInvalidation.kind !== "sessions"
+        && data.detailInvalidation.kind !== "all"
+      ) return;
+      callback(data);
+    } catch {
+      // A malformed invalidation is healed by a later event or explicit refresh.
+    }
+  };
+  return () => eventSource.close();
 }
 
 function subscribeProjectChanges(

@@ -11,7 +11,6 @@ export interface ProjectSessionRenameServiceDeps {
     input: ProjectSessionRenameInput,
   ) => ProjectSession | null | Promise<ProjectSession | null>;
   setThreadName: (threadId: string, rawTitle: string) => Promise<boolean>;
-  notifyProjectSessionsChanged: (projectId: string | null, changeType: "update", sessionId: string) => void;
 }
 
 export async function renameProjectSessionChat(
@@ -36,11 +35,7 @@ export async function renameProjectSessionChat(
     }) ?? existing;
   }
 
-  const updated = await deps.renameProjectSession(sessionId, {
+  return await deps.renameProjectSession(sessionId, {
     title: normalizedTitle,
   });
-  if (updated) {
-    deps.notifyProjectSessionsChanged(updated.projectId, "update", updated.id);
-  }
-  return updated;
 }

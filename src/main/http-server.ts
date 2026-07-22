@@ -991,7 +991,6 @@ app.post("/api/projects/:projectId/sessions", async (c) => {
       ...body,
       projectId,
     });
-    dbNotifier.notifyProjectSessionsChanged(session.projectId, "create", session.id);
     return c.json(session, 201);
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -1009,7 +1008,6 @@ app.put("/api/project-sessions/:sessionId", async (c) => {
       body,
     );
     if (!session) return c.json({ error: "Not found" }, 404);
-    dbNotifier.notifyProjectSessionsChanged(session.projectId, "update", session.id);
     return c.json(session);
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -1023,9 +1021,6 @@ app.put("/api/project-sessions/:sessionId/rename", async (c) => {
       getProjectSession: projectWorkspaceAuthority().getProjectSession,
       renameProjectSession: projectWorkspaceAuthority().renameProjectSession,
       setThreadName: (threadId, rawTitle) => codexService.setThreadName(threadId, rawTitle),
-      notifyProjectSessionsChanged: (projectId, changeType, sessionId) => {
-        dbNotifier.notifyProjectSessionsChanged(projectId, changeType, sessionId);
-      },
     });
     if (!session) return c.json({ error: "Not found" }, 404);
     return c.json(session);
@@ -1042,7 +1037,6 @@ app.put("/api/project-sessions/:sessionId/pinned", async (c) => {
       body,
     );
     if (!session) return c.json({ error: "Not found" }, 404);
-    dbNotifier.notifyProjectSessionsChanged(session.projectId, "pin", session.id);
     return c.json(session);
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -1055,10 +1049,6 @@ app.put("/api/projects/:projectId/sessions/pinned-order", async (c) => {
   try {
     const sessions = await projectWorkspaceAuthority()
       .setPinnedProjectSessionOrder(projectId, body);
-    const canonicalProjectId = sessions[0]?.projectId
-      ?? (await projectWorkspaceAuthority().getProject(projectId))?.id
-      ?? projectId;
-    dbNotifier.notifyProjectSessionsChanged(canonicalProjectId, "pin");
     return c.json({ sessions });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -1070,14 +1060,14 @@ app.put("/api/project-sessions/:sessionId/archive", async (c) => {
   try {
     const existing = await projectWorkspaceAuthority().getProjectSession(sessionId);
     if (!existing) return c.json({ error: "Not found" }, 404);
+    let session;
     if (existing.thread) {
       await codexService.archiveThread(existing.thread.threadId);
+      session = await projectWorkspaceAuthority().getProjectSession(sessionId);
+    } else {
+      session = await projectWorkspaceAuthority().archiveProjectSession(sessionId);
     }
-    const session = await projectWorkspaceAuthority().archiveProjectSession(
-      sessionId,
-    );
     if (!session) return c.json({ error: "Not found" }, 404);
-    dbNotifier.notifyProjectSessionsChanged(session.projectId, "archive", session.id);
     return c.json(session);
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -1089,14 +1079,14 @@ app.put("/api/project-sessions/:sessionId/unarchive", async (c) => {
   try {
     const existing = await projectWorkspaceAuthority().getProjectSession(sessionId);
     if (!existing) return c.json({ error: "Not found" }, 404);
+    let session;
     if (existing.thread) {
       await codexService.unarchiveThread(existing.thread.threadId);
+      session = await projectWorkspaceAuthority().getProjectSession(sessionId);
+    } else {
+      session = await projectWorkspaceAuthority().unarchiveProjectSession(sessionId);
     }
-    const session = await projectWorkspaceAuthority().unarchiveProjectSession(
-      sessionId,
-    );
     if (!session) return c.json({ error: "Not found" }, 404);
-    dbNotifier.notifyProjectSessionsChanged(session.projectId, "unarchive", session.id);
     return c.json(session);
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -1156,7 +1146,6 @@ app.put("/api/project-sessions/:sessionId/unread", async (c) => {
       body,
     );
     if (!session) return c.json({ error: "Not found" }, 404);
-    dbNotifier.notifyProjectSessionsChanged(session.projectId, "unread", session.id);
     return c.json(session);
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -1167,9 +1156,6 @@ app.post("/api/project-sessions/:sessionId/fork", async (c) => {
   const body = await c.req.json();
   try {
     const result = await codexService.forkProjectSessionThread(c.req.param("sessionId"), body);
-    if ("session" in result) {
-      dbNotifier.notifyProjectSessionsChanged(result.session.projectId, "create", result.session.id);
-    }
     return c.json(result, 201);
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -1303,7 +1289,6 @@ app.delete("/api/project-sessions/:sessionId", async (c) => {
   try {
     const sessionId = c.req.param("sessionId");
     const workspace = projectWorkspaceAuthority();
-    const existing = await workspace.getProjectSession(sessionId);
     const success = await deleteProjectSessionWithBrowserCleanupUsing({
       sessionId,
       browserRuntime: httpServerDependencies.browserRuntime,
@@ -1311,9 +1296,6 @@ app.delete("/api/project-sessions/:sessionId", async (c) => {
       deleteProjectSession: workspace.deleteProjectSession,
     });
     if (!success) return c.json({ error: "Not found" }, 404);
-    if (existing) {
-      dbNotifier.notifyProjectSessionsChanged(existing.projectId, "delete", sessionId);
-    }
     return c.json({ success: true });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -1329,10 +1311,6 @@ app.put("/api/projects/:projectId/sessions/reorder", async (c) => {
       projectId,
       orderedSessionIds.filter((item: unknown): item is string => typeof item === "string"),
     );
-    const canonicalProjectId = sessions[0]?.projectId
-      ?? (await projectWorkspaceAuthority().getProject(projectId))?.id
-      ?? projectId;
-    dbNotifier.notifyProjectSessionsChanged(canonicalProjectId, "reorder");
     return c.json({ sessions });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -1468,7 +1446,6 @@ app.put("/api/project-sessions/:sessionId/thread", async (c) => {
   try {
     const thread = await projectWorkspaceAuthority()
       .upsertProjectSessionThreadLink({ ...body, sessionId });
-    dbNotifier.notifyProjectSessionsChanged(thread.projectId, "link", sessionId);
     return c.json(thread);
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -1477,12 +1454,8 @@ app.put("/api/project-sessions/:sessionId/thread", async (c) => {
 
 app.delete("/api/project-sessions/:sessionId/thread", async (c) => {
   const sessionId = c.req.param("sessionId");
-  const existing = await projectWorkspaceAuthority().getProjectSession(sessionId);
   const success = await projectWorkspaceAuthority()
     .detachProjectSessionThread(sessionId);
-  if (success && existing) {
-    dbNotifier.notifyProjectSessionsChanged(existing.projectId, "link", sessionId);
-  }
   return c.json({ success });
 });
 
@@ -1925,11 +1898,6 @@ app.get("/api/projects/:projectId/events", async (c) => {
           changeKind: event.changeKind,
         }));
       };
-      const sessionHandler = (event: { projectId: string }) => {
-        if (event.projectId === projectId) {
-          send(JSON.stringify({ event: "project-sessions-changed" }));
-        }
-      };
       const databaseHandler = (event: { projectId: string }) => {
         if (event.projectId === projectId) {
           send(JSON.stringify({ event: "database-changed", ...event }));
@@ -1941,7 +1909,6 @@ app.get("/api/projects/:projectId/events", async (c) => {
       dbNotifier.on("authority-resync", authorityResyncHandler);
       dbNotifier.on("page-ownership-paths-changed", pageOwnershipPathsHandler);
       dbNotifier.on("database-changed", databaseHandler);
-      dbNotifier.on("project-sessions-changed", sessionHandler);
 
       // Keep-alive ping
       const pingInterval = setInterval(() => {
@@ -1959,12 +1926,45 @@ app.get("/api/projects/:projectId/events", async (c) => {
         dbNotifier.removeListener("authority-resync", authorityResyncHandler);
         dbNotifier.removeListener("page-ownership-paths-changed", pageOwnershipPathsHandler);
         dbNotifier.removeListener("database-changed", databaseHandler);
-        dbNotifier.removeListener("project-sessions-changed", sessionHandler);
         clearInterval(pingInterval);
       });
     },
   });
 
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
+});
+
+app.get("/api/project-sessions/events", (c) => {
+  const stream = new ReadableStream({
+    start(controller) {
+      const encoder = new TextEncoder();
+      const send = (data: string) => {
+        controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+      };
+      send(JSON.stringify({ event: "connected" }));
+      const handler = (event: import("../shared/ipc-api").ProjectSessionsChangeEvent) => {
+        send(JSON.stringify({ event: "project-sessions-changed", ...event }));
+      };
+      dbNotifier.on("project-sessions-changed", handler);
+      const pingInterval = setInterval(() => {
+        try {
+          send(JSON.stringify({ event: "ping" }));
+        } catch {
+          clearInterval(pingInterval);
+        }
+      }, SSE_PING_INTERVAL_MS);
+      c.req.raw.signal.addEventListener("abort", () => {
+        dbNotifier.removeListener("project-sessions-changed", handler);
+        clearInterval(pingInterval);
+      });
+    },
+  });
   return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream",

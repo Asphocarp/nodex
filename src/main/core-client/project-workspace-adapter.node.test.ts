@@ -101,18 +101,28 @@ describe("Core Project Workspace adapter", () => {
           module: "project_workspace",
           event: {
             kind: "workspace_changed",
-            project_catalog_changed: false,
+            project_catalog_change: "sources_updated",
             project_ids: ["project:one"],
             session_ids: ["session:one"],
             thread_ids: ["thread:one"],
+            session_summary_scopes: [
+              { kind: "project", project_id: "project:one" },
+              { kind: "projectless" },
+            ],
+            session_detail_ids: ["session:one"],
           },
         },
       },
     })).toEqual({
-      projectCatalogChanged: false,
+      projectCatalogChange: "sources_updated",
       projectIds: ["project:one"],
       sessionIds: ["session:one"],
       threadIds: ["thread:one"],
+      sessionSummaryScopes: [
+        { kind: "project", projectId: "project:one" },
+        { kind: "projectless" },
+      ],
+      sessionDetailIds: ["session:one"],
     });
   });
 

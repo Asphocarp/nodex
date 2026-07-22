@@ -452,15 +452,32 @@ export type ProjectSessionChangeType =
   | "link"
   | "thread";
 
+export type ProjectSessionInvalidationScope =
+  | { readonly kind: "project"; readonly projectId: string }
+  | { readonly kind: "projectless" }
+  | { readonly kind: "all" };
+
+export type ProjectSessionDetailInvalidation =
+  | { readonly kind: "sessions"; readonly sessionIds: readonly string[] }
+  | { readonly kind: "all" };
+
 export interface ProjectSessionsChangeEvent {
-  projectId: string | null;
-  changeType: ProjectSessionChangeType;
-  sessionId?: string;
+  readonly summaryScopes: readonly ProjectSessionInvalidationScope[];
+  readonly detailInvalidation: ProjectSessionDetailInvalidation;
+  readonly changeType: ProjectSessionChangeType;
 }
 
 export interface ProjectsChangeEvent {
   projectId?: string;
-  changeType: "create" | "update" | "delete" | "reorder" | "pin";
+  changeType:
+    | "create"
+    | "update"
+    | "metadata"
+    | "sources"
+    | "lifecycle"
+    | "delete"
+    | "reorder"
+    | "pin";
 }
 
 export type PersistedAtomState = Record<string, unknown>;

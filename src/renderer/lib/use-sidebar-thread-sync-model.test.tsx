@@ -12,11 +12,11 @@ import { useSidebarThreadSyncModel } from "./use-sidebar-thread-sync-model";
 import { installWindowApi } from "../test/browser-globals";
 import { render } from "../test/dom";
 import { createTestQueryClient, TestQueryProvider } from "../test/query";
+import { queryKeys } from "./query-keys";
 
 let invokeCalls: unknown[][] = [];
 let hostMessageListener: ((message: CodexHostMessage) => void) | null = null;
 let projectSessionListeners: Array<{
-  projectId: string | null;
   listener: (event: ProjectSessionsChangeEvent) => void;
 }> = [];
 let syncResult: CodexSidebarSyncResult;
@@ -75,7 +75,6 @@ type SidebarThreadSyncActions = Pick<
 
 function Harness(props: {
   projects: Project[];
-  onSessionsAffected: (result: CodexSidebarSyncResult) => void;
   onSnapshot: (snapshot: CodexSidebarSnapshot) => void;
   onActions?: (actions: SidebarThreadSyncActions) => void;
   onReorderPinned?: (
@@ -85,13 +84,11 @@ function Harness(props: {
   const {
     onActions,
     onReorderPinned,
-    onSessionsAffected,
     onSnapshot,
     projects,
   } = props;
   const state = useSidebarThreadSyncModel({
     projects,
-    onSessionsAffected,
   });
   useEffect(() => {
     onSnapshot(state.snapshot);
@@ -132,7 +129,6 @@ describe("useSidebarThreadSyncModel", () => {
         if (channel === "project-sessions-changed") {
           const sessionListener = (event: ProjectSessionsChangeEvent) => listener(event);
           projectSessionListeners.push({
-            projectId: "__all__",
             listener: sessionListener,
           });
           return () => {
@@ -154,14 +150,12 @@ describe("useSidebarThreadSyncModel", () => {
 
   test("applies sidebarSyncUpdated host messages without scheduling another sync", async () => {
     syncResult = makeSyncResult();
-    const affectedResults: CodexSidebarSyncResult[] = [];
     const snapshots: CodexSidebarSnapshot[] = [];
     render(
       createElement(TestQueryProvider, {
         client: createTestQueryClient(),
         children: createElement(Harness, {
           projects: [makeProject("alpha"), makeProject("beta")],
-          onSessionsAffected: (result) => affectedResults.push(result),
           onSnapshot: (snapshot) => snapshots.push(snapshot),
         }),
       }),
@@ -174,7 +168,6 @@ describe("useSidebarThreadSyncModel", () => {
       (call[1] as { policy?: string } | undefined)?.policy === "force" &&
       (call[1] as { reason?: string } | undefined)?.reason === "mount"
     )).toBe(false);
-    affectedResults.length = 0;
     snapshots.length = 0;
     const callsBeforeMessage = invokeCalls.length;
     const broadcastResult = makeSyncResult({
@@ -198,7 +191,6 @@ describe("useSidebarThreadSyncModel", () => {
     });
 
     expect(invokeCalls.length).toBe(callsBeforeMessage);
-    expect(affectedResults[affectedResults.length - 1]?.changedProjectIds.includes("beta")).toBe(true);
     await waitFor(() => {
       if (snapshots[snapshots.length - 1]?.projectAssignments.thr_beta !== "beta") {
         throw new Error("missing beta snapshot");
@@ -215,7 +207,6 @@ describe("useSidebarThreadSyncModel", () => {
         client: createTestQueryClient(),
         children: createElement(Harness, {
           projects: [makeProject("alpha")],
-          onSessionsAffected: () => undefined,
           onSnapshot: () => undefined,
           onReorderPinned: (reorder) => {
             reorderPinned = reorder;
@@ -245,7 +236,6 @@ describe("useSidebarThreadSyncModel", () => {
         client: createTestQueryClient(),
         children: createElement(Harness, {
           projects: [makeProject("alpha")],
-          onSessionsAffected: () => undefined,
           onSnapshot: (snapshot) => snapshots.push(snapshot),
           onActions: (actions) => actionSnapshots.push(actions),
         }),
@@ -283,53 +273,53 @@ describe("useSidebarThreadSyncModel", () => {
     expect(updatedActions?.setPinned).toBe(initialActions?.setPinned);
   });
 
-  test("routes project session changes to affected scopes without sidebar sync", async () => {
+  test("invalidates all explicit Session scopes through one global subscription", async () => {
     syncResult = makeSyncResult();
-    const affectedResults: CodexSidebarSyncResult[] = [];
+    const queryClient = createTestQueryClient();
+    queryClient.setQueryData(queryKeys.projectSessions.summaries("beta"), []);
+    queryClient.setQueryData(queryKeys.projectSessions.summaries(null), []);
+    queryClient.setQueryData(queryKeys.projectSessions.detail("session-beta"), {});
     render(
       createElement(TestQueryProvider, {
-        client: createTestQueryClient(),
+        client: queryClient,
         children: createElement(Harness, {
           projects: [makeProject("alpha"), makeProject("beta")],
-          onSessionsAffected: (result) => affectedResults.push(result),
           onSnapshot: () => undefined,
         }),
       }),
     );
     await waitFor(() => {
-      if (projectSessionListeners.length < 3) {
+      if (projectSessionListeners.length !== 1) {
         throw new Error("missing project session listeners");
       }
     });
-    affectedResults.length = 0;
-    const callsBeforeProjectEvent = invokeCalls.length;
+    const callsBeforeEvent = invokeCalls.length;
 
     await act(async () => {
-      for (const entry of projectSessionListeners) {
-        entry.listener({ projectId: "beta", changeType: "update" });
-      }
+      projectSessionListeners[0]?.listener({
+        summaryScopes: [
+          { kind: "project", projectId: "beta" },
+          { kind: "projectless" },
+        ],
+        detailInvalidation: {
+          kind: "sessions",
+          sessionIds: ["session-beta"],
+        },
+        changeType: "update",
+      });
       await Promise.resolve();
     });
     await waitFor(() => {
-      if (!affectedResults.some((result) => result.changedProjectIds.includes("beta"))) {
-        throw new Error("missing beta affected result");
-      }
+      expect(queryClient.getQueryState(
+        queryKeys.projectSessions.summaries("beta"),
+      )?.isInvalidated).toBe(true);
+      expect(queryClient.getQueryState(
+        queryKeys.projectSessions.summaries(null),
+      )?.isInvalidated).toBe(true);
+      expect(queryClient.getQueryState(
+        queryKeys.projectSessions.detail("session-beta"),
+      )?.isInvalidated).toBe(true);
     });
-    expect(invokeCalls.length).toBe(callsBeforeProjectEvent);
-
-    affectedResults.length = 0;
-    const callsBeforeProjectlessEvent = invokeCalls.length;
-    await act(async () => {
-      for (const entry of projectSessionListeners) {
-        entry.listener({ projectId: null, changeType: "update" });
-      }
-      await Promise.resolve();
-    });
-    await waitFor(() => {
-      if (!affectedResults.some((result) => result.projectlessChanged)) {
-        throw new Error("missing projectless affected result");
-      }
-    });
-    expect(invokeCalls.length).toBe(callsBeforeProjectlessEvent);
+    expect(invokeCalls.length).toBe(callsBeforeEvent);
   });
 });

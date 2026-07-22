@@ -13,7 +13,9 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::ProjectWorkspaceApplyOutcome;
 use super::execution::read_writable_roots;
-use super::mutation::{WorkspaceMutationEffects, finish_mutation, workspace_event_anchor};
+use super::mutation::{
+    WorkspaceMutationEffects, finish_mutation, project_session_scope, workspace_event_anchor,
+};
 use super::session_mutation::sqlite_now;
 
 const MAX_ID_BYTES: usize = 512;
@@ -204,6 +206,7 @@ pub(super) fn upsert_thread(
         operation_id,
         request_hash,
         "upsert_thread",
+        Vec::new(),
         effects.project_ids,
         effects.session_ids,
         vec![thread_id.to_owned()],
@@ -231,6 +234,7 @@ pub(super) fn update_thread(
         operation_id,
         request_hash,
         "update_thread",
+        Vec::new(),
         effects.project_ids,
         effects.session_ids,
         vec![thread_id.to_owned()],
@@ -553,7 +557,8 @@ pub(super) fn delete_thread(
         "DELETE FROM codex_threads WHERE thread_id = ?1",
         [thread_id],
     )?;
-    let project_ids = thread.project_id.into_iter().collect();
+    let project_ids = thread.project_id.into_iter().collect::<Vec<_>>();
+    let summary_scopes = project_session_scopes(&project_ids, &session_ids);
     finish_thread_mutation(
         connection,
         library_id,
@@ -562,6 +567,7 @@ pub(super) fn delete_thread(
         operation_id,
         request_hash,
         "delete_thread",
+        summary_scopes,
         project_ids,
         session_ids,
         vec![thread_id.to_owned()],
@@ -606,6 +612,11 @@ pub(super) fn set_thread_archived(
         )?;
     }
     sync_linked_sessions_archived(connection, &session_ids, archived, &now)?;
+    let summary_scopes = if session_ids.is_empty() {
+        Vec::new()
+    } else {
+        vec![project_session_scope(thread.project_id.as_deref())]
+    };
     finish_thread_mutation(
         connection,
         library_id,
@@ -618,6 +629,7 @@ pub(super) fn set_thread_archived(
         } else {
             "restore_thread"
         },
+        summary_scopes,
         thread.project_id.into_iter().collect(),
         session_ids,
         vec![thread_id.to_owned()],
@@ -712,6 +724,11 @@ pub(super) fn set_thread_pinned(
         pinned,
         &now,
     )?;
+    let summary_scopes = if session_ids.is_empty() {
+        Vec::new()
+    } else {
+        vec![project_session_scope(thread.project_id.as_deref())]
+    };
     finish_thread_mutation(
         connection,
         library_id,
@@ -720,6 +737,7 @@ pub(super) fn set_thread_pinned(
         operation_id,
         request_hash,
         "set_thread_pinned",
+        summary_scopes,
         thread.project_id.into_iter().collect(),
         session_ids,
         vec![thread_id.to_owned()],
@@ -871,6 +889,7 @@ pub(super) fn reorder_pinned_threads(
         operation_id,
         request_hash,
         "reorder_pinned_threads",
+        Vec::new(),
         project_ids,
         Vec::new(),
         ordered,
@@ -922,6 +941,11 @@ pub(super) fn set_thread_unread(
             ));
         }
     }
+    let summary_scopes = if session_ids.is_empty() {
+        Vec::new()
+    } else {
+        vec![project_session_scope(thread.project_id.as_deref())]
+    };
     finish_thread_mutation(
         connection,
         library_id,
@@ -930,6 +954,7 @@ pub(super) fn set_thread_unread(
         operation_id,
         request_hash,
         "set_thread_unread",
+        summary_scopes,
         thread.project_id.into_iter().collect(),
         session_ids,
         vec![thread_id.to_owned()],
@@ -974,6 +999,7 @@ pub(super) fn replace_dynamic_tool_catalogs(
         operation_id,
         request_hash,
         "replace_thread_dynamic_tool_catalogs",
+        Vec::new(),
         thread.project_id.into_iter().collect(),
         Vec::new(),
         vec![thread_id.to_owned()],
@@ -1009,6 +1035,7 @@ pub(super) fn set_project_permission_mode(
         operation_id,
         request_hash,
         "set_project_permission_mode",
+        Vec::new(),
         vec![project_id.to_owned()],
         Vec::new(),
         Vec::new(),
@@ -1640,6 +1667,22 @@ fn affected_projects(previous: Option<&str>, next: Option<&str>) -> Vec<String> 
         .collect()
 }
 
+fn project_session_scopes(
+    project_ids: &[String],
+    session_ids: &[String],
+) -> Vec<nodex_core_contracts::workspace::ProjectSessionInvalidationScope> {
+    if session_ids.is_empty() {
+        return Vec::new();
+    }
+    if project_ids.is_empty() {
+        return vec![project_session_scope(None)];
+    }
+    project_ids
+        .iter()
+        .map(|project_id| project_session_scope(Some(project_id)))
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn finish_thread_mutation(
     connection: &Connection,
@@ -1649,10 +1692,16 @@ pub(super) fn finish_thread_mutation(
     operation_id: &str,
     request_hash: &str,
     operation_kind: &'static str,
+    session_summary_scopes: Vec<nodex_core_contracts::workspace::ProjectSessionInvalidationScope>,
     project_ids: Vec<String>,
     session_ids: Vec<String>,
     thread_ids: Vec<String>,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    let session_detail_ids = if session_summary_scopes.is_empty() {
+        Vec::new()
+    } else {
+        session_ids.clone()
+    };
     let change_project_id = project_ids
         .first()
         .cloned()
@@ -1665,11 +1714,13 @@ pub(super) fn finish_thread_mutation(
         request_hash,
         WorkspaceMutationEffects {
             operation_kind,
-            project_catalog_changed: false,
+            project_catalog_change: None,
             change_project_id,
             project_ids,
+            session_detail_ids,
             session_ids,
             thread_ids,
+            session_summary_scopes,
             block_ids: Vec::new(),
             document_ids: Vec::new(),
             database_ids: Vec::new(),

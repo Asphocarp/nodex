@@ -93,7 +93,6 @@ import {
   WorkspaceFileRequestSchema,
   WorkspaceFileWriteInputSchema,
 } from "../shared/schemas/workspace-files";
-import { dbNotifier } from "./local-store/notifier";
 import { renameProjectSessionChat } from "./project-session-rename-service";
 import { captureMainException } from "./observability/sentry-main";
 import { getLogger } from "./logging/logger";
@@ -884,18 +883,7 @@ export function registerIpcHandlers(
   );
   registerHandle("codex:fork-side-panel-transfer:consume", async (_, input) => {
     const consumed = await codexService.consumeForkSidePanelTransfer(input);
-    if (!consumed) return false;
-    const session = await projectWorkspace.getProjectSession(
-      input.targetProjectSessionId,
-    );
-    if (session) {
-      dbNotifier.notifyProjectSessionsChanged(
-        session.projectId,
-        "update",
-        session.id,
-      );
-    }
-    return true;
+    return consumed;
   });
 
   registerHandle("diagnostics:renderer-log", (_, input) => {
@@ -1606,31 +1594,15 @@ export function registerIpcHandlers(
     return session;
   });
 
-  registerHandle("project-sessions:create", async (_, input) => {
-    const session = await projectWorkspace.createProjectSession(input);
-    dbNotifier.notifyProjectSessionsChanged(
-      session.projectId,
-      "create",
-      session.id,
-    );
-    return session;
-  });
+  registerHandle("project-sessions:create", async (_, input) =>
+    await projectWorkspace.createProjectSession(input)
+  );
 
   registerHandle("project-sessions:update", async (_, sessionId: string, input) => {
-    const existing = await projectWorkspace.getProjectSession(sessionId);
-    if (!existing) return null;
-    const session = await projectWorkspace.updateProjectSession(
+    return await projectWorkspace.updateProjectSession(
       sessionId,
       input,
     );
-    if (session) {
-      dbNotifier.notifyProjectSessionsChanged(
-        session.projectId,
-        "update",
-        session.id,
-      );
-    }
-    return session;
   });
 
   registerHandle("project-sessions:rename", (_, sessionId: string, input) =>
@@ -1639,74 +1611,43 @@ export function registerIpcHandlers(
       renameProjectSession: projectWorkspace.renameProjectSession,
       setThreadName: (threadId, rawTitle) =>
         codexService.setThreadName(threadId, rawTitle),
-      notifyProjectSessionsChanged: (projectId, changeType, sessionId) => {
-        dbNotifier.notifyProjectSessionsChanged(
-          projectId,
-          changeType,
-          sessionId,
-        );
-      },
     }),
   );
 
   registerHandle("project-sessions:delete", async (_, sessionId: string) => {
-    const existing = await projectWorkspace.getProjectSession(sessionId);
-    const success = await deleteProjectSessionWithBrowserCleanupUsing({
+    return await deleteProjectSessionWithBrowserCleanupUsing({
       sessionId,
       browserRuntime: browserSidebarService,
       getProjectSession: projectWorkspace.getProjectSession,
       deleteProjectSession: projectWorkspace.deleteProjectSession,
     });
-    if (success && existing) {
-      dbNotifier.notifyProjectSessionsChanged(
-        existing.projectId,
-        "delete",
-        sessionId,
-      );
-    }
-    return success;
   });
 
   registerHandle(
     "project-sessions:reorder",
-    async (_, projectId: string, orderedSessionIds: string[]) => {
-      const sessions = await projectWorkspace.reorderProjectSessions(
+    async (_, projectId: string, orderedSessionIds: string[]) =>
+      await projectWorkspace.reorderProjectSessions(
         projectId,
         orderedSessionIds,
-      );
-      dbNotifier.notifyProjectSessionsChanged(projectId, "reorder");
-      return sessions;
-    },
+      ),
   );
 
   registerHandle(
     "project-sessions:set-pinned",
-    async (_, sessionId: string, input) => {
-      const session = await projectWorkspace.setProjectSessionPinned(
+    async (_, sessionId: string, input) =>
+      await projectWorkspace.setProjectSessionPinned(
         sessionId,
         input,
-      );
-      if (session) {
-        dbNotifier.notifyProjectSessionsChanged(
-          session.projectId,
-          "pin",
-          session.id,
-        );
-      }
-      return session;
-    },
+      ),
   );
 
   registerHandle(
     "project-sessions:set-pinned-order",
-    async (_, projectId: string, input) => {
-      const sessions = await projectWorkspace.setPinnedProjectSessionOrder(
+    async (_, projectId: string, input) =>
+      await projectWorkspace.setPinnedProjectSessionOrder(
         projectId,
         input,
-      );
-      dbNotifier.notifyProjectSessionsChanged(projectId, "pin");
-      return sessions;
-    },
+      ),
   );
 
   registerHandle("project-sessions:archive", async (_, sessionId: string) => {
@@ -1714,16 +1655,9 @@ export function registerIpcHandlers(
     if (!existing) return null;
     if (existing.thread) {
       await codexService.archiveThread(existing.thread.threadId);
+      return await projectWorkspace.getProjectSession(sessionId);
     }
-    const session = await projectWorkspace.archiveProjectSession(sessionId);
-    if (session) {
-      dbNotifier.notifyProjectSessionsChanged(
-        session.projectId,
-        "archive",
-        session.id,
-      );
-    }
-    return session;
+    return await projectWorkspace.archiveProjectSession(sessionId);
   });
 
   registerHandle("project-sessions:unarchive", async (_, sessionId: string) => {
@@ -1731,52 +1665,27 @@ export function registerIpcHandlers(
     if (!existing) return null;
     if (existing.thread) {
       await codexService.unarchiveThread(existing.thread.threadId);
+      return await projectWorkspace.getProjectSession(sessionId);
     }
-    const session = await projectWorkspace.unarchiveProjectSession(sessionId);
-    if (session) {
-      dbNotifier.notifyProjectSessionsChanged(
-        session.projectId,
-        "unarchive",
-        session.id,
-      );
-    }
-    return session;
+    return await projectWorkspace.unarchiveProjectSession(sessionId);
   });
 
   registerHandle(
     "project-sessions:mark-unread",
-    async (_, sessionId: string, input) => {
-      const session = await projectWorkspace.markProjectSessionUnread(
+    async (_, sessionId: string, input) =>
+      await projectWorkspace.markProjectSessionUnread(
         sessionId,
         input,
-      );
-      if (session) {
-        dbNotifier.notifyProjectSessionsChanged(
-          session.projectId,
-          "unread",
-          session.id,
-        );
-      }
-      return session;
-    },
+      ),
   );
 
   registerHandle(
     "project-sessions:fork",
-    async (_, sessionId: string, input) => {
-      const result = await codexService.forkProjectSessionThread(
+    async (_, sessionId: string, input) =>
+      await codexService.forkProjectSessionThread(
         sessionId,
         input,
-      );
-      if ("session" in result) {
-        dbNotifier.notifyProjectSessionsChanged(
-          result.session.projectId,
-          "create",
-          result.session.id,
-        );
-      }
-      return result;
-    },
+      ),
   );
 
   registerHandle("project-session-tabs:create", async (_, input) =>
@@ -1849,28 +1758,13 @@ export function registerIpcHandlers(
     await projectWorkspace.moveProjectSessionTab(input),
   );
 
-  registerHandle("project-session-threads:attach", async (_, input) => {
-    const link = await projectWorkspace.upsertProjectSessionThreadLink(input);
-    dbNotifier.notifyProjectSessionsChanged(
-      link.projectId,
-      "link",
-      link.sessionId,
-    );
-    return link;
-  });
+  registerHandle("project-session-threads:attach", async (_, input) =>
+    await projectWorkspace.upsertProjectSessionThreadLink(input)
+  );
 
-  registerHandle("project-session-threads:detach", async (_, sessionId: string) => {
-    const existing = await projectWorkspace.getProjectSession(sessionId);
-    const success = await projectWorkspace.detachProjectSessionThread(sessionId);
-    if (success && existing) {
-      dbNotifier.notifyProjectSessionsChanged(
-        existing.projectId,
-        "link",
-        sessionId,
-      );
-    }
-    return success;
-  });
+  registerHandle("project-session-threads:detach", async (_, sessionId: string) =>
+    await projectWorkspace.detachProjectSessionThread(sessionId)
+  );
 
   // Board
   registerHandle("board:summary:get", async (_, projectId: string) => {

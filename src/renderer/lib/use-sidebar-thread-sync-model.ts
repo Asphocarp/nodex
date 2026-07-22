@@ -55,22 +55,6 @@ function resolveSidebarSyncReasonForHostMessage(
   return null;
 }
 
-function addProjectSessionEventScope(
-  snapshot: CodexSidebarSnapshot,
-  event: ProjectSessionsChangeEvent,
-): CodexSidebarSyncResult {
-  return {
-    snapshot,
-    source: "core",
-    refreshed: false,
-    refreshedAt: 0,
-    changedProjectIds: event.projectId === null ? [] : [event.projectId],
-    projectlessChanged: event.projectId === null,
-    materializedSessionIds: event.sessionId ? [event.sessionId] : [],
-    failedThreadIds: [],
-  };
-}
-
 function hasSidebarSyncAffectedSessions(result: CodexSidebarSyncResult): boolean {
   return result.changedProjectIds.length > 0
     || result.projectlessChanged
@@ -80,7 +64,6 @@ function hasSidebarSyncAffectedSessions(result: CodexSidebarSyncResult): boolean
 
 export function useSidebarThreadSyncModel(input: {
   projects: readonly Project[];
-  onSessionsAffected?: (result: CodexSidebarSyncResult) => void | Promise<void>;
 }): {
   snapshot: CodexSidebarSnapshot;
   model: CodexSidebarThreadSyncModel;
@@ -90,18 +73,13 @@ export function useSidebarThreadSyncModel(input: {
   setPinned: (threadId: string, pinned: boolean) => Promise<CodexSidebarSnapshot>;
   reorderPinned: (orderedThreadIds: readonly string[]) => Promise<CodexSidebarSnapshot>;
 } {
-  const { projects, onSessionsAffected } = input;
+  const { projects } = input;
   const queryClient = useQueryClient();
-  const onSessionsAffectedRef = useRef(onSessionsAffected);
   const focusedRef = useRef(true);
   const [pendingWorktrees, setPendingWorktrees] = useState<
     readonly CodexPendingWorktreeEntry[]
   >([]);
   const hostMessageSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    onSessionsAffectedRef.current = onSessionsAffected;
-  }, [onSessionsAffected]);
 
   const query = useQuery({
     queryKey: queryKeys.codexSidebar.snapshot(),
@@ -122,7 +100,20 @@ export function useSidebarThreadSyncModel(input: {
       queryClient.setQueryData(queryKey, result.snapshot);
     }
     if (!sameRevision || hasSidebarSyncAffectedSessions(result)) {
-      void onSessionsAffectedRef.current?.(result);
+      void invalidateProjectSessionScope(queryClient, {
+        summaryScopes: [
+          ...result.changedProjectIds.map((projectId) => ({
+            kind: "project" as const,
+            projectId,
+          })),
+          ...(result.projectlessChanged ? [{ kind: "projectless" as const }] : []),
+        ],
+        detailInvalidation: {
+          kind: "sessions",
+          sessionIds: result.materializedSessionIds,
+        },
+        changeType: "update",
+      }).catch(() => undefined);
     }
   }, [queryClient]);
 
@@ -203,19 +194,9 @@ export function useSidebarThreadSyncModel(input: {
   useEffect(() => {
     const handleProjectSessionChange = (event: ProjectSessionsChangeEvent) => {
       void invalidateProjectSessionScope(queryClient, event).catch(() => undefined);
-      const snapshot = queryClient.getQueryData<CodexSidebarSnapshot>(queryKeys.codexSidebar.snapshot())
-        ?? query.data
-        ?? EMPTY_SIDEBAR_SNAPSHOT;
-      void onSessionsAffectedRef.current?.(addProjectSessionEventScope(snapshot, event));
     };
-    const disposers = [
-      ...projects.map((project) => subscribeProjectSessionChanges(project.id, handleProjectSessionChange)),
-      subscribeProjectSessionChanges(null, handleProjectSessionChange),
-    ];
-    return () => {
-      for (const dispose of disposers) dispose();
-    };
-  }, [projects, query.data, queryClient]);
+    return subscribeProjectSessionChanges(handleProjectSessionChange);
+  }, [queryClient]);
 
   useEffect(() => subscribeWindowFocusChanges((focused) => {
     focusedRef.current = focused;

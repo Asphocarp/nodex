@@ -1195,14 +1195,6 @@ function WorkbenchApp({
     );
   }
 
-  if (projects.length === 0) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-(--background)">
-        <div className="text-sm text-(--foreground-secondary)">No projects found.</div>
-      </div>
-    );
-  }
-
   return (
     <LocalConversationProvider>
       <LocalConversationViewStateCleanupController />

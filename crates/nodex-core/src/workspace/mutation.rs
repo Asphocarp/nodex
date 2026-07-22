@@ -3,8 +3,9 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use nodex_core_contracts::workspace::{
-    ProjectLifecycle, ProjectWorkspaceCommitValue, ProjectWorkspaceEvent,
-    ProjectWorkspaceEventKind, ProjectWorkspaceIntent, ProjectWorkspaceReceipt,
+    ProjectCatalogChangeKind, ProjectLifecycle, ProjectSessionInvalidationScope,
+    ProjectWorkspaceCommitValue, ProjectWorkspaceEvent, ProjectWorkspaceEventKind,
+    ProjectWorkspaceIntent, ProjectWorkspaceReceipt,
 };
 use nodex_core_contracts::{
     BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue,
@@ -60,15 +61,25 @@ struct CreatedProjectAggregate {
 
 pub(super) struct WorkspaceMutationEffects {
     pub(super) operation_kind: &'static str,
-    pub(super) project_catalog_changed: bool,
+    pub(super) project_catalog_change: Option<ProjectCatalogChangeKind>,
     pub(super) change_project_id: String,
     pub(super) project_ids: Vec<String>,
     pub(super) session_ids: Vec<String>,
     pub(super) thread_ids: Vec<String>,
+    pub(super) session_summary_scopes: Vec<ProjectSessionInvalidationScope>,
+    pub(super) session_detail_ids: Vec<String>,
     pub(super) block_ids: Vec<String>,
     pub(super) document_ids: Vec<String>,
     pub(super) database_ids: Vec<String>,
     pub(super) committed_at: String,
+}
+
+pub(super) fn project_session_scope(project_id: Option<&str>) -> ProjectSessionInvalidationScope {
+    project_id.map_or(ProjectSessionInvalidationScope::Projectless, |project_id| {
+        ProjectSessionInvalidationScope::Project {
+            project_id: project_id.to_owned(),
+        }
+    })
 }
 
 struct ProjectSource {
@@ -616,11 +627,15 @@ fn create_project(
         request_hash,
         WorkspaceMutationEffects {
             operation_kind: "create_project",
-            project_catalog_changed: true,
+            project_catalog_change: Some(ProjectCatalogChangeKind::Created),
             change_project_id: project_id.to_owned(),
             project_ids: vec![project_id.to_owned()],
-            session_ids: vec![created.identities.session_id],
+            session_ids: vec![created.identities.session_id.clone()],
             thread_ids: Vec::new(),
+            session_summary_scopes: vec![ProjectSessionInvalidationScope::Project {
+                project_id: project_id.to_owned(),
+            }],
+            session_detail_ids: vec![created.identities.session_id],
             block_ids: vec![
                 created.identities.database_id.clone(),
                 created.canvas.block_id,
@@ -644,10 +659,12 @@ pub(super) fn finish_mutation(
         "module": MODULE_NAME,
         "operationKind": effects.operation_kind,
         "kind": "workspace_changed",
-        "projectCatalogChanged": effects.project_catalog_changed,
+        "projectCatalogChange": effects.project_catalog_change,
         "projectIds": effects.project_ids,
         "sessionIds": effects.session_ids,
         "threadIds": effects.thread_ids,
+        "sessionSummaryScopes": effects.session_summary_scopes,
+        "sessionDetailIds": effects.session_detail_ids,
     });
     connection.execute(
         "INSERT INTO change_log(\
@@ -713,10 +730,12 @@ pub(super) fn finish_mutation(
             committed_at: effects.committed_at,
             payload: CoreModuleEventPayload::ProjectWorkspace(ProjectWorkspaceEvent {
                 kind: ProjectWorkspaceEventKind::WorkspaceChanged,
-                project_catalog_changed: effects.project_catalog_changed,
+                project_catalog_change: effects.project_catalog_change,
                 project_ids: effects.project_ids,
                 session_ids: effects.session_ids,
                 thread_ids: effects.thread_ids,
+                session_summary_scopes: effects.session_summary_scopes,
+                session_detail_ids: effects.session_detail_ids,
             }),
         }),
     })
@@ -803,6 +822,11 @@ fn update_project(
         operation_id,
         request_hash,
         "update_project",
+        if sources.is_some() {
+            ProjectCatalogChangeKind::SourcesUpdated
+        } else {
+            ProjectCatalogChangeKind::MetadataUpdated
+        },
         project_id,
         now,
     )
@@ -869,6 +893,7 @@ fn set_project_lifecycle(
         operation_id,
         request_hash,
         "set_project_lifecycle",
+        ProjectCatalogChangeKind::LifecycleUpdated,
         project_id,
         now,
     )
@@ -935,11 +960,13 @@ fn reorder_projects(
         request_hash,
         WorkspaceMutationEffects {
             operation_kind: "reorder_projects",
-            project_catalog_changed: true,
+            project_catalog_change: Some(ProjectCatalogChangeKind::Reordered),
             change_project_id,
             project_ids: project_ids.to_vec(),
             session_ids: Vec::new(),
             thread_ids: Vec::new(),
+            session_summary_scopes: Vec::new(),
+            session_detail_ids: Vec::new(),
             block_ids: Vec::new(),
             document_ids: Vec::new(),
             database_ids: Vec::new(),
@@ -985,6 +1012,7 @@ fn set_project_pinned(
         operation_id,
         request_hash,
         "set_project_pinned",
+        ProjectCatalogChangeKind::PinUpdated,
         project_id,
         now,
     )
@@ -1055,11 +1083,13 @@ fn reorder_pinned_projects(
         request_hash,
         WorkspaceMutationEffects {
             operation_kind: "reorder_pinned_projects",
-            project_catalog_changed: true,
+            project_catalog_change: Some(ProjectCatalogChangeKind::PinUpdated),
             change_project_id,
             project_ids: project_ids.to_vec(),
             session_ids: Vec::new(),
             thread_ids: Vec::new(),
+            session_summary_scopes: Vec::new(),
+            session_detail_ids: Vec::new(),
             block_ids: Vec::new(),
             document_ids: Vec::new(),
             database_ids: Vec::new(),
@@ -1076,6 +1106,7 @@ fn finish_project_mutation(
     operation_id: &str,
     request_hash: &str,
     operation_kind: &'static str,
+    project_catalog_change: ProjectCatalogChangeKind,
     project_id: &str,
     committed_at: String,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
@@ -1087,11 +1118,13 @@ fn finish_project_mutation(
         request_hash,
         WorkspaceMutationEffects {
             operation_kind,
-            project_catalog_changed: true,
+            project_catalog_change: Some(project_catalog_change),
             change_project_id: project_id.to_owned(),
             project_ids: vec![project_id.to_owned()],
             session_ids: Vec::new(),
             thread_ids: Vec::new(),
+            session_summary_scopes: Vec::new(),
+            session_detail_ids: Vec::new(),
             block_ids: Vec::new(),
             document_ids: Vec::new(),
             database_ids: Vec::new(),
@@ -1491,10 +1524,11 @@ mod tests {
     use std::fs;
 
     use nodex_core_contracts::workspace::{
-        CodexThreadActiveFlag, CodexThreadStatusType, ProjectLifecycle, ProjectSessionIntent,
-        ProjectSessionPanelId, ProjectSessionPanelSizePatch, ProjectSessionPanelStatePatch,
-        ProjectSessionTabKind, ProjectWorkspaceIntent, ProjectWorkspaceRead,
-        ProjectWorkspaceReadValue, ProjectWorkspaceThreadPatch, ProjectWorkspaceThreadStatus,
+        CodexThreadActiveFlag, CodexThreadStatusType, ProjectCatalogChangeKind, ProjectLifecycle,
+        ProjectSessionIntent, ProjectSessionInvalidationScope, ProjectSessionPanelId,
+        ProjectSessionPanelSizePatch, ProjectSessionPanelStatePatch, ProjectSessionTabKind,
+        ProjectWorkspaceIntent, ProjectWorkspaceRead, ProjectWorkspaceReadValue,
+        ProjectWorkspaceThreadPatch, ProjectWorkspaceThreadStatus,
     };
     use nodex_core_contracts::{
         AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CoreErrorCode,
@@ -1650,7 +1684,10 @@ mod tests {
         let CoreModuleEventPayload::ProjectWorkspace(event) = &event.payload else {
             panic!("Project creation must publish a Project Workspace event");
         };
-        assert!(event.project_catalog_changed);
+        assert_eq!(
+            event.project_catalog_change,
+            Some(ProjectCatalogChangeKind::Created)
+        );
 
         let replay = module.apply(&context(), request).expect("exact replay");
         assert!(replay.committed.receipt.mutation.duplicate);
@@ -2021,7 +2058,14 @@ mod tests {
         let CoreModuleEventPayload::ProjectWorkspace(event) = &event.payload else {
             panic!("Session rename must publish a Project Workspace event");
         };
-        assert!(!event.project_catalog_changed);
+        assert_eq!(event.project_catalog_change, None);
+        assert_eq!(
+            event.session_summary_scopes,
+            vec![ProjectSessionInvalidationScope::Project {
+                project_id: "project-native".to_owned(),
+            }]
+        );
+        assert_eq!(event.session_detail_ids, vec![session_id.clone()]);
         let replay = module
             .apply(&context(), rename)
             .expect("replay Session rename");
@@ -2366,6 +2410,21 @@ mod tests {
             moved.committed.value.affected_thread_ids,
             ["thread-projectless"]
         );
+        let CoreModuleEventPayload::ProjectWorkspace(moved_event) =
+            &moved.event.as_ref().expect("Session move event").payload
+        else {
+            panic!("Session move must publish a Project Workspace event");
+        };
+        assert_eq!(
+            moved_event.session_summary_scopes,
+            vec![
+                ProjectSessionInvalidationScope::Projectless,
+                ProjectSessionInvalidationScope::Project {
+                    project_id: "project-native".to_owned(),
+                },
+            ]
+        );
+        assert_eq!(moved_event.session_detail_ids, vec!["session-projectless"]);
 
         module
             .apply(

@@ -371,15 +371,11 @@ export function subscribeLibraryChanges(
 }
 
 export function subscribeProjectSessionChanges(
-  projectId: string | null,
   callback: (
     event: import("../../shared/ipc-api").ProjectSessionsChangeEvent,
   ) => void,
 ): () => void {
-  return resolveRendererTransport().subscribeProjectSessionChanges(
-    projectId,
-    callback,
-  );
+  return resolveRendererTransport().subscribeProjectSessionChanges(callback);
 }
 
 export function subscribeProjectChanges(

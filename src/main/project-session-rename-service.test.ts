@@ -43,9 +43,6 @@ function makeDeps(session: ProjectSession, events: string[] = []): ProjectSessio
       events.push(`thread:${rawTitle}`);
       return true;
     },
-    notifyProjectSessionsChanged: (_projectId: string | null, changeType: "update", sessionId: string) => {
-      events.push(`notify:${changeType}:${sessionId}`);
-    },
   };
 }
 
@@ -69,7 +66,7 @@ describe("renameProjectSessionChat", () => {
     );
 
     expect(renamed?.displayTitle).toBe("hello world");
-    expect(events.join("|")).toBe("get|rename:hello world|notify:update:session-1");
+    expect(events.join("|")).toBe("get|rename:hello world");
   });
 
   test("renames a bound thread without updating the session fallback title", async () => {

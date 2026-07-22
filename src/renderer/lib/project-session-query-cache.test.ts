@@ -135,21 +135,41 @@ describe("project session query cache", () => {
     seedProjectSessionDetail(queryClient, session);
 
     await invalidateProjectSessionScope(queryClient, {
-      projectId: "project-1",
+      summaryScopes: [{ kind: "project", projectId: "project-1" }],
+      detailInvalidation: { kind: "sessions", sessionIds: ["session-1"] },
       changeType: "archive",
-      sessionId: "session-1",
     });
 
     expect(getCachedProjectSessionDetail(queryClient, "session-1")).toBe(null);
 
     seedProjectSessionDetail(queryClient, session);
     await invalidateProjectSessionScope(queryClient, {
-      projectId: "project-1",
+      summaryScopes: [{ kind: "project", projectId: "project-1" }],
+      detailInvalidation: { kind: "sessions", sessionIds: ["session-1"] },
       changeType: "delete",
-      sessionId: "session-1",
     });
 
     expect(getCachedProjectSessionDetail(queryClient, "session-1")).toBe(null);
+    queryClient.clear();
+  });
+
+  test("full resync invalidates every cached session detail", async () => {
+    const queryClient = createQueryClient();
+    seedProjectSessionDetail(queryClient, createSession({ id: "session-1" }));
+    seedProjectSessionDetail(queryClient, createSession({ id: "session-2" }));
+
+    await invalidateProjectSessionScope(queryClient, {
+      summaryScopes: [{ kind: "all" }],
+      detailInvalidation: { kind: "all" },
+      changeType: "update",
+    });
+
+    expect(queryClient.getQueryState(
+      queryKeys.projectSessions.detail("session-1"),
+    )?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(
+      queryKeys.projectSessions.detail("session-2"),
+    )?.isInvalidated).toBe(true);
     queryClient.clear();
   });
 });

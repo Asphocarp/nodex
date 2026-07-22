@@ -7,9 +7,13 @@ use serde_json::Value;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::ProjectWorkspaceApplyOutcome;
-use super::mutation::{WorkspaceMutationEffects, finish_mutation, workspace_event_anchor};
+use super::mutation::{
+    WorkspaceMutationEffects, finish_mutation, project_session_scope, workspace_event_anchor,
+};
 use super::panel_layout::{parse_panels, stringify_panels};
-use super::session_mutation::{finish_session_mutation, require_session, sqlite_now, validate_id};
+use super::session_mutation::{
+    SessionInvalidationKind, finish_session_mutation, require_session, sqlite_now, validate_id,
+};
 
 const MAX_SESSION_TITLE_BYTES: usize = 8_000;
 const MAX_SESSION_TITLE_UTF16: usize = 2_000;
@@ -85,6 +89,7 @@ pub(super) fn create_session(
         project_id.into_iter().map(str::to_owned).collect(),
         vec![session_id.to_owned()],
         Vec::new(),
+        vec![project_session_scope(project_id)],
         project_id,
         now,
     )
@@ -118,6 +123,7 @@ pub(super) fn delete_session(
         session_id,
         &authority,
         authority.thread_id.iter().cloned().collect(),
+        SessionInvalidationKind::SummaryAndDetail,
         now,
     )
 }
@@ -152,6 +158,7 @@ pub(super) fn move_session(
             session_id,
             &authority,
             authority.thread_id.iter().cloned().collect(),
+            SessionInvalidationKind::None,
             now,
         );
     }
@@ -210,6 +217,11 @@ pub(super) fn move_session(
     {
         project_ids.push(project_id.to_owned());
     }
+    let mut summary_scopes = vec![project_session_scope(authority.project_id.as_deref())];
+    let target_scope = project_session_scope(project_id);
+    if !summary_scopes.contains(&target_scope) {
+        summary_scopes.push(target_scope);
+    }
     finish_lifecycle_mutation(
         connection,
         library_id,
@@ -221,6 +233,7 @@ pub(super) fn move_session(
         project_ids,
         vec![session_id.to_owned()],
         authority.thread_id.iter().cloned().collect(),
+        summary_scopes,
         project_id.or(authority.project_id.as_deref()),
         now,
     )
@@ -315,6 +328,7 @@ pub(super) fn reorder_sessions(
         project_id.into_iter().map(str::to_owned).collect(),
         final_order,
         Vec::new(),
+        vec![project_session_scope(project_id)],
         project_id,
         now,
     )
@@ -393,6 +407,7 @@ fn finish_lifecycle_mutation(
     project_ids: Vec<String>,
     session_ids: Vec<String>,
     thread_ids: Vec<String>,
+    session_summary_scopes: Vec<nodex_core_contracts::workspace::ProjectSessionInvalidationScope>,
     change_project_id: Option<&str>,
     committed_at: String,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
@@ -407,11 +422,13 @@ fn finish_lifecycle_mutation(
         request_hash,
         WorkspaceMutationEffects {
             operation_kind,
-            project_catalog_changed: false,
+            project_catalog_change: None,
             change_project_id,
             project_ids,
+            session_detail_ids: session_ids.clone(),
             session_ids,
             thread_ids,
+            session_summary_scopes,
             block_ids: Vec::new(),
             document_ids: Vec::new(),
             database_ids: Vec::new(),

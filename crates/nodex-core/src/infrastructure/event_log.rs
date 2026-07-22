@@ -4,7 +4,10 @@ use nodex_core_contracts::administration::{
 use nodex_core_contracts::automation::{AutomationEvent, AutomationEventKind};
 use nodex_core_contracts::database::{DatabaseEvent, DatabaseEventKind};
 use nodex_core_contracts::library::{LibraryEvent, LibraryEventKind};
-use nodex_core_contracts::workspace::{ProjectWorkspaceEvent, ProjectWorkspaceEventKind};
+use nodex_core_contracts::workspace::{
+    ProjectCatalogChangeKind, ProjectSessionInvalidationScope, ProjectWorkspaceEvent,
+    ProjectWorkspaceEventKind,
+};
 use nodex_core_contracts::{
     CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CoreModuleEventPayload, StoreEpoch,
 };
@@ -91,10 +94,22 @@ struct DatabaseMetadata {
 struct WorkspaceMetadata {
     module: String,
     kind: String,
-    project_catalog_changed: bool,
+    #[serde(default)]
+    operation_kind: Option<String>,
+    #[serde(default)]
+    project_catalog_change: Option<ProjectCatalogChangeKind>,
+    #[serde(default)]
+    project_catalog_changed: Option<bool>,
+    #[serde(default)]
     project_ids: Vec<String>,
+    #[serde(default)]
     session_ids: Vec<String>,
+    #[serde(default)]
     thread_ids: Vec<String>,
+    #[serde(default)]
+    session_summary_scopes: Option<Vec<ProjectSessionInvalidationScope>>,
+    #[serde(default)]
+    session_detail_ids: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -258,12 +273,33 @@ fn reconstruct_event(
             validate_strings(&metadata.project_ids, "Project Workspace Project")?;
             validate_strings(&metadata.session_ids, "Project Workspace Session")?;
             validate_strings(&metadata.thread_ids, "Project Workspace Thread")?;
+            let project_catalog_change = metadata.project_catalog_change.or_else(|| {
+                metadata
+                    .project_catalog_changed
+                    .unwrap_or(false)
+                    .then(|| legacy_project_catalog_change(metadata.operation_kind.as_deref()))
+                    .flatten()
+            });
+            let session_summary_scopes = metadata.session_summary_scopes.unwrap_or_else(|| {
+                legacy_session_summary_scopes(
+                    metadata.operation_kind.as_deref(),
+                    &metadata.project_ids,
+                    &metadata.session_ids,
+                )
+            });
+            validate_session_summary_scopes(&session_summary_scopes)?;
+            let session_detail_ids = metadata
+                .session_detail_ids
+                .unwrap_or_else(|| metadata.session_ids.clone());
+            validate_strings(&session_detail_ids, "Project Workspace Session detail")?;
             CoreModuleEventPayload::ProjectWorkspace(ProjectWorkspaceEvent {
                 kind: ProjectWorkspaceEventKind::WorkspaceChanged,
-                project_catalog_changed: metadata.project_catalog_changed,
+                project_catalog_change,
                 project_ids: metadata.project_ids,
                 session_ids: metadata.session_ids,
                 thread_ids: metadata.thread_ids,
+                session_summary_scopes,
+                session_detail_ids,
             })
         }
         "automation.changed" => {
@@ -360,6 +396,57 @@ fn require_module_kind(
         return Ok(());
     }
     Err(corrupt("Core event kind metadata is inconsistent"))
+}
+
+fn legacy_project_catalog_change(operation_kind: Option<&str>) -> Option<ProjectCatalogChangeKind> {
+    match operation_kind {
+        Some("create_project") => Some(ProjectCatalogChangeKind::Created),
+        Some("set_project_lifecycle") => Some(ProjectCatalogChangeKind::LifecycleUpdated),
+        Some("reorder_projects") => Some(ProjectCatalogChangeKind::Reordered),
+        Some("set_project_pinned" | "reorder_pinned_projects") => {
+            Some(ProjectCatalogChangeKind::PinUpdated)
+        }
+        Some("update_project") | None => Some(ProjectCatalogChangeKind::MetadataUpdated),
+        Some(_) => Some(ProjectCatalogChangeKind::MetadataUpdated),
+    }
+}
+
+fn legacy_session_summary_scopes(
+    operation_kind: Option<&str>,
+    project_ids: &[String],
+    session_ids: &[String],
+) -> Vec<ProjectSessionInvalidationScope> {
+    if session_ids.is_empty() {
+        return Vec::new();
+    }
+    if matches!(operation_kind, Some("move_session" | "move_thread")) {
+        return vec![ProjectSessionInvalidationScope::All];
+    }
+    if project_ids.is_empty() {
+        return vec![ProjectSessionInvalidationScope::Projectless];
+    }
+    project_ids
+        .iter()
+        .map(|project_id| ProjectSessionInvalidationScope::Project {
+            project_id: project_id.clone(),
+        })
+        .collect()
+}
+
+fn validate_session_summary_scopes(
+    scopes: &[ProjectSessionInvalidationScope],
+) -> Result<(), StoreError> {
+    if scopes.len() > MAX_EVENT_IDENTITIES {
+        return Err(corrupt(
+            "Project Workspace Session scope event list exceeds its bound",
+        ));
+    }
+    for scope in scopes {
+        if let ProjectSessionInvalidationScope::Project { project_id } = scope {
+            validate_identity(project_id, "Project Workspace Session scope Project")?;
+        }
+    }
+    Ok(())
 }
 
 fn validate_strings(values: &[String], label: &str) -> Result<(), StoreError> {
@@ -497,5 +584,53 @@ mod tests {
             event_log.replay(0, Some(2)).expect("bounded replay"),
             CoreEventReplay::ResyncRequired { event_head: 3, .. }
         ));
+    }
+
+    #[test]
+    fn upgrades_legacy_workspace_move_events_to_global_session_invalidation() {
+        let directory = tempdir().expect("temporary Profile");
+        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO projects(id, name, created, updated) \
+                     VALUES ('project:events', 'Events', '2026-01-01', '2026-01-01')",
+                    [],
+                )?;
+                connection.execute(
+                    "INSERT INTO change_log(\
+                       project_id, store_epoch, kind, operation_id, payload_json, committed_at\
+                     ) VALUES ('project:events', 'epoch:events', 'project_workspace.changed', \
+                       'workspace:legacy-move', ?1, '2026-01-01')",
+                    [serde_json::json!({
+                        "module": "project_workspace",
+                        "operationKind": "move_session",
+                        "kind": "workspace_changed",
+                        "projectCatalogChanged": false,
+                        "projectIds": ["project:events"],
+                        "sessionIds": ["session:legacy"],
+                        "threadIds": []
+                    })
+                    .to_string()],
+                )?;
+                Ok(())
+            })
+            .expect("legacy event fixture");
+
+        let CoreEventReplay::Events { events, .. } = CoreEventLog::new(kernel.readers())
+            .replay(0, None)
+            .expect("legacy replay")
+        else {
+            panic!("expected replayed legacy event");
+        };
+        let CoreModuleEventPayload::ProjectWorkspace(event) = &events[0].payload else {
+            panic!("expected Project Workspace event");
+        };
+        assert_eq!(
+            event.session_summary_scopes,
+            vec![ProjectSessionInvalidationScope::All]
+        );
+        assert_eq!(event.session_detail_ids, vec!["session:legacy"]);
     }
 }

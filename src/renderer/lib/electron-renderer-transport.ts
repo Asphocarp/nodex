@@ -255,12 +255,11 @@ export function createElectronRendererTransport(
       });
     },
     subscribeProjectSessionChanges(
-      projectId: string | null,
       callback: (event: ProjectSessionsChangeEvent) => void,
     ) {
       return bridge.on("project-sessions-changed", (...args: unknown[]) => {
         const payload = args[0] as ProjectSessionsChangeEvent | undefined;
-        if (!payload || payload.projectId !== projectId) return;
+        if (!payload) return;
         callback(payload);
       });
     },

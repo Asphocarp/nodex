@@ -15,7 +15,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion, useMotionValue, useReducedMotion, useTransform, type MotionStyle, type MotionValue } from "motion/react";
 import {
   ArrowLeft,
@@ -229,6 +229,10 @@ import {
   setProjectSessionSummaries,
 } from "@/lib/project-session-query-cache";
 import {
+  projectSessionDetailQueryOptions,
+  projectSessionSummariesQueryOptions,
+} from "@/lib/query-options";
+import {
   CODEX_SHELL_MEDIUM_WIDTH_PX,
   CODEX_SHELL_NARROW_WIDTH_PX,
   resolveCodexAnimatedPanelSize,
@@ -279,7 +283,6 @@ import type {
   CodexConnectionState,
   CodexCollaborationModePreset,
   CodexComposerIntent,
-  CodexSidebarSyncResult,
   CodexSidebarThreadItem,
   CodexThreadSummary,
   CodexPromptInput,
@@ -876,19 +879,6 @@ function makeSummaryOnlyProjectSession(summary: ProjectSessionSummary): ProjectS
     },
     tabs: [],
   };
-}
-
-function mergeLoadedProjectSessionSummaries(
-  current: ProjectSession[],
-  summaries: ProjectSessionSummary[],
-): ProjectSession[] {
-  const loadedById = new Map(current.map((session) => [session.id, session]));
-  return sortProjectSessionsForSidebar(
-    summaries.flatMap((summary): ProjectSession[] => {
-      const loaded = loadedById.get(summary.id);
-      return [loaded ? applyProjectSessionSummaryToLoadedSession(loaded, summary) : makeSummaryOnlyProjectSession(summary)];
-    }),
-  );
 }
 
 interface WorkbenchShellProps {
@@ -2178,17 +2168,6 @@ function resolveSessionPanelActiveTabId(session: ProjectSession, panelId: PanelI
     ?? null;
 }
 
-function replaceProjectSessionById(
-  sessions: readonly ProjectSession[],
-  replacement: ProjectSession,
-): ProjectSession[] {
-  const index = sessions.findIndex((session) => session.id === replacement.id);
-  if (index < 0) return [...sessions, replacement];
-  return sessions.map((session, candidateIndex) =>
-    candidateIndex === index ? replacement : session
-  );
-}
-
 function resolveSessionPanelActiveLeafId(session: ProjectSession, panelId: PanelId): string {
   return getProjectSessionPanelActiveLeaf(session.panels[panelId].layout).id;
 }
@@ -2334,17 +2313,48 @@ export function WorkbenchShell({
   commandKeymapState,
 }: WorkbenchShellProps) {
   const queryClient = useQueryClient();
+  const projectSessionScopeIds = [...projects.map((project) => project.id), null];
+  const projectSessionSummaryState = useQueries({
+    queries: projectSessionScopeIds.map(projectSessionSummariesQueryOptions),
+    combine: (results) => ({
+      summaries: results.map((result) => result.data ?? []),
+      loading: results.some((result) => result.isPending),
+      error: results.find((result) => result.error)?.error ?? null,
+    }),
+  });
+  const sessionsByProject = useMemo<Record<string, ProjectSession[]>>(() =>
+    Object.fromEntries(projects.map((project, index) => [
+      project.id,
+      projectSessionSummaryState.summaries[index]!.map((summary) => {
+        const detail = getCachedProjectSessionDetail(queryClient, summary.id);
+        return detail
+          ? applyProjectSessionSummaryToLoadedSession(detail, summary)
+          : makeSummaryOnlyProjectSession(summary);
+      }),
+    ])),
+  [projectSessionSummaryState.summaries, projects, queryClient]);
+  const projectlessSessions = useMemo(() => {
+    const summaries = projectSessionSummaryState.summaries[projects.length] ?? [];
+    return summaries.map((summary) => {
+      const detail = getCachedProjectSessionDetail(queryClient, summary.id);
+      return detail
+        ? applyProjectSessionSummaryToLoadedSession(detail, summary)
+        : makeSummaryOnlyProjectSession(summary);
+    });
+  }, [projectSessionSummaryState.summaries, projects.length, queryClient]);
+  const loadingSessions = projectSessionSummaryState.loading;
+  const sessionsReady = !loadingSessions;
+  const sessionError = projectSessionSummaryState.error instanceof Error
+    ? projectSessionSummaryState.error.message
+    : projectSessionSummaryState.error
+      ? "Unable to load project sessions"
+      : null;
   const fallbackProjectId = projects[0]?.id ?? "default";
   const [activeProjectId, setActiveProjectId] = useState(dbProjectId || fallbackProjectId);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(initialActiveProjectSessionId);
-  const [sessionsByProject, setSessionsByProject] = useState<Record<string, ProjectSession[]>>({});
-  const [projectlessSessions, setProjectlessSessions] = useState<ProjectSession[]>([]);
   const [expandedProjectIds, setExpandedProjectIds] = useState(() =>
     readInitialExpandedProjects(projects, dbProjectId || fallbackProjectId),
   );
-  const [loadingSessions, setLoadingSessions] = useState(false);
-  const [sessionsReady, setSessionsReady] = useState(false);
-  const [sessionError, setSessionError] = useState<string | null>(null);
   const [contextMenuSessionId, setContextMenuSessionId] = useState<string | null>(null);
   const [renameSession, setRenameSession] = useState<ProjectSession | null>(null);
   const [blockedSidebarThreadMove, setBlockedSidebarThreadMove] =
@@ -2556,13 +2566,24 @@ export function WorkbenchShell({
     () => activeProject ? sessionsByProject[activeProject.id] ?? [] : [],
     [activeProject, sessionsByProject],
   );
-  const selectedActiveSession = activeSessions.find((session) => session.id === activeSessionId)
+  const selectedActiveSessionSummary = activeSessions.find((session) => session.id === activeSessionId)
     ?? projectlessSessions.find((session) => session.id === activeSessionId)
     ?? null;
-  const activeSession = selectedActiveSession ?? activeSessions[0] ?? null;
-  const activeRenderSession = activeSession
-    ? getCachedProjectSessionDetail(queryClient, activeSession.id) ?? activeSession
-    : null;
+  const activeSessionSummary = selectedActiveSessionSummary ?? activeSessions[0] ?? null;
+  const activeSessionDetailQuery = useQuery({
+    ...projectSessionDetailQueryOptions(activeSessionSummary?.id ?? ""),
+    enabled: activeSessionSummary !== null,
+  });
+  const activeSession = useMemo(
+    () => activeSessionDetailQuery.data && activeSessionSummary
+      ? applyProjectSessionSummaryToLoadedSession(
+          activeSessionDetailQuery.data,
+          activeSessionSummary,
+        )
+      : activeSessionSummary,
+    [activeSessionDetailQuery.data, activeSessionSummary],
+  );
+  const activeRenderSession = activeSession;
   const forkTransferTargetConversationId = activeRenderSession?.thread?.threadId ?? null;
   const forkTransferTargetSessionId = activeRenderSession?.id ?? null;
   useLayoutEffect(() => {
@@ -2579,74 +2600,9 @@ export function WorkbenchShell({
       ) as ProjectSession | null;
       if (!session) return;
       seedProjectSessionDetail(queryClient, session);
-      if (session.projectId === null) {
-        setProjectlessSessions((current) =>
-          replaceProjectSessionById(current, session)
-        );
-        return;
-      }
-      const projectId = session.projectId;
-      setSessionsByProject((current) => ({
-        ...current,
-        [projectId]: replaceProjectSessionById(
-          current[projectId] ?? [],
-          session,
-        ),
-      }));
     }).catch(() => undefined);
   }, [forkTransferTargetConversationId, forkTransferTargetSessionId, queryClient]);
   const scheduledAutomationsQuery = useCodexScheduledAutomations();
-  const refreshProjectSessionSummariesRef =
-    useRef<((projectId: string | null) => Promise<ProjectSessionSummary[]>) | null>(null);
-  const pendingSidebarSessionScopesRef = useRef<{
-    projectIds: Set<string>;
-    projectless: boolean;
-  }>({
-    projectIds: new Set(),
-    projectless: false,
-  });
-  const projectSessionSummaryRefreshInFlightRef =
-    useRef<Map<string, Promise<ProjectSessionSummary[]>>>(new Map());
-  const refreshSidebarSessionScopes = useCallback((
-    refreshProjectSessionSummariesForId: (projectId: string | null) => Promise<ProjectSessionSummary[]>,
-    projectIds: readonly string[],
-    projectless: boolean,
-  ) => {
-    const uniqueProjectIds = [...new Set(projectIds)];
-    if (uniqueProjectIds.length === 0 && !projectless) return;
-
-    const refreshes = uniqueProjectIds.map((projectId) => refreshProjectSessionSummariesForId(projectId));
-    if (projectless) refreshes.push(refreshProjectSessionSummariesForId(null));
-    void Promise.all(refreshes).catch(() => undefined);
-  }, []);
-  const drainPendingSidebarSessionScopes = useCallback((
-    refreshProjectSessionSummariesForId: (projectId: string | null) => Promise<ProjectSessionSummary[]>,
-  ) => {
-    const pending = pendingSidebarSessionScopesRef.current;
-    if (pending.projectIds.size === 0 && !pending.projectless) return;
-
-    const projectIds = [...pending.projectIds];
-    const projectless = pending.projectless;
-    pendingSidebarSessionScopesRef.current = {
-      projectIds: new Set(),
-      projectless: false,
-    };
-    refreshSidebarSessionScopes(refreshProjectSessionSummariesForId, projectIds, projectless);
-  }, [refreshSidebarSessionScopes]);
-  const handleSidebarSessionsAffected = useCallback((result: CodexSidebarSyncResult) => {
-    const refreshProjectSessionSummariesForId = refreshProjectSessionSummariesRef.current;
-    const affectedProjectIds = [...new Set(result.changedProjectIds)];
-    if (affectedProjectIds.length === 0 && !result.projectlessChanged) return;
-
-    if (!refreshProjectSessionSummariesForId) {
-      const pending = pendingSidebarSessionScopesRef.current;
-      for (const projectId of affectedProjectIds) pending.projectIds.add(projectId);
-      pending.projectless ||= result.projectlessChanged;
-      return;
-    }
-
-    refreshSidebarSessionScopes(refreshProjectSessionSummariesForId, affectedProjectIds, result.projectlessChanged);
-  }, [refreshSidebarSessionScopes]);
   const {
     applySnapshot: applySidebarThreadSnapshot,
     model: sidebarThreadModel,
@@ -2655,7 +2611,6 @@ export function WorkbenchShell({
     setPinned: setSidebarThreadPinned,
   } = useSidebarThreadSyncModel({
     projects,
-    onSessionsAffected: handleSidebarSessionsAffected,
   });
   const [sidebarArchivePendingKeys, setSidebarArchivePendingKeys] = useState<Set<string>>(() => new Set());
   const sidebarArchivePendingKeysRef = useRef<ReadonlySet<string>>(sidebarArchivePendingKeys);
@@ -3199,11 +3154,6 @@ export function WorkbenchShell({
     const sessions = (await invoke("project-sessions:list", projectId)) as ProjectSession[];
     seedProjectSessionDetails(queryClient, sessions);
     setProjectSessionSummaries(queryClient, projectId, sessions.map(projectSessionToSummary));
-    if (projectId === null) {
-      setProjectlessSessions(sessions);
-      return sessions;
-    }
-    setSessionsByProject((current) => ({ ...current, [projectId]: sessions }));
     return sessions;
   }, [queryClient]);
 
@@ -3268,88 +3218,12 @@ export function WorkbenchShell({
       setProjectSessionSummaries(queryClient, scope.projectId, scope.sessions);
     }
     startTransition(() => {
-      const projectless = scopes.get("__projectless__");
-      if (projectless) {
-        setProjectlessSessions((current) => (
-          mergeLoadedProjectSessionSummaries(current, projectless.sessions)
-        ));
-      }
-      setSessionsByProject((current) => {
-        const next = { ...current };
-        for (const scope of scopes.values()) {
-          if (scope.projectId === null) continue;
-          next[scope.projectId] = mergeLoadedProjectSessionSummaries(
-            current[scope.projectId] ?? [],
-            scope.sessions,
-          );
-        }
-        return next;
-      });
       applySidebarThreadSnapshot(result.snapshot);
     });
   }, [applySidebarThreadSnapshot, queryClient]);
 
-  const refreshProjectSessionSummaries = useCallback(async (projectId: string | null) => {
-    const key = projectId ?? "__projectless__";
-    const existing = projectSessionSummaryRefreshInFlightRef.current.get(key);
-    if (existing) return await existing;
-
-    const request = (async () => {
-      const summaries = (await invoke("project-sessions:list-summaries", projectId)) as ProjectSessionSummary[];
-      setProjectSessionSummaries(queryClient, projectId, summaries);
-      if (projectId === null) {
-        setProjectlessSessions((current) => mergeLoadedProjectSessionSummaries(current, summaries));
-        return summaries;
-      }
-      setSessionsByProject((current) => ({
-        ...current,
-        [projectId]: mergeLoadedProjectSessionSummaries(current[projectId] ?? [], summaries),
-      }));
-      return summaries;
-    })();
-
-    projectSessionSummaryRefreshInFlightRef.current.set(key, request);
-    try {
-      return await request;
-    } finally {
-      if (projectSessionSummaryRefreshInFlightRef.current.get(key) === request) {
-        projectSessionSummaryRefreshInFlightRef.current.delete(key);
-      }
-    }
-  }, [queryClient]);
-
-  useEffect(() => {
-    refreshProjectSessionSummariesRef.current = refreshProjectSessionSummaries;
-    drainPendingSidebarSessionScopes(refreshProjectSessionSummaries);
-    return () => {
-      if (refreshProjectSessionSummariesRef.current === refreshProjectSessionSummaries) {
-        refreshProjectSessionSummariesRef.current = null;
-      }
-    };
-  }, [drainPendingSidebarSessionScopes, refreshProjectSessionSummaries]);
-
   const mergeSessionInState = useCallback((session: ProjectSession) => {
     seedProjectSessionDetail(queryClient, session);
-    if (session.projectId === null) {
-      setProjectlessSessions((current) => sortProjectSessionsForSidebar(
-        current.some((candidate) => candidate.id === session.id)
-          ? current.map((candidate) => candidate.id === session.id ? session : candidate)
-          : [...current, session],
-      ));
-      return;
-    }
-    const projectId = session.projectId;
-
-    setSessionsByProject((current) => {
-      const sessions = current[projectId];
-      if (!sessions) return current;
-      return {
-        ...current,
-        [projectId]: sortProjectSessionsForSidebar(
-          sessions.map((candidate) => candidate.id === session.id ? session : candidate),
-        ),
-      };
-    });
   }, [queryClient]);
 
   const warmProjectSessionDbViewBoards = useCallback((session: ProjectSession) => {
@@ -3384,23 +3258,9 @@ export function WorkbenchShell({
   }, [knownSessions, queryClient, warmProjectSessionDbViewBoards]);
 
   useEffect(() => {
-    if (!activeSession) return;
-
-    const cached = getCachedProjectSessionDetail(queryClient, activeSession.id);
-    if (cached) {
-      mergeSessionInState(cached);
-      warmProjectSessionDbViewBoards(cached);
-      return;
-    }
-
-    void prefetchProjectSessionDetail(queryClient, activeSession.id)
-      .then((detail) => {
-        if (!detail) return;
-        mergeSessionInState(detail);
-        warmProjectSessionDbViewBoards(detail);
-      })
-      .catch(() => undefined);
-  }, [activeSession, mergeSessionInState, queryClient, warmProjectSessionDbViewBoards]);
+    if (!activeSessionDetailQuery.data) return;
+    warmProjectSessionDbViewBoards(activeSessionDetailQuery.data);
+  }, [activeSessionDetailQuery.data, warmProjectSessionDbViewBoards]);
 
   const resolveSessionHasGitRepository = useCallback(async (session: ProjectSession): Promise<boolean> => {
     if (!canForkSessionLocally(session)) return false;
@@ -3431,36 +3291,6 @@ export function WorkbenchShell({
       ),
     });
   }, []);
-
-  const projectSessionScopeKey = projects
-    .map((project) => project.id)
-    .toSorted()
-    .join("\u0000");
-  const refreshAllSessions = useCallback(async () => {
-    if (projects.length === 0) {
-      setSessionsReady(true);
-      return;
-    }
-    const initialLoad = !sessionsReady;
-    if (initialLoad) setLoadingSessions(true);
-    setSessionError(null);
-    try {
-      await Promise.all([
-        ...projects.map((project) => refreshProjectSessionSummaries(project.id)),
-        refreshProjectSessionSummaries(null),
-      ]);
-    } catch (error) {
-      setSessionError(error instanceof Error ? error.message : "Unable to load project sessions");
-    } finally {
-      if (initialLoad) setLoadingSessions(false);
-      setSessionsReady(true);
-    }
-  }, [projects, refreshProjectSessionSummaries, sessionsReady]);
-  const refreshSessionsForProjectScopeChange = useEffectEvent(refreshAllSessions);
-
-  useEffect(() => {
-    void refreshSessionsForProjectScopeChange();
-  }, [projectSessionScopeKey]);
 
   useEffect(() => {
     const measure = () => rootFontSize.set(readCodexRootFontSize());
@@ -3607,24 +3437,32 @@ export function WorkbenchShell({
       pinned: nextPinned,
       pinnedOrder: nextPinnedOrder,
     };
-
-    setSessionsByProject((current) => ({
-      ...current,
-      [projectId]: sortProjectSessionsForSidebar(
-        (current[projectId] ?? previousSessions)
-          .map((candidate) => candidate.id === session.id ? optimisticSession : candidate),
+    const optimisticSessions = sortProjectSessionsForSidebar(
+      previousSessions.map((candidate) =>
+        candidate.id === session.id ? optimisticSession : candidate
       ),
-    }));
+    );
+    seedProjectSessionDetail(queryClient, optimisticSession);
+    setProjectSessionSummaries(
+      queryClient,
+      projectId,
+      optimisticSessions.map(projectSessionToSummary),
+    );
 
     try {
       const updated = await invoke("project-sessions:set-pinned", session.id, { pinned: nextPinned }) as ProjectSession | null;
       if (updated) mergeSessionInState(updated);
       await refreshProjectSessions(projectId);
     } catch {
-      setSessionsByProject((current) => ({ ...current, [projectId]: previousSessions }));
+      seedProjectSessionDetail(queryClient, session);
+      setProjectSessionSummaries(
+        queryClient,
+        projectId,
+        previousSessions.map(projectSessionToSummary),
+      );
       toast.danger(nextPinned ? "Failed to pin chat" : "Failed to unpin chat");
     }
-  }, [mergeSessionInState, refreshProjectSessions, sessionsByProject, setSidebarThreadPinned]);
+  }, [mergeSessionInState, queryClient, refreshProjectSessions, sessionsByProject, setSidebarThreadPinned]);
 
   const toggleSidebarThreadPinned = useCallback(async (item: CodexSidebarThreadItem) => {
     if (item.disabled) return;
@@ -9929,9 +9767,7 @@ export function WorkbenchShell({
               automationsActive={Boolean(automationsPath)}
               projectPickerOpenTick={projectPickerOpenTick}
               onCreateProject={async (input) => {
-                const project = await onCreateProject(input);
-                await refreshAllSessions();
-                return project;
+                return await onCreateProject(input);
               }}
               onUpdateProject={onUpdateProject ?? (async () => null)}
               onDeleteProject={onDeleteProject ?? (async () => false)}
@@ -10037,9 +9873,7 @@ export function WorkbenchShell({
                   automationsActive={Boolean(automationsPath)}
                   projectPickerOpenTick={projectPickerOpenTick}
                   onCreateProject={async (input) => {
-                    const project = await onCreateProject(input);
-                    await refreshAllSessions();
-                    return project;
+                    return await onCreateProject(input);
                   }}
                   onUpdateProject={onUpdateProject ?? (async () => null)}
                   onDeleteProject={onDeleteProject ?? (async () => false)}

@@ -523,8 +523,23 @@ export type ProjectWorkspaceModule = DeepCoreModule<
 
 export interface ProjectWorkspaceEvent {
   readonly kind: "workspace_changed";
-  readonly projectCatalogChanged: boolean;
+  readonly projectCatalogChange?: ProjectCatalogChangeKind;
   readonly projectIds: readonly string[];
   readonly sessionIds: readonly string[];
   readonly threadIds: readonly string[];
+  readonly sessionSummaryScopes: readonly ProjectSessionInvalidationScope[];
+  readonly sessionDetailIds: readonly string[];
 }
+
+export type ProjectCatalogChangeKind =
+  | "created"
+  | "metadata_updated"
+  | "sources_updated"
+  | "lifecycle_updated"
+  | "reordered"
+  | "pin_updated";
+
+export type ProjectSessionInvalidationScope =
+  | { readonly kind: "project"; readonly projectId: string }
+  | { readonly kind: "projectless" }
+  | { readonly kind: "all" };

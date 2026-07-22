@@ -3267,6 +3267,18 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(invokeCalls.some((call) => call[0] === "project-sessions:get" && call[1] === "session:alpha:database-view")).toBe(true);
   });
 
+  test("shows the Chats loading state on the first render instead of flashing the empty state", async () => {
+    const screen = renderWorkbench({ projectlessSessions: [] });
+
+    expect(screen.getAllByText("Loading chats...").length).toBeGreaterThan(0);
+    expect(screen.queryByText("No projectless chats")).toBe(null);
+
+    await settleAsyncRender();
+    await settleAsyncRender();
+    expect(screen.getByText("No projectless chats") !== null).toBe(true);
+    expect(screen.queryByText("Loading chats...")).toBe(null);
+  });
+
   test("does not reload session scopes when Project objects change without membership changes", async () => {
     const initialProjects = [makeProject()];
     const screen = renderWorkbench({ projects: initialProjects });
@@ -3293,6 +3305,28 @@ describe(`workbench session shell / ${scope}`, () => {
     ).length).toBe(initialSummaryCallCount);
     expect(screen.getByText("No projectless chats") !== null).toBe(true);
     expect(screen.queryByText("Loading chats...")).toBe(null);
+  });
+
+  test("loads projectless Chats when the workspace has no Projects", async () => {
+    const projectless = makeAttachedSession({
+      id: "session:projectless:only",
+      projectId: null,
+      threadId: "thread-projectless-only",
+      title: "Projectless only chat",
+    });
+    const screen = renderWorkbench({
+      projects: [],
+      sessionsByProject: {},
+      projectlessSessions: [projectless],
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.getByText("Projectless only chat") !== null).toBe(true);
+    expect(screen.queryByText("No projects found.")).toBe(null);
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-sessions:list-summaries" && call[1] === null
+    )).toBe(true);
   });
 
   test("consumes a staged fork side-panel snapshot only after a real target session enters", async () => {
@@ -11632,16 +11666,18 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as {
-      __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
-    }).__mockPageStagePropsByPageId?.["nested-page"];
-    expect(props?.breadcrumb).toMatchObject({
-      ancestors: [{
-        projectId: "alpha",
-        pageId: "actual-parent",
-        title: "Actual Parent",
-        disabled: false,
-      }],
+    await waitFor(() => {
+      const props = (globalThis as {
+        __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
+      }).__mockPageStagePropsByPageId?.["nested-page"];
+      expect(props?.breadcrumb).toMatchObject({
+        ancestors: [{
+          projectId: "alpha",
+          pageId: "actual-parent",
+          title: "Actual Parent",
+          disabled: false,
+        }],
+      });
     });
   });
 

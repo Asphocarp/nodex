@@ -105,23 +105,44 @@ export async function invalidateProjectSessionScope(
   queryClient: QueryClient,
   event: ProjectSessionsChangeEvent,
 ): Promise<void> {
-  await queryClient.invalidateQueries({
-    queryKey: queryKeys.projectSessions.summaries(event.projectId),
-    exact: true,
-  });
-
-  if (!event.sessionId) return;
-
-  if (event.changeType === "delete" || event.changeType === "archive") {
-    queryClient.removeQueries({
-      queryKey: queryKeys.projectSessions.detail(event.sessionId),
+  const summaryInvalidations = event.summaryScopes.map(async (scope) => {
+    if (scope.kind === "all") {
+      await queryClient.invalidateQueries({
+        queryKey: ["projectSessions", "summaries"],
+      });
+      return;
+    }
+    await queryClient.invalidateQueries({
+      queryKey: queryKeys.projectSessions.summaries(
+        scope.kind === "project" ? scope.projectId : null,
+      ),
       exact: true,
+    });
+  });
+  await Promise.all(summaryInvalidations);
+
+  if (event.detailInvalidation.kind === "all") {
+    await queryClient.invalidateQueries({
+      queryKey: ["projectSessions", "detail"],
     });
     return;
   }
 
-  await queryClient.invalidateQueries({
-    queryKey: queryKeys.projectSessions.detail(event.sessionId),
-    exact: true,
-  });
+  const sessionIds = event.detailInvalidation.sessionIds;
+  if (event.changeType === "delete" || event.changeType === "archive") {
+    for (const sessionId of sessionIds) {
+      queryClient.removeQueries({
+        queryKey: queryKeys.projectSessions.detail(sessionId),
+        exact: true,
+      });
+    }
+    return;
+  }
+
+  await Promise.all(sessionIds.map(async (sessionId) => {
+    await queryClient.invalidateQueries({
+      queryKey: queryKeys.projectSessions.detail(sessionId),
+      exact: true,
+    });
+  }));
 }

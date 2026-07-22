@@ -162,10 +162,12 @@ export function createDesktopProjectWorkspaceBridge(
 }
 
 export interface CoreProjectWorkspaceInvalidation {
-  readonly projectCatalogChanged: boolean;
+  readonly projectCatalogChange?: import("../../shared/core-modules/project-workspace-module").ProjectCatalogChangeKind;
   readonly projectIds: readonly string[];
   readonly sessionIds: readonly string[];
   readonly threadIds: readonly string[];
+  readonly sessionSummaryScopes: readonly import("../../shared/core-modules/project-workspace-module").ProjectSessionInvalidationScope[];
+  readonly sessionDetailIds: readonly string[];
 }
 
 export function mapCoreProjectWorkspaceEvent(
@@ -174,9 +176,14 @@ export function mapCoreProjectWorkspaceEvent(
   const payload = envelope.event.payload;
   if (payload.module !== "project_workspace") return null;
   return {
-    projectCatalogChanged: payload.event.project_catalog_changed,
+    projectCatalogChange: payload.event.project_catalog_change ?? undefined,
     projectIds: payload.event.project_ids,
     sessionIds: payload.event.session_ids,
     threadIds: payload.event.thread_ids,
+    sessionSummaryScopes: payload.event.session_summary_scopes.map((scope) => {
+      if (scope.kind !== "project") return scope;
+      return { kind: scope.kind, projectId: scope.project_id };
+    }),
+    sessionDetailIds: payload.event.session_detail_ids,
   };
 }

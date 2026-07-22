@@ -1,5 +1,6 @@
 import { EventEmitter } from "events";
 import type { DatabasePageSummary } from "../../shared/types";
+import type { ProjectSessionsChangeEvent } from "../../shared/ipc-api";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
 import type { PageTargetChangedEvent } from "../../shared/page-target-events";
 import type { PageOwnershipPathsChangedEvent } from "../../shared/page-ownership-path-events";
@@ -15,20 +16,15 @@ import {
 import { recordDevRuntimeMetricCounter } from "../dev-runtime-metrics";
 
 export type ChangeType = "create" | "update" | "delete" | "move" | "undo" | "redo" | "revert" | "restore";
-export type ProjectChangeType = "create" | "update" | "delete" | "reorder" | "pin";
-export type ProjectSessionChangeType =
+export type ProjectChangeType =
   | "create"
   | "update"
+  | "metadata"
+  | "sources"
+  | "lifecycle"
   | "delete"
-  | "move"
   | "reorder"
-  | "pin"
-  | "archive"
-  | "unarchive"
-  | "unread"
-  | "link"
-  | "thread";
-
+  | "pin";
 export interface BoardChangeEvent {
   projectId: string;
   changeType: ChangeType;
@@ -42,12 +38,6 @@ export interface BoardChangeEvent {
     queueWaitMs?: number;
     transactionMs?: number;
   };
-}
-
-export interface ProjectSessionsChangeEvent {
-  projectId: string | null;
-  changeType: ProjectSessionChangeType;
-  sessionId?: string;
 }
 
 export interface ProjectsChangeEvent {
@@ -143,22 +133,24 @@ export class DatabaseNotifier extends EventEmitter {
     this.emit("projects-changed", { projectId, changeType });
   }
 
-  notifyProjectSessionsChanged(
-    projectId: string | null,
-    changeType: ProjectSessionChangeType,
-    sessionId?: string,
-  ): void {
+  notifyProjectSessionInvalidation(event: ProjectSessionsChangeEvent): void {
+    const scopeKey = event.summaryScopes
+      .map((scope) => scope.kind === "project" ? scope.projectId : scope.kind)
+      .join(",");
     recordDevRuntimeMetricCounter("project_sessions_changed.burst_window", {
-      projectId,
-      changeType,
-      sessionId,
+      scopeKey,
+      changeType: event.changeType,
+      detailScope: event.detailInvalidation.kind,
+      detailCount: event.detailInvalidation.kind === "sessions"
+        ? event.detailInvalidation.sessionIds.length
+        : 0,
     }, {
-      groupBy: ["projectId", "changeType"],
+      groupBy: ["scopeKey", "changeType"],
       windowMs: 1_000,
       burstThreshold: 20,
       burstMetric: "project_sessions_changed.burst",
     });
-    this.emit("project-sessions-changed", { projectId, changeType, sessionId });
+    this.emit("project-sessions-changed", event);
   }
 }
 
