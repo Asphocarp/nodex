@@ -10,6 +10,7 @@ import type {
   DocumentRelocationLeaseResponseAck,
   DocumentSyncCommandResult,
 } from "../../shared/block-documents/document-sync";
+import type { CanvasSceneRealtimeEvent } from "../../shared/block-documents";
 import type { CanvasSceneSyncAdapter } from "./canvas-scene-provider";
 import { toApiUrl } from "./http-base";
 import { decodeDocumentRealtimeSseEvent } from "../../shared/block-documents/http-contract";
@@ -21,8 +22,16 @@ interface EventSourceLike {
   close(): void;
 }
 
+interface HttpCanvasSubscriber {
+  readonly listener: (event: CanvasSceneRealtimeEvent) => void;
+  readonly leaseListener?: NonNullable<
+    Parameters<CanvasSceneSyncAdapter["subscribe"]>[2]
+  >;
+}
+
 interface HttpCanvasSubscription {
   readonly source: EventSourceLike;
+  readonly subscribers: Set<HttpCanvasSubscriber>;
   readonly openWaiters: Set<(opened: boolean) => void>;
   opened: boolean;
   openedOnce: boolean;
@@ -69,72 +78,101 @@ export const createHttpCanvasSceneSyncAdapter = (options: {
       if (request.projectId !== options.projectId) {
         throw new TypeError("Canvas subscription crossed its Project boundary");
       }
-      const query = new URLSearchParams({ clientSessionId: request.clientSessionId });
-      const source = createEventSource(toUrl(
-        `/api/projects/${encodeURIComponent(request.projectId)}/documents/${encodeURIComponent(request.documentId)}/canvas/events?${query.toString()}`,
-      ));
       const key = subscriptionKey(request.documentId, request.clientSessionId);
-      const subscription: HttpCanvasSubscription = {
-        source,
-        openWaiters: new Set(),
-        opened: false,
-        openedOnce: false,
-        disposed: false,
-      };
-      subscriptions.set(key, subscription);
-      source.onopen = () => {
-        if (subscription.disposed) return;
-        const reconnect = subscription.openedOnce;
-        subscription.opened = true;
-        subscription.openedOnce = true;
-        const waiters = [...subscription.openWaiters];
-        subscription.openWaiters.clear();
-        waiters.forEach((resolve) => resolve(true));
-        if (reconnect && subscription.boundary) {
-          listener({
-            type: "canvas_scene_resync_required",
-            version: 1,
-            projectId: request.projectId,
-            documentId: request.documentId,
-            ...subscription.boundary,
-          });
-        }
-      };
-      source.onerror = () => {
-        if (subscription.disposed) return;
-        subscription.opened = false;
-        const waiters = [...subscription.openWaiters];
-        subscription.openWaiters.clear();
-        waiters.forEach((resolve) => resolve(false));
-      };
-      source.onmessage = (message: MessageEvent<string>) => {
-        try {
-          const raw = JSON.parse(message.data) as unknown;
-          if (
-            typeof raw === "object" && raw !== null && "kind" in raw &&
-            (raw.kind === "relocation-lease-prepare" || raw.kind === "relocation-lease-release" || raw.kind === "relocation-lease-cancel")
-          ) {
-            const event = decodeDocumentRealtimeSseEvent(message.data);
-            if (
-              event.kind === "relocation-lease-prepare" ||
-              event.kind === "relocation-lease-release" ||
-              event.kind === "relocation-lease-cancel"
-            ) {
-              leaseListener?.(event);
-            }
-            return;
+      let subscription = subscriptions.get(key);
+      if (!subscription) {
+        const query = new URLSearchParams({
+          clientSessionId: request.clientSessionId,
+        });
+        const source = createEventSource(toUrl(
+          `/api/projects/${encodeURIComponent(request.projectId)}/documents/${encodeURIComponent(request.documentId)}/canvas/events?${query.toString()}`,
+        ));
+        const createdSubscription: HttpCanvasSubscription = {
+          source,
+          subscribers: new Set(),
+          openWaiters: new Set(),
+          opened: false,
+          openedOnce: false,
+          disposed: false,
+        };
+        subscription = createdSubscription;
+        subscriptions.set(key, createdSubscription);
+        source.onopen = () => {
+          if (createdSubscription.disposed) return;
+          const reconnect = createdSubscription.openedOnce;
+          createdSubscription.opened = true;
+          createdSubscription.openedOnce = true;
+          const waiters = [...createdSubscription.openWaiters];
+          createdSubscription.openWaiters.clear();
+          waiters.forEach((resolve) => resolve(true));
+          if (reconnect && createdSubscription.boundary) {
+            const event: CanvasSceneRealtimeEvent = {
+              type: "canvas_scene_resync_required",
+              version: 1,
+              projectId: request.projectId,
+              documentId: request.documentId,
+              ...createdSubscription.boundary,
+            };
+            createdSubscription.subscribers.forEach((subscriber) =>
+              subscriber.listener(event)
+            );
           }
-          listener(decodeCanvasSceneSseEvent(message.data));
-        } catch {
-          // A later full sync repairs a malformed or missed realtime event.
-        }
-      };
+        };
+        source.onerror = () => {
+          if (createdSubscription.disposed) return;
+          createdSubscription.opened = false;
+          const waiters = [...createdSubscription.openWaiters];
+          createdSubscription.openWaiters.clear();
+          waiters.forEach((resolve) => resolve(false));
+        };
+        source.onmessage = (message: MessageEvent<string>) => {
+          if (createdSubscription.disposed) return;
+          try {
+            const raw = JSON.parse(message.data) as unknown;
+            if (
+              typeof raw === "object" && raw !== null && "kind" in raw &&
+              (
+                raw.kind === "relocation-lease-prepare" ||
+                raw.kind === "relocation-lease-release" ||
+                raw.kind === "relocation-lease-cancel"
+              )
+            ) {
+              const event = decodeDocumentRealtimeSseEvent(message.data);
+              if (
+                event.kind === "relocation-lease-prepare" ||
+                event.kind === "relocation-lease-release" ||
+                event.kind === "relocation-lease-cancel"
+              ) {
+                createdSubscription.subscribers.forEach((subscriber) =>
+                  subscriber.leaseListener?.(event)
+                );
+              }
+              return;
+            }
+            const event = decodeCanvasSceneSseEvent(message.data);
+            createdSubscription.subscribers.forEach((subscriber) =>
+              subscriber.listener(event)
+            );
+          } catch {
+            // A later full sync repairs a malformed or missed realtime event.
+          }
+        };
+      }
+      const subscriber: HttpCanvasSubscriber = { listener, leaseListener };
+      subscription.subscribers.add(subscriber);
+      let active = true;
       return () => {
+        if (!active) return;
+        active = false;
+        subscription.subscribers.delete(subscriber);
+        if (subscription.subscribers.size > 0) return;
         subscription.disposed = true;
-        subscriptions.delete(key);
+        if (subscriptions.get(key) === subscription) {
+          subscriptions.delete(key);
+        }
         subscription.openWaiters.forEach((resolve) => resolve(false));
         subscription.openWaiters.clear();
-        source.close();
+        subscription.source.close();
       };
     },
     async sync(request) {

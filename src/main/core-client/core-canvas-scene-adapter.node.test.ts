@@ -6,6 +6,7 @@ import {
   type CanvasSceneRealtimeEvent,
 } from "../../shared/block-documents";
 import { createCoreCanvasSceneAdapter } from "./core-canvas-scene-adapter";
+import { CoreModuleResponseError } from "./core-client";
 import { FakeCoreClient } from "./testing/fake-core-client";
 import type {
   CoreEventEnvelope,
@@ -19,6 +20,33 @@ const CLIENT_SESSION_ID = "renderer:canvas";
 const STORE_EPOCH = "epoch:canvas";
 const SCENE_HASH = "a".repeat(64);
 const COMMITTED_AT = "2026-07-19T00:00:00.000Z";
+
+class SubscriptionLossCanvasClient extends FakeCoreClient {
+  streamOpenings = 0;
+  readAttempts = 0;
+
+  override openDocumentEventStream(
+    ...args: Parameters<FakeCoreClient["openDocumentEventStream"]>
+  ): ReturnType<FakeCoreClient["openDocumentEventStream"]> {
+    this.streamOpenings += 1;
+    return super.openDocumentEventStream(...args);
+  }
+
+  override documentRead(
+    ...args: Parameters<FakeCoreClient["documentRead"]>
+  ): ReturnType<FakeCoreClient["documentRead"]> {
+    this.readAttempts += 1;
+    if (this.readAttempts === 1) {
+      throw new CoreModuleResponseError({
+        code: "unauthorized",
+        message: "An exact Document subscription is required",
+        retryable: true,
+        recovery: { kind: "reconnect_document_subscription" },
+      });
+    }
+    return super.documentRead(...args);
+  }
+}
 
 const emptyScene = materializePortableCanvasScene({ elements: [] });
 
@@ -117,6 +145,27 @@ const committedEvent = (): CoreEventEnvelope => ({
 });
 
 describe("Core Canvas scene adapter", () => {
+  test("reconnects and retries once when Core reports a lost subscription lease", async () => {
+    const client = new SubscriptionLossCanvasClient();
+    client.enqueueDocumentRead(syncSnapshot());
+    const adapter = createCoreCanvasSceneAdapter(client, { retryDelayMs: 0 });
+    const request = {
+      version: CANVAS_SCENE_SYNC_VERSION,
+      projectId: PROJECT_ID,
+      documentId: DOCUMENT_ID,
+      clientSessionId: CLIENT_SESSION_ID,
+    } as const;
+    const close = adapter.subscribe(request, () => undefined);
+
+    await expect(adapter.sync(request)).resolves.toMatchObject({
+      ok: true,
+      value: { documentId: DOCUMENT_ID },
+    });
+    expect(client.streamOpenings).toBe(2);
+    expect(client.readAttempts).toBe(2);
+    close();
+  });
+
   test("syncs, applies, and maps durable Canvas events behind one subscription", async () => {
     const client = new FakeCoreClient();
     const adapter = createCoreCanvasSceneAdapter(client);
@@ -158,7 +207,7 @@ describe("Core Canvas scene adapter", () => {
     })).resolves.toEqual({ ok: true, value: mutationResult });
 
     client.emit(committedEvent());
-    expect(events).toEqual([{
+    await expect.poll(() => events).toEqual([{
       type: "canvas_scene_committed",
       version: CANVAS_SCENE_SYNC_VERSION,
       projectId: PROJECT_ID,

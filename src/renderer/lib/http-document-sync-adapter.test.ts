@@ -43,6 +43,81 @@ const binaryResponse = (body: Uint8Array): Response =>
   });
 
 describe("createHttpDocumentSyncAdapter", () => {
+  test("multiplexes an exact session by subscriber identity", async () => {
+    const eventSources: FakeEventSource[] = [];
+    let syncCalls = 0;
+    const adapter = createHttpDocumentSyncAdapter({
+      projectId: "project-1",
+      fetch: async () => {
+        syncCalls += 1;
+        return binaryResponse(encodeDocumentSyncHttpResponse({
+          documentId: "document-1",
+          storeEpoch: "store-1",
+          generation: 1,
+          headSeq: 0,
+          stateVector: new Uint8Array([1]),
+          update: new Uint8Array([2]),
+        }));
+      },
+      toUrl: (path) => `http://nodex.test${path}`,
+      createEventSource: (url) => {
+        const source = new FakeEventSource(url);
+        eventSources.push(source);
+        return source;
+      },
+    });
+    const request = {
+      documentId: "document-1",
+      clientSessionId: "client-1",
+    } as const;
+    const listener = () => undefined;
+    const closeFirst = adapter.subscribe(request, listener);
+    const closeSecond = adapter.subscribe(request, listener);
+
+    expect(eventSources).toHaveLength(1);
+    eventSources[0]?.open();
+    closeFirst();
+    await expect(adapter.sync({
+      ...request,
+      stateVector: new Uint8Array([0]),
+    })).resolves.toMatchObject({ ok: true });
+    expect(syncCalls).toBe(1);
+    expect(eventSources[0]?.closed).toBe(false);
+
+    closeSecond();
+    expect(eventSources[0]?.closed).toBe(true);
+  });
+
+  test("fails a pending initial command when EventSource reports an error", async () => {
+    let eventSource: FakeEventSource | null = null;
+    const adapter = createHttpDocumentSyncAdapter({
+      projectId: "project-1",
+      fetch: async () => {
+        throw new Error("must not fetch");
+      },
+      createEventSource: (url) => {
+        eventSource = new FakeEventSource(url);
+        return eventSource;
+      },
+    });
+    const request = {
+      documentId: "document-1",
+      clientSessionId: "client-1",
+    } as const;
+    adapter.subscribe(request, () => undefined);
+    const syncing = adapter.sync({
+      ...request,
+      stateVector: new Uint8Array(),
+    });
+
+    (eventSource as FakeEventSource | null)?.disconnect();
+
+    await expect(syncing).resolves.toMatchObject({
+      ok: false,
+      error: { code: "request_cancelled" },
+    });
+  });
+
   test("opens project-scoped SSE before binary sync and apply commands", async () => {
     const eventSources: FakeEventSource[] = [];
     const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];

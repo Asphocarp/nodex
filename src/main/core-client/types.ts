@@ -162,6 +162,7 @@ export interface CoreClientPort {
       readonly documentId: string;
       readonly clientSessionId: string;
       readonly after: number;
+      readonly signal?: AbortSignal;
     },
     onEvent: (event: CoreEventEnvelope) => void,
     onResyncRequired: (event: DocumentResyncRequired) => void,
@@ -171,5 +172,6 @@ export interface CoreClientPort {
     after: number,
     onEvent: (event: CoreEventEnvelope) => void,
     onResyncRequired?: (event: CoreEventReplayRequired) => void,
+    signal?: AbortSignal,
   ): Promise<CoreEventSubscription>;
 }

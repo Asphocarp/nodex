@@ -212,7 +212,7 @@ impl OwnedDocumentRealtimeAdapter {
             .subscriptions
             .get(&(connection_id.to_owned(), client_session_id.to_owned()))
             .filter(|subscription| subscription.document_id == document_id)
-            .ok_or_else(|| unauthorized("An exact Document subscription is required"))?;
+            .ok_or_else(|| subscription_required("An exact Document subscription is required"))?;
         Ok(subscription_ack(subscription, 0))
     }
 
@@ -288,7 +288,9 @@ impl OwnedDocumentRealtimeAdapter {
             let subscription = state
                 .subscriptions
                 .get(&(connection_id.to_owned(), client_session_id.to_owned()))
-                .ok_or_else(|| unauthorized("An exact Document subscription is required"))?;
+                .ok_or_else(|| {
+                    subscription_required("An exact Document subscription is required")
+                })?;
             (
                 subscription.context.clone(),
                 subscription.document_id.clone(),
@@ -348,7 +350,7 @@ impl OwnedDocumentRealtimeAdapter {
         let document_id = state
             .subscriptions
             .get(&key)
-            .ok_or_else(|| unauthorized("An exact Yjs subscription is required"))?
+            .ok_or_else(|| subscription_required("An exact Yjs subscription is required"))?
             .document_id
             .clone();
         for (client_id, _) in &inspected {
@@ -365,7 +367,7 @@ impl OwnedDocumentRealtimeAdapter {
         let mut subscription_clients = state
             .subscriptions
             .get(&key)
-            .ok_or_else(|| unauthorized("An exact Yjs subscription is required"))?
+            .ok_or_else(|| subscription_required("An exact Yjs subscription is required"))?
             .awareness_client_ids
             .clone();
         let mut document_clients = state
@@ -388,7 +390,7 @@ impl OwnedDocumentRealtimeAdapter {
             let subscription = state
                 .subscriptions
                 .get(&key)
-                .ok_or_else(|| unauthorized("An exact Yjs subscription is required"))?;
+                .ok_or_else(|| subscription_required("An exact Yjs subscription is required"))?;
             if subscription.engine != DocumentSubscriptionEngine::Yjs {
                 return Err(invalid("Canvas subscriptions do not accept Awareness"));
             }
@@ -720,6 +722,15 @@ fn unauthorized(message: &str) -> CoreError {
         message: message.to_owned(),
         retryable: false,
         recovery: CoreErrorRecovery::None,
+    }
+}
+
+fn subscription_required(message: &str) -> CoreError {
+    CoreError {
+        code: CoreErrorCode::Unauthorized,
+        message: message.to_owned(),
+        retryable: true,
+        recovery: CoreErrorRecovery::ReconnectDocumentSubscription,
     }
 }
 

@@ -16,15 +16,24 @@ import {
 } from "../../shared/block-documents/canvas-scene-http-contract";
 import { decodeOwnedDocumentDescriptorHttp } from "../../shared/block-documents/http-contract";
 import { CoreModuleResponseError } from "./core-client";
+import {
+  isRetryableCoreEventStreamError,
+  superviseCoreEventStream,
+  type SupervisedCoreEventSubscription,
+} from "./core-event-stream-supervisor";
+import { executeWithDocumentSubscription } from "./core-document-subscription-lifecycle";
 import type {
   CoreClientPort,
   CoreEventEnvelope,
-  CoreEventSubscription,
+  DocumentResyncRequired,
 } from "./types";
 
-interface ActiveSubscription {
-  readonly ready: Promise<void>;
-  close(): void;
+type ActiveSubscription = SupervisedCoreEventSubscription;
+
+interface CoreCanvasSceneAdapterOptions {
+  readonly retryDelayMs?: number;
+  readonly maxRetryDelayMs?: number;
+  readonly maxInitialOpenAttempts?: number;
 }
 
 type CanvasFailure = Extract<
@@ -33,6 +42,10 @@ type CanvasFailure = Extract<
 >;
 
 export interface CoreCanvasSceneAdapter {
+  subscribeWithLifecycle(
+    request: CanvasSceneSubscribeRequest,
+    listener: (event: CanvasSceneRealtimeEvent) => void,
+  ): SupervisedCoreEventSubscription;
   subscribe(
     request: CanvasSceneSubscribeRequest,
     listener: (event: CanvasSceneRealtimeEvent) => void,
@@ -49,79 +62,95 @@ const subscriptionKey = (
 
 export const createCoreCanvasSceneAdapter = (
   client: CoreClientPort,
+  options: CoreCanvasSceneAdapterOptions = {},
 ): CoreCanvasSceneAdapter => {
   const subscriptions = new Map<string, ActiveSubscription>();
   const lastSequences = new Map<string, number>();
 
-  const requireSubscription = (
+  const subscriptionFor = (
     request: Pick<CanvasSceneSubscribeRequest, "clientSessionId" | "documentId">,
-  ): Promise<void> => {
+  ): ActiveSubscription => {
     const subscription = subscriptions.get(subscriptionKey(request));
-    if (subscription) return subscription.ready;
-    return Promise.reject(
-      new Error("Canvas scene sync requires an active event subscription"),
-    );
+    if (subscription) return subscription;
+    throw new Error("Canvas scene sync requires an active event subscription");
+  };
+
+  const subscribeWithLifecycle = (
+    request: CanvasSceneSubscribeRequest,
+    listener: (event: CanvasSceneRealtimeEvent) => void,
+  ): SupervisedCoreEventSubscription => {
+    const key = subscriptionKey(request);
+    const predecessor = subscriptions.get(key);
+    predecessor?.close();
+    const predecessorDone = predecessor?.done.catch(() => undefined)
+      ?? Promise.resolve();
+    const supervisor = superviseCoreEventStream<DocumentResyncRequired>({
+      initialAfter: lastSequences.get(key) ?? 0,
+      maxInitialOpenAttempts: options.maxInitialOpenAttempts ?? 3,
+      shouldRetry: isRetryableCoreEventStreamError,
+      retryDelayMs: options.retryDelayMs,
+      maxRetryDelayMs: options.maxRetryDelayMs,
+      open: async (after, onEvent, onResyncRequired, signal) => {
+        await predecessorDone;
+        if (signal.aborted) throw signal.reason;
+        return await client.openDocumentEventStream(
+          {
+            documentId: request.documentId,
+            clientSessionId: request.clientSessionId,
+            after,
+            signal,
+          },
+          onEvent,
+          onResyncRequired,
+          () => undefined,
+        );
+      },
+      onEvent: (envelope) => {
+        const event = canvasEvent(request, envelope);
+        if (!event) return;
+        const previous = lastSequences.get(key) ?? 0;
+        if (envelope.event.sequence <= previous) return;
+        listener(event);
+        lastSequences.set(key, envelope.event.sequence);
+      },
+      onResyncRequired: (resync) => {
+        lastSequences.set(key, resync.event_head);
+        listener({
+          type: "canvas_scene_resync_required",
+          version: CANVAS_SCENE_SYNC_VERSION,
+          projectId: request.projectId,
+          documentId: resync.document_id,
+          storeEpoch: resync.store_epoch,
+          generation: resync.generation,
+          headSeq: resync.head_seq,
+        });
+      },
+    });
+    subscriptions.set(key, supervisor);
+    void supervisor.done.catch(() => undefined).finally(() => {
+      if (subscriptions.get(key) === supervisor) {
+        subscriptions.delete(key);
+      }
+    });
+    return supervisor;
   };
 
   return {
-    subscribe: (request, listener) => {
-      const key = subscriptionKey(request);
-      subscriptions.get(key)?.close();
-      let active = true;
-      let opened: CoreEventSubscription | undefined;
-      const ready = client.openDocumentEventStream(
-        {
-          documentId: request.documentId,
-          clientSessionId: request.clientSessionId,
-          after: lastSequences.get(key) ?? 0,
-        },
-        (envelope) => {
-          const event = canvasEvent(request, envelope);
-          if (!event) return;
-          const previous = lastSequences.get(key) ?? 0;
-          if (envelope.event.sequence <= previous) return;
-          lastSequences.set(key, envelope.event.sequence);
-          listener(event);
-        },
-        (resync) => {
-          lastSequences.set(key, resync.event_head);
-          listener({
-            type: "canvas_scene_resync_required",
-            version: CANVAS_SCENE_SYNC_VERSION,
-            projectId: request.projectId,
-            documentId: resync.document_id,
-            storeEpoch: resync.store_epoch,
-            generation: resync.generation,
-            headSeq: resync.head_seq,
-          });
-        },
-        () => undefined,
-      ).then((subscription) => {
-        opened = subscription;
-        if (!active) subscription.close();
-      });
-      const subscription: ActiveSubscription = {
-        ready,
-        close: () => {
-          if (!active) return;
-          active = false;
-          opened?.close();
-          if (subscriptions.get(key) === subscription) {
-            subscriptions.delete(key);
-          }
-        },
-      };
-      subscriptions.set(key, subscription);
-      void ready.catch(() => subscription.close());
-      return subscription.close;
-    },
+    subscribeWithLifecycle,
+    subscribe: (request, listener) =>
+      subscribeWithLifecycle(request, listener).close,
     sync: async (request) => {
       try {
-        await requireSubscription(request);
-        const snapshot = await client.documentRead(request.clientSessionId, {
-          kind: "sync_canvas",
-          document_id: request.documentId,
-        });
+        const key = subscriptionKey(request);
+        const subscription = subscriptionFor(request);
+        const snapshot = await executeWithDocumentSubscription(
+          subscription,
+          () => subscriptions.get(key) === subscription,
+          async () => await client.documentRead(request.clientSessionId, {
+            kind: "sync_canvas",
+            document_id: request.documentId,
+          }),
+        );
         if (snapshot.value.kind !== "canvas_sync") {
           throw new Error("Core returned a non-Canvas Document sync value");
         }
@@ -165,23 +194,28 @@ export const createCoreCanvasSceneAdapter = (
     },
     applyMutation: async (request) => {
       try {
-        await requireSubscription(request);
         const canonical = canonicalizeCanvasSceneMutationRequest(request);
-        const committed = await client.documentApply({
-          operationId: canonical.mutationId,
-          clientSessionId: canonical.clientSessionId,
-          intent: {
-            kind: "apply_canvas_mutation",
-            document_id: canonical.documentId,
-            generation: canonical.generation,
-            expected_head_seq: canonical.baseHeadSeq,
-            mutation: {
-              elementCandidates: canonical.elementCandidates,
-              appStateIntents: canonical.appStateIntents,
-              fileAdditions: canonical.fileAdditions,
+        const key = subscriptionKey(request);
+        const subscription = subscriptionFor(request);
+        const committed = await executeWithDocumentSubscription(
+          subscription,
+          () => subscriptions.get(key) === subscription,
+          async () => await client.documentApply({
+            operationId: canonical.mutationId,
+            clientSessionId: canonical.clientSessionId,
+            intent: {
+              kind: "apply_canvas_mutation",
+              document_id: canonical.documentId,
+              generation: canonical.generation,
+              expected_head_seq: canonical.baseHeadSeq,
+              mutation: {
+                elementCandidates: canonical.elementCandidates,
+                appStateIntents: canonical.appStateIntents,
+                fileAdditions: canonical.fileAdditions,
+              },
             },
-          },
-        });
+          }),
+        );
         if (committed.value.canvas === undefined) {
           throw new Error("Core Canvas mutation response has no Canvas result");
         }

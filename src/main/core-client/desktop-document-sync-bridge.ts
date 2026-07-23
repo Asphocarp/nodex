@@ -219,6 +219,23 @@ interface NativeSubscription {
   headSeq?: number;
 }
 
+interface PendingNativeSubscription {
+  readonly targetId: number;
+  readonly settled: Promise<void>;
+  attachClose(close: () => void): void;
+  cancel(): void;
+  settle(): void;
+}
+
+type NativeSubscriptionReservation =
+  | { readonly kind: "existing" }
+  | { readonly kind: "conflict" }
+  | { readonly kind: "target_destroyed" }
+  | {
+      readonly kind: "reserved";
+      readonly pending: PendingNativeSubscription;
+    };
+
 interface NativeWriteLeaseDocumentBoundary {
   readonly documentId: string;
   readonly storeEpoch: string;
@@ -375,6 +392,7 @@ export function createDesktopDocumentSyncBridge(
   const blockTransferAdapters = new Map<string, CoreBlockTransferAdapter>();
   const subscriptions = new Map<string, NativeSubscription>();
   const bindings = new Map<string, string>();
+  const pendingSubscriptions = new Map<string, PendingNativeSubscription>();
   const boundTargets = new Set<number>();
   const nativeWriteLeaseBoundaries = new Map<
     string,
@@ -497,6 +515,60 @@ export function createDesktopDocumentSyncBridge(
     subscription.close();
   };
 
+  const beginPendingSubscription = (
+    ownerKey: string,
+    targetId: number,
+  ): PendingNativeSubscription => {
+    let resolve: () => void = () => undefined;
+    let close: () => void = () => undefined;
+    let cancelled = false;
+    const settled = new Promise<void>((done) => {
+      resolve = done;
+    });
+    const pending: PendingNativeSubscription = {
+      targetId,
+      settled,
+      attachClose: (attachedClose) => {
+        close = attachedClose;
+        if (cancelled) close();
+      },
+      cancel: () => {
+        cancelled = true;
+        close();
+      },
+      settle: () => {
+        if (pendingSubscriptions.get(ownerKey) === pending) {
+          pendingSubscriptions.delete(ownerKey);
+        }
+        resolve();
+      },
+    };
+    pendingSubscriptions.set(ownerKey, pending);
+    return pending;
+  };
+
+  const reserveNativeSubscription = async (
+    ownerKey: string,
+    key: string,
+    target: DocumentSyncClientTarget,
+  ): Promise<NativeSubscriptionReservation> => {
+    while (true) {
+      const predecessor = pendingSubscriptions.get(ownerKey);
+      if (predecessor) {
+        await predecessor.settled;
+        continue;
+      }
+      if (target.isDestroyed()) return { kind: "target_destroyed" };
+      if (subscriptions.has(key)) return { kind: "existing" };
+      if (bindings.has(ownerKey)) return { kind: "conflict" };
+      bindings.set(ownerKey, key);
+      return {
+        kind: "reserved",
+        pending: beginPendingSubscription(ownerKey, target.id),
+      };
+    }
+  };
+
   const adoptSubscriptionBoundary = (
     key: string,
     boundary: {
@@ -553,6 +625,9 @@ export function createDesktopDocumentSyncBridge(
     boundTargets.add(target.id);
     target.once("destroyed", () => {
       boundTargets.delete(target.id);
+      for (const pending of pendingSubscriptions.values()) {
+        if (pending.targetId === target.id) pending.cancel();
+      }
       for (const [key, subscription] of subscriptions) {
         if (subscription.targetId === target.id) closeSubscription(key);
       }
@@ -1146,49 +1221,70 @@ export function createDesktopDocumentSyncBridge(
       if (target.isDestroyed()) return documentSyncUnauthorized();
       const adapter = adapterFor(runtime, scope);
       const key = subscriptionKey(target, scope, request);
-      if (subscriptions.has(key)) {
+      const ownerKey = bindingKey(request);
+      bindTargetLifecycle(target);
+      const reservation = await reserveNativeSubscription(
+        ownerKey,
+        key,
+        target,
+      );
+      if (reservation.kind === "existing") {
         return { ok: true, value: { subscribed: true } };
       }
-      const ownerKey = bindingKey(request);
-      if (bindings.has(ownerKey)) return documentSyncUnauthorized();
-      bindTargetLifecycle(target);
-      if (target.isDestroyed()) return documentSyncUnauthorized();
-      bindings.set(ownerKey, key);
-      let close: () => void;
-      try {
-        close = adapter.subscribe(request, (event) => {
-          if (
-            event.kind === "document-update"
-            || event.kind === "resync-required"
-          ) {
-            adoptSubscriptionBoundary(key, {
-              storeEpoch: event.storeEpoch,
-              generation: event.generation,
-              headSeq: event.headSeq,
-            });
-          }
-          safeSendToWebContents(target, DOCUMENT_SYNC_EVENT_CHANNEL, [event]);
-        });
-      } catch (error) {
-        bindings.delete(ownerKey);
-        return transportUnavailable(error);
-      }
-      const subscribed = addNativeSubscription(key, {
-        bindingKey: ownerKey,
-        participantSessionKey: participantSessionKey(key),
-        scope,
-        documentId: request.documentId,
-        clientSessionId: request.clientSessionId,
-        target,
-        targetId: target.id,
-        close,
-      });
-      if (!subscribed.ok) return subscribed;
-      if (target.isDestroyed()) {
-        closeSubscription(key);
+      if (reservation.kind === "target_destroyed") {
         return documentSyncUnauthorized();
       }
-      return subscribed;
+      if (reservation.kind === "conflict") return documentSyncUnauthorized();
+      const { pending } = reservation;
+      try {
+        let lifecycle: ReturnType<
+          CoreDocumentSyncAdapter["subscribeWithLifecycle"]
+        > | null = null;
+        try {
+          lifecycle = adapter.subscribeWithLifecycle(request, (event) => {
+            if (
+              event.kind === "document-update"
+              || event.kind === "resync-required"
+            ) {
+              adoptSubscriptionBoundary(key, {
+                storeEpoch: event.storeEpoch,
+                generation: event.generation,
+                headSeq: event.headSeq,
+              });
+            }
+            safeSendToWebContents(target, DOCUMENT_SYNC_EVENT_CHANNEL, [event]);
+          });
+          pending.attachClose(lifecycle.close);
+          await lifecycle.ready;
+        } catch (error) {
+          lifecycle?.close();
+          if (bindings.get(ownerKey) === key) bindings.delete(ownerKey);
+          return transportUnavailable(error);
+        }
+        const subscribed = addNativeSubscription(key, {
+          bindingKey: ownerKey,
+          participantSessionKey: participantSessionKey(key),
+          scope,
+          documentId: request.documentId,
+          clientSessionId: request.clientSessionId,
+          target,
+          targetId: target.id,
+          close: lifecycle.close,
+        });
+        if (!subscribed.ok) return subscribed;
+        void lifecycle.done.catch(() => undefined).finally(() => {
+          if (subscriptions.get(key)?.close === lifecycle.close) {
+            closeSubscription(key);
+          }
+        });
+        if (target.isDestroyed()) {
+          closeSubscription(key);
+          return documentSyncUnauthorized();
+        }
+        return subscribed;
+      } finally {
+        pending.settle();
+      }
     }),
     unsubscribe: async (scope, target, request) => await withRuntime(() => {
       const key = subscriptionKey(target, scope, request);
@@ -1327,61 +1423,81 @@ export function createDesktopDocumentSyncBridge(
         if (target.isDestroyed() || !hasCanvasSceneIdentity(request)) {
           return canvasSceneUnauthorized();
         }
+        const adapter = canvasSceneAdapterFor(runtime, request.projectId);
         const key = canvasSceneSubscriptionKey(target, request);
-        const existing = subscriptions.get(key);
-        if (existing?.target === target) {
+        const ownerKey = bindingKey(request);
+        bindTargetLifecycle(target);
+        const reservation = await reserveNativeSubscription(
+          ownerKey,
+          key,
+          target,
+        );
+        if (reservation.kind === "existing") {
           return { ok: true, value: { subscribed: true } };
         }
-        const ownerKey = bindingKey(request);
-        if (bindings.has(ownerKey)) return canvasSceneUnauthorized();
-        bindTargetLifecycle(target);
-        if (target.isDestroyed()) return canvasSceneUnauthorized();
-        const adapter = canvasSceneAdapterFor(runtime, request.projectId);
-        bindings.set(ownerKey, key);
-        let close: () => void;
-        try {
-          close = adapter.subscribe(request, (event) => {
-            adoptSubscriptionBoundary(key, {
-              storeEpoch: event.storeEpoch,
-              generation: event.generation,
-              headSeq: event.headSeq,
-            });
-            safeSendToWebContents(target, DOCUMENT_SYNC_EVENT_CHANNEL, [event]);
-          });
-        } catch (error) {
-          bindings.delete(ownerKey);
-          return canvasSceneTransportUnavailable(error);
-        }
-        subscriptions.set(key, {
-          bindingKey: ownerKey,
-          participantSessionKey: participantSessionKey(key),
-          scope: { kind: "project", projectId: request.projectId },
-          documentId: request.documentId,
-          clientSessionId: request.clientSessionId,
-          target,
-          targetId: target.id,
-          close,
-        });
-        const registered = relocationLeaseCoordinator.subscribe(
-          participantSessionKey(key),
-          request.documentId,
-        );
-        if (!registered.ok) {
-          const subscription = subscriptions.get(key);
-          subscriptions.delete(key);
-          bindings.delete(ownerKey);
-          subscription?.close();
-          return canvasSceneFailure(
-            "unknown",
-            registered.error.message,
-            { retryable: true },
-          );
-        }
-        if (target.isDestroyed()) {
-          closeSubscription(key);
+        if (reservation.kind === "target_destroyed") {
           return canvasSceneUnauthorized();
         }
-        return { ok: true, value: { subscribed: true } };
+        if (reservation.kind === "conflict") return canvasSceneUnauthorized();
+        const { pending } = reservation;
+        try {
+          let lifecycle: ReturnType<
+            CoreCanvasSceneAdapter["subscribeWithLifecycle"]
+          > | null = null;
+          try {
+            lifecycle = adapter.subscribeWithLifecycle(request, (event) => {
+              adoptSubscriptionBoundary(key, {
+                storeEpoch: event.storeEpoch,
+                generation: event.generation,
+                headSeq: event.headSeq,
+              });
+              safeSendToWebContents(target, DOCUMENT_SYNC_EVENT_CHANNEL, [event]);
+            });
+            pending.attachClose(lifecycle.close);
+            await lifecycle.ready;
+          } catch (error) {
+            lifecycle?.close();
+            if (bindings.get(ownerKey) === key) bindings.delete(ownerKey);
+            return canvasSceneTransportUnavailable(error);
+          }
+          subscriptions.set(key, {
+            bindingKey: ownerKey,
+            participantSessionKey: participantSessionKey(key),
+            scope: { kind: "project", projectId: request.projectId },
+            documentId: request.documentId,
+            clientSessionId: request.clientSessionId,
+            target,
+            targetId: target.id,
+            close: lifecycle.close,
+          });
+          const registered = relocationLeaseCoordinator.subscribe(
+            participantSessionKey(key),
+            request.documentId,
+          );
+          if (!registered.ok) {
+            const subscription = subscriptions.get(key);
+            subscriptions.delete(key);
+            if (bindings.get(ownerKey) === key) bindings.delete(ownerKey);
+            subscription?.close();
+            return canvasSceneFailure(
+              "unknown",
+              registered.error.message,
+              { retryable: true },
+            );
+          }
+          void lifecycle.done.catch(() => undefined).finally(() => {
+            if (subscriptions.get(key)?.close === lifecycle.close) {
+              closeSubscription(key);
+            }
+          });
+          if (target.isDestroyed()) {
+            closeSubscription(key);
+            return canvasSceneUnauthorized();
+          }
+          return { ok: true, value: { subscribed: true } };
+        } finally {
+          pending.settle();
+        }
       }),
     unsubscribeCanvasScene: async (target, request) =>
       await withCanvasSceneRuntime(() => {

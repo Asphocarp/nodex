@@ -84,6 +84,7 @@ export type CoreModuleRecoveryDetails =
       readonly generation: number;
       readonly headSeq: number;
     }
+  | { readonly kind: "reconnect_document_subscription" }
   | {
       readonly kind: "supported_schema";
       readonly minimum: number;

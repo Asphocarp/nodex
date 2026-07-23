@@ -6734,6 +6734,10 @@ mod tests {
             .apply(&first_context, "client:first", request.clone())
             .expect_err("subscribe-before-sync is mandatory");
         assert_eq!(unauthorized.code, CoreErrorCode::Unauthorized);
+        assert_eq!(
+            unauthorized.recovery,
+            CoreErrorRecovery::ReconnectDocumentSubscription
+        );
         let unauthorized_sync = adapter
             .sync_yjs(
                 &first_context,
@@ -6743,6 +6747,10 @@ mod tests {
             )
             .expect_err("sync also requires a subscription");
         assert_eq!(unauthorized_sync.code, CoreErrorCode::Unauthorized);
+        assert_eq!(
+            unauthorized_sync.recovery,
+            CoreErrorRecovery::ReconnectDocumentSubscription
+        );
 
         let first = adapter
             .subscribe(
@@ -6848,6 +6856,10 @@ mod tests {
             )
             .expect_err("connection disconnect removes its remaining sibling");
         assert_eq!(disconnected_sibling.code, CoreErrorCode::Unauthorized);
+        assert_eq!(
+            disconnected_sibling.recovery,
+            CoreErrorRecovery::ReconnectDocumentSubscription
+        );
 
         seeded
             .module

@@ -2650,6 +2650,20 @@
           {
             "type": "object",
             "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "reconnect_document_subscription"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
               "minimum",
               "maximum",
               "actual",

@@ -239,6 +239,7 @@ export class UdsHttpTransport {
     onResyncRequired?: (event: DocumentResyncRequired) => void,
     onDocumentRealtime?: (event: DocumentSyncRealtimeEvent) => void,
     onCoreResyncRequired?: (event: CoreEventReplayRequired) => void,
+    signal?: AbortSignal,
   ): Promise<CoreEventSubscription> {
     if (!Number.isSafeInteger(after) || after < 0) {
       return Promise.reject(new Error("Event sequence must be a non-negative integer"));
@@ -265,6 +266,7 @@ export class UdsHttpTransport {
           path: `/core/v1/events?after=${after}`,
           method: "GET",
           agent: false,
+          signal,
           headers: {
             ...requestHeaders,
             accept: "text/event-stream",
@@ -333,6 +335,9 @@ export class UdsHttpTransport {
             } catch (error) {
               fail(error);
             }
+          });
+          response.on("aborted", () => {
+            fail(new Error("Core event stream ended before completion"));
           });
           response.on("error", fail);
           resolve({

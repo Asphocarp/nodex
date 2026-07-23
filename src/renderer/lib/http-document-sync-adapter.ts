@@ -40,7 +40,9 @@ interface HttpDocumentSyncAdapterOptions {
 
 interface HttpSubscription {
   readonly request: DocumentSyncSubscribeRequest;
-  readonly listeners: Set<(event: DocumentSyncRealtimeEvent) => void>;
+  readonly subscribers: Set<{
+    readonly listener: (event: DocumentSyncRealtimeEvent) => void;
+  }>;
   readonly openWaiters: Set<(opened: boolean) => void>;
   eventSource: EventSourceLike | null;
   opened: boolean;
@@ -357,7 +359,7 @@ export const createHttpDocumentSyncAdapter = ({
       if (!subscription) {
         const createdSubscription: HttpSubscription = {
           request: { ...request },
-          listeners: new Set(),
+          subscribers: new Set(),
           openWaiters: new Set(),
           eventSource: null,
           opened: false,
@@ -376,10 +378,11 @@ export const createHttpDocumentSyncAdapter = ({
             const waiters = [...createdSubscription.openWaiters];
             createdSubscription.openWaiters.clear();
             waiters.forEach((resolve) => resolve(true));
-            createdSubscription.listeners.forEach((activeListener) =>
-              activeListener({
+            createdSubscription.subscribers.forEach((subscriber) =>
+              subscriber.listener({
                 kind: "connection",
                 documentId: request.documentId,
+                clientSessionId: request.clientSessionId,
                 state: "connected",
               }),
             );
@@ -387,10 +390,14 @@ export const createHttpDocumentSyncAdapter = ({
           eventSource.onerror = () => {
             if (createdSubscription.disposed) return;
             createdSubscription.opened = false;
-            createdSubscription.listeners.forEach((activeListener) =>
-              activeListener({
+            const waiters = [...createdSubscription.openWaiters];
+            createdSubscription.openWaiters.clear();
+            waiters.forEach((resolve) => resolve(false));
+            createdSubscription.subscribers.forEach((subscriber) =>
+              subscriber.listener({
                 kind: "connection",
                 documentId: request.documentId,
+                clientSessionId: request.clientSessionId,
                 state: "disconnected",
               }),
             );
@@ -404,8 +411,8 @@ export const createHttpDocumentSyncAdapter = ({
               return;
             }
             if (event.documentId !== request.documentId) return;
-            createdSubscription.listeners.forEach((activeListener) =>
-              activeListener(event),
+            createdSubscription.subscribers.forEach((subscriber) =>
+              subscriber.listener(event),
             );
           };
         } catch (error) {
@@ -415,20 +422,23 @@ export const createHttpDocumentSyncAdapter = ({
           waiters.forEach((resolve) => resolve(false));
         }
       }
-      subscription.listeners.add(listener);
+      const subscriber = { listener };
+      subscription.subscribers.add(subscriber);
 
       let active = true;
       return () => {
         if (!active) return;
         active = false;
-        subscription?.listeners.delete(listener);
-        if (!subscription || subscription.listeners.size > 0) return;
+        subscription?.subscribers.delete(subscriber);
+        if (!subscription || subscription.subscribers.size > 0) return;
         subscription.disposed = true;
         const waiters = [...subscription.openWaiters];
         subscription.openWaiters.clear();
         waiters.forEach((resolve) => resolve(false));
         subscription.eventSource?.close();
-        subscriptions.delete(key);
+        if (subscriptions.get(key) === subscription) {
+          subscriptions.delete(key);
+        }
       };
     },
   };

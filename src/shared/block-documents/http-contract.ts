@@ -737,7 +737,12 @@ export const decodeDocumentRealtimeSseEvent = (
     if (state !== "connected" && state !== "disconnected") {
       throw new DocumentHttpWireError("Document connection state is invalid");
     }
-    return { kind, documentId, state };
+    return {
+      kind,
+      documentId,
+      clientSessionId: readString(record, "clientSessionId"),
+      state,
+    };
   }
   const storeEpoch = readString(record, "storeEpoch");
   if (kind === "store-reset") {

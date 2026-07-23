@@ -339,8 +339,10 @@ export class FakeCoreClient implements CoreClientPort {
     _after: number,
     onEvent: (event: CoreEventEnvelope) => void,
     _onResyncRequired?: (event: CoreEventReplayRequired) => void,
+    _signal?: AbortSignal,
   ): Promise<CoreEventSubscription> {
     void _onResyncRequired;
+    void _signal;
     this.#eventConsumers.add(onEvent);
     let finish: (() => void) | undefined;
     const done = new Promise<void>((resolve) => {

@@ -1275,11 +1275,12 @@ async function initializeDesktopApp(
 
   coreEventSubscription = superviseCoreEventStream({
     initialAfter: coreClient.handshake.event_head,
-    open: (after, onEvent, onResyncRequired) =>
+    open: (after, onEvent, onResyncRequired, signal) =>
       coreClient.openEventStream(
         after,
         onEvent,
         onResyncRequired,
+        signal,
       ),
     onEvent: publishCoreModuleEvent,
     onResyncRequired: async (resync) => {

@@ -22,6 +22,10 @@ import {
   createFakeCoreHandshake,
   FakeCoreClient,
 } from "./testing/fake-core-client";
+import {
+  CoreEventCompatibilityError,
+  CoreHttpError,
+} from "./uds-http";
 
 class FakeTarget implements DocumentSyncClientTarget {
   readonly sent: Array<{ readonly channel: string; readonly payload: unknown }> = [];
@@ -45,6 +49,85 @@ class FakeTarget implements DocumentSyncClientTarget {
   destroy(): void {
     this.#destroyed = true;
     for (const listener of this.#destroyedListeners) listener();
+  }
+}
+
+class RejectFirstDocumentStreamClient extends FakeCoreClient {
+  attempts = 0;
+
+  override openDocumentEventStream(
+    ...args: Parameters<FakeCoreClient["openDocumentEventStream"]>
+  ): ReturnType<FakeCoreClient["openDocumentEventStream"]> {
+    this.attempts += 1;
+    if (this.attempts === 1) {
+      return Promise.reject(
+        new CoreHttpError(401, "Core SSE failed to open"),
+      );
+    }
+    return super.openDocumentEventStream(...args);
+  }
+}
+
+class TerminalDocumentStreamClient extends FakeCoreClient {
+  attempts = 0;
+  private rejectActive: (error: unknown) => void = () => undefined;
+
+  override openDocumentEventStream(
+    ...args: Parameters<FakeCoreClient["openDocumentEventStream"]>
+  ): ReturnType<FakeCoreClient["openDocumentEventStream"]> {
+    this.attempts += 1;
+    if (this.attempts > 1) {
+      return super.openDocumentEventStream(...args);
+    }
+    let resolveDone: () => void = () => undefined;
+    const done = new Promise<void>((resolve, reject) => {
+      resolveDone = resolve;
+      this.rejectActive = reject;
+    });
+    return Promise.resolve({
+      done,
+      close: resolveDone,
+    });
+  }
+
+  terminate(): void {
+    this.rejectActive(new CoreEventCompatibilityError(
+      "Core event Store epoch is invalid",
+    ));
+  }
+}
+
+class ControlledOpeningDocumentStreamClient extends FakeCoreClient {
+  readonly openings: Array<{
+    open(): void;
+    fail(error: unknown): void;
+  }> = [];
+
+  override openDocumentEventStream(
+  ): ReturnType<FakeCoreClient["openDocumentEventStream"]> {
+    let resolveOpening: (subscription: {
+      readonly done: Promise<void>;
+      close(): void;
+    }) => void = () => undefined;
+    let rejectOpening: (error: unknown) => void = () => undefined;
+    const opening = new Promise<{
+      readonly done: Promise<void>;
+      close(): void;
+    }>((resolve, reject) => {
+      resolveOpening = resolve;
+      rejectOpening = reject;
+    });
+    this.openings.push({
+      open: () => {
+        let resolveDone: () => void = () => undefined;
+        const done = new Promise<void>((resolve) => {
+          resolveDone = resolve;
+        });
+        resolveOpening({ done, close: resolveDone });
+      },
+      fail: rejectOpening,
+    });
+    return opening;
   }
 }
 
@@ -240,6 +323,103 @@ describe("Desktop Document sync bridge", () => {
     owner.destroy();
     await expect(bridge.subscribe(scope, other, subscribeRequest)).resolves
       .toEqual({ ok: true, value: { subscribed: true } });
+  });
+
+  test("acknowledges only an open Core stream and releases a failed opening binding", async () => {
+    const client = new RejectFirstDocumentStreamClient();
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(client)),
+    });
+    const scope = { kind: "project", projectId: "project:one" } as const;
+
+    await expect(bridge.subscribe(
+      scope,
+      new FakeTarget(1),
+      subscribeRequest,
+    )).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "transport_unavailable",
+        message: "Core SSE failed to open",
+        retryable: true,
+      },
+    });
+    await expect(bridge.subscribe(
+      scope,
+      new FakeTarget(2),
+      subscribeRequest,
+    )).resolves.toEqual({ ok: true, value: { subscribed: true } });
+    expect(client.attempts).toBe(2);
+  });
+
+  test("serializes duplicate subscribers across a failed opening and its replacement", async () => {
+    const client = new ControlledOpeningDocumentStreamClient();
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(client)),
+    });
+    const scope = { kind: "project", projectId: "project:one" } as const;
+    const target = new FakeTarget(1);
+
+    const first = bridge.subscribe(scope, target, subscribeRequest);
+    const second = bridge.subscribe(scope, target, subscribeRequest);
+    const third = bridge.subscribe(scope, target, subscribeRequest);
+    await vi.waitFor(() => {
+      expect(client.openings).toHaveLength(1);
+    });
+
+    client.openings[0]?.fail(
+      new CoreHttpError(401, "Core SSE failed to open"),
+    );
+    await expect(first).resolves.toMatchObject({
+      ok: false,
+      error: { code: "transport_unavailable" },
+    });
+    await vi.waitFor(() => {
+      expect(client.openings).toHaveLength(2);
+    });
+    client.openings[1]?.open();
+
+    await expect(second).resolves.toEqual({
+      ok: true,
+      value: { subscribed: true },
+    });
+    await expect(third).resolves.toEqual({
+      ok: true,
+      value: { subscribed: true },
+    });
+    expect(client.openings).toHaveLength(2);
+  });
+
+  test("releases the bridge binding when an established logical stream terminates", async () => {
+    const client = new TerminalDocumentStreamClient();
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(client)),
+    });
+    const scope = { kind: "project", projectId: "project:one" } as const;
+    const owner = new FakeTarget(1);
+
+    await expect(bridge.subscribe(scope, owner, subscribeRequest)).resolves
+      .toEqual({ ok: true, value: { subscribed: true } });
+
+    client.terminate();
+    await vi.waitFor(() => {
+      expect(owner.sent).toContainEqual({
+        channel: "document-sync:event",
+        payload: {
+          kind: "connection",
+          documentId: subscribeRequest.documentId,
+          clientSessionId: subscribeRequest.clientSessionId,
+          state: "disconnected",
+        },
+      });
+    });
+
+    await expect(bridge.subscribe(
+      scope,
+      new FakeTarget(2),
+      subscribeRequest,
+    )).resolves.toEqual({ ok: true, value: { subscribed: true } });
+    expect(client.attempts).toBe(2);
   });
 
   test("uses the trusted root client for Library Document sync", async () => {
@@ -985,6 +1165,30 @@ describe("Desktop Document sync bridge", () => {
       && "kind" in delivery.payload
       && delivery.payload.kind === "relocation-lease-release"
     )).toBe(true);
+  });
+
+  test("acknowledges Canvas only after its Core stream opens and releases a failed binding", async () => {
+    const client = new RejectFirstDocumentStreamClient();
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(client)),
+    });
+
+    await expect(bridge.subscribeCanvasScene(
+      new FakeTarget(1),
+      canvasSubscribeRequest,
+    )).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "unknown",
+        message: "Core SSE failed to open",
+        retryable: true,
+      },
+    });
+    await expect(bridge.subscribeCanvasScene(
+      new FakeTarget(2),
+      canvasSubscribeRequest,
+    )).resolves.toEqual({ ok: true, value: { subscribed: true } });
+    expect(client.attempts).toBe(2);
   });
 
   test("binds Canvas sync to its Project client, engine, and exact target", async () => {

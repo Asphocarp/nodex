@@ -69,6 +69,21 @@ const serveCommittedEvent = async (event: unknown): Promise<string> => {
   return socketPath;
 };
 
+const servePendingResponse = async (): Promise<string> => {
+  const directory = mkdtempSync(path.join(tmpdir(), "nodex-core-uds-test-"));
+  directories.push(directory);
+  const socketPath = path.join(directory, "core.sock");
+  const server = createServer(() => {
+    // Keep the request pending so the caller owns cancellation.
+  });
+  servers.push(server);
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+  return socketPath;
+};
+
 const committedEvent = () => ({
   transport_version: 3,
   event: {
@@ -231,5 +246,25 @@ describe("UDS Core event replay boundaries", () => {
       new CoreEventCompatibilityError("Core event payload is invalid"),
     );
     expect(deliveries).toBe(0);
+  });
+
+  test("aborts an event stream that has not received response headers", async () => {
+    const transport = configureEventContract(
+      new UdsHttpTransport(await servePendingResponse(), "test-capability"),
+    );
+    const controller = new AbortController();
+    const opening = transport.openEventStream(
+      0,
+      () => undefined,
+      {},
+      undefined,
+      undefined,
+      undefined,
+      controller.signal,
+    );
+
+    controller.abort(new Error("subscription closed"));
+
+    await expect(opening).rejects.toMatchObject({ code: "ABORT_ERR" });
   });
 });

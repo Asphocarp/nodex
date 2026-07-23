@@ -292,6 +292,7 @@ export type DocumentSyncRealtimeEvent =
   | {
       readonly kind: "connection";
       readonly documentId: DocumentId;
+      readonly clientSessionId: string;
       readonly state: "connected" | "disconnected";
     }
   | {

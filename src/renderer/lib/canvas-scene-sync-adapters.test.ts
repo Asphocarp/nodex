@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
   encodeCanvasSceneMutationResultHttp,
   encodeCanvasSceneSseEvent,
@@ -65,7 +65,125 @@ test("Electron Canvas adapter awaits subscription and carries lease responses", 
   unsubscribe();
 });
 
+test("Electron Canvas keeps a revived exact session ahead of stale teardown", async () => {
+  let resolveSubscription: (result: unknown) => void = () => undefined;
+  const subscription = new Promise<unknown>((resolve) => {
+    resolveSubscription = resolve;
+  });
+  const calls: string[] = [];
+  const bridge = {
+    invoke: async (channel: string, request: { documentId: string }) => {
+      calls.push(channel);
+      if (channel === "canvas-scene:subscribe") return await subscription;
+      if (channel === "canvas-scene:sync") {
+        return { ok: true, value: {
+          version: 1,
+          projectId: "project-1",
+          documentId: request.documentId,
+          storeEpoch: "store-1",
+          generation: 1,
+          headSeq: 0,
+          sceneHash: "a".repeat(64),
+          scene: emptyScene,
+        } };
+      }
+      return { ok: true, value: { unsubscribed: true } };
+    },
+    on: () => () => undefined,
+  } as unknown as ElectronRendererBridge;
+  const adapter = createElectronCanvasSceneSyncAdapter(bridge, "project-1");
+  const request = {
+    projectId: "project-1",
+    documentId: "canvas-1",
+    clientSessionId: "client-1",
+  } as const;
+  const listener = () => undefined;
+  const closeFirst = adapter.subscribe(request, listener);
+  closeFirst();
+  const closeSecond = adapter.subscribe(request, listener);
+
+  resolveSubscription({ ok: true, value: { subscribed: true } });
+  await expect(adapter.sync({ version: 1, ...request })).resolves.toMatchObject({
+    ok: true,
+  });
+  expect(calls).toEqual(["canvas-scene:subscribe", "canvas-scene:sync"]);
+
+  closeSecond();
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(calls.at(-1)).toBe("canvas-scene:unsubscribe");
+});
+
 describe("HTTP Canvas adapter", () => {
+  test("multiplexes an exact Canvas session so an older disposer cannot remove it", async () => {
+    const sources: Array<{
+      onopen: ((event: Event) => unknown) | null;
+      onerror: ((event: Event) => unknown) | null;
+      onmessage: ((event: MessageEvent<string>) => unknown) | null;
+      closed: boolean;
+      close(): void;
+    }> = [];
+    let syncCalls = 0;
+    const adapter = createHttpCanvasSceneSyncAdapter({
+      projectId: "project-1",
+      fetch: async () => {
+        syncCalls += 1;
+        return new Response(encodeCanvasSceneSyncResultHttp({
+          ok: true,
+          value: {
+            version: 1,
+            projectId: "project-1",
+            documentId: "canvas-1",
+            storeEpoch: "store-1",
+            generation: 1,
+            headSeq: 0,
+            sceneHash: "a".repeat(64),
+            scene: emptyScene,
+          },
+        }), {
+          headers: {
+            "Content-Type": "application/vnd.nodex.canvas-scene.v1+json",
+          },
+        });
+      },
+      toUrl: (path) => `http://nodex.test${path}`,
+      createEventSource: () => {
+        const source = {
+          onopen: null,
+          onerror: null,
+          onmessage: null,
+          closed: false,
+          close() {
+            this.closed = true;
+          },
+        };
+        sources.push(source);
+        return source;
+      },
+    });
+    const request = {
+      projectId: "project-1",
+      documentId: "canvas-1",
+      clientSessionId: "client-1",
+    } as const;
+    const listener = vi.fn();
+    const closeFirst = adapter.subscribe(request, listener);
+    const closeSecond = adapter.subscribe(request, listener);
+
+    expect(sources).toHaveLength(1);
+    sources[0]?.onopen?.(new Event("open"));
+    closeFirst();
+
+    await expect(adapter.sync({ version: 1, ...request })).resolves.toMatchObject({
+      ok: true,
+    });
+    expect(syncCalls).toBe(1);
+    expect(sources[0]?.closed).toBe(false);
+
+    closeSecond();
+    expect(sources[0]?.closed).toBe(true);
+  });
+
   test("opens SSE before bounded JSON sync/mutation and receives realtime", async () => {
     const sources: Array<{
       onopen: ((event: Event) => unknown) | null;

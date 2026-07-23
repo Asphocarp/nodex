@@ -188,7 +188,12 @@ describe("Document HTTP contract", () => {
     expect(Array.from(decodedAwareness.update).join(",")).toBe("10,255");
 
     const events = [
-      { kind: "connection", documentId: "document-1", state: "connected" },
+      {
+        kind: "connection",
+        documentId: "document-1",
+        clientSessionId: "client-1",
+        state: "connected",
+      },
       {
         kind: "store-reset",
         documentId: "document-1",

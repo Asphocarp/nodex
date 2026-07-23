@@ -84,6 +84,7 @@ pub enum CoreErrorRecovery {
         generation: i64,
         head_seq: i64,
     },
+    ReconnectDocumentSubscription,
     SupportedSchema {
         minimum: u32,
         maximum: u32,

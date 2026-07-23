@@ -56,10 +56,16 @@ import type {
   DocumentSyncSubscribeRequest,
 } from "../../shared/block-documents/document-sync";
 import { CoreModuleResponseError } from "./core-client";
+import {
+  isRetryableCoreEventStreamError,
+  superviseCoreEventStream,
+  type SupervisedCoreEventSubscription,
+} from "./core-event-stream-supervisor";
+import { executeWithDocumentSubscription } from "./core-document-subscription-lifecycle";
 import type {
   CoreClientPort,
   CoreEventEnvelope,
-  CoreEventSubscription,
+  DocumentResyncRequired,
   OwnedDocumentIntent,
 } from "./types";
 
@@ -68,9 +74,12 @@ type CoreDocumentOwnerCommand = Extract<
   { readonly kind: "apply_owner_command" }
 >["command"];
 
-interface ActiveSubscription {
-  readonly ready: Promise<void>;
-  close(): void;
+type ActiveSubscription = SupervisedCoreEventSubscription;
+
+interface CoreDocumentSyncAdapterOptions {
+  readonly retryDelayMs?: number;
+  readonly maxRetryDelayMs?: number;
+  readonly maxInitialOpenAttempts?: number;
 }
 
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
@@ -103,6 +112,10 @@ const decodeCoreOwnedDocumentDescriptor = (
 };
 
 export interface CoreDocumentSyncAdapter extends DocumentSyncAdapter {
+  subscribeWithLifecycle(
+    request: DocumentSyncSubscribeRequest,
+    listener: (event: DocumentSyncRealtimeEvent) => void,
+  ): SupervisedCoreEventSubscription;
   readDescriptor(input: {
     readonly ownerBlockId: string;
     readonly clientSessionId: string;
@@ -663,26 +676,30 @@ const subscriptionKey = (
 
 export const createCoreDocumentSyncAdapter = (
   client: CoreClientPort,
+  options: CoreDocumentSyncAdapterOptions = {},
 ): CoreDocumentSyncAdapter => {
   const subscriptions = new Map<string, ActiveSubscription>();
   const lastSequences = new Map<string, number>();
 
-  const requireSubscription = (
+  const subscriptionFor = (
     request: Pick<DocumentSyncSubscribeRequest, "clientSessionId" | "documentId">,
-  ): Promise<void> => {
+  ): ActiveSubscription => {
     const subscription = subscriptions.get(subscriptionKey(request));
-    if (subscription) return subscription.ready;
-    return Promise.reject(
-      new Error("Owned Document sync requires an active event subscription"),
-    );
+    if (subscription) return subscription;
+    throw new Error("Owned Document sync requires an active event subscription");
   };
 
   const sync = async (
     request: DocumentSyncRequest,
   ): Promise<DocumentSyncCommandResult<DocumentSyncResponse>> => {
     try {
-      await requireSubscription(request);
-      return success(await client.documentSync(request));
+      const key = subscriptionKey(request);
+      const subscription = subscriptionFor(request);
+      return success(await executeWithDocumentSubscription(
+        subscription,
+        () => subscriptions.get(key) === subscription,
+        async () => await client.documentSync(request),
+      ));
     } catch (error) {
       return failure(error);
     }
@@ -692,8 +709,13 @@ export const createCoreDocumentSyncAdapter = (
     request: DocumentSyncApplyRequest,
   ): Promise<DocumentSyncCommandResult<DocumentSyncApplyAck>> => {
     try {
-      await requireSubscription(request);
-      return success(await client.documentApplyUpdate(request));
+      const key = subscriptionKey(request);
+      const subscription = subscriptionFor(request);
+      return success(await executeWithDocumentSubscription(
+        subscription,
+        () => subscriptions.get(key) === subscription,
+        async () => await client.documentApplyUpdate(request),
+      ));
     } catch (error) {
       return failure(error);
     }
@@ -719,73 +741,71 @@ export const createCoreDocumentSyncAdapter = (
     return descriptor;
   };
 
-  const subscribe = (
+  const subscribeWithLifecycle = (
     request: DocumentSyncSubscribeRequest,
     listener: (event: DocumentSyncRealtimeEvent) => void,
-  ): (() => void) => {
+  ): SupervisedCoreEventSubscription => {
     const key = subscriptionKey(request);
-    subscriptions.get(key)?.close();
-    let active = true;
-    let opened: CoreEventSubscription | undefined;
-    const ready = client
-      .openDocumentEventStream(
-        {
-          documentId: request.documentId,
-          clientSessionId: request.clientSessionId,
-          after: lastSequences.get(key) ?? 0,
-        },
-        (envelope) => {
-          const event = documentEvent(request, envelope);
-          if (!event) return;
-          const previous = lastSequences.get(key) ?? 0;
-          if (envelope.event.sequence <= previous) return;
-          lastSequences.set(key, envelope.event.sequence);
-          listener(event);
-        },
-        (resync) => {
-          lastSequences.set(key, resync.event_head);
-          listener({
-            kind: "resync-required",
-            documentId: resync.document_id,
-            storeEpoch: resync.store_epoch,
-            generation: resync.generation,
-            headSeq: resync.head_seq,
-            reason: "history-compacted",
-          });
-        },
-        (event) => listener(event),
-      )
-      .then((subscription) => {
-        opened = subscription;
-        if (!active) {
-          subscription.close();
-          return;
-        }
+    const predecessor = subscriptions.get(key);
+    predecessor?.close();
+    const predecessorDone = predecessor?.done.catch(() => undefined)
+      ?? Promise.resolve();
+    const supervisor = superviseCoreEventStream<DocumentResyncRequired>({
+      initialAfter: lastSequences.get(key) ?? 0,
+      maxInitialOpenAttempts: options.maxInitialOpenAttempts ?? 3,
+      shouldRetry: isRetryableCoreEventStreamError,
+      retryDelayMs: options.retryDelayMs,
+      maxRetryDelayMs: options.maxRetryDelayMs,
+      open: async (after, onEvent, onResyncRequired, signal) => {
+        await predecessorDone;
+        if (signal.aborted) throw signal.reason;
+        return await client.openDocumentEventStream(
+          {
+            documentId: request.documentId,
+            clientSessionId: request.clientSessionId,
+            after,
+            signal,
+          },
+          onEvent,
+          onResyncRequired,
+          (event) => listener(event),
+        );
+      },
+      onEvent: (envelope) => {
+        const event = documentEvent(request, envelope);
+        if (!event) return;
+        const previous = lastSequences.get(key) ?? 0;
+        if (envelope.event.sequence <= previous) return;
+        listener(event);
+        lastSequences.set(key, envelope.event.sequence);
+      },
+      onResyncRequired: (resync) => {
+        lastSequences.set(key, resync.event_head);
         listener({
-          kind: "connection",
-          documentId: request.documentId,
-          state: "connected",
-        });
-      });
-    const subscription: ActiveSubscription = {
-      ready,
-      close: () => {
-        if (!active) return;
-        active = false;
-        opened?.close();
-        if (subscriptions.get(key) === subscription) {
-          subscriptions.delete(key);
-        }
-        listener({
-          kind: "connection",
-          documentId: request.documentId,
-          state: "disconnected",
+          kind: "resync-required",
+          documentId: resync.document_id,
+          storeEpoch: resync.store_epoch,
+          generation: resync.generation,
+          headSeq: resync.head_seq,
+          reason: "history-compacted",
         });
       },
-    };
-    subscriptions.set(key, subscription);
-    void ready.catch(() => subscription.close());
-    return subscription.close;
+      onConnectionStateChanged: (state) => {
+        listener({
+          kind: "connection",
+          documentId: request.documentId,
+          clientSessionId: request.clientSessionId,
+          state,
+        });
+      },
+    });
+    subscriptions.set(key, supervisor);
+    void supervisor.done.catch(() => undefined).finally(() => {
+      if (subscriptions.get(key) === supervisor) {
+        subscriptions.delete(key);
+      }
+    });
+    return supervisor;
   };
 
   const applyDocumentMutation = async (
@@ -1128,11 +1148,18 @@ export const createCoreDocumentSyncAdapter = (
       await applyDocumentMutation(request, writeFencePrepared),
     sync,
     applyUpdate,
-    subscribe,
+    subscribeWithLifecycle,
+    subscribe: (request, listener) =>
+      subscribeWithLifecycle(request, listener).close,
     publishAwareness: async (request: DocumentAwarenessPublishRequest) => {
       try {
-        await requireSubscription(request);
-        return success(await client.documentPublishAwareness(request));
+        const key = subscriptionKey(request);
+        const subscription = subscriptionFor(request);
+        return success(await executeWithDocumentSubscription(
+          subscription,
+          () => subscriptions.get(key) === subscription,
+          async () => await client.documentPublishAwareness(request),
+        ));
       } catch (error) {
         return failure(error);
       }

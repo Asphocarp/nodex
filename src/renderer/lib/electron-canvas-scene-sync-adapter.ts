@@ -9,6 +9,10 @@ import type {
 import type { CanvasSceneSyncAdapter } from "./canvas-scene-provider";
 import type { ElectronRendererBridge } from "./electron-renderer-transport";
 import { decodeDocumentRealtimeSseEvent } from "../../shared/block-documents/http-contract";
+import {
+  createExactRemoteSubscriptionLifecycle,
+  type ExactRemoteSubscriptionLifecycle,
+} from "./exact-remote-subscription-lifecycle";
 
 const transportFailure = (error: unknown): CanvasSceneMutationError => ({
   code: "unknown",
@@ -17,22 +21,41 @@ const transportFailure = (error: unknown): CanvasSceneMutationError => ({
   resetRequired: false,
 });
 
+interface ElectronCanvasSubscriber {
+  readonly listener: (event: CanvasSceneRealtimeEvent) => void;
+  readonly leaseListener?: NonNullable<
+    Parameters<CanvasSceneSyncAdapter["subscribe"]>[2]
+  >;
+}
+
+interface ElectronCanvasSubscription {
+  readonly subscribers: Set<ElectronCanvasSubscriber>;
+  readonly lifecycle: ExactRemoteSubscriptionLifecycle<
+    CanvasSceneSubscriptionCommandResult
+  >;
+}
+
 export const createElectronCanvasSceneSyncAdapter = (
   bridge: ElectronRendererBridge,
   projectId: string,
 ): CanvasSceneSyncAdapter => {
-  const subscriptions = new Map<
-    string,
-    {
-      readonly request: CanvasSceneSubscribeRequest;
-      readonly listeners: Set<(event: CanvasSceneRealtimeEvent) => void>;
-      readonly leaseListeners: Set<NonNullable<Parameters<CanvasSceneSyncAdapter["subscribe"]>[2]>>;
-      readonly removeBridgeListener: () => void;
-      readonly ready: Promise<CanvasSceneSubscriptionCommandResult>;
-    }
-  >();
+  const subscriptions = new Map<string, ElectronCanvasSubscription>();
   const invoke = async <T>(channel: string, request: unknown): Promise<T> =>
     await bridge.invoke(channel, request) as T;
+  const invokeSubscription = async (
+    channel: string,
+    request: CanvasSceneSubscribeRequest,
+  ): Promise<CanvasSceneSubscriptionCommandResult> => {
+    try {
+      return await invoke(channel, request);
+    } catch (error) {
+      return { ok: false, error: transportFailure(error) };
+    }
+  };
+  const ensureRemoteSubscription = (
+    entry: ElectronCanvasSubscription,
+  ): Promise<CanvasSceneSubscriptionCommandResult> =>
+    entry.lifecycle.ensure();
   return {
     subscribe(request, listener, leaseListener) {
       if (request.projectId !== projectId) {
@@ -41,8 +64,7 @@ export const createElectronCanvasSceneSyncAdapter = (
       const key = JSON.stringify([request.documentId, request.clientSessionId]);
       let entry = subscriptions.get(key);
       if (!entry) {
-        const listeners = new Set<(event: CanvasSceneRealtimeEvent) => void>();
-        const leaseListeners = new Set<NonNullable<Parameters<CanvasSceneSyncAdapter["subscribe"]>[2]>>();
+        const subscribers = new Set<ElectronCanvasSubscriber>();
         const fullRequest = { version: 1 as const, ...request };
         const removeBridgeListener = bridge.on(
           "document-sync:event",
@@ -58,7 +80,9 @@ export const createElectronCanvasSceneSyncAdapter = (
                   leaseEvent.documentId === request.documentId &&
                   leaseEvent.clientSessionId === request.clientSessionId
                 ) {
-                  leaseListeners.forEach((active) => active(leaseEvent));
+                  subscribers.forEach((subscriber) =>
+                    subscriber.leaseListener?.(leaseEvent)
+                  );
                 }
               } catch {
                 // Invalid main-to-renderer events never cross the adapter boundary.
@@ -74,37 +98,67 @@ export const createElectronCanvasSceneSyncAdapter = (
             ) {
               return;
             }
-            listeners.forEach((active) => active(event));
+            subscribers.forEach((subscriber) =>
+              subscriber.listener(event)
+            );
           },
         );
-        const ready = invoke<CanvasSceneSubscriptionCommandResult>(
-          "canvas-scene:subscribe",
-          fullRequest,
-        );
-        entry = { request: fullRequest, listeners, leaseListeners, removeBridgeListener, ready };
+        const lifecycle = createExactRemoteSubscriptionLifecycle<
+          CanvasSceneSubscriptionCommandResult
+        >({
+          hasSubscribers: () => subscribers.size > 0,
+          open: async () =>
+            await invokeSubscription("canvas-scene:subscribe", fullRequest),
+          isOpenResult: (result) => result.ok,
+          alreadyOpenResult: () => ({
+            ok: true,
+            value: { subscribed: true },
+          }),
+          inactiveResult: () => ({
+            ok: false,
+            error: {
+              code: "project_scope_mismatch",
+              message: "Canvas scene subscription is not active",
+              retryable: false,
+              resetRequired: false,
+            },
+          }),
+          close: async () => {
+            await invokeSubscription("canvas-scene:unsubscribe", fullRequest);
+          },
+          finalize: () => {
+            if (subscriptions.get(key)?.lifecycle === lifecycle) {
+              subscriptions.delete(key);
+            }
+            removeBridgeListener();
+          },
+        });
+        const createdEntry: ElectronCanvasSubscription = {
+          subscribers,
+          lifecycle,
+        };
+        entry = createdEntry;
         subscriptions.set(key, entry);
       }
-      entry.listeners.add(listener);
-      if (leaseListener) entry.leaseListeners.add(leaseListener);
+      const subscriber: ElectronCanvasSubscriber = {
+        listener,
+        leaseListener,
+      };
+      entry.subscribers.add(subscriber);
+      void ensureRemoteSubscription(entry);
       let active = true;
       return () => {
         if (!active) return;
         active = false;
-        entry?.listeners.delete(listener);
-        if (leaseListener) entry?.leaseListeners.delete(leaseListener);
-        if (!entry || entry.listeners.size > 0 || entry.leaseListeners.size > 0) return;
-        subscriptions.delete(key);
-        entry.removeBridgeListener();
-        void invoke<CanvasSceneSubscriptionCommandResult>(
-          "canvas-scene:unsubscribe",
-          entry.request,
-        );
+        entry?.subscribers.delete(subscriber);
+        if (!entry || entry.subscribers.size > 0) return;
+        entry.lifecycle.releaseIfIdle();
       };
     },
     async sync(request): Promise<CanvasSceneSyncCommandResult> {
       try {
         const entry = subscriptions.get(JSON.stringify([request.documentId, request.clientSessionId]));
-        const ready = entry ? await entry.ready : null;
+        const ready = entry ? await ensureRemoteSubscription(entry) : null;
         if (!ready?.ok) {
           return { ok: false, error: ready?.error ?? {
             code: "project_scope_mismatch",
@@ -121,7 +175,7 @@ export const createElectronCanvasSceneSyncAdapter = (
     async applyMutation(request): Promise<CanvasSceneMutationCommandResult> {
       try {
         const entry = subscriptions.get(JSON.stringify([request.documentId, request.clientSessionId]));
-        const ready = entry ? await entry.ready : null;
+        const ready = entry ? await ensureRemoteSubscription(entry) : null;
         if (!ready?.ok) {
           return { ok: false, error: ready?.error ?? {
             code: "project_scope_mismatch",

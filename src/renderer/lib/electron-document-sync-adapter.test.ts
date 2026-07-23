@@ -109,6 +109,7 @@ describe("createElectronDocumentSyncAdapter", () => {
     bridge.emit("document-sync:event", {
       kind: "connection",
       documentId: "doc-1",
+      clientSessionId: "session-1",
       state: "connected",
     });
     expect(events.length).toBe(1);
@@ -134,6 +135,37 @@ describe("createElectronDocumentSyncAdapter", () => {
     ).toBe(true);
   });
 
+  test("revives an exact session without a stale unsubscribe crossing the replacement", async () => {
+    const bridge = new FakeBridge();
+    const adapter = createElectronDocumentSyncAdapter(
+      bridge as unknown as ElectronRendererBridge,
+      "project-1",
+    );
+    const request = {
+      documentId: "doc-1",
+      clientSessionId: "session-1",
+    } as const;
+    const listener = () => undefined;
+    const closeFirst = adapter.subscribe(request, listener);
+    closeFirst();
+    const closeSecond = adapter.subscribe(request, listener);
+
+    bridge.subscription.resolve({ ok: true, value: { subscribed: true } });
+    await expect(adapter.sync({
+      ...request,
+      stateVector: new Uint8Array([0]),
+    })).resolves.toMatchObject({ ok: true });
+    expect(bridge.calls.map((call) => call.channel)).toEqual([
+      "document-sync:subscribe",
+      "document-sync:sync",
+    ]);
+
+    closeSecond();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(bridge.calls.at(-1)?.channel).toBe("document-sync:unsubscribe");
+  });
+
   test("routes binary events only to matching document subscribers", () => {
     const bridge = new FakeBridge();
     const adapter = createElectronDocumentSyncAdapter(
@@ -141,11 +173,22 @@ describe("createElectronDocumentSyncAdapter", () => {
       "project-1",
     );
     const events: DocumentSyncRealtimeEvent[] = [];
+    const otherSessionEvents: DocumentSyncRealtimeEvent[] = [];
     adapter.subscribe(
       { documentId: "doc-1", clientSessionId: "session-1" },
       (event) => events.push(event),
     );
+    adapter.subscribe(
+      { documentId: "doc-1", clientSessionId: "session-2" },
+      (event) => otherSessionEvents.push(event),
+    );
 
+    bridge.emit("document-sync:event", {
+      kind: "connection",
+      documentId: "doc-1",
+      clientSessionId: "session-1",
+      state: "connected",
+    });
     bridge.emit("document-sync:event", {
       kind: "document-update",
       documentId: "doc-2",
@@ -172,13 +215,14 @@ describe("createElectronDocumentSyncAdapter", () => {
       storeEpoch: "epoch-restored",
     });
 
-    expect(events.length).toBe(2);
-    const event = events[0];
+    expect(events.length).toBe(3);
+    expect(otherSessionEvents).toHaveLength(2);
+    const event = events[1];
     expect(event?.kind).toBe("document-update");
     if (event?.kind === "document-update") {
       expect(Array.from(event.update).join(",")).toBe("4,5");
     }
-    expect(events[1]?.kind).toBe("store-reset");
+    expect(events[2]?.kind).toBe("store-reset");
   });
 
   test("returns typed subscription errors without parsing Error messages", async () => {

@@ -759,6 +759,9 @@ export interface components {
             /** @enum {string} */
             readonly kind: "current_document_head";
         } | {
+            /** @enum {string} */
+            readonly kind: "reconnect_document_subscription";
+        } | {
             /** Format: int32 */
             readonly actual: number;
             /** @enum {string} */

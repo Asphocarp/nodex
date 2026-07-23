@@ -16,16 +16,18 @@ import type {
 } from "../../shared/block-documents/document-sync";
 import type { DocumentSyncAdapter } from "./nodex-y-provider";
 import type { ElectronRendererBridge } from "./electron-renderer-transport";
+import {
+  createExactRemoteSubscriptionLifecycle,
+  type ExactRemoteSubscriptionLifecycle,
+} from "./exact-remote-subscription-lifecycle";
 
 interface SubscriptionEntry {
-  readonly request: DocumentSyncSubscribeRequest;
-  readonly listeners: Set<(event: DocumentSyncRealtimeEvent) => void>;
-  readonly removeBridgeListener: () => void;
-  remoteSubscription: Promise<
+  readonly subscribers: Set<{
+    readonly listener: (event: DocumentSyncRealtimeEvent) => void;
+  }>;
+  readonly lifecycle: ExactRemoteSubscriptionLifecycle<
     DocumentSyncCommandResult<DocumentSyncSubscriptionAck>
-  > | null;
-  remoteSubscribed: boolean;
-  disposed: boolean;
+  >;
 }
 
 const ERROR_CODES = new Set<DocumentSyncErrorCode>([
@@ -292,12 +294,16 @@ const normalizeRealtimeEvent = (
     return null;
   }
   if (value.kind === "connection") {
-    if (value.state !== "connected" && value.state !== "disconnected") {
+    if (
+      typeof value.clientSessionId !== "string" ||
+      (value.state !== "connected" && value.state !== "disconnected")
+    ) {
       return null;
     }
     return {
       kind: "connection",
       documentId: value.documentId,
+      clientSessionId: value.clientSessionId,
       state: value.state,
     };
   }
@@ -476,39 +482,8 @@ const createScopedElectronDocumentSyncAdapter = (
 
   const ensureRemoteSubscription = (
     entry: SubscriptionEntry,
-  ): Promise<DocumentSyncCommandResult<DocumentSyncSubscriptionAck>> => {
-    if (entry.remoteSubscribed) {
-      return Promise.resolve({ ok: true, value: { subscribed: true } });
-    }
-    if (entry.disposed) {
-      return Promise.resolve({ ok: false, error: unauthorizedError() });
-    }
-    if (entry.remoteSubscription) {
-      return entry.remoteSubscription;
-    }
-
-    const command = invokeCommand<DocumentSyncSubscriptionAck>(
-      channel("subscribe"),
-      scope(entry.request),
-    ).then((result) => {
-      if (result.ok && result.value.subscribed !== true) {
-        entry.remoteSubscription = null;
-        return {
-          ok: false,
-          error: invalidResponseError(
-            "Electron did not confirm document subscription",
-          ),
-        } satisfies DocumentSyncCommandResult<DocumentSyncSubscriptionAck>;
-      }
-      if (result.ok) {
-        entry.remoteSubscribed = true;
-      }
-      entry.remoteSubscription = null;
-      return result;
-    });
-    entry.remoteSubscription = command;
-    return command;
-  };
+  ): Promise<DocumentSyncCommandResult<DocumentSyncSubscriptionAck>> =>
+    entry.lifecycle.ensure();
 
   const requireRemoteSubscription = async <T>(
     request: DocumentSyncSubscribeRequest,
@@ -581,7 +556,9 @@ const createScopedElectronDocumentSyncAdapter = (
       const key = subscriptionKey(request);
       let entry = subscriptions.get(key);
       if (!entry) {
-        const listeners = new Set<(event: DocumentSyncRealtimeEvent) => void>();
+        const subscribers = new Set<{
+          readonly listener: (event: DocumentSyncRealtimeEvent) => void;
+        }>();
         const removeBridgeListener = bridge.on(
           "document-sync:event",
           (...args: unknown[]) => {
@@ -590,27 +567,67 @@ const createScopedElectronDocumentSyncAdapter = (
               return;
             }
             if (
-              (event.kind === "relocation-lease-prepare" ||
+              (event.kind === "connection" ||
+                event.kind === "relocation-lease-prepare" ||
                 event.kind === "relocation-lease-release" ||
                 event.kind === "relocation-lease-cancel") &&
               event.clientSessionId !== request.clientSessionId
             ) {
               return;
             }
-            listeners.forEach((activeListener) => activeListener(event));
+            subscribers.forEach((subscriber) =>
+              subscriber.listener(event)
+            );
           },
         );
-        entry = {
-          request: { ...request },
-          listeners,
-          removeBridgeListener,
-          remoteSubscription: null,
-          remoteSubscribed: false,
-          disposed: false,
+        const lifecycle = createExactRemoteSubscriptionLifecycle<
+          DocumentSyncCommandResult<DocumentSyncSubscriptionAck>
+        >({
+          hasSubscribers: () => subscribers.size > 0,
+          open: async () => {
+            const result = await invokeCommand<DocumentSyncSubscriptionAck>(
+              channel("subscribe"),
+              scope(request),
+            );
+            if (!result.ok || result.value.subscribed === true) return result;
+            return {
+              ok: false,
+              error: invalidResponseError(
+                "Electron did not confirm document subscription",
+              ),
+            };
+          },
+          isOpenResult: (result) => result.ok,
+          alreadyOpenResult: () => ({
+            ok: true,
+            value: { subscribed: true },
+          }),
+          inactiveResult: () => ({
+            ok: false,
+            error: unauthorizedError(),
+          }),
+          close: async () => {
+            await invokeCommand(
+              channel("unsubscribe"),
+              scope(request),
+            );
+          },
+          finalize: () => {
+            if (subscriptions.get(key)?.lifecycle === lifecycle) {
+              subscriptions.delete(key);
+            }
+            removeBridgeListener();
+          },
+        });
+        const createdEntry: SubscriptionEntry = {
+          subscribers,
+          lifecycle,
         };
+        entry = createdEntry;
         subscriptions.set(key, entry);
       }
-      entry.listeners.add(listener);
+      const subscriber = { listener };
+      entry.subscribers.add(subscriber);
       void ensureRemoteSubscription(entry);
 
       let active = true;
@@ -619,27 +636,9 @@ const createScopedElectronDocumentSyncAdapter = (
           return;
         }
         active = false;
-        entry?.listeners.delete(listener);
-        if (!entry || entry.listeners.size > 0) {
-          return;
-        }
-
-        entry.disposed = true;
-        subscriptions.delete(key);
-        entry.removeBridgeListener();
-        const remoteCommand = entry.remoteSubscription;
-        void (async () => {
-          if (remoteCommand) {
-            const result = await remoteCommand;
-            if (!result.ok && !entry?.remoteSubscribed) {
-              return;
-            }
-          }
-          if (!entry?.remoteSubscribed) {
-            return;
-          }
-          await invokeCommand(channel("unsubscribe"), scope(request));
-        })();
+        entry?.subscribers.delete(subscriber);
+        if (!entry || entry.subscribers.size > 0) return;
+        entry.lifecycle.releaseIfIdle();
       };
     },
   };

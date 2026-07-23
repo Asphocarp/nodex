@@ -3,6 +3,76 @@ import { describe, expect, test, vi } from "vitest";
 import { CoreModuleResponseError } from "./core-client";
 import { createCoreDocumentSyncAdapter } from "./document-sync-adapter";
 import { FakeCoreClient } from "./testing/fake-core-client";
+import type {
+  CoreEventSubscription,
+} from "./types";
+
+class ControllableDocumentStreamClient extends FakeCoreClient {
+  readonly openings: Array<{
+    readonly after: number;
+    open(): void;
+    end(error?: unknown): void;
+  }> = [];
+
+  override openDocumentEventStream(
+    input: { readonly after: number },
+  ): Promise<CoreEventSubscription> {
+    let resolveOpen: (subscription: CoreEventSubscription) => void =
+      () => undefined;
+    let resolveDone: () => void = () => undefined;
+    let rejectDone: (error: unknown) => void = () => undefined;
+    const done = new Promise<void>((resolve, reject) => {
+      resolveDone = resolve;
+      rejectDone = reject;
+    });
+    const subscription: CoreEventSubscription = {
+      done,
+      close: resolveDone,
+    };
+    const opening = new Promise<CoreEventSubscription>((resolve) => {
+      resolveOpen = resolve;
+    });
+    this.openings.push({
+      after: input.after,
+      open: () => resolveOpen(subscription),
+      end: (error) => {
+        if (error === undefined) {
+          resolveDone();
+          return;
+        }
+        rejectDone(error);
+      },
+    });
+    return opening;
+  }
+}
+
+class SubscriptionLossDocumentStreamClient extends FakeCoreClient {
+  streamOpenings = 0;
+  syncAttempts = 0;
+
+  override openDocumentEventStream(
+    ...args: Parameters<FakeCoreClient["openDocumentEventStream"]>
+  ): ReturnType<FakeCoreClient["openDocumentEventStream"]> {
+    this.streamOpenings += 1;
+    return super.openDocumentEventStream(...args);
+  }
+
+  override documentSync(
+    ...args: Parameters<FakeCoreClient["documentSync"]>
+  ): ReturnType<FakeCoreClient["documentSync"]> {
+    this.syncAttempts += 1;
+    if (this.syncAttempts === 1) {
+      throw new CoreModuleResponseError({
+        code: "unauthorized",
+        message: "An exact Document subscription is required",
+        retryable: true,
+        recovery: { kind: "reconnect_document_subscription" },
+      });
+    }
+    return super.documentSync(...args);
+  }
+}
 
 const descriptorSnapshot = () => ({
   contract_version: 1 as const,
@@ -167,6 +237,82 @@ describe("Core Document sync adapter", () => {
       ok: true,
       value: { documentId: second.documentId },
     });
+  });
+
+  test("waits for the replacement physical stream before syncing after interruption", async () => {
+    const client = new ControllableDocumentStreamClient();
+    const adapter = createCoreDocumentSyncAdapter(client, { retryDelayMs: 0 });
+    const request = {
+      documentId: "document:one",
+      clientSessionId: "renderer:one",
+    } as const;
+    const lifecycle = adapter.subscribeWithLifecycle(request, () => undefined);
+    await vi.waitFor(() => {
+      expect(client.openings).toHaveLength(1);
+    });
+    client.openings[0]?.open();
+    await expect(lifecycle.ready).resolves.toBeUndefined();
+
+    client.openings[0]?.end(new Error("socket interrupted"));
+    await vi.waitFor(() => {
+      expect(client.openings).toHaveLength(2);
+    });
+    client.enqueueDocumentSync({
+      documentId: request.documentId,
+      storeEpoch: "epoch:test",
+      generation: 1,
+      headSeq: 2,
+      update: new Uint8Array(),
+      stateVector: new Uint8Array(),
+    });
+    const syncing = adapter.sync({
+      ...request,
+      stateVector: new Uint8Array(),
+    });
+    await Promise.resolve();
+    expect(client.documentSyncs).toHaveLength(0);
+
+    client.openings[1]?.open();
+
+    await expect(syncing).resolves.toMatchObject({
+      ok: true,
+      value: { documentId: request.documentId, headSeq: 2 },
+    });
+    expect(client.openings.map((opening) => opening.after)).toEqual([0, 0]);
+    lifecycle.close();
+    await lifecycle.done;
+  });
+
+  test("reconnects and retries once when Core reports a lost subscription lease", async () => {
+    const client = new SubscriptionLossDocumentStreamClient();
+    const adapter = createCoreDocumentSyncAdapter(client, { retryDelayMs: 0 });
+    const request = {
+      documentId: "document:one",
+      clientSessionId: "renderer:one",
+    } as const;
+    const lifecycle = adapter.subscribeWithLifecycle(request, () => undefined);
+    await lifecycle.ready;
+    client.enqueueDocumentSync({
+      documentId: request.documentId,
+      storeEpoch: "epoch:test",
+      generation: 1,
+      headSeq: 2,
+      update: new Uint8Array(),
+      stateVector: new Uint8Array(),
+    });
+
+    await expect(adapter.sync({
+      ...request,
+      stateVector: new Uint8Array(),
+    })).resolves.toMatchObject({
+      ok: true,
+      value: { documentId: request.documentId, headSeq: 2 },
+    });
+    expect(client.streamOpenings).toBe(2);
+    expect(client.syncAttempts).toBe(2);
+
+    lifecycle.close();
+    await lifecycle.done;
   });
 
   test("maps Additional Document owner commands and durable receipts", async () => {

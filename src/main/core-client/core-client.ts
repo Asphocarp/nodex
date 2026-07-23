@@ -448,6 +448,7 @@ export class CoreClient implements CoreClientPort {
       readonly documentId: string;
       readonly clientSessionId: string;
       readonly after: number;
+      readonly signal?: AbortSignal;
     },
     onEvent: (event: CoreEventEnvelope) => void,
     onResyncRequired: (event: DocumentResyncRequired) => void,
@@ -462,6 +463,8 @@ export class CoreClient implements CoreClientPort {
       },
       onResyncRequired,
       onRealtimeEvent,
+      undefined,
+      input.signal,
     );
   }
 
@@ -469,6 +472,7 @@ export class CoreClient implements CoreClientPort {
     after: number,
     onEvent: (event: CoreEventEnvelope) => void,
     onResyncRequired?: (event: CoreEventReplayRequired) => void,
+    signal?: AbortSignal,
   ): Promise<CoreEventSubscription> {
     return this.#transport.openEventStream(
       after,
@@ -477,6 +481,7 @@ export class CoreClient implements CoreClientPort {
       undefined,
       undefined,
       onResyncRequired,
+      signal,
     );
   }
 
