@@ -1068,6 +1068,12 @@ async fn events(
             .document_realtime
             .subscribe(&context, document_id.clone(), client_session_id.clone())
             .map_err(api_core_error)?;
+        let subscription_guard = DocumentSubscriptionGuard {
+            adapter: state.document_realtime.clone(),
+            connection_id: context.connection_id.clone(),
+            client_session_id: client_session_id.clone(),
+            sender: state.document_sender.clone(),
+        };
         let replay = state
             .document_realtime
             .replay(
@@ -1126,11 +1132,7 @@ async fn events(
                     update,
                 }),
             Some(context.connection_id.clone()),
-            Some(DisconnectGuard {
-                adapter: state.document_realtime.clone(),
-                connection_id: context.connection_id,
-                sender: state.document_sender.clone(),
-            }),
+            Some(subscription_guard),
         )
     } else {
         match state.event_log.replay(query.after, None).map_err(|error| {
@@ -1605,18 +1607,22 @@ fn record_core_error(error: CoreError) -> CoreError {
     error
 }
 
-struct DisconnectGuard {
+struct DocumentSubscriptionGuard {
     adapter: OwnedDocumentRealtimeAdapter,
     connection_id: String,
+    client_session_id: String,
     sender: broadcast::Sender<DocumentTransportPublication>,
 }
 
-impl Drop for DisconnectGuard {
+impl Drop for DocumentSubscriptionGuard {
     fn drop(&mut self) {
-        let Ok(publications) = self.adapter.disconnect(&self.connection_id) else {
+        let Ok(publication) = self
+            .adapter
+            .unsubscribe(&self.connection_id, &self.client_session_id)
+        else {
             return;
         };
-        for publication in publications {
+        if let Some(publication) = publication {
             let _ = self.sender.send(DocumentTransportPublication {
                 event: publication.event,
                 recipient_connections: publication.recipient_connections,

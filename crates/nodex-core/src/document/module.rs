@@ -6811,15 +6811,43 @@ mod tests {
             .apply_update_v1(&awareness_update)
             .expect("observe join");
         assert!(observer.state(awareness_client_id).is_some());
-        let disconnected = adapter
-            .disconnect("renderer:first")
-            .expect("disconnect clears presence");
-        assert_eq!(disconnected.len(), 1);
-        let DocumentRealtimeEvent::Awareness { update, .. } = &disconnected[0].event else {
+        adapter
+            .subscribe(
+                &first_context,
+                DOCUMENT_ID.to_owned(),
+                "client:first-sibling".to_owned(),
+            )
+            .expect("same connection sibling subscription");
+        let unsubscribed = adapter
+            .unsubscribe("renderer:first", "client:first")
+            .expect("exact unsubscribe clears presence")
+            .expect("Awareness leave publication");
+        let DocumentRealtimeEvent::Awareness { update, .. } = &unsubscribed.event else {
             panic!("expected Awareness leave")
         };
         observer.apply_update_v1(update).expect("observe leave");
         assert!(observer.state(awareness_client_id).is_none());
+        adapter
+            .sync_yjs(
+                &first_context,
+                "client:first-sibling",
+                DOCUMENT_ID.to_owned(),
+                Vec::new(),
+            )
+            .expect("exact unsubscribe preserves its connection sibling");
+        let removed = adapter
+            .disconnect("renderer:first")
+            .expect("connection disconnect clears remaining subscriptions");
+        assert!(removed.is_empty());
+        let disconnected_sibling = adapter
+            .sync_yjs(
+                &first_context,
+                "client:first-sibling",
+                DOCUMENT_ID.to_owned(),
+                Vec::new(),
+            )
+            .expect_err("connection disconnect removes its remaining sibling");
+        assert_eq!(disconnected_sibling.code, CoreErrorCode::Unauthorized);
 
         seeded
             .module

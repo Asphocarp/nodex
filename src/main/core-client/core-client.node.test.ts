@@ -79,6 +79,83 @@ const withTimeout = async <Value>(
 };
 
 describe("CoreClient over a Unix socket", () => {
+  test("closing one Document stream preserves sibling subscriptions on the connection", async () => {
+    const nodexHome = mkdtempSync(path.join(tmpdir(), "nodex-core-client-stream-"));
+    const child = spawnCore(nodexHome);
+    let firstSubscription: CoreEventSubscription | undefined;
+    let secondSubscription: CoreEventSubscription | undefined;
+
+    try {
+      await readDescriptor(child);
+      const client = await CoreClient.connect({
+        nodexHome,
+        clientKind: "test",
+        buildId: "node-document-stream-lifecycle-test",
+        projectId: "project:default",
+      });
+      const documentId = "document:stream-lifecycle";
+      await client.libraryApply({
+        operationId: "node-document-stream-lifecycle-page",
+        intent: {
+          kind: "create_page",
+          page_id: "page:stream-lifecycle",
+          document_id: documentId,
+          title: "Stream lifecycle",
+          parent: { kind: "library", before: null },
+        },
+      });
+
+      firstSubscription = await client.openDocumentEventStream(
+        {
+          documentId,
+          clientSessionId: "session:stream-lifecycle:first",
+          after: 0,
+        },
+        () => undefined,
+        () => undefined,
+        () => undefined,
+      );
+      secondSubscription = await client.openDocumentEventStream(
+        {
+          documentId,
+          clientSessionId: "session:stream-lifecycle:second",
+          after: 0,
+        },
+        () => undefined,
+        () => undefined,
+        () => undefined,
+      );
+
+      firstSubscription.close();
+      await firstSubscription.done;
+      firstSubscription = undefined;
+
+      await expect(
+        client.documentSync({
+          documentId,
+          clientSessionId: "session:stream-lifecycle:second",
+          stateVector: new Uint8Array(),
+        }),
+      ).resolves.toMatchObject({
+        documentId,
+        generation: 1,
+        headSeq: 1,
+      });
+
+      secondSubscription.close();
+      await secondSubscription.done;
+      secondSubscription = undefined;
+      await expect(client.shutdown()).resolves.toEqual({ status: "draining" });
+      await expect(waitForExit(child)).resolves.toBe(0);
+    } finally {
+      firstSubscription?.close();
+      secondSubscription?.close();
+      if (child.exitCode === null) child.kill();
+      await waitForExit(child).catch(() => null);
+      rmSync(nodexHome, { recursive: true, force: true });
+    }
+  });
+
   test("reuses one daemon and completes handshake, read, apply, event, and shutdown", async () => {
     expect(existsSync(CORE_BINARY), "run pnpm run core:test:client").toBe(true);
     const nodexHome = mkdtempSync(path.join(tmpdir(), "nodex-core-client-"));

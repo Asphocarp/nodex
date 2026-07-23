@@ -456,6 +456,18 @@ impl OwnedDocumentRealtimeAdapter {
         }))
     }
 
+    pub fn unsubscribe(
+        &self,
+        connection_id: &str,
+        client_session_id: &str,
+    ) -> Result<Option<AwarenessPublication>, CoreError> {
+        let mut state = self.lock_state()?;
+        remove_subscription(
+            &mut state,
+            &(connection_id.to_owned(), client_session_id.to_owned()),
+        )
+    }
+
     pub fn disconnect(&self, connection_id: &str) -> Result<Vec<AwarenessPublication>, CoreError> {
         let mut state = self.lock_state()?;
         let keys = state
@@ -466,49 +478,8 @@ impl OwnedDocumentRealtimeAdapter {
             .collect::<Vec<_>>();
         let mut publications = Vec::new();
         for key in keys {
-            let Some(subscription) = state.subscriptions.remove(&key) else {
-                continue;
-            };
-            for client_id in &subscription.awareness_client_ids {
-                state
-                    .awareness_owners
-                    .remove(&(subscription.document_id.clone(), *client_id));
-            }
-            if subscription.awareness_client_ids.is_empty() {
-                continue;
-            }
-            let update = state
-                .awareness_documents
-                .get_mut(&subscription.document_id)
-                .ok_or_else(|| internal("Yjs Document Awareness is missing"))?
-                .remove_clients_v1(
-                    &subscription
-                        .awareness_client_ids
-                        .iter()
-                        .copied()
-                        .collect::<Vec<_>>(),
-                )
-                .map_err(engine_error)?;
-            publications.push(AwarenessPublication {
-                event: DocumentRealtimeEvent::Awareness {
-                    document_id: subscription.document_id.clone(),
-                    store_epoch: subscription.store_epoch,
-                    generation: subscription.generation,
-                    client_session_id: subscription.client_session_id,
-                    update,
-                },
-                recipient_connections: recipients_for_document(
-                    &state,
-                    &subscription.document_id,
-                    &key,
-                ),
-            });
-            if !state
-                .subscriptions
-                .values()
-                .any(|candidate| candidate.document_id == subscription.document_id)
-            {
-                state.awareness_documents.remove(&subscription.document_id);
+            if let Some(publication) = remove_subscription(&mut state, &key)? {
+                publications.push(publication);
             }
         }
         Ok(publications)
@@ -605,6 +576,54 @@ fn recipients_for_document(
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect()
+}
+
+fn remove_subscription(
+    state: &mut RealtimeState,
+    key: &(String, String),
+) -> Result<Option<AwarenessPublication>, CoreError> {
+    let Some(subscription) = state.subscriptions.remove(key) else {
+        return Ok(None);
+    };
+    for client_id in &subscription.awareness_client_ids {
+        state
+            .awareness_owners
+            .remove(&(subscription.document_id.clone(), *client_id));
+    }
+    let publication = if subscription.awareness_client_ids.is_empty() {
+        None
+    } else {
+        let update = state
+            .awareness_documents
+            .get_mut(&subscription.document_id)
+            .ok_or_else(|| internal("Yjs Document Awareness is missing"))?
+            .remove_clients_v1(
+                &subscription
+                    .awareness_client_ids
+                    .iter()
+                    .copied()
+                    .collect::<Vec<_>>(),
+            )
+            .map_err(engine_error)?;
+        Some(AwarenessPublication {
+            event: DocumentRealtimeEvent::Awareness {
+                document_id: subscription.document_id.clone(),
+                store_epoch: subscription.store_epoch,
+                generation: subscription.generation,
+                client_session_id: subscription.client_session_id,
+                update,
+            },
+            recipient_connections: recipients_for_document(state, &subscription.document_id, key),
+        })
+    };
+    if !state
+        .subscriptions
+        .values()
+        .any(|candidate| candidate.document_id == subscription.document_id)
+    {
+        state.awareness_documents.remove(&subscription.document_id);
+    }
+    Ok(publication)
 }
 
 fn intent_document_id(intent: &OwnedDocumentIntent) -> Option<&str> {

@@ -219,11 +219,14 @@
   drops the stream: one logical connection may hold at most 64 streams and the
   process at most 2,048. A second live global stream or identical Document
   client-session stream conflicts instead of creating ambiguous disconnect
-  ownership. The Document Realtime Adapter independently caps its subscription
-  map, accepts at most 4 KiB per Awareness publication, owns at most eight
-  Awareness clients per subscription and sixteen per Document, and refuses an
-  initial Awareness snapshot above 96 KiB. Capacity failure is the typed
-  retryable `resource_exhausted` error (HTTP 429), not silent eviction.
+  ownership. A Document stream's drop guard releases only its exact connection
+  and client-session subscription; sibling streams on the same logical
+  connection remain authorized, while full connection teardown clears the
+  remaining set. The Document Realtime Adapter independently caps its
+  subscription map, accepts at most 4 KiB per Awareness publication, owns at
+  most eight Awareness clients per subscription and sixteen per Document, and
+  refuses an initial Awareness snapshot above 96 KiB. Capacity failure is the
+  typed retryable `resource_exhausted` error (HTTP 429), not silent eviction.
 - Native prepared Agent operations are process-local leases over durable Module
   semantics, never a second mutation authority. Preparation uses one SQLite
   read snapshot and issues no token when the exact Module receipt already
