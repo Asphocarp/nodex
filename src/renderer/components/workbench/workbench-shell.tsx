@@ -1934,6 +1934,11 @@ function isSideChatPanelTab(tab: ProjectSessionRenderableTab): tab is SideChatPa
   return "sideChat" in tab && tab.sideChat === true;
 }
 
+function isPanelTabClosable(tab: ProjectSessionRenderableTab): boolean {
+  if (!isSideChatPanelTab(tab)) return true;
+  return tab.status !== "loading";
+}
+
 function isMcpAppPanelTab(tab: ProjectSessionRenderableTab): tab is McpAppPanelTab {
   return "mcpApp" in tab && tab.mcpApp === true;
 }
@@ -7795,21 +7800,7 @@ export function WorkbenchShell({
                       : isProjectSessionFilesPreviewTab(tab)
                         ? getTabIcon(tab.kind)
                         : getBrowserTabIcon(tab),
-        closable: isSideChatPanelTab(tab)
-          ? tab.status !== "loading"
-          : isMcpAppPanelTab(tab)
-            ? true
-            : isPlanPanelTab(tab)
-              ? true
-              : isAutomationPanelTab(tab)
-                ? true
-                : isBackgroundAgentPanelTab(tab)
-                  ? true
-                  : isSubagentsPanelTab(tab)
-                    ? true
-                  : isProcessOutputPanelTab(tab)
-                    ? true
-                    : tab.preview === true || session.tabs.length > 1,
+        closable: isPanelTabClosable(tab),
         preview: transientPanelTab ? undefined : tab.preview,
         reorderable: transientPanelTab ? false : tab.preview === true ? false : true,
         splittable: !transientPanelTab && tab.preview !== true,

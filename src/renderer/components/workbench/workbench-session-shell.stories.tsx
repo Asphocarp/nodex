@@ -40,7 +40,7 @@ import { WorkbenchShell } from "./workbench-shell";
 
 type ShellStoryArgs = {
   workspace: "projects" | "projectless-only";
-  activeTab: "browser" | "terminal" | "db" | "page" | "cross-project-card" | "missing-card" | "loading-card" | "review" | "empty";
+  activeTab: "browser" | "terminal" | "db" | "single-db" | "page" | "cross-project-card" | "missing-card" | "loading-card" | "review" | "empty";
   thread: "empty" | "attached";
   rightPanel: "regular" | "collapsed" | "full";
   rightPanelGroups: "single" | "split";
@@ -84,7 +84,7 @@ const meta = {
     },
     activeTab: {
       control: "inline-radio",
-      options: ["browser", "terminal", "db", "page", "cross-project-card", "missing-card", "loading-card", "review", "empty"],
+      options: ["browser", "terminal", "db", "single-db", "page", "cross-project-card", "missing-card", "loading-card", "review", "empty"],
     },
     thread: {
       control: "inline-radio",
@@ -471,20 +471,22 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
       config: { projectId: "nodex", title: "Browser" },
     }),
   ];
-  const tabs = args.activeTab === "review"
-    ? [
-        ...baseTabs,
-        makeTab({
-          id: "tab:review",
-          kind: "review",
-          title: "Review",
-          order: 4,
-          config: { projectId: "nodex" },
-        }),
-      ]
-    : baseTabs;
+  const tabs = args.activeTab === "single-db"
+    ? baseTabs.filter((tab) => tab.id === "tab:db")
+    : args.activeTab === "review"
+      ? [
+          ...baseTabs,
+          makeTab({
+            id: "tab:review",
+            kind: "review",
+            title: "Review",
+            order: 4,
+            config: { projectId: "nodex" },
+          }),
+        ]
+      : baseTabs;
   const activeTabId = (() => {
-    if (args.activeTab === "db") return "tab:db";
+    if (args.activeTab === "db" || args.activeTab === "single-db") return "tab:db";
     if (
       args.activeTab === "page"
       || args.activeTab === "cross-project-card"
@@ -1287,6 +1289,21 @@ export const MixedRightTabs: Story = {
     docs: {
       description: {
         story: "Regular 600px right panel with registry-backed global bottom/side panel toggles in the fixed toolbar, expand/restore in the panel tab header, and no empty toolbar row above the thread title.",
+      },
+    },
+  },
+};
+
+export const SingleClosableRightPanelTab: Story = {
+  args: {
+    activeTab: "single-db",
+    rightPanel: "regular",
+    bottomPanel: "collapsed",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "A sole durable right-panel tab remains closable: hover or focus the tab to reveal its close action.",
       },
     },
   },

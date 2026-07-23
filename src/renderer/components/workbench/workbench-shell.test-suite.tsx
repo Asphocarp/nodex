@@ -10856,7 +10856,23 @@ describe(`workbench session shell / ${scope}`, () => {
     });
   });
 
-  test("Ctrl+W consumes but does not close a non-closable active panel tab", async () => {
+  test("a sole durable panel tab exposes and runs its direct close action", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const closeButton = screen.getByRole("button", { name: "Close DB View tab" });
+    invokeCalls = [];
+    await act(async () => {
+      fireEvent.click(closeButton);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(getProjectSessionTabDeleteTabIds()).toEqual(["session:alpha:database-view:db"]);
+  });
+
+  test("Ctrl+W closes a sole durable panel tab", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
@@ -10872,7 +10888,7 @@ describe(`workbench session shell / ${scope}`, () => {
     });
     await settleAsyncRender();
 
-    expect(getProjectSessionTabDeleteTabIds().length).toBe(0);
+    expect(getProjectSessionTabDeleteTabIds()).toEqual(["session:alpha:database-view:db"]);
   });
 
   test("native close-panel-tab requests close the active focused panel tab", async () => {
