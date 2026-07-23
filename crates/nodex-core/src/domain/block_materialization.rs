@@ -348,6 +348,15 @@ fn dematerialize_table(
         .ok_or_else(|| {
             invalid_materialized_content(block, "content.rows", "table rows must be an array")
         })?;
+    let header_rows = materialized_table_header_count(block, content, "headerRows", rows.len())?;
+    let first_row_cell_count = rows
+        .first()
+        .and_then(Value::as_object)
+        .and_then(|row| row.get("cells"))
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
+    let header_columns =
+        materialized_table_header_count(block, content, "headerCols", first_row_cell_count)?;
     let mut width_offset = 0usize;
     rows.iter()
         .enumerate()
@@ -440,7 +449,11 @@ fn dematerialize_table(
                                 )
                             })?;
                     Ok(XmlNode::Element(XmlElementNode {
-                        name: "tableCell".to_owned(),
+                        name: if row_index < header_rows || cell_index < header_columns {
+                            "tableHeader".to_owned()
+                        } else {
+                            "tableCell".to_owned()
+                        },
                         attributes,
                         children: vec![XmlNode::Element(XmlElementNode {
                             name: "tableParagraph".to_owned(),
@@ -457,6 +470,32 @@ fn dematerialize_table(
             }))
         })
         .collect()
+}
+
+fn materialized_table_header_count(
+    block: &MaterializedBlockNode,
+    content: &Map<String, Value>,
+    key: &str,
+    maximum: usize,
+) -> Result<usize, BlockMaterializationError> {
+    let Some(value) = content.get(key) else {
+        return Ok(0);
+    };
+    let Some(value) = value.as_u64().and_then(|value| usize::try_from(value).ok()) else {
+        return Err(invalid_materialized_content(
+            block,
+            &format!("content.{key}"),
+            "table header count must be a non-negative integer",
+        ));
+    };
+    if value <= maximum {
+        return Ok(value);
+    }
+    Err(invalid_materialized_content(
+        block,
+        &format!("content.{key}"),
+        "table header count exceeds the table dimensions",
+    ))
 }
 
 fn json_object_to_portable(
@@ -646,6 +685,7 @@ fn materialize_table(
 ) -> Result<Value, BlockMaterializationError> {
     let mut rows = Vec::new();
     let mut column_widths = Vec::new();
+    let mut header_matrix = Vec::new();
     for (row_index, row_node) in table.children.iter().enumerate() {
         let XmlNode::Element(row) = row_node else {
             return Err(table_error(
@@ -660,19 +700,21 @@ fn materialize_table(
             ));
         }
         let mut cells = Vec::new();
+        let mut header_row = Vec::new();
         for cell_node in &row.children {
             let XmlNode::Element(cell) = cell_node else {
                 return Err(table_error(
                     block_id,
-                    "tableRow must contain tableCell elements",
+                    "tableRow must contain tableCell or tableHeader elements",
                 ));
             };
-            if cell.name != "tableCell" {
+            if !matches!(cell.name.as_str(), "tableCell" | "tableHeader") {
                 return Err(table_error(
                     block_id,
-                    format!("expected tableCell, found {}", cell.name),
+                    format!("expected tableCell or tableHeader, found {}", cell.name),
                 ));
             }
+            header_row.push(cell.name == "tableHeader");
             if row_index == 0 {
                 append_column_widths(&mut column_widths, cell)?;
             }
@@ -711,12 +753,33 @@ fn materialize_table(
             "cells".to_owned(),
             Value::Array(cells),
         )])));
+        header_matrix.push(header_row);
     }
-    Ok(Value::Object(Map::from_iter([
+    let header_rows = header_matrix
+        .iter()
+        .filter(|row| !row.is_empty() && row.iter().all(|is_header| *is_header))
+        .count();
+    let header_columns = header_matrix.first().map_or(0, |first_row| {
+        (0..first_row.len())
+            .filter(|column| {
+                header_matrix
+                    .iter()
+                    .all(|row| row.get(*column) == Some(&true))
+            })
+            .count()
+    });
+    let mut content = Map::from_iter([
         ("type".to_owned(), Value::String("tableContent".to_owned())),
         ("columnWidths".to_owned(), Value::Array(column_widths)),
         ("rows".to_owned(), Value::Array(rows)),
-    ])))
+    ]);
+    if header_rows > 0 {
+        content.insert("headerRows".to_owned(), Value::from(header_rows));
+    }
+    if header_columns > 0 {
+        content.insert("headerCols".to_owned(), Value::from(header_columns));
+    }
+    Ok(Value::Object(content))
 }
 
 fn append_column_widths(
@@ -884,6 +947,75 @@ mod tests {
         .expect("serialize materialization");
 
         assert_eq!(actual, expected["blockTree"]);
+    }
+
+    #[test]
+    fn preserves_blocknote_table_header_rows_and_columns() {
+        let cell = |name: &str| {
+            XmlNode::Element(XmlElementNode {
+                name: name.to_owned(),
+                attributes: BTreeMap::new(),
+                children: vec![XmlNode::Element(XmlElementNode {
+                    name: "tableParagraph".to_owned(),
+                    attributes: BTreeMap::new(),
+                    children: Vec::new(),
+                })],
+            })
+        };
+        let row = |names: &[&str]| {
+            XmlNode::Element(XmlElementNode {
+                name: "tableRow".to_owned(),
+                attributes: BTreeMap::new(),
+                children: names.iter().map(|name| cell(name)).collect(),
+            })
+        };
+        let table = XmlElementNode {
+            name: "table".to_owned(),
+            attributes: BTreeMap::new(),
+            children: vec![
+                row(&["tableHeader", "tableHeader", "tableHeader"]),
+                row(&["tableHeader", "tableCell", "tableCell"]),
+                row(&["tableHeader", "tableCell", "tableCell"]),
+            ],
+        };
+
+        let materialized = materialize_table(&table, "table:block").expect("materialize table");
+        assert_eq!(materialized["headerRows"], 1);
+        assert_eq!(materialized["headerCols"], 1);
+
+        let block = MaterializedBlockNode {
+            id: "table:block".to_owned(),
+            block_type: "table".to_owned(),
+            props: BTreeMap::new(),
+            content: Some(materialized),
+            children: Vec::new(),
+        };
+        let canonical = dematerialize_table(&block).expect("dematerialize table");
+        let names = canonical
+            .iter()
+            .map(|row| {
+                let XmlNode::Element(row) = row else {
+                    panic!("table row");
+                };
+                row.children
+                    .iter()
+                    .map(|cell| {
+                        let XmlNode::Element(cell) = cell else {
+                            panic!("table cell");
+                        };
+                        cell.name.as_str()
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            names,
+            vec![
+                vec!["tableHeader", "tableHeader", "tableHeader"],
+                vec!["tableHeader", "tableCell", "tableCell"],
+                vec!["tableHeader", "tableCell", "tableCell"],
+            ]
+        );
     }
 
     #[test]

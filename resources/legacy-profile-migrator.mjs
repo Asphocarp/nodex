@@ -1249,7 +1249,10 @@ function upgradeLegacyWorkflowStatus(value) {
   if (!isLegacyWorkflowStatus(value)) return null;
   return WORKFLOW_STATUS_CUTOVER_MAP[value];
 }
-var LEGACY_WORKFLOW_STATUS_ORDER, LEGACY_WORKFLOW_STATUS_LABELS, LEGACY_WORKFLOW_STATUS_COLUMNS, WORKFLOW_STATUS_CUTOVER_MAP;
+function downgradeWorkflowStatus(value) {
+  return LEGACY_WORKFLOW_STATUS_BY_STATUS[value];
+}
+var LEGACY_WORKFLOW_STATUS_ORDER, LEGACY_WORKFLOW_STATUS_LABELS, LEGACY_WORKFLOW_STATUS_COLUMNS, WORKFLOW_STATUS_CUTOVER_MAP, LEGACY_WORKFLOW_STATUS_BY_STATUS;
 var init_workflow_status_cutover = __esm({
   "legacy-source/src/shared/workflow-status-cutover.ts"() {
     init_workflow_status();
@@ -1277,6 +1280,13 @@ var init_workflow_status_cutover = __esm({
       in_progress: "build",
       in_review: "review",
       done: "ship"
+    };
+    LEGACY_WORKFLOW_STATUS_BY_STATUS = {
+      triage: "draft",
+      plan: "backlog",
+      build: "in_progress",
+      review: "in_review",
+      ship: "done"
     };
   }
 });
@@ -86656,7 +86666,7 @@ var init_database_identity_cutover = __esm({
 
 // legacy-source/src/main/local-store/database-identity-cutover-sqlite.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
-var SOURCE_SCHEMA_VERSION, TARGET_SCHEMA_VERSION, LEGACY_AUTHORITY_TABLES, IMMUTABLE_EVIDENCE_TRIGGERS, BUILT_IN_VALUE_TYPES, mappingKey2, compareStrings4, readUserVersion, requireCanonicalIdentity2, parseJson2, quoteIdentifier, tableExists4, requireTables, legacyReferencePattern, assertNoForeignKeyViolations, canonicalJson, propertyMappingIndexes, optionMappingIndex, rewriteOptionId, rewritePropertyValue, assertCanonicalProjectionParity, readPropertiesAndMappings, installTemporaryIdentityMaps, rewritePropertyConfig, containsChangedIdentity, changedLegacyIdentities, prepareEvidenceRewrites, rewriteRevisionKey, rewriteRevisionRecord, rewriteDatabaseModuleChangePayloads, readImmutableTriggerDefinitions, applyEvidenceRewrites, clearPreCutoverAgentCallReceipts, rebuildPropertyAuthority, readViews, rewritePositionGroupKey, installViewIntegrityTriggers, rebuildViewAuthority, assertPositionGroupsMatchValues, readSafeBlockSchemaObjects, rebuildBlocksWithoutLegacyAuthority, installCanonicalDatabaseAuthorityTriggers, rewritePageReadDatabaseValues, installPageReadModelValidationTriggers, rebuildPageReadModel, dropTriggersReferencingLegacyAuthority, assertNoExternalLegacyForeignKeys, dropLegacyAuthorityTables, assertNoLegacySchemaReferences, assertNoActiveOldIdentities, assertPublishedShape, migrateInsideTransaction, migrateDatabaseIdentityAuthorityV80ToV81;
+var SOURCE_SCHEMA_VERSION, TARGET_SCHEMA_VERSION, LEGACY_AUTHORITY_TABLES, IMMUTABLE_EVIDENCE_TRIGGERS, BUILT_IN_VALUE_TYPES, mappingKey2, compareStrings4, readUserVersion, requireCanonicalIdentity2, parseJson2, quoteIdentifier, tableExists4, requireTables, legacyReferencePattern, assertNoForeignKeyViolations, canonicalJson, propertyMappingIndexes, optionMappingIndex, rewriteOptionId, rewritePropertyValue, assertCanonicalProjectionParity, readPropertiesAndMappings, installTemporaryIdentityMaps, rewritePropertyConfig, identityTokenCharacterPattern, containsIdentityToken, containsChangedIdentity, changedLegacyIdentities, prepareEvidenceRewrites, rewriteRevisionKey, rewriteRevisionRecord, rewriteDatabaseModuleChangePayloads, readImmutableTriggerDefinitions, applyEvidenceRewrites, clearPreCutoverAgentCallReceipts, rebuildPropertyAuthority, readViews, rewritePositionGroupKey, installViewIntegrityTriggers, rebuildViewAuthority, assertPositionGroupsMatchValues, readSafeBlockSchemaObjects, rebuildBlocksWithoutLegacyAuthority, installCanonicalDatabaseAuthorityTriggers, rewritePageReadDatabaseValues, installPageReadModelValidationTriggers, rebuildPageReadModel, dropTriggersReferencingLegacyAuthority, assertNoExternalLegacyForeignKeys, dropLegacyAuthorityTables, assertNoLegacySchemaReferences, assertNoActiveOldIdentities, assertPublishedShape, migrateInsideTransaction, migrateDatabaseIdentityAuthorityV80ToV81;
 var init_database_identity_cutover_sqlite = __esm({
   "legacy-source/src/main/local-store/database-identity-cutover-sqlite.ts"() {
     init_database_identities();
@@ -87030,7 +87040,23 @@ var init_database_identity_cutover_sqlite = __esm({
         })
       });
     };
-    containsChangedIdentity = (values, candidate) => values.some((value) => candidate.includes(value));
+    identityTokenCharacterPattern = /[A-Za-z0-9_-]/u;
+    containsIdentityToken = (candidate, identity) => {
+      let searchFrom = 0;
+      while (searchFrom <= candidate.length - identity.length) {
+        const index = candidate.indexOf(identity, searchFrom);
+        if (index < 0) return false;
+        const before = index === 0 ? void 0 : candidate[index - 1];
+        const afterIndex = index + identity.length;
+        const after = afterIndex >= candidate.length ? void 0 : candidate[afterIndex];
+        if ((before === void 0 || !identityTokenCharacterPattern.test(before)) && (after === void 0 || !identityTokenCharacterPattern.test(after))) {
+          return true;
+        }
+        searchFrom = index + 1;
+      }
+      return false;
+    };
+    containsChangedIdentity = (values, candidate) => values.some((value) => containsIdentityToken(candidate, value));
     changedLegacyIdentities = (propertyMappings, optionMappings) => [
       ...propertyMappings.flatMap(
         (mapping) => mapping.oldPropertyId === mapping.newPropertyId ? [] : [mapping.oldPropertyId]
@@ -88380,14 +88406,8 @@ var init_database_identity_cutover_sqlite = __esm({
       UNION ALL SELECT result_metadata_json FROM nodex_agent_call_receipts
     `).all());
       }
-      if (tableExists4(input.database, "project_session_tabs")) {
-        append2("Project session state", input.database.prepare(`
-      SELECT config_json AS value FROM project_session_tabs
-      UNION ALL SELECT state_json FROM project_session_tabs
-    `).all());
-      }
       for (const identity of identities) {
-        const retained = samples.find((sample) => sample.value.includes(identity));
+        const retained = samples.find((sample) => containsIdentityToken(sample.value, identity));
         if (!retained) continue;
         throw new DatabaseIdentityCutoverError(
           `${retained.location} still contains old mapped identity ${identity}`
@@ -95532,6 +95552,7 @@ function prepareShippedSchemaImport(db2) {
 }
 function finishShippedSchemaImport(db2, assetsRootPath) {
   assertShippedImportSource(db2);
+  materializeImportedDatabasePropertyConfigs(db2);
   cutoverImportedCanvasAuthority(db2, { assetsRootPath });
   enforceExclusiveCardParents(db2);
   stabilizeDatabaseMembershipHistory(db2);
@@ -96412,6 +96433,49 @@ function installLibraryDatabaseProjectionTriggers(db2) {
       END;
   `);
 }
+function materializeImportedForeignPageReadGrants(db2) {
+  const rows = db2.prepare(`
+    SELECT DISTINCT
+      document.project_id,
+      target.id AS target_block_id,
+      project.library_id
+    FROM documents document
+    INNER JOIN projects project ON project.id = document.project_id
+    INNER JOIN document_materializations materialization
+      ON materialization.document_id = document.id
+      AND materialization.generation = document.generation
+      AND materialization.projected_seq = document.head_seq
+    INNER JOIN json_each(materialization.references_json) reference
+    INNER JOIN blocks target
+      ON target.id = json_extract(reference.value, '$.targetBlockId')
+    INNER JOIN projects target_project ON target_project.id = target.project_id
+    WHERE document.readiness = 'ready'
+      AND json_extract(reference.value, '$.kind') = 'block'
+      AND target.type = 'page'
+      AND target.lifecycle <> 'deleted'
+      AND target.project_id <> document.project_id
+      AND target_project.library_id = project.library_id
+    ORDER BY document.project_id, target.id
+  `).all();
+  const insert = db2.prepare(`
+    INSERT INTO project_resource_grants (
+      id, project_id, library_id, root_kind, root_id, access, recursive,
+      revision, lifecycle, created_at, updated_at
+    ) VALUES (?, ?, ?, 'page', ?, 'read', 1, 1, 'active', ?, ?)
+    ON CONFLICT(project_id, root_kind, root_id) DO NOTHING
+  `);
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  for (const row of rows) {
+    insert.run(
+      randomUUID4(),
+      row.project_id,
+      row.library_id,
+      row.target_block_id,
+      now,
+      now
+    );
+  }
+}
 function migrateSchema67To68(db2) {
   const sourceVersion2 = getUserVersion(db2);
   if (sourceVersion2 !== 67) {
@@ -96464,6 +96528,7 @@ function migrateSchema67To68(db2) {
       );
     }
     createLibraryDatabaseFoundationSchema(db2);
+    materializeImportedForeignPageReadGrants(db2);
     db2.prepare(`
       INSERT INTO database_containers (
         block_id, library_id, name, lifecycle, default_view_id,
@@ -105882,10 +105947,12 @@ var init_database_pages = __esm({
 });
 
 // legacy-source/src/main/local-store/legacy-inline-database-views.ts
-var MAX_ID_LENGTH5, MAX_NAME_LENGTH2, MAX_RULES_LENGTH, MAX_CSV_LENGTH, DatabaseViewStoreError, requireBoundedText, requireBoundedPayload, canonicalizeJson2, isJsonObject, parseConfig, stringifyConfig, nextUpdatedAt, rowToDefinition, readViewRow, assertHostReferenceBlock, resolvePrimaryDatabaseBlockId, assertExistingViewIdentity, upsertLegacyInlineDatabaseView;
+var MAX_ID_LENGTH5, MAX_NAME_LENGTH2, MAX_RULES_LENGTH, MAX_CSV_LENGTH, DatabaseViewStoreError, requireBoundedText, requireBoundedPayload, canonicalizeJson2, isJsonObject, parseConfig, stringifyConfig, nextUpdatedAt, rowToDefinition, readViewRow, assertHostReferenceBlock, resolvePrimaryDatabaseBlockId, assertExistingViewIdentity, downgradeStatusFilterValue, downgradeStatusFilter, upsertLegacyInlineDatabaseView;
 var init_legacy_inline_database_views = __esm({
   "legacy-source/src/main/local-store/legacy-inline-database-views.ts"() {
     init_database_views();
+    init_workflow_status_cutover();
+    init_workflow_status();
     init_database_pages();
     init_database();
     MAX_ID_LENGTH5 = 512;
@@ -106072,6 +106139,28 @@ var init_legacy_inline_database_views = __esm({
         `Database View identity is already owned by another source: ${row.id}`
       );
     };
+    downgradeStatusFilterValue = (value) => {
+      if (typeof value === "string" && isWorkflowStatus(value)) {
+        return downgradeWorkflowStatus(value);
+      }
+      if (Array.isArray(value)) return value.map(downgradeStatusFilterValue);
+      return value;
+    };
+    downgradeStatusFilter = (filter) => {
+      if (filter.kind === "group") {
+        return {
+          ...filter,
+          children: filter.children.map(downgradeStatusFilter)
+        };
+      }
+      if (!filter.propertyId.endsWith(":property:status") || filter.value === void 0) {
+        return filter;
+      }
+      return {
+        ...filter,
+        value: downgradeStatusFilterValue(filter.value)
+      };
+    };
     upsertLegacyInlineDatabaseView = (input, database = getDb()) => {
       const sourceBlockId = requireBoundedText(
         input.sourceBlockId,
@@ -106130,7 +106219,10 @@ var init_legacy_inline_database_views = __esm({
             sourceProjectId: legacySourceProjectId
           }
         });
-        const configJson = stringifyConfig(config2);
+        const configJson = stringifyConfig({
+          ...config2,
+          filter: downgradeStatusFilter(config2.filter)
+        });
         const existing = readViewRow(database, viewId);
         const now = nextUpdatedAt(existing?.updated_at ?? null, (/* @__PURE__ */ new Date()).toISOString());
         let definitionChange;
@@ -106450,6 +106542,7 @@ var init_foreign_reference_migration2 = __esm({
     init_database();
     init_description_revisions();
     init_document_materializations();
+    init_legacy_page_projection_adapter();
     DEFAULT_BATCH_LIMIT = 50;
     MIGRATION_CLIENT_SESSION_ID = "foreign-reference-migration";
     ForeignReferenceMigrationStoreError = class extends Error {
@@ -106997,7 +107090,10 @@ var init_foreign_reference_migration2 = __esm({
       FROM cards
       WHERE project_id = ? AND status = ? AND archived = 0
     `
-      ).get(input.projectId, input.status);
+      ).get(
+        input.projectId,
+        downgradeWorkflowStatus(input.status)
+      );
       const now = (/* @__PURE__ */ new Date()).toISOString();
       database.prepare(
         `
@@ -107017,7 +107113,7 @@ var init_foreign_reference_migration2 = __esm({
       ).run(
         cardId,
         input.projectId,
-        input.status,
+        downgradeWorkflowStatus(input.status),
         input.card.title,
         description,
         summary.descriptionPreview,
@@ -107330,7 +107426,10 @@ var init_foreign_reference_migration2 = __esm({
       synchronizeLegacyMaterializations(database);
       const dependencies = {
         createRecoveredCard: options.dependencies?.createRecoveredCard ?? ((input) => createDefaultRecoveredCard(database, input)),
-        upsertInlineDatabaseView: options.dependencies?.upsertInlineDatabaseView ?? ((input, target) => upsertLegacyInlineDatabaseView(input, target)),
+        upsertInlineDatabaseView: options.dependencies?.upsertInlineDatabaseView ?? ((input, target) => withPageNamedProjectionStorage(
+          target,
+          () => upsertLegacyInlineDatabaseView(input, target)
+        )),
         createMigrationId: options.dependencies?.createMigrationId ?? createUuidV7
       };
       const candidates = readCandidateDocuments(database, limit);

@@ -83,6 +83,353 @@ const assertPortableBundle = (bundle: string): void => {
   }
 };
 
+const replaceExactOnce = (
+  contents: string,
+  before: string,
+  after: string,
+  label: string,
+): string => {
+  const firstIndex = contents.indexOf(before);
+  if (firstIndex < 0 || firstIndex !== contents.lastIndexOf(before)) {
+    throw new Error(`Legacy profile migrator compatibility overlay is ambiguous: ${label}`);
+  }
+  return `${contents.slice(0, firstIndex)}${after}${contents.slice(firstIndex + before.length)}`;
+};
+
+const applyCompatibilityOverlays = (migrationSource: string): void => {
+  const workflowStatusCutoverPath = path.join(
+    migrationSource,
+    "src/shared/workflow-status-cutover.ts",
+  );
+  const workflowStatusCutover = readFileSync(workflowStatusCutoverPath, "utf8");
+  writeFileSync(
+    workflowStatusCutoverPath,
+    replaceExactOnce(
+      workflowStatusCutover,
+      `export function upgradeLegacyWorkflowStatus(
+  value: unknown,
+): WorkflowStatus | null {
+  if (isWorkflowStatus(value)) return value;
+  if (!isLegacyWorkflowStatus(value)) return null;
+  return WORKFLOW_STATUS_CUTOVER_MAP[value];
+}`,
+      `export function upgradeLegacyWorkflowStatus(
+  value: unknown,
+): WorkflowStatus | null {
+  if (isWorkflowStatus(value)) return value;
+  if (!isLegacyWorkflowStatus(value)) return null;
+  return WORKFLOW_STATUS_CUTOVER_MAP[value];
+}
+
+const LEGACY_WORKFLOW_STATUS_BY_STATUS: Readonly<
+  Record<WorkflowStatus, LegacyWorkflowStatus>
+> = {
+  triage: "draft",
+  plan: "backlog",
+  build: "in_progress",
+  review: "in_review",
+  ship: "done",
+};
+
+export function downgradeWorkflowStatus(
+  value: WorkflowStatus,
+): LegacyWorkflowStatus {
+  return LEGACY_WORKFLOW_STATUS_BY_STATUS[value];
+}`,
+      "legacy workflow status downgrade",
+    ),
+  );
+
+  const foreignReferenceMigrationPath = path.join(
+    migrationSource,
+    "src/main/local-store/foreign-reference-migration.ts",
+  );
+  const foreignReferenceMigration = readFileSync(foreignReferenceMigrationPath, "utf8");
+  const withStatusDowngradeImport = replaceExactOnce(
+    foreignReferenceMigration,
+    `import { upgradeLegacyWorkflowStatus } from "../../shared/workflow-status-cutover";`,
+    `import {
+  downgradeWorkflowStatus,
+  upgradeLegacyWorkflowStatus,
+} from "../../shared/workflow-status-cutover";`,
+    "legacy workflow status downgrade import",
+  );
+  const withProjectionAdapterImport = replaceExactOnce(
+    withStatusDowngradeImport,
+    `import { persistPageDocumentMaterialization } from "./document-materializations";`,
+    `import { persistPageDocumentMaterialization } from "./document-materializations";
+import { withPageNamedProjectionStorage } from "./legacy-page-projection-adapter";`,
+    "legacy Page projection adapter import",
+  );
+  const withLegacyRecoveryStatusQuery = replaceExactOnce(
+    withProjectionAdapterImport,
+    `    .get(input.projectId, input.status) as { readonly next_order: number };`,
+    `    .get(
+      input.projectId,
+      downgradeWorkflowStatus(input.status),
+    ) as { readonly next_order: number };`,
+    "legacy recovered Card ordering status",
+  );
+  const withLegacyRecoveryStatusInsert = replaceExactOnce(
+    withLegacyRecoveryStatusQuery,
+    `      input.projectId,
+      input.status,
+      input.card.title,`,
+    `      input.projectId,
+      downgradeWorkflowStatus(input.status),
+      input.card.title,`,
+    "legacy recovered Card inserted status",
+  );
+  writeFileSync(
+    foreignReferenceMigrationPath,
+    replaceExactOnce(
+      withLegacyRecoveryStatusInsert,
+      `      ((
+        input: UpsertLegacyInlineDatabaseViewInput,
+        target: Database.Database,
+      ) => upsertLegacyInlineDatabaseView(input, target)),`,
+      `      ((
+        input: UpsertLegacyInlineDatabaseViewInput,
+        target: Database.Database,
+      ) =>
+        withPageNamedProjectionStorage(target, () =>
+          upsertLegacyInlineDatabaseView(input, target),
+        )),`,
+      "legacy inline-View projection coordinates",
+    ),
+  );
+
+  const legacyInlineViewsPath = path.join(
+    migrationSource,
+    "src/main/local-store/legacy-inline-database-views.ts",
+  );
+  const legacyInlineViews = readFileSync(legacyInlineViewsPath, "utf8");
+  const withDatabaseKernelTypes = replaceExactOnce(
+    legacyInlineViews,
+    `import type Database from "better-sqlite3";
+import type {`,
+    `import type Database from "better-sqlite3";
+import type {
+  DatabaseJsonValue,
+  DatabaseViewFilterNode,
+} from "../../shared/database-kernel";
+import type {`,
+    "legacy inline-View filter types",
+  );
+  const withWorkflowStatusImports = replaceExactOnce(
+    withDatabaseKernelTypes,
+    `import { readDatabasePageSummariesByIds } from "./database-pages";`,
+    `import {
+  downgradeWorkflowStatus,
+} from "../../shared/workflow-status-cutover";
+import { isWorkflowStatus } from "../../shared/workflow-status";
+import { readDatabasePageSummariesByIds } from "./database-pages";`,
+    "legacy inline-View workflow status imports",
+  );
+  const withStatusFilterDowngrade = replaceExactOnce(
+    withWorkflowStatusImports,
+    `export const upsertLegacyInlineDatabaseView = (
+  input: UpsertLegacyInlineDatabaseViewInput,`,
+    `const downgradeStatusFilterValue = (
+  value: DatabaseJsonValue,
+): DatabaseJsonValue => {
+  if (typeof value === "string" && isWorkflowStatus(value)) {
+    return downgradeWorkflowStatus(value);
+  }
+  if (Array.isArray(value)) return value.map(downgradeStatusFilterValue);
+  return value;
+};
+
+const downgradeStatusFilter = (
+  filter: DatabaseViewFilterNode,
+): DatabaseViewFilterNode => {
+  if (filter.kind === "group") {
+    return {
+      ...filter,
+      children: filter.children.map(downgradeStatusFilter),
+    };
+  }
+  if (
+    !filter.propertyId.endsWith(":property:status")
+    || filter.value === undefined
+  ) {
+    return filter;
+  }
+  return {
+    ...filter,
+    value: downgradeStatusFilterValue(filter.value),
+  };
+};
+
+export const upsertLegacyInlineDatabaseView = (
+  input: UpsertLegacyInlineDatabaseViewInput,`,
+    "legacy inline-View status filter downgrade",
+  );
+  writeFileSync(
+    legacyInlineViewsPath,
+    replaceExactOnce(
+      withStatusFilterDowngrade,
+      `    const configJson = stringifyConfig(config);`,
+      `    const configJson = stringifyConfig({
+      ...config,
+      filter: downgradeStatusFilter(config.filter),
+    });`,
+      "legacy inline-View downgraded config",
+    ),
+  );
+
+  const schemaPath = path.join(
+    migrationSource,
+    "src/main/local-store/schema.ts",
+  );
+  const schema = readFileSync(schemaPath, "utf8");
+  const withImportedForeignPageGrants = replaceExactOnce(
+    schema,
+    `export function migrateSchema67To68(db: Database.Database): void {`,
+    `function materializeImportedForeignPageReadGrants(
+  db: Database.Database,
+): void {
+  const rows = db.prepare(\`
+    SELECT DISTINCT
+      document.project_id,
+      target.id AS target_block_id,
+      project.library_id
+    FROM documents document
+    INNER JOIN projects project ON project.id = document.project_id
+    INNER JOIN document_materializations materialization
+      ON materialization.document_id = document.id
+      AND materialization.generation = document.generation
+      AND materialization.projected_seq = document.head_seq
+    INNER JOIN json_each(materialization.references_json) reference
+    INNER JOIN blocks target
+      ON target.id = json_extract(reference.value, '$.targetBlockId')
+    INNER JOIN projects target_project ON target_project.id = target.project_id
+    WHERE document.readiness = 'ready'
+      AND json_extract(reference.value, '$.kind') = 'block'
+      AND target.type = 'page'
+      AND target.lifecycle <> 'deleted'
+      AND target.project_id <> document.project_id
+      AND target_project.library_id = project.library_id
+    ORDER BY document.project_id, target.id
+  \`).all() as readonly {
+    readonly project_id: string;
+    readonly target_block_id: string;
+    readonly library_id: string;
+  }[];
+  const insert = db.prepare(\`
+    INSERT INTO project_resource_grants (
+      id, project_id, library_id, root_kind, root_id, access, recursive,
+      revision, lifecycle, created_at, updated_at
+    ) VALUES (?, ?, ?, 'page', ?, 'read', 1, 1, 'active', ?, ?)
+    ON CONFLICT(project_id, root_kind, root_id) DO NOTHING
+  \`);
+  const now = new Date().toISOString();
+  for (const row of rows) {
+    insert.run(
+      randomUUID(),
+      row.project_id,
+      row.library_id,
+      row.target_block_id,
+      now,
+      now,
+    );
+  }
+}
+
+export function migrateSchema67To68(db: Database.Database): void {`,
+    "legacy cross-Project Page read grants",
+  );
+  const withImportedForeignPageGrantCall = replaceExactOnce(
+    withImportedForeignPageGrants,
+    `    createLibraryDatabaseFoundationSchema(db);`,
+    `    createLibraryDatabaseFoundationSchema(db);
+    materializeImportedForeignPageReadGrants(db);
+`,
+    "legacy cross-Project Page read grant call",
+  );
+  writeFileSync(
+    schemaPath,
+    replaceExactOnce(
+      withImportedForeignPageGrantCall,
+      `  assertShippedImportSource(db);
+  cutoverImportedCanvasAuthority(db, { assetsRootPath });`,
+      `  assertShippedImportSource(db);
+  materializeImportedDatabasePropertyConfigs(db);
+  cutoverImportedCanvasAuthority(db, { assetsRootPath });`,
+      "recovered Card option registries",
+    ),
+  );
+
+  const databaseIdentityCutoverPath = path.join(
+    migrationSource,
+    "src/main/local-store/database-identity-cutover-sqlite.ts",
+  );
+  const databaseIdentityCutover = readFileSync(
+    databaseIdentityCutoverPath,
+    "utf8",
+  );
+  const withIdentityTokenMatcher = replaceExactOnce(
+    databaseIdentityCutover,
+    `const containsChangedIdentity = (
+  values: readonly string[],
+  candidate: string,
+): boolean => values.some((value) => candidate.includes(value));`,
+    `const identityTokenCharacterPattern = /[A-Za-z0-9_-]/u;
+
+const containsIdentityToken = (
+  candidate: string,
+  identity: string,
+): boolean => {
+  let searchFrom = 0;
+  while (searchFrom <= candidate.length - identity.length) {
+    const index = candidate.indexOf(identity, searchFrom);
+    if (index < 0) return false;
+    const before = index === 0 ? undefined : candidate[index - 1];
+    const afterIndex = index + identity.length;
+    const after =
+      afterIndex >= candidate.length ? undefined : candidate[afterIndex];
+    if (
+      (before === undefined || !identityTokenCharacterPattern.test(before))
+      && (after === undefined || !identityTokenCharacterPattern.test(after))
+    ) {
+      return true;
+    }
+    searchFrom = index + 1;
+  }
+  return false;
+};
+
+const containsChangedIdentity = (
+  values: readonly string[],
+  candidate: string,
+): boolean =>
+  values.some((value) => containsIdentityToken(candidate, value));`,
+    "legacy identity token matcher",
+  );
+  const withoutOpaqueProjectSessionAudit = replaceExactOnce(
+    withIdentityTokenMatcher,
+    `  if (tableExists(input.database, "project_session_tabs")) {
+    append("Project session state", input.database.prepare(\`
+      SELECT config_json AS value FROM project_session_tabs
+      UNION ALL SELECT state_json FROM project_session_tabs
+    \`).all() as readonly { readonly value: string }[]);
+  }
+`,
+    "",
+    "opaque Project session identity audit",
+  );
+  writeFileSync(
+    databaseIdentityCutoverPath,
+    replaceExactOnce(
+      withoutOpaqueProjectSessionAudit,
+      `    const retained = samples.find((sample) => sample.value.includes(identity));`,
+      `    const retained = samples.find((sample) =>
+      containsIdentityToken(sample.value, identity));`,
+      "legacy identity residue audit",
+    ),
+  );
+};
+
 const generateArtifacts = async (): Promise<GeneratedArtifacts> => {
   const sourceCommit = resolveSourceCommit();
   mkdirSync(scratchRoot, { recursive: true });
@@ -113,6 +460,7 @@ const generateArtifacts = async (): Promise<GeneratedArtifacts> => {
     for (const entry of ["src", "packages", "third_party"]) {
       renameSync(path.join(checkoutRoot, entry), path.join(migrationSource, entry));
     }
+    applyCompatibilityOverlays(migrationSource);
     copyFileSync(
       path.join(sourceRoot, "entry.ts.template"),
       path.join(checkoutRoot, "entry.ts"),

@@ -256,6 +256,7 @@ pub(crate) fn persist_yjs_commit(
         connection,
         &input.authority.head.project_id,
         input.materialization,
+        false,
     )?;
     reconcile_document_blocks(
         connection,
@@ -463,6 +464,7 @@ pub(crate) fn persist_yjs_genesis(
         connection,
         &input.authority.head.project_id,
         input.materialization,
+        false,
     )?;
     reconcile_document_blocks(connection, input.authority, input.materialization, 1, &now)?;
     persist_materialization(
@@ -933,7 +935,12 @@ pub(crate) fn rebuild_legacy_import_projections(
     let authority = read_document_authority(connection, document_id)?
         .ok_or_else(|| corrupt("Legacy import Document has no authority"))?;
     let now = sqlite_now(connection)?;
-    validate_document_references(connection, &authority.head.project_id, materialization)?;
+    validate_document_references(
+        connection,
+        &authority.head.project_id,
+        materialization,
+        true,
+    )?;
     reconcile_document_blocks(
         connection,
         &authority,
@@ -1015,19 +1022,18 @@ fn validate_document_references(
     connection: &Connection,
     project_id: &str,
     materialization: &DocumentMaterialization,
+    allow_legacy_diagnostics: bool,
 ) -> Result<(), StoreError> {
     for reference in &materialization.references {
         let valid = match reference {
             BlockDocumentReference::Block {
                 target_block_id, ..
-            } => connection
-                .query_row(
-                    "SELECT 1 FROM blocks WHERE id = ?1 AND project_id = ?2 AND lifecycle <> 'deleted'",
-                    params![target_block_id, project_id],
-                    |_| Ok(()),
-                )
-                .optional()?
-                .is_some(),
+            } => block_reference_is_readable(
+                connection,
+                project_id,
+                target_block_id,
+                allow_legacy_diagnostics,
+            )?,
             BlockDocumentReference::DatabaseView {
                 database_view_id, ..
             } => connection
@@ -1052,13 +1058,115 @@ fn validate_document_references(
             BlockDocumentReference::LegacyCardProjection { .. }
             | BlockDocumentReference::LegacyDatabaseQuery { .. } => false,
         };
-        if !valid {
-            return Err(invalid(
-                "Document contains an unreadable or legacy reference".to_owned(),
-            ));
+        if valid {
+            continue;
         }
+        let reference_description = match reference {
+            BlockDocumentReference::Block {
+                source_block_id,
+                target_block_id,
+                ..
+            } => format!(
+                "unreadable Block reference from `{source_block_id}` to `{target_block_id}`"
+            ),
+            BlockDocumentReference::DatabaseView {
+                source_block_id,
+                database_view_id,
+                ..
+            } => format!(
+                "unreadable Database View reference from `{source_block_id}` to `{database_view_id}`"
+            ),
+            BlockDocumentReference::Thread {
+                source_block_id,
+                target_thread_id,
+            } => format!(
+                "unreadable Thread reference from `{source_block_id}` to `{target_thread_id}`"
+            ),
+            BlockDocumentReference::LegacyCardProjection {
+                source_block_id,
+                target_block_id,
+                ..
+            } => format!(
+                "legacy Card projection reference from `{source_block_id}` to `{target_block_id}`"
+            ),
+            BlockDocumentReference::LegacyDatabaseQuery {
+                source_block_id,
+                project_hint,
+            } => format!(
+                "legacy Database query reference from `{source_block_id}` for Project `{project_hint}`"
+            ),
+        };
+        return Err(invalid(format!(
+            "Document contains an {reference_description}"
+        )));
     }
     Ok(())
+}
+
+fn block_reference_is_readable(
+    connection: &Connection,
+    project_id: &str,
+    target_block_id: &str,
+    allow_legacy_diagnostics: bool,
+) -> Result<bool, StoreError> {
+    let target = connection
+        .query_row(
+            "SELECT project_id, type, lifecycle FROM blocks WHERE id = ?1",
+            [target_block_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((target_project_id, target_type, target_lifecycle)) = target else {
+        return Ok(false);
+    };
+    if target_lifecycle == "deleted" {
+        return Ok(allow_legacy_diagnostics
+            && target_project_id == project_id
+            && target_type == "unresolved_card_reference");
+    }
+    if target_type == "unresolved_card_reference" {
+        return Ok(false);
+    }
+    if target_project_id == project_id {
+        return Ok(true);
+    }
+    if target_type != "page" {
+        return Ok(false);
+    }
+    let library_id = connection
+        .query_row(
+            "SELECT library_id FROM projects WHERE id = ?1",
+            [project_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten();
+    let Some(library_id) = library_id else {
+        return Ok(false);
+    };
+    match crate::library::require_page_read_access(
+        connection,
+        &library_id,
+        project_id,
+        target_block_id,
+    ) {
+        Ok(()) => Ok(true),
+        Err(error)
+            if matches!(
+                error.code,
+                StoreErrorCode::NotFound | StoreErrorCode::Unauthorized
+            ) =>
+        {
+            Ok(false)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 pub(crate) fn derive_touched_block_ids(

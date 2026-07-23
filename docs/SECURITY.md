@@ -21,10 +21,16 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   resolves one absolute regular-file migrator executable and bundle from its
   verified resources, while Core verifies the bundle against its manifest
   SHA-256 before use. Core accepts only complete normalized schema fingerprints
-  for the published v26/v57/v68/v82/v83 inventories, creates an online database
-  snapshot and validated no-symlink asset backup, and gives the sidecar only a
-  staging Profile. Native exact-v84 and semantic validation must succeed before
-  an fsynced journaled rename can replace live files; failure or interruption
+  for the frozen v26/two-v57/v68/v82/v83 inventories, creates an online database
+  snapshot and validated no-symlink asset backup, and gives the hash-pinned,
+  reproducibly generated sidecar only a staging Profile. Its reviewed
+  compatibility overlays are limited to import-time legacy projection,
+  workflow-status, recovered option-registry, explicit same-Library
+  cross-Project Page read-grant, unresolved-reference diagnostic, and
+  token-bound authority/evidence audit coordinates; opaque Session UI JSON
+  remains under its own schema validation. Native exact-v84 and semantic
+  validation must succeed before an
+  fsynced journaled rename can replace live files; failure or interruption
   preserves or restores the original database, SQLite companions, and assets.
 - The native Core runtime validates the Profile, `run`, and `run/core`
   ancestry without following symlinks; requires current-user ownership; and

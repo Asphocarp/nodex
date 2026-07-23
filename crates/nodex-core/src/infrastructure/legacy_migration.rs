@@ -29,6 +29,20 @@ const MIGRATOR_EXECUTABLE_ENV: &str = "NODEX_LEGACY_MIGRATOR_EXECUTABLE";
 const MIGRATOR_SCRIPT_ENV: &str = "NODEX_LEGACY_MIGRATOR_SCRIPT";
 const MIGRATOR_SHA256_ENV: &str = "NODEX_LEGACY_MIGRATOR_SHA256";
 const SUPPORTED_SOURCE_VERSIONS: &[i64] = &[26, 57, 68, 82, 83];
+const EARLY_V57_SCHEMA_FINGERPRINT: &str =
+    "ceb13a0d7504ef463395ba0bc694d3ab02501a1591322baab0ab3cdd2085ad37";
+const V26_SCHEMA_FINGERPRINTS: &[&str] =
+    &["d88c3edca94968058e9dd6085ad9dc9b549f34b9c79195eb13f82a52511b2373"];
+const V57_SCHEMA_FINGERPRINTS: &[&str] = &[
+    EARLY_V57_SCHEMA_FINGERPRINT,
+    "6d89ee204fee927dbb5b4622bffe37cdff34d0400558c114d4497f27ae802132",
+];
+const V68_SCHEMA_FINGERPRINTS: &[&str] =
+    &["e8e6e103d94f2b51e55ce3c4a423b96dd48b6d3ff047b1180e3a43908a9830f5"];
+const V82_SCHEMA_FINGERPRINTS: &[&str] =
+    &["38e2a9474a92ec4b33cea2a2236d4870fdc0ae7c260b087f7146bafb491bc7a5"];
+const V83_SCHEMA_FINGERPRINTS: &[&str] =
+    &["a2447b0024e3034acc5d3a91be8e8e69aa95fa9ab7c6349ed7f52da92a5bad8b"];
 const AGENT_RECEIPT_SCHEMA_HASHES: &[&str] = &[
     "499f4a395c4df215265cf9420cbccb4737796c02346b325be08c2f957141d743",
     "9f3d9c66142a7bc42c0060ab146255db768461e45a057d7d78451cff3d7b7814",
@@ -62,6 +76,13 @@ struct LegacySource {
     database_path: PathBuf,
     database_file_name: &'static str,
     version: i64,
+    inventory: LegacyInventory,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LegacyInventory {
+    Frozen,
+    EarlyV57,
 }
 
 #[derive(Debug)]
@@ -123,6 +144,7 @@ fn migrate_legacy_source(
         ensure_assets_directory(&staging_directory.join(ASSETS_DIRECTORY_NAME))?;
         sync_tree(&staging_directory)?;
 
+        normalize_legacy_staging_store(&staging_database, source.inventory)?;
         migrator.run(&staging_directory)?;
         let mut candidate = open_writer(&staging_database)?;
         validate_store(&candidate)?;
@@ -230,21 +252,25 @@ fn detect_legacy_source(profile_home: &Path) -> Result<Option<LegacySource>, Sto
         return Ok(None);
     }
     validate_store(&connection)?;
-    validate_legacy_shape(&connection, version)?;
+    let inventory = validate_legacy_shape(&connection, version)?;
     Ok(Some(LegacySource {
         database_path,
         database_file_name,
         version,
+        inventory,
     }))
 }
 
-fn validate_legacy_shape(connection: &Connection, version: i64) -> Result<(), StoreError> {
+fn validate_legacy_shape(
+    connection: &Connection,
+    version: i64,
+) -> Result<LegacyInventory, StoreError> {
     let expected = match version {
-        26 => "d88c3edca94968058e9dd6085ad9dc9b549f34b9c79195eb13f82a52511b2373",
-        57 => "6d89ee204fee927dbb5b4622bffe37cdff34d0400558c114d4497f27ae802132",
-        68 => "e8e6e103d94f2b51e55ce3c4a423b96dd48b6d3ff047b1180e3a43908a9830f5",
-        82 => "38e2a9474a92ec4b33cea2a2236d4870fdc0ae7c260b087f7146bafb491bc7a5",
-        83 => "a2447b0024e3034acc5d3a91be8e8e69aa95fa9ab7c6349ed7f52da92a5bad8b",
+        26 => V26_SCHEMA_FINGERPRINTS,
+        57 => V57_SCHEMA_FINGERPRINTS,
+        68 => V68_SCHEMA_FINGERPRINTS,
+        82 => V82_SCHEMA_FINGERPRINTS,
+        83 => V83_SCHEMA_FINGERPRINTS,
         _ => {
             return Err(StoreError::new(
                 StoreErrorCode::UnsupportedSchema,
@@ -254,14 +280,208 @@ fn validate_legacy_shape(connection: &Connection, version: i64) -> Result<(), St
         }
     };
     let actual = legacy_schema_fingerprint(connection)?;
-    if actual == expected {
-        return Ok(());
+    if version == 57 && actual == EARLY_V57_SCHEMA_FINGERPRINT {
+        return Ok(LegacyInventory::EarlyV57);
+    }
+    if expected.contains(&actual.as_str()) {
+        return Ok(LegacyInventory::Frozen);
     }
     Err(StoreError::new(
         StoreErrorCode::UnsupportedSchema,
-        format!("Nodex schema v{version} does not match the supported published legacy inventory"),
+        format!("Nodex schema v{version} does not match a supported frozen legacy inventory"),
         false,
     ))
+}
+
+fn normalize_legacy_staging_store(
+    database_path: &Path,
+    inventory: LegacyInventory,
+) -> Result<(), StoreError> {
+    if inventory != LegacyInventory::EarlyV57 {
+        return Ok(());
+    }
+    let connection = open_writer(database_path)?;
+    connection.execute_batch(
+        r#"
+        PRAGMA foreign_keys = OFF;
+        BEGIN IMMEDIATE;
+
+        CREATE TEMP TABLE early_v57_automations AS
+        SELECT
+          automation_id,
+          kind,
+          status,
+          target_thread_id,
+          name,
+          prompt,
+          rrule,
+          model,
+          reasoning_effort,
+          cwds_json,
+          execution_environment,
+          local_environment_config_path,
+          next_run_at,
+          last_run_at,
+          created_at,
+          updated_at
+        FROM codex_scheduled_automations;
+        DROP TABLE codex_scheduled_automations;
+        CREATE TABLE codex_scheduled_automations (
+	      automation_id TEXT PRIMARY KEY,
+	      kind TEXT NOT NULL,
+	      status TEXT NOT NULL,
+	      target_thread_id TEXT,
+	      name TEXT NOT NULL,
+	      prompt TEXT NOT NULL DEFAULT '',
+	      rrule TEXT,
+	      model TEXT,
+	      reasoning_effort TEXT,
+	      cwds_json TEXT NOT NULL DEFAULT '[]',
+	      execution_environment TEXT NOT NULL DEFAULT 'worktree',
+	      local_environment_config_path TEXT,
+	      next_run_at INTEGER,
+	      last_run_at INTEGER,
+	      created_at INTEGER NOT NULL,
+	      updated_at INTEGER NOT NULL,
+	      CHECK (kind IN ('cron', 'heartbeat')),
+	      CHECK (status IN ('ACTIVE', 'PAUSED', 'DELETED')),
+	      CHECK (execution_environment IN ('local', 'worktree')),
+	      CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'))
+	    ) WITHOUT ROWID;
+        INSERT INTO codex_scheduled_automations (
+          automation_id,
+          kind,
+          status,
+          target_thread_id,
+          name,
+          prompt,
+          rrule,
+          model,
+          reasoning_effort,
+          cwds_json,
+          execution_environment,
+          local_environment_config_path,
+          next_run_at,
+          last_run_at,
+          created_at,
+          updated_at
+        )
+        SELECT
+          automation_id,
+          kind,
+          status,
+          target_thread_id,
+          name,
+          prompt,
+          rrule,
+          model,
+          reasoning_effort,
+          cwds_json,
+          execution_environment,
+          local_environment_config_path,
+          next_run_at,
+          last_run_at,
+          created_at,
+          updated_at
+        FROM early_v57_automations;
+        CREATE INDEX idx_codex_scheduled_automations_target
+	      ON codex_scheduled_automations(target_thread_id, kind, status, created_at, automation_id);
+
+        CREATE TEMP TABLE early_v57_threads AS
+        SELECT
+          thread_id,
+          project_id,
+          parent_thread_id,
+          thread_name,
+          thread_source,
+          agent_nickname,
+          agent_role,
+          thread_preview,
+          model_provider,
+          cwd,
+          managed_worktree_path,
+          projectless_output_directory,
+          projectless_workspace_browser_root,
+          status_type,
+          status_active_flags_json,
+          archived,
+          created_at,
+          updated_at,
+          linked_at
+        FROM codex_threads;
+        DROP TABLE codex_threads;
+        CREATE TABLE codex_threads (
+      thread_id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      parent_thread_id TEXT,
+      thread_name TEXT,
+      thread_source TEXT,
+      agent_nickname TEXT,
+      agent_role TEXT,
+      thread_preview TEXT NOT NULL DEFAULT '',
+      model_provider TEXT NOT NULL DEFAULT '',
+      cwd TEXT,
+      managed_worktree_path TEXT,
+      projectless_output_directory TEXT,
+      projectless_workspace_browser_root TEXT,
+      status_type TEXT NOT NULL DEFAULT 'notLoaded',
+      status_active_flags_json TEXT NOT NULL DEFAULT '[]',
+      archived INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      linked_at TEXT NOT NULL
+    ) WITHOUT ROWID;
+        INSERT INTO codex_threads (
+          thread_id,
+          project_id,
+          parent_thread_id,
+          thread_name,
+          thread_source,
+          agent_nickname,
+          agent_role,
+          thread_preview,
+          model_provider,
+          cwd,
+          managed_worktree_path,
+          projectless_output_directory,
+          projectless_workspace_browser_root,
+          status_type,
+          status_active_flags_json,
+          archived,
+          created_at,
+          updated_at,
+          linked_at
+        )
+        SELECT
+          thread_id,
+          project_id,
+          parent_thread_id,
+          thread_name,
+          thread_source,
+          agent_nickname,
+          agent_role,
+          thread_preview,
+          model_provider,
+          cwd,
+          managed_worktree_path,
+          projectless_output_directory,
+          projectless_workspace_browser_root,
+          status_type,
+          status_active_flags_json,
+          archived,
+          created_at,
+          updated_at,
+          linked_at
+        FROM early_v57_threads;
+        CREATE INDEX idx_codex_threads_project_updated
+      ON codex_threads(project_id, updated_at DESC);
+
+        COMMIT;
+        PRAGMA foreign_keys = ON;
+        "#,
+    )?;
+    validate_store(&connection)?;
+    Ok(())
 }
 
 fn legacy_schema_fingerprint(connection: &Connection) -> Result<String, StoreError> {
@@ -886,10 +1106,23 @@ mod tests {
     use super::*;
     use crate::infrastructure::store::SqliteStoreKernel;
 
-    fn fixture_path(version: i64) -> PathBuf {
+    const LEGACY_FIXTURES: &[(&str, i64)] = &[
+        ("v26", 26),
+        ("v57-early", 57),
+        ("v57", 57),
+        ("v68", 68),
+        ("v82", 82),
+        ("v83", 83),
+    ];
+
+    fn named_fixture_path(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/legacy-profiles")
-            .join(format!("v{version}.db"))
+            .join(format!("{name}.db"))
+    }
+
+    fn fixture_path(version: i64) -> PathBuf {
+        named_fixture_path(&format!("v{version}"))
     }
 
     fn migrator_command() -> LegacyMigratorCommand {
@@ -927,13 +1160,13 @@ mod tests {
     }
 
     #[test]
-    fn imports_every_published_legacy_boundary_and_reopens_idempotently() {
+    fn imports_every_frozen_legacy_inventory_and_reopens_idempotently() {
         let migrator = migrator_command();
-        for version in SUPPORTED_SOURCE_VERSIONS {
+        for (fixture_name, version) in LEGACY_FIXTURES {
             let directory = tempdir().expect("profile root");
             let home = directory.path().canonicalize().expect("absolute profile");
             fs::copy(
-                fixture_path(*version),
+                named_fixture_path(fixture_name),
                 home.join(source_file_name(*version)),
             )
             .expect("legacy fixture");
@@ -970,6 +1203,82 @@ mod tests {
                     CORE_SCHEMA_VERSION
                 )
             );
+            if *fixture_name == "v57-early" {
+                let (kind, config): (String, String) = connection
+                    .query_row(
+                        "SELECT kind, config_json FROM project_session_tabs WHERE id = ?1",
+                        ["019b7e12-5c00-7000-8000-000000005702"],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .expect("migrated early-v57 Page tab");
+                let config: serde_json::Value =
+                    serde_json::from_str(&config).expect("Page tab config");
+                assert_eq!(kind, "page_stage");
+                assert_eq!(
+                    config.get("pageId").and_then(serde_json::Value::as_str),
+                    Some("019b7e12-5c00-7000-8000-000000005700")
+                );
+                assert!(config.get("cardId").is_none());
+                let thread: (String, String, String, String, String, String, String) = connection
+                    .query_row(
+                        "SELECT thread_name, thread_preview, model_provider, cwd, \
+                                thread_source, agent_nickname, agent_role \
+                         FROM codex_threads WHERE thread_id = ?1",
+                        ["019b7e12-5c00-7000-8000-000000005703"],
+                        |row| {
+                            Ok((
+                                row.get(0)?,
+                                row.get(1)?,
+                                row.get(2)?,
+                                row.get(3)?,
+                                row.get(4)?,
+                                row.get(5)?,
+                                row.get(6)?,
+                            ))
+                        },
+                    )
+                    .expect("migrated early-v57 Thread");
+                assert_eq!(
+                    thread,
+                    (
+                        "Early v57 thread".to_owned(),
+                        "Synthetic preview".to_owned(),
+                        "openai".to_owned(),
+                        "/tmp/nodex-v57-fixture".to_owned(),
+                        "appServer".to_owned(),
+                        "fixture-agent".to_owned(),
+                        "test".to_owned(),
+                    )
+                );
+                let foreign_page_grants: i64 = connection
+                    .query_row(
+                        "SELECT count(*) FROM project_resource_grants \
+                         WHERE project_id = ?1 AND root_kind = 'page' AND root_id = ?2 \
+                           AND access = 'read' AND lifecycle = 'active'",
+                        [
+                            "019b7e12-5c00-7000-8000-000000000057",
+                            "019b7e12-5c00-7000-8000-000000005710",
+                        ],
+                        |row| row.get(0),
+                    )
+                    .expect("migrated cross-Project Page grant");
+                assert_eq!(foreign_page_grants, 1);
+                let unresolved_reference: (String, String, String) = connection
+                    .query_row(
+                        "SELECT project_id, type, lifecycle FROM blocks WHERE id = ?1",
+                        ["019b7e12-5c00-7000-8000-000000005711"],
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    )
+                    .expect("migrated unresolved Page reference");
+                assert_eq!(
+                    unresolved_reference,
+                    (
+                        "019b7e12-5c00-7000-8000-000000000057".to_owned(),
+                        "unresolved_card_reference".to_owned(),
+                        "deleted".to_owned(),
+                    )
+                );
+            }
             drop(connection);
 
             let backups = backup_directories(&home);

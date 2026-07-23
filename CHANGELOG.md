@@ -130,6 +130,7 @@ All notable changes to this project will be documented in this file.
 - Removed snapshot-based Kanban/editor body drops and whole-Page conflict overwrite recovery; Block movement now requires the stable-ID Document mutation boundary.
 
 ### Fixed
+- Profiles using the earlier frozen v57 storage inventory now upgrade through the same isolated, backed-up Core migration path, including preservation of Thread fields, conversion of legacy Page tabs, and recovery of embedded Page and Database View references.
 - Fixed Thread Composer drafts so prompt text restores across task switches, restarts, and open windows; completed context survives retained Composer scopes; and failed send, queue, side-chat, or goal actions no longer erase user-authored drafts.
 - Fixed long thread transcripts so they virtualize immediately and restore native scroll, latest-turn follow geometry, measured windows, and activity-collapse choices from complete per-thread state instead of delayed placeholders or a 50-thread cache.
 - Fixed submitted Thread prompts briefly appearing twice during streaming by keeping the pending user row and the app-server echo in one params-owned turn lifecycle.
