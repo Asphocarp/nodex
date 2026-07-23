@@ -36,7 +36,7 @@ function writeRuntime(rootPath: string): void {
     };
   });
   fs.writeFileSync(
-    path.join(rootPath, "runtime.json"),
+    path.join(rootPath, "agent-runtime.json"),
     JSON.stringify({
       artifacts,
       codexCompatibilityVersion: "0.144.5",
@@ -70,7 +70,7 @@ function writeRuntime(rootPath: string): void {
 
 function makeBundledRuntimeFixture(): { cleanup: () => void; resourcesPath: string } {
   const resourcesPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-agent-runtime-"));
-  writeRuntime(path.join(resourcesPath, "agent-runtime"));
+  writeRuntime(resourcesPath);
   return {
     resourcesPath,
     cleanup: () => fs.rmSync(resourcesPath, { recursive: true, force: true }),
@@ -93,9 +93,9 @@ describe("codex-runtime", () => {
       const runtime = resolveCodexRuntime({ isPackaged: true, resourcesPath: fixture.resourcesPath });
       expect(runtime.source).toBe("bundled");
       expect(runtime.runtimeFamily).toBe("open-interpreter");
-      expect(runtime.binaryPath).toBe(path.join(fixture.resourcesPath, "agent-runtime", "bin", "interpreter"));
+      expect(runtime.binaryPath).toBe(path.join(fixture.resourcesPath, "bin", "interpreter"));
       expect(runtime.additionalSearchPaths).toEqual([
-        path.join(fixture.resourcesPath, "agent-runtime", "codex-path"),
+        path.join(fixture.resourcesPath, "codex-path"),
       ]);
       expect(runtime.version).toBe("0.0.34");
       expect(runtime.codexCompatibilityVersion).toBe("0.144.5");
@@ -108,7 +108,7 @@ describe("codex-runtime", () => {
   test("throws before startup when the bundled runtime omits a declared artifact", () => {
     const fixture = makeBundledRuntimeFixture();
     try {
-      fs.rmSync(path.join(fixture.resourcesPath, "agent-runtime", "bin", "codex-code-mode-host"));
+      fs.rmSync(path.join(fixture.resourcesPath, "bin", "codex-code-mode-host"));
       expect(() => resolveCodexRuntime({
         isPackaged: true,
         resourcesPath: fixture.resourcesPath,
@@ -169,7 +169,7 @@ describe("codex-runtime", () => {
       expect(runtime.binaryPath).toBe(path.join(runtimeRoot, "bin", "interpreter"));
       expect(runtime.additionalSearchPaths).toEqual([path.join(runtimeRoot, "codex-path")]);
       expect(runtime.version).toBe("0.0.34");
-      expect(runtime.metadataPath).toBe(path.join(runtimeRoot, "runtime.json"));
+      expect(runtime.metadataPath).toBe(path.join(runtimeRoot, "agent-runtime.json"));
       expect(runtime.missingBinaryMessage).toBe(
         "Pinned agent runtime is missing or incomplete. Run `pnpm run stage:codex-runtime:mac`.",
       );

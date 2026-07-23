@@ -1,0 +1,50 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import { afterEach, describe, expect, test } from "vitest";
+
+import {
+  assertLegacyPackagedRuntimePathsAbsent,
+  removePrivateTemporaryDirectory,
+} from "./verify-native-runtime";
+
+const temporaryDirectories: string[] = [];
+
+afterEach(() => {
+  for (const directory of temporaryDirectories.splice(0)) {
+    if (!fs.existsSync(directory)) continue;
+    fs.chmodSync(directory, 0o700);
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+describe("packaged native runtime verification", () => {
+  test("rejects the obsolete nested Agent runtime even when canonical resources exist", () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-native-runtime-layout-"));
+    temporaryDirectories.push(directory);
+    fs.mkdirSync(path.join(directory, "Resources", "agent-runtime"), { recursive: true });
+
+    expect(() => assertLegacyPackagedRuntimePathsAbsent(directory))
+      .toThrow("obsolete duplicate path");
+  });
+
+  test("removes Core search caches with read-only directories", () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-native-runtime-cleanup-"));
+    temporaryDirectories.push(directory);
+    const cacheDirectory = path.join(
+      directory,
+      "profile/search-snapshots/.reusable/pages/page-hash",
+    );
+    fs.mkdirSync(cacheDirectory, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(cacheDirectory, "body.nested.md"), "body\n", {
+      mode: 0o400,
+    });
+    fs.chmodSync(cacheDirectory, 0o500);
+    fs.chmodSync(path.dirname(cacheDirectory), 0o500);
+
+    removePrivateTemporaryDirectory(directory);
+
+    expect(fs.existsSync(directory)).toBe(false);
+  });
+});

@@ -10,7 +10,8 @@ import path from "node:path";
 
 import { signAsync } from "@electron/osx-sign";
 
-const manifestRelativePath = "Contents/Resources/bin/rust-core-runtime.json";
+const nativeManifestRelativePath = "Contents/Resources/bin/rust-core-runtime.json";
+const agentManifestRelativePath = "Contents/Resources/agent-runtime.json";
 const expectedBinaryPaths = new Map([
   ["nodex", "Resources/bin/nodex"],
   ["nodex-core", "Resources/bin/nodex-core"],
@@ -20,8 +21,16 @@ const expectedBinaryPaths = new Map([
 const sha256File = (filePath) =>
   createHash("sha256").update(readFileSync(filePath)).digest("hex");
 
-const refreshSignedRuntimeManifest = (appPath) => {
-  const manifestPath = path.join(appPath, manifestRelativePath);
+const writeManifestAtomically = (manifestPath, manifest) => {
+  const temporaryPath = `${manifestPath}.signed-runtime.tmp`;
+  writeFileSync(temporaryPath, `${JSON.stringify(manifest, null, 2)}\n`, {
+    mode: 0o644,
+  });
+  renameSync(temporaryPath, manifestPath);
+};
+
+const refreshSignedNativeRuntimeManifest = (appPath) => {
+  const manifestPath = path.join(appPath, nativeManifestRelativePath);
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 
   if (manifest.schemaVersion !== 2 || !Array.isArray(manifest.binaries)) {
@@ -56,11 +65,58 @@ const refreshSignedRuntimeManifest = (appPath) => {
     throw new Error(`Native runtime manifest is missing an expected binary: ${manifestPath}`);
   }
 
-  const temporaryPath = `${manifestPath}.signed-runtime.tmp`;
-  writeFileSync(temporaryPath, `${JSON.stringify({ ...manifest, binaries }, null, 2)}\n`, {
-    mode: 0o644,
+  writeManifestAtomically(manifestPath, { ...manifest, binaries });
+};
+
+const requireSafeAgentArtifactPath = (artifactPath, manifestPath) => {
+  if (
+    typeof artifactPath !== "string"
+    || artifactPath.length === 0
+    || artifactPath.startsWith("/")
+    || artifactPath.includes("\\")
+    || artifactPath.split("/").some((segment) => (
+      segment.length === 0 || segment === "." || segment === ".."
+    ))
+  ) {
+    throw new Error(`Invalid Agent runtime artifact path in ${manifestPath}`);
+  }
+  return artifactPath;
+};
+
+export const refreshSignedAgentRuntimeMetadata = (appPath) => {
+  const manifestPath = path.join(appPath, agentManifestRelativePath);
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  if (manifest.layoutVersion !== 2 || !Array.isArray(manifest.artifacts)) {
+    throw new Error(`Unsupported Agent runtime manifest: ${manifestPath}`);
+  }
+
+  const seenPaths = new Set();
+  const artifacts = manifest.artifacts.map((entry) => {
+    const artifactPath = requireSafeAgentArtifactPath(entry.path, manifestPath);
+    if (seenPaths.has(artifactPath) || typeof entry.executable !== "boolean") {
+      throw new Error(`Invalid Agent runtime artifact entry in ${manifestPath}`);
+    }
+    seenPaths.add(artifactPath);
+
+    const bundledPath = path.join(
+      appPath,
+      "Contents",
+      "Resources",
+      ...artifactPath.split("/"),
+    );
+    const metadata = lstatSync(bundledPath);
+    const executable = (metadata.mode & 0o111) !== 0;
+    if (metadata.isSymbolicLink() || !metadata.isFile() || executable !== entry.executable) {
+      throw new Error(`Agent runtime entry is not a regular artifact: ${bundledPath}`);
+    }
+    return {
+      ...entry,
+      sha256: sha256File(bundledPath),
+      size: metadata.size,
+    };
   });
-  renameSync(temporaryPath, manifestPath);
+
+  writeManifestAtomically(manifestPath, { ...manifest, artifacts });
 };
 
 const signWithRetry = async (options) => {
@@ -82,7 +138,8 @@ export const sign = async (options) => {
   await signWithRetry(options);
   if (options.platform !== "darwin") return;
 
-  refreshSignedRuntimeManifest(options.app);
+  refreshSignedNativeRuntimeManifest(options.app);
+  refreshSignedAgentRuntimeMetadata(options.app);
 
   await signWithRetry({
     ...options,

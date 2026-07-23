@@ -4,7 +4,6 @@ import {
   existsSync,
   mkdtempSync,
   readFileSync,
-  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,6 +13,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, test } from "vitest";
 import * as Y from "yjs";
 
+import { removePrivateTemporaryDirectory } from "../../scripts/verify-native-runtime";
 import { initializeDesktopDataAuthority } from "./core-client/desktop-data-authority";
 import type { RustDataAuthorityRuntime } from "./core-client/desktop-data-authority";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
@@ -112,7 +112,7 @@ afterEach(() => {
   delete process.env.NODEX_CORE_EXECUTABLE;
   delete process.env.NODEX_HOME;
   for (const directory of temporaryDirectories.splice(0)) {
-    rmSync(directory, { recursive: true, force: true });
+    removePrivateTemporaryDirectory(directory);
   }
 });
 
@@ -123,7 +123,7 @@ describe.skipIf(!packagedCli)("packaged native CLI and Electron authority", () =
     expect(existsSync(packagedCli)).toBe(true);
     const packagedBin = path.dirname(packagedCli);
     const packagedCore = path.join(packagedBin, "nodex-core");
-    const packagedRipgrep = path.join(packagedBin, "rg");
+    const packagedRipgrep = path.resolve(packagedBin, "..", "codex-path", "rg");
     expect(existsSync(packagedCore)).toBe(true);
     expect(existsSync(packagedRipgrep)).toBe(true);
     const linkage = execFileSync("/usr/bin/otool", ["-L", packagedCli], {
@@ -149,6 +149,7 @@ describe.skipIf(!packagedCli)("packaged native CLI and Electron authority", () =
       process.env.NODEX_CORE_EXECUTABLE = packagedCore;
       process.env.NODEX_HOME = home;
       const selected = await initializeDesktopDataAuthority({
+        appResourcesPath: path.resolve(packagedBin, ".."),
         buildId: "packaged-native-cli-electron-acceptance",
         isPackaged: true,
         nodexHome: home,

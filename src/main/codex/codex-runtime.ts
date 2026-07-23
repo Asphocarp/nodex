@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import {
+  AGENT_RUNTIME_METADATA_FILENAME,
   parseBundledAgentRuntimeMetadata,
   type BundledAgentRuntimeMetadata,
 } from "../../shared/codex-runtime-metadata";
@@ -87,7 +88,7 @@ function resolveRuntimeFromRoot(input: {
   runtimeRoot: string;
   source: CodexRuntimeSource;
 }): ResolvedCodexRuntime {
-  const metadataPath = path.join(input.runtimeRoot, "runtime.json");
+  const metadataPath = path.join(input.runtimeRoot, AGENT_RUNTIME_METADATA_FILENAME);
 
   if (!fs.existsSync(metadataPath)) {
     throw new Error(`Agent runtime is missing or incomplete under ${input.runtimeRoot}`);
@@ -146,7 +147,7 @@ export function resolveCodexRuntime(options: ResolveCodexRuntimeOptions): Resolv
 
   return resolveRuntimeFromRoot({
     source: "bundled",
-    runtimeRoot: path.join(resourcesPath, "agent-runtime"),
+    runtimeRoot: resourcesPath,
     missingBinaryMessage: "Bundled agent runtime is missing or corrupted. Reinstall Nodex.",
   });
 }

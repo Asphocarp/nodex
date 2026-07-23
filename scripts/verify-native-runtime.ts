@@ -6,8 +6,10 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -60,14 +62,21 @@ const assertMachO = (
   architecture: NativeRuntimeArchitecture,
   minimumMacOS: string,
 ): void => {
+  assertMachOArchitecture(filePath, architecture);
+  const loadCommands = run("otool", ["-l", filePath], `Inspect ${filePath} load commands`).stdout;
+  if (!new RegExp(`LC_BUILD_VERSION[\\s\\S]*?minos ${minimumMacOS.replace(".", "\\.")}\\b`).test(loadCommands)) {
+    throw new Error(`Native runtime minimum macOS mismatch for ${filePath}`);
+  }
+};
+
+const assertMachOArchitecture = (
+  filePath: string,
+  architecture: NativeRuntimeArchitecture,
+): void => {
   const description = run("file", ["-b", filePath], `Inspect ${filePath}`).stdout.trim();
   const expectedArchitecture = expectedFileArchitecture(architecture);
   if (!description.includes("Mach-O") || !description.includes(expectedArchitecture)) {
     throw new Error(`Native runtime architecture mismatch for ${filePath}: ${description}`);
-  }
-  const loadCommands = run("otool", ["-l", filePath], `Inspect ${filePath} load commands`).stdout;
-  if (!new RegExp(`LC_BUILD_VERSION[\\s\\S]*?minos ${minimumMacOS.replace(".", "\\.")}\\b`).test(loadCommands)) {
-    throw new Error(`Native runtime minimum macOS mismatch for ${filePath}`);
   }
 };
 
@@ -111,6 +120,45 @@ const restrictedEnvironment = (home: string): NodeJS.ProcessEnv => ({
 
 const delay = (durationMs: number): Promise<void> =>
   new Promise((resolvePromise) => setTimeout(resolvePromise, durationMs));
+
+const makeDirectoriesOwnerWritable = (directory: string): void => {
+  const metadata = lstatSync(directory);
+  if (metadata.isSymbolicLink() || !metadata.isDirectory()) return;
+  chmodSync(directory, 0o700);
+  for (const entry of readdirSync(directory)) {
+    makeDirectoriesOwnerWritable(join(directory, entry));
+  }
+};
+
+export const removePrivateTemporaryDirectory = (directory: string): void => {
+  if (!existsSync(directory)) return;
+  makeDirectoriesOwnerWritable(directory);
+  rmSync(directory, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 100,
+  });
+};
+
+export const assertLegacyPackagedRuntimePathsAbsent = (contentsPath: string): void => {
+  const legacyPaths = [
+    join(contentsPath, "Resources/agent-runtime"),
+    join(contentsPath, "Resources/bin/rg"),
+  ];
+  for (const legacyPath of legacyPaths) {
+    let exists = false;
+    try {
+      lstatSync(legacyPath);
+      exists = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    if (exists) {
+      throw new Error(`Packaged runtime contains an obsolete duplicate path: ${legacyPath}`);
+    }
+  }
+};
 
 const waitForRuntimeExit = async (descriptor: string): Promise<void> => {
   const deadline = Date.now() + 5_000;
@@ -180,6 +228,46 @@ const smokeNativeRuntime = async (
     if (reusedCore.pid !== firstCore.pid || reusedCore.startNonce !== firstCore.startNonce) {
       throw new Error("Compatible packaged CLI selectors did not reuse one Core generation");
     }
+    const searchSentinel = "packaged-native-cli-ripgrep-sentinel";
+    const searchBodyPath = join(directory, "search-smoke.nested.md");
+    writeFileSync(searchBodyPath, `${searchSentinel}\n`, { encoding: "utf8", mode: 0o600 });
+    const pageCreation = runWithEnvironment(
+      cli,
+      [
+        "--json",
+        "--project",
+        "project:default",
+        "page",
+        "create",
+        "--parent",
+        "library",
+        "--title",
+        "Packaged CLI search smoke",
+        "--file",
+        searchBodyPath,
+        "--idempotency-key",
+        "packaged-native-runtime-search-smoke",
+      ],
+      environment,
+      "Create packaged CLI search Page",
+    );
+    const pageEnvelope = JSON.parse(pageCreation.stdout) as {
+      ok?: unknown;
+      result?: { page_id?: unknown };
+    };
+    const pageId = pageEnvelope.result?.page_id;
+    if (pageEnvelope.ok !== true || typeof pageId !== "string" || pageId.length === 0) {
+      throw new Error("Packaged CLI search Page creation returned an invalid envelope");
+    }
+    const search = runWithEnvironment(
+      cli,
+      ["--project", "project:default", "rg", searchSentinel, `@${pageId}`],
+      environment,
+      "Run packaged CLI ripgrep",
+    );
+    if (!search.stdout.includes(searchSentinel) || !search.stdout.includes(pageId)) {
+      throw new Error("Packaged CLI ripgrep did not return the created Page");
+    }
     const service = runWithEnvironment(
       cli,
       ["--json", "service", "status"],
@@ -192,7 +280,9 @@ const smokeNativeRuntime = async (
     }
     await waitForRuntimeExit(descriptor);
   } finally {
-    if (!existsSync(descriptor)) rmSync(directory, { recursive: true, force: true });
+    if (!existsSync(descriptor)) {
+      removePrivateTemporaryDirectory(directory);
+    }
   }
 };
 
@@ -251,7 +341,7 @@ const launchAppSmoke = async (appPath: string): Promise<void> => {
       }, 5_000);
     });
     await waitForRuntimeExit(descriptor);
-    rmSync(directory, { recursive: true, force: true });
+    removePrivateTemporaryDirectory(directory);
   }
 };
 
@@ -269,6 +359,11 @@ export async function verifyPackagedNativeRuntime(options: VerificationOptions):
     assertMachO(binaryPath, options.targetArch, manifest.minimumMacOS);
     return binaryPath;
   });
+  const cliRipgrep = join(contentsPath, "Resources/codex-path/rg");
+  assertRegularExecutable(cliRipgrep);
+  assertMachOArchitecture(cliRipgrep, options.targetArch);
+  binaryPaths.push(cliRipgrep);
+  assertLegacyPackagedRuntimePathsAbsent(contentsPath);
   const resourcesService = join(contentsPath, "Resources/bin/nodex-service");
   if (existsSync(resourcesService)) {
     throw new Error("ServiceManagement adapter must only exist inside its nested helper app");

@@ -70,7 +70,7 @@ function prepareRuntimeFixture(root: string): void {
       size: Buffer.byteLength(body),
     };
   });
-  fs.writeFileSync(path.join(runtimeRoot, "runtime.json"), JSON.stringify({
+  fs.writeFileSync(path.join(runtimeRoot, "agent-runtime.json"), JSON.stringify({
     artifacts,
     codexCompatibilityVersion: "0.0.0-e2e",
     entrypoint: "bin/interpreter",

@@ -25,6 +25,7 @@ import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import {
   AGENT_RUNTIME_LAYOUT_VERSION,
+  AGENT_RUNTIME_METADATA_FILENAME,
   type AgentRuntimeArtifact,
   type BundledAgentRuntimeMetadata,
   type OpenInterpreterPackageManifest,
@@ -204,7 +205,7 @@ function readReusableRuntime(input: {
   target: AgentRuntimeTarget;
 }): BundledAgentRuntimeMetadata | null {
   const runtimeRoot = join(input.outputPath, "agent-runtime");
-  const metadataPath = join(runtimeRoot, "runtime.json");
+  const metadataPath = join(runtimeRoot, AGENT_RUNTIME_METADATA_FILENAME);
   let metadata: BundledAgentRuntimeMetadata | null;
   try {
     const runtimeRootStats = lstatSync(runtimeRoot);
@@ -233,7 +234,7 @@ function readReusableRuntime(input: {
   let actualArtifacts: AgentRuntimeArtifact[];
   try {
     actualArtifacts = listRuntimeArtifacts(runtimeRoot)
-      .filter(({ path }) => path !== "runtime.json");
+      .filter(({ path }) => path !== AGENT_RUNTIME_METADATA_FILENAME);
   } catch {
     return null;
   }
@@ -508,7 +509,11 @@ export async function stageCodexRuntime(
       );
     }
 
-    writeFileSync(join(tempRuntimeRoot, "runtime.json"), `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+    writeFileSync(
+      join(tempRuntimeRoot, AGENT_RUNTIME_METADATA_FILENAME),
+      `${JSON.stringify(metadata, null, 2)}\n`,
+      "utf8",
+    );
     replaceOwnedDirectory(tempRuntimeRoot, join(outputPath, "agent-runtime"));
     return metadata;
   } finally {

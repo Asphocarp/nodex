@@ -471,12 +471,10 @@ fn discover_rg_executable() -> Result<PathBuf, CliError> {
         ));
     }
     let current = std::env::current_exe().map_err(internal)?;
-    let sibling = current
-        .parent()
-        .ok_or_else(|| internal("CLI executable has no parent"))?
-        .join("rg");
-    if sibling.is_file() {
-        return Ok(sibling);
+    if let Some(packaged) = packaged_rg_path(&current)
+        && packaged.is_file()
+    {
+        return Ok(packaged);
     }
     if cfg!(debug_assertions) {
         return Ok(PathBuf::from("rg"));
@@ -484,10 +482,19 @@ fn discover_rg_executable() -> Result<PathBuf, CliError> {
     Err(CliError::new(
         CliErrorCode::CoreUnavailable,
         format!(
-            "expected a packaged rg next to {} or NODEX_RG_BINARY",
+            "expected packaged codex-path/rg for {} or NODEX_RG_BINARY",
             current.display()
         ),
     ))
+}
+
+fn packaged_rg_path(cli_executable: &Path) -> Option<PathBuf> {
+    let bin_dir = cli_executable.parent()?;
+    if bin_dir.file_name() != Some(OsStr::new("bin")) {
+        return None;
+    }
+    let runtime_root = bin_dir.parent()?;
+    Some(runtime_root.join("codex-path").join("rg"))
 }
 
 fn unsupported(message: impl Into<String>) -> CliError {
@@ -504,6 +511,21 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn resolves_packaged_ripgrep_from_the_shared_runtime_root() {
+        let cli = Path::new("/Applications/Nodex.app/Contents/Resources/bin/nodex");
+        assert_eq!(
+            packaged_rg_path(cli),
+            Some(PathBuf::from(
+                "/Applications/Nodex.app/Contents/Resources/codex-path/rg",
+            )),
+        );
+        assert_eq!(
+            packaged_rg_path(Path::new("/workspace/target/debug/nodex")),
+            None,
+        );
+    }
 
     #[test]
     fn accepts_only_the_documented_read_only_flag_subset() {

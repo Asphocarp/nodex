@@ -12,7 +12,7 @@ describe("codex-service runtime bootstrap", () => {
       binaryPath: "/tmp/nodex/codex",
       additionalSearchPaths: ["/tmp/nodex/path"],
       codexCompatibilityVersion: "0.144.5",
-      metadataPath: "/tmp/nodex/runtime.json",
+      metadataPath: "/tmp/nodex/agent-runtime.json",
       missingBinaryMessage: "Bundled agent runtime is missing or corrupted. Reinstall Nodex.",
       runtimeFamily: "open-interpreter",
       version: "0.115.0",

@@ -211,13 +211,13 @@ describe("stage-codex-runtime", () => {
       expect(fs.existsSync(path.join(runtimeRoot, "codex-path", "rg"))).toBe(true);
       expect(fs.existsSync(path.join(runtimeRoot, "codex-resources", "zsh", "bin", "zsh"))).toBe(true);
       expect(fs.existsSync(path.join(runtimeRoot, "bin", "i"))).toBe(false);
-      expect(fs.existsSync(path.join(runtimeRoot, "runtime.json"))).toBe(true);
+      expect(fs.existsSync(path.join(runtimeRoot, "agent-runtime.json"))).toBe(true);
       expect(fs.existsSync(path.join(runtimeRoot, "third-party", "open-interpreter", "LICENSE"))).toBe(true);
       expect(fs.existsSync(path.join(outputPath, "stale.txt"))).toBe(true);
       expect(fs.readFileSync(path.join(outputPath, "bin", "nodex-core"), "utf8")).toBe("core");
 
       const writtenMetadata = JSON.parse(
-        fs.readFileSync(path.join(runtimeRoot, "runtime.json"), "utf8"),
+        fs.readFileSync(path.join(runtimeRoot, "agent-runtime.json"), "utf8"),
       ) as {
         artifacts?: Array<{ executable?: boolean; path?: string; sha256?: string; size?: number }>;
         layoutVersion?: number;
@@ -278,7 +278,7 @@ describe("stage-codex-runtime", () => {
       fs.symlinkSync(externalRuntimeRoot, runtimeRoot, "dir");
       await stageCodexRuntime(options);
       expect(fs.lstatSync(runtimeRoot).isSymbolicLink()).toBe(false);
-      expect(fs.existsSync(path.join(externalRuntimeRoot, "runtime.json"))).toBe(true);
+      expect(fs.existsSync(path.join(externalRuntimeRoot, "agent-runtime.json"))).toBe(true);
     } finally {
       fixture.cleanup();
       fs.rmSync(outputRoot, { recursive: true, force: true });

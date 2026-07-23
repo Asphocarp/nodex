@@ -502,6 +502,7 @@ import {
   convertImmerPatchesToCodexConversationStateUpdates,
 } from "../../shared/codex-conversation-patches";
 import { resolveCodexRuntime, type ResolvedCodexRuntime } from "./codex-runtime";
+import { AGENT_RUNTIME_METADATA_FILENAME } from "../../shared/codex-runtime-metadata";
 import type {
   AgentExecutionProfile,
   AgentProviderCatalog,
@@ -2385,7 +2386,7 @@ function resolveDefaultCodexRuntime(): ResolvedCodexRuntime {
         codexCompatibilityVersion: null,
         runtimeFamily: "open-interpreter",
         version: null,
-        metadataPath: path.join(runtimeRoot, "runtime.json"),
+        metadataPath: path.join(runtimeRoot, AGENT_RUNTIME_METADATA_FILENAME),
         missingBinaryMessage: "Pinned agent runtime is missing or incomplete. Run `pnpm run stage:codex-runtime:mac`.",
       };
     }
@@ -2395,7 +2396,7 @@ function resolveDefaultCodexRuntime(): ResolvedCodexRuntime {
       throw new Error("Packaged Agent runtime resolution requires process.resourcesPath");
     }
 
-    const runtimeRoot = path.join(resourcesPath, "agent-runtime");
+    const runtimeRoot = resourcesPath;
     return {
       source: "bundled",
       binaryPath: path.join(runtimeRoot, "bin", "interpreter"),
@@ -2403,7 +2404,7 @@ function resolveDefaultCodexRuntime(): ResolvedCodexRuntime {
       codexCompatibilityVersion: null,
       runtimeFamily: "open-interpreter",
       version: null,
-      metadataPath: path.join(runtimeRoot, "runtime.json"),
+      metadataPath: path.join(runtimeRoot, AGENT_RUNTIME_METADATA_FILENAME),
       missingBinaryMessage: "Bundled agent runtime is missing or corrupted. Reinstall Nodex.",
     };
   };

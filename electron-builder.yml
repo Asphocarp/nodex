@@ -45,7 +45,7 @@ extraResources:
   - nodex-core
   - rust-core-runtime.json
 - from: .generated/codex-runtime/agent-runtime
-  to: agent-runtime
+  to: .
   filter:
   - "**/*"
 extraFiles:
@@ -76,10 +76,10 @@ mac:
   binaries:
   - Contents/Resources/bin/nodex
   - Contents/Resources/bin/nodex-core
-  - Contents/Resources/agent-runtime/bin/interpreter
-  - Contents/Resources/agent-runtime/bin/codex-code-mode-host
-  - Contents/Resources/agent-runtime/codex-path/rg
-  - Contents/Resources/agent-runtime/codex-resources/zsh/bin/zsh
+  - Contents/Resources/bin/interpreter
+  - Contents/Resources/bin/codex-code-mode-host
+  - Contents/Resources/codex-path/rg
+  - Contents/Resources/codex-resources/zsh/bin/zsh
   - Contents/Helpers/Nodex Service.app/Contents/MacOS/nodex-service
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist

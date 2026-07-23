@@ -1,4 +1,5 @@
 export const AGENT_RUNTIME_LAYOUT_VERSION = 2;
+export const AGENT_RUNTIME_METADATA_FILENAME = "agent-runtime.json";
 
 export type AgentRuntimeArtifact = {
   executable: boolean;

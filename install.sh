@@ -31,17 +31,17 @@ EOF
 }
 
 verify_installed_app() {
-  local runtime_json_path="$BUNDLED_BIN_PATH/runtime.json"
-  local codex_binary_path="$BUNDLED_BIN_PATH/codex"
-  local rg_binary_path="$BUNDLED_BIN_PATH/rg"
+  local runtime_json_path="$APP_RESOURCES_PATH/agent-runtime.json"
+  local interpreter_binary_path="$BUNDLED_BIN_PATH/interpreter"
+  local rg_binary_path="$APP_RESOURCES_PATH/codex-path/rg"
 
   if [ ! -f "$runtime_json_path" ]; then
-    echo "Error: Missing bundled Codex runtime metadata at $runtime_json_path" >&2
+    echo "Error: Missing bundled Agent runtime metadata at $runtime_json_path" >&2
     exit 1
   fi
 
-  if [ ! -x "$codex_binary_path" ]; then
-    echo "Error: Missing bundled Codex binary at $codex_binary_path" >&2
+  if [ ! -x "$interpreter_binary_path" ]; then
+    echo "Error: Missing bundled interpreter at $interpreter_binary_path" >&2
     exit 1
   fi
 
@@ -51,20 +51,17 @@ verify_installed_app() {
   fi
 
   echo "==> Verified bundled runtime resources:"
-  echo "    Codex: $codex_binary_path"
-  echo "    rg:    $rg_binary_path"
-  echo "    Meta:  $runtime_json_path"
-  echo "    Version: $("$codex_binary_path" --version)"
+  echo "    Agent:   $interpreter_binary_path"
+  echo "    rg:      $rg_binary_path"
+  echo "    Metadata: $runtime_json_path"
+  echo "    Version: $("$interpreter_binary_path" --version)"
 
   if command -v codesign >/dev/null 2>&1; then
-    local codesign_output
-    codesign_output="$(codesign -dvvv "$codex_binary_path" 2>&1)"
-    if ! printf '%s\n' "$codesign_output" | rg -q '^TeamIdentifier=2DC432GLL2$'; then
-      echo "Error: Bundled Codex binary was re-signed unexpectedly; expected TeamIdentifier=2DC432GLL2." >&2
-      printf '%s\n' "$codesign_output" >&2
+    if ! codesign --verify --strict "$interpreter_binary_path"; then
+      echo "Error: Bundled interpreter has an invalid code signature." >&2
       exit 1
     fi
-    echo "    Signature: preserved OpenAI TeamIdentifier=2DC432GLL2"
+    echo "    Signature: valid"
   fi
 }
 

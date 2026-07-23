@@ -90,7 +90,7 @@ export function verifyCodexRuntime(input: {
     const metadata = readRuntimeMetadata(runtime.metadataPath);
     const appPath = resolve(input.resourcesPath, "..", "..");
     const appTeamIdentifier = readMacosTeamIdentifier(appPath);
-    const runtimeRoot = join(input.resourcesPath, "agent-runtime");
+    const runtimeRoot = input.resourcesPath;
     for (const artifact of metadata.artifacts) {
       if (!artifact.executable) continue;
       const artifactPath = join(runtimeRoot, ...artifact.path.split("/"));
