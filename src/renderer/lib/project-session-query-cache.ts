@@ -29,7 +29,7 @@ export function projectSessionToSummary(session: ProjectSession): ProjectSession
     archived: session.archived,
     archivedAt: session.archivedAt,
     unread: session.unread,
-    leftPaneCollapsed: session.leftPaneCollapsed,
+    initialDatabaseViewId: session.initialDatabaseViewId,
     thread: session.thread,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
@@ -51,11 +51,7 @@ export function setProjectSessionSummaries(
   for (const summary of summaries) {
     queryClient.setQueryData<ProjectSession | null | undefined>(
       queryKeys.projectSessions.detail(summary.id),
-      (current) => current ? {
-        ...summary,
-        panels: current.panels,
-        tabs: current.tabs,
-      } : current,
+      (current) => current ? summary : current,
     );
   }
   queryClient.setQueryData(

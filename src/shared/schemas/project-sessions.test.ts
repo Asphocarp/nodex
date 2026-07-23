@@ -1,12 +1,11 @@
 import { describe, expect, test } from "vitest";
 import {
-  parseProjectSessionTabConfig,
-  ProjectSessionTabCreateInputSchema,
+  parseWorkbenchProjectionTabConfig,
 } from "./project-sessions";
 
 describe("project session Terminal config", () => {
   test("persists only the stable terminal session identity", () => {
-    expect(parseProjectSessionTabConfig("terminal", {
+    expect(parseWorkbenchProjectionTabConfig("terminal", {
       terminalSessionId: "terminal:one",
     })).toEqual({
       terminalSessionId: "terminal:one",
@@ -14,40 +13,16 @@ describe("project session Terminal config", () => {
   });
 
   test("rejects Project fields that do not belong to Terminal content", () => {
-    expect(() => parseProjectSessionTabConfig("terminal", {
+    expect(() => parseWorkbenchProjectionTabConfig("terminal", {
       projectId: "legacy-project",
       terminalSessionId: "terminal:one",
     })).toThrow();
   });
 });
 
-describe("project session tab create input", () => {
-  test("rejects duplicate ownership and cross-variant Browser identity", () => {
-    expect(() => ProjectSessionTabCreateInputSchema.parse({
-      sessionId: "session:one",
-      projectId: "legacy-project",
-      panelId: "right",
-      kind: "terminal",
-      title: "Terminal",
-      config: {
-        projectId: "legacy-project",
-        terminalSessionId: "terminal:one",
-      },
-    })).toThrow();
-    expect(() => ProjectSessionTabCreateInputSchema.parse({
-      sessionId: "session:one",
-      panelId: "right",
-      kind: "terminal",
-      title: "Terminal",
-      browserTabId: "browser:wrong-variant",
-      config: { terminalSessionId: "terminal:one" },
-    })).toThrow();
-  });
-});
-
 describe("project session Page Stage config", () => {
   test("persists only Page identity, access context, and a title snapshot", () => {
-    expect(parseProjectSessionTabConfig("page_stage", {
+    expect(parseWorkbenchProjectionTabConfig("page_stage", {
       projectId: "alpha",
       pageId: "nested",
       titleSnapshot: "Nested",
@@ -59,7 +34,7 @@ describe("project session Page Stage config", () => {
   });
 
   test("rejects interaction-derived ancestor trails at the durable boundary", () => {
-    expect(() => parseProjectSessionTabConfig("page_stage", {
+    expect(() => parseWorkbenchProjectionTabConfig("page_stage", {
       projectId: "alpha",
       pageId: "nested",
       ancestors: [{
@@ -73,7 +48,7 @@ describe("project session Page Stage config", () => {
 
 describe("project session Files config", () => {
   test("persists projectless exact-file tabs without inventing a workspace root", () => {
-    expect(parseProjectSessionTabConfig("files", {
+    expect(parseWorkbenchProjectionTabConfig("files", {
       projectId: null,
       hostId: "local",
       workspaceRoot: null,
@@ -89,7 +64,7 @@ describe("project session Files config", () => {
   });
 
   test("normalizes legacy empty browsing coordinates to no navigation root", () => {
-    expect(parseProjectSessionTabConfig("files", {
+    expect(parseWorkbenchProjectionTabConfig("files", {
       projectId: "alpha",
       workspaceRoot: "",
       cwd: "   ",

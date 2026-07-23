@@ -1,6 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, test } from "vitest";
-import { makeProjectSessionPanelLayout } from "../../shared/project-session-panel-layout";
 import type { ProjectSession, ProjectSessionSummary } from "./types";
 import { queryKeys } from "./query-keys";
 import {
@@ -26,6 +25,8 @@ function createSession(overrides: Partial<ProjectSession> = {}): ProjectSession 
   return {
     id: overrides.id ?? "session-1",
     projectId: overrides.projectId === undefined ? "project-1" : overrides.projectId,
+    initialDatabaseViewId: overrides.initialDatabaseViewId
+      ?? "database-view:project-1:primary-kanban",
     noThreadFallbackTitle: overrides.noThreadFallbackTitle ?? "Session",
     displayTitle: overrides.displayTitle ?? "Session",
     order: overrides.order ?? 0,
@@ -34,37 +35,7 @@ function createSession(overrides: Partial<ProjectSession> = {}): ProjectSession 
     archived: overrides.archived ?? false,
     archivedAt: overrides.archivedAt ?? null,
     unread: overrides.unread ?? false,
-    leftPaneCollapsed: overrides.leftPaneCollapsed ?? false,
-    panels: overrides.panels ?? {
-      right: {
-        collapsed: false,
-        layout: makeProjectSessionPanelLayout(["tab-1"], "tab-1"),
-        size: { widthPx: 600, fullWidth: true },
-      },
-      bottom: {
-        collapsed: true,
-        layout: makeProjectSessionPanelLayout([], null),
-        size: { heightPx: 280 },
-      },
-    },
     thread: overrides.thread ?? null,
-    tabs: overrides.tabs ?? [
-      {
-        id: "tab-1",
-        projectId: "project-1",
-        sessionId: overrides.id ?? "session-1",
-        browserTabId: null,
-        panelId: "right",
-        kind: "db_view",
-        title: "DB View",
-        config: { projectId: "project-1", view: "kanban" },
-        stateKey: 0,
-        state: null,
-        order: 0,
-        createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-      },
-    ],
     createdAt: overrides.createdAt ?? "2026-01-01T00:00:00.000Z",
     updatedAt: overrides.updatedAt ?? "2026-01-01T00:00:00.000Z",
   };
@@ -109,7 +80,7 @@ describe("project session query cache", () => {
     queryClient.clear();
   });
 
-  test("summary refresh patches cached detail without replacing loaded panel state", () => {
+  test("summary refresh replaces the identical domain detail shape", () => {
     const queryClient = createQueryClient();
     const detail = createSession({ displayTitle: "Stale title", order: 7 });
     seedProjectSessionDetail(queryClient, detail);
@@ -124,8 +95,7 @@ describe("project session query cache", () => {
     const cached = getCachedProjectSessionDetail(queryClient, detail.id);
     expect(cached?.displayTitle).toBe("Current title");
     expect(cached?.order).toBe(2);
-    expect(cached?.panels).toBe(detail.panels);
-    expect(cached?.tabs).toBe(detail.tabs);
+    expect(cached).toEqual(summary);
     queryClient.clear();
   });
 

@@ -1,6 +1,6 @@
-import type { PanelId, ProjectSessionTab, WorkspaceFileDirectoryEntry, WorkspaceFileMetadata } from "@/lib/types";
+import type { PanelId, WorkbenchTabProjection, WorkspaceFileDirectoryEntry, WorkspaceFileMetadata } from "@/lib/types";
 
-export type WorkspaceFilesTab = Omit<ProjectSessionTab, "projectId" | "config"> & {
+export type WorkspaceFilesTab = Omit<WorkbenchTabProjection, "projectId" | "config"> & {
   projectId: string | null;
   panelId: PanelId;
   preview?: true;

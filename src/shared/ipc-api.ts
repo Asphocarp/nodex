@@ -128,6 +128,11 @@ import type {
   ReadPastedTextAttachmentInput,
   RemovePastedTextAttachmentInput,
 } from "./pasted-text-attachments";
+import type {
+  CodexForkBrowserSidePanelSnapshot,
+  CodexForkBrowserTransferConsumeInput,
+  CodexForkBrowserViewContext,
+} from "./codex-fork-browser-transfer";
 
 import type {
   BackupRecord,
@@ -315,23 +320,9 @@ import type {
   ProjectSessionForkResult,
   ProjectSessionListOptions,
   ProjectSessionSummary,
-  ProjectSessionPanelState,
-  ProjectSessionPanelActivateInput,
-  ProjectSessionPanelEnsureRightLeafInput,
-  ProjectSessionPanelEnsureRightLeafResult,
-  ProjectSessionPanelMaximizeInput,
-  ProjectSessionPanelMergeInput,
-  ProjectSessionPanelResizeInput,
-  ProjectSessionPanelSplitInput,
   ProjectSessionPinnedInput,
   ProjectSessionPinnedOrderInput,
   ProjectSessionRenameInput,
-  ProjectSessionTab,
-  ProjectSessionTabCreateInput,
-  ProjectSessionTabDeleteInput,
-  ProjectSessionTabMoveInput,
-  ProjectSessionTabReorderInput,
-  ProjectSessionTabUpdateInput,
   ProjectSessionThreadLink,
   ProjectSessionThreadLinkInput,
   ProjectSessionUnreadInput,
@@ -349,6 +340,9 @@ import type {
   TerminalRunActionRequest,
   TerminalSessionSnapshot,
   TerminalSize,
+  TerminalTakeOverViewRequest,
+  TerminalViewLeaseRevokedEvent,
+  TerminalViewLeaseResult,
   ThreadNotificationSettings,
   DesktopNotificationPayload,
   UpdateDiagnosticsSettingsInput,
@@ -387,11 +381,11 @@ import type {
   RemoteHostedPipStreamStateChangedMessage,
   RemoteHostedPipVisibilityRequestedMessage,
 } from "./remote-hosted-pip";
-import type { WorkbenchLayoutSnapshot } from "./workbench-layout";
 import type {
   WindowSessionBootstrap,
   WindowSessionBounds,
-  WindowSessionSeed,
+  WindowSessionNewWindowRequest,
+  WindowSessionSaveLayoutInput,
 } from "./window-session";
 import type { ProductFeatureGates } from "./product-feature-gates";
 import type { FileLinkOpenerId, FileLinkTarget } from "./file-link-openers";
@@ -812,64 +806,12 @@ export interface IpcApi {
     result: ProjectSession | null;
   };
   "project-sessions:fork": {
-    args: [sessionId: string, input: ProjectSessionForkInput];
-    result: ProjectSessionForkResult;
-  };
-  "project-session-tabs:create": {
-    args: [input: ProjectSessionTabCreateInput];
-    result: ProjectSessionTab;
-  };
-  "project-session-tabs:update": {
-    args: [tabId: string, input: ProjectSessionTabUpdateInput];
-    result: ProjectSessionTab | null;
-  };
-  "project-session-tabs:delete": {
-    args: [input: string | ProjectSessionTabDeleteInput];
-    result: boolean;
-  };
-  "project-session-panels:update": {
     args: [
       sessionId: string,
-      panelId: "right" | "bottom",
-      input: Partial<ProjectSessionPanelState>,
+      input: ProjectSessionForkInput,
+      sourceViewContext?: CodexForkBrowserViewContext,
     ];
-    result: ProjectSession | null;
-  };
-  "project-session-panels:split": {
-    args: [input: ProjectSessionPanelSplitInput];
-    result: ProjectSession | null;
-  };
-  "project-session-panels:ensure-right-leaf": {
-    args: [input: ProjectSessionPanelEnsureRightLeafInput];
-    result: ProjectSessionPanelEnsureRightLeafResult | null;
-  };
-  "project-session-panels:merge": {
-    args: [input: ProjectSessionPanelMergeInput];
-    result: ProjectSession | null;
-  };
-  "project-session-panels:activate": {
-    args: [input: ProjectSessionPanelActivateInput];
-    result: ProjectSession | null;
-  };
-  "project-session-panels:resize": {
-    args: [input: ProjectSessionPanelResizeInput];
-    result: ProjectSession | null;
-  };
-  "project-session-panels:maximize": {
-    args: [input: ProjectSessionPanelMaximizeInput];
-    result: ProjectSession | null;
-  };
-  "project-session-tabs:state:update": {
-    args: [tabId: string, stateKey: number, state: unknown];
-    result: ProjectSessionTab | null;
-  };
-  "project-session-tabs:reorder": {
-    args: [input: ProjectSessionTabReorderInput];
-    result: ProjectSession | null;
-  };
-  "project-session-tabs:move": {
-    args: [input: ProjectSessionTabMoveInput];
-    result: ProjectSession | null;
+    result: ProjectSessionForkResult;
   };
   "project-session-threads:attach": {
     args: [input: ProjectSessionThreadLinkInput];
@@ -1055,11 +997,11 @@ export interface IpcApi {
     result: ComposerPickedFile[];
   };
   "window:show-emoji-panel": { args: []; result: boolean };
-  "window:new": { args: [seed?: WindowSessionSeed]; result: boolean };
+  "window:new": { args: [request?: WindowSessionNewWindowRequest]; result: boolean };
   "app:feature-gates:get": { args: []; result: ProductFeatureGates };
   "window-sessions:bootstrap": { args: []; result: WindowSessionBootstrap };
   "window-sessions:save-layout": {
-    args: [layout: WorkbenchLayoutSnapshot];
+    args: [input: WindowSessionSaveLayoutInput];
     result: WindowSessionBootstrap;
   };
   "window-sessions:update-bounds": {
@@ -1240,8 +1182,19 @@ export interface IpcApi {
   };
 
   // Terminal
-  "terminal-create": { args: [input: TerminalCreateRequest]; result: void };
-  "terminal-attach": { args: [input: TerminalAttachRequest]; result: void };
+  "terminal-create": {
+    args: [input: TerminalCreateRequest];
+    result: TerminalViewLeaseResult;
+  };
+  "terminal-acquire-view": {
+    args: [input: TerminalAttachRequest];
+    result: TerminalViewLeaseResult;
+  };
+  "terminal-take-over-view": {
+    args: [input: TerminalTakeOverViewRequest];
+    result: TerminalViewLeaseResult;
+  };
+  "terminal-release-view": { args: [sessionId: string]; result: void };
   "terminal-write": { args: [sessionId: string, data: string]; result: void };
   "terminal-run-action": {
     args: [input: TerminalRunActionRequest];
@@ -1255,7 +1208,7 @@ export interface IpcApi {
     args: [sessionId: string, size: TerminalSize];
     result: void;
   };
-  "terminal-close": { args: [sessionId: string]; result: void };
+  "terminal-kill": { args: [sessionId: string]; result: void };
   "thread-terminal-snapshot": {
     args: [threadId: string];
     result: TerminalSessionSnapshot | null;
@@ -1577,12 +1530,8 @@ export interface IpcApi {
     result: CodexPendingWorktreeThreadResolution | null;
   };
   "codex:fork-side-panel-transfer:consume": {
-    args: [input: {
-      routeKind: "local-thread";
-      targetConversationId: string;
-      targetProjectSessionId: string;
-    }];
-    result: boolean;
+    args: [input: CodexForkBrowserTransferConsumeInput];
+    result: CodexForkBrowserSidePanelSnapshot | null;
   };
   "codex:thread:snapshot:request": {
     args: [threadId: string];
@@ -1852,6 +1801,7 @@ export interface IpcEvents {
   "terminal-attached": TerminalAttachedEvent;
   "terminal-error": TerminalErrorEvent;
   "terminal-exit": TerminalExitEvent;
+  "terminal-view-lease-revoked": TerminalViewLeaseRevokedEvent;
   "codex:event": CodexEvent;
   "codex:host-message": CodexHostMessage;
   "codex:renderer-client:request": CodexRendererClientRequestMessage;

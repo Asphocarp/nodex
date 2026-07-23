@@ -1,20 +1,15 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useMemo, useState } from "react";
 import type {
   BoardSummary,
   DatabasePage,
   Project,
-  ProjectSession,
   ProjectSessionThreadLink,
-  ProjectSessionTab,
-  ProjectSessionTabConfiguration,
-  ProjectSessionTabCreateInput,
-  ProjectSessionTabUpdateInput,
+  WorkbenchTabProjection,
+  WorkbenchProjectionTabConfiguration,
 } from "@/lib/types";
 import type { WorkbenchView } from "@/lib/use-workbench-state";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
-import { parseProjectSessionTabConfig } from "../../../shared/schemas/project-sessions";
 import type {
   LibraryModuleReadRequest,
   LibraryReadValue,
@@ -29,14 +24,16 @@ import {
   type WorkbenchShellNavigationSnapshot,
 } from "@/lib/workbench-shell-navigation-history";
 import {
-  activateProjectSessionPanelLeaf,
-  makeProjectSessionPanelLayout,
-  mergeProjectSessionPanelLeaf,
-  setProjectSessionPanelBranchRatio,
-  setProjectSessionPanelMaximizedLeaf,
-  splitProjectSessionPanelLeaf,
-} from "../../../shared/project-session-panel-layout";
+  makeWorkbenchPanelLayout,
+} from "../../../shared/workbench-panel-layout";
 import { WorkbenchShell } from "./workbench-shell";
+import {
+  workbenchViewFromProjectSessionProjection,
+  type WindowLocalProjectSession,
+} from "@/lib/window-session-view-adapter";
+import type { WorkbenchSessionViewSnapshot } from "../../../shared/workbench-session-view";
+
+type ProjectSession = WindowLocalProjectSession;
 
 type ShellStoryArgs = {
   workspace: "projects" | "projectless-only";
@@ -222,9 +219,9 @@ function buildStoryCardDetail(projectId: string, pageId: string): DatabasePage |
   };
 }
 
-type SessionTabFixtureCommon = Pick<ProjectSessionTab, "id" | "title"> &
+type SessionTabFixtureCommon = Pick<WorkbenchTabProjection, "id" | "title"> &
   Partial<Pick<
-    ProjectSessionTab,
+    WorkbenchTabProjection,
     | "sessionId"
     | "projectId"
     | "panelId"
@@ -236,14 +233,14 @@ type SessionTabFixtureCommon = Pick<ProjectSessionTab, "id" | "title"> &
   >>;
 
 type SessionTabFixture<
-  Configuration extends ProjectSessionTabConfiguration = ProjectSessionTabConfiguration,
+  Configuration extends WorkbenchProjectionTabConfiguration = WorkbenchProjectionTabConfiguration,
 > = Configuration extends { kind: "browser" }
   ? Configuration & SessionTabFixtureCommon & { browserTabId?: string }
   : Configuration & SessionTabFixtureCommon & { browserTabId?: never };
 
-type SessionTabInput = SessionTabFixture | ProjectSessionTab;
+type SessionTabInput = SessionTabFixture | WorkbenchTabProjection;
 
-function makeTab(overrides: SessionTabInput): ProjectSessionTab {
+function makeTab(overrides: SessionTabInput): WorkbenchTabProjection {
   const base = {
     sessionId: "session:overview",
     projectId: "nodex",
@@ -254,7 +251,7 @@ function makeTab(overrides: SessionTabInput): ProjectSessionTab {
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
   } satisfies Pick<
-    ProjectSessionTab,
+    WorkbenchTabProjection,
     | "sessionId"
     | "projectId"
     | "panelId"
@@ -274,35 +271,8 @@ function makeTab(overrides: SessionTabInput): ProjectSessionTab {
   return { ...base, ...overrides, browserTabId: null };
 }
 
-function updateTab(
-  tab: ProjectSessionTab,
-  input: ProjectSessionTabUpdateInput,
-  updatedAt: string,
-): ProjectSessionTab {
-  const common = {
-    ...(input.title !== undefined ? { title: input.title } : {}),
-    ...(input.stateKey !== undefined ? { stateKey: input.stateKey } : {}),
-    ...(Object.prototype.hasOwnProperty.call(input, "state") ? { state: input.state } : {}),
-    updatedAt,
-  };
-  switch (tab.kind) {
-    case "db_view":
-      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseProjectSessionTabConfig(tab.kind, input.config) }) };
-    case "page_stage":
-      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseProjectSessionTabConfig(tab.kind, input.config) }) };
-    case "terminal":
-      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseProjectSessionTabConfig(tab.kind, input.config) }) };
-    case "browser":
-      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseProjectSessionTabConfig(tab.kind, input.config) }) };
-    case "review":
-      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseProjectSessionTabConfig(tab.kind, input.config) }) };
-    case "files":
-      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseProjectSessionTabConfig(tab.kind, input.config) }) };
-  }
-}
-
 function makePanelLayout(tabIds: string[], activeTabId: string | null) {
-  return makeProjectSessionPanelLayout(tabIds, activeTabId);
+  return makeWorkbenchPanelLayout(tabIds, activeTabId);
 }
 
 function makeSplitPanelLayout(tabIds: string[], activeTabId: string | null): ProjectSession["panels"]["right"]["layout"] {
@@ -406,6 +376,7 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
     return {
       id: "session:database-view",
       projectId: "nodex",
+      initialDatabaseViewId: "database-view:nodex:primary-kanban",
       noThreadFallbackTitle: title,
       displayTitle: title,
       order: 0,
@@ -414,7 +385,6 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
       archived: false,
       archivedAt: null,
       unread: false,
-      leftPaneCollapsed: true,
       panels,
       thread: null,
       tabs: [],
@@ -547,6 +517,7 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
   return {
     id: "session:database-view",
     projectId: "nodex",
+    initialDatabaseViewId: "database-view:nodex:primary-kanban",
     noThreadFallbackTitle: title,
     displayTitle: thread?.threadName ?? title,
     order: 0,
@@ -555,7 +526,6 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
     archived: false,
     archivedAt: null,
     unread: false,
-    leftPaneCollapsed: true,
     panels,
     thread,
     tabs,
@@ -725,7 +695,15 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
     },
     [args],
   );
-  const [sessionsByProject, setSessionsByProject] = useState(initialSessionsByProject);
+  const [sessionsByProject] = useState(initialSessionsByProject);
+  const [sessionViewsBySessionId, setSessionViewsBySessionId] = useState<
+    Record<string, WorkbenchSessionViewSnapshot>
+  >(() => Object.fromEntries(
+    Object.values(initialSessionsByProject).flat().map((session) => [
+      session.id,
+      workbenchViewFromProjectSessionProjection(session),
+    ]),
+  ));
   const [sidebarCollapsed, setSidebarCollapsed] = useState(args.sidebar === "collapsed");
   const [sidebarWidth, setSidebarWidth] = useState<number>(args.sidebarWidth);
   const [sidebarCollapsibleSections, setSidebarCollapsibleSections] = useState({
@@ -740,7 +718,7 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
     initialSessionsByProject,
   );
 
-  installStoryApi(sessionsByProject, setSessionsByProject);
+  installStoryApi(sessionsByProject);
 
   useEffect(() => {
     setSidebarCollapsed(args.sidebar === "collapsed");
@@ -794,10 +772,20 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
   return (
     <div className="h-screen">
       <WorkbenchShell
+        windowSessionId="window-session:storybook"
         libraryWorkspaceEnabled={args.libraryWorkspace}
         key={`${args.workspace}:${args.thread}:${args.rightPanel}:${args.rightPanelGroups}:${args.bottomPanel}:${args.activeTab}:${args.sidebar}:${args.sidebarReveal}:${args.sidebarWidth}:${args.navigationHistory}:${args.longNames ? "long" : "normal"}`}
         projects={args.workspace === "projectless-only" ? [] : PROJECTS}
         dbProjectId={args.workspace === "projectless-only" ? "" : "nodex"}
+        sessionViewsBySessionId={sessionViewsBySessionId}
+        setSessionView={(sessionId, update) => {
+          setSessionViewsBySessionId((current) => ({
+            ...current,
+            [sessionId]: typeof update === "function"
+              ? update(current[sessionId])
+              : update,
+          }));
+        }}
         activeView={"kanban" as WorkbenchView}
         activeSearchQuery=""
         activeDbViewPrefs={null}
@@ -953,7 +941,6 @@ function buildStorySideChatStartResult(
 
 function installStoryApi(
   sessionsByProject: Record<string, ProjectSession[]>,
-  setSessionsByProject: Dispatch<SetStateAction<Record<string, ProjectSession[]>>>,
 ) {
   Object.defineProperty(window, "api", {
     configurable: true,
@@ -1031,227 +1018,6 @@ function installStoryApi(
             return card ? [card] : [];
           });
         }
-        if (channel === "project-session-panels:update") {
-          const sessionId = String(args[0]);
-          const panelId = args[1] === "bottom" ? "bottom" : "right";
-          const input = (args[2] ?? {}) as Partial<ProjectSession["panels"]["right"]>;
-          const updated = Object.values(sessionsByProject)
-            .flat()
-            .find((session) => session.id === sessionId);
-          if (!updated) return null;
-          const next = {
-            ...updated,
-            panels: {
-              ...updated.panels,
-              [panelId]: {
-                ...updated.panels[panelId],
-                ...input,
-                size: {
-                  ...updated.panels[panelId].size,
-                  ...input.size,
-                },
-              },
-            },
-            updatedAt: new Date().toISOString(),
-          };
-          setSessionsByProject((current) => replaceSession(current, next));
-          return next;
-        }
-        if (channel === "project-session-panels:activate") {
-          const input = (args[0] ?? {}) as {
-            sessionId: string;
-            panelId: ProjectSessionTab["panelId"];
-            leafId: string;
-            tabId?: string | null;
-          };
-          const session = Object.values(sessionsByProject).flat().find((item) => item.id === input.sessionId);
-          if (!session) return null;
-          const next = {
-            ...session,
-            panels: {
-              ...session.panels,
-              [input.panelId]: {
-                ...session.panels[input.panelId],
-                layout: activateProjectSessionPanelLeaf(session.panels[input.panelId].layout, input.leafId, input.tabId),
-              },
-            },
-          };
-          setSessionsByProject((current) => replaceSession(current, next));
-          return next;
-        }
-        if (channel === "project-session-panels:split") {
-          const input = (args[0] ?? {}) as {
-            sessionId: string;
-            panelId: ProjectSessionTab["panelId"];
-            leafId: string;
-            side: "left" | "right" | "up" | "down";
-            tabId?: string;
-          };
-          const session = Object.values(sessionsByProject).flat().find((item) => item.id === input.sessionId);
-          if (!session) return null;
-          const next = {
-            ...session,
-            panels: {
-              ...session.panels,
-              [input.panelId]: {
-                ...session.panels[input.panelId],
-                layout: splitProjectSessionPanelLeaf(session.panels[input.panelId].layout, {
-                  leafId: input.leafId,
-                  side: input.side,
-                  tabId: input.tabId,
-                  newLeafId: `leaf:story:${Date.now()}`,
-                  newBranchId: `split:story:${Date.now()}`,
-                }),
-              },
-            },
-          };
-          setSessionsByProject((current) => replaceSession(current, next));
-          return next;
-        }
-        if (channel === "project-session-panels:merge") {
-          const input = (args[0] ?? {}) as {
-            sessionId: string;
-            panelId: ProjectSessionTab["panelId"];
-            leafId: string;
-          };
-          const session = Object.values(sessionsByProject).flat().find((item) => item.id === input.sessionId);
-          if (!session) return null;
-          const next = {
-            ...session,
-            panels: {
-              ...session.panels,
-              [input.panelId]: {
-                ...session.panels[input.panelId],
-                layout: mergeProjectSessionPanelLeaf(session.panels[input.panelId].layout, input.leafId),
-              },
-            },
-          };
-          setSessionsByProject((current) => replaceSession(current, next));
-          return next;
-        }
-        if (channel === "project-session-panels:resize") {
-          const input = (args[0] ?? {}) as {
-            sessionId: string;
-            panelId: ProjectSessionTab["panelId"];
-            branchId: string;
-            ratio: number;
-          };
-          const session = Object.values(sessionsByProject).flat().find((item) => item.id === input.sessionId);
-          if (!session) return null;
-          const next = {
-            ...session,
-            panels: {
-              ...session.panels,
-              [input.panelId]: {
-                ...session.panels[input.panelId],
-                layout: setProjectSessionPanelBranchRatio(session.panels[input.panelId].layout, input.branchId, input.ratio),
-              },
-            },
-          };
-          setSessionsByProject((current) => replaceSession(current, next));
-          return next;
-        }
-        if (channel === "project-session-panels:maximize") {
-          const input = (args[0] ?? {}) as {
-            sessionId: string;
-            panelId: ProjectSessionTab["panelId"];
-            leafId: string | null;
-          };
-          const session = Object.values(sessionsByProject).flat().find((item) => item.id === input.sessionId);
-          if (!session) return null;
-          const next = {
-            ...session,
-            panels: {
-              ...session.panels,
-              [input.panelId]: {
-                ...session.panels[input.panelId],
-                layout: setProjectSessionPanelMaximizedLeaf(session.panels[input.panelId].layout, input.leafId),
-              },
-            },
-          };
-          setSessionsByProject((current) => replaceSession(current, next));
-          return next;
-        }
-        if (channel === "project-session-tabs:reorder") {
-          const input = (args[0] ?? {}) as {
-            sessionId: string;
-            panelId: ProjectSessionTab["panelId"];
-            orderedTabIds: string[];
-          };
-          const session = Object.values(sessionsByProject)
-            .flat()
-            .find((item) => item.id === input.sessionId);
-          if (!session) return null;
-          const byId = new Map(session.tabs.map((tab) => [tab.id, tab]));
-          const orderedPanelTabs = input.orderedTabIds.flatMap((tabId, index) => {
-            const tab = byId.get(tabId);
-            return tab ? [{ ...tab, order: index }] : [];
-          });
-          const untouchedTabs = session.tabs.filter((tab) => tab.panelId !== input.panelId);
-          const tabs = [...untouchedTabs, ...orderedPanelTabs].sort((left, right) => left.order - right.order);
-          const next = {
-            ...session,
-            tabs,
-          };
-          const normalized = withPanelLayouts(next);
-          setSessionsByProject((current) => replaceSession(current, normalized));
-          return normalized;
-        }
-        if (channel === "project-session-tabs:update") {
-          const tabId = String(args[0]);
-          const input = (args[1] ?? {}) as ProjectSessionTabUpdateInput;
-          const session = Object.values(sessionsByProject)
-            .flat()
-            .find((item) => item.tabs.some((tab) => tab.id === tabId));
-          if (!session) return null;
-
-          const tabs = session.tabs.map((tab) =>
-            tab.id === tabId ? updateTab(tab, input, new Date().toISOString()) : tab,
-          );
-          const next = { ...session, tabs };
-          setSessionsByProject((current) => replaceSession(current, next));
-          return tabs.find((tab) => tab.id === tabId) ?? null;
-        }
-        if (channel === "project-session-tabs:create") {
-          const input = args[0] as ProjectSessionTabCreateInput;
-          const session = Object.values(sessionsByProject)
-            .flat()
-            .find((item) => item.id === input.sessionId);
-          if (!session) return null;
-          if (["db_view", "review", "browser"].includes(input.kind)) {
-            const existing = session.tabs.find((tab) => tab.kind === input.kind);
-            if (existing) {
-              const next = withPanelLayouts(session, { [existing.panelId]: existing.id });
-              setSessionsByProject((current) => replaceSession(current, next));
-              return existing;
-            }
-          }
-          const panelId = input.panelId ?? (input.kind === "terminal" ? "bottom" : "right");
-          const tab = makeTab({
-            ...input,
-            id: `tab:${input.kind}:${session.tabs.length + 1}`,
-            projectId: session.projectId,
-            order: session.tabs.filter((item) => item.panelId === panelId).length,
-            panelId,
-          });
-          const tabs = [...session.tabs, tab];
-          const next = withPanelLayouts({
-            ...session,
-            tabs,
-            panels: {
-              ...session.panels,
-              [tab.panelId]: {
-                ...session.panels[tab.panelId],
-                collapsed: false,
-              },
-            },
-          }, { [tab.panelId]: tab.id });
-          setSessionsByProject((current) => replaceSession(current, next));
-          return tab;
-        }
-        if (channel === "project-session-tabs:delete") {
-          return true;
-        }
         if (channel === "project-session-threads:attach" || channel === "project-session-threads:detach") {
           return true;
         }
@@ -1270,18 +1036,6 @@ function installStoryApi(
       getPathForFile: () => "",
     } satisfies NonNullable<Window["api"]>,
   });
-}
-
-function replaceSession(
-  current: Record<string, ProjectSession[]>,
-  nextSession: ProjectSession,
-): Record<string, ProjectSession[]> {
-  return Object.fromEntries(
-    Object.entries(current).map(([projectId, sessions]) => [
-      projectId,
-      sessions.map((session) => (session.id === nextSession.id ? nextSession : session)),
-    ]),
-  );
 }
 
 export const MixedRightTabs: Story = {

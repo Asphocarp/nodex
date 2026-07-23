@@ -56,6 +56,7 @@ function terminalSession(overrides: Partial<TerminalSessionSnapshot> = {}): Term
     truncated: false,
     exited: false,
     exitCode: null,
+    viewLease: null,
     ...overrides,
   };
 }

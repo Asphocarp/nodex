@@ -18,13 +18,23 @@ export interface BrowserSidebarSize {
 
 export interface BrowserSidebarTabIdentity {
   browserConversationId: string;
+  browserViewScopeId: string;
   browserTabId: string;
+}
+
+export function makeBrowserSidebarConversationScopeKey(
+  identity: Pick<
+    BrowserSidebarTabIdentity,
+    "browserConversationId" | "browserViewScopeId"
+  >,
+): string {
+  return `${identity.browserConversationId}\0${identity.browserViewScopeId}`;
 }
 
 export function makeBrowserSidebarTabKey(
   identity: BrowserSidebarTabIdentity,
 ): string {
-  return `${identity.browserConversationId}\0${identity.browserTabId}`;
+  return `${makeBrowserSidebarConversationScopeKey(identity)}\0${identity.browserTabId}`;
 }
 
 export function makeDefaultBrowserSidebarTabId(
@@ -33,7 +43,7 @@ export function makeDefaultBrowserSidebarTabId(
   return `${browserConversationId}:legacy`;
 }
 
-export function requireProjectSessionBrowserTabId(tab: {
+export function requireWorkbenchBrowserTabProjectionId(tab: {
   readonly browserTabId: string | null;
   readonly kind: string;
 }): string {
@@ -60,11 +70,19 @@ export function parseBrowserSidebarRoutePartition(
     const decoded = decodeURIComponent(
       partition.slice(BROWSER_SIDEBAR_ROUTE_PARTITION_PREFIX.length),
     );
-    const separatorIndex = decoded.indexOf("\0");
-    if (separatorIndex <= 0 || separatorIndex === decoded.length - 1) return null;
+    const firstSeparatorIndex = decoded.indexOf("\0");
+    const secondSeparatorIndex = decoded.indexOf("\0", firstSeparatorIndex + 1);
+    if (
+      firstSeparatorIndex <= 0
+      || secondSeparatorIndex <= firstSeparatorIndex + 1
+      || secondSeparatorIndex === decoded.length - 1
+    ) {
+      return null;
+    }
     return {
-      browserConversationId: decoded.slice(0, separatorIndex),
-      browserTabId: decoded.slice(separatorIndex + 1),
+      browserConversationId: decoded.slice(0, firstSeparatorIndex),
+      browserViewScopeId: decoded.slice(firstSeparatorIndex + 1, secondSeparatorIndex),
+      browserTabId: decoded.slice(secondSeparatorIndex + 1),
     };
   } catch {
     return null;
@@ -184,9 +202,7 @@ export interface BrowserSidebarLocalServersSnapshot {
   updatedAt: number;
 }
 
-export interface BrowserUseCursorState {
-  browserConversationId: string;
-  browserTabId: string;
+export interface BrowserUseCursorState extends BrowserSidebarTabIdentity {
   x: number;
   y: number;
   visible: boolean;
@@ -206,7 +222,7 @@ export interface BrowserUseTabState extends BrowserSidebarTabIdentity {
 
 export interface BrowserSidebarBrowserUseStateSnapshot {
   tabs: BrowserUseTabState[];
-  activeBrowserTabIdsByConversation: Record<string, string>;
+  activeBrowserTabIdsByConversationScope: Record<string, string>;
   cursors: BrowserUseCursorState[];
 }
 
@@ -253,16 +269,14 @@ export interface BrowserSidebarWebviewDestroyed extends BrowserSidebarTabIdentit
 type BrowserSidebarTargetedCommand<Command> = Command & BrowserSidebarTabIdentity;
 
 export type BrowserSidebarCommand =
-  | {
+  | BrowserSidebarTargetedCommand<{
     type: "register-tab";
-    browserConversationId: string;
-    browserTabId: string;
     projectId: string | null;
     initialUrl?: string;
     title?: string;
     faviconUrl?: string;
     deviceToolbarVisible?: boolean;
-  }
+  }>
   | BrowserSidebarTargetedCommand<{ type: "navigate"; url: string; hostId?: string; source?: "manual" | "local-server" | "browser-use"; initiator?: string; originalUrl?: string }>
   | BrowserSidebarTargetedCommand<{ type: "go-back" }>
   | BrowserSidebarTargetedCommand<{ type: "go-forward" }>
@@ -291,7 +305,12 @@ export type BrowserSidebarCommand =
   | { type: "remove-local-server-route"; projectId: string; serverUrl: string; routeUrl: string }
   | { type: "browser-use-upsert-tab"; tab: BrowserUseTabState }
   | BrowserSidebarTargetedCommand<{ type: "browser-use-release-tab" }>
-  | { type: "browser-use-set-active-tab"; browserConversationId: string; browserTabId: string | null }
+  | {
+    type: "browser-use-set-active-tab";
+    browserConversationId: string;
+    browserViewScopeId: string;
+    browserTabId: string | null;
+  }
   | { type: "browser-use-set-cursor"; cursor: BrowserUseCursorState }
   | { type: "browser-use-set-viewport"; event: BrowserSidebarBrowserUseViewportEvent }
   | { type: "browser-use-set-capture-surface"; event: BrowserSidebarBrowserUseCaptureSurfaceEvent };

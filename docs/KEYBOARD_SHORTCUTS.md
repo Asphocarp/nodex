@@ -34,7 +34,7 @@ The editable settings tab covers Nodex-supported command ids only. Editor-native
 | `MouseBack` | Back | Desktop mouse back button; routes to the same app-window workbench history command |
 | `MouseForward` | Forward | Desktop mouse forward button; routes to the same app-window workbench history command |
 | `⌘/Ctrl+,` | Toggle settings route | Opens/closes the full-window settings route shell |
-| `⌘/Ctrl+Shift+N` | Open new app window | Electron desktop only (`window:new` IPC); ignored in browser runtime |
+| `⌘/Ctrl+Shift+N` | Open new app window | Electron desktop only; restores the most recently closed Window Session, otherwise clones the active window |
 | `⌘/Ctrl+Shift+W` | Close app window | Electron desktop only; kept distinct from `⌘/Ctrl+W` close-panel-tab |
 | `⌘/Ctrl+F` | Content search or DB search | In Threads, opens the floating content search in chat mode; in Reviews, opens it in diff mode; with an active Browser tab it can search the page; in DB surfaces it keeps opening the DB task search. When the floating input is focused, repeating the shortcut cycles chat -> diff -> browser when available |
 | `⌘/Ctrl+L` | Focus browser address bar | Focuses and selects the active Browser tab address field when one is mounted |

@@ -248,13 +248,34 @@ import {
 import { resolvePanelTabCloseReplacement } from "@/lib/panel-tab-close-routing";
 import { resolveSideChatProjectId } from "@/lib/side-chat-conversation-context";
 import {
-  findNearestProjectSessionPanelLeafToRight,
-  findProjectSessionPanelLeaf,
-  findProjectSessionPanelLeafForTab,
-  getProjectSessionPanelActiveLeaf,
-  listProjectSessionPanelLeaves,
-  makeProjectSessionPanelLayout,
-} from "../../../shared/project-session-panel-layout";
+  findNearestWorkbenchPanelLeafToRight,
+  findWorkbenchPanelLeaf,
+  findWorkbenchPanelLeafForTab,
+  getWorkbenchPanelActiveLeaf,
+  listWorkbenchPanelLeaves,
+} from "../../../shared/workbench-panel-layout";
+import {
+  activateWorkbenchSessionViewTab,
+  createWorkbenchSessionViewTab,
+  ensureWorkbenchSessionViewLeafToRight,
+  mergeWorkbenchSessionViewLeaf,
+  moveWorkbenchSessionViewTab,
+  patchWorkbenchSessionViewPanel,
+  removeWorkbenchSessionViewTab,
+  reorderWorkbenchSessionViewTabs,
+  resizeWorkbenchSessionViewBranch,
+  splitWorkbenchSessionViewLeaf,
+  updateWorkbenchSessionViewTab,
+  type WorkbenchSessionViewSnapshot,
+} from "../../../shared/workbench-session-view";
+import {
+  applyForkBrowserTransferToWorkbenchView,
+  applyWorkbenchViewTabPatch,
+  materializeWorkbenchViewForProjectSession,
+  projectSessionWithWorkbenchView,
+  type WindowLocalProjectSession,
+  workbenchViewTabFromCreateInput,
+} from "@/lib/window-session-view-adapter";
 import { resolveCodexSubagentDisplayName } from "../../../shared/codex-subagent-display";
 import { CODEX_CLIENT_THREAD_ID_PREFIX } from "../../../shared/codex-client-thread";
 import {
@@ -267,7 +288,7 @@ import {
 } from "../../../shared/codex-sidebar-thread-move";
 import type { CodexPendingWorktreeEntry } from "../../../shared/codex-pending-worktree";
 import {
-  requireProjectSessionBrowserTabId,
+  requireWorkbenchBrowserTabProjectionId,
   type BrowserSidebarBrowserUseStateSnapshot,
 } from "../../../shared/browser-sidebar";
 import { resolveSameLeafInsertionIndex } from "./panel-tab-dnd";
@@ -298,22 +319,23 @@ import type {
   ProjectPinnedInput,
   ProjectPinnedOrderInput,
   ProjectUpdateInput,
-  ProjectSession,
+  ProjectSession as ProjectSessionDomain,
   ProjectSessionDbView,
   ProjectSessionForkResult,
-  ProjectSessionPanelEnsureRightLeafResult,
-  ProjectSessionPanelState,
+  WorkbenchPanelState,
   ProjectSessionSummary,
-  ProjectSessionTab,
-  ProjectSessionTabConfiguration,
-  ProjectSessionTabCreateInput,
+  WorkbenchTabProjection,
+  WorkbenchProjectionTabConfiguration,
+  WorkbenchTabCreateInput,
   ProjectSessionThreadLink,
-  ProjectSessionPanelSplitSide,
+  WorkbenchPanelSplitSide,
   WorktreeStartMode,
   WorktreeEnvironmentOption,
 } from "@/lib/types";
+
+type ProjectSession = WindowLocalProjectSession;
 import type {
-  ProjectSessionPageStageTabConfig,
+  WorkbenchProjectionPageStageTabConfig,
   TerminalSessionSnapshot,
 } from "../../../shared/types";
 import type { ThreadActionControllerInput, ThreadStageActions } from "@/features/local-conversation";
@@ -560,7 +582,7 @@ const ELECTRON_STABLE_WORKTREE_STATUS_TRANSPORT: StableWorktreeStatusDialogTrans
 };
 type SidebarResizePhase = "live" | "end" | "reset";
 type SidebarResizeSurface = "inline" | "floating";
-const PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET = new Set<ProjectSessionTab["kind"]>([
+const PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET = new Set<WorkbenchTabProjection["kind"]>([
   "browser",
   "files",
 ]);
@@ -568,11 +590,11 @@ const PANEL_ACTION_ROW_CLASS = "cursor-interaction flex min-h-10 w-full items-ce
 const PANEL_ACTION_KBD_CLASS = "inline-flex !rounded-md !border-0 !bg-current/10 !font-sans !text-xs !text-current !shadow-none !px-1.5 !py-0.5 !leading-none";
 type PanelNewTabActionKind = WorkbenchPanelActionKind;
 
-const NODEX_PANEL_OPTION_ACTION_ORDER: ProjectSessionTab["kind"][] = [
+const NODEX_PANEL_OPTION_ACTION_ORDER: WorkbenchTabProjection["kind"][] = [
   "db_view",
   "page_stage",
 ];
-const NODEX_PANEL_OPTION_ACTION_KIND_SET = new Set<ProjectSessionTab["kind"]>(
+const NODEX_PANEL_OPTION_ACTION_KIND_SET = new Set<WorkbenchTabProjection["kind"]>(
   NODEX_PANEL_OPTION_ACTION_ORDER,
 );
 const DB_VIEW_TABS: Array<{ id: ProjectSessionDbView; label: string; icon: ComponentType<{ className?: string }> }> = [
@@ -608,14 +630,14 @@ type ProjectSessionFilesPreviewTab = WorkspaceFilesTab & {
 };
 
 type ProjectSessionPreviewTab =
-  | (ProjectSessionTab & { preview: true })
+  | (WorkbenchTabProjection & { preview: true })
   | ProjectSessionFilesPreviewTab;
 
-type DurableProjectSessionRenderableTab = ProjectSessionTab & {
+type DurableProjectSessionRenderableTab = WorkbenchTabProjection & {
   preview?: true;
 };
 
-type ProjectSessionTabPanelTab =
+type WorkbenchTabProjectionPanelTab =
   | DurableProjectSessionRenderableTab
   | ProjectSessionFilesPreviewTab;
 
@@ -755,7 +777,7 @@ interface PageStageHistoryModalContext {
   pageNfm?: string;
 }
 
-type ProjectSessionTabDraft = ProjectSessionTabConfiguration & { title: string };
+type WorkbenchTabProjectionDraft = WorkbenchProjectionTabConfiguration & { title: string };
 
 const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
   {
@@ -849,36 +871,22 @@ function sortProjectSessionsForSidebar(sessions: ProjectSession[]): ProjectSessi
 }
 
 function applyProjectSessionSummaryToLoadedSession(
-  session: ProjectSession,
+  _session: ProjectSessionDomain,
   summary: ProjectSessionSummary,
+  view: WorkbenchSessionViewSnapshot,
 ): ProjectSession {
-  return {
-    ...summary,
-    panels: session.panels,
-    tabs: session.tabs,
-  };
+  return projectSessionWithWorkbenchView(summary, view);
 }
 
-function makeSummaryOnlyProjectSession(summary: ProjectSessionSummary): ProjectSession {
-  const makePanel = (panelId: PanelId): ProjectSessionPanelState => ({
-    collapsed: true,
-    layout: makeProjectSessionPanelLayout([], null),
-    size: panelId === "right"
-      ? { widthPx: 600, fullWidth: false }
-      : { heightPx: 280 },
-  });
-
-  return {
-    ...summary,
-    panels: {
-      right: makePanel("right"),
-      bottom: makePanel("bottom"),
-    },
-    tabs: [],
-  };
+function makeSummaryOnlyProjectSession(
+  summary: ProjectSessionSummary,
+  view: WorkbenchSessionViewSnapshot,
+): ProjectSession {
+  return projectSessionWithWorkbenchView(summary, view);
 }
 
 interface WorkbenchShellProps {
+  windowSessionId: string;
   libraryWorkspaceEnabled: boolean;
   projects: Project[];
   projectCatalogError?: string | null;
@@ -886,6 +894,13 @@ interface WorkbenchShellProps {
   dbProjectId: string | null;
   initialActiveProjectSessionId?: string | null;
   onActiveProjectSessionChange?: (sessionId: string | null) => void;
+  sessionViewsBySessionId: Record<string, WorkbenchSessionViewSnapshot>;
+  setSessionView: (
+    sessionId: string,
+    update:
+      | WorkbenchSessionViewSnapshot
+      | ((previous: WorkbenchSessionViewSnapshot | undefined) => WorkbenchSessionViewSnapshot),
+  ) => void;
   activeView: WorkbenchView;
   activeSearchQuery: string;
   activeDbViewPrefs: DbViewPrefs | null;
@@ -1085,8 +1100,8 @@ type PanelGroupTabsByPanel = Record<PanelId, {
 }>;
 
 interface SessionPanelRenderModel {
-  rightPanel: ProjectSessionPanelState;
-  bottomPanel: ProjectSessionPanelState;
+  rightPanel: WorkbenchPanelState;
+  bottomPanel: WorkbenchPanelState;
   rightActiveLeafId: string;
   bottomActiveLeafId: string;
   rightRenderableTabs: ProjectSessionRenderableTab[];
@@ -1102,7 +1117,7 @@ interface SessionPanelRenderModel {
   threadPlanSidePanelState: ThreadPlanSidePanelState | null;
   renderableTabsByPanelLeaf: Record<PanelId, Record<string, ProjectSessionRenderableTab[]>>;
   activeTabIdsByPanelLeaf: Record<PanelId, Record<string, string | null>>;
-  browserRetentionTabs: ProjectSessionTab[];
+  browserRetentionTabs: WorkbenchTabProjection[];
   visibleBrowserTabIds: ReadonlySet<string>;
 }
 
@@ -1153,7 +1168,7 @@ function isFocusedPanelTabShortcutTargetBlocked(target: EventTarget | null): boo
   return Boolean(element.isContentEditable) || Boolean(element.closest(".bn-editor, .bn-container"));
 }
 
-function getTabIcon(kind: ProjectSessionTab["kind"]): ComponentType<{ className?: string }> {
+function getTabIcon(kind: WorkbenchTabProjection["kind"]): ComponentType<{ className?: string }> {
   if (kind === "db_view") return Table2;
   if (kind === "page_stage") return SquareKanban;
   if (kind === "terminal") return CodexSidePanelTerminalIcon;
@@ -1175,7 +1190,7 @@ function makeBrowserFaviconIcon(faviconUrl: string): ComponentType<{ className?:
   };
 }
 
-function getBrowserTabIcon(tab: ProjectSessionTab): ComponentType<{ className?: string }> {
+function getBrowserTabIcon(tab: WorkbenchTabProjection): ComponentType<{ className?: string }> {
   if (
     tab.kind === "browser"
     && "faviconUrl" in tab.config
@@ -1225,7 +1240,7 @@ function resolveProjectTargetTabChromeContext(
   };
 }
 
-function findDbViewTabForProject(session: ProjectSession, projectId: string): ProjectSessionTab | null {
+function findDbViewTabForProject(session: ProjectSession, projectId: string): WorkbenchTabProjection | null {
   return session.tabs.find((tab) =>
     tab.kind === "db_view"
     && "projectId" in tab.config
@@ -1236,7 +1251,7 @@ function findDbViewTabForProject(session: ProjectSession, projectId: string): Pr
 function findDbViewTabForDatabaseView(
   session: ProjectSession,
   databaseViewId: string,
-): ProjectSessionTab | null {
+): WorkbenchTabProjection | null {
   return session.tabs.find((tab) =>
     tab.kind === "db_view"
     && "databaseViewId" in tab.config
@@ -1268,13 +1283,13 @@ function isPanelActionTargetAllowed(action: PanelNewTabAction, panelId: PanelId)
   return action.targetPanelIds?.includes(panelId) ?? action.defaultPanelId === panelId;
 }
 
-function isProjectSessionTabKind(kind: PanelNewTabActionKind): kind is ProjectSessionTab["kind"] {
+function isWorkbenchTabKind(kind: PanelNewTabActionKind): kind is WorkbenchTabProjection["kind"] {
   return kind !== "side_chat";
 }
 
 function filterAvailablePanelActions(
   actions: readonly PanelNewTabAction[],
-  tabs: readonly ProjectSessionTab[],
+  tabs: readonly WorkbenchTabProjection[],
   panelId: PanelId,
   projectId: string | null,
   hasAttachedThread: boolean,
@@ -1300,7 +1315,7 @@ function filterAvailablePanelActions(
 }
 
 function isNodexPanelOptionAction(action: PanelNewTabAction): boolean {
-  return isProjectSessionTabKind(action.kind) && NODEX_PANEL_OPTION_ACTION_KIND_SET.has(action.kind);
+  return isWorkbenchTabKind(action.kind) && NODEX_PANEL_OPTION_ACTION_KIND_SET.has(action.kind);
 }
 
 function isPanelDestinationAction(
@@ -1337,7 +1352,7 @@ function getWorkspaceFileParentPath(path: string): string {
 
 function resolveSessionTerminalCwd(
   session: ProjectSession,
-  tab: ProjectSessionTab,
+  tab: WorkbenchTabProjection,
   projects: readonly Project[],
 ): string | undefined {
   const threadCwd = normalizeOptionalPath(session.thread?.cwd);
@@ -1507,7 +1522,7 @@ function clampBottomPanelHeight(height: number, sessionHeight: number): number {
   return Math.min(maxHeight, Math.max(BOTTOM_PANEL_MIN_HEIGHT, height));
 }
 
-function getDefaultPanelIdForTabKind(kind: ProjectSessionTab["kind"]): PanelId {
+function getDefaultPanelIdForTabKind(kind: WorkbenchTabProjection["kind"]): PanelId {
   return PANEL_NEW_TAB_ACTIONS.find((action) => action.kind === kind)?.defaultPanelId ?? "right";
 }
 
@@ -1536,7 +1551,7 @@ function uniqueStringList(values: readonly string[]): string[] {
   return result;
 }
 
-function makeClientProjectSessionTabId(): string {
+function makeClientWorkbenchTabProjectionId(): string {
   const randomId = globalThis.crypto?.randomUUID?.();
   if (randomId) return `tab:${randomId}`;
   return `tab:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 12)}`;
@@ -1556,7 +1571,7 @@ function hasDurablePanelTabInLeaf(
   leafId: string,
   tabId: string,
 ): boolean {
-  const leaf = findProjectSessionPanelLeaf(session.panels[panelId].layout, leafId);
+  const leaf = findWorkbenchPanelLeaf(session.panels[panelId].layout, leafId);
   if (!leaf?.tabIds.includes(tabId)) return false;
   return session.tabs.some((tab) => tab.id === tabId && tab.panelId === panelId);
 }
@@ -1627,7 +1642,7 @@ function buildSessionPanelRenderModel(input: SessionPanelRenderModelInput): Sess
   for (const panelId of ["right", "bottom"] as const) {
     const panel = session.panels[panelId];
     const activeLeafId = panelId === "right" ? rightActiveLeafId : bottomActiveLeafId;
-    for (const leaf of listProjectSessionPanelLeaves(panel.layout)) {
+    for (const leaf of listWorkbenchPanelLeaves(panel.layout)) {
       const durableTabs = leaf.tabIds.flatMap((tabId) => {
         const tab = durableById.get(tabId);
         return tab && tab.panelId === panelId ? [tab] : [];
@@ -1729,7 +1744,7 @@ function buildSessionPanelRenderModel(input: SessionPanelRenderModelInput): Sess
     : null;
   const browserRetentionTabs = [
     ...session.tabs.filter((tab) => tab.kind === "browser"),
-    ...Object.values(previewTabsByPanel).filter((tab): tab is ProjectSessionTab & { preview: true } =>
+    ...Object.values(previewTabsByPanel).filter((tab): tab is WorkbenchTabProjection & { preview: true } =>
       tab.sessionId === session.id
       && tab.kind === "browser"
       && typeof tab.browserTabId === "string"
@@ -1742,7 +1757,7 @@ function buildSessionPanelRenderModel(input: SessionPanelRenderModelInput): Sess
     const layout = session.panels[panelId].layout;
     const leafIds = layout.maximizedLeafId
       ? [layout.maximizedLeafId]
-      : listProjectSessionPanelLeaves(layout).map((leaf) => leaf.id);
+      : listWorkbenchPanelLeaves(layout).map((leaf) => leaf.id);
     for (const leafId of leafIds) {
       const tabId = activeTabIdsByPanelLeaf[panelId][leafId];
       if (tabId && browserTabIds.has(tabId)) visibleBrowserTabIds.add(tabId);
@@ -1789,7 +1804,7 @@ function collectPanelPageStagePageIdsByProject(
     const layout = session.panels[panelId].layout;
     const leafIds = layout.maximizedLeafId
       ? [layout.maximizedLeafId]
-      : listProjectSessionPanelLeaves(layout).map((leaf) => leaf.id);
+      : listWorkbenchPanelLeaves(layout).map((leaf) => leaf.id);
 
     for (const leafId of leafIds) {
       const activeTabId = model.activeTabIdsByPanelLeaf[panelId][leafId] ?? null;
@@ -2008,14 +2023,14 @@ function resolveProjectBoundSessionId(session: ProjectSession): string | null {
   return session.projectId;
 }
 
-function isPreviewableProjectSessionTabKind(kind: ProjectSessionTab["kind"]): boolean {
+function isPreviewableWorkbenchTabKind(kind: WorkbenchTabProjection["kind"]): boolean {
   return PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET.has(kind);
 }
 
-function makeProjectSessionTabDraft(
+function makeWorkbenchTabProjectionDraft(
   session: ProjectSession,
-  kind: ProjectSessionTab["kind"],
-): ProjectSessionTabDraft | null {
+  kind: WorkbenchTabProjection["kind"],
+): WorkbenchTabProjectionDraft | null {
   const projectId = resolveProjectBoundSessionId(session);
 
   if (kind === "browser") {
@@ -2042,10 +2057,30 @@ function makeProjectSessionTabDraft(
   if (projectId === null) return null;
 
   if (kind === "db_view") {
+    const existingDbTab = session.tabs.find((tab) =>
+      tab.kind === "db_view"
+      && "databaseViewId" in tab.config
+      && typeof tab.config.databaseViewId === "string"
+    );
+    const existingDatabaseViewId =
+      existingDbTab?.kind === "db_view"
+      && "databaseViewId" in existingDbTab.config
+      ? existingDbTab.config.databaseViewId
+      : undefined;
+    const initialDatabaseViewId = (
+      "initialDatabaseViewId" in session
+      && typeof session.initialDatabaseViewId === "string"
+    )
+      ? session.initialDatabaseViewId
+      : existingDatabaseViewId;
     return {
       kind,
       title: "DB View",
-      config: { projectId, view: "kanban" },
+      config: {
+        projectId,
+        ...(initialDatabaseViewId ? { databaseViewId: initialDatabaseViewId } : {}),
+        view: "kanban",
+      },
     };
   }
 
@@ -2068,10 +2103,10 @@ function makeProjectSessionTabDraft(
   return null;
 }
 
-function makePreviewProjectSessionTab(
+function makePreviewWorkbenchTabProjection(
   session: ProjectSession,
   panelId: PanelId,
-  draft: ProjectSessionTabDraft,
+  draft: WorkbenchTabProjectionDraft,
 ): ProjectSessionPreviewTab {
   const projectId = resolveProjectBoundSessionId(session);
   if (projectId === null && draft.kind !== "browser" && draft.kind !== "terminal") {
@@ -2097,7 +2132,7 @@ function makePreviewProjectSessionTab(
         ...base,
         kind: draft.kind,
         config: draft.config,
-        browserTabId: makeClientProjectSessionTabId(),
+        browserTabId: makeClientWorkbenchTabProjectionId(),
       };
     case "db_view":
       return { ...base, kind: draft.kind, config: draft.config, browserTabId: null };
@@ -2117,7 +2152,7 @@ function makePinnedPreviewTabCreateInput(
   panelId: PanelId,
   targetLeafId: string,
   previewTab: ProjectSessionPreviewTab,
-): ProjectSessionTabCreateInput {
+): WorkbenchTabCreateInput {
   const base = {
     sessionId: session.id,
     panelId,
@@ -2144,7 +2179,7 @@ function makePinnedPreviewTabCreateInput(
         ...base,
         kind: previewTab.kind,
         config: previewTab.config,
-        browserTabId: requireProjectSessionBrowserTabId(previewTab),
+        browserTabId: requireWorkbenchBrowserTabProjectionId(previewTab),
       };
     case "files":
       return {
@@ -2213,7 +2248,7 @@ function makePreviewPageStageTab(
   const now = new Date().toISOString();
   const title = input.titleSnapshot || input.pageId;
   return {
-    id: makeClientProjectSessionTabId(),
+    id: makeClientWorkbenchTabProjectionId(),
     sessionId: session.id,
     projectId,
     browserTabId: null,
@@ -2236,21 +2271,21 @@ function makePreviewPageStageTab(
 
 function resolveSessionPanelActiveTabId(session: ProjectSession, panelId: PanelId): string | null {
   const panel = session.panels[panelId];
-  return getProjectSessionPanelActiveLeaf(panel.layout).activeTabId
+  return getWorkbenchPanelActiveLeaf(panel.layout).activeTabId
     ?? session.tabs.find((tab) => tab.panelId === panelId)?.id
     ?? null;
 }
 
 function resolveSessionPanelActiveLeafId(session: ProjectSession, panelId: PanelId): string {
-  return getProjectSessionPanelActiveLeaf(session.panels[panelId].layout).id;
+  return getWorkbenchPanelActiveLeaf(session.panels[panelId].layout).id;
 }
 
 function resolveLeafIdForPanelTab(session: ProjectSession, panelId: PanelId, tabId: string): string {
-  return findProjectSessionPanelLeafForTab(session.panels[panelId].layout, tabId)?.id
+  return findWorkbenchPanelLeafForTab(session.panels[panelId].layout, tabId)?.id
     ?? resolveSessionPanelActiveLeafId(session, panelId);
 }
 
-function resolveTerminalTabIndex(session: ProjectSession, tab: ProjectSessionTab): number {
+function resolveTerminalTabIndex(session: ProjectSession, tab: WorkbenchTabProjection): number {
   const index = session.tabs
     .filter((candidate) => candidate.kind === "terminal")
     .findIndex((candidate) => candidate.id === tab.id);
@@ -2265,14 +2300,14 @@ function resolveDbCardSourceLeafId(session: ProjectSession, sourceTabId: string 
     && tab.kind === "db_view"
   );
   if (!sourceTab) return null;
-  const sourceLeafId = findProjectSessionPanelLeafForTab(session.panels.right.layout, sourceTab.id)?.id;
+  const sourceLeafId = findWorkbenchPanelLeafForTab(session.panels.right.layout, sourceTab.id)?.id;
   return sourceLeafId ?? null;
 }
 
 function resolvePageTabTargetLeafId(session: ProjectSession, sourceTabId: string | undefined): string | undefined {
   const sourceLeafId = resolveDbCardSourceLeafId(session, sourceTabId);
   if (!sourceLeafId) return undefined;
-  return findNearestProjectSessionPanelLeafToRight(session.panels.right.layout, sourceLeafId) ?? undefined;
+  return findNearestWorkbenchPanelLeafToRight(session.panels.right.layout, sourceLeafId) ?? undefined;
 }
 
 function shouldEnsureRightLeafForDbCardOpen(
@@ -2282,11 +2317,11 @@ function shouldEnsureRightLeafForDbCardOpen(
 ): sourceLeafId is string {
   if (!sourceLeafId) return false;
   if (!rightPanelFullWidth) return false;
-  if (findNearestProjectSessionPanelLeafToRight(session.panels.right.layout, sourceLeafId)) return false;
-  return listProjectSessionPanelLeaves(session.panels.right.layout).length === 1;
+  if (findNearestWorkbenchPanelLeafToRight(session.panels.right.layout, sourceLeafId)) return false;
+  return listWorkbenchPanelLeaves(session.panels.right.layout).length === 1;
 }
 
-function readPageStagePanelTabPageRef(tab: ProjectSessionTab | null | undefined): {
+function readPageStagePanelTabPageRef(tab: WorkbenchTabProjection | null | undefined): {
   projectId: string;
   pageId: string;
 } | null {
@@ -2327,6 +2362,7 @@ function buildShellNavigationSnapshot(input: {
 }
 
 export function WorkbenchShell({
+  windowSessionId,
   libraryWorkspaceEnabled,
   projects,
   projectCatalogError = null,
@@ -2334,6 +2370,8 @@ export function WorkbenchShell({
   dbProjectId,
   initialActiveProjectSessionId = null,
   onActiveProjectSessionChange,
+  sessionViewsBySessionId,
+  setSessionView,
   activeView,
   activeSearchQuery,
   activeDbViewPrefs,
@@ -2397,26 +2435,47 @@ export function WorkbenchShell({
       error: results.find((result) => result.error)?.error ?? null,
     }),
   });
+  const materializedSessionViewsRef = useRef<
+    Record<string, WorkbenchSessionViewSnapshot>
+  >({});
+  const resolveSessionView = useCallback((
+    session: ProjectSessionDomain | ProjectSessionSummary,
+  ): WorkbenchSessionViewSnapshot => {
+    const persisted = sessionViewsBySessionId[session.id];
+    if (persisted) return persisted;
+    const cached = materializedSessionViewsRef.current[session.id];
+    if (cached) return cached;
+    const materialized = materializeWorkbenchViewForProjectSession(session);
+    materializedSessionViewsRef.current[session.id] = materialized;
+    return materialized;
+  }, [sessionViewsBySessionId]);
   const sessionsByProject = useMemo<Record<string, ProjectSession[]>>(() =>
     Object.fromEntries(projects.map((project, index) => [
       project.id,
       projectSessionSummaryState.summaries[index]!.map((summary) => {
         const detail = getCachedProjectSessionDetail(queryClient, summary.id);
+        const view = resolveSessionView(detail ?? summary);
         return detail
-          ? applyProjectSessionSummaryToLoadedSession(detail, summary)
-          : makeSummaryOnlyProjectSession(summary);
+          ? applyProjectSessionSummaryToLoadedSession(detail, summary, view)
+          : makeSummaryOnlyProjectSession(summary, view);
       }),
     ])),
-  [projectSessionSummaryState.summaries, projects, queryClient]);
+  [projectSessionSummaryState.summaries, projects, queryClient, resolveSessionView]);
   const projectlessSessions = useMemo(() => {
     const summaries = projectSessionSummaryState.summaries[projects.length] ?? [];
     return summaries.map((summary) => {
       const detail = getCachedProjectSessionDetail(queryClient, summary.id);
+      const view = resolveSessionView(detail ?? summary);
       return detail
-        ? applyProjectSessionSummaryToLoadedSession(detail, summary)
-        : makeSummaryOnlyProjectSession(summary);
+        ? applyProjectSessionSummaryToLoadedSession(detail, summary, view)
+        : makeSummaryOnlyProjectSession(summary, view);
     });
-  }, [projectSessionSummaryState.summaries, projects.length, queryClient]);
+  }, [
+    projectSessionSummaryState.summaries,
+    projects.length,
+    queryClient,
+    resolveSessionView,
+  ]);
   const loadingSessions = projectSessionSummaryState.loading;
   const sessionsReady = !loadingSessions;
   const sessionError = projectSessionSummaryState.error instanceof Error
@@ -2653,29 +2712,92 @@ export function WorkbenchShell({
       ? applyProjectSessionSummaryToLoadedSession(
           activeSessionDetailQuery.data,
           activeSessionSummary,
+          resolveSessionView(activeSessionDetailQuery.data),
         )
       : activeSessionSummary,
-    [activeSessionDetailQuery.data, activeSessionSummary],
+    [activeSessionDetailQuery.data, activeSessionSummary, resolveSessionView],
   );
+  useEffect(() => {
+    if (!activeSession) return;
+    if (sessionViewsBySessionId[activeSession.id]) return;
+    setSessionView(
+      activeSession.id,
+      materializedSessionViewsRef.current[activeSession.id]
+        ?? materializeWorkbenchViewForProjectSession(activeSession),
+    );
+  }, [activeSession, sessionViewsBySessionId, setSessionView]);
+  const mutateSessionView = useCallback((
+    session: ProjectSession,
+    mutation: (view: WorkbenchSessionViewSnapshot) => WorkbenchSessionViewSnapshot,
+  ): WorkbenchSessionViewSnapshot => {
+    const current = materializedSessionViewsRef.current[session.id]
+      ?? sessionViewsBySessionId[session.id]
+      ?? materializeWorkbenchViewForProjectSession(session);
+    const next = mutation(current);
+    materializedSessionViewsRef.current[session.id] = next;
+    setSessionView(session.id, next);
+    return next;
+  }, [sessionViewsBySessionId, setSessionView]);
+  const createSessionViewTab = useCallback((
+    input: WorkbenchTabCreateInput,
+  ): WorkbenchTabProjection | null => {
+    if (!activeSession || input.sessionId !== activeSession.id) return null;
+    const tab = workbenchViewTabFromCreateInput(input);
+    if (!tab) return null;
+    const next = mutateSessionView(activeSession, (view) =>
+      createWorkbenchSessionViewTab(view, {
+        panelId: input.panelId,
+        targetLeafId: input.targetLeafId,
+        tab,
+      })
+    );
+    return projectSessionWithWorkbenchView(activeSession, next).tabs
+      .find((candidate) => candidate.id === tab.id) ?? null;
+  }, [activeSession, mutateSessionView]);
+  const updateSessionViewTab = useCallback((
+    tabId: string,
+    patch: Parameters<typeof applyWorkbenchViewTabPatch>[1],
+  ): WorkbenchTabProjection | null => {
+    if (!activeSession) return null;
+    const current = resolveSessionView(activeSession);
+    const tab = current.tabsById[tabId];
+    if (!tab) return null;
+    const nextTab = applyWorkbenchViewTabPatch(tab, patch);
+    const next = mutateSessionView(activeSession, (view) =>
+      updateWorkbenchSessionViewTab(view, tabId, nextTab)
+    );
+    return projectSessionWithWorkbenchView(activeSession, next).tabs
+      .find((candidate) => candidate.id === tabId) ?? null;
+  }, [activeSession, mutateSessionView, resolveSessionView]);
   const activeRenderSession = activeSession;
   const forkTransferTargetConversationId = activeRenderSession?.thread?.threadId ?? null;
   const forkTransferTargetSessionId = activeRenderSession?.id ?? null;
+  const consumedForkTransferTargetsRef = useRef(new Set<string>());
   useLayoutEffect(() => {
     if (!forkTransferTargetConversationId || !forkTransferTargetSessionId) return;
+    const targetKey = `${forkTransferTargetConversationId}\0${forkTransferTargetSessionId}`;
+    if (consumedForkTransferTargetsRef.current.has(targetKey)) return;
+    consumedForkTransferTargetsRef.current.add(targetKey);
     void invoke("codex:fork-side-panel-transfer:consume", {
       routeKind: "local-thread",
       targetConversationId: forkTransferTargetConversationId,
       targetProjectSessionId: forkTransferTargetSessionId,
-    }).then(async (consumed) => {
-      if (consumed !== true) return;
-      const session = await invoke(
-        "project-sessions:get",
-        forkTransferTargetSessionId,
-      ) as ProjectSession | null;
-      if (!session) return;
-      seedProjectSessionDetail(queryClient, session);
-    }).catch(() => undefined);
-  }, [forkTransferTargetConversationId, forkTransferTargetSessionId, queryClient]);
+      targetBrowserViewScopeId: windowSessionId,
+    }).then((snapshot) => {
+      if (!snapshot || !activeRenderSession) return;
+      mutateSessionView(activeRenderSession, (view) =>
+        applyForkBrowserTransferToWorkbenchView(view, snapshot)
+      );
+    }).catch(() => {
+      consumedForkTransferTargetsRef.current.delete(targetKey);
+    });
+  }, [
+    activeRenderSession,
+    forkTransferTargetConversationId,
+    forkTransferTargetSessionId,
+    mutateSessionView,
+    windowSessionId,
+  ]);
   const scheduledAutomationsQuery = useCodexScheduledAutomations();
   const {
     applySnapshot: applySidebarThreadSnapshot,
@@ -3226,11 +3348,16 @@ export function WorkbenchShell({
   }, [keyboardShortcutsSettingsOpenTick]);
 
   const refreshProjectSessions = useCallback(async (projectId: string | null) => {
-    const sessions = (await invoke("project-sessions:list", projectId)) as ProjectSession[];
+    const sessions = (await invoke(
+      "project-sessions:list",
+      projectId,
+    )) as ProjectSessionDomain[];
     seedProjectSessionDetails(queryClient, sessions);
     setProjectSessionSummaries(queryClient, projectId, sessions.map(projectSessionToSummary));
-    return sessions;
-  }, [queryClient]);
+    return sessions.map((session) =>
+      projectSessionWithWorkbenchView(session, resolveSessionView(session))
+    );
+  }, [queryClient, resolveSessionView]);
 
   const reorderProjectThreadsForSidebar = useCallback(async (
     projectId: string,
@@ -3297,18 +3424,23 @@ export function WorkbenchShell({
     });
   }, [applySidebarThreadSnapshot, queryClient]);
 
-  const mergeSessionInState = useCallback((session: ProjectSession) => {
+  const mergeSessionInState = useCallback((session: ProjectSessionDomain) => {
     seedProjectSessionDetail(queryClient, session);
   }, [queryClient]);
 
-  const warmProjectSessionDbViewBoards = useCallback((session: ProjectSession) => {
-    for (const target of listSessionDbViewTargets(session)) {
+  const warmProjectSessionDbViewBoards = useCallback((
+    session: ProjectSessionDomain | ProjectSession,
+  ) => {
+    const projected = "tabs" in session
+      ? session
+      : projectSessionWithWorkbenchView(session, resolveSessionView(session));
+    for (const target of listSessionDbViewTargets(projected)) {
       void ensureFreshDatabaseViewBoard(
         target.projectId,
         target.databaseViewId,
       ).catch(() => undefined);
     }
-  }, []);
+  }, [resolveSessionView]);
 
   const prefetchSidebarSession = useCallback((item: CodexSidebarThreadItem) => {
     if (item.disabled) return;
@@ -3441,9 +3573,15 @@ export function WorkbenchShell({
     setExpandedProjectIds((current) => new Set([...current, projectId]));
   }, [buildSnapshotForSession, recordShellNavigation, sessionsByProject, setDbProject]);
 
-  const selectSession = useCallback((session: ProjectSession) => {
+  const selectSession = useCallback((
+    session: ProjectSessionDomain | ProjectSession,
+  ) => {
     const cachedSession = getCachedProjectSessionDetail(queryClient, session.id);
-    const targetSession = cachedSession ?? session;
+    const domainSession = cachedSession ?? session;
+    const targetSession = projectSessionWithWorkbenchView(
+      domainSession,
+      resolveSessionView(domainSession),
+    );
     warmProjectSessionDbViewBoards(targetSession);
     recordShellNavigation(buildSnapshotForSession(targetSession, targetSession.projectId));
 
@@ -3468,7 +3606,7 @@ export function WorkbenchShell({
       void invoke("project-sessions:mark-unread", targetSession.id, { unread: false })
         .then((updated) => {
           if (!updated) return;
-          mergeSessionInState(updated as ProjectSession);
+          mergeSessionInState(updated as ProjectSessionDomain);
         })
         .catch(() => undefined);
     }
@@ -3477,6 +3615,7 @@ export function WorkbenchShell({
     mergeSessionInState,
     queryClient,
     recordShellNavigation,
+    resolveSessionView,
     setDbProject,
     warmProjectSessionDbViewBoards,
     workbenchCodexControl,
@@ -3820,6 +3959,9 @@ export function WorkbenchShell({
       const result = await invoke("project-sessions:fork", session.id, {
         target,
         ...(target === "newWorktree" ? { localEnvironmentConfigPath } : {}),
+      }, {
+        browserViewScopeId: windowSessionId,
+        view: resolveSessionView(session),
       }) as ProjectSessionForkResult;
       if ("pendingWorktreeId" in result) {
         setPendingWorktreeClientThreadId(result.clientThreadId);
@@ -3830,7 +3972,13 @@ export function WorkbenchShell({
     } catch {
       toast.danger(target === "newWorktree" ? "Failed to fork chat into new worktree" : "Failed to fork chat");
     }
-  }, [refreshProjectSessions, resolveForkLocalEnvironmentConfigPath, selectSession]);
+  }, [
+    refreshProjectSessions,
+    resolveForkLocalEnvironmentConfigPath,
+    resolveSessionView,
+    selectSession,
+    windowSessionId,
+  ]);
 
   const handleSessionContextMenuAction = useCallback(async (
     session: ProjectSession,
@@ -3958,21 +4106,23 @@ export function WorkbenchShell({
     sessionId: string,
     panelId: PanelId,
     input: Partial<ProjectSession["panels"][PanelId]>,
-    options?: { refresh?: boolean },
   ) => {
-    const updated = (await invoke("project-session-panels:update", sessionId, panelId, input)) as ProjectSession | null;
-    if (!updated) return null;
-    if (options?.refresh !== false) await refreshProjectSessions(updated.projectId);
-    return updated;
-  }, [refreshProjectSessions]);
+    if (!activeSession || activeSession.id !== sessionId) return null;
+    mutateSessionView(activeSession, (view) =>
+      patchWorkbenchSessionViewPanel(view, panelId, {
+        ...(input.collapsed === undefined ? {} : { collapsed: input.collapsed }),
+        ...(input.size === undefined ? {} : { size: input.size }),
+      })
+    );
+    return activeSession;
+  }, [activeSession, mutateSessionView]);
 
   const updateActivePanel = useCallback(async (
     panelId: PanelId,
     input: Partial<ProjectSession["panels"][PanelId]>,
-    options?: { refresh?: boolean },
   ) => {
     if (!activeSession) return null;
-    return updateSessionPanel(activeSession.id, panelId, input, options);
+    return updateSessionPanel(activeSession.id, panelId, input);
   }, [activeSession, updateSessionPanel]);
 
   const setActivePanelCollapsed = useCallback(async (panelId: PanelId, collapsed: boolean) => {
@@ -4042,22 +4192,18 @@ export function WorkbenchShell({
             }),
       });
     }
-    const session = (await invoke("project-session-panels:activate", {
-      sessionId: activeSession.id,
-      panelId,
-      leafId,
-      tabId,
-    })) as ProjectSession | null;
+    mutateSessionView(activeSession, (view) =>
+      activateWorkbenchSessionViewTab(view, panelId, leafId, tabId)
+    );
     if (options?.openPanel) {
-      await updateActivePanel(panelId, { collapsed: false }, { refresh: false });
+      await updateActivePanel(panelId, { collapsed: false });
     }
-    if (session) await refreshProjectSessions(session.projectId);
-  }, [activeSession, clearPanelPreviewTab, recordShellNavigation, refreshProjectSessions, updateActivePanel]);
+  }, [activeSession, clearPanelPreviewTab, mutateSessionView, recordShellNavigation, updateActivePanel]);
 
   const reorderTabs = useCallback(async (panelId: PanelId, tabId: string, targetIndex: number, leafId?: string) => {
     if (!activeSession) return;
     const panel = activeSession.panels[panelId];
-    const leaf = leafId ? findProjectSessionPanelLeaf(panel.layout, leafId) : null;
+    const leaf = leafId ? findWorkbenchPanelLeaf(panel.layout, leafId) : null;
     const order = leaf?.tabIds ?? activeSession.tabs.filter((tab) => tab.panelId === panelId).map((tab) => tab.id);
     const fromIndex = order.indexOf(tabId);
     const normalizedTargetIndex = resolveSameLeafInsertionIndex({
@@ -4070,14 +4216,14 @@ export function WorkbenchShell({
     const [item] = next.splice(fromIndex, 1);
     if (!item) return;
     next.splice(normalizedTargetIndex, 0, item);
-    const session = (await invoke("project-session-tabs:reorder", {
-      sessionId: activeSession.id,
-      panelId,
-      leafId,
-      orderedTabIds: next,
-    })) as ProjectSession | null;
-    if (session) await refreshProjectSessions(session.projectId);
-  }, [activeSession, refreshProjectSessions]);
+    mutateSessionView(activeSession, (view) =>
+      reorderWorkbenchSessionViewTabs(view, {
+        panelId,
+        leafId: leafId ?? view.panels[panelId].layout.activeLeafId,
+        orderedTabIds: next,
+      })
+    );
+  }, [activeSession, mutateSessionView]);
 
   const getPanelVisibleLeafTabCount = useCallback((
     panelId: PanelId,
@@ -4087,7 +4233,7 @@ export function WorkbenchShell({
     if (!activeSession) return 0;
     const excludedTabId = options.excludingTabId ?? null;
     const activeLeafId = resolveSessionPanelActiveLeafId(activeSession, panelId);
-    const leaf = findProjectSessionPanelLeaf(activeSession.panels[panelId].layout, leafId);
+    const leaf = findWorkbenchPanelLeaf(activeSession.panels[panelId].layout, leafId);
     const durableCount = (leaf?.tabIds ?? []).filter((tabId) => {
       if (tabId === excludedTabId) return false;
       return activeSession.tabs.some((tab) => tab.id === tabId && tab.panelId === panelId);
@@ -4135,7 +4281,7 @@ export function WorkbenchShell({
     options: { excludingTabId?: string } = {},
   ): number => {
     if (!activeSession) return 0;
-    return listProjectSessionPanelLeaves(activeSession.panels[panelId].layout).reduce(
+    return listWorkbenchPanelLeaves(activeSession.panels[panelId].layout).reduce(
       (count, leaf) => count + getPanelVisibleLeafTabCount(panelId, leaf.id, options),
       0,
     );
@@ -4155,16 +4301,13 @@ export function WorkbenchShell({
     options: { excludingTabId?: string } = {},
   ) => {
     if (!activeSession) return;
-    const leaves = listProjectSessionPanelLeaves(activeSession.panels[panelId].layout);
+    const leaves = listWorkbenchPanelLeaves(activeSession.panels[panelId].layout);
     if (leaves.length <= 1) return;
     if (getPanelVisibleLeafTabCount(panelId, leafId, options) > 0) return;
-    const session = (await invoke("project-session-panels:merge", {
-      sessionId: activeSession.id,
-      panelId,
-      leafId,
-    })) as ProjectSession | null;
-    if (session) await refreshProjectSessions(session.projectId);
-  }, [activeSession, getPanelVisibleLeafTabCount, refreshProjectSessions]);
+    mutateSessionView(activeSession, (view) =>
+      mergeWorkbenchSessionViewLeaf(view, { panelId, leafId })
+    );
+  }, [activeSession, getPanelVisibleLeafTabCount, mutateSessionView]);
 
   const resolvePanelTabCloseTarget = useCallback((
     panelId: PanelId,
@@ -4549,7 +4692,6 @@ export function WorkbenchShell({
     preserveEmptyLeafIds?: string[];
     preferredActiveLeafId?: string | null;
     preferredActiveTabId?: string | null;
-    closeTerminalRuntime?: boolean;
   } = {}) => {
     if (!activeSession) return;
     const closingTab = activeSession.tabs.find((tab) => tab.id === tabId) ?? null;
@@ -4557,11 +4699,10 @@ export function WorkbenchShell({
       ? makePageEditorSessionKey(activeSession.id, closingTab.id)
       : null;
     if (
-      options.closeTerminalRuntime !== false
-      && closingTab?.kind === "terminal"
+      closingTab?.kind === "terminal"
       && "terminalSessionId" in closingTab.config
     ) {
-      terminalSessionStore.close(closingTab.config.terminalSessionId);
+      terminalSessionStore.release(closingTab.config.terminalSessionId);
     }
     const deleteInput = {
       tabId,
@@ -4575,19 +4716,21 @@ export function WorkbenchShell({
         ? { preferredActiveTabId: options.preferredActiveTabId }
         : {}),
     };
-    const hasDeleteOptions = Object.keys(deleteInput).length > 1;
-    await invoke(
-      "project-session-tabs:delete",
-      hasDeleteOptions ? deleteInput : tabId,
+    mutateSessionView(activeSession, (view) =>
+      removeWorkbenchSessionViewTab(view, tabId, {
+        preserveEmptyLeafIds: deleteInput.preserveEmptyLeafIds,
+        preferredActiveLeafId: deleteInput.preferredActiveLeafId,
+        preferredActiveTabId: deleteInput.preferredActiveTabId,
+      })
     );
     try {
-      await refreshProjectSessions(activeSession.projectId);
+      // Runtime/editor cleanup follows the local descriptor removal.
     } finally {
       if (closingPageEditorSessionKey) {
         await pageEditorSessionRegistry.dispose(closingPageEditorSessionKey);
       }
     }
-  }, [activeSession, refreshProjectSessions]);
+  }, [activeSession, mutateSessionView]);
 
   const closeExitedTerminalTab = useEffectEvent(async (terminalSessionId: string) => {
     if (!activeSession) return;
@@ -4598,7 +4741,7 @@ export function WorkbenchShell({
     );
     if (!tab) return;
 
-    await closeTab(tab.id, { closeTerminalRuntime: false });
+    await closeTab(tab.id);
   });
 
   useEffect(() => {
@@ -4619,15 +4762,16 @@ export function WorkbenchShell({
       ?? previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId)]
       ?? null;
     if (previewTab?.kind === "browser") {
-      const browserTabId = requireProjectSessionBrowserTabId(previewTab);
+      const browserTabId = requireWorkbenchBrowserTabProjectionId(previewTab);
       const durableIdentityStillReferenced = activeSession.tabs.some((tab) =>
         tab.kind === "browser"
-        && requireProjectSessionBrowserTabId(tab) === browserTabId
+        && requireWorkbenchBrowserTabProjectionId(tab) === browserTabId
       );
       if (!durableIdentityStillReferenced) {
         await invoke("browser-sidebar-command", {
           type: "close-tab",
           browserConversationId: activeSession.id,
+          browserViewScopeId: windowSessionId,
           browserTabId,
         });
       }
@@ -4648,6 +4792,7 @@ export function WorkbenchShell({
     previewTabsByPanel,
     removeEmptyVisiblePanelLeaf,
     updateActivePanel,
+    windowSessionId,
   ]);
 
   const closeSideChatPanelTab = useCallback(async (
@@ -5385,7 +5530,6 @@ export function WorkbenchShell({
 
   const pinPreviewTab = useCallback(async (panelId: PanelId, tabId: string, leafId?: string) => {
     if (!activeSession) return;
-    const projectId = activeSession.projectId;
     const targetLeafId = leafId ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
     const previewTab = previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId, targetLeafId)]
       ?? previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId)];
@@ -5394,36 +5538,32 @@ export function WorkbenchShell({
 
     pinningPreviewTabIdsRef.current.add(tabId);
     try {
-      await invoke("project-session-panels:activate", {
-        sessionId: activeSession.id,
-        panelId,
-        leafId: targetLeafId,
-      });
+      mutateSessionView(activeSession, (view) =>
+        activateWorkbenchSessionViewTab(view, panelId, targetLeafId)
+      );
       const createInput = makePinnedPreviewTabCreateInput(
         activeSession,
         panelId,
         targetLeafId,
         previewTab,
       );
-      await invoke("project-session-tabs:create", createInput);
+      createSessionViewTab(createInput);
       if (previewTab.kind === "page_stage") {
-        await refreshProjectSessions(projectId);
         clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
         return;
       }
       clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
-      await refreshProjectSessions(projectId);
     } finally {
       pinningPreviewTabIdsRef.current.delete(tabId);
     }
-  }, [activeSession, clearPanelPreviewTab, previewTabsByPanel, refreshProjectSessions]);
+  }, [activeSession, clearPanelPreviewTab, createSessionViewTab, mutateSessionView, previewTabsByPanel]);
 
   const moveTabToPanel = useCallback(async (
     tabId: string,
     targetPanelId: string,
     targetLeafId?: string,
     targetIndex?: number,
-    splitTarget?: { leafId: string; side: ProjectSessionPanelSplitSide },
+    splitTarget?: { leafId: string; side: WorkbenchPanelSplitSide },
   ) => {
     if (!activeSession) return;
     if (targetPanelId !== "right" && targetPanelId !== "bottom") return;
@@ -5480,23 +5620,24 @@ export function WorkbenchShell({
     const preserveEmptyLeafIds = durableTab && sourceLeafId
       ? getPreserveEmptyLeafIdsAfterDurableRemoval(durableTab.panelId, sourceLeafId, tabId)
       : [];
-    const session = (await invoke("project-session-tabs:move", {
-      tabId,
-      targetPanelId,
-      targetLeafId,
-      targetIndex,
-      preserveEmptyLeafIds,
-      splitTarget,
-    })) as ProjectSession | null;
-    if (session && preserveEmptyLeafIds.length > 0) {
-      await updateActivePanel(durableTab?.panelId ?? targetPanelId, { collapsed: false }, { refresh: false });
+    mutateSessionView(activeSession, (view) =>
+      moveWorkbenchSessionViewTab(view, {
+        tabId,
+        targetPanelId,
+        targetLeafId,
+        targetIndex,
+        preserveEmptyLeafIds,
+        splitTarget,
+      })
+    );
+    if (preserveEmptyLeafIds.length > 0) {
+      await updateActivePanel(durableTab?.panelId ?? targetPanelId, { collapsed: false });
     }
-    if (session) await refreshProjectSessions(session.projectId);
   }, [
     activeSession,
     getPreserveEmptyLeafIdsAfterDurableRemoval,
     mcpAppTabsBySession,
-    refreshProjectSessions,
+    mutateSessionView,
     sideChatTabsBySession,
     updateActivePanel,
   ]);
@@ -5504,50 +5645,43 @@ export function WorkbenchShell({
   const splitPanelGroup = useCallback(async (
     panelId: PanelId,
     leafId: string,
-    side: ProjectSessionPanelSplitSide,
+    side: WorkbenchPanelSplitSide,
     tabId?: string,
   ) => {
     if (!activeSession) return;
     if (!tabId) return;
-    const leaf = findProjectSessionPanelLeaf(activeSession.panels[panelId].layout, leafId);
+    const leaf = findWorkbenchPanelLeaf(activeSession.panels[panelId].layout, leafId);
     if (!leaf || leaf.tabIds.length <= 1 || !leaf.tabIds.includes(tabId)) return;
-    const session = (await invoke("project-session-panels:split", {
-      sessionId: activeSession.id,
-      panelId,
-      leafId,
-      side,
-      tabId,
-    })) as ProjectSession | null;
-    if (session) await refreshProjectSessions(session.projectId);
-  }, [activeSession, refreshProjectSessions]);
+    mutateSessionView(activeSession, (view) =>
+      splitWorkbenchSessionViewLeaf(view, {
+        panelId,
+        leafId,
+        side,
+        tabId,
+      })
+    );
+  }, [activeSession, mutateSessionView]);
 
   const activatePanelGroup = useCallback(async (panelId: PanelId, leafId: string, tabId?: string | null) => {
     if (!activeSession) return;
-    const session = (await invoke("project-session-panels:activate", {
-      sessionId: activeSession.id,
-      panelId,
-      leafId,
-      tabId,
-    })) as ProjectSession | null;
-    if (session) await refreshProjectSessions(session.projectId);
-  }, [activeSession, refreshProjectSessions]);
+    mutateSessionView(activeSession, (view) =>
+      activateWorkbenchSessionViewTab(view, panelId, leafId, tabId)
+    );
+  }, [activeSession, mutateSessionView]);
 
   const resizePanelGroup = useCallback(async (panelId: PanelId, branchId: string, ratio: number) => {
     if (!activeSession) return;
-    const session = (await invoke("project-session-panels:resize", {
-      sessionId: activeSession.id,
-      panelId,
-      branchId,
-      ratio,
-    })) as ProjectSession | null;
-    if (!session) throw new Error("Panel split no longer exists");
-    mergeSessionInState(session);
-  }, [activeSession, mergeSessionInState]);
+    mutateSessionView(activeSession, (view) =>
+      resizeWorkbenchSessionViewBranch(view, { panelId, branchId, ratio })
+    );
+  }, [activeSession, mutateSessionView]);
 
   const ensureActivePanelOpenWithoutRefresh = useCallback(async (panelId: PanelId) => {
     if (!activeSession || !activeSession.panels[panelId].collapsed) return;
-    await invoke("project-session-panels:update", activeSession.id, panelId, { collapsed: false });
-  }, [activeSession]);
+    mutateSessionView(activeSession, (view) =>
+      patchWorkbenchSessionViewPanel(view, panelId, { collapsed: false })
+    );
+  }, [activeSession, mutateSessionView]);
 
   const openSideChat = useCallback(async (
     input: ThreadOpenSideChatInput & {
@@ -6036,22 +6170,22 @@ export function WorkbenchShell({
   }, [activeSession, sideChatTabsBySession, workbenchCodexControl]);
 
   const openPreviewTab = useCallback(async (
-    kind: ProjectSessionTab["kind"],
+    kind: WorkbenchTabProjection["kind"],
     targetPanelId?: PanelId,
     targetLeafId?: string,
   ) => {
     if (!activeSession) return;
     const sessionProjectId = activeSession.projectId;
-    if (!isPreviewableProjectSessionTabKind(kind)) return;
+    if (!isPreviewableWorkbenchTabKind(kind)) return;
 
     const panelId = targetPanelId ?? getDefaultPanelIdForTabKind(kind);
     const leafId = targetLeafId ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
-    const draft = makeProjectSessionTabDraft(activeSession, kind);
+    const draft = makeWorkbenchTabProjectionDraft(activeSession, kind);
     if (!draft) return;
 
     setPreviewTabsByPanel((current) => ({
       ...current,
-      [makePanelPreviewKey(activeSession.id, panelId, leafId)]: makePreviewProjectSessionTab(activeSession, panelId, draft),
+      [makePanelPreviewKey(activeSession.id, panelId, leafId)]: makePreviewWorkbenchTabProjection(activeSession, panelId, draft),
     }));
     await ensureActivePanelOpenWithoutRefresh(panelId);
     await refreshProjectSessions(sessionProjectId);
@@ -6134,12 +6268,14 @@ export function WorkbenchShell({
     const sourceLeafId = resolveDbCardSourceLeafId(activeSession, options?.sourceTabId);
     let targetLeafId = resolvePageTabTargetLeafId(activeSession, options?.sourceTabId);
     if (!targetLeafId && shouldEnsureRightLeafForDbCardOpen(activeSession, sourceLeafId, rightPanelFullWidth)) {
-      const result = (await invoke("project-session-panels:ensure-right-leaf", {
-        sessionId: activeSession.id,
-        panelId: "right",
-        sourceLeafId,
-      })) as ProjectSessionPanelEnsureRightLeafResult | null;
-      targetLeafId = result?.leafId;
+      mutateSessionView(activeSession, (view) => {
+        const result = ensureWorkbenchSessionViewLeafToRight(view, {
+          panelId: "right",
+          leafId: sourceLeafId,
+        });
+        targetLeafId = result.leafId;
+        return result.view;
+      });
     }
     const previewLeafId = targetLeafId ?? resolveSessionPanelActiveLeafId(activeSession, "right");
     const matchingPreviewTab = getRenderablePanelPreviewTab(activeSession, "right", previewLeafId, previewTabsByPanel);
@@ -6169,7 +6305,7 @@ export function WorkbenchShell({
       return;
     }
 
-    await invoke("project-session-tabs:create", {
+    createSessionViewTab({
       sessionId: activeSession.id,
       panelId: "right",
       ...(targetLeafId ? { targetLeafId } : {}),
@@ -6182,11 +6318,12 @@ export function WorkbenchShell({
       },
     });
     await ensureActivePanelOpenWithoutRefresh("right");
-    await refreshProjectSessions(sessionProjectId);
   }, [
     activeSession,
     clearPanelPreviewTab,
     ensureActivePanelOpenWithoutRefresh,
+    createSessionViewTab,
+    mutateSessionView,
     openPageStage,
     pinPreviewTab,
     previewTabsByPanel,
@@ -6231,32 +6368,48 @@ export function WorkbenchShell({
     const shouldSelect = options?.select !== false;
 
     for (const candidate of sessions) {
-      if (candidate.thread || candidate.tabs.length > 0) continue;
+      if (candidate.thread) continue;
 
       const detail = getCachedProjectSessionDetail(queryClient, candidate.id)
         ?? await prefetchProjectSessionDetail(queryClient, candidate.id);
-      if (!detail || detail.thread || detail.tabs.length > 0) continue;
+      if (!detail || detail.thread) continue;
 
-      if (shouldSelect) selectSession(detail);
-      return detail;
+      const projected = projectSessionWithWorkbenchView(
+        detail,
+        resolveSessionView(detail),
+      );
+      if (shouldSelect) selectSession(projected);
+      return projected;
     }
 
     const session = (await invoke("project-sessions:create", {
       projectId,
       noThreadFallbackTitle: "New thread",
-    })) as ProjectSession;
+    })) as ProjectSessionDomain;
     await refreshProjectSessions(projectId);
-    if (shouldSelect) selectSession(session);
-    return session;
-  }, [projectlessSessions, queryClient, refreshProjectSessions, selectSession, sessionsByProject]);
+    const projected = projectSessionWithWorkbenchView(
+      session,
+      resolveSessionView(session),
+    );
+    if (shouldSelect) selectSession(projected);
+    return projected;
+  }, [
+    projectlessSessions,
+    queryClient,
+    refreshProjectSessions,
+    resolveSessionView,
+    selectSession,
+    sessionsByProject,
+  ]);
 
   const startNewChatInProject = useCallback(async (projectId: string | null) => {
     const session = await ensureBlankSessionForProject(projectId);
-    await invoke("project-session-panels:update", session.id, "right", {
-      size: { ...session.panels.right.size, fullWidth: false },
-    });
-    await refreshProjectSessions(projectId);
-  }, [ensureBlankSessionForProject, refreshProjectSessions]);
+    mutateSessionView(session, (view) =>
+      patchWorkbenchSessionViewPanel(view, "right", {
+        size: { ...view.panels.right.size, fullWidth: false },
+      })
+    );
+  }, [ensureBlankSessionForProject, mutateSessionView]);
 
   const openScheduledAutomationChatCreate = useCallback(async (prompt: string) => {
     const targetProject = activeProject ?? projects.find((project) => project.id === activeProjectId) ?? null;
@@ -6435,17 +6588,16 @@ export function WorkbenchShell({
   ]);
 
   const createManualTab = useCallback(async (
-    kind: ProjectSessionTab["kind"],
+    kind: WorkbenchTabProjection["kind"],
     targetPanelId?: PanelId,
     targetLeafId?: string,
   ) => {
     if (!activeSession) return;
-    const sessionProjectId = activeSession.projectId;
     const panelId = targetPanelId ?? getDefaultPanelIdForTabKind(kind);
-    const draft = makeProjectSessionTabDraft(activeSession, kind);
+    const draft = makeWorkbenchTabProjectionDraft(activeSession, kind);
     if (!draft) return;
 
-    const createInput: ProjectSessionTabCreateInput = {
+    const createInput: WorkbenchTabCreateInput = {
       sessionId: activeSession.id,
       panelId,
       ...(targetLeafId ? { targetLeafId } : {}),
@@ -6455,10 +6607,9 @@ export function WorkbenchShell({
       ...draft,
     };
 
-    await invoke("project-session-tabs:create", createInput);
+    createSessionViewTab(createInput);
     await ensureActivePanelOpenWithoutRefresh(panelId);
-    await refreshProjectSessions(sessionProjectId);
-  }, [activeSession, ensureActivePanelOpenWithoutRefresh, refreshProjectSessions]);
+  }, [activeSession, createSessionViewTab, ensureActivePanelOpenWithoutRefresh]);
   const activateReviewTab = useCallback(
     () => createManualTab("review", "right"),
     [createManualTab],
@@ -6893,6 +7044,9 @@ export function WorkbenchShell({
       turnId: input.turnId,
       message: input.message,
       collaborationMode: input.collaborationMode,
+    }, {
+      browserViewScopeId: windowSessionId,
+      view: resolveSessionView(sourceSession),
     }) as ProjectSessionForkResult;
     if ("pendingWorktreeId" in result) {
       setPendingWorktreeClientThreadId(result.clientThreadId);
@@ -6905,7 +7059,15 @@ export function WorkbenchShell({
     }
     // The selected task owns resume/hydration; it must not extend the source task's fork action.
     void workbenchCodexControl.requestThreadStreamSnapshot(result.threadId).catch(() => undefined);
-  }, [projectlessSessions, refreshProjectSessions, selectSession, sessionsByProject, workbenchCodexControl]);
+  }, [
+    projectlessSessions,
+    refreshProjectSessions,
+    resolveSessionView,
+    selectSession,
+    sessionsByProject,
+    windowSessionId,
+    workbenchCodexControl,
+  ]);
 
   const forkSessionFromTurnIntoWorktree = useCallback(async (input: {
     threadId: string;
@@ -6924,14 +7086,23 @@ export function WorkbenchShell({
       target: "newWorktree",
       turnId: input.targetTurnId,
       localEnvironmentConfigPath,
+    }, {
+      browserViewScopeId: windowSessionId,
+      view: resolveSessionView(sourceSession),
     }) as ProjectSessionForkResult;
     if (!("pendingWorktreeId" in result)) {
       throw new Error("Worktree fork started without a pending worktree");
     }
     setPendingWorktreeClientThreadId(result.clientThreadId);
-  }, [projectlessSessions, resolveForkLocalEnvironmentConfigPath, sessionsByProject]);
+  }, [
+    projectlessSessions,
+    resolveForkLocalEnvironmentConfigPath,
+    resolveSessionView,
+    sessionsByProject,
+    windowSessionId,
+  ]);
 
-  const createBrowserTabToRight = useCallback(async (sourceTab: ProjectSessionTab, duplicate: boolean) => {
+  const createBrowserTabToRight = useCallback(async (sourceTab: WorkbenchTabProjection, duplicate: boolean) => {
     if (!activeSession) return;
     const sessionProjectId = activeSession.projectId;
     const panelId = sourceTab.panelId;
@@ -6940,7 +7111,7 @@ export function WorkbenchShell({
     const sourceConfig = sourceTab.kind === "browser" && "projectId" in sourceTab.config
       ? sourceTab.config
       : { projectId: sessionProjectId };
-    const created = await invoke("project-session-tabs:create", {
+    const created = createSessionViewTab({
       sessionId: activeSession.id,
       panelId,
       kind: "browser",
@@ -6956,27 +7127,30 @@ export function WorkbenchShell({
               : {}),
           }
         : { projectId: sessionProjectId },
-    }) as ProjectSessionTab;
+    });
+    if (!created) return;
 
     if (sourceIndex >= 0) {
-      await invoke("project-session-tabs:move", {
-        tabId: created.id,
-        targetPanelId: panelId,
-        targetIndex: sourceIndex + 1,
-      });
+      mutateSessionView(activeSession, (view) =>
+        moveWorkbenchSessionViewTab(view, {
+          tabId: created.id,
+          targetPanelId: panelId,
+          targetIndex: sourceIndex + 1,
+        })
+      );
     }
     await setActivePanelTab(panelId, created.id, { openPanel: true });
-    await refreshProjectSessions(sessionProjectId);
-  }, [activeSession, refreshProjectSessions, setActivePanelTab]);
+  }, [activeSession, createSessionViewTab, mutateSessionView, setActivePanelTab]);
 
-  const reloadBrowserTab = useCallback((tab: ProjectSessionTab) => {
+  const reloadBrowserTab = useCallback((tab: WorkbenchTabProjection) => {
     if (!activeSession || tab.kind !== "browser") return;
     void invoke("browser-sidebar-command", {
       type: "reload",
       browserConversationId: activeSession.id,
-      browserTabId: requireProjectSessionBrowserTabId(tab),
+      browserViewScopeId: windowSessionId,
+      browserTabId: requireWorkbenchBrowserTabProjectionId(tab),
     });
-  }, [activeSession]);
+  }, [activeSession, windowSessionId]);
 
   const focusOrCreateSessionTerminalTab = useCallback(async () => {
     if (!activeSession) return;
@@ -6987,7 +7161,7 @@ export function WorkbenchShell({
     const targetPanelId = targetScope?.panelId ?? "bottom";
     const targetLeafId = targetScope?.leafId ?? resolveSessionPanelActiveLeafId(activeSession, targetPanelId);
     const targetPanelOpen = targetPanelId === "right" ? sidePanelOpen : bottomPanelOpen;
-    const targetLeaf = findProjectSessionPanelLeaf(activeSession.panels[targetPanelId].layout, targetLeafId);
+    const targetLeaf = findWorkbenchPanelLeaf(activeSession.panels[targetPanelId].layout, targetLeafId);
     const activeTabId = targetLeaf?.activeTabId ?? resolveSessionPanelActiveTabId(activeSession, targetPanelId);
     const activeTab = activeTabId
       ? activeSession.tabs.find((tab) => tab.id === activeTabId) ?? null
@@ -7037,7 +7211,6 @@ export function WorkbenchShell({
     leafId: string,
   ) => {
     if (!activeSession || activeSession.projectId === null) return;
-    const sessionProjectId = activeSession.projectId;
     const existing = findDbViewTabForDatabaseView(activeSession, databaseViewId);
     if (existing) {
       const existingLeafId = resolveLeafIdForPanelTab(activeSession, existing.panelId, existing.id);
@@ -7048,7 +7221,7 @@ export function WorkbenchShell({
       return;
     }
 
-    await invoke("project-session-tabs:create", {
+    createSessionViewTab({
       sessionId: activeSession.id,
       panelId,
       targetLeafId: leafId,
@@ -7057,8 +7230,7 @@ export function WorkbenchShell({
       config: { projectId, databaseViewId, view: "kanban" },
     });
     await ensureActivePanelOpenWithoutRefresh(panelId);
-    await refreshProjectSessions(sessionProjectId);
-  }, [activeSession, ensureActivePanelOpenWithoutRefresh, refreshProjectSessions, setActivePanelTab]);
+  }, [activeSession, createSessionViewTab, ensureActivePanelOpenWithoutRefresh, setActivePanelTab]);
 
   const openPageStageFromPanelPicker = useCallback(async (
     destination: Extract<PanelDestination, { kind: "page" }>,
@@ -7069,7 +7241,6 @@ export function WorkbenchShell({
       openPageStage(destination.projectId, destination.pageId, destination.titleSnapshot);
       return;
     }
-    const sessionProjectId = activeSession.projectId;
 
     const existing = activeSession.tabs.find((tab) =>
       tab.kind === "page_stage"
@@ -7096,7 +7267,7 @@ export function WorkbenchShell({
       return;
     }
 
-    await invoke("project-session-tabs:create", {
+    createSessionViewTab({
       sessionId: activeSession.id,
       panelId,
       targetLeafId: leafId,
@@ -7109,15 +7280,14 @@ export function WorkbenchShell({
       },
     });
     await ensureActivePanelOpenWithoutRefresh(panelId);
-    await refreshProjectSessions(sessionProjectId);
   }, [
     activeSession,
     clearPanelPreviewTab,
+    createSessionViewTab,
     ensureActivePanelOpenWithoutRefresh,
     openPageStage,
     pinPreviewTab,
     previewTabsByPanel,
-    refreshProjectSessions,
     setActivePanelTab,
   ]);
 
@@ -7175,8 +7345,8 @@ export function WorkbenchShell({
       await focusOrCreateSessionTerminalTab();
       return true;
     }
-    if (!isProjectSessionTabKind(kind)) return false;
-    if (isPreviewableProjectSessionTabKind(kind)) {
+    if (!isWorkbenchTabKind(kind)) return false;
+    if (isPreviewableWorkbenchTabKind(kind)) {
       await openPreviewTab(kind, panelId, options.leafId);
       return true;
     }
@@ -7372,12 +7542,14 @@ export function WorkbenchShell({
   ) => {
     const panel = session.panels[panelId];
     if (activeTabId) {
-      await invoke("project-session-panels:activate", {
-        sessionId: session.id,
-        panelId,
-        leafId: resolveLeafIdForPanelTab(session, panelId, activeTabId),
-        tabId: activeTabId,
-      });
+      mutateSessionView(session, (view) =>
+        activateWorkbenchSessionViewTab(
+          view,
+          panelId,
+          resolveLeafIdForPanelTab(session, panelId, activeTabId),
+          activeTabId,
+        )
+      );
     }
     await updateSessionPanel(
       session.id,
@@ -7388,9 +7560,8 @@ export function WorkbenchShell({
           ? { size: { ...panel.size, fullWidth: fullWidth ?? false } }
           : {}),
       },
-      { refresh: false },
     );
-  }, [updateSessionPanel]);
+  }, [mutateSessionView, updateSessionPanel]);
 
   const applyShellNavigationSnapshot = useCallback(async (snapshot: WorkbenchShellNavigationSnapshot) => {
     const targetProjectId = snapshot.activeProjectId;
@@ -7822,6 +7993,19 @@ export function WorkbenchShell({
                 onSelect: () => void createBrowserTabToRight(tab, true),
               },
             ]
+          : !transientPanelTab
+              && tab.kind === "terminal"
+              && "terminalSessionId" in tab.config
+            ? [
+                {
+                  id: "terminal-kill",
+                  label: "Kill terminal",
+                  tone: "destructive",
+                  onSelect: () => {
+                    terminalSessionStore.kill(tab.config.terminalSessionId);
+                  },
+                },
+              ]
           : undefined,
         renderPanel: (_closeTab, panelContext) => {
           if (isSideChatPanelTab(tab)) {
@@ -7958,10 +8142,11 @@ export function WorkbenchShell({
             );
           }
           return (
-            <ProjectSessionTabPanel
+            <WorkbenchTabProjectionPanel
               key={`${session.id}:${tab.id}:${tab.stateKey}`}
               tab={tab}
               activeSession={session}
+              browserViewScopeId={windowSessionId}
               projects={projects}
               activeView={activeView}
               activeSearchQuery={activeSearchQuery}
@@ -7984,6 +8169,7 @@ export function WorkbenchShell({
               onEnsureBlankSessionForProject={ensureBlankSessionForProject}
               onRefreshSessions={refreshProjectSessions}
               onCloseTab={closeTab}
+              onUpdateTab={updateSessionViewTab}
               onCreateTerminalTab={(panelId, leafId) => createManualTab("terminal", panelId, leafId)}
               onOpenThread={openAttachedThreadSessionById}
               pageStageHistoryModal={pageStageHistoryModal}
@@ -7997,7 +8183,7 @@ export function WorkbenchShell({
     };
     const buildPanelTabs = (panelId: PanelId) => {
       const panel = session.panels[panelId];
-      const leaves = listProjectSessionPanelLeaves(panel.layout);
+      const leaves = listWorkbenchPanelLeaves(panel.layout);
       const itemsByLeafId: Record<string, AppShellTabItem[]> = {};
       const activeTabIdsByLeafId: Record<string, string | null> = {};
 
@@ -8057,6 +8243,8 @@ export function WorkbenchShell({
     terminalSessionVersion,
     threadQueueFollowUpsEnabled,
     togglePageStageHistoryModal,
+    updateSessionViewTab,
+    windowSessionId,
   ]);
 
   const panelGroupTabs = useMemo<PanelGroupTabsByPanel>(() => {
@@ -8098,7 +8286,7 @@ export function WorkbenchShell({
         currentKeys.add(key);
         const visibleTabIds = new Set(tabs.map((tab) => tab.id));
         const activeTabId = panelTabs.activeTabIdsByLeafId[leafId] ?? null;
-        const durableLeaf = findProjectSessionPanelLeaf(activeRenderSession.panels[panelId].layout, leafId);
+        const durableLeaf = findWorkbenchPanelLeaf(activeRenderSession.panels[panelId].layout, leafId);
         const durableMru = durableLeaf?.mruTabIds ?? [];
         const currentMru = panelTabMruByLeafRef.current[key] ?? [];
         const prunedMru = uniqueStringList([...currentMru, ...durableMru])
@@ -8312,6 +8500,7 @@ export function WorkbenchShell({
     sidebarOpen,
     shellWidthClass,
     updateActivePanel,
+    updateSessionViewTab,
   ]);
 
   const getWindowZoom = useCallback(() => {
@@ -8486,7 +8675,9 @@ export function WorkbenchShell({
   const threadSummaryBrowserRows = useMemo<ThreadSummaryPanelBrowserRow[]>(() => {
     if (!activeSession) return [];
     const activeBrowserUseTabId = browserUseState
-      ?.activeBrowserTabIdsByConversation[activeSession.id] ?? null;
+      ?.activeBrowserTabIdsByConversationScope[
+        `${activeSession.id}\0${windowSessionId}`
+      ] ?? null;
     const browserTabs = activeSession.tabs
       .filter((tab) => tab.kind === "browser")
       .map((tab) => buildThreadSummaryPanelBrowserRow({
@@ -8497,7 +8688,7 @@ export function WorkbenchShell({
         faviconUrl: readBrowserConfigFavicon(tab),
         isAgentWorking: isThreadSummaryBrowserRowAgentWorking(
           activeBrowserUseTabId,
-          requireProjectSessionBrowserTabId(tab),
+          requireWorkbenchBrowserTabProjectionId(tab),
         ),
         panelId: tab.panelId,
         leafId: resolveLeafIdForPanelTab(activeSession, tab.panelId, tab.id),
@@ -8512,13 +8703,13 @@ export function WorkbenchShell({
         faviconUrl: readBrowserConfigFavicon(tab),
         isAgentWorking: isThreadSummaryBrowserRowAgentWorking(
           activeBrowserUseTabId,
-          requireProjectSessionBrowserTabId(tab),
+          requireWorkbenchBrowserTabProjectionId(tab),
         ),
         panelId: tab.panelId,
         leafId: resolvePanelPreviewKeyLeafId(key, activeSession.id, tab.panelId),
       }));
     return [...browserTabs, ...browserPreviewTabs];
-  }, [activeSession, browserUseState, previewTabsByPanel]);
+  }, [activeSession, browserUseState, previewTabsByPanel, windowSessionId]);
   const threadSummaryScheduledAutomation = useMemo<ThreadSummaryPanelScheduledAutomationRow | null>(() =>
     buildThreadSummaryPanelScheduledAutomationRow({
       automations: scheduledAutomationsQuery.data ?? [],
@@ -9706,6 +9897,7 @@ export function WorkbenchShell({
             {activeRenderSession ? (
               <BrowserSidebarHiddenWebviewHosts
                 sessionId={activeRenderSession.id}
+                browserViewScopeId={windowSessionId}
                 tabs={browserRetentionTabs}
                 visibleTabIds={visibleBrowserTabIds}
               />
@@ -13263,9 +13455,10 @@ export function SideChatExpiredPanel({ onRecreateSideChat }: { onRecreateSideCha
   );
 }
 
-function ProjectSessionTabPanel({
+function WorkbenchTabProjectionPanel({
   tab,
   activeSession,
+  browserViewScopeId,
   projects,
   activeView,
   activeSearchQuery,
@@ -13288,6 +13481,7 @@ function ProjectSessionTabPanel({
   onEnsureBlankSessionForProject,
   onRefreshSessions,
   onCloseTab,
+  onUpdateTab,
   onCreateTerminalTab,
   onOpenThread,
   pageStageHistoryModal,
@@ -13295,8 +13489,9 @@ function ProjectSessionTabPanel({
   browserBoundsSyncTrigger,
   isActivePanelTab,
 }: {
-  tab: ProjectSessionTabPanelTab;
+  tab: WorkbenchTabProjectionPanelTab;
   activeSession: ProjectSession;
+  browserViewScopeId: string;
   projects: Project[];
   activeView: WorkbenchView;
   activeSearchQuery: string;
@@ -13334,6 +13529,10 @@ function ProjectSessionTabPanel({
   ) => Promise<ProjectSession>;
   onRefreshSessions: (projectId: string | null) => Promise<ProjectSession[]>;
   onCloseTab: (tabId: string) => Promise<void>;
+  onUpdateTab: (
+    tabId: string,
+    patch: Parameters<typeof applyWorkbenchViewTabPatch>[1],
+  ) => WorkbenchTabProjection | null;
   onCreateTerminalTab: (panelId: PanelId, leafId: string) => Promise<void> | void;
   onOpenThread: (threadId: string) => Promise<void>;
   pageStageHistoryModal: PageStageHistoryModalContext | null;
@@ -13360,13 +13559,13 @@ function ProjectSessionTabPanel({
         setDbViewPrefs={setDbViewPrefs}
         onReminderHandled={onReminderHandled}
         onOpenPageTab={onOpenPageTab}
-        onRefreshSessions={onRefreshSessions}
+        onUpdateTab={onUpdateTab}
       />
     );
   }
 
   if (tab.kind === "page_stage" && "pageId" in tab.config && "projectId" in tab.config) {
-    const pageTab = tab as ProjectSessionTab & {
+    const pageTab = tab as WorkbenchTabProjection & {
       config: { projectId: string; pageId: string; titleSnapshot?: string };
     };
     return (
@@ -13386,21 +13585,10 @@ function ProjectSessionTabPanel({
         onLeavePage={onLeavePageStage}
         onClose={() => void onCloseTab(tab.id)}
         onOpenTerminal={async () => {
-          const sessionProjectId = activeSession.projectId;
-          if (sessionProjectId === null) return;
-          const terminalSessionId = makeTerminalSessionId(activeSession.id);
-          await invoke("project-session-tabs:create", {
-            sessionId: activeSession.id,
-            panelId: "bottom",
-            clientTabId: makeClientTerminalTabId(terminalSessionId),
-            kind: "terminal",
-            title: "Terminal",
-            config: {
-              terminalSessionId,
-            },
-          });
-          await invoke("project-session-panels:update", activeSession.id, "bottom", { collapsed: false });
-          await onRefreshSessions(sessionProjectId);
+          await onCreateTerminalTab(
+            "bottom",
+            activeSession.panels.bottom.layout.activeLeafId,
+          );
         }}
         onEnsureBlankSessionForProject={onEnsureBlankSessionForProject}
         onRefreshSessions={onRefreshSessions}
@@ -13460,7 +13648,9 @@ function ProjectSessionTabPanel({
       <BrowserSidebarPanel
         tab={tab}
         activeSession={activeSession}
+        browserViewScopeId={browserViewScopeId}
         onRefreshSessions={onRefreshSessions}
+        onUpdateTab={onUpdateTab}
         boundsSyncTrigger={browserBoundsSyncTrigger}
         activeForContentSearch={isActivePanelTab}
       />
@@ -13502,10 +13692,10 @@ function DbViewSessionTab({
   setDbViewPrefs,
   onReminderHandled,
   onOpenPageTab,
-  onRefreshSessions,
+  onUpdateTab,
 }: {
   sessionId: string;
-  tab: ProjectSessionTab;
+  tab: WorkbenchTabProjection;
   projects: Project[];
   activeView: WorkbenchView;
   activeSearchQuery: string;
@@ -13532,7 +13722,10 @@ function DbViewSessionTab({
     occurrenceStart: string;
   }) => void;
   onOpenPageTab: OpenPageTabHandler;
-  onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
+  onUpdateTab: (
+    tabId: string,
+    patch: Parameters<typeof applyWorkbenchViewTabPatch>[1],
+  ) => WorkbenchTabProjection | null;
 }) {
   const config = "view" in tab.config ? tab.config : { projectId: tab.projectId, view: activeView };
   const projectId = config.projectId;
@@ -13653,7 +13846,7 @@ function DbViewSessionTab({
 
   const selectView = async (nextView: ProjectSessionDbView) => {
     if (selectedGeneralView) return;
-    await invoke("project-session-tabs:update", tab.id, {
+    onUpdateTab(tab.id, {
       config: {
         projectId,
         databaseViewId: selectedDatabaseViewId,
@@ -13661,7 +13854,6 @@ function DbViewSessionTab({
       },
       title: DB_VIEW_TABS.find((item) => item.id === nextView)?.label ?? "DB View",
     });
-    await onRefreshSessions(projectId);
   };
 
   const availableToolbarItems = selectedGeneralView
@@ -13865,8 +14057,8 @@ function PageStageSessionTab({
   onToggleHistoryPanel,
   isActivePanelTab,
 }: {
-  tab: ProjectSessionTab & {
-    config: ProjectSessionPageStageTabConfig;
+  tab: WorkbenchTabProjection & {
+    config: WorkbenchProjectionPageStageTabConfig;
     preview?: true;
   };
   project: Project | null;

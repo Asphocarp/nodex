@@ -30,15 +30,38 @@ function makeSnapshot(input: Partial<TerminalSessionSnapshot> & { sessionId: str
     truncated: input.truncated ?? false,
     exited: input.exited ?? false,
     exitCode: input.exitCode ?? null,
+    viewLease: input.viewLease ?? null,
   };
 }
 
-function installTerminalApiMock() {
+function installTerminalApiMock(options: {
+  invoke?: (channel: string, ...args: unknown[]) => unknown;
+} = {}) {
   const listeners: Record<string, (payload: unknown) => void> = {};
   const calls: unknown[] = [];
   window.api = {
     invoke: async (channel: string, ...args: unknown[]) => {
       calls.push([channel, ...args]);
+      if (options.invoke) return options.invoke(channel, ...args);
+      if (
+        channel === "terminal-create"
+        || channel === "terminal-acquire-view"
+        || channel === "terminal-take-over-view"
+      ) {
+        const input = args[0] as { sessionId: string };
+        return {
+          status: "acquired",
+          generation: 1,
+          snapshot: makeSnapshot({
+            sessionId: input.sessionId,
+            viewLease: {
+              windowSessionId: "window-session-1",
+              generation: 1,
+              size: { cols: 80, rows: 24 },
+            },
+          }),
+        };
+      }
       return undefined;
     },
     on: (event: string, callback: (...args: unknown[]) => void) => {
@@ -176,20 +199,98 @@ describe("TerminalSessionStore", () => {
     expect(versionEvents).toBe(0);
   });
 
-  test("closes an explicit terminal runtime at most once", () => {
+  test("releases a terminal view at most once without killing its runtime", () => {
     const { calls, listeners } = installTerminalApiMock();
     const store = new TerminalSessionStore();
 
-    store.close("session:one:terminal:close-once");
+    store.release("session:one:terminal:close-once");
     listeners["terminal-exit"]?.({
       sessionId: "session:one:terminal:close-once",
       exitCode: 0,
+      reason: "exited",
     } satisfies TerminalExitEvent);
-    store.close("session:one:terminal:close-once");
+    store.release("session:one:terminal:close-once");
 
     expect(JSON.stringify(calls)).toBe(JSON.stringify([
-      ["terminal-close", "session:one:terminal:close-once"],
+      ["terminal-release-view", "session:one:terminal:close-once"],
     ]));
+  });
+
+  test("kills a terminal only through the explicit destructive command", () => {
+    const { calls } = installTerminalApiMock();
+    const store = new TerminalSessionStore();
+
+    store.kill("session:one:terminal:kill");
+
+    expect(calls).toEqual([
+      ["terminal-kill", "session:one:terminal:kill"],
+    ]);
+  });
+
+  test("surfaces a lease conflict and takes over with its generation", async () => {
+    const sessionId = "session:one:terminal:conflict";
+    const { calls } = installTerminalApiMock({
+      invoke: (channel) => {
+        if (channel === "terminal-acquire-view") {
+          return {
+            status: "conflict",
+            generation: 4,
+            ownerWindowSessionId: "window-session-other",
+            snapshot: makeSnapshot({
+              sessionId,
+              buffer: "still running",
+              viewLease: {
+                windowSessionId: "window-session-other",
+                generation: 4,
+                size: { cols: 100, rows: 30 },
+              },
+            }),
+          };
+        }
+        if (channel === "terminal-take-over-view") {
+          return {
+            status: "acquired",
+            generation: 5,
+            snapshot: makeSnapshot({
+              sessionId,
+              viewLease: {
+                windowSessionId: "window-session-current",
+                generation: 5,
+                size: { cols: 90, rows: 28 },
+              },
+            }),
+          };
+        }
+        return undefined;
+      },
+    });
+    const store = new TerminalSessionStore();
+
+    await store.attach({
+      sessionId,
+      size: { cols: 90, rows: 28 },
+    });
+    expect(store.getLeaseConflict(sessionId)).toEqual({
+      generation: 4,
+      ownerWindowSessionId: "window-session-other",
+    });
+    expect(store.getSnapshot(sessionId).buffer).toBe("still running");
+
+    await store.takeOver({
+      sessionId,
+      expectedGeneration: 4,
+      size: { cols: 90, rows: 28 },
+    });
+
+    expect(store.getLeaseConflict(sessionId)).toBeNull();
+    expect(calls.at(-1)).toEqual([
+      "terminal-take-over-view",
+      {
+        sessionId,
+        expectedGeneration: 4,
+        size: { cols: 90, rows: 28 },
+      },
+    ]);
   });
 
   test("preserves session buffer while renderer subscribers detach and reattach", () => {
@@ -215,7 +316,7 @@ describe("TerminalSessionStore", () => {
     expect(store.getSnapshot("session:one:terminal:reattach").buffer).toBe(
       "before detach\nwhile detached\n",
     );
-    expect(calls.some((call) => (call as unknown[])[0] === "terminal-close")).toBe(false);
+    expect(calls.some((call) => (call as unknown[])[0] === "terminal-kill")).toBe(false);
   });
 
   test("notifies exit subscribers and removes renderer session state", () => {
@@ -238,10 +339,11 @@ describe("TerminalSessionStore", () => {
     listeners["terminal-exit"]?.({
       sessionId: "session:one:terminal:5",
       exitCode: 0,
+      reason: "exited",
     } satisfies TerminalExitEvent);
 
     expect(JSON.stringify(exitEvents)).toBe(JSON.stringify([
-      { sessionId: "session:one:terminal:5", exitCode: 0 },
+      { sessionId: "session:one:terminal:5", exitCode: 0, reason: "exited" },
     ]));
     expect(store.resolveTitle("session:one:terminal:5", "Terminal", 5)).toBe("Terminal 5");
   });

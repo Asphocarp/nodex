@@ -2,14 +2,16 @@ import type {
   BrowserSidebarBrowserUseStateSnapshot,
   BrowserSidebarStateSnapshot,
 } from "../../shared/browser-sidebar";
-import { requireProjectSessionBrowserTabId } from "../../shared/browser-sidebar";
-import { getProjectSessionPanelActiveLeaf } from "../../shared/project-session-panel-layout";
-import type { PanelId, ProjectSession, ProjectSessionTab } from "../../shared/types";
+import {
+  makeBrowserSidebarConversationScopeKey,
+} from "../../shared/browser-sidebar";
+import type { ProjectSession } from "../../shared/types";
 
 export interface CodexOrdinaryBrowserTransferCapture {
   readonly browserTransferSourceBrowserTabId: string;
   readonly browserTransferSourceBrowserTabIds: readonly string[];
   readonly browserTransferSourceConversationId: string;
+  readonly browserTransferSourceViewScopeId: string;
 }
 
 interface CaptureCodexOrdinaryBrowserTransferInput {
@@ -17,6 +19,7 @@ interface CaptureCodexOrdinaryBrowserTransferInput {
   readonly browserUseState: BrowserSidebarBrowserUseStateSnapshot;
   readonly enabled: boolean;
   readonly session: ProjectSession;
+  readonly browserViewScopeId: string;
 }
 
 function appendFirst(
@@ -28,26 +31,6 @@ function appendFirst(
   if (!normalizedId || seenIds.has(normalizedId)) return;
   seenIds.add(normalizedId);
   orderedIds.push(normalizedId);
-}
-
-function browserTabsInPanel(
-  session: ProjectSession,
-  panelId: PanelId,
-): readonly ProjectSessionTab[] {
-  return session.tabs.filter((tab) => tab.panelId === panelId && tab.kind === "browser");
-}
-
-function activeBrowserTabId(
-  session: ProjectSession,
-  panelId: PanelId,
-): string | null {
-  const activeTabId = getProjectSessionPanelActiveLeaf(
-    session.panels[panelId].layout,
-  ).activeTabId;
-  if (activeTabId === null) return null;
-  const activeTab = session.tabs.find((tab) => tab.id === activeTabId);
-  if (!activeTab || activeTab.kind !== "browser") return null;
-  return requireProjectSessionBrowserTabId(activeTab);
 }
 
 /**
@@ -62,29 +45,28 @@ export function captureCodexOrdinaryBrowserTransfer(
 
   const orderedIds: string[] = [];
   const seenIds = new Set<string>();
-  for (const panelId of ["right", "bottom"] as const) {
-    for (const tab of browserTabsInPanel(input.session, panelId)) {
-      appendFirst(orderedIds, seenIds, requireProjectSessionBrowserTabId(tab));
-    }
-  }
   for (const tab of input.browserState.tabs) {
     if (tab.browserConversationId !== input.session.id) continue;
+    if (tab.browserViewScopeId !== input.browserViewScopeId) continue;
     appendFirst(orderedIds, seenIds, tab.browserTabId);
   }
   for (const tab of input.browserUseState.tabs) {
     if (tab.browserConversationId !== input.session.id) continue;
+    if (tab.browserViewScopeId !== input.browserViewScopeId) continue;
     appendFirst(orderedIds, seenIds, tab.browserTabId);
   }
 
   const rememberedBrowserTabId =
-    input.browserUseState.activeBrowserTabIdsByConversation[input.session.id] ?? null;
+    input.browserUseState.activeBrowserTabIdsByConversationScope[
+      makeBrowserSidebarConversationScopeKey({
+        browserConversationId: input.session.id,
+        browserViewScopeId: input.browserViewScopeId,
+      })
+    ] ?? null;
   const selectedBrowserTabId = (
     rememberedBrowserTabId !== null && seenIds.has(rememberedBrowserTabId)
       ? rememberedBrowserTabId
-      : activeBrowserTabId(input.session, "right")
-        ?? activeBrowserTabId(input.session, "bottom")
-        ?? orderedIds.at(-1)
-        ?? null
+      : orderedIds.at(-1) ?? null
   );
   if (selectedBrowserTabId === null || !seenIds.has(selectedBrowserTabId)) return null;
 
@@ -92,5 +74,6 @@ export function captureCodexOrdinaryBrowserTransfer(
     browserTransferSourceBrowserTabId: selectedBrowserTabId,
     browserTransferSourceBrowserTabIds: [...orderedIds],
     browserTransferSourceConversationId: input.session.id,
+    browserTransferSourceViewScopeId: input.browserViewScopeId,
   };
 }

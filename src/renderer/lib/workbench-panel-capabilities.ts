@@ -1,10 +1,10 @@
 import {
   PROJECT_SESSION_SINGLETON_TAB_KINDS,
   type PanelId,
-  type ProjectSessionTabKind,
+  type WorkbenchTabKind,
 } from "@/lib/types";
 
-export type WorkbenchPanelActionKind = ProjectSessionTabKind | "side_chat";
+export type WorkbenchPanelActionKind = WorkbenchTabKind | "side_chat";
 
 export type WorkbenchPanelActionUnavailableReason =
   | "no_session"
@@ -31,7 +31,7 @@ export interface ResolveWorkbenchPanelCapabilitiesInput {
   hasAttachedThread: boolean;
   cwd: string | null | undefined;
   projectWorkspaceRoot?: string | null;
-  existingTabKinds?: readonly ProjectSessionTabKind[];
+  existingTabKinds?: readonly WorkbenchTabKind[];
 }
 
 const PROJECT_ACTION_ORDER: readonly WorkbenchPanelActionKind[] = [
@@ -80,7 +80,7 @@ function unavailable(
 function resolveActionCapability(
   kind: WorkbenchPanelActionKind,
   input: ResolveWorkbenchPanelCapabilitiesInput,
-  existingTabKinds: ReadonlySet<ProjectSessionTabKind>,
+  existingTabKinds: ReadonlySet<WorkbenchTabKind>,
 ): WorkbenchPanelActionCapability {
   if (!input.hasSession) return unavailable("no_session");
 
@@ -104,7 +104,7 @@ function resolveActionCapability(
     if (input.projectId === null && !input.hasAttachedThread) return unavailable("no_thread");
   }
 
-  if (SINGLETON_ACTIONS.has(kind) && existingTabKinds.has(kind as ProjectSessionTabKind)) {
+  if (SINGLETON_ACTIONS.has(kind) && existingTabKinds.has(kind as WorkbenchTabKind)) {
     return unavailable("singleton_exists");
   }
 

@@ -36,7 +36,8 @@ a separate product change says otherwise.
 | `activeSearchQuery`, `searchByProject` | Database search text per Project | Window layout/session; no live cross-window apply | Workbench window-layout App atom, keyed fields |
 | `activeDbViewPrefs`, `dbViewPrefsByProject` | Renderer view preferences per Project/view | Profile localStorage; no live cross-window apply today | Workbench window-layout App atom plus same-window storage Adapter |
 | `sidebar` | Sidebar collapsed state, width, and section disclosure | Profile localStorage; no live cross-window apply today | Workbench window-layout App atom; live drag sample remains component-local |
-| `dock` | Window-local dock width and split tree | Profile localStorage plus window snapshot | Workbench window-layout App atom; never duplicates durable Project-session panels |
+| `dock` | Window-local dock width and split tree | Profile localStorage plus window snapshot | Workbench window-layout App atom; separate from Session-specific panel trees |
+| `sessionViewsBySessionId` | One renderer window's tabs, panel trees, active leaves/tabs, MRU order, collapse, maximize, and size for each Project Session | Main-persisted Window Session snapshot; no live cross-window apply | Workbench window-layout App atom plus strict Window Session codec |
 | `recentPageSessions`, `activeRecentSessionId` | Renderer-window recent Page navigation | sessionStorage/window snapshot | Workbench window-layout App atom; explicit close/prune clears entries |
 | `focusedStage`, `stageNavDirection` | Current renderer navigation/presentation | Window layout/session | Workbench window-layout App atom; direction is navigation state |
 | `pagesTabs`, `activePagesTabId` | Page-stage projection and selection | Tabs derive from recent sessions; selection is window layout | Pure projection plus Workbench window-layout selection field |
@@ -94,7 +95,7 @@ lifecycle; it is not task state.
 | Preview tabs, overlays, and route-local panel presentation | Thread/Route identity | Renderer memory unless an existing preference contract applies | Thread/Route atoms | Explicit close or scope eviction |
 | Review diff preferences | Renderer application | Renderer memory | App atoms | Renderer shutdown |
 | Review source, tree, selection, expansion, and pending file reveal | Task Route identity | Renderer memory | Route atoms; source data stays in conversation/Query authorities | Successful reveal, explicit source change, or Route eviction |
-| Durable Project-session panels and tabs | Project Session | Rust Core SQLite + Query | Rust Core Workspace Module and TanStack Query | Domain close/delete operation |
+| Window-local Project Session panels and tabs | Window Session + Project Session ID | Window Session snapshot; cloned only as a new-window starting point and never live-applied cross-window | Workbench App atom and pure `WorkbenchSessionViewSnapshot` mutations | Explicit panel-tab close, hard Session reconciliation, or bounded closed-window history eviction |
 
 One mounted `ComposerScope` represents one writable form owner. The primary Thread route derives that identity from its promoted session scope so pending-to-attached transitions preserve local composer state. Background-agent and Subagents detail routes are read-only transcript surfaces and must not mount a composer beneath the same route. A writable auxiliary thread surface, such as a side chat, must provide a stable surface-specific composer identity; sharing the primary identity across simultaneous forms is an ownership violation, not a recoverable render collision.
 
@@ -107,8 +108,8 @@ read-only bridge only when scoped atom composition needs one.
 | --- | --- | --- |
 | `local-conversation-store.ts` | Codex conversation, execution, requests, streaming, reconnect, and owner/follower coordination | Keep deep Module; never mirror writable snapshots |
 | `persisted-atom-store.ts` | Ordered renderer/main persistence synchronization plus imperative bootstrap/runtime access | Keep as the shared substrate; React-facing drafts/preferences normally consume it through Maitai persisted atoms |
-| `terminal-session-store.ts` / `use-terminal.ts` | PTY session, buffer, renderer attachment, resize/write/exit | Keep deep Module; view unmount detaches, explicit close destroys |
-| `browser-sidebar-webview-manager.ts` | Browser runtime identity and visible/hidden host claims | Keep deep Module; atoms may hold stable tab/runtime IDs only |
+| `terminal-session-store.ts` / `use-terminal.ts` | PTY resource, buffer, and one explicit interactive Window Session lease | Keep deep Module; view unmount releases its lease, takeover transfers it, and explicit kill/backend exit destroys the PTY |
+| `browser-sidebar-webview-manager.ts` | Browser runtime identity and visible/hidden host claims scoped by Window Session | Keep deep Module; atoms may hold stable tab/runtime IDs only |
 | Block Document/Yjs/editor runtime | Y.Doc, provider, editor, UndoManager, write fences, relocation participants | Keep deep surface Modules per ADR 0008 |
 | `block-disclosure-state.ts` | Stable occurrence disclosure preference | Keep until a persisted atom Adapter exactly preserves ADR 0009 |
 | `kanban-store.ts`, `page-detail-store.ts`, `database-row-detail-store.ts` | Main-backed read models, optimistic journals, invalidation, grant-aware caches | Keep their deep external-store/Query ownership |
@@ -139,14 +140,18 @@ Workbench command-palette visibility, menus, dialogs, resize samples, hover,
 selection gestures, and pending drag/drop confirmations remain component-local.
 Persistent Composer/worktree/summary preferences were removed from the shell and
 now live in `use-workbench-preferences.ts` App atoms with same-window storage
-Adapters. Durable Project-session tabs/layout, including projectless exact-file
-Files and portable Browser/Terminal rows, remain Rust Core SQLite + Query
-authority. Browser guests, Terminal PTYs, side-chat execution, and Codex streams
-remain their runtime Modules. Side-chat tab identity and placement remain
-renderer-local and ephemeral. Panel preview/side-surface controller records stay in the Workbench
-panel Adapter because they coordinate imperative open/close/promote commands
-across the two durable panel trees; they are renderer-only and are pruned by
-their explicit close/session cleanup paths, not treated as runtime authority.
+Adapters. Project Session tabs/layout, including projectless exact-file Files
+and Browser/Terminal descriptors, live in the owning Window Session snapshot.
+Closing a BrowserWindow detaches that renderer/runtime owner but retains its
+Window Session snapshot as bounded closed history. The next generic New Window
+request reattaches that exact snapshot; only the no-closed-history fallback and
+targeted `Open in new window` requests clone and remint a source snapshot.
+Browser guests, Terminal PTYs, side-chat execution, and Codex streams remain
+their runtime Modules. Side-chat tab identity and placement remain
+renderer-local and ephemeral. Panel preview/side-surface controller records stay
+in the Workbench panel Adapter because they coordinate imperative
+open/close/promote commands across the window-owned panel trees; they are pruned
+by their explicit close/session cleanup paths, not treated as runtime authority.
 Direct `persisted-atom-store` access is not forbidden: it remains appropriate
 for non-React runtime, bootstrap, migration, and deterministic fixture seams.
 React components must not duplicate its hydration/subscription state machine

@@ -21,11 +21,13 @@ helpers. These mechanisms are valid for distinct deep runtime Modules, but they
 do not provide one explicit identity and disposal model for ordinary app,
 thread, route, and composer presentation state.
 
-Durable data and live execution already have deeper owners. Main and SQLite own
-Project sessions and durable layout. TanStack Query owns renderer server-data
-caching. `CodexAppServerManager` owns conversation and execution state.
-Browser, Terminal, and collaborative editor Modules own their runtime objects.
-The renderer needs a view-state kernel without duplicating those authorities.
+Durable data and live execution already have deeper owners. Rust Core owns
+Project Session domain data and Thread links. A Main-persisted Window Session
+owns each window's Workbench layout, including its Session tabs and panels.
+TanStack Query owns renderer server-data caching. `CodexAppServerManager` owns
+conversation and execution state. Browser, Terminal, and collaborative editor
+Modules own their runtime objects. The renderer needs a view-state kernel
+without duplicating those authorities.
 
 ## Decision
 
@@ -126,7 +128,8 @@ The detailed field disposition is maintained in
 Maitai is authoritative only for renderer-local UI and view state. It does not
 become a writable mirror of:
 
-- main/SQLite Project, session, tab, or durable layout data;
+- Rust Core Project and Session domain data or Thread links;
+- another Window Session's tabs, panels, selection, or layout;
 - TanStack Query snapshots, freshness, retries, or invalidation;
 - Codex conversation, Turn, request, stream, or execution state;
 - Browser webContents, host claims, navigation runtime, cookies, or sessions;

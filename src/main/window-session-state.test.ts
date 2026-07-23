@@ -1,11 +1,23 @@
 import { describe, expect, test } from "vitest";
-import { mkdtempSync, rmSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   createDefaultWorkbenchLayoutSnapshot,
   type WorkbenchLayoutSnapshot,
 } from "../shared/workbench-layout";
+import {
+  createWorkbenchSessionViewTab,
+  materializeInitialWorkbenchSessionView,
+} from "../shared/workbench-session-view";
 import {
   WindowSessionState,
   windowSessionStateTestHelpers,
@@ -20,6 +32,16 @@ function withTempUserData(run: (userDataPath: string) => void): void {
   }
 }
 
+function createClock(start = "2026-07-24T00:00:00.000Z") {
+  let current = Date.parse(start);
+  return {
+    now: () => new Date(current),
+    advance: (milliseconds = 1_000) => {
+      current += milliseconds;
+    },
+  };
+}
+
 function makeLayout(
   focusedStage: WorkbenchLayoutSnapshot["focusedStage"],
   dbProjectId: string,
@@ -32,192 +54,554 @@ function makeLayout(
   };
 }
 
+function saveLayout(
+  state: WindowSessionState,
+  webContentsId: number,
+  sessionId: string,
+  revision: number,
+  layout: WorkbenchLayoutSnapshot,
+) {
+  return state.saveLayout(webContentsId, {
+    sessionId,
+    revision,
+    layout,
+  });
+}
+
 describe("WindowSessionState", () => {
-  test("creates a default session without workspace catalog input", () => {
+  test("creates a fresh open versioned Window Session", () => {
     withTempUserData((userDataPath) => {
       const state = new WindowSessionState(userDataPath);
-      const session = state.createSession();
+      const session = state.createFreshSession();
       const catalog = state.readCatalog();
 
+      expect(session.lifecycle).toEqual({ state: "open" });
+      expect(session.layoutRevision).toBe(0);
+      expect(session.layout.version).toBe(3);
       expect(session.layout.dbProjectId).toBeNull();
-      expect(session.layout.threadsProjectId).toBeNull();
-      expect(session.layout.focusedStage).toBe("db");
-      expect(catalog?.sessions.length).toBe(1);
+      expect(catalog?.version).toBe(3);
+      expect(catalog?.sessions).toHaveLength(1);
       expect(catalog?.lastActiveSessionId).toBe(session.id);
     });
   });
 
-  test("seeds a new session from an explicit layout", () => {
+  test("restores all open sessions without reopening deliberately closed history", () => {
     withTempUserData((userDataPath) => {
-      const state = new WindowSessionState(userDataPath);
-      const seededLayout = makeLayout("threads", "seeded");
-      const session = state.createSession({ layout: seededLayout });
+      const clock = createClock();
+      const state = new WindowSessionState(userDataPath, { now: clock.now });
+      const first = state.createFreshSession();
+      const second = state.createFreshSession();
+      state.attachWindow(1, first.id);
+      state.attachWindow(2, second.id);
+      clock.advance();
+      state.detachWindow(2, { disposition: "user-close" });
 
-      expect(session.layout.dbProjectId).toBe("seeded");
-      expect(session.layout.threadsProjectId).toBe("seeded");
-      expect(session.layout.focusedStage).toBe("threads");
+      const restored = new WindowSessionState(userDataPath, {
+        now: clock.now,
+      }).selectStartupSessions("all");
+
+      expect(restored.map((session) => session.id)).toEqual([first.id]);
+      expect(state.readCatalog()?.sessions.find((session) => session.id === second.id)
+        ?.lifecycle.state).toBe("closed");
     });
   });
 
-  test("seeds new sessions from the last-focused session layout", () => {
+  test("last-window demotes other open sessions into recoverable history", () => {
     withTempUserData((userDataPath) => {
-      const state = new WindowSessionState(userDataPath);
-      const first = state.createSession({ layout: makeLayout("pages", "first") });
-      const second = state.createSession({ layout: makeLayout("files", "second") });
-
-      state.assignWindow(1, first.id);
-      state.assignWindow(2, second.id);
+      const clock = createClock();
+      const state = new WindowSessionState(userDataPath, { now: clock.now });
+      const first = state.createFreshSession();
+      clock.advance();
+      const second = state.createFreshSession();
+      state.attachWindow(1, first.id);
+      state.attachWindow(2, second.id);
+      clock.advance();
       state.markFocused(1);
 
-      const inherited = state.createSession();
-      expect(inherited.layout.dbProjectId).toBe("first");
-      expect(inherited.layout.focusedStage).toBe("pages");
+      const restarted = new WindowSessionState(userDataPath, { now: clock.now });
+      clock.advance();
+      const restored = restarted.selectStartupSessions("last-window");
+      const catalog = restarted.readCatalog();
+
+      expect(restored.map((session) => session.id)).toEqual([first.id]);
+      expect(catalog?.sessions.find((session) => session.id === first.id)?.lifecycle)
+        .toEqual({ state: "open" });
+      expect(catalog?.sessions.find((session) => session.id === second.id)?.lifecycle)
+        .toMatchObject({ state: "closed" });
+      expect(restarted.reopenMostRecentlyClosedSession()?.session.id).toBe(second.id);
     });
   });
 
-  test("restores all retained sessions for all-window policy", () => {
+  test("none starts fresh while preserving prior windows as closed history", () => {
     withTempUserData((userDataPath) => {
-      const state = new WindowSessionState(userDataPath);
-      const first = state.createSession();
-      const second = state.createSession();
-      const restored = state.selectStartupSessions("all");
+      const clock = createClock();
+      const state = new WindowSessionState(userDataPath, { now: clock.now });
+      const first = state.createFreshSession();
+      clock.advance();
+      const second = state.createFreshSession();
 
-      expect(restored.length).toBe(2);
-      expect(restored[0]?.id).toBe(first.id);
-      expect(restored[1]?.id).toBe(second.id);
-    });
-  });
-
-  test("last-window policy restores only the focused session", () => {
-    withTempUserData((userDataPath) => {
-      const state = new WindowSessionState(userDataPath);
-      const first = state.createSession();
-      const second = state.createSession();
-
-      state.assignWindow(1, first.id);
-      state.assignWindow(2, second.id);
-      state.markFocused(1);
-
-      const restored = state.selectStartupSessions("last-window");
-      expect(restored.length).toBe(1);
-      expect(restored[0]?.id).toBe(first.id);
-    });
-  });
-
-  test("none policy starts a fresh session", () => {
-    withTempUserData((userDataPath) => {
-      const state = new WindowSessionState(userDataPath);
-      const oldSession = state.createSession();
-      const restored = state.selectStartupSessions("none");
-
-      expect(restored.length).toBe(1);
-      expect(restored[0]?.id === oldSession.id).toBe(false);
-      expect(state.readCatalog()?.sessions.length).toBe(1);
-    });
-  });
-
-  test("saves independent layouts for duplicate window sessions", () => {
-    withTempUserData((userDataPath) => {
-      const state = new WindowSessionState(userDataPath);
-      const first = state.createSession();
-      const second = state.createSession();
-
-      state.assignWindow(1, first.id);
-      state.assignWindow(2, second.id);
-
-      state.saveLayout(1, makeLayout("pages", "first"));
-      state.saveLayout(2, makeLayout("threads", "second"));
-
+      const fresh = state.selectStartupSessions("none");
       const catalog = state.readCatalog();
-      const savedFirst = catalog?.sessions.find((session) => session.id === first.id);
-      const savedSecond = catalog?.sessions.find((session) => session.id === second.id);
 
-      expect(savedFirst?.layout.dbProjectId).toBe("first");
-      expect(savedFirst?.layout.focusedStage).toBe("pages");
-      expect(savedSecond?.layout.dbProjectId).toBe("second");
-      expect(savedSecond?.layout.focusedStage).toBe("threads");
+      expect(fresh).toHaveLength(1);
+      expect(fresh[0]?.id).not.toBe(first.id);
+      expect(fresh[0]?.id).not.toBe(second.id);
+      expect(fresh[0]?.lifecycle).toEqual({ state: "open" });
+      expect(catalog?.sessions.filter((session) => session.lifecycle.state === "closed")
+        .map((session) => session.id)).toEqual([first.id, second.id]);
     });
   });
 
-  test("bootstraps and resolves the assigned session for a window", () => {
+  test.each(["all", "last-window"] as const)(
+    "%s recovers the latest closed session when no open session remains",
+    (policy) => {
+      withTempUserData((userDataPath) => {
+        const clock = createClock();
+        const state = new WindowSessionState(userDataPath, { now: clock.now });
+        const first = state.createFreshSession();
+        state.attachWindow(1, first.id);
+        clock.advance();
+        state.detachWindow(1, { disposition: "user-close" });
+        const second = state.createFreshSession();
+        state.attachWindow(2, second.id);
+        clock.advance();
+        state.detachWindow(2, { disposition: "user-close" });
+
+        const restored = new WindowSessionState(userDataPath, {
+          now: clock.now,
+        }).selectStartupSessions(policy);
+
+        expect(restored.map((session) => session.id)).toEqual([second.id]);
+        expect(restored[0]?.lifecycle).toEqual({ state: "open" });
+      });
+    },
+  );
+
+  test("closes and reopens the exact Window Session and nested view identities", () => {
     withTempUserData((userDataPath) => {
-      const state = new WindowSessionState(userDataPath);
-      const session = state.createSession();
+      const clock = createClock();
+      const state = new WindowSessionState(userDataPath, { now: clock.now });
+      const session = state.createFreshSession();
+      state.attachWindow(1, session.id);
+      const sessionView = materializeInitialWorkbenchSessionView({
+        id: "project-session-1",
+        projectId: "project-1",
+        initialDatabaseViewId: "view-1",
+      });
+      const layout = {
+        ...makeLayout("threads", "project-1"),
+        activeProjectSessionId: "project-session-1",
+        sessionViewsBySessionId: {
+          "project-session-1": sessionView,
+        },
+      };
+      saveLayout(state, 1, session.id, 1, layout);
+      const sourceTabIds = Object.keys(sessionView.tabsById);
 
-      state.assignWindow(7, session.id);
-      expect(state.bootstrap(7).id).toBe(session.id);
-      expect(state.getSessionForWindow(7)?.id).toBe(session.id);
+      clock.advance();
+      const closed = state.detachWindow(1, {
+        disposition: "user-close",
+        bounds: {
+          x: 10,
+          y: 20,
+          width: 1_200,
+          height: 800,
+          mode: "normal",
+        },
+      });
+      const reopened = state.reopenMostRecentlyClosedSession();
 
-      state.clearWindow(7);
-      expect(state.getSessionForWindow(7)).toBe(null);
+      expect(closed?.id).toBe(session.id);
+      expect(closed?.lifecycle).toEqual({
+        state: "closed",
+        closedAt: "2026-07-24T00:00:01.000Z",
+      });
+      expect(reopened?.session.id).toBe(session.id);
+      expect(reopened?.session.lifecycle).toEqual({ state: "open" });
+      expect(Object.keys(
+        reopened?.session.layout.sessionViewsBySessionId["project-session-1"]?.tabsById ?? {},
+      )).toEqual(sourceTabIds);
+      expect(reopened?.session.bounds).toMatchObject({ x: 10, y: 20 });
+      expect(state.reopenMostRecentlyClosedSession()).toBeNull();
     });
   });
 
-  test("updates focus metadata and last active session", () => {
+  test("reopens multiple windows in reverse close order", () => {
     withTempUserData((userDataPath) => {
-      const state = new WindowSessionState(userDataPath);
-      const first = state.createSession();
-      const second = state.createSession();
+      const clock = createClock();
+      const state = new WindowSessionState(userDataPath, { now: clock.now });
+      const first = state.createFreshSession();
+      const second = state.createFreshSession();
+      state.attachWindow(1, first.id);
+      state.attachWindow(2, second.id);
+      clock.advance();
+      state.detachWindow(1, { disposition: "user-close" });
+      clock.advance();
+      state.detachWindow(2, { disposition: "user-close" });
 
-      state.assignWindow(1, first.id);
-      state.assignWindow(2, second.id);
-      state.markFocused(1);
-
-      const catalog = state.readCatalog();
-      expect(catalog?.lastActiveSessionId).toBe(first.id);
+      expect(state.reopenMostRecentlyClosedSession()?.session.id).toBe(second.id);
+      expect(state.reopenMostRecentlyClosedSession()?.session.id).toBe(first.id);
+      expect(state.reopenMostRecentlyClosedSession()).toBeNull();
     });
   });
 
-  test("retains only open sessions when shutdown state is persisted", () => {
+  test("acquires a closed session before cloning the requesting window", () => {
     withTempUserData((userDataPath) => {
-      const state = new WindowSessionState(userDataPath);
-      const first = state.createSession();
-      const second = state.createSession();
-      const closedBeforeQuit = state.createSession();
+      const clock = createClock();
+      const state = new WindowSessionState(userDataPath, { now: clock.now });
+      const first = state.createFreshSession();
+      const second = state.createFreshSession();
+      state.attachWindow(1, first.id);
+      state.attachWindow(2, second.id);
+      saveLayout(state, 2, second.id, 1, makeLayout("threads", "project-2"));
+      clock.advance();
+      state.detachWindow(2, { disposition: "user-close" });
 
-      state.retainSessions([first.id, second.id]);
+      const acquired = state.acquireSessionForNewWindow(1);
 
-      const catalog = state.readCatalog();
-      expect(catalog?.sessions.length).toBe(2);
-      expect(catalog?.sessions[0]?.id).toBe(first.id);
-      expect(catalog?.sessions[1]?.id).toBe(second.id);
-      expect(catalog?.sessions.some((session) => session.id === closedBeforeQuit.id)).toBe(false);
+      expect(acquired.kind).toBe("reopened");
+      expect(acquired.session.id).toBe(second.id);
+      expect(acquired.session.layout.dbProjectId).toBe("project-2");
+      expect(state.readCatalog()?.sessions).toHaveLength(2);
     });
   });
 
-  test("can retain the last closed session when quitting with no open windows", () => {
+  test("acquires a clone when no closed session remains and fresh state without a source", () => {
     withTempUserData((userDataPath) => {
       const state = new WindowSessionState(userDataPath);
-      const previous = state.createSession();
-      const lastClosed = state.createSession();
+      const source = state.createFreshSession();
+      state.attachWindow(1, source.id);
+      saveLayout(state, 1, source.id, 1, makeLayout("files", "project-1"));
 
-      state.retainSessions([lastClosed.id]);
+      const cloned = state.acquireSessionForNewWindow(1);
+      const fresh = state.acquireSessionForNewWindow();
 
-      const catalog = state.readCatalog();
-      expect(catalog?.sessions.length).toBe(1);
-      expect(catalog?.sessions[0]?.id).toBe(lastClosed.id);
-      expect(catalog?.sessions.some((session) => session.id === previous.id)).toBe(false);
+      expect(cloned.kind).toBe("cloned");
+      expect(cloned.session.id).not.toBe(source.id);
+      expect(cloned.session.layout.dbProjectId).toBe("project-1");
+      expect(fresh.kind).toBe("fresh");
+      expect(fresh.session.layout.dbProjectId).toBeNull();
     });
   });
 
-  test("saves normalized window bounds with layout updates", () => {
+  test("rolls a failed reopen back to its exact closed record", () => {
+    withTempUserData((userDataPath) => {
+      const clock = createClock();
+      const state = new WindowSessionState(userDataPath, { now: clock.now });
+      const session = state.createFreshSession();
+      state.attachWindow(1, session.id);
+      clock.advance();
+      state.detachWindow(1, { disposition: "user-close" });
+      const reopened = state.reopenMostRecentlyClosedSession();
+      if (!reopened) throw new Error("Expected a reopen candidate");
+
+      clock.advance();
+      const rolledBack = state.rollbackReopenSession(reopened.previousRecord);
+
+      expect(rolledBack).toEqual(reopened.previousRecord);
+      expect(state.reopenMostRecentlyClosedSession()?.session.id).toBe(session.id);
+    });
+  });
+
+  test("app quit and unexpected teardown keep sessions open for recovery", () => {
     withTempUserData((userDataPath) => {
       const state = new WindowSessionState(userDataPath);
-      const session = state.createSession();
-      state.assignWindow(1, session.id);
+      const first = state.createFreshSession();
+      const second = state.createFreshSession();
+      state.attachWindow(1, first.id);
+      state.attachWindow(2, second.id);
 
-      const saved = state.saveLayout(1, makeLayout("files", "bounded"), {
-        x: 10.2,
-        y: 20.7,
-        width: 1000.4,
-        height: 800.8,
-        mode: "normal",
+      state.detachWindow(1, { disposition: "app-quit" });
+      state.detachWindow(2, { disposition: "unexpected" });
+
+      expect(state.readCatalog()?.sessions.map((session) => session.lifecycle.state))
+        .toEqual(["open", "open"]);
+      expect(state.getSessionForWindow(1)).toBeNull();
+      expect(state.getSessionForWindow(2)).toBeNull();
+    });
+  });
+
+  test("rejects attaching one session twice or replacing a window assignment", () => {
+    withTempUserData((userDataPath) => {
+      const state = new WindowSessionState(userDataPath);
+      const first = state.createFreshSession();
+      const second = state.createFreshSession();
+      state.attachWindow(1, first.id);
+
+      expect(() => state.attachWindow(2, first.id)).toThrow(/already attached/);
+      expect(() => state.attachWindow(1, second.id)).toThrow(/already owns/);
+      expect(state.attachWindow(1, first.id).id).toBe(first.id);
+    });
+  });
+
+  test("clones the requesting window, remints view identities, then diverges", () => {
+    withTempUserData((userDataPath) => {
+      const state = new WindowSessionState(userDataPath);
+      const source = state.createFreshSession();
+      state.attachWindow(1, source.id);
+      const sessionView = materializeInitialWorkbenchSessionView({
+        id: "project-session-1",
+        projectId: "project-1",
+        initialDatabaseViewId: "view-1",
+      });
+      const sourceLayout = {
+        ...makeLayout("threads", "project-1"),
+        activeProjectSessionId: "project-session-1",
+        sessionViewsBySessionId: {
+          "project-session-1": sessionView,
+        },
+      };
+      saveLayout(state, 1, source.id, 1, sourceLayout);
+
+      const clone = state.cloneSessionForWindow(1, {
+        activeProjectSessionId: "project-session-1",
+      });
+      const sourceTabIds = Object.keys(
+        sourceLayout.sessionViewsBySessionId["project-session-1"]!.tabsById,
+      );
+      const cloneTabIds = Object.keys(
+        clone.layout.sessionViewsBySessionId["project-session-1"]!.tabsById,
+      );
+      expect(clone.lifecycle).toEqual({ state: "open" });
+      expect(cloneTabIds).not.toEqual(sourceTabIds);
+      expect(clone.layout.dbProjectId).toBe("project-1");
+      expect(clone.layoutRevision).toBe(0);
+
+      state.attachWindow(2, clone.id);
+      const cloneView = clone.layout.sessionViewsBySessionId["project-session-1"]!;
+      const divergentView = createWorkbenchSessionViewTab(cloneView, {
+        panelId: "bottom",
+        tab: {
+          id: "clone-only-tab",
+          kind: "page_stage",
+          titleSnapshot: "Clone only",
+          config: { projectId: "project-1", pageId: "page-1" },
+          stateKey: 0,
+          state: null,
+        },
+      });
+      saveLayout(state, 2, clone.id, 1, {
+        ...clone.layout,
+        sessionViewsBySessionId: {
+          ...clone.layout.sessionViewsBySessionId,
+          "project-session-1": divergentView,
+        },
       });
 
-      expect(saved.bounds?.x).toBe(10);
-      expect(saved.bounds?.y).toBe(21);
-      expect(saved.bounds?.width).toBe(1000);
-      expect(saved.bounds?.height).toBe(801);
+      const reloaded = new WindowSessionState(userDataPath).readCatalog();
+      const reloadedSource = reloaded?.sessions.find((entry) => entry.id === source.id);
+      const reloadedClone = reloaded?.sessions.find((entry) => entry.id === clone.id);
+      expect(
+        reloadedSource?.layout.sessionViewsBySessionId["project-session-1"]
+          ?.tabsById["clone-only-tab"],
+      ).toBeUndefined();
+      expect(
+        reloadedClone?.layout.sessionViewsBySessionId["project-session-1"]
+          ?.tabsById["clone-only-tab"],
+      ).toBeDefined();
+    });
+  });
+
+  test("rejects stale and cross-window layout saves", () => {
+    withTempUserData((userDataPath) => {
+      const state = new WindowSessionState(userDataPath);
+      const session = state.createFreshSession();
+      state.attachWindow(1, session.id);
+
+      const accepted = saveLayout(state, 1, session.id, 8, makeLayout("pages", "new"));
+      const stale = saveLayout(state, 1, session.id, 7, makeLayout("files", "stale"));
+
+      expect(accepted.layoutRevision).toBe(8);
+      expect(stale.layoutRevision).toBe(8);
+      expect(stale.layout.dbProjectId).toBe("new");
+      expect(() => saveLayout(state, 2, session.id, 9, makeLayout("files", "wrong")))
+        .toThrow(/does not match/);
+    });
+  });
+
+  test("migrates v2 records as open and preserves the source file", () => {
+    withTempUserData((userDataPath) => {
+      const legacyPath = join(
+        userDataPath,
+        windowSessionStateTestHelpers.legacyV2FileName,
+      );
+      writeFileSync(legacyPath, JSON.stringify({
+        version: 2,
+        lastActiveSessionId: "legacy-window",
+        sessions: [{
+          id: "legacy-window",
+          layoutRevision: 7,
+          layout: makeLayout("files", "legacy"),
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-02T00:00:00.000Z",
+          focusedAt: "2026-01-03T00:00:00.000Z",
+          bounds: {
+            x: 10,
+            y: 20,
+            width: 1_200,
+            height: 800,
+            mode: "normal",
+          },
+        }],
+      }));
+
+      const migrated = new WindowSessionState(userDataPath).readCatalog();
+
+      expect(migrated?.version).toBe(3);
+      expect(migrated?.sessions[0]).toMatchObject({
+        id: "legacy-window",
+        lifecycle: { state: "open" },
+        layoutRevision: 7,
+        layout: { focusedStage: "files" },
+        bounds: { x: 10, y: 20 },
+      });
+      expect(existsSync(legacyPath)).toBe(true);
+      expect(readdirSync(userDataPath)).toContain(
+        windowSessionStateTestHelpers.stateFileName,
+      );
+    });
+  });
+
+  test("migrates v1 layouts once and preserves them as recovery input", () => {
+    withTempUserData((userDataPath) => {
+      const legacyLayout: Record<string, unknown> = {
+        ...makeLayout("files", "legacy"),
+        version: 2,
+      };
+      delete legacyLayout.sessionViewsBySessionId;
+      const legacyPath = join(
+        userDataPath,
+        windowSessionStateTestHelpers.legacyV1FileName,
+      );
+      writeFileSync(legacyPath, JSON.stringify({
+        version: 1,
+        lastActiveSessionId: "legacy-window",
+        sessions: [{
+          id: "legacy-window",
+          layout: legacyLayout,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          focusedAt: "2026-01-01T00:00:00.000Z",
+        }],
+      }));
+
+      const migrated = new WindowSessionState(userDataPath).readCatalog();
+
+      expect(migrated?.version).toBe(3);
+      expect(migrated?.sessions[0]).toMatchObject({
+        id: "legacy-window",
+        lifecycle: { state: "open" },
+        layoutRevision: 0,
+        layout: {
+          version: 3,
+          focusedStage: "files",
+          sessionViewsBySessionId: {},
+        },
+      });
+      expect(readFileSync(legacyPath, "utf8")).toContain('"version":1');
+      expect(readdirSync(userDataPath)).toContain(
+        windowSessionStateTestHelpers.stateFileName,
+      );
+    });
+  });
+
+  test("preserves a malformed v3 catalog and recovers with a fresh one", () => {
+    withTempUserData((userDataPath) => {
+      const statePath = join(
+        userDataPath,
+        windowSessionStateTestHelpers.stateFileName,
+      );
+      writeFileSync(statePath, "{not-json");
+      const state = new WindowSessionState(userDataPath);
+
+      const catalog = state.readOrCreateCatalog();
+      const files = readdirSync(userDataPath);
+
+      expect(catalog.version).toBe(3);
+      expect(catalog.sessions).toHaveLength(1);
+      expect(files.some((file) => file.endsWith(".corrupt"))).toBe(true);
+      expect(files).toContain(windowSessionStateTestHelpers.stateFileName);
+    });
+  });
+
+  test("retains only the newest closed sessions without evicting open ones", () => {
+    withTempUserData((userDataPath) => {
+      const clock = createClock();
+      const state = new WindowSessionState(userDataPath, {
+        now: clock.now,
+        maxClosedSessions: 2,
+      });
+      const closedIds: string[] = [];
+      for (let index = 0; index < 3; index += 1) {
+        const session = state.createFreshSession();
+        state.attachWindow(index + 1, session.id);
+        clock.advance();
+        state.detachWindow(index + 1, { disposition: "user-close" });
+        closedIds.push(session.id);
+      }
+      const open = state.createFreshSession();
+      const catalog = state.readCatalog();
+
+      expect(catalog?.sessions.some((session) => session.id === closedIds[0]))
+        .toBe(false);
+      expect(catalog?.sessions.filter((session) => session.lifecycle.state === "closed")
+        .map((session) => session.id)).toEqual(closedIds.slice(1));
+      expect(catalog?.sessions.find((session) => session.id === open.id)?.lifecycle)
+        .toEqual({ state: "open" });
+    });
+  });
+
+  test("evicts oldest closed history to keep an open catalog within its byte bound", () => {
+    withTempUserData((userDataPath) => {
+      const state = new WindowSessionState(userDataPath, {
+        maxFileBytes: 3_000,
+      });
+      const closed = state.createFreshSession();
+      state.attachWindow(1, closed.id);
+      state.detachWindow(1, { disposition: "user-close" });
+
+      const open = state.createFreshSession();
+      const catalog = state.readCatalog();
+      const statePath = join(
+        userDataPath,
+        windowSessionStateTestHelpers.stateFileName,
+      );
+
+      expect(catalog?.sessions.map((session) => session.id)).toEqual([open.id]);
+      expect(catalog?.sessions[0]?.lifecycle).toEqual({ state: "open" });
+      expect(statSync(statePath).size).toBeLessThanOrEqual(3_000);
+    });
+  });
+
+  test("bootstraps the assigned session and normalizes bounds during saves", () => {
+    withTempUserData((userDataPath) => {
+      const state = new WindowSessionState(userDataPath);
+      const session = state.createFreshSession();
+      state.attachWindow(7, session.id);
+      expect(state.bootstrap(7).id).toBe(session.id);
+
+      const saved = state.saveLayout(
+        7,
+        {
+          sessionId: session.id,
+          revision: 1,
+          layout: makeLayout("files", "bounded"),
+        },
+        {
+          x: 10.2,
+          y: 20.7,
+          width: 1000.4,
+          height: 800.8,
+          mode: "normal",
+        },
+      );
+
+      expect(saved.bounds).toMatchObject({
+        x: 10,
+        y: 21,
+        width: 1000,
+        height: 801,
+      });
       expect(saved.layout.focusedStage).toBe("files");
     });
   });

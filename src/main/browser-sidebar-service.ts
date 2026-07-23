@@ -4,6 +4,7 @@ import {
   BROWSER_SIDEBAR_PARTITION,
   DEFAULT_BROWSER_SIDEBAR_FIND_STATE,
   makeDefaultBrowserSidebarTabId,
+  makeBrowserSidebarConversationScopeKey,
   makeBrowserSidebarTabKey,
   type BrowserBrowsingDataClearResult,
   type BrowserBrowsingDataKind,
@@ -92,8 +93,18 @@ function browserIdentity(
 ): BrowserSidebarTabIdentity {
   return {
     browserConversationId: input.browserConversationId,
+    browserViewScopeId: input.browserViewScopeId,
     browserTabId: input.browserTabId,
   };
+}
+
+function browserConversationScopeKey(
+  input: Pick<
+    BrowserSidebarTabIdentity,
+    "browserConversationId" | "browserViewScopeId"
+  >,
+): string {
+  return makeBrowserSidebarConversationScopeKey(input);
 }
 
 function browserTabKey(input: BrowserSidebarTabIdentity): string {
@@ -201,12 +212,12 @@ export class BrowserSidebarService extends EventEmitter {
     string,
     BrowserSidebarTabSnapshot["deviceToolbarState"]
   >();
-  private readonly transferredBrowserTabIdsByConversation = new Map<string, string[]>();
+  private readonly transferredBrowserTabIdsByConversationScope = new Map<string, string[]>();
   private readonly browserUseViewportSizes = new Map<string, BrowserSidebarBrowserUseViewportEvent>();
   private readonly browserUseCaptureSurfaces = new Map<string, BrowserSidebarBrowserUseCaptureSurfaceEvent>();
   private readonly electron: BrowserSidebarElectronDeps;
   private readonly logger: Pick<BackendLogger, "debug" | "info" | "warn">;
-  private readonly browserUseActiveTabIdsByConversation = new Map<string, string>();
+  private readonly browserUseActiveTabIdsByConversationScope = new Map<string, string>();
   private readonly browserUseCursors = new Map<string, BrowserUseCursorState>();
   private resolveProjectIdForSession:
     | ((sessionId: string) => Promise<string | null>)
@@ -250,7 +261,10 @@ export class BrowserSidebarService extends EventEmitter {
     return { tabs: [...this.tabs.values()] };
   }
 
-  getConversationBrowserTabIds(browserConversationId: string): string[] {
+  getConversationBrowserTabIds(
+    browserConversationId: string,
+    browserViewScopeId: string,
+  ): string[] {
     const orderedIds: string[] = [];
     const seenIds = new Set<string>();
     const append = (browserTabId: string) => {
@@ -259,11 +273,22 @@ export class BrowserSidebarService extends EventEmitter {
       orderedIds.push(browserTabId);
     };
     for (const tab of this.browserUseTabs.values()) {
-      if (tab.browserConversationId !== browserConversationId || tab.released) continue;
+      if (
+        tab.browserConversationId !== browserConversationId
+        || tab.browserViewScopeId !== browserViewScopeId
+        || tab.released
+      ) {
+        continue;
+      }
       append(tab.browserTabId);
     }
     for (const tab of this.tabs.values()) {
-      if (tab.browserConversationId !== browserConversationId) continue;
+      if (
+        tab.browserConversationId !== browserConversationId
+        || tab.browserViewScopeId !== browserViewScopeId
+      ) {
+        continue;
+      }
       if (tab.webContentsId === null) continue;
       append(tab.browserTabId);
     }
@@ -281,39 +306,60 @@ export class BrowserSidebarService extends EventEmitter {
     this.browserUseCaptureSurfaces.delete(key);
     this.deviceToolbarStates.delete(key);
     if (
-      this.browserUseActiveTabIdsByConversation.get(identity.browserConversationId)
+      this.browserUseActiveTabIdsByConversationScope.get(
+        browserConversationScopeKey(identity),
+      )
       === identity.browserTabId
     ) {
-      this.browserUseActiveTabIdsByConversation.delete(identity.browserConversationId);
+      this.browserUseActiveTabIdsByConversationScope.delete(
+        browserConversationScopeKey(identity),
+      );
     }
 
-    const transferredIds = this.transferredBrowserTabIdsByConversation.get(
-      identity.browserConversationId,
-    );
+    const conversationScopeKey = browserConversationScopeKey(identity);
+    const transferredIds =
+      this.transferredBrowserTabIdsByConversationScope.get(conversationScopeKey);
     if (transferredIds) {
       const remainingIds = transferredIds.filter((browserTabId) =>
         browserTabId !== identity.browserTabId
       );
       if (remainingIds.length > 0) {
-        this.transferredBrowserTabIdsByConversation.set(
-          identity.browserConversationId,
+        this.transferredBrowserTabIdsByConversationScope.set(
+          conversationScopeKey,
           remainingIds,
         );
       } else {
-        this.transferredBrowserTabIdsByConversation.delete(
-          identity.browserConversationId,
-        );
+        this.transferredBrowserTabIdsByConversationScope.delete(conversationScopeKey);
       }
     }
 
     this.emitBrowserUseState();
   }
 
+  closeBrowserTabAcrossScopes(
+    browserConversationId: string,
+    browserTabId: string,
+  ): void {
+    const identities = new Map<string, BrowserSidebarTabIdentity>();
+    const collect = (identity: BrowserSidebarTabIdentity): void => {
+      if (
+        identity.browserConversationId !== browserConversationId
+        || identity.browserTabId !== browserTabId
+      ) {
+        return;
+      }
+      identities.set(browserTabKey(identity), browserIdentity(identity));
+    };
+    for (const tab of this.tabs.values()) collect(tab);
+    for (const tab of this.browserUseTabs.values()) collect(tab);
+    for (const identity of identities.values()) this.closeBrowserTab(identity);
+  }
+
   closeBrowserConversation(browserConversationId: string): void {
-    const browserTabIds = new Set<string>();
+    const identities = new Map<string, BrowserSidebarTabIdentity>();
     const appendIdentity = (identity: BrowserSidebarTabIdentity) => {
       if (identity.browserConversationId !== browserConversationId) return;
-      browserTabIds.add(identity.browserTabId);
+      identities.set(browserTabKey(identity), browserIdentity(identity));
     };
     for (const tab of this.tabs.values()) appendIdentity(tab);
     for (const tab of this.browserUseTabs.values()) appendIdentity(tab);
@@ -321,20 +367,29 @@ export class BrowserSidebarService extends EventEmitter {
     for (const viewport of this.browserUseViewportSizes.values()) appendIdentity(viewport);
     for (const surface of this.browserUseCaptureSurfaces.values()) appendIdentity(surface);
     for (const teardown of this.pendingTeardowns.values()) appendIdentity(teardown);
-    for (const browserTabId of this.transferredBrowserTabIdsByConversation.get(browserConversationId) ?? []) {
-      browserTabIds.add(browserTabId);
-    }
     const keyPrefix = `${browserConversationId}\0`;
-    for (const key of this.deviceToolbarStates.keys()) {
+    for (const key of this.tabs.keys()) {
       if (!key.startsWith(keyPrefix)) continue;
-      browserTabIds.add(key.slice(keyPrefix.length));
+      const tab = this.tabs.get(key);
+      if (tab) appendIdentity(tab);
     }
 
-    for (const browserTabId of browserTabIds) {
-      this.closeBrowserTab({ browserConversationId, browserTabId });
+    for (const identity of identities.values()) {
+      this.closeBrowserTab(identity);
     }
-    this.browserUseActiveTabIdsByConversation.delete(browserConversationId);
-    this.transferredBrowserTabIdsByConversation.delete(browserConversationId);
+    for (const key of this.deviceToolbarStates.keys()) {
+      if (key.startsWith(keyPrefix)) this.deviceToolbarStates.delete(key);
+    }
+    for (const key of this.browserUseActiveTabIdsByConversationScope.keys()) {
+      if (key.startsWith(keyPrefix)) {
+        this.browserUseActiveTabIdsByConversationScope.delete(key);
+      }
+    }
+    for (const key of this.transferredBrowserTabIdsByConversationScope.keys()) {
+      if (key.startsWith(keyPrefix)) {
+        this.transferredBrowserTabIdsByConversationScope.delete(key);
+      }
+    }
     this.emitBrowserUseState();
   }
 
@@ -351,10 +406,15 @@ export class BrowserSidebarService extends EventEmitter {
 
   primeTransferredBrowserTabId(
     browserConversationId: string,
+    browserViewScopeId: string,
     browserTabId: string,
   ): void {
-    this.transferredBrowserTabIdsByConversation.set(browserConversationId, [
-      ...(this.transferredBrowserTabIdsByConversation.get(browserConversationId) ?? []),
+    const conversationScopeKey = browserConversationScopeKey({
+      browserConversationId,
+      browserViewScopeId,
+    });
+    this.transferredBrowserTabIdsByConversationScope.set(conversationScopeKey, [
+      ...(this.transferredBrowserTabIdsByConversationScope.get(conversationScopeKey) ?? []),
       browserTabId,
     ]);
   }
@@ -362,8 +422,8 @@ export class BrowserSidebarService extends EventEmitter {
   openClonedBrowserTab(
     input: Omit<BrowserSidebarClonedTabInput, "deviceToolbarState">,
   ): BrowserSidebarTabSnapshot {
-    const transferredIds = this.transferredBrowserTabIdsByConversation.get(
-      input.browserConversationId,
+    const transferredIds = this.transferredBrowserTabIdsByConversationScope.get(
+      browserConversationScopeKey(input),
     ) ?? [];
     const defaultBrowserTabId = makeDefaultBrowserSidebarTabId(
       input.browserConversationId,
@@ -374,6 +434,7 @@ export class BrowserSidebarService extends EventEmitter {
       : defaultBrowserTabId;
     const identity = {
       browserConversationId: input.browserConversationId,
+      browserViewScopeId: input.browserViewScopeId,
       browserTabId,
     };
     const key = browserTabKey(identity);
@@ -439,8 +500,8 @@ export class BrowserSidebarService extends EventEmitter {
   getBrowserUseStateSnapshot(): BrowserSidebarBrowserUseStateSnapshot {
     return {
       tabs: [...this.browserUseTabs.values()],
-      activeBrowserTabIdsByConversation: Object.fromEntries(
-        this.browserUseActiveTabIdsByConversation,
+      activeBrowserTabIdsByConversationScope: Object.fromEntries(
+        this.browserUseActiveTabIdsByConversationScope,
       ),
       cursors: [...this.browserUseCursors.values()],
     };
@@ -1237,13 +1298,14 @@ export class BrowserSidebarService extends EventEmitter {
   private handleBrowserUseCommand(command: BrowserUseCommand): void {
     if (command.type === "browser-use-upsert-tab") {
       const key = browserTabKey(command.tab);
+      const conversationScopeKey = browserConversationScopeKey(command.tab);
       this.browserUseTabs.set(key, {
         ...command.tab,
         updatedAt: Date.now(),
       });
-      if (!this.browserUseActiveTabIdsByConversation.has(command.tab.browserConversationId)) {
-        this.browserUseActiveTabIdsByConversation.set(
-          command.tab.browserConversationId,
+      if (!this.browserUseActiveTabIdsByConversationScope.has(conversationScopeKey)) {
+        this.browserUseActiveTabIdsByConversationScope.set(
+          conversationScopeKey,
           command.tab.browserTabId,
         );
       }
@@ -1258,11 +1320,12 @@ export class BrowserSidebarService extends EventEmitter {
       this.browserUseViewportSizes.delete(key);
       this.browserUseCaptureSurfaces.delete(key);
       this.deviceToolbarStates.delete(key);
+      const conversationScopeKey = browserConversationScopeKey(command);
       if (
-        this.browserUseActiveTabIdsByConversation.get(command.browserConversationId)
+        this.browserUseActiveTabIdsByConversationScope.get(conversationScopeKey)
         === command.browserTabId
       ) {
-        this.browserUseActiveTabIdsByConversation.delete(command.browserConversationId);
+        this.browserUseActiveTabIdsByConversationScope.delete(conversationScopeKey);
       }
       this.emit("pageReleased", browserIdentity(command));
       this.emitBrowserUseState();
@@ -1270,11 +1333,12 @@ export class BrowserSidebarService extends EventEmitter {
     }
 
     if (command.type === "browser-use-set-active-tab") {
+      const conversationScopeKey = browserConversationScopeKey(command);
       if (command.browserTabId === null) {
-        this.browserUseActiveTabIdsByConversation.delete(command.browserConversationId);
+        this.browserUseActiveTabIdsByConversationScope.delete(conversationScopeKey);
       } else {
-        this.browserUseActiveTabIdsByConversation.set(
-          command.browserConversationId,
+        this.browserUseActiveTabIdsByConversationScope.set(
+          conversationScopeKey,
           command.browserTabId,
         );
       }

@@ -2,7 +2,7 @@ import { invoke } from "./api";
 import type {
   WindowSessionBootstrap,
   WindowSessionBounds,
-  WorkbenchLayoutSnapshot,
+  WindowSessionSaveLayoutInput,
 } from "./types";
 
 export async function bootstrapWindowSession(): Promise<WindowSessionBootstrap> {
@@ -10,9 +10,9 @@ export async function bootstrapWindowSession(): Promise<WindowSessionBootstrap> 
 }
 
 export async function saveWindowSessionLayout(
-  layout: WorkbenchLayoutSnapshot,
+  input: WindowSessionSaveLayoutInput,
 ): Promise<WindowSessionBootstrap> {
-  return (await invoke("window-sessions:save-layout", layout)) as WindowSessionBootstrap;
+  return (await invoke("window-sessions:save-layout", input)) as WindowSessionBootstrap;
 }
 
 export async function updateWindowSessionBounds(bounds: WindowSessionBounds): Promise<void> {

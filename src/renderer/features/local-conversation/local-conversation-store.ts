@@ -5441,7 +5441,7 @@ export class CodexAppServerManager {
       return false;
     }
 
-    terminalSessionStore.close(terminalSessionId);
+    terminalSessionStore.kill(terminalSessionId);
     return true;
   }
 

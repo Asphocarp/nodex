@@ -3,12 +3,12 @@ import { act } from "react";
 import { describe, expect, test, vi } from "vitest";
 import { PanelGroupTree } from "./panel-group-tree";
 import {
-  makeProjectSessionPanelLayout,
-  setProjectSessionPanelBranchRatio,
-  splitProjectSessionPanelLeaf,
-} from "../../../shared/project-session-panel-layout";
+  makeWorkbenchPanelLayout,
+  setWorkbenchPanelBranchRatio,
+  splitWorkbenchPanelLeaf,
+} from "../../../shared/workbench-panel-layout";
 import type { AppShellTabItem } from "./app-shell-tabs";
-import type { ProjectSessionPanelLayout } from "@/lib/types";
+import type { WorkbenchPanelLayout } from "@/lib/types";
 import { render } from "@/test/dom";
 
 function makeTab(id: string, title: string): AppShellTabItem {
@@ -24,7 +24,7 @@ function makeTab(id: string, title: string): AppShellTabItem {
 
 describe("PanelGroupTree", () => {
   test("keeps the committed split ratio visible until persisted layout catches up", async () => {
-    const layout = splitProjectSessionPanelLeaf(makeProjectSessionPanelLayout(["one", "two"], "one"), {
+    const layout = splitWorkbenchPanelLeaf(makeWorkbenchPanelLayout(["one", "two"], "one"), {
       leafId: "main",
       side: "right",
       tabId: "two",
@@ -32,7 +32,7 @@ describe("PanelGroupTree", () => {
       newBranchId: "branch:root",
     });
     const onResizeGroup = vi.fn(() => Promise.resolve());
-    const renderTree = (currentLayout: ProjectSessionPanelLayout) => (
+    const renderTree = (currentLayout: WorkbenchPanelLayout) => (
       <PanelGroupTree
         sessionId="session-1"
         panelId="right"
@@ -71,17 +71,17 @@ describe("PanelGroupTree", () => {
     expect(onResizeGroup).toHaveBeenCalledWith("branch:root", 0.75);
     expect(sash.getAttribute("aria-valuenow")).toBe("75");
 
-    const persistedLayout = setProjectSessionPanelBranchRatio(layout, "branch:root", 0.75);
+    const persistedLayout = setWorkbenchPanelBranchRatio(layout, "branch:root", 0.75);
     view.rerender(renderTree(persistedLayout));
     expect(view.getByRole("separator").getAttribute("aria-valuenow")).toBe("75");
 
-    const externallyUpdatedLayout = setProjectSessionPanelBranchRatio(persistedLayout, "branch:root", 0.6);
+    const externallyUpdatedLayout = setWorkbenchPanelBranchRatio(persistedLayout, "branch:root", 0.6);
     view.rerender(renderTree(externallyUpdatedLayout));
     expect(view.getByRole("separator").getAttribute("aria-valuenow")).toBe("60");
   });
 
   test("applies header start and end slots to the top-left and top-right tab headers", () => {
-    const layout = splitProjectSessionPanelLeaf(makeProjectSessionPanelLayout(["one", "two"], "one"), {
+    const layout = splitWorkbenchPanelLeaf(makeWorkbenchPanelLayout(["one", "two"], "one"), {
       leafId: "main",
       side: "right",
       tabId: "two",
@@ -141,7 +141,7 @@ describe("PanelGroupTree", () => {
   });
 
   test("applies header start and after-list slots to empty top-left and top-right headers", () => {
-    const layout: ProjectSessionPanelLayout = {
+    const layout: WorkbenchPanelLayout = {
       version: 2,
       activeLeafId: "main",
       mruLeafIds: ["main"],

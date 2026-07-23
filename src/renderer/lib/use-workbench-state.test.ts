@@ -246,7 +246,7 @@ describe("use-workbench-state helpers", () => {
     const state = workbenchTestHelpers.loadInitialState({
       layoutSnapshot: {
         ...createDefaultWorkbenchLayoutSnapshot(),
-        version: 2,
+        version: 3,
         dbProjectId: "default",
         threadsProjectId: "ops",
         viewsByProject: { default: "calendar", ops: "list" },
@@ -499,7 +499,7 @@ describe("use-workbench-state helpers", () => {
         {
           initialLayoutSnapshot: {
             ...createDefaultWorkbenchLayoutSnapshot(),
-            version: 2,
+            version: 3,
             dbProjectId: "default",
             threadsProjectId: "default",
             viewsByProject: { default: "kanban" },
@@ -976,7 +976,7 @@ describe("use-workbench-state helpers", () => {
     await settleAsyncRender();
 
     const layout: WorkbenchLayoutSnapshot = {
-      version: 2,
+      version: 3,
       dbProjectId: "ops",
       activeProjectSessionId: "session:ops:alpha",
       threadsProjectId: "ops",
@@ -1012,6 +1012,7 @@ describe("use-workbench-state helpers", () => {
       activeFilesTabId: "diff",
       stagePanelWidths: {},
       slidingWindowPaneCount: 3,
+      sessionViewsBySessionId: {},
     };
 
     await act(async () => {

@@ -1,37 +1,37 @@
 import { describe, expect, test } from "vitest";
-import type { ProjectSessionPanelLayout } from "./types";
+import type { WorkbenchPanelLayout } from "./workbench-session-view";
 import {
-  activateProjectSessionPanelLeaf,
-  flattenProjectSessionPanelTabIds,
-  findNearestProjectSessionPanelLeafToRight,
-  getProjectSessionPanelActiveLeaf,
-  getProjectSessionPanelTopLeftLeafId,
-  getProjectSessionPanelTopRightLeafId,
-  insertProjectSessionPanelLeaf,
-  listProjectSessionPanelLeaves,
-  makeProjectSessionPanelLayout,
-  mergeProjectSessionPanelLeaf,
-  moveProjectSessionPanelLeaf,
-  moveProjectSessionPanelTab,
-  normalizeProjectSessionPanelLayout,
-  pruneEmptyProjectSessionPanelLeaves,
-  removeProjectSessionPanelTab,
-  reorderProjectSessionPanelLeafTabs,
-  setProjectSessionPanelBranchRatio,
-  splitProjectSessionPanelLeaf,
-} from "./project-session-panel-layout";
+  activateWorkbenchPanelLeaf,
+  flattenWorkbenchPanelTabIds,
+  findNearestWorkbenchPanelLeafToRight,
+  getWorkbenchPanelActiveLeaf,
+  getWorkbenchPanelTopLeftLeafId,
+  getWorkbenchPanelTopRightLeafId,
+  insertWorkbenchPanelLeaf,
+  listWorkbenchPanelLeaves,
+  makeWorkbenchPanelLayout,
+  mergeWorkbenchPanelLeaf,
+  moveWorkbenchPanelLeaf,
+  moveWorkbenchPanelTab,
+  normalizeWorkbenchPanelLayout,
+  pruneEmptyWorkbenchPanelLeaves,
+  removeWorkbenchPanelTab,
+  reorderWorkbenchPanelLeafTabs,
+  setWorkbenchPanelBranchRatio,
+  splitWorkbenchPanelLeaf,
+} from "./workbench-panel-layout";
 
 describe("project session panel layout", () => {
   test("falls back to a v2 layout when the stored layout is missing", () => {
-    const normalized = normalizeProjectSessionPanelLayout(null, ["one", "two"], {
+    const normalized = normalizeWorkbenchPanelLayout(null, ["one", "two"], {
       preferredActiveTabId: "two",
     });
 
     expect(normalized.version).toBe(2);
     expect(normalized.activeLeafId).toBe("main");
     expect(JSON.stringify(normalized.mruLeafIds)).toBe(JSON.stringify(["main"]));
-    expect(getProjectSessionPanelActiveLeaf(normalized).activeTabId).toBe("two");
-    expect(JSON.stringify(flattenProjectSessionPanelTabIds(normalized))).toBe(JSON.stringify(["one", "two"]));
+    expect(getWorkbenchPanelActiveLeaf(normalized).activeTabId).toBe("two");
+    expect(JSON.stringify(flattenWorkbenchPanelTabIds(normalized))).toBe(JSON.stringify(["one", "two"]));
   });
 
   test("normalizes legacy leaves without tab MRU", () => {
@@ -41,28 +41,28 @@ describe("project session panel layout", () => {
       activeLeafId: "main",
       mruLeafIds: ["main"],
       maximizedLeafId: null,
-    } as unknown as ProjectSessionPanelLayout;
+    } as unknown as WorkbenchPanelLayout;
 
-    const normalized = normalizeProjectSessionPanelLayout(legacyLayout, ["one", "two"]);
-    const activeLeaf = getProjectSessionPanelActiveLeaf(normalized);
+    const normalized = normalizeWorkbenchPanelLayout(legacyLayout, ["one", "two"]);
+    const activeLeaf = getWorkbenchPanelActiveLeaf(normalized);
 
     expect(activeLeaf.activeTabId).toBe("two");
     expect(JSON.stringify(activeLeaf.mruTabIds)).toBe(JSON.stringify(["two", "one"]));
   });
 
   test("tracks most recently active tabs inside a leaf", () => {
-    const layout = makeProjectSessionPanelLayout(["one", "two", "three"], "one");
-    const activatedTwo = activateProjectSessionPanelLeaf(layout, "main", "two");
-    const activatedThree = activateProjectSessionPanelLeaf(activatedTwo, "main", "three");
-    const activeLeaf = getProjectSessionPanelActiveLeaf(activatedThree);
+    const layout = makeWorkbenchPanelLayout(["one", "two", "three"], "one");
+    const activatedTwo = activateWorkbenchPanelLeaf(layout, "main", "two");
+    const activatedThree = activateWorkbenchPanelLeaf(activatedTwo, "main", "three");
+    const activeLeaf = getWorkbenchPanelActiveLeaf(activatedThree);
 
     expect(activeLeaf.activeTabId).toBe("three");
     expect(JSON.stringify(activeLeaf.mruTabIds)).toBe(JSON.stringify(["three", "two", "one"]));
   });
 
   test("splits a leaf and moves the selected tab into the new group", () => {
-    const layout = makeProjectSessionPanelLayout(["one", "two"], "one");
-    const split = splitProjectSessionPanelLeaf(layout, {
+    const layout = makeWorkbenchPanelLayout(["one", "two"], "one");
+    const split = splitWorkbenchPanelLeaf(layout, {
       leafId: "main",
       side: "right",
       tabId: "two",
@@ -72,19 +72,19 @@ describe("project session panel layout", () => {
 
     expect(split.root.type).toBe("split");
     expect(split.activeLeafId).toBe("leaf:right");
-    expect(JSON.stringify(flattenProjectSessionPanelTabIds(split))).toBe(JSON.stringify(["one", "two"]));
-    expect(getProjectSessionPanelActiveLeaf(split).activeTabId).toBe("two");
+    expect(JSON.stringify(flattenWorkbenchPanelTabIds(split))).toBe(JSON.stringify(["one", "two"]));
+    expect(getWorkbenchPanelActiveLeaf(split).activeTabId).toBe("two");
   });
 
   test("inserts an empty right sibling leaf without moving existing tabs", () => {
-    const layout = makeProjectSessionPanelLayout(["one"], "one");
-    const inserted = insertProjectSessionPanelLeaf(layout, {
+    const layout = makeWorkbenchPanelLayout(["one"], "one");
+    const inserted = insertWorkbenchPanelLeaf(layout, {
       leafId: "main",
       side: "right",
       newLeafId: "leaf:right",
       newBranchId: "branch:root",
     });
-    const leaves = listProjectSessionPanelLeaves(inserted);
+    const leaves = listWorkbenchPanelLeaves(inserted);
     const main = leaves.find((leaf) => leaf.id === "main");
     const right = leaves.find((leaf) => leaf.id === "leaf:right");
 
@@ -92,12 +92,12 @@ describe("project session panel layout", () => {
     expect(inserted.activeLeafId).toBe("leaf:right");
     expect(JSON.stringify(main?.tabIds ?? [])).toBe(JSON.stringify(["one"]));
     expect(JSON.stringify(right?.tabIds ?? [])).toBe(JSON.stringify([]));
-    expect(JSON.stringify(flattenProjectSessionPanelTabIds(inserted))).toBe(JSON.stringify(["one"]));
+    expect(JSON.stringify(flattenWorkbenchPanelTabIds(inserted))).toBe(JSON.stringify(["one"]));
   });
 
   test("does not insert an empty leaf when the source leaf is missing", () => {
-    const layout = makeProjectSessionPanelLayout(["one"], "one");
-    const inserted = insertProjectSessionPanelLeaf(layout, {
+    const layout = makeWorkbenchPanelLayout(["one"], "one");
+    const inserted = insertWorkbenchPanelLeaf(layout, {
       leafId: "missing",
       side: "right",
       newLeafId: "leaf:right",
@@ -105,12 +105,12 @@ describe("project session panel layout", () => {
     });
 
     expect(inserted.root.type).toBe("leaf");
-    expect(listProjectSessionPanelLeaves(inserted).length).toBe(1);
-    expect(JSON.stringify(flattenProjectSessionPanelTabIds(inserted))).toBe(JSON.stringify(["one"]));
+    expect(listWorkbenchPanelLeaves(inserted).length).toBe(1);
+    expect(JSON.stringify(flattenWorkbenchPanelTabIds(inserted))).toBe(JSON.stringify(["one"]));
   });
 
   test("moves a tab between leaves without duplicating ownership", () => {
-    const split = splitProjectSessionPanelLeaf(makeProjectSessionPanelLayout(["one", "two", "three"], "one"), {
+    const split = splitWorkbenchPanelLeaf(makeWorkbenchPanelLayout(["one", "two", "three"], "one"), {
       leafId: "main",
       side: "right",
       tabId: "three",
@@ -118,22 +118,22 @@ describe("project session panel layout", () => {
       newBranchId: "branch:root",
     });
 
-    const moved = moveProjectSessionPanelTab(split, {
+    const moved = moveWorkbenchPanelTab(split, {
       tabId: "one",
       targetLeafId: "leaf:right",
       targetIndex: 0,
     });
 
-    const leaves = listProjectSessionPanelLeaves(moved);
+    const leaves = listWorkbenchPanelLeaves(moved);
     const main = leaves.find((leaf) => leaf.id === "main");
     const right = leaves.find((leaf) => leaf.id === "leaf:right");
     expect(JSON.stringify(main?.tabIds ?? [])).toBe(JSON.stringify(["two"]));
     expect(JSON.stringify(right?.tabIds ?? [])).toBe(JSON.stringify(["one", "three"]));
-    expect(JSON.stringify(flattenProjectSessionPanelTabIds(moved))).toBe(JSON.stringify(["two", "one", "three"]));
+    expect(JSON.stringify(flattenWorkbenchPanelTabIds(moved))).toBe(JSON.stringify(["two", "one", "three"]));
   });
 
   test("reorders one leaf without changing sibling leaf order", () => {
-    const split = splitProjectSessionPanelLeaf(makeProjectSessionPanelLayout(["one", "two", "three"], "one"), {
+    const split = splitWorkbenchPanelLeaf(makeWorkbenchPanelLayout(["one", "two", "three"], "one"), {
       leafId: "main",
       side: "right",
       tabId: "three",
@@ -141,21 +141,21 @@ describe("project session panel layout", () => {
       newBranchId: "branch:root",
     });
 
-    const reordered = reorderProjectSessionPanelLeafTabs(split, "main", ["two", "one"]);
+    const reordered = reorderWorkbenchPanelLeafTabs(split, "main", ["two", "one"]);
 
-    expect(JSON.stringify(flattenProjectSessionPanelTabIds(reordered))).toBe(JSON.stringify(["two", "one", "three"]));
+    expect(JSON.stringify(flattenWorkbenchPanelTabIds(reordered))).toBe(JSON.stringify(["two", "one", "three"]));
   });
 
   test("resolves the top-right leaf for single and direct split trees", () => {
-    const single = makeProjectSessionPanelLayout(["one"], "one");
-    const horizontal = splitProjectSessionPanelLeaf(makeProjectSessionPanelLayout(["one", "two"], "one"), {
+    const single = makeWorkbenchPanelLayout(["one"], "one");
+    const horizontal = splitWorkbenchPanelLeaf(makeWorkbenchPanelLayout(["one", "two"], "one"), {
       leafId: "main",
       side: "right",
       tabId: "two",
       newLeafId: "leaf:right",
       newBranchId: "branch:horizontal",
     });
-    const vertical = splitProjectSessionPanelLeaf(makeProjectSessionPanelLayout(["one", "two"], "one"), {
+    const vertical = splitWorkbenchPanelLeaf(makeWorkbenchPanelLayout(["one", "two"], "one"), {
       leafId: "main",
       side: "down",
       tabId: "two",
@@ -163,28 +163,28 @@ describe("project session panel layout", () => {
       newBranchId: "branch:vertical",
     });
 
-    expect(getProjectSessionPanelTopRightLeafId(single.root)).toBe("main");
-    expect(getProjectSessionPanelTopRightLeafId(horizontal.root)).toBe("leaf:right");
-    expect(getProjectSessionPanelTopRightLeafId(vertical.root)).toBe("main");
-    expect(getProjectSessionPanelTopLeftLeafId(single.root)).toBe("main");
-    expect(getProjectSessionPanelTopLeftLeafId(horizontal.root)).toBe("main");
-    expect(getProjectSessionPanelTopLeftLeafId(vertical.root)).toBe("main");
+    expect(getWorkbenchPanelTopRightLeafId(single.root)).toBe("main");
+    expect(getWorkbenchPanelTopRightLeafId(horizontal.root)).toBe("leaf:right");
+    expect(getWorkbenchPanelTopRightLeafId(vertical.root)).toBe("main");
+    expect(getWorkbenchPanelTopLeftLeafId(single.root)).toBe("main");
+    expect(getWorkbenchPanelTopLeftLeafId(horizontal.root)).toBe("main");
+    expect(getWorkbenchPanelTopLeftLeafId(vertical.root)).toBe("main");
   });
 
   test("resolves the top-right leaf through nested split trees", () => {
-    const baseRightSplit = splitProjectSessionPanelLeaf(makeProjectSessionPanelLayout(["one", "two", "three"], "one"), {
+    const baseRightSplit = splitWorkbenchPanelLeaf(makeWorkbenchPanelLayout(["one", "two", "three"], "one"), {
       leafId: "main",
       side: "right",
       tabId: "three",
       newLeafId: "leaf:right",
       newBranchId: "branch:root",
     });
-    const rightWithTwoTabs = moveProjectSessionPanelTab(baseRightSplit, {
+    const rightWithTwoTabs = moveWorkbenchPanelTab(baseRightSplit, {
       tabId: "two",
       targetLeafId: "leaf:right",
       targetIndex: 0,
     });
-    const rightSplit = splitProjectSessionPanelLeaf(
+    const rightSplit = splitWorkbenchPanelLeaf(
       rightWithTwoTabs,
       {
         leafId: "leaf:right",
@@ -194,8 +194,8 @@ describe("project session panel layout", () => {
         newBranchId: "branch:right",
       },
     );
-    const topSplit = splitProjectSessionPanelLeaf(
-      splitProjectSessionPanelLeaf(makeProjectSessionPanelLayout(["one", "two", "three"], "one"), {
+    const topSplit = splitWorkbenchPanelLeaf(
+      splitWorkbenchPanelLeaf(makeWorkbenchPanelLayout(["one", "two", "three"], "one"), {
         leafId: "main",
         side: "down",
         tabId: "three",
@@ -211,14 +211,14 @@ describe("project session panel layout", () => {
       },
     );
 
-    expect(getProjectSessionPanelTopRightLeafId(rightSplit.root)).toBe("leaf:right");
-    expect(getProjectSessionPanelTopRightLeafId(topSplit.root)).toBe("leaf:top-right");
-    expect(getProjectSessionPanelTopLeftLeafId(rightSplit.root)).toBe("main");
-    expect(getProjectSessionPanelTopLeftLeafId(topSplit.root)).toBe("main");
+    expect(getWorkbenchPanelTopRightLeafId(rightSplit.root)).toBe("leaf:right");
+    expect(getWorkbenchPanelTopRightLeafId(topSplit.root)).toBe("leaf:top-right");
+    expect(getWorkbenchPanelTopLeftLeafId(rightSplit.root)).toBe("main");
+    expect(getWorkbenchPanelTopLeftLeafId(topSplit.root)).toBe("main");
   });
 
   test("resolves the nearest leaf to the right for a direct horizontal split", () => {
-    const split = splitProjectSessionPanelLeaf(makeProjectSessionPanelLayout(["one", "two"], "one"), {
+    const split = splitWorkbenchPanelLeaf(makeWorkbenchPanelLayout(["one", "two"], "one"), {
       leafId: "main",
       side: "right",
       tabId: "two",
@@ -226,11 +226,11 @@ describe("project session panel layout", () => {
       newBranchId: "branch:root",
     });
 
-    expect(findNearestProjectSessionPanelLeafToRight(split, "main")).toBe("leaf:right");
+    expect(findNearestWorkbenchPanelLeafToRight(split, "main")).toBe("leaf:right");
   });
 
   test("resolves the vertically aligned nearest leaf when multiple right leaves exist", () => {
-    const layout: ProjectSessionPanelLayout = {
+    const layout: WorkbenchPanelLayout = {
       version: 2,
       activeLeafId: "leaf:left-top",
       mruLeafIds: ["leaf:left-top"],
@@ -259,12 +259,12 @@ describe("project session panel layout", () => {
       },
     };
 
-    expect(findNearestProjectSessionPanelLeafToRight(layout, "leaf:left-top")).toBe("leaf:right-top");
-    expect(findNearestProjectSessionPanelLeafToRight(layout, "leaf:left-bottom")).toBe("leaf:right-bottom");
+    expect(findNearestWorkbenchPanelLeafToRight(layout, "leaf:left-top")).toBe("leaf:right-top");
+    expect(findNearestWorkbenchPanelLeafToRight(layout, "leaf:left-bottom")).toBe("leaf:right-bottom");
   });
 
   test("does not resolve a right leaf for vertical-only layouts", () => {
-    const split = splitProjectSessionPanelLeaf(makeProjectSessionPanelLayout(["one", "two"], "one"), {
+    const split = splitWorkbenchPanelLeaf(makeWorkbenchPanelLayout(["one", "two"], "one"), {
       leafId: "main",
       side: "down",
       tabId: "two",
@@ -272,11 +272,11 @@ describe("project session panel layout", () => {
       newBranchId: "branch:root",
     });
 
-    expect(findNearestProjectSessionPanelLeafToRight(split, "main")).toBe(null);
+    expect(findNearestWorkbenchPanelLeafToRight(split, "main")).toBe(null);
   });
 
   test("returns null when the source leaf is already rightmost", () => {
-    const split = splitProjectSessionPanelLeaf(makeProjectSessionPanelLayout(["one", "two"], "one"), {
+    const split = splitWorkbenchPanelLeaf(makeWorkbenchPanelLayout(["one", "two"], "one"), {
       leafId: "main",
       side: "right",
       tabId: "two",
@@ -284,11 +284,11 @@ describe("project session panel layout", () => {
       newBranchId: "branch:root",
     });
 
-    expect(findNearestProjectSessionPanelLeafToRight(split, "leaf:right")).toBe(null);
+    expect(findNearestWorkbenchPanelLeafToRight(split, "leaf:right")).toBe(null);
   });
 
   test("merges a non-empty leaf into its nearest visual neighbor", () => {
-    const split = splitProjectSessionPanelLeaf(makeProjectSessionPanelLayout(["one", "two"], "one"), {
+    const split = splitWorkbenchPanelLeaf(makeWorkbenchPanelLayout(["one", "two"], "one"), {
       leafId: "main",
       side: "right",
       tabId: "two",
@@ -296,14 +296,14 @@ describe("project session panel layout", () => {
       newBranchId: "branch:root",
     });
 
-    const merged = mergeProjectSessionPanelLeaf(split, "leaf:right");
+    const merged = mergeWorkbenchPanelLeaf(split, "leaf:right");
 
-    expect(listProjectSessionPanelLeaves(merged).length).toBe(1);
-    expect(JSON.stringify(flattenProjectSessionPanelTabIds(merged))).toBe(JSON.stringify(["one", "two"]));
+    expect(listWorkbenchPanelLeaves(merged).length).toBe(1);
+    expect(JSON.stringify(flattenWorkbenchPanelTabIds(merged))).toBe(JSON.stringify(["one", "two"]));
   });
 
   test("clamps branch resize ratios", () => {
-    const split = splitProjectSessionPanelLeaf(makeProjectSessionPanelLayout(["one", "two"], "one"), {
+    const split = splitWorkbenchPanelLeaf(makeWorkbenchPanelLayout(["one", "two"], "one"), {
       leafId: "main",
       side: "right",
       tabId: "two",
@@ -311,7 +311,7 @@ describe("project session panel layout", () => {
       newBranchId: "branch:root",
     });
 
-    const resized = setProjectSessionPanelBranchRatio(split, "branch:root", 0.99);
+    const resized = setWorkbenchPanelBranchRatio(split, "branch:root", 0.99);
 
     expect(resized.root.type).toBe("split");
     if (resized.root.type === "split") {
@@ -320,8 +320,8 @@ describe("project session panel layout", () => {
   });
 
   test("does not split a single-tab leaf into an empty source group", () => {
-    const layout = makeProjectSessionPanelLayout(["one"], "one");
-    const split = splitProjectSessionPanelLeaf(layout, {
+    const layout = makeWorkbenchPanelLayout(["one"], "one");
+    const split = splitWorkbenchPanelLeaf(layout, {
       leafId: "main",
       side: "right",
       tabId: "one",
@@ -330,21 +330,21 @@ describe("project session panel layout", () => {
     });
 
     expect(split.root.type).toBe("leaf");
-    expect(listProjectSessionPanelLeaves(split).length).toBe(1);
-    expect(JSON.stringify(flattenProjectSessionPanelTabIds(split))).toBe(JSON.stringify(["one"]));
+    expect(listWorkbenchPanelLeaves(split).length).toBe(1);
+    expect(JSON.stringify(flattenWorkbenchPanelTabIds(split))).toBe(JSON.stringify(["one"]));
   });
 
   test("splits a temporarily unassigned moved tab from a multi-tab target leaf", () => {
-    const layout = makeProjectSessionPanelLayout(["one", "two"], "one");
-    const withoutDraggedTab = removeProjectSessionPanelTab(layout, "two");
-    const split = splitProjectSessionPanelLeaf(withoutDraggedTab, {
+    const layout = makeWorkbenchPanelLayout(["one", "two"], "one");
+    const withoutDraggedTab = removeWorkbenchPanelTab(layout, "two");
+    const split = splitWorkbenchPanelLeaf(withoutDraggedTab, {
       leafId: "main",
       side: "right",
       tabId: "two",
       newLeafId: "leaf:right",
       newBranchId: "branch:root",
     });
-    const leaves = listProjectSessionPanelLeaves(split);
+    const leaves = listWorkbenchPanelLeaves(split);
 
     expect(leaves.length).toBe(2);
     expect(JSON.stringify(leaves[0]?.tabIds ?? [])).toBe(JSON.stringify(["one"]));
@@ -353,66 +353,66 @@ describe("project session panel layout", () => {
   });
 
   test("prunes empty split leaves and collapses parent branches", () => {
-    const split = splitProjectSessionPanelLeaf(makeProjectSessionPanelLayout(["one", "two"], "one"), {
+    const split = splitWorkbenchPanelLeaf(makeWorkbenchPanelLayout(["one", "two"], "one"), {
       leafId: "main",
       side: "right",
       tabId: "two",
       newLeafId: "leaf:right",
       newBranchId: "branch:root",
     });
-    const emptyRight = removeProjectSessionPanelTab(split, "two");
-    const pruned = pruneEmptyProjectSessionPanelLeaves(emptyRight);
+    const emptyRight = removeWorkbenchPanelTab(split, "two");
+    const pruned = pruneEmptyWorkbenchPanelLeaves(emptyRight);
 
-    expect(listProjectSessionPanelLeaves(pruned).length).toBe(1);
+    expect(listWorkbenchPanelLeaves(pruned).length).toBe(1);
     expect(pruned.root.type).toBe("leaf");
-    expect(JSON.stringify(flattenProjectSessionPanelTabIds(pruned))).toBe(JSON.stringify(["one"]));
+    expect(JSON.stringify(flattenWorkbenchPanelTabIds(pruned))).toBe(JSON.stringify(["one"]));
   });
 
   test("uses a preferred active tab when removing the active tab", () => {
-    const layout = makeProjectSessionPanelLayout(["one", "two", "three"], "two");
-    const removed = removeProjectSessionPanelTab(layout, "two", {
+    const layout = makeWorkbenchPanelLayout(["one", "two", "three"], "two");
+    const removed = removeWorkbenchPanelTab(layout, "two", {
       preferredActiveLeafId: "main",
       preferredActiveTabId: "three",
     });
 
-    const activeLeaf = getProjectSessionPanelActiveLeaf(removed);
+    const activeLeaf = getWorkbenchPanelActiveLeaf(removed);
     expect(activeLeaf.activeTabId).toBe("three");
     expect(activeLeaf.mruTabIds[0]).toBe("three");
   });
 
   test("falls back when the preferred active tab is invalid after removal", () => {
-    const layout = makeProjectSessionPanelLayout(["one", "two", "three"], "two");
-    const removed = removeProjectSessionPanelTab(layout, "two", {
+    const layout = makeWorkbenchPanelLayout(["one", "two", "three"], "two");
+    const removed = removeWorkbenchPanelTab(layout, "two", {
       preferredActiveLeafId: "main",
       preferredActiveTabId: "missing",
     });
 
-    expect(getProjectSessionPanelActiveLeaf(removed).activeTabId).toBe("one");
+    expect(getWorkbenchPanelActiveLeaf(removed).activeTabId).toBe("one");
   });
 
   test("keeps one fallback leaf when every leaf is empty", () => {
-    const empty = removeProjectSessionPanelTab(makeProjectSessionPanelLayout(["one"], "one"), "one");
-    const pruned = pruneEmptyProjectSessionPanelLeaves(empty);
-    const leaves = listProjectSessionPanelLeaves(pruned);
+    const empty = removeWorkbenchPanelTab(makeWorkbenchPanelLayout(["one"], "one"), "one");
+    const pruned = pruneEmptyWorkbenchPanelLeaves(empty);
+    const leaves = listWorkbenchPanelLeaves(pruned);
 
     expect(leaves.length).toBe(1);
     expect(JSON.stringify(leaves[0]?.tabIds ?? [])).toBe(JSON.stringify([]));
   });
 
   test("falls back active and maximized leaf state when pruning the active empty leaf", () => {
-    const split = splitProjectSessionPanelLeaf(makeProjectSessionPanelLayout(["one", "two"], "one"), {
+    const split = splitWorkbenchPanelLeaf(makeWorkbenchPanelLayout(["one", "two"], "one"), {
       leafId: "main",
       side: "right",
       tabId: "two",
       newLeafId: "leaf:right",
       newBranchId: "branch:root",
     });
-    const emptyRight = removeProjectSessionPanelTab({
+    const emptyRight = removeWorkbenchPanelTab({
       ...split,
       activeLeafId: "leaf:right",
       maximizedLeafId: "leaf:right",
     }, "two");
-    const pruned = pruneEmptyProjectSessionPanelLeaves(emptyRight);
+    const pruned = pruneEmptyWorkbenchPanelLeaves(emptyRight);
 
     expect(pruned.activeLeafId).toBe("main");
     expect(pruned.maximizedLeafId ?? null).toBe(null);
@@ -420,14 +420,14 @@ describe("project session panel layout", () => {
   });
 
   test("moves a whole single-tab leaf next to a target leaf", () => {
-    const split = splitProjectSessionPanelLeaf(makeProjectSessionPanelLayout(["one", "two"], "one"), {
+    const split = splitWorkbenchPanelLeaf(makeWorkbenchPanelLayout(["one", "two"], "one"), {
       leafId: "main",
       side: "right",
       tabId: "two",
       newLeafId: "leaf:right",
       newBranchId: "branch:root",
     });
-    const moved = moveProjectSessionPanelLeaf(split, {
+    const moved = moveWorkbenchPanelLeaf(split, {
       sourceLeafId: "leaf:right",
       targetLeafId: "main",
       side: "left",
@@ -436,6 +436,6 @@ describe("project session panel layout", () => {
 
     expect(moved.root.type).toBe("split");
     expect(moved.activeLeafId).toBe("leaf:right");
-    expect(JSON.stringify(flattenProjectSessionPanelTabIds(moved))).toBe(JSON.stringify(["two", "one"]));
+    expect(JSON.stringify(flattenWorkbenchPanelTabIds(moved))).toBe(JSON.stringify(["two", "one"]));
   });
 });

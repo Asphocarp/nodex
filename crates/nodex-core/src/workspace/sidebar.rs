@@ -11,7 +11,6 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::ProjectWorkspaceApplyOutcome;
-use super::session_lifecycle::{rewrite_portable_tab_ownership, session_has_project_scoped_tabs};
 use super::session_mutation::{sqlite_now, validate_id};
 use super::thread::{finish_thread_mutation, read_threads};
 
@@ -574,11 +573,6 @@ fn move_thread_membership(
     owner: &ThreadOwner,
     metadata: &ProjectWorkspaceThreadMoveMetadataPatch,
 ) -> Result<(), StoreError> {
-    if session_has_project_scoped_tabs(connection, &owner.session_id)? {
-        return Err(invalid(
-            "Only empty Sessions or Sessions with Browser and Terminal tabs can move between Projects",
-        ));
-    }
     let now = sqlite_now(connection)?;
     let next_pinned_order = if owner.session_pinned {
         Some(connection.query_row(
@@ -599,7 +593,8 @@ fn move_thread_membership(
     )?;
     let moved = connection.execute(
         "UPDATE project_sessions
-         SET project_id = ?1, \"order\" = 0, pinned_order = ?2, updated_at = ?3
+         SET project_id = ?1, \"order\" = 0, pinned_order = ?2,
+             initial_database_view_id = NULL, updated_at = ?3
          WHERE id = ?4 AND project_id IS ?5",
         params![
             target_project_id,
@@ -612,8 +607,6 @@ fn move_thread_membership(
     if moved != 1 {
         return Err(conflict("Project Session changed during Thread move"));
     }
-    rewrite_portable_tab_ownership(connection, &owner.session_id, target_project_id, &now)?;
-
     let updated = connection.execute(
         "UPDATE codex_threads SET
            project_id = ?1,
@@ -742,13 +735,12 @@ mod tests {
     use crate::infrastructure::sqlite::with_immediate_transaction;
     use nodex_core_contracts::PROJECT_WORKSPACE_CONTRACT_VERSION;
     use nodex_core_contracts::workspace::{
-        ProjectSessionIntent, ProjectSessionPanelId, ProjectSessionTabContent,
         ProjectWorkspaceIntent, ProjectWorkspaceRead, ProjectWorkspaceReadValue,
         ProjectWorkspaceThreadMoveMetadataPatch, ProjectWorkspaceThreadPlacement,
     };
 
     use super::super::test_support::{
-        apply, context, create_project, create_session_thread, read, request, seeded_workspace,
+        apply, context, create_project, create_session_thread, read, seeded_workspace,
     };
 
     #[test]
@@ -976,266 +968,6 @@ mod tests {
                 .threads
                 .iter()
                 .any(|thread| thread.thread_id == "thread:project")
-        );
-    }
-
-    #[test]
-    fn moves_thread_session_tabs_search_projection_and_manual_order_atomically() {
-        let workspace = seeded_workspace();
-        create_project(&workspace.module, "create-target-project", "project:target");
-        create_session_thread(
-            &workspace.module,
-            "move-source",
-            "session:move",
-            "thread:move",
-            Some("project:default"),
-            100,
-        );
-        create_session_thread(
-            &workspace.module,
-            "move-anchor",
-            "session:anchor",
-            "thread:anchor",
-            Some("project:target"),
-            90,
-        );
-        apply(
-            &workspace.module,
-            "move-tab",
-            ProjectWorkspaceIntent::MutateSession {
-                session_id: "session:move".to_owned(),
-                intent: ProjectSessionIntent::CreateTab {
-                    tab_id: "tab:move".to_owned(),
-                    panel_id: ProjectSessionPanelId::Right,
-                    target_leaf_id: None,
-                    title: "Move terminal".to_owned(),
-                    content: ProjectSessionTabContent::Terminal {
-                        terminal_session_id: "terminal:move".to_owned(),
-                    },
-                },
-            },
-        );
-        apply(
-            &workspace.module,
-            "move-browser-tab",
-            ProjectWorkspaceIntent::MutateSession {
-                session_id: "session:move".to_owned(),
-                intent: ProjectSessionIntent::CreateTab {
-                    tab_id: "tab:move-browser".to_owned(),
-                    panel_id: ProjectSessionPanelId::Right,
-                    target_leaf_id: None,
-                    title: "Move browser".to_owned(),
-                    content: ProjectSessionTabContent::Browser {
-                        browser_tab_id: None,
-                        url: Some("https://example.test/move".to_owned()),
-                        title: None,
-                        favicon_url: None,
-                        device_toolbar_visible: None,
-                    },
-                },
-            },
-        );
-        apply(
-            &workspace.module,
-            "source-order",
-            ProjectWorkspaceIntent::SetProjectThreadOrder {
-                project_id: "project:default".to_owned(),
-                ordered_thread_ids: vec!["thread:move".to_owned()],
-            },
-        );
-        apply(
-            &workspace.module,
-            "target-order",
-            ProjectWorkspaceIntent::SetProjectThreadOrder {
-                project_id: "project:target".to_owned(),
-                ordered_thread_ids: vec!["thread:anchor".to_owned()],
-            },
-        );
-
-        let move_request = request(
-            "move-thread",
-            ProjectWorkspaceIntent::MoveThread {
-                thread_id: "thread:move".to_owned(),
-                source: nodex_core_contracts::workspace::ProjectWorkspaceThreadLane::Project {
-                    project_id: "project:default".to_owned(),
-                },
-                target: nodex_core_contracts::workspace::ProjectWorkspaceThreadLane::Project {
-                    project_id: "project:target".to_owned(),
-                },
-                placement: ProjectWorkspaceThreadPlacement::Before {
-                    thread_id: "thread:anchor".to_owned(),
-                },
-                metadata: ProjectWorkspaceThreadMoveMetadataPatch {
-                    cwd: Some(Some("/workspace/project:target".to_owned())),
-                    managed_worktree_path: Some(None),
-                    ..ProjectWorkspaceThreadMoveMetadataPatch::default()
-                },
-            },
-        );
-        let committed = workspace
-            .module
-            .apply(&context(), move_request.clone())
-            .expect("move Thread");
-        let replay = workspace
-            .module
-            .apply(&context(), move_request)
-            .expect("replay move Thread");
-        assert!(replay.committed.receipt.mutation.duplicate);
-        assert_eq!(
-            replay.committed.event_sequence,
-            committed.committed.event_sequence
-        );
-
-        let ProjectWorkspaceReadValue::Sidebar { sidebar } = read(
-            &workspace.module,
-            ProjectWorkspaceRead::Sidebar {
-                include_archived: None,
-            },
-        ) else {
-            panic!("Sidebar snapshot");
-        };
-        assert_eq!(
-            sidebar.project_thread_orders["project:default"],
-            Vec::<String>::new()
-        );
-        assert_eq!(
-            sidebar.project_thread_orders["project:target"],
-            ["thread:move", "thread:anchor"]
-        );
-        let moved = sidebar
-            .threads
-            .iter()
-            .find(|thread| thread.thread_id == "thread:move")
-            .expect("moved Thread");
-        assert_eq!(moved.project_id.as_deref(), Some("project:target"));
-        assert_eq!(moved.cwd.as_deref(), Some("/workspace/project:target"));
-        assert_eq!(moved.managed_worktree_path, None);
-
-        let ProjectWorkspaceReadValue::Session { tabs, .. } = read(
-            &workspace.module,
-            ProjectWorkspaceRead::Session {
-                session_id: "session:move".to_owned(),
-            },
-        ) else {
-            panic!("moved Session");
-        };
-        assert!(
-            tabs.iter()
-                .all(|tab| { tab.project_id.as_deref() == Some("project:target") })
-        );
-        let browser = tabs
-            .iter()
-            .find(|tab| tab.id == "tab:move-browser")
-            .expect("moved browser tab");
-        assert!(matches!(
-            browser.content,
-            ProjectSessionTabContent::Browser { .. }
-        ));
-        let terminal = tabs
-            .iter()
-            .find(|tab| tab.id == "tab:move")
-            .expect("moved Terminal tab");
-        assert_eq!(
-            terminal.content,
-            ProjectSessionTabContent::Terminal {
-                terminal_session_id: "terminal:move".to_owned(),
-            }
-        );
-
-        apply(
-            &workspace.module,
-            "move-thread-to-projectless",
-            ProjectWorkspaceIntent::MoveThread {
-                thread_id: "thread:move".to_owned(),
-                source: nodex_core_contracts::workspace::ProjectWorkspaceThreadLane::Project {
-                    project_id: "project:target".to_owned(),
-                },
-                target: nodex_core_contracts::workspace::ProjectWorkspaceThreadLane::Projectless,
-                placement: ProjectWorkspaceThreadPlacement::End,
-                metadata: ProjectWorkspaceThreadMoveMetadataPatch::default(),
-            },
-        );
-        let ProjectWorkspaceReadValue::Session { tabs, .. } = read(
-            &workspace.module,
-            ProjectWorkspaceRead::Session {
-                session_id: "session:move".to_owned(),
-            },
-        ) else {
-            panic!("projectless moved Session");
-        };
-        assert!(tabs.iter().all(|tab| tab.project_id.is_none()));
-        let browser = tabs
-            .iter()
-            .find(|tab| tab.id == "tab:move-browser")
-            .expect("projectless browser tab");
-        assert!(matches!(
-            browser.content,
-            ProjectSessionTabContent::Browser { .. }
-        ));
-
-        apply(
-            &workspace.module,
-            "move-projectless-thread-back",
-            ProjectWorkspaceIntent::MoveThread {
-                thread_id: "thread:move".to_owned(),
-                source: nodex_core_contracts::workspace::ProjectWorkspaceThreadLane::Projectless,
-                target: nodex_core_contracts::workspace::ProjectWorkspaceThreadLane::Project {
-                    project_id: "project:target".to_owned(),
-                },
-                placement: ProjectWorkspaceThreadPlacement::End,
-                metadata: ProjectWorkspaceThreadMoveMetadataPatch::default(),
-            },
-        );
-        apply(
-            &workspace.module,
-            "create-move-review-tab",
-            ProjectWorkspaceIntent::MutateSession {
-                session_id: "session:move".to_owned(),
-                intent: ProjectSessionIntent::CreateTab {
-                    tab_id: "tab:move-review".to_owned(),
-                    panel_id: ProjectSessionPanelId::Right,
-                    target_leaf_id: None,
-                    title: "Review".to_owned(),
-                    content: ProjectSessionTabContent::Review,
-                },
-            },
-        );
-        let rejected = workspace
-            .module
-            .apply(
-                &context(),
-                request(
-                    "reject-project-scoped-thread-move",
-                    ProjectWorkspaceIntent::MoveThread {
-                        thread_id: "thread:move".to_owned(),
-                        source:
-                            nodex_core_contracts::workspace::ProjectWorkspaceThreadLane::Project {
-                                project_id: "project:target".to_owned(),
-                            },
-                        target:
-                            nodex_core_contracts::workspace::ProjectWorkspaceThreadLane::Projectless,
-                        placement: ProjectWorkspaceThreadPlacement::End,
-                        metadata: ProjectWorkspaceThreadMoveMetadataPatch::default(),
-                    },
-                ),
-            )
-            .expect_err("reject Thread move with a Project-scoped tab");
-        assert_eq!(
-            rejected.code,
-            nodex_core_contracts::CoreErrorCode::InvalidInput
-        );
-        let ProjectWorkspaceReadValue::Session { session, tabs, .. } = read(
-            &workspace.module,
-            ProjectWorkspaceRead::Session {
-                session_id: "session:move".to_owned(),
-            },
-        ) else {
-            panic!("rejected Session move snapshot");
-        };
-        assert_eq!(session.project_id.as_deref(), Some("project:target"));
-        assert!(
-            tabs.iter()
-                .all(|tab| tab.project_id.as_deref() == Some("project:target"))
         );
     }
 

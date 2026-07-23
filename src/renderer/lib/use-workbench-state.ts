@@ -55,6 +55,7 @@ import {
   scopedAtom,
   useScopedAtom,
 } from "./maitai";
+import type { WorkbenchSessionViewSnapshot } from "../../shared/workbench-session-view";
 
 export type WorkbenchView = "kanban" | "list" | "toggle-list" | "canvas" | "calendar";
 export type StageId = "db" | "pages" | "threads" | "files";
@@ -173,6 +174,7 @@ interface WorkbenchState {
   activeFilesTabId: string;
   stagePanelWidths: StagePanelWidths;
   slidingWindowPaneCount: number;
+  sessionViewsBySessionId: Record<string, WorkbenchSessionViewSnapshot>;
 }
 
 const workbenchStateAtom = scopedAtom<WorkbenchState | null>(
@@ -600,6 +602,7 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
     activeFilesTabId,
     stagePanelWidths,
     slidingWindowPaneCount,
+    sessionViewsBySessionId: layoutSnapshot?.sessionViewsBySessionId ?? {},
   };
 }
 
@@ -1643,6 +1646,36 @@ export function useWorkbenchState(
     });
   }, [setState]);
 
+  const setSessionView = useCallback((
+    sessionId: string,
+    update:
+      | WorkbenchSessionViewSnapshot
+      | ((previous: WorkbenchSessionViewSnapshot | undefined) => WorkbenchSessionViewSnapshot),
+  ) => {
+    setState((previous) => {
+      const next = typeof update === "function"
+        ? update(previous.sessionViewsBySessionId[sessionId])
+        : update;
+      if (next === previous.sessionViewsBySessionId[sessionId]) return previous;
+      return {
+        ...previous,
+        sessionViewsBySessionId: {
+          ...previous.sessionViewsBySessionId,
+          [sessionId]: next,
+        },
+      };
+    });
+  }, [setState]);
+
+  const removeSessionView = useCallback((sessionId: string) => {
+    setState((previous) => {
+      if (!previous.sessionViewsBySessionId[sessionId]) return previous;
+      const sessionViewsBySessionId = { ...previous.sessionViewsBySessionId };
+      delete sessionViewsBySessionId[sessionId];
+      return { ...previous, sessionViewsBySessionId };
+    });
+  }, [setState]);
+
   const isSidebarStageExpanded = useCallback(
     (projectId: string, stageId: SidebarGroupId): boolean => {
       const value = state.sidebarStageExpandedByProject[projectId]?.[stageId];
@@ -1655,7 +1688,7 @@ export function useWorkbenchState(
     pageStage: WorkbenchLayoutSnapshot["pageStage"],
     activeProjectSessionId: string | null = null,
   ): WorkbenchLayoutSnapshot => ({
-    version: 2,
+    version: 3,
     dbProjectId: state.dbProjectId,
     activeProjectSessionId,
     threadsProjectId: state.threadsProjectId,
@@ -1680,6 +1713,7 @@ export function useWorkbenchState(
     activeFilesTabId: state.activeFilesTabId,
     stagePanelWidths: state.stagePanelWidths as Record<string, number>,
     slidingWindowPaneCount: state.slidingWindowPaneCount,
+    sessionViewsBySessionId: state.sessionViewsBySessionId,
   }), [state]);
 
   const replaceLayoutSnapshot = useCallback((layoutSnapshot: WorkbenchLayoutSnapshot) => {
@@ -1711,6 +1745,7 @@ export function useWorkbenchState(
     activeFilesTabId,
     stagePanelWidths,
     slidingWindowPaneCount,
+    sessionViewsBySessionId: state.sessionViewsBySessionId,
     setDbProject,
     setActiveProject: setDbProject,
     setThreadsProjectId,
@@ -1745,6 +1780,8 @@ export function useWorkbenchState(
     setActiveRecentPageSession,
     closeRecentPageSession,
     reorderRecentPageSessions,
+    setSessionView,
+    removeSessionView,
     buildLayoutSnapshot,
     replaceLayoutSnapshot,
   };

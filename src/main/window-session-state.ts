@@ -1,43 +1,81 @@
-import { randomUUID } from "crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "fs";
-import { dirname, join } from "path";
+import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import type {
   WindowRestorePolicy,
   WindowSessionBounds,
   WindowSessionCatalog,
+  WindowSessionNewWindowRequest,
   WindowSessionRecord,
-  WindowSessionSeed,
+  WindowSessionSaveLayoutInput,
 } from "../shared/window-session";
 import {
   createDefaultWorkbenchLayoutSnapshot,
   type WorkbenchLayoutSnapshot,
 } from "../shared/workbench-layout";
-import { WindowSessionCatalogSchema } from "../shared/schemas/window-session";
+import {
+  LegacyWindowSessionCatalogV1Schema,
+  LegacyWindowSessionCatalogV2Schema,
+  WindowSessionCatalogSchema,
+} from "../shared/schemas/window-session";
 import { WorkbenchLayoutSnapshotSchema } from "../shared/schemas/workbench-layout";
+import { cloneWorkbenchLayoutForNewWindow } from "../shared/workbench-session-view";
+import { getLogger } from "./logging/logger";
 
-const WINDOW_SESSIONS_FILE_NAME = "window-sessions-v1.json";
-const WINDOW_SESSION_VERSION = 1;
+const WINDOW_SESSIONS_V3_FILE_NAME = "window-sessions-v3.json";
+const WINDOW_SESSIONS_V2_FILE_NAME = "window-sessions-v2.json";
+const WINDOW_SESSIONS_V1_FILE_NAME = "window-sessions-v1.json";
+const WINDOW_SESSION_VERSION = 3;
+const MAX_WINDOW_SESSION_FILE_BYTES = 32 * 1024 * 1024;
+const MAX_CLOSED_WINDOW_SESSIONS = 20;
 const MIN_WINDOW_WIDTH = 800;
 const MIN_WINDOW_HEIGHT = 600;
+const logger = getLogger({ module: "window-session-state" });
 
-function nowIso(): string {
-  return new Date().toISOString();
+type ClosedWindowSessionRecord = WindowSessionRecord & {
+  lifecycle: { state: "closed"; closedAt: string };
+};
+
+export type WindowSessionCloseDisposition =
+  | "user-close"
+  | "app-quit"
+  | "unexpected";
+
+export interface ReopenedWindowSession {
+  session: WindowSessionRecord;
+  previousRecord: ClosedWindowSessionRecord;
 }
 
-function normalizeLayout(value: unknown, fallback: WorkbenchLayoutSnapshot): WorkbenchLayoutSnapshot {
+export type AcquiredWindowSession =
+  | ({ kind: "reopened" } & ReopenedWindowSession)
+  | { kind: "cloned" | "fresh"; session: WindowSessionRecord };
+
+interface WindowSessionStateOptions {
+  now?: () => Date;
+  maxClosedSessions?: number;
+  maxFileBytes?: number;
+}
+
+interface PreparedCatalog {
+  catalog: WindowSessionCatalog;
+  serialized: string;
+}
+
+function normalizeLayout(
+  value: unknown,
+  fallback: WorkbenchLayoutSnapshot,
+): WorkbenchLayoutSnapshot {
   const parsed = WorkbenchLayoutSnapshotSchema.safeParse(value);
   return parsed.success ? parsed.data : fallback;
 }
 
-function resolveLastActiveLayout(catalog: WindowSessionCatalog | null): WorkbenchLayoutSnapshot {
-  const lastActiveSession = catalog?.sessions.find((session) => session.id === catalog.lastActiveSessionId)
-    ?? catalog?.sessions[0];
-  return lastActiveSession?.layout ?? createDefaultWorkbenchLayoutSnapshot();
-}
-
-function normalizeSessionBounds(value: WindowSessionBounds | undefined): WindowSessionBounds | undefined {
+function normalizeSessionBounds(
+  value: WindowSessionBounds | undefined,
+): WindowSessionBounds | undefined {
   if (!value) return undefined;
-  if (value.width < MIN_WINDOW_WIDTH || value.height < MIN_WINDOW_HEIGHT) return undefined;
+  if (value.width < MIN_WINDOW_WIDTH || value.height < MIN_WINDOW_HEIGHT) {
+    return undefined;
+  }
   return {
     x: Math.round(value.x),
     y: Math.round(value.y),
@@ -47,73 +85,316 @@ function normalizeSessionBounds(value: WindowSessionBounds | undefined): WindowS
   };
 }
 
+function isSymlink(filePath: string): boolean {
+  try {
+    return fs.lstatSync(filePath).isSymbolicLink();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function timestampValue(timestamp: string): number {
+  const value = Date.parse(timestamp);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function compareTimestampsDescending(left: string, right: string): number {
+  const difference = timestampValue(right) - timestampValue(left);
+  if (difference !== 0) return difference;
+  return right.localeCompare(left);
+}
+
+function serializeCatalog(catalog: WindowSessionCatalog): string {
+  return `${JSON.stringify(catalog, null, 2)}\n`;
+}
+
 export function isWindowSessionBoundsVisible(
   bounds: WindowSessionBounds | undefined,
   displays: Array<{ bounds: { x: number; y: number; width: number; height: number } }>,
 ): boolean {
   if (!bounds) return false;
-  if (bounds.width < MIN_WINDOW_WIDTH || bounds.height < MIN_WINDOW_HEIGHT) return false;
+  if (bounds.width < MIN_WINDOW_WIDTH || bounds.height < MIN_WINDOW_HEIGHT) {
+    return false;
+  }
 
   return displays.some((display) => {
     const displayBounds = display.bounds;
-    const overlapX = Math.max(0, Math.min(bounds.x + bounds.width, displayBounds.x + displayBounds.width) - Math.max(bounds.x, displayBounds.x));
-    const overlapY = Math.max(0, Math.min(bounds.y + bounds.height, displayBounds.y + displayBounds.height) - Math.max(bounds.y, displayBounds.y));
+    const overlapX = Math.max(
+      0,
+      Math.min(bounds.x + bounds.width, displayBounds.x + displayBounds.width)
+        - Math.max(bounds.x, displayBounds.x),
+    );
+    const overlapY = Math.max(
+      0,
+      Math.min(bounds.y + bounds.height, displayBounds.y + displayBounds.height)
+        - Math.max(bounds.y, displayBounds.y),
+    );
     return overlapX >= 120 && overlapY >= 120;
   });
 }
 
 export class WindowSessionState {
   private readonly statePath: string;
+  private readonly legacyV2StatePath: string;
+  private readonly legacyV1StatePath: string;
   private readonly webContentsToSessionId = new Map<number, string>();
+  private readonly now: () => Date;
+  private readonly maxClosedSessions: number;
+  private readonly maxFileBytes: number;
 
-  constructor(userDataPath: string) {
-    this.statePath = join(userDataPath, WINDOW_SESSIONS_FILE_NAME);
+  constructor(userDataPath: string, options: WindowSessionStateOptions = {}) {
+    const maxClosedSessions = options.maxClosedSessions ?? MAX_CLOSED_WINDOW_SESSIONS;
+    const maxFileBytes = options.maxFileBytes ?? MAX_WINDOW_SESSION_FILE_BYTES;
+    if (!Number.isInteger(maxClosedSessions) || maxClosedSessions < 1) {
+      throw new Error("Window Session closed-history limit must be a positive integer");
+    }
+    if (!Number.isInteger(maxFileBytes) || maxFileBytes < 1) {
+      throw new Error("Window Session file-size limit must be a positive integer");
+    }
+
+    this.statePath = path.join(userDataPath, WINDOW_SESSIONS_V3_FILE_NAME);
+    this.legacyV2StatePath = path.join(userDataPath, WINDOW_SESSIONS_V2_FILE_NAME);
+    this.legacyV1StatePath = path.join(userDataPath, WINDOW_SESSIONS_V1_FILE_NAME);
+    this.now = options.now ?? (() => new Date());
+    this.maxClosedSessions = maxClosedSessions;
+    this.maxFileBytes = maxFileBytes;
   }
 
-  createSession(seed: WindowSessionSeed = {}): WindowSessionRecord {
-    const catalog = this.readCatalog() ?? {
-      version: WINDOW_SESSION_VERSION,
-      lastActiveSessionId: "",
-      sessions: [],
-    };
-    const session = this.createSessionRecord(normalizeLayout(seed.layout, resolveLastActiveLayout(catalog)));
-    const nextCatalog: WindowSessionCatalog = {
+  createFreshSession(): WindowSessionRecord {
+    const catalog = this.readCatalog() ?? this.emptyCatalog();
+    const session = this.createSessionRecord(createDefaultWorkbenchLayoutSnapshot());
+    const written = this.writeCatalog({
       version: WINDOW_SESSION_VERSION,
       lastActiveSessionId: session.id,
       sessions: [...catalog.sessions, session],
+    });
+    return this.requireSession(written, session.id);
+  }
+
+  cloneSessionForWindow(
+    sourceWebContentsId: number,
+    override: WindowSessionNewWindowRequest = {},
+  ): WindowSessionRecord {
+    const sourceSession = this.getSessionForWindow(sourceWebContentsId);
+    if (!sourceSession) {
+      throw new Error("The requesting window has no assigned Window Session");
+    }
+
+    const layout = cloneWorkbenchLayoutForNewWindow(sourceSession.layout);
+    const session = this.createSessionRecord({
+      ...layout,
+      ...(override.activeProjectSessionId === undefined
+        ? {}
+        : { activeProjectSessionId: override.activeProjectSessionId }),
+    });
+    const catalog = this.readOrCreateCatalog();
+    const written = this.writeCatalog({
+      version: WINDOW_SESSION_VERSION,
+      lastActiveSessionId: session.id,
+      sessions: [...catalog.sessions, session],
+    });
+    return this.requireSession(written, session.id);
+  }
+
+  acquireSessionForNewWindow(
+    sourceWebContentsId?: number,
+  ): AcquiredWindowSession {
+    const reopened = this.reopenMostRecentlyClosedSession();
+    if (reopened) return { kind: "reopened", ...reopened };
+    if (sourceWebContentsId !== undefined) {
+      return {
+        kind: "cloned",
+        session: this.cloneSessionForWindow(sourceWebContentsId),
+      };
+    }
+    return {
+      kind: "fresh",
+      session: this.createFreshSession(),
     };
-    this.writeCatalog(nextCatalog);
-    return session;
   }
 
   selectStartupSessions(policy: WindowRestorePolicy): WindowSessionRecord[] {
+    const catalog = this.readCatalog() ?? this.emptyCatalog();
+    if (policy === "none") {
+      return this.startFreshAndCloseOpenSessions(catalog);
+    }
+
+    const openSessions = catalog.sessions.filter(
+      (session) => session.lifecycle.state === "open",
+    );
+    if (openSessions.length === 0) {
+      return this.reopenClosedOrCreateFresh(catalog);
+    }
+    if (policy === "all") return openSessions;
+
+    const selected = openSessions.find(
+      (session) => session.id === catalog.lastActiveSessionId,
+    ) ?? this.mostRecentlyFocusedSession(openSessions);
+    if (!selected) return this.reopenClosedOrCreateFresh(catalog);
+
+    const timestamp = this.nowIso();
+    const written = this.writeCatalog({
+      version: WINDOW_SESSION_VERSION,
+      lastActiveSessionId: selected.id,
+      sessions: catalog.sessions.map((session) => {
+        if (session.lifecycle.state !== "open" || session.id === selected.id) {
+          return session;
+        }
+        return {
+          ...session,
+          lifecycle: { state: "closed", closedAt: timestamp },
+          updatedAt: timestamp,
+        };
+      }),
+    });
+    return [this.requireSession(written, selected.id)];
+  }
+
+  attachWindow(webContentsId: number, sessionId: string): WindowSessionRecord {
+    const assignedSessionId = this.webContentsToSessionId.get(webContentsId);
+    if (assignedSessionId && assignedSessionId !== sessionId) {
+      throw new Error("The requesting window already owns another Window Session");
+    }
+    if (assignedSessionId === sessionId) {
+      const assigned = this.getSessionForWindow(webContentsId);
+      if (!assigned) {
+        throw new Error("Assigned Window Session is unavailable");
+      }
+      return assigned;
+    }
+
+    const conflictingWindow = [...this.webContentsToSessionId.entries()].find(
+      ([candidateWebContentsId, candidateSessionId]) =>
+        candidateWebContentsId !== webContentsId && candidateSessionId === sessionId
+    );
+    if (conflictingWindow) {
+      throw new Error("Window Session is already attached to another window");
+    }
+
     const catalog = this.readOrCreateCatalog();
-    if (policy === "none" || catalog.sessions.length === 0) {
-      const session = this.createSession();
-      this.writeCatalog({
-        version: WINDOW_SESSION_VERSION,
-        lastActiveSessionId: session.id,
-        sessions: [session],
-      });
-      return [session];
+    const session = catalog.sessions.find((entry) => entry.id === sessionId);
+    if (!session) {
+      throw new Error("Window Session is unavailable");
+    }
+    if (session.lifecycle.state === "open") {
+      this.webContentsToSessionId.set(webContentsId, sessionId);
+      return session;
     }
 
-    if (policy === "last-window") {
-      const lastActiveSession = catalog.sessions.find((session) => session.id === catalog.lastActiveSessionId)
-        ?? catalog.sessions[0];
-      return lastActiveSession ? [lastActiveSession] : [this.createSession()];
-    }
-
-    return catalog.sessions;
-  }
-
-  assignWindow(webContentsId: number, sessionId: string): void {
+    const timestamp = this.nowIso();
+    const written = this.writeCatalog({
+      version: WINDOW_SESSION_VERSION,
+      lastActiveSessionId: sessionId,
+      sessions: catalog.sessions.map((entry) =>
+        entry.id === sessionId
+          ? {
+              ...entry,
+              lifecycle: { state: "open" },
+              updatedAt: timestamp,
+            }
+          : entry
+      ),
+    });
     this.webContentsToSessionId.set(webContentsId, sessionId);
-    this.markFocused(webContentsId);
+    return this.requireSession(written, sessionId);
   }
 
-  clearWindow(webContentsId: number): void {
-    this.webContentsToSessionId.delete(webContentsId);
+  detachWindow(
+    webContentsId: number,
+    input: {
+      disposition: WindowSessionCloseDisposition;
+      bounds?: WindowSessionBounds;
+    },
+  ): WindowSessionRecord | null {
+    const sessionId = this.webContentsToSessionId.get(webContentsId);
+    if (!sessionId) return null;
+
+    try {
+      const catalog = this.readCatalog();
+      if (!catalog) return null;
+      const session = catalog.sessions.find((entry) => entry.id === sessionId);
+      if (!session) return null;
+
+      const timestamp = this.nowIso();
+      const normalizedBounds = normalizeSessionBounds(input.bounds);
+      const nextSession: WindowSessionRecord = {
+        ...session,
+        lifecycle: input.disposition === "user-close"
+          ? { state: "closed", closedAt: timestamp }
+          : { state: "open" },
+        ...(
+          input.disposition === "user-close" || normalizedBounds
+            ? { updatedAt: timestamp }
+            : {}
+        ),
+        ...(normalizedBounds ? { bounds: normalizedBounds } : {}),
+      };
+      const written = this.writeCatalog({
+        version: WINDOW_SESSION_VERSION,
+        lastActiveSessionId: catalog.lastActiveSessionId,
+        sessions: catalog.sessions.map((entry) =>
+          entry.id === sessionId ? nextSession : entry
+        ),
+      });
+      return written.sessions.find((entry) => entry.id === sessionId) ?? null;
+    } finally {
+      this.webContentsToSessionId.delete(webContentsId);
+    }
+  }
+
+  reopenMostRecentlyClosedSession(): ReopenedWindowSession | null {
+    const catalog = this.readCatalog();
+    if (!catalog) return null;
+    const previousRecord = this.mostRecentlyClosedSession(catalog.sessions);
+    if (!previousRecord) return null;
+    if ([...this.webContentsToSessionId.values()].includes(previousRecord.id)) {
+      throw new Error("A closed Window Session is still attached to a window");
+    }
+
+    const timestamp = this.nowIso();
+    const nextSession: WindowSessionRecord = {
+      ...previousRecord,
+      lifecycle: { state: "open" },
+      updatedAt: timestamp,
+    };
+    const written = this.writeCatalog({
+      version: WINDOW_SESSION_VERSION,
+      lastActiveSessionId: nextSession.id,
+      sessions: catalog.sessions.map((session) =>
+        session.id === nextSession.id ? nextSession : session
+      ),
+    });
+    return {
+      session: this.requireSession(written, nextSession.id),
+      previousRecord,
+    };
+  }
+
+  rollbackReopenSession(previousRecord: ClosedWindowSessionRecord): WindowSessionRecord | null {
+    if ([...this.webContentsToSessionId.values()].includes(previousRecord.id)) {
+      throw new Error("Cannot roll back an attached Window Session");
+    }
+
+    const catalog = this.readCatalog();
+    if (!catalog) return null;
+    const current = catalog.sessions.find((session) => session.id === previousRecord.id);
+    if (!current || current.lifecycle.state !== "open") return null;
+
+    const written = this.writeCatalog({
+      version: WINDOW_SESSION_VERSION,
+      lastActiveSessionId: catalog.lastActiveSessionId,
+      sessions: catalog.sessions.map((session) =>
+        session.id === previousRecord.id ? previousRecord : session
+      ),
+    });
+    return written.sessions.find((session) => session.id === previousRecord.id) ?? null;
+  }
+
+  hasClosedSessionAvailable(): boolean {
+    return this.readCatalog()?.sessions.some(
+      (session) => session.lifecycle.state === "closed",
+    ) ?? false;
   }
 
   bootstrap(webContentsId: number): WindowSessionRecord {
@@ -122,14 +403,10 @@ export class WindowSessionState {
     const assignedSession = assignedSessionId
       ? catalog.sessions.find((session) => session.id === assignedSessionId)
       : undefined;
+    if (assignedSession) return assignedSession;
 
-    if (assignedSession) {
-      return assignedSession;
-    }
-
-    const session = this.createSession();
-    this.assignWindow(webContentsId, session.id);
-    return session;
+    const session = this.createFreshSession();
+    return this.attachWindow(webContentsId, session.id);
   }
 
   markFocused(webContentsId: number): void {
@@ -137,42 +414,56 @@ export class WindowSessionState {
     if (!sessionId) return;
     const catalog = this.readCatalog();
     if (!catalog) return;
-    const timestamp = nowIso();
-    const nextCatalog: WindowSessionCatalog = {
+
+    const timestamp = this.nowIso();
+    this.writeCatalog({
       version: WINDOW_SESSION_VERSION,
       lastActiveSessionId: sessionId,
       sessions: catalog.sessions.map((session) =>
         session.id === sessionId ? { ...session, focusedAt: timestamp } : session
       ),
-    };
-    this.writeCatalog(nextCatalog);
+    });
   }
 
   saveLayout(
     webContentsId: number,
-    layout: WorkbenchLayoutSnapshot,
+    input: WindowSessionSaveLayoutInput,
     bounds?: WindowSessionBounds,
   ): WindowSessionRecord {
-    const session = this.bootstrap(webContentsId);
+    const assignedSessionId = this.webContentsToSessionId.get(webContentsId);
+    if (!assignedSessionId || assignedSessionId !== input.sessionId) {
+      throw new Error("Window Session save does not match the requesting window");
+    }
+
     const catalog = this.readOrCreateCatalog();
-    const timestamp = nowIso();
+    const session = catalog.sessions.find((entry) => entry.id === assignedSessionId);
+    if (!session) {
+      throw new Error("Assigned Window Session is unavailable");
+    }
+    if (input.revision <= session.layoutRevision) return session;
+
+    const parsedLayout = WorkbenchLayoutSnapshotSchema.safeParse(input.layout);
+    if (!parsedLayout.success) {
+      throw new Error("Window Session layout is invalid");
+    }
+
+    const timestamp = this.nowIso();
     const normalizedBounds = normalizeSessionBounds(bounds);
     const nextSession: WindowSessionRecord = {
       ...session,
-      layout: normalizeLayout(layout, session.layout),
+      layoutRevision: input.revision,
+      layout: parsedLayout.data,
       updatedAt: timestamp,
       ...(normalizedBounds ? { bounds: normalizedBounds } : {}),
     };
-    const sessions = catalog.sessions.some((entry) => entry.id === nextSession.id)
-      ? catalog.sessions.map((entry) => entry.id === nextSession.id ? nextSession : entry)
-      : [...catalog.sessions, nextSession];
-    const nextCatalog: WindowSessionCatalog = {
+    const written = this.writeCatalog({
       version: WINDOW_SESSION_VERSION,
       lastActiveSessionId: nextSession.id,
-      sessions,
-    };
-    this.writeCatalog(nextCatalog);
-    return nextSession;
+      sessions: catalog.sessions.map((entry) =>
+        entry.id === nextSession.id ? nextSession : entry
+      ),
+    });
+    return this.requireSession(written, nextSession.id);
   }
 
   updateBounds(webContentsId: number, bounds: WindowSessionBounds): void {
@@ -182,34 +473,16 @@ export class WindowSessionState {
     if (!catalog) return;
     const normalizedBounds = normalizeSessionBounds(bounds);
     if (!normalizedBounds) return;
-    const timestamp = nowIso();
-    const nextCatalog: WindowSessionCatalog = {
+
+    const timestamp = this.nowIso();
+    this.writeCatalog({
       version: WINDOW_SESSION_VERSION,
       lastActiveSessionId: sessionId,
       sessions: catalog.sessions.map((session) =>
-        session.id === sessionId ? { ...session, bounds: normalizedBounds, updatedAt: timestamp } : session
+        session.id === sessionId
+          ? { ...session, bounds: normalizedBounds, updatedAt: timestamp }
+          : session
       ),
-    };
-    this.writeCatalog(nextCatalog);
-  }
-
-  retainSessions(sessionIds: string[]): void {
-    const catalog = this.readCatalog();
-    if (!catalog) return;
-    const sessions = sessionIds
-      .map((sessionId) => catalog.sessions.find((session) => session.id === sessionId))
-      .filter((session): session is WindowSessionRecord => Boolean(session))
-      .filter((session, index, retained) =>
-        retained.findIndex((entry) => entry.id === session.id) === index
-      );
-    if (sessions.length === 0 && sessionIds.length > 0) return;
-    const lastActiveSessionId = sessions.some((session) => session.id === catalog.lastActiveSessionId)
-      ? catalog.lastActiveSessionId
-      : sessions[0]?.id ?? "";
-    this.writeCatalog({
-      version: WINDOW_SESSION_VERSION,
-      lastActiveSessionId,
-      sessions,
     });
   }
 
@@ -226,12 +499,10 @@ export class WindowSessionState {
   }
 
   readCatalog(): WindowSessionCatalog | null {
-    try {
-      const raw = readFileSync(this.statePath, "utf8");
-      return this.normalizeCatalog(JSON.parse(raw), createDefaultWorkbenchLayoutSnapshot());
-    } catch {
-      return null;
-    }
+    const current = this.readCurrentCatalog();
+    if (current) return current;
+    if (fs.existsSync(this.statePath)) return null;
+    return this.migrateLegacyCatalog();
   }
 
   readOrCreateCatalog(): WindowSessionCatalog {
@@ -239,19 +510,31 @@ export class WindowSessionState {
     if (existing) return existing;
 
     const session = this.createSessionRecord(createDefaultWorkbenchLayoutSnapshot());
-    const catalog: WindowSessionCatalog = {
+    return this.writeCatalog({
       version: WINDOW_SESSION_VERSION,
       lastActiveSessionId: session.id,
       sessions: [session],
+    });
+  }
+
+  private nowIso(): string {
+    return this.now().toISOString();
+  }
+
+  private emptyCatalog(): WindowSessionCatalog {
+    return {
+      version: WINDOW_SESSION_VERSION,
+      lastActiveSessionId: "",
+      sessions: [],
     };
-    this.writeCatalog(catalog);
-    return catalog;
   }
 
   private createSessionRecord(layout: WorkbenchLayoutSnapshot): WindowSessionRecord {
-    const timestamp = nowIso();
+    const timestamp = this.nowIso();
     return {
       id: `window-${randomUUID()}`,
+      lifecycle: { state: "open" },
+      layoutRevision: 0,
       layout,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -259,38 +542,319 @@ export class WindowSessionState {
     };
   }
 
-  private normalizeCatalog(
-    value: unknown,
-    fallbackLayout: WorkbenchLayoutSnapshot,
-  ): WindowSessionCatalog | null {
-    const parsed = WindowSessionCatalogSchema.safeParse(value);
-    if (!parsed.success) return null;
+  private startFreshAndCloseOpenSessions(
+    catalog: WindowSessionCatalog,
+  ): WindowSessionRecord[] {
+    const timestamp = this.nowIso();
+    const fresh = this.createSessionRecord(createDefaultWorkbenchLayoutSnapshot());
+    const written = this.writeCatalog({
+      version: WINDOW_SESSION_VERSION,
+      lastActiveSessionId: fresh.id,
+      sessions: [
+        ...catalog.sessions.map((session): WindowSessionRecord => {
+          if (session.lifecycle.state === "closed") return session;
+          return {
+            ...session,
+            lifecycle: { state: "closed", closedAt: timestamp },
+            updatedAt: timestamp,
+          };
+        }),
+        fresh,
+      ],
+    });
+    return [this.requireSession(written, fresh.id)];
+  }
+
+  private reopenClosedOrCreateFresh(
+    catalog: WindowSessionCatalog,
+  ): WindowSessionRecord[] {
+    const previousRecord = this.mostRecentlyClosedSession(catalog.sessions);
+    if (!previousRecord) {
+      const fresh = this.createSessionRecord(createDefaultWorkbenchLayoutSnapshot());
+      const written = this.writeCatalog({
+        version: WINDOW_SESSION_VERSION,
+        lastActiveSessionId: fresh.id,
+        sessions: [...catalog.sessions, fresh],
+      });
+      return [this.requireSession(written, fresh.id)];
+    }
+
+    const timestamp = this.nowIso();
+    const nextSession: WindowSessionRecord = {
+      ...previousRecord,
+      lifecycle: { state: "open" },
+      updatedAt: timestamp,
+    };
+    const written = this.writeCatalog({
+      version: WINDOW_SESSION_VERSION,
+      lastActiveSessionId: nextSession.id,
+      sessions: catalog.sessions.map((session) =>
+        session.id === nextSession.id ? nextSession : session
+      ),
+    });
+    return [this.requireSession(written, nextSession.id)];
+  }
+
+  private readCurrentCatalog(): WindowSessionCatalog | null {
+    let raw: string;
+    try {
+      const stats = fs.lstatSync(this.statePath);
+      if (!stats.isFile() || stats.isSymbolicLink()) {
+        throw new Error("Window Session catalog path is unsafe");
+      }
+      if (stats.size > this.maxFileBytes) {
+        throw new Error("Window Session catalog exceeds its size bound");
+      }
+      raw = fs.readFileSync(this.statePath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      this.preserveCorruptCatalog(error);
+      return null;
+    }
+
+    try {
+      const parsed = WindowSessionCatalogSchema.parse(JSON.parse(raw));
+      return this.normalizeCatalog(parsed);
+    } catch (error) {
+      this.preserveCorruptCatalog(error);
+      return null;
+    }
+  }
+
+  private migrateLegacyCatalog(): WindowSessionCatalog | null {
+    const legacyV2 = this.readLegacyJson(this.legacyV2StatePath);
+    const parsedV2 = LegacyWindowSessionCatalogV2Schema.safeParse(legacyV2);
+    if (parsedV2.success) {
+      return this.writeCatalog({
+        version: WINDOW_SESSION_VERSION,
+        lastActiveSessionId: parsedV2.data.lastActiveSessionId,
+        sessions: parsedV2.data.sessions.map((session) => ({
+          ...session,
+          lifecycle: { state: "open" },
+        })),
+      });
+    }
+
+    const legacyV1 = this.readLegacyJson(this.legacyV1StatePath);
+    const parsedV1 = LegacyWindowSessionCatalogV1Schema.safeParse(legacyV1);
+    if (!parsedV1.success) return null;
+    return this.writeCatalog({
+      version: WINDOW_SESSION_VERSION,
+      lastActiveSessionId: parsedV1.data.lastActiveSessionId,
+      sessions: parsedV1.data.sessions.map((session) => ({
+        ...session,
+        lifecycle: { state: "open" },
+        layoutRevision: 0,
+      })),
+    });
+  }
+
+  private readLegacyJson(filePath: string): unknown {
+    try {
+      const stats = fs.lstatSync(filePath);
+      if (!stats.isFile() || stats.isSymbolicLink()) return null;
+      if (stats.size > this.maxFileBytes) return null;
+      return JSON.parse(fs.readFileSync(filePath, "utf8"));
+    } catch {
+      return null;
+    }
+  }
+
+  private normalizeCatalog(catalog: WindowSessionCatalog): WindowSessionCatalog {
+    const fallbackLayout = createDefaultWorkbenchLayoutSnapshot();
     const seen = new Set<string>();
-    const sessions = parsed.data.sessions.filter((session) => {
-      if (seen.has(session.id)) return false;
-      seen.add(session.id);
-      return true;
-    }).map((session) => ({
-      ...session,
-      layout: normalizeLayout(session.layout, fallbackLayout),
-      bounds: normalizeSessionBounds(session.bounds),
-    }));
-    const lastActiveSessionId = sessions.some((session) => session.id === parsed.data.lastActiveSessionId)
-      ? parsed.data.lastActiveSessionId
-      : sessions[0]?.id ?? "";
+    const sessions = catalog.sessions
+      .filter((session) => {
+        if (seen.has(session.id)) return false;
+        seen.add(session.id);
+        return true;
+      })
+      .map((session) => ({
+        ...session,
+        layout: normalizeLayout(session.layout, fallbackLayout),
+        bounds: normalizeSessionBounds(session.bounds),
+      }));
     return {
       version: WINDOW_SESSION_VERSION,
-      lastActiveSessionId,
+      lastActiveSessionId: this.resolveLastActiveSessionId(
+        sessions,
+        catalog.lastActiveSessionId,
+      ),
       sessions,
     };
   }
 
-  private writeCatalog(catalog: WindowSessionCatalog): void {
-    mkdirSync(dirname(this.statePath), { recursive: true });
-    writeFileSync(this.statePath, JSON.stringify(catalog, null, 2), "utf8");
+  private prepareCatalog(catalog: WindowSessionCatalog): PreparedCatalog {
+    const normalized = this.normalizeCatalog(catalog);
+    const rankedClosed = this.rankClosedSessions(normalized.sessions);
+    const retainedClosedIds = new Set(
+      rankedClosed.slice(0, this.maxClosedSessions).map((session) => session.id),
+    );
+    let sessions = normalized.sessions.filter(
+      (session) =>
+        session.lifecycle.state === "open" || retainedClosedIds.has(session.id),
+    );
+    let compacted = this.catalogWithSessions(normalized, sessions);
+    let serialized = serializeCatalog(compacted);
+    const oldestRetained = rankedClosed
+      .filter((session) => retainedClosedIds.has(session.id))
+      .reverse();
+
+    while (
+      Buffer.byteLength(serialized, "utf8") > this.maxFileBytes
+      && oldestRetained.length > 0
+    ) {
+      const oldest = oldestRetained.shift();
+      if (!oldest) break;
+      sessions = sessions.filter((session) => session.id !== oldest.id);
+      compacted = this.catalogWithSessions(normalized, sessions);
+      serialized = serializeCatalog(compacted);
+    }
+
+    if (Buffer.byteLength(serialized, "utf8") > this.maxFileBytes) {
+      throw new Error("Window Session catalog exceeds its size bound");
+    }
+
+    return {
+      catalog: WindowSessionCatalogSchema.parse(compacted),
+      serialized,
+    };
+  }
+
+  private catalogWithSessions(
+    source: WindowSessionCatalog,
+    sessions: WindowSessionRecord[],
+  ): WindowSessionCatalog {
+    return {
+      version: WINDOW_SESSION_VERSION,
+      lastActiveSessionId: this.resolveLastActiveSessionId(
+        sessions,
+        source.lastActiveSessionId,
+      ),
+      sessions,
+    };
+  }
+
+  private resolveLastActiveSessionId(
+    sessions: WindowSessionRecord[],
+    requestedId: string,
+  ): string {
+    if (sessions.some((session) => session.id === requestedId)) return requestedId;
+    return this.mostRecentlyFocusedSession(sessions)?.id ?? "";
+  }
+
+  private mostRecentlyFocusedSession(
+    sessions: WindowSessionRecord[],
+  ): WindowSessionRecord | null {
+    return sessions
+      .map((session, index) => ({ session, index }))
+      .sort((left, right) =>
+        compareTimestampsDescending(
+          left.session.focusedAt,
+          right.session.focusedAt,
+        ) || right.index - left.index
+      )[0]?.session ?? null;
+  }
+
+  private rankClosedSessions(
+    sessions: WindowSessionRecord[],
+  ): ClosedWindowSessionRecord[] {
+    return sessions
+      .map((session, index) => ({ session, index }))
+      .filter((entry): entry is {
+        session: ClosedWindowSessionRecord;
+        index: number;
+      } => entry.session.lifecycle.state === "closed")
+      .sort((left, right) =>
+        compareTimestampsDescending(
+          left.session.lifecycle.closedAt,
+          right.session.lifecycle.closedAt,
+        )
+        || compareTimestampsDescending(
+          left.session.focusedAt,
+          right.session.focusedAt,
+        )
+        || right.index - left.index
+      )
+      .map((entry) => entry.session);
+  }
+
+  private mostRecentlyClosedSession(
+    sessions: WindowSessionRecord[],
+  ): ClosedWindowSessionRecord | null {
+    return this.rankClosedSessions(sessions)[0] ?? null;
+  }
+
+  private requireSession(
+    catalog: WindowSessionCatalog,
+    sessionId: string,
+  ): WindowSessionRecord {
+    const session = catalog.sessions.find((entry) => entry.id === sessionId);
+    if (session) return session;
+    throw new Error("Window Session was not retained");
+  }
+
+  private preserveCorruptCatalog(error: unknown): void {
+    const timestamp = this.nowIso().replaceAll(/[:.]/g, "-");
+    const corruptPath = `${this.statePath}.${timestamp}.corrupt`;
+    try {
+      fs.renameSync(this.statePath, corruptPath);
+      logger.warn("Preserved malformed Window Session catalog", {
+        corruptFileName: path.basename(corruptPath),
+        reason: error instanceof Error ? error.message.slice(0, 300) : "unknown",
+      });
+    } catch {
+      // A concurrent read may already have preserved the same invalid file.
+    }
+  }
+
+  private writeCatalog(catalog: WindowSessionCatalog): WindowSessionCatalog {
+    const directory = path.dirname(this.statePath);
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    const directoryStats = fs.lstatSync(directory);
+    if (!directoryStats.isDirectory() || directoryStats.isSymbolicLink()) {
+      throw new Error("Window Session catalog directory is unsafe");
+    }
+    if (isSymlink(this.statePath)) {
+      throw new Error("Window Session catalog target is a symlink");
+    }
+
+    const prepared = this.prepareCatalog(catalog);
+    const temporaryPath = path.join(
+      directory,
+      `.${path.basename(this.statePath)}.${process.pid}.${randomUUID()}.tmp`,
+    );
+    const descriptor = fs.openSync(temporaryPath, "wx", 0o600);
+    try {
+      try {
+        fs.writeFileSync(descriptor, prepared.serialized, { encoding: "utf8" });
+        fs.fsyncSync(descriptor);
+      } finally {
+        fs.closeSync(descriptor);
+      }
+      fs.renameSync(temporaryPath, this.statePath);
+      fs.chmodSync(this.statePath, 0o600);
+      const directoryDescriptor = fs.openSync(directory, "r");
+      try {
+        fs.fsyncSync(directoryDescriptor);
+      } finally {
+        fs.closeSync(directoryDescriptor);
+      }
+    } catch (error) {
+      try {
+        fs.unlinkSync(temporaryPath);
+      } catch {
+        // The rename may already have committed the replacement.
+      }
+      throw error;
+    }
+    return prepared.catalog;
   }
 }
 
 export const windowSessionStateTestHelpers = {
   isWindowSessionBoundsVisible,
+  legacyV1FileName: WINDOW_SESSIONS_V1_FILE_NAME,
+  legacyV2FileName: WINDOW_SESSIONS_V2_FILE_NAME,
+  stateFileName: WINDOW_SESSIONS_V3_FILE_NAME,
 };

@@ -47,6 +47,7 @@ declare global {
       onCyclePanelTabPrevious?: (callback: () => void) => () => void;
       onCyclePanelTabNext?: (callback: () => void) => () => void;
       onClosePanelTab?: (callback: () => void) => () => void;
+      onRequestNewWindow?: (callback: () => void) => () => void;
       onWorkbenchCommand?: (
         callback: (invocation: WorkbenchCommandInvocation) => void,
       ) => () => void;

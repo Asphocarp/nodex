@@ -1,29 +1,15 @@
 import { z } from "zod";
 import type {
-  ProjectSessionBrowserTabConfig,
-  ProjectSessionPageStageTabConfig,
+  WorkbenchProjectionBrowserTabConfig,
+  WorkbenchProjectionPageStageTabConfig,
   ProjectSessionCreateInput,
-  ProjectSessionDbViewTabConfig,
-  ProjectSessionFilesTabConfig,
-  ProjectSessionProjectScopedTabConfig,
-  ProjectSessionPanelLayout,
-  ProjectSessionPanelNode,
-  ProjectSessionPanelState,
-  ProjectSessionPanelActivateInput,
-  ProjectSessionPanelEnsureRightLeafInput,
-  ProjectSessionPanelMaximizeInput,
-  ProjectSessionPanelMergeInput,
-  ProjectSessionPanelResizeInput,
-  ProjectSessionPanelSplitInput,
-  ProjectSessionTabConfig,
-  ProjectSessionTabConfigByKind,
-  ProjectSessionTabKind,
-  ProjectSessionTabCreateInput,
-  ProjectSessionTabDeleteInput,
-  ProjectSessionTabMoveInput,
-  ProjectSessionTabReorderInput,
-  ProjectSessionTabUpdateInput,
-  ProjectSessionTerminalTabConfig,
+  WorkbenchProjectionDbViewTabConfig,
+  WorkbenchProjectionFilesTabConfig,
+  WorkbenchProjectionProjectScopedTabConfig,
+  WorkbenchProjectionTabConfig,
+  WorkbenchProjectionTabConfigByKind,
+  WorkbenchTabKind,
+  WorkbenchProjectionTerminalTabConfig,
   ProjectSessionThreadLinkInput,
   ProjectSessionUpdateInput,
   ProjectSessionRenameInput,
@@ -44,35 +30,35 @@ export const MAX_PROJECT_SESSION_TITLE_LENGTH = 2_000;
 
 const titleSchema = z.string().trim().min(1).max(MAX_PROJECT_SESSION_TITLE_LENGTH);
 
-export const ProjectSessionDbViewTabConfigSchema = z.object({
+export const WorkbenchProjectionDbViewTabConfigSchema = z.object({
   projectId: z.string().min(1),
   databaseViewId: z.string().min(1).optional(),
   view: WorkbenchViewSchema,
-}).strict() satisfies z.ZodType<ProjectSessionDbViewTabConfig>;
+}).strict() satisfies z.ZodType<WorkbenchProjectionDbViewTabConfig>;
 
-export const ProjectSessionPageStageTabConfigSchema = z.object({
+export const WorkbenchProjectionPageStageTabConfigSchema = z.object({
   projectId: z.string().min(1),
   pageId: z.string().min(1),
   titleSnapshot: z.string().optional(),
-}).strict() satisfies z.ZodType<ProjectSessionPageStageTabConfig>;
+}).strict() satisfies z.ZodType<WorkbenchProjectionPageStageTabConfig>;
 
-export const ProjectSessionTerminalTabConfigSchema = z.object({
+export const WorkbenchProjectionTerminalTabConfigSchema = z.object({
   terminalSessionId: z.string().min(1),
-}).strict() satisfies z.ZodType<ProjectSessionTerminalTabConfig>;
+}).strict() satisfies z.ZodType<WorkbenchProjectionTerminalTabConfig>;
 
-export const ProjectSessionBrowserTabConfigSchema = z.object({
+export const WorkbenchProjectionBrowserTabConfigSchema = z.object({
   projectId: z.string().min(1).nullable(),
   url: z.string().optional(),
   title: z.string().optional(),
   faviconUrl: z.string().optional(),
   deviceToolbarVisible: z.boolean().optional(),
-}).strict() satisfies z.ZodType<ProjectSessionBrowserTabConfig>;
+}).strict() satisfies z.ZodType<WorkbenchProjectionBrowserTabConfig>;
 
-export const ProjectSessionProjectScopedTabConfigSchema = z.object({
+export const WorkbenchProjectionProjectScopedTabConfigSchema = z.object({
   projectId: z.string().min(1),
-}).strict() satisfies z.ZodType<ProjectSessionProjectScopedTabConfig>;
+}).strict() satisfies z.ZodType<WorkbenchProjectionProjectScopedTabConfig>;
 
-export const ProjectSessionFilesTabConfigSchema = z.object({
+export const WorkbenchProjectionFilesTabConfigSchema = z.object({
   projectId: z.string().min(1).nullable(),
   hostId: z.literal("local").default("local"),
   workspaceRoot: z.preprocess(
@@ -84,81 +70,24 @@ export const ProjectSessionFilesTabConfigSchema = z.object({
     z.string().trim().min(1).nullable(),
   ).default(null),
   path: z.string().trim().min(1).optional(),
-}).strict() satisfies z.ZodType<ProjectSessionFilesTabConfig>;
+}).strict() satisfies z.ZodType<WorkbenchProjectionFilesTabConfig>;
 
-export function parseProjectSessionTabConfig<Kind extends ProjectSessionTabKind>(
+export function parseWorkbenchProjectionTabConfig<Kind extends WorkbenchTabKind>(
   kind: Kind,
   config: unknown,
-): ProjectSessionTabConfigByKind[Kind] {
-  let parsed: ProjectSessionTabConfig;
-  if (kind === "db_view") parsed = ProjectSessionDbViewTabConfigSchema.parse(config);
-  else if (kind === "page_stage") parsed = ProjectSessionPageStageTabConfigSchema.parse(config);
-  else if (kind === "terminal") parsed = ProjectSessionTerminalTabConfigSchema.parse(config);
-  else if (kind === "browser") parsed = ProjectSessionBrowserTabConfigSchema.parse(config);
-  else if (kind === "review") parsed = ProjectSessionProjectScopedTabConfigSchema.parse(config);
-  else if (kind === "files") parsed = ProjectSessionFilesTabConfigSchema.parse(config);
+): WorkbenchProjectionTabConfigByKind[Kind] {
+  let parsed: WorkbenchProjectionTabConfig;
+  if (kind === "db_view") parsed = WorkbenchProjectionDbViewTabConfigSchema.parse(config);
+  else if (kind === "page_stage") parsed = WorkbenchProjectionPageStageTabConfigSchema.parse(config);
+  else if (kind === "terminal") parsed = WorkbenchProjectionTerminalTabConfigSchema.parse(config);
+  else if (kind === "browser") parsed = WorkbenchProjectionBrowserTabConfigSchema.parse(config);
+  else if (kind === "review") parsed = WorkbenchProjectionProjectScopedTabConfigSchema.parse(config);
+  else if (kind === "files") parsed = WorkbenchProjectionFilesTabConfigSchema.parse(config);
   else {
     throw new Error(`Unknown project session tab kind: ${String(kind)}`);
   }
-  return parsed as ProjectSessionTabConfigByKind[Kind];
+  return parsed as WorkbenchProjectionTabConfigByKind[Kind];
 }
-
-export const PanelIdSchema = z.enum(["right", "bottom"]);
-
-const ProjectSessionSplitLeafSchema: z.ZodType<ProjectSessionPanelNode> = z.lazy(() =>
-  z.union([
-    z.object({
-      type: z.literal("leaf"),
-      id: z.string().min(1),
-      tabIds: z.array(z.string()),
-      activeTabId: z.string().nullable(),
-      mruTabIds: z.array(z.string()).default([]),
-    }),
-    z.object({
-      type: z.literal("split"),
-      id: z.string().min(1),
-      direction: z.enum(["horizontal", "vertical"]),
-      first: ProjectSessionSplitLeafSchema,
-      second: ProjectSessionSplitLeafSchema,
-      ratio: z.number().finite().min(0.1).max(0.9),
-    }),
-  ]),
-);
-
-const ProjectSessionPanelLayoutV2Schema = z.object({
-  version: z.literal(2),
-  root: ProjectSessionSplitLeafSchema,
-  activeLeafId: z.string().min(1),
-  mruLeafIds: z.array(z.string().min(1)),
-  maximizedLeafId: z.string().min(1).nullable().optional(),
-});
-
-export const ProjectSessionPanelLayoutSchema = ProjectSessionPanelLayoutV2Schema satisfies z.ZodType<ProjectSessionPanelLayout>;
-
-export const ProjectSessionPanelStateSchema = z.object({
-  collapsed: z.boolean(),
-  layout: ProjectSessionPanelLayoutSchema,
-  size: z.object({
-    widthPx: z.number().finite().positive().optional(),
-    heightPx: z.number().finite().positive().optional(),
-    fullWidth: z.boolean().optional(),
-  }),
-}) satisfies z.ZodType<ProjectSessionPanelState>;
-
-export const ProjectSessionPanelsSchema = z.object({
-  right: ProjectSessionPanelStateSchema,
-  bottom: ProjectSessionPanelStateSchema,
-});
-
-const ProjectSessionPanelStateUpdateSchema = z.object({
-  collapsed: z.boolean().optional(),
-  layout: ProjectSessionPanelLayoutSchema.optional(),
-  size: z.object({
-    widthPx: z.number().finite().positive().optional(),
-    heightPx: z.number().finite().positive().optional(),
-    fullWidth: z.boolean().optional(),
-  }).optional(),
-});
 
 export const ProjectSessionCreateInputSchema = z.object({
   projectId: z.string().min(1).nullable(),
@@ -171,12 +100,7 @@ export const ProjectSessionListOptionsSchema = z.object({
 
 export const ProjectSessionUpdateInputSchema = z.object({
   noThreadFallbackTitle: titleSchema.optional(),
-  leftPaneCollapsed: z.boolean().optional(),
-  panels: z.object({
-    right: ProjectSessionPanelStateUpdateSchema.optional(),
-    bottom: ProjectSessionPanelStateUpdateSchema.optional(),
-  }).optional(),
-}) satisfies z.ZodType<ProjectSessionUpdateInput>;
+}).strict() satisfies z.ZodType<ProjectSessionUpdateInput>;
 
 export const ProjectSessionRenameInputSchema = z.object({
   title: z.string(),
@@ -201,150 +125,6 @@ export const ProjectSessionForkInputSchema = z.object({
   message: z.string().optional(),
   collaborationMode: CodexCollaborationModeKindSchema.optional(),
 }) satisfies z.ZodType<ProjectSessionForkInput>;
-
-export const ProjectSessionTabKindSchema = z.enum([
-  "db_view",
-  "page_stage",
-  "terminal",
-  "browser",
-  "review",
-  "files",
-]);
-
-const projectSessionTabCreateBase = {
-  sessionId: z.string().min(1),
-  panelId: PanelIdSchema,
-  targetLeafId: z.string().min(1).optional(),
-  clientTabId: z.string().regex(/^[A-Za-z0-9:_-]{1,160}$/).optional(),
-  title: titleSchema,
-} as const;
-
-export const ProjectSessionTabCreateInputSchema = z.discriminatedUnion("kind", [
-  z.object({
-    ...projectSessionTabCreateBase,
-    kind: z.literal("db_view"),
-    config: ProjectSessionDbViewTabConfigSchema,
-    browserTabId: z.never().optional(),
-  }).strict(),
-  z.object({
-    ...projectSessionTabCreateBase,
-    kind: z.literal("page_stage"),
-    config: ProjectSessionPageStageTabConfigSchema,
-    browserTabId: z.never().optional(),
-  }).strict(),
-  z.object({
-    ...projectSessionTabCreateBase,
-    kind: z.literal("terminal"),
-    config: ProjectSessionTerminalTabConfigSchema,
-    browserTabId: z.never().optional(),
-  }).strict(),
-  z.object({
-    ...projectSessionTabCreateBase,
-    kind: z.literal("browser"),
-    config: ProjectSessionBrowserTabConfigSchema,
-    browserTabId: z.string().trim().min(1).optional(),
-  }).strict(),
-  z.object({
-    ...projectSessionTabCreateBase,
-    kind: z.literal("review"),
-    config: ProjectSessionProjectScopedTabConfigSchema,
-    browserTabId: z.never().optional(),
-  }).strict(),
-  z.object({
-    ...projectSessionTabCreateBase,
-    kind: z.literal("files"),
-    config: ProjectSessionFilesTabConfigSchema,
-    browserTabId: z.never().optional(),
-  }).strict(),
-]) satisfies z.ZodType<ProjectSessionTabCreateInput>;
-
-export const ProjectSessionTabUpdateInputSchema = z.object({
-  title: titleSchema.optional(),
-  config: z.unknown().optional(),
-  stateKey: z.number().int().nonnegative().optional(),
-  state: z.unknown().optional(),
-});
-
-export function parseProjectSessionTabUpdateInput(
-  kind: ProjectSessionTabKind,
-  input: unknown,
-): ProjectSessionTabUpdateInput {
-  const parsed = ProjectSessionTabUpdateInputSchema.parse(input);
-  if (parsed.config === undefined) return parsed as ProjectSessionTabUpdateInput;
-  return {
-    ...parsed,
-    config: parseProjectSessionTabConfig(kind, parsed.config),
-  };
-}
-
-export const ProjectSessionTabDeleteInputSchema = z.object({
-  tabId: z.string().min(1),
-  preserveEmptyLeafIds: z.array(z.string().min(1)).optional(),
-  preferredActiveLeafId: z.string().min(1).nullable().optional(),
-  preferredActiveTabId: z.string().min(1).nullable().optional(),
-}) satisfies z.ZodType<ProjectSessionTabDeleteInput>;
-
-export const ProjectSessionTabReorderInputSchema = z.object({
-  sessionId: z.string().min(1),
-  panelId: PanelIdSchema,
-  leafId: z.string().min(1).optional(),
-  orderedTabIds: z.array(z.string()),
-}) satisfies z.ZodType<ProjectSessionTabReorderInput>;
-
-const ProjectSessionPanelSplitSideSchema = z.enum(["left", "right", "up", "down"]);
-
-export const ProjectSessionTabMoveInputSchema = z.object({
-  tabId: z.string().min(1),
-  targetPanelId: PanelIdSchema,
-  targetLeafId: z.string().min(1).optional(),
-  targetIndex: z.number().int().nonnegative().optional(),
-  preserveEmptyLeafIds: z.array(z.string().min(1)).optional(),
-  splitTarget: z.object({
-    leafId: z.string().min(1),
-    side: ProjectSessionPanelSplitSideSchema,
-  }).optional(),
-}) satisfies z.ZodType<ProjectSessionTabMoveInput>;
-
-export const ProjectSessionPanelSplitInputSchema = z.object({
-  sessionId: z.string().min(1),
-  panelId: PanelIdSchema,
-  leafId: z.string().min(1),
-  side: ProjectSessionPanelSplitSideSchema,
-  tabId: z.string().min(1).optional(),
-  preserveEmptyLeafIds: z.array(z.string().min(1)).optional(),
-}) satisfies z.ZodType<ProjectSessionPanelSplitInput>;
-
-export const ProjectSessionPanelEnsureRightLeafInputSchema = z.object({
-  sessionId: z.string().min(1),
-  panelId: PanelIdSchema,
-  sourceLeafId: z.string().min(1),
-}) satisfies z.ZodType<ProjectSessionPanelEnsureRightLeafInput>;
-
-export const ProjectSessionPanelMergeInputSchema = z.object({
-  sessionId: z.string().min(1),
-  panelId: PanelIdSchema,
-  leafId: z.string().min(1),
-}) satisfies z.ZodType<ProjectSessionPanelMergeInput>;
-
-export const ProjectSessionPanelActivateInputSchema = z.object({
-  sessionId: z.string().min(1),
-  panelId: PanelIdSchema,
-  leafId: z.string().min(1),
-  tabId: z.string().min(1).nullable().optional(),
-}) satisfies z.ZodType<ProjectSessionPanelActivateInput>;
-
-export const ProjectSessionPanelResizeInputSchema = z.object({
-  sessionId: z.string().min(1),
-  panelId: PanelIdSchema,
-  branchId: z.string().min(1),
-  ratio: z.number().finite(),
-}) satisfies z.ZodType<ProjectSessionPanelResizeInput>;
-
-export const ProjectSessionPanelMaximizeInputSchema = z.object({
-  sessionId: z.string().min(1),
-  panelId: PanelIdSchema,
-  leafId: z.string().min(1).nullable(),
-}) satisfies z.ZodType<ProjectSessionPanelMaximizeInput>;
 
 export const ProjectSessionThreadLinkInputSchema = z.object({
   sessionId: z.string().min(1),

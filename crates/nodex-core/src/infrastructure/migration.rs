@@ -282,6 +282,110 @@ CREATE INDEX idx_project_session_tabs_browser_identity
   ON project_session_tabs(session_id, browser_tab_id);
 "#;
 
+const V90_WINDOW_OWNED_SESSION_VIEWS_SCHEMA_SQL: &str = r#"
+CREATE TEMP TABLE project_session_initial_database_views (
+  session_id TEXT PRIMARY KEY,
+  database_view_id TEXT
+) WITHOUT ROWID;
+
+INSERT INTO project_session_initial_database_views(session_id, database_view_id)
+SELECT
+  session.id,
+  (
+    SELECT json_extract(tab.config_json, '$.databaseViewId')
+    FROM project_session_tabs tab
+    JOIN database_views view
+      ON view.id = json_extract(tab.config_json, '$.databaseViewId')
+    JOIN blocks database_block
+      ON database_block.id = view.database_block_id
+    WHERE tab.session_id = session.id
+      AND tab.kind = 'db_view'
+      AND tab.project_id = session.project_id
+      AND database_block.project_id = session.project_id
+      AND json_type(tab.config_json, '$.databaseViewId') = 'text'
+      AND length(trim(json_extract(tab.config_json, '$.databaseViewId'))) > 0
+    ORDER BY
+      CASE tab.panel_id WHEN 'right' THEN 0 ELSE 1 END,
+      tab."order",
+      tab.created_at,
+      tab.id
+    LIMIT 1
+  )
+FROM project_sessions session;
+
+DROP INDEX idx_project_session_tabs_session_order;
+DROP INDEX idx_project_session_tabs_project;
+DROP INDEX idx_project_session_tabs_browser_identity;
+DROP TABLE project_session_tabs;
+
+DROP INDEX idx_project_session_threads_thread;
+DROP INDEX idx_project_sessions_project_order;
+DROP INDEX idx_project_sessions_project_sidebar;
+
+ALTER TABLE project_session_threads RENAME TO project_session_threads_v89;
+ALTER TABLE project_sessions RENAME TO project_sessions_v89;
+
+CREATE TABLE project_sessions (
+  id TEXT PRIMARY KEY,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  no_thread_fallback_title TEXT NOT NULL,
+  "order" INTEGER NOT NULL,
+  pinned INTEGER NOT NULL DEFAULT 0,
+  pinned_order INTEGER,
+  archived INTEGER NOT NULL DEFAULT 0,
+  archived_at TEXT,
+  unread INTEGER NOT NULL DEFAULT 0,
+  initial_database_view_id TEXT
+    REFERENCES database_views(id) ON UPDATE CASCADE ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK (pinned IN (0, 1)),
+  CHECK (archived IN (0, 1)),
+  CHECK (unread IN (0, 1))
+);
+
+CREATE TABLE project_session_threads (
+  session_id TEXT PRIMARY KEY REFERENCES project_sessions(id) ON DELETE CASCADE,
+  thread_id TEXT NOT NULL REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
+  linked_at TEXT NOT NULL
+) WITHOUT ROWID;
+
+INSERT INTO project_sessions(
+  id, project_id, no_thread_fallback_title, "order", pinned, pinned_order,
+  archived, archived_at, unread, initial_database_view_id, created_at, updated_at
+)
+SELECT
+  legacy.id,
+  legacy.project_id,
+  legacy.no_thread_fallback_title,
+  legacy."order",
+  legacy.pinned,
+  legacy.pinned_order,
+  legacy.archived,
+  legacy.archived_at,
+  legacy.unread,
+  initial.database_view_id,
+  legacy.created_at,
+  legacy.updated_at
+FROM project_sessions_v89 legacy
+JOIN project_session_initial_database_views initial ON initial.session_id = legacy.id;
+
+INSERT INTO project_session_threads(session_id, thread_id, linked_at)
+SELECT session_id, thread_id, linked_at
+FROM project_session_threads_v89;
+
+DROP TABLE project_session_threads_v89;
+DROP TABLE project_sessions_v89;
+DROP TABLE project_session_initial_database_views;
+
+CREATE INDEX idx_project_sessions_project_order
+  ON project_sessions(project_id, "order", created_at);
+CREATE INDEX idx_project_sessions_project_sidebar
+  ON project_sessions(project_id, archived, pinned, pinned_order, "order");
+CREATE UNIQUE INDEX idx_project_session_threads_thread
+  ON project_session_threads(thread_id);
+"#;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentEngineFingerprint {
@@ -374,7 +478,7 @@ pub fn prepare_profile_store_with_observer(
         });
     }
 
-    if matches!(version, 85..=88) {
+    if matches!(version, 85..=89) {
         return upgrade_owned_store(connection, profile_home, version, observer);
     }
 
@@ -500,6 +604,7 @@ fn upgrade_owned_store(
         86 => validate_exact_v86_schema(connection)?,
         87 => validate_exact_v87_schema(connection)?,
         88 => validate_exact_v88_schema(connection)?,
+        89 => validate_exact_v89_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -522,6 +627,7 @@ fn upgrade_owned_store(
         ensure_v87_project_session_tabs_schema(transaction)?;
         ensure_v88_projection_impact_schema(transaction)?;
         repair_v89_codex_thread_timestamps(transaction)?;
+        ensure_v90_window_owned_session_views_schema(transaction)?;
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
              WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
@@ -806,6 +912,7 @@ fn publish_current_store(
         write_v85_metadata(transaction, migrated_from, backup_name, now, fingerprints)?;
         ensure_v88_projection_impact_schema(transaction)?;
         repair_v89_codex_thread_timestamps(transaction)?;
+        ensure_v90_window_owned_session_views_schema(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -827,6 +934,7 @@ fn create_fresh_store(
         write_v85_metadata(transaction, None, None, now, &[])?;
         ensure_v88_projection_impact_schema(transaction)?;
         repair_v89_codex_thread_timestamps(transaction)?;
+        ensure_v90_window_owned_session_views_schema(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -977,6 +1085,20 @@ fn repair_v89_codex_thread_timestamps(connection: &Connection) -> Result<(), Sto
                 "Codex Thread timestamp changed during v89 migration",
             ));
         }
+    }
+    Ok(())
+}
+
+fn ensure_v90_window_owned_session_views_schema(connection: &Connection) -> Result<(), StoreError> {
+    connection.execute_batch(V90_WINDOW_OWNED_SESSION_VIEWS_SCHEMA_SQL)?;
+    let foreign_key_violation = connection
+        .prepare("PRAGMA foreign_key_check")?
+        .query_row([], |_| Ok(()))
+        .optional()?;
+    if foreign_key_violation.is_some() {
+        return Err(corrupt(
+            "v90 Project Session migration produced a foreign-key violation",
+        ));
     }
     Ok(())
 }
@@ -1433,23 +1555,27 @@ fn validate_core_metadata(
 }
 
 fn validate_exact_v85_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, false, false, false, 85)
+    validate_exact_core_schema(connection, false, false, false, false, 85)
 }
 
 fn validate_exact_v86_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, false, false, 86)
+    validate_exact_core_schema(connection, true, false, false, false, 86)
 }
 
 fn validate_exact_v87_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, false, 87)
+    validate_exact_core_schema(connection, true, true, false, false, 87)
 }
 
 fn validate_exact_v88_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, 88)
+    validate_exact_core_schema(connection, true, true, true, false, 88)
+}
+
+fn validate_exact_v89_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, false, 89)
 }
 
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, CORE_SCHEMA_VERSION)
+    validate_exact_core_schema(connection, true, true, true, true, CORE_SCHEMA_VERSION)
 }
 
 fn validate_exact_core_schema(
@@ -1457,6 +1583,7 @@ fn validate_exact_core_schema(
     include_execution_profiles: bool,
     include_portable_tabs: bool,
     include_projection_impact: bool,
+    include_window_owned_session_views: bool,
     schema_version: i64,
 ) -> Result<(), StoreError> {
     let expected = Connection::open_in_memory()?;
@@ -1473,6 +1600,9 @@ fn validate_exact_core_schema(
     }
     if include_projection_impact {
         ensure_v88_projection_impact_schema(&expected)?;
+    }
+    if include_window_owned_session_views {
+        ensure_v90_window_owned_session_views_schema(&expected)?;
     }
 
     let expected_inventory = read_schema_inventory(&expected)?;
@@ -1529,6 +1659,9 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     }
     if version >= 88 {
         ensure_v88_projection_impact_schema(&expected)?;
+    }
+    if version >= 90 {
+        ensure_v90_window_owned_session_views_schema(&expected)?;
     }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
@@ -2071,7 +2204,7 @@ mod tests {
     }
 
     #[test]
-    fn v86_portable_tabs_upgrade_with_backup_and_preserve_tab_and_layout_state() {
+    fn v86_upgrade_discards_shared_view_state_and_preserves_domain_data() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
         seed_owned_v86_store(
@@ -2106,54 +2239,42 @@ mod tests {
         upgraded
             .writer()
             .call(|connection| {
-                let tab = connection.query_row(
-                    "SELECT project_id, panel_id, config_json, state_key, state_json, \
-                            \"order\", created_at, updated_at \
-                     FROM project_session_tabs WHERE id = 'migration-terminal'",
+                let legacy_tab_table: i64 = connection.query_row(
+                    "SELECT count(*) FROM sqlite_master \
+                     WHERE type = 'table' AND name = 'project_session_tabs'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(legacy_tab_table, 0);
+                let session = connection.query_row(
+                    "SELECT project_id, no_thread_fallback_title, initial_database_view_id \
+                     FROM project_sessions \
+                     WHERE id = 'migration-session'",
                     [],
                     |row| {
                         Ok((
                             row.get::<_, Option<String>>(0)?,
                             row.get::<_, String>(1)?,
-                            row.get::<_, String>(2)?,
-                            row.get::<_, i64>(3)?,
-                            row.get::<_, String>(4)?,
-                            row.get::<_, i64>(5)?,
-                            row.get::<_, String>(6)?,
-                            row.get::<_, String>(7)?,
+                            row.get::<_, Option<String>>(2)?,
                         ))
                     },
                 )?;
-                assert_eq!(tab.0.as_deref(), Some("migration-project"));
-                assert_eq!(tab.1, "bottom");
                 assert_eq!(
-                    serde_json::from_str::<serde_json::Value>(&tab.2)
-                        .expect("normalized terminal config"),
-                    serde_json::json!({ "terminalSessionId": "terminal:legacy" })
+                    session,
+                    (
+                        Some("migration-project".to_owned()),
+                        "Migration Session".to_owned(),
+                        None,
+                    )
                 );
-                assert_eq!(
-                    (tab.3, tab.4.as_str(), tab.5),
-                    (7, r#"{"cwd":"/legacy"}"#, 3)
-                );
-                assert_eq!(
-                    (tab.6.as_str(), tab.7.as_str()),
-                    ("2026-07-18T03:00:00Z", "2026-07-18T04:00:00Z")
-                );
-                let layout: String = connection.query_row(
-                    "SELECT panel_state_json FROM project_sessions \
-                     WHERE id = 'migration-session'",
-                    [],
-                    |row| row.get(0),
-                )?;
-                assert_eq!(layout, r#"{"right":{"tabIds":["migration-terminal"]}}"#);
                 Ok::<_, StoreError>(())
             })
-            .expect("verify v87 portable tab migration");
+            .expect("verify v90 window-owned view migration");
         drop(upgraded);
         let mut reopen_events = Vec::new();
         let reopened =
             SqliteStoreKernel::open_with_observer(&home, |event| reopen_events.push(event))
-                .expect("validate current v87 store exactly");
+                .expect("validate current v90 store exactly");
         assert!(reopen_events.is_empty());
         assert_eq!(reopened.preparation().schema_version, CORE_SCHEMA_VERSION);
         assert_eq!(reopened.preparation().migrated_from_version, None);

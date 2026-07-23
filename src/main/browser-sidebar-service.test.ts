@@ -22,6 +22,7 @@ type BrowserSidebarServiceInstance = InstanceType<typeof BrowserSidebarService>;
 
 const browserIdentity = {
   browserConversationId: "session-1",
+  browserViewScopeId: "window-session-1",
   browserTabId: "tab-browser",
 } as const;
 
@@ -114,6 +115,7 @@ function readTab(
 ) {
   const tab = service.getStateSnapshot().tabs.find((item) =>
     item.browserConversationId === identity.browserConversationId
+    && item.browserViewScopeId === identity.browserViewScopeId
     && item.browserTabId === identity.browserTabId
   );
   if (!tab) throw new Error("Missing browser tab snapshot");
@@ -376,10 +378,11 @@ describe("BrowserSidebarService webview lifecycle", () => {
     expect(readTab(service).findState.open).toBe(false);
   });
 
-  test("keeps the same browser tab id independent across conversations", async () => {
+  test("keeps the same browser tab id independent across window scopes", async () => {
     const service = createService();
     const otherIdentity = {
-      browserConversationId: "session-2",
+      browserConversationId: browserIdentity.browserConversationId,
+      browserViewScopeId: "window-session-2",
       browserTabId: browserIdentity.browserTabId,
     } as const;
 
@@ -407,7 +410,10 @@ describe("BrowserSidebarService webview lifecycle", () => {
     expect(readTab(service).title).toBe("Changed only in one");
     expect(readTab(service, otherIdentity).title).toBe("Two");
     expect(readTab(service, otherIdentity).projectId).toBe(null);
-    expect(JSON.stringify(service.getConversationBrowserTabIds("session-1"))).toBe(
+    expect(JSON.stringify(service.getConversationBrowserTabIds(
+      "session-1",
+      browserIdentity.browserViewScopeId,
+    ))).toBe(
       JSON.stringify([]),
     );
 
@@ -456,6 +462,7 @@ describe("BrowserSidebarService webview lifecycle", () => {
       type: "browser-use-set-cursor",
       cursor: {
         browserConversationId: "session-2",
+        browserViewScopeId: "window-session-2",
         browserTabId: browserIdentity.browserTabId,
         x: 98,
         y: 76,
@@ -485,10 +492,15 @@ describe("BrowserSidebarService webview lifecycle", () => {
       "session-2/tab-browser:98,76:false",
     ]));
     expect(releasedEvent).toBe("session-1/tab-browser");
-    expect(service.getBrowserUseStateSnapshot().activeBrowserTabIdsByConversation["session-1"] === undefined).toBe(true);
+    expect(
+      service.getBrowserUseStateSnapshot().activeBrowserTabIdsByConversationScope[
+        `session-1\0${browserIdentity.browserViewScopeId}`
+      ] === undefined,
+    ).toBe(true);
     expect(JSON.stringify(service.getBrowserUseStateSnapshot().cursors)).toBe(JSON.stringify([
       {
         browserConversationId: "session-2",
+        browserViewScopeId: "window-session-2",
         browserTabId: "tab-browser",
         x: 98,
         y: 76,
@@ -506,6 +518,7 @@ describe("BrowserSidebarService webview lifecycle", () => {
     const service = createService();
     const secondIdentity = {
       browserConversationId: "session-2",
+      browserViewScopeId: "window-session-2",
       browserTabId: browserIdentity.browserTabId,
     } as const;
     let pageReleasedCount = 0;

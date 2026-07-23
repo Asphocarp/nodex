@@ -120,7 +120,6 @@ import {
   type BlockTransferHttpDependencies,
 } from "./block-transfer-http";
 import {
-  deleteProjectSessionTabWithBrowserCleanupUsing,
   deleteProjectSessionWithBrowserCleanupUsing,
   type ProjectSessionBrowserRuntime,
 } from "./project-session-browser-ownership";
@@ -260,10 +259,6 @@ const defaultHttpServerDependencies: HttpServerDependencies = {
     closeBrowserProject: async (projectId) => {
       const { browserSidebarService } = await import("./browser-sidebar-service");
       browserSidebarService.closeBrowserProject(projectId);
-    },
-    closeBrowserTab: async (identity) => {
-      const { browserSidebarService } = await import("./browser-sidebar-service");
-      browserSidebarService.closeBrowserTab(identity);
     },
   },
   transcribeDictation: async (input) => await codexService.transcribeDictation(input),
@@ -1177,129 +1172,6 @@ app.post("/api/project-sessions/:sessionId/fork", async (c) => {
   }
 });
 
-app.put("/api/project-sessions/:sessionId/panels/:panelId", async (c) => {
-  const body = await c.req.json();
-  try {
-    const panelId = c.req.param("panelId");
-    if (panelId !== "right" && panelId !== "bottom") return c.json({ error: "Invalid panel" }, 400);
-    const session = await projectWorkspaceAuthority().updateProjectSessionPanel(
-      c.req.param("sessionId"),
-      panelId,
-      body,
-    );
-    if (!session) return c.json({ error: "Not found" }, 404);
-    return c.json(session);
-  } catch (err) {
-    return c.json({ error: (err as Error).message }, 400);
-  }
-});
-
-app.post("/api/project-sessions/:sessionId/panels/:panelId/split", async (c) => {
-  const body = await c.req.json();
-  try {
-    const panelId = c.req.param("panelId");
-    if (panelId !== "right" && panelId !== "bottom") return c.json({ error: "Invalid panel" }, 400);
-    const session = await projectWorkspaceAuthority()
-      .splitProjectSessionPanelGroup({
-        ...body,
-        sessionId: c.req.param("sessionId"),
-        panelId,
-      });
-    if (!session) return c.json({ error: "Not found" }, 404);
-    return c.json(session);
-  } catch (err) {
-    return c.json({ error: (err as Error).message }, 400);
-  }
-});
-
-app.post("/api/project-sessions/:sessionId/panels/:panelId/ensure-right-leaf", async (c) => {
-  const body = await c.req.json();
-  try {
-    const panelId = c.req.param("panelId");
-    if (panelId !== "right" && panelId !== "bottom") return c.json({ error: "Invalid panel" }, 400);
-    const result = await projectWorkspaceAuthority()
-      .ensureProjectSessionPanelLeafToRight({
-        ...body,
-        sessionId: c.req.param("sessionId"),
-        panelId,
-      });
-    if (!result) return c.json({ error: "Not found" }, 404);
-    return c.json(result);
-  } catch (err) {
-    return c.json({ error: (err as Error).message }, 400);
-  }
-});
-
-app.post("/api/project-sessions/:sessionId/panels/:panelId/merge", async (c) => {
-  const body = await c.req.json();
-  try {
-    const panelId = c.req.param("panelId");
-    if (panelId !== "right" && panelId !== "bottom") return c.json({ error: "Invalid panel" }, 400);
-    const session = await projectWorkspaceAuthority().mergeProjectSessionPanelGroup({
-      ...body,
-      sessionId: c.req.param("sessionId"),
-      panelId,
-    });
-    if (!session) return c.json({ error: "Not found" }, 404);
-    return c.json(session);
-  } catch (err) {
-    return c.json({ error: (err as Error).message }, 400);
-  }
-});
-
-app.put("/api/project-sessions/:sessionId/panels/:panelId/active-group", async (c) => {
-  const body = await c.req.json();
-  try {
-    const panelId = c.req.param("panelId");
-    if (panelId !== "right" && panelId !== "bottom") return c.json({ error: "Invalid panel" }, 400);
-    const session = await projectWorkspaceAuthority()
-      .activateProjectSessionPanelGroup({
-        ...body,
-        sessionId: c.req.param("sessionId"),
-        panelId,
-      });
-    if (!session) return c.json({ error: "Not found" }, 404);
-    return c.json(session);
-  } catch (err) {
-    return c.json({ error: (err as Error).message }, 400);
-  }
-});
-
-app.put("/api/project-sessions/:sessionId/panels/:panelId/resize-group", async (c) => {
-  const body = await c.req.json();
-  try {
-    const panelId = c.req.param("panelId");
-    if (panelId !== "right" && panelId !== "bottom") return c.json({ error: "Invalid panel" }, 400);
-    const session = await projectWorkspaceAuthority().resizeProjectSessionPanelGroup({
-      ...body,
-      sessionId: c.req.param("sessionId"),
-      panelId,
-    });
-    if (!session) return c.json({ error: "Not found" }, 404);
-    return c.json(session);
-  } catch (err) {
-    return c.json({ error: (err as Error).message }, 400);
-  }
-});
-
-app.put("/api/project-sessions/:sessionId/panels/:panelId/maximized-group", async (c) => {
-  const body = await c.req.json();
-  try {
-    const panelId = c.req.param("panelId");
-    if (panelId !== "right" && panelId !== "bottom") return c.json({ error: "Invalid panel" }, 400);
-    const session = await projectWorkspaceAuthority()
-      .maximizeProjectSessionPanelGroup({
-        ...body,
-        sessionId: c.req.param("sessionId"),
-        panelId,
-      });
-    if (!session) return c.json({ error: "Not found" }, 404);
-    return c.json(session);
-  } catch (err) {
-    return c.json({ error: (err as Error).message }, 400);
-  }
-});
-
 app.delete("/api/project-sessions/:sessionId", async (c) => {
   try {
     const sessionId = c.req.param("sessionId");
@@ -1307,7 +1179,6 @@ app.delete("/api/project-sessions/:sessionId", async (c) => {
     const success = await deleteProjectSessionWithBrowserCleanupUsing({
       sessionId,
       browserRuntime: httpServerDependencies.browserRuntime,
-      getProjectSession: workspace.getProjectSession,
       deleteProjectSession: workspace.deleteProjectSession,
     });
     if (!success) return c.json({ error: "Not found" }, 404);
@@ -1327,129 +1198,6 @@ app.put("/api/projects/:projectId/sessions/reorder", async (c) => {
       orderedSessionIds.filter((item: unknown): item is string => typeof item === "string"),
     );
     return c.json({ sessions });
-  } catch (err) {
-    return c.json({ error: (err as Error).message }, 400);
-  }
-});
-
-app.post("/api/project-sessions/:sessionId/tabs", async (c) => {
-  const sessionId = c.req.param("sessionId");
-  const body = await c.req.json();
-  try {
-    const tab = await projectWorkspaceAuthority().createProjectSessionTab({
-      ...body,
-      sessionId,
-    });
-    return c.json(tab, 201);
-  } catch (err) {
-    return c.json({ error: (err as Error).message }, 400);
-  }
-});
-
-app.put("/api/project-session-tabs/:tabId", async (c) => {
-  const body = await c.req.json();
-  try {
-    const tab = await projectWorkspaceAuthority().updateProjectSessionTab(
-      c.req.param("tabId"),
-      body,
-    );
-    if (!tab) return c.json({ error: "Not found" }, 404);
-    return c.json(tab);
-  } catch (err) {
-    return c.json({ error: (err as Error).message }, 400);
-  }
-});
-
-app.put("/api/project-session-tabs/:tabId/state", async (c) => {
-  const body = await c.req.json();
-  try {
-    const tab = await projectWorkspaceAuthority().updateProjectSessionTabState(
-      c.req.param("tabId"),
-      typeof body.stateKey === "number" ? body.stateKey : 0,
-      body.state,
-    );
-    if (!tab) return c.json({ error: "Not found" }, 404);
-    return c.json(tab);
-  } catch (err) {
-    return c.json({ error: (err as Error).message }, 400);
-  }
-});
-
-app.delete("/api/project-session-tabs/:tabId", async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  const rawPreserveEmptyLeafIds = typeof body === "object" && body !== null && "preserveEmptyLeafIds" in body
-    ? body.preserveEmptyLeafIds
-    : undefined;
-  const preserveEmptyLeafIds = Array.isArray(rawPreserveEmptyLeafIds)
-    ? rawPreserveEmptyLeafIds.filter((item: unknown): item is string => typeof item === "string")
-    : undefined;
-  const preferredActiveLeafId = typeof body === "object" && body !== null && "preferredActiveLeafId" in body
-    ? typeof body.preferredActiveLeafId === "string"
-      ? body.preferredActiveLeafId
-      : body.preferredActiveLeafId === null
-        ? null
-        : undefined
-    : undefined;
-  const preferredActiveTabId = typeof body === "object" && body !== null && "preferredActiveTabId" in body
-    ? typeof body.preferredActiveTabId === "string"
-      ? body.preferredActiveTabId
-      : body.preferredActiveTabId === null
-        ? null
-        : undefined
-    : undefined;
-  const workspace = projectWorkspaceAuthority();
-  const success = await deleteProjectSessionTabWithBrowserCleanupUsing({
-    input: {
-      tabId: c.req.param("tabId"),
-      preserveEmptyLeafIds,
-      preferredActiveLeafId,
-      preferredActiveTabId,
-    },
-    browserRuntime: httpServerDependencies.browserRuntime,
-    getProjectSessionTab: workspace.getProjectSessionTab,
-    deleteProjectSessionTab: workspace.deleteProjectSessionTab,
-    getProjectSession: workspace.getProjectSession,
-  });
-  if (!success) return c.json({ error: "Not found" }, 404);
-  return c.json({ success: true });
-});
-
-app.put("/api/project-sessions/:sessionId/tabs/reorder", async (c) => {
-  const sessionId = c.req.param("sessionId");
-  const body = await c.req.json();
-  try {
-    const panelId = body.panelId === "bottom" ? "bottom" : "right";
-    const orderedTabIds = Array.isArray(body.orderedTabIds) ? body.orderedTabIds : [];
-    const session = await projectWorkspaceAuthority().reorderProjectSessionTabs(
-      {
-        sessionId,
-        panelId,
-        leafId: typeof body.leafId === "string" ? body.leafId : undefined,
-        orderedTabIds: orderedTabIds.filter((item: unknown): item is string => typeof item === "string"),
-      },
-    );
-    if (!session) return c.json({ error: "Not found" }, 404);
-    return c.json(session);
-  } catch (err) {
-    return c.json({ error: (err as Error).message }, 400);
-  }
-});
-
-app.put("/api/project-session-tabs/:tabId/move", async (c) => {
-  const body = await c.req.json();
-  try {
-    const session = await projectWorkspaceAuthority().moveProjectSessionTab({
-      tabId: c.req.param("tabId"),
-      targetPanelId: body.targetPanelId,
-      targetLeafId: body.targetLeafId,
-      targetIndex: body.targetIndex,
-      preserveEmptyLeafIds: Array.isArray(body.preserveEmptyLeafIds)
-        ? body.preserveEmptyLeafIds.filter((item: unknown): item is string => typeof item === "string")
-        : undefined,
-      splitTarget: body.splitTarget,
-    });
-    if (!session) return c.json({ error: "Not found" }, 404);
-    return c.json(session);
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
   }

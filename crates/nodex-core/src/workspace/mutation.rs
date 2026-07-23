@@ -41,7 +41,6 @@ const MAX_SOURCE_ROOT_BYTES: usize = 4_096;
 const MAX_PROJECT_ORDER_SIZE: usize = 100_000;
 const INITIAL_RANK_KEY: &str = "7fffffffffffffffffffffffffffffff";
 const DEFAULT_SESSION_TITLE: &str = "Database View";
-const DEFAULT_TAB_TITLE: &str = "DB View";
 
 static EXTENDED_PICTOGRAPHIC: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"\p{Extended_Pictographic}")
@@ -53,7 +52,6 @@ struct ProjectAggregateIdentities {
     data_source_id: String,
     view_id: String,
     session_id: String,
-    tab_id: String,
 }
 
 struct CreatedProjectAggregate {
@@ -1200,8 +1198,7 @@ fn create_project_records(
              OR EXISTS (SELECT 1 FROM documents WHERE id = ?4) \
              OR EXISTS (SELECT 1 FROM data_sources WHERE id = ?5) \
              OR EXISTS (SELECT 1 FROM database_views WHERE id = ?6) \
-             OR EXISTS (SELECT 1 FROM project_sessions WHERE id = ?7) \
-             OR EXISTS (SELECT 1 FROM project_session_tabs WHERE id = ?8)",
+             OR EXISTS (SELECT 1 FROM project_sessions WHERE id = ?7)",
             params![
                 project_id,
                 identities.database_id,
@@ -1210,7 +1207,6 @@ fn create_project_records(
                 identities.data_source_id,
                 identities.view_id,
                 identities.session_id,
-                identities.tab_id,
             ],
             |_| Ok(()),
         )
@@ -1316,71 +1312,20 @@ fn insert_initial_session(
     identities: &ProjectAggregateIdentities,
     now: &str,
 ) -> Result<(), StoreError> {
-    let panels = initial_panels(&identities.tab_id);
     connection.execute(
         "INSERT INTO project_sessions(\
            id, project_id, no_thread_fallback_title, \"order\", pinned, pinned_order, archived, \
-           archived_at, unread, left_pane_collapsed, panel_state_json, created_at, updated_at\
-         ) VALUES (?1, ?2, ?3, 0, 1, 0, 0, NULL, 0, 1, ?4, ?5, ?5)",
+           archived_at, unread, initial_database_view_id, created_at, updated_at\
+         ) VALUES (?1, ?2, ?3, 0, 1, 0, 0, NULL, 0, ?4, ?5, ?5)",
         params![
             identities.session_id,
             project_id,
             DEFAULT_SESSION_TITLE,
-            serde_json::to_string(&panels).map_err(|_| internal("Initial Session panels"))?,
-            now
-        ],
-    )?;
-    connection.execute(
-        "INSERT INTO project_session_tabs(\
-           id, session_id, project_id, panel_id, kind, title, config_json, state_key, \
-           state_json, \"order\", created_at, updated_at\
-         ) VALUES (?1, ?2, ?3, 'right', 'db_view', ?4, ?5, 0, '{}', 0, ?6, ?6)",
-        params![
-            identities.tab_id,
-            identities.session_id,
-            project_id,
-            DEFAULT_TAB_TITLE,
-            serde_json::to_string(&json!({
-                "projectId": project_id,
-                "databaseViewId": identities.view_id,
-                "view": "kanban",
-            }))
-            .map_err(|_| internal("Initial Session tab config"))?,
+            identities.view_id,
             now
         ],
     )?;
     Ok(())
-}
-
-fn initial_panels(tab_id: &str) -> serde_json::Value {
-    json!({
-        "right": {
-            "collapsed": false,
-            "layout": panel_layout(&[tab_id], Some(tab_id)),
-            "size": { "widthPx": 600, "fullWidth": true }
-        },
-        "bottom": {
-            "collapsed": true,
-            "layout": panel_layout(&[], None),
-            "size": { "heightPx": 280 }
-        }
-    })
-}
-
-fn panel_layout(tab_ids: &[&str], active_tab_id: Option<&str>) -> serde_json::Value {
-    json!({
-        "version": 2,
-        "root": {
-            "type": "leaf",
-            "id": "main",
-            "tabIds": tab_ids,
-            "activeTabId": active_tab_id,
-            "mruTabIds": tab_ids,
-        },
-        "activeLeafId": "main",
-        "mruLeafIds": ["main"],
-        "maximizedLeafId": null,
-    })
 }
 
 fn aggregate_identities(namespace: &str, project_id: &str) -> ProjectAggregateIdentities {
@@ -1389,7 +1334,6 @@ fn aggregate_identities(namespace: &str, project_id: &str) -> ProjectAggregateId
         data_source_id: stable_uuid_v7(namespace, "data_source", project_id),
         view_id: stable_uuid_v7(namespace, "view", project_id),
         session_id: stable_uuid_v7(namespace, "session", project_id),
-        tab_id: stable_uuid_v7(namespace, "tab", project_id),
     }
 }
 
@@ -1536,18 +1480,15 @@ mod tests {
 
     use nodex_core_contracts::workspace::{
         CodexThreadActiveFlag, CodexThreadStatusType, ProjectCatalogChangeKind, ProjectLifecycle,
-        ProjectSessionDatabaseView, ProjectSessionIntent, ProjectSessionInvalidationScope,
-        ProjectSessionPanelId, ProjectSessionPanelSizePatch, ProjectSessionPanelStatePatch,
-        ProjectSessionTabContent, ProjectWorkspaceIntent, ProjectWorkspaceRead,
-        ProjectWorkspaceReadValue, ProjectWorkspaceThreadPatch, ProjectWorkspaceThreadStatus,
-        ProjectWorkspaceTurnAuthoritySource,
+        ProjectSessionIntent, ProjectSessionInvalidationScope, ProjectWorkspaceIntent,
+        ProjectWorkspaceRead, ProjectWorkspaceReadValue, ProjectWorkspaceThreadPatch,
+        ProjectWorkspaceThreadStatus, ProjectWorkspaceTurnAuthoritySource,
     };
     use nodex_core_contracts::{
         AdapterKind, BoundModuleContext, CoreErrorCode, CoreModuleEventPayload, LibraryId,
         ModuleApplyRequest, ModuleReadRequest, PROJECT_WORKSPACE_CONTRACT_VERSION, ProfileId,
         ProjectId, ProjectionImpact, StoreEpoch,
     };
-    use serde_json::json;
     use tempfile::{TempDir, tempdir};
 
     use crate::infrastructure::sqlite::with_immediate_transaction;
@@ -1738,9 +1679,8 @@ mod tests {
                              JOIN data_sources source ON source.id = property.data_source_id \
                              WHERE source.home_database_block_id = project.database_block_id), \
                             (SELECT count(*) FROM project_sessions session \
-                             JOIN project_session_tabs tab ON tab.session_id = session.id \
                              WHERE session.project_id = project.id \
-                               AND tab.kind = 'db_view'), \
+                               AND session.initial_database_view_id IS NOT NULL), \
                             (SELECT count(*) FROM canvas_scenes scene \
                              JOIN documents document ON document.id = scene.document_id \
                              WHERE document.project_id = project.id), \
@@ -2524,46 +2464,6 @@ mod tests {
                 ),
             )
             .expect("link projectless Codex Thread");
-        module
-            .apply(
-                &context(),
-                session_request(
-                    "workspace-session-create-projectless-browser",
-                    "session-projectless",
-                    ProjectSessionIntent::CreateTab {
-                        tab_id: "projectless-browser".to_owned(),
-                        panel_id: ProjectSessionPanelId::Right,
-                        target_leaf_id: None,
-                        title: "Projectless browser".to_owned(),
-                        content: ProjectSessionTabContent::Browser {
-                            browser_tab_id: Some("projectless-browser-identity".to_owned()),
-                            url: Some("https://example.test/projectless".to_owned()),
-                            title: None,
-                            favicon_url: None,
-                            device_toolbar_visible: None,
-                        },
-                    },
-                ),
-            )
-            .expect("create projectless browser tab");
-        module
-            .apply(
-                &context(),
-                session_request(
-                    "workspace-session-create-projectless-terminal",
-                    "session-projectless",
-                    ProjectSessionIntent::CreateTab {
-                        tab_id: "projectless-terminal".to_owned(),
-                        panel_id: ProjectSessionPanelId::Bottom,
-                        target_leaf_id: None,
-                        title: "Projectless terminal".to_owned(),
-                        content: ProjectSessionTabContent::Terminal {
-                            terminal_session_id: "projectless-terminal-owner".to_owned(),
-                        },
-                    },
-                ),
-            )
-            .expect("create projectless terminal tab");
         let moved = module
             .apply(
                 &context(),
@@ -2575,7 +2475,7 @@ mod tests {
                     },
                 ),
             )
-            .expect("move browser-only Session into Project");
+            .expect("move projectless Session into Project");
         assert_eq!(
             moved.committed.value.affected_thread_ids,
             ["thread-projectless"]
@@ -2606,93 +2506,11 @@ mod tests {
                     },
                 ),
             )
-            .expect("move Browser and Terminal Session back to projectless");
+            .expect("move Session back to projectless");
         assert_eq!(
             moved_back.committed.value.affected_thread_ids,
             ["thread-projectless"]
         );
-        let projectless_snapshot = module
-            .read(
-                &context(),
-                ModuleReadRequest {
-                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
-                    read: ProjectWorkspaceRead::Session {
-                        session_id: "session-projectless".to_owned(),
-                    },
-                },
-            )
-            .expect("read rehomed projectless Session");
-        let ProjectWorkspaceReadValue::Session { tabs, .. } = projectless_snapshot.value else {
-            panic!("rehomed projectless Session snapshot");
-        };
-        assert!(tabs.iter().all(|tab| tab.project_id.is_none()));
-        let browser = tabs
-            .iter()
-            .find(|tab| tab.id == "projectless-browser")
-            .expect("rehomed projectless Browser tab");
-        assert!(matches!(
-            browser.content,
-            ProjectSessionTabContent::Browser { .. }
-        ));
-        let terminal = tabs
-            .iter()
-            .find(|tab| tab.id == "projectless-terminal")
-            .expect("rehomed projectless Terminal tab");
-        assert_eq!(
-            terminal.content,
-            ProjectSessionTabContent::Terminal {
-                terminal_session_id: "projectless-terminal-owner".to_owned(),
-            }
-        );
-
-        module
-            .apply(
-                &context(),
-                session_request(
-                    "workspace-session-create-terminal-a",
-                    "session-a",
-                    ProjectSessionIntent::CreateTab {
-                        tab_id: "session-a-terminal".to_owned(),
-                        panel_id: ProjectSessionPanelId::Right,
-                        target_leaf_id: None,
-                        title: "Terminal".to_owned(),
-                        content: ProjectSessionTabContent::Terminal {
-                            terminal_session_id: "session-a-terminal-owner".to_owned(),
-                        },
-                    },
-                ),
-            )
-            .expect("create portable Terminal tab");
-        module
-            .apply(
-                &context(),
-                session_request(
-                    "workspace-session-create-review-a",
-                    "session-a",
-                    ProjectSessionIntent::CreateTab {
-                        tab_id: "session-a-review".to_owned(),
-                        panel_id: ProjectSessionPanelId::Right,
-                        target_leaf_id: None,
-                        title: "Review".to_owned(),
-                        content: ProjectSessionTabContent::Review,
-                    },
-                ),
-            )
-            .expect("create Project-scoped Review tab");
-        let invalid_move = module
-            .apply(
-                &context(),
-                request(
-                    "workspace-session-invalid-move",
-                    ProjectWorkspaceIntent::MoveSession {
-                        session_id: "session-a".to_owned(),
-                        project_id: Some("project:default".to_owned()),
-                    },
-                ),
-            )
-            .expect_err("reject moving a Session with a Project-scoped tab");
-        assert_eq!(invalid_move.code, CoreErrorCode::InvalidInput);
-
         let deleted = module
             .apply(
                 &context(),
@@ -2715,7 +2533,7 @@ mod tests {
                 let session_rows = connection
                     .prepare(
                         "SELECT id, \"order\", pinned, pinned_order, archived, archived_at, \
-                           no_thread_fallback_title, left_pane_collapsed \
+                           no_thread_fallback_title \
                          FROM project_sessions WHERE project_id = 'project-native' \
                          ORDER BY id",
                     )?
@@ -2728,7 +2546,6 @@ mod tests {
                             row.get::<_, i64>(4)?,
                             row.get::<_, Option<String>>(5)?,
                             row.get::<_, String>(6)?,
-                            row.get::<_, i64>(7)?,
                         ))
                     })?
                     .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -2736,16 +2553,8 @@ mod tests {
                     "SELECT \
                        (SELECT count(*) FROM project_sessions \
                         WHERE id = 'session-projectless'), \
-                       (SELECT count(*) FROM project_session_tabs \
-                        WHERE id = 'projectless-browser'), \
-                       (SELECT count(*) FROM project_session_tabs \
-                        WHERE id = 'projectless-terminal'), \
                        (SELECT count(*) FROM project_session_threads \
                         WHERE thread_id = 'thread-projectless'), \
-                       (SELECT count(*) FROM core_module_receipts \
-                        WHERE operation_id = 'workspace-session-invalid-move'), \
-                       (SELECT count(*) FROM change_log \
-                        WHERE operation_id = 'workspace-session-invalid-move'), \
                        (SELECT project_id FROM codex_threads \
                         WHERE thread_id = 'thread-projectless')",
                     [],
@@ -2753,11 +2562,7 @@ mod tests {
                         Ok((
                             row.get::<_, i64>(0)?,
                             row.get::<_, i64>(1)?,
-                            row.get::<_, i64>(2)?,
-                            row.get::<_, i64>(3)?,
-                            row.get::<_, i64>(4)?,
-                            row.get::<_, i64>(5)?,
-                            row.get::<_, Option<String>>(6)?,
+                            row.get::<_, Option<String>>(2)?,
                         ))
                     },
                 )?;
@@ -2771,7 +2576,6 @@ mod tests {
             .expect("first explicit Session");
         assert_eq!((session_a.1, session_a.2, session_a.3), (2, 1, Some(2)));
         assert_eq!(session_a.6, "Lifecycle A");
-        assert_eq!(session_a.7, 0);
         let session_b = stored
             .0
             .iter()
@@ -2780,7 +2584,7 @@ mod tests {
         assert_eq!((session_b.1, session_b.2, session_b.3), (1, 0, None));
         assert_eq!(session_b.4, 0);
         assert_eq!(session_b.5, None);
-        assert_eq!(stored.1, (0, 0, 0, 0, 0, 0, None));
+        assert_eq!(stored.1, (0, 0, None));
         let initial = stored
             .0
             .iter()
@@ -2790,631 +2594,14 @@ mod tests {
     }
 
     #[test]
-    fn owns_projectless_terminal_and_exact_file_tab_boundaries() {
-        let (_directory, _kernel, module) = seeded_module();
-        module
-            .apply(
-                &context(),
-                request(
-                    "workspace-create-projectless-tab-owner",
-                    ProjectWorkspaceIntent::CreateSession {
-                        session_id: "session:projectless-tabs".to_owned(),
-                        project_id: None,
-                        title: "Projectless tools".to_owned(),
-                    },
-                ),
-            )
-            .expect("create projectless Session");
-        module
-            .apply(
-                &context(),
-                session_request(
-                    "workspace-create-projectless-terminal",
-                    "session:projectless-tabs",
-                    ProjectSessionIntent::CreateTab {
-                        tab_id: "tab:projectless-terminal".to_owned(),
-                        panel_id: ProjectSessionPanelId::Bottom,
-                        target_leaf_id: None,
-                        title: "Terminal".to_owned(),
-                        content: ProjectSessionTabContent::Terminal {
-                            terminal_session_id: "terminal:projectless".to_owned(),
-                        },
-                    },
-                ),
-            )
-            .expect("create projectless Terminal tab");
-        module
-            .apply(
-                &context(),
-                session_request(
-                    "workspace-create-projectless-file",
-                    "session:projectless-tabs",
-                    ProjectSessionIntent::CreateTab {
-                        tab_id: "tab:projectless-file".to_owned(),
-                        panel_id: ProjectSessionPanelId::Right,
-                        target_leaf_id: None,
-                        title: "notes.md".to_owned(),
-                        content: ProjectSessionTabContent::Files {
-                            workspace_root: Some("/workspace".to_owned()),
-                            cwd: Some("/workspace/nodex".to_owned()),
-                            path: Some("/workspace/nodex/notes.md".to_owned()),
-                        },
-                    },
-                ),
-            )
-            .expect("create projectless exact-file tab");
-
-        for (operation_id, tab_id, content) in [
-            (
-                "workspace-reject-projectless-files-tree",
-                "tab:projectless-files-tree",
-                ProjectSessionTabContent::Files {
-                    workspace_root: Some("/workspace".to_owned()),
-                    cwd: Some("/workspace/nodex".to_owned()),
-                    path: None,
-                },
-            ),
-            (
-                "workspace-reject-projectless-db",
-                "tab:projectless-db",
-                ProjectSessionTabContent::DbView {
-                    database_view_id: None,
-                    view: ProjectSessionDatabaseView::Kanban,
-                },
-            ),
-            (
-                "workspace-reject-projectless-page",
-                "tab:projectless-page",
-                ProjectSessionTabContent::PageStage {
-                    project_id: "project:default".to_owned(),
-                    page_id: "page:default".to_owned(),
-                    title_snapshot: None,
-                },
-            ),
-            (
-                "workspace-reject-projectless-review",
-                "tab:projectless-review",
-                ProjectSessionTabContent::Review,
-            ),
-        ] {
-            let error = module
-                .apply(
-                    &context(),
-                    session_request(
-                        operation_id,
-                        "session:projectless-tabs",
-                        ProjectSessionIntent::CreateTab {
-                            tab_id: tab_id.to_owned(),
-                            panel_id: ProjectSessionPanelId::Right,
-                            target_leaf_id: None,
-                            title: "Unavailable".to_owned(),
-                            content,
-                        },
-                    ),
-                )
-                .expect_err("reject Project-scoped projectless tab");
-            assert_eq!(error.code, CoreErrorCode::InvalidInput);
-        }
-
-        let snapshot = module
-            .read(
-                &context(),
-                ModuleReadRequest {
-                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
-                    read: ProjectWorkspaceRead::Session {
-                        session_id: "session:projectless-tabs".to_owned(),
-                    },
-                },
-            )
-            .expect("read projectless tabs");
-        let ProjectWorkspaceReadValue::Session { tabs, .. } = snapshot.value else {
-            panic!("projectless Session snapshot");
-        };
-        assert_eq!(tabs.len(), 2);
-        assert!(tabs.iter().all(|tab| tab.project_id.is_none()));
-        let terminal = tabs
-            .iter()
-            .find(|tab| tab.id == "tab:projectless-terminal")
-            .expect("projectless Terminal tab");
-        assert_eq!(
-            terminal.content,
-            ProjectSessionTabContent::Terminal {
-                terminal_session_id: "terminal:projectless".to_owned(),
-            }
-        );
-        let file = tabs
-            .iter()
-            .find(|tab| tab.id == "tab:projectless-file")
-            .expect("projectless file tab");
-        assert_eq!(
-            file.content,
-            ProjectSessionTabContent::Files {
-                workspace_root: Some("/workspace".to_owned()),
-                cwd: Some("/workspace/nodex".to_owned()),
-                path: Some("/workspace/nodex/notes.md".to_owned()),
-            }
-        );
-    }
-
-    #[test]
-    fn owns_split_panel_layouts_and_complete_tab_lifecycle_atomically() {
-        let (_directory, kernel, module) = seeded_module();
-        let created = module
-            .apply(
-                &context(),
-                create_request("workspace-create-tab-owner", "project-native"),
-            )
-            .expect("create tab owner Project");
-        let session_id = created.committed.value.affected_session_ids[0].clone();
-        let (database_tab_id, database_view_id) = kernel
-            .writer()
-            .call({
-                let session_id = session_id.clone();
-                move |connection| {
-                    connection
-                        .query_row(
-                            "SELECT id, json_extract(config_json, '$.databaseViewId') \
-                             FROM project_session_tabs WHERE session_id = ?1",
-                            [&session_id],
-                            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-                        )
-                        .map_err(Into::into)
-                }
-            })
-            .expect("read default tab");
-
-        module
-            .apply(
-                &context(),
-                session_request(
-                    "workspace-session-split-layout",
-                    &session_id,
-                    ProjectSessionIntent::ReplacePanelLayout {
-                        panel_id: ProjectSessionPanelId::Right,
-                        layout: json!({
-                            "version": 2,
-                            "root": {
-                                "type": "split",
-                                "id": "right-branch",
-                                "direction": "horizontal",
-                                "ratio": 0.05,
-                                "first": {
-                                    "type": "leaf",
-                                    "id": "main",
-                                    "tabIds": [database_tab_id],
-                                    "activeTabId": database_tab_id,
-                                    "mruTabIds": [database_tab_id]
-                                },
-                                "second": {
-                                    "type": "leaf",
-                                    "id": "target-leaf",
-                                    "tabIds": [],
-                                    "activeTabId": null,
-                                    "mruTabIds": []
-                                }
-                            },
-                            "activeLeafId": "target-leaf",
-                            "mruLeafIds": ["target-leaf", "main"],
-                            "maximizedLeafId": null
-                        }),
-                    },
-                ),
-            )
-            .expect("replace split layout");
-
-        module
-            .apply(
-                &context(),
-                session_request(
-                    "workspace-session-create-terminal",
-                    &session_id,
-                    ProjectSessionIntent::CreateTab {
-                        tab_id: "terminal-tab".to_owned(),
-                        panel_id: ProjectSessionPanelId::Right,
-                        target_leaf_id: Some("target-leaf".to_owned()),
-                        title: "  Terminal  ".to_owned(),
-                        content: ProjectSessionTabContent::Terminal {
-                            terminal_session_id: "terminal-session-1".to_owned(),
-                        },
-                    },
-                ),
-            )
-            .expect("create terminal tab");
-        let browser_request = session_request(
-            "workspace-session-create-browser",
-            &session_id,
-            ProjectSessionIntent::CreateTab {
-                tab_id: "browser-tab".to_owned(),
-                panel_id: ProjectSessionPanelId::Right,
-                target_leaf_id: Some("target-leaf".to_owned()),
-                title: "Browser".to_owned(),
-                content: ProjectSessionTabContent::Browser {
-                    browser_tab_id: Some("browser-identity-1".to_owned()),
-                    url: Some("https://example.test".to_owned()),
-                    title: None,
-                    favicon_url: None,
-                    device_toolbar_visible: Some(true),
-                },
-            },
-        );
-        let browser = module
-            .apply(&context(), browser_request.clone())
-            .expect("create browser tab");
-        let replay = module
-            .apply(&context(), browser_request)
-            .expect("replay browser tab creation");
-        assert!(replay.committed.receipt.mutation.duplicate);
-        assert_eq!(
-            replay.committed.event_sequence,
-            browser.committed.event_sequence
-        );
-
-        module
-            .apply(
-                &context(),
-                session_request(
-                    "workspace-session-focus-database",
-                    &session_id,
-                    ProjectSessionIntent::CreateTab {
-                        tab_id: "duplicate-db-tab".to_owned(),
-                        panel_id: ProjectSessionPanelId::Bottom,
-                        target_leaf_id: None,
-                        title: "Duplicate DB".to_owned(),
-                        content: ProjectSessionTabContent::DbView {
-                            database_view_id: Some(database_view_id),
-                            view: ProjectSessionDatabaseView::Kanban,
-                        },
-                    },
-                ),
-            )
-            .expect("focus equivalent Database View tab");
-
-        module
-            .apply(
-                &context(),
-                session_request(
-                    "workspace-session-move-terminal",
-                    &session_id,
-                    ProjectSessionIntent::MoveTab {
-                        tab_id: "terminal-tab".to_owned(),
-                        panel_id: ProjectSessionPanelId::Bottom,
-                        target_leaf_id: None,
-                        before_tab_id: None,
-                        source_layout: None,
-                        target_layout: None,
-                    },
-                ),
-            )
-            .expect("move terminal tab to bottom panel");
-        module
-            .apply(
-                &context(),
-                session_request(
-                    "workspace-session-delete-browser",
-                    &session_id,
-                    ProjectSessionIntent::DeleteTab {
-                        tab_id: "browser-tab".to_owned(),
-                        layout: None,
-                    },
-                ),
-            )
-            .expect("delete browser tab");
-
-        let snapshot = module
-            .read(
-                &context(),
-                ModuleReadRequest {
-                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
-                    read: ProjectWorkspaceRead::Session {
-                        session_id: session_id.clone(),
-                    },
-                },
-            )
-            .expect("read mutated Session");
-        let ProjectWorkspaceReadValue::Session { panels, tabs, .. } = snapshot.value else {
-            panic!("Session snapshot");
-        };
-        assert_eq!(tabs.len(), 2);
-        assert_eq!(
-            tabs.iter().map(|tab| tab.id.as_str()).collect::<Vec<_>>(),
-            vec![database_tab_id.as_str(), "terminal-tab"]
-        );
-        assert_eq!(tabs[0].panel_id, ProjectSessionPanelId::Right);
-        assert_eq!(tabs[0].order, 0);
-        assert_eq!(tabs[1].panel_id, ProjectSessionPanelId::Bottom);
-        assert_eq!(tabs[1].order, 0);
-        assert_eq!(tabs[1].title, "Terminal");
-        assert_eq!(panels["right"]["layout"]["root"]["type"], "leaf");
-        assert_eq!(
-            panels["right"]["layout"]["root"]["tabIds"],
-            json!([database_tab_id])
-        );
-        assert_eq!(
-            panels["bottom"]["layout"]["root"]["tabIds"],
-            json!(["terminal-tab"])
-        );
-        assert_eq!(panels["bottom"]["collapsed"], false);
-
-        let invalid = module
-            .apply(
-                &context(),
-                session_request(
-                    "workspace-session-invalid-tab",
-                    &session_id,
-                    ProjectSessionIntent::CreateTab {
-                        tab_id: "invalid-tab".to_owned(),
-                        panel_id: ProjectSessionPanelId::Right,
-                        target_leaf_id: None,
-                        title: "Invalid".to_owned(),
-                        content: ProjectSessionTabContent::Terminal {
-                            terminal_session_id: String::new(),
-                        },
-                    },
-                ),
-            )
-            .expect_err("reject Terminal config without a Session identity");
-        assert_eq!(invalid.code, CoreErrorCode::InvalidInput);
-        let rollback_counts = kernel
-            .writer()
-            .call(|connection| {
-                connection
-                    .query_row(
-                        "SELECT \
-                           (SELECT count(*) FROM project_session_tabs WHERE id = 'invalid-tab'), \
-                           (SELECT count(*) FROM core_module_receipts \
-                            WHERE operation_id = 'workspace-session-invalid-tab'), \
-                           (SELECT count(*) FROM change_log \
-                            WHERE operation_id = 'workspace-session-invalid-tab')",
-                        [],
-                        |row| {
-                            Ok((
-                                row.get::<_, i64>(0)?,
-                                row.get::<_, i64>(1)?,
-                                row.get::<_, i64>(2)?,
-                            ))
-                        },
-                    )
-                    .map_err(Into::into)
-            })
-            .expect("read invalid tab rollback");
-        assert_eq!(rollback_counts, (0, 0, 0));
-
-        module
-            .apply(
-                &context(),
-                session_request(
-                    "workspace-session-patch-view-state",
-                    &session_id,
-                    ProjectSessionIntent::PatchViewState {
-                        fallback_title: Some("Updated fallback".to_owned()),
-                        left_pane_collapsed: Some(true),
-                        right_panel: Some(ProjectSessionPanelStatePatch {
-                            collapsed: Some(false),
-                            layout: None,
-                            size: Some(ProjectSessionPanelSizePatch {
-                                width_px: Some(720.0),
-                                height_px: None,
-                                full_width: Some(true),
-                            }),
-                        }),
-                        bottom_panel: Some(ProjectSessionPanelStatePatch {
-                            collapsed: Some(false),
-                            layout: None,
-                            size: Some(ProjectSessionPanelSizePatch {
-                                width_px: None,
-                                height_px: Some(360.0),
-                                full_width: None,
-                            }),
-                        }),
-                    },
-                ),
-            )
-            .expect("patch Session view state");
-        module
-            .apply(
-                &context(),
-                session_request(
-                    "workspace-session-update-terminal",
-                    &session_id,
-                    ProjectSessionIntent::UpdateTab {
-                        tab_id: "terminal-tab".to_owned(),
-                        title: Some("  Updated shell  ".to_owned()),
-                        content: Some(ProjectSessionTabContent::Terminal {
-                            terminal_session_id: "terminal-session-2".to_owned(),
-                        }),
-                        state_key: Some(4),
-                        state: Some(json!({ "cwd": "/workspace/native" })),
-                    },
-                ),
-            )
-            .expect("update terminal tab metadata");
-        let replace_state = session_request(
-            "workspace-session-replace-terminal-state",
-            &session_id,
-            ProjectSessionIntent::ReplaceTabState {
-                tab_id: "terminal-tab".to_owned(),
-                state_key: 2,
-                state: json!({ "cwd": "/workspace/native" }),
-            },
-        );
-        let replaced = module
-            .apply(&context(), replace_state.clone())
-            .expect("replace terminal tab state");
-        let replayed = module
-            .apply(&context(), replace_state)
-            .expect("replay terminal tab state replacement");
-        assert!(replayed.committed.receipt.mutation.duplicate);
-        assert_eq!(
-            replayed.committed.event_sequence,
-            replaced.committed.event_sequence
-        );
-        module
-            .apply(
-                &context(),
-                session_request(
-                    "workspace-session-create-cross-project-page-tab",
-                    &session_id,
-                    ProjectSessionIntent::CreateTab {
-                        tab_id: "cross-project-page".to_owned(),
-                        panel_id: ProjectSessionPanelId::Right,
-                        target_leaf_id: None,
-                        title: "Cross-project Page".to_owned(),
-                        content: ProjectSessionTabContent::PageStage {
-                            project_id: "project:default".to_owned(),
-                            page_id: "page:cross-project".to_owned(),
-                            title_snapshot: Some("Initial".to_owned()),
-                        },
-                    },
-                ),
-            )
-            .expect("create cross-Project Page tab");
-        module
-            .apply(
-                &context(),
-                session_request(
-                    "workspace-session-update-cross-project-page-tab",
-                    &session_id,
-                    ProjectSessionIntent::UpdateTab {
-                        tab_id: "cross-project-page".to_owned(),
-                        title: None,
-                        content: Some(ProjectSessionTabContent::PageStage {
-                            project_id: "project:default".to_owned(),
-                            page_id: "page:cross-project".to_owned(),
-                            title_snapshot: Some("Updated".to_owned()),
-                        }),
-                        state_key: None,
-                        state: None,
-                    },
-                ),
-            )
-            .expect("update cross-Project Page tab");
-
-        let invalid_patch = module
-            .apply(
-                &context(),
-                session_request(
-                    "workspace-session-invalid-panel-size",
-                    &session_id,
-                    ProjectSessionIntent::PatchViewState {
-                        fallback_title: None,
-                        left_pane_collapsed: None,
-                        right_panel: Some(ProjectSessionPanelStatePatch {
-                            collapsed: None,
-                            layout: None,
-                            size: Some(ProjectSessionPanelSizePatch {
-                                width_px: Some(-1.0),
-                                height_px: None,
-                                full_width: None,
-                            }),
-                        }),
-                        bottom_panel: None,
-                    },
-                ),
-            )
-            .expect_err("reject invalid panel size");
-        assert_eq!(invalid_patch.code, CoreErrorCode::InvalidInput);
-        let invalid_config = module
-            .apply(
-                &context(),
-                session_request(
-                    "workspace-session-invalid-tab-update",
-                    &session_id,
-                    ProjectSessionIntent::UpdateTab {
-                        tab_id: "terminal-tab".to_owned(),
-                        title: None,
-                        content: Some(ProjectSessionTabContent::Terminal {
-                            terminal_session_id: String::new(),
-                        }),
-                        state_key: None,
-                        state: None,
-                    },
-                ),
-            )
-            .expect_err("reject Terminal update without a Session identity");
-        assert_eq!(invalid_config.code, CoreErrorCode::InvalidInput);
-
-        let final_snapshot = module
-            .read(
-                &context(),
-                ModuleReadRequest {
-                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
-                    read: ProjectWorkspaceRead::Session {
-                        session_id: session_id.clone(),
-                    },
-                },
-            )
-            .expect("read updated Session view and tabs");
-        let ProjectWorkspaceReadValue::Session {
-            session,
-            panels,
-            tabs,
-        } = final_snapshot.value
-        else {
-            panic!("updated Session snapshot");
-        };
-        assert_eq!(session.no_thread_fallback_title, "Updated fallback");
-        assert!(session.left_pane_collapsed);
-        assert_eq!(panels["right"]["collapsed"], false);
-        assert_eq!(panels["right"]["size"]["widthPx"], 720.0);
-        assert_eq!(panels["right"]["size"]["fullWidth"], true);
-        assert_eq!(panels["bottom"]["collapsed"], false);
-        assert_eq!(panels["bottom"]["size"]["heightPx"], 360.0);
-        let terminal = tabs
-            .iter()
-            .find(|tab| tab.id == "terminal-tab")
-            .expect("updated terminal tab");
-        assert_eq!(terminal.title, "Updated shell");
-        assert_eq!(
-            terminal.content,
-            ProjectSessionTabContent::Terminal {
-                terminal_session_id: "terminal-session-2".to_owned(),
-            }
-        );
-        assert_eq!(terminal.state_key, 2);
-        assert_eq!(terminal.state, json!({ "cwd": "/workspace/native" }));
-        let page = tabs
-            .iter()
-            .find(|tab| tab.id == "cross-project-page")
-            .expect("cross-Project Page tab");
-        assert_eq!(page.project_id.as_deref(), Some("project-native"));
-        assert_eq!(
-            page.content,
-            ProjectSessionTabContent::PageStage {
-                project_id: "project:default".to_owned(),
-                page_id: "page:cross-project".to_owned(),
-                title_snapshot: Some("Updated".to_owned()),
-            }
-        );
-        let failed_writes = kernel
-            .writer()
-            .call(|connection| {
-                connection
-                    .query_row(
-                        "SELECT \
-                           (SELECT count(*) FROM core_module_receipts WHERE operation_id IN (\
-                             'workspace-session-invalid-panel-size', \
-                             'workspace-session-invalid-tab-update')), \
-                           (SELECT count(*) FROM change_log WHERE operation_id IN (\
-                             'workspace-session-invalid-panel-size', \
-                             'workspace-session-invalid-tab-update'))",
-                        [],
-                        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
-                    )
-                    .map_err(Into::into)
-            })
-            .expect("read failed view/tab mutation rollback");
-        assert_eq!(failed_writes, (0, 0));
-    }
-
-    #[test]
     fn rolls_back_the_complete_project_when_a_nested_session_write_fails() {
         let (_directory, kernel, module) = seeded_module();
         kernel
             .writer()
             .call(|connection| {
                 connection.execute_batch(
-                    "CREATE TEMP TRIGGER fail_workspace_tab \
-                     BEFORE INSERT ON project_session_tabs BEGIN \
+                    "CREATE TEMP TRIGGER fail_workspace_session \
+                     BEFORE INSERT ON project_sessions BEGIN \
                        SELECT RAISE(ABORT, 'injected Project Session failure'); \
                      END;",
                 )?;

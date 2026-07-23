@@ -39,7 +39,7 @@ describe("WorkbenchLayoutSnapshotSchema", () => {
     });
 
     expect(parsed).toMatchObject({
-      version: 2,
+      version: 3,
       focusedStage: "pages",
       activePagesTabId: "session:legacy",
       recentPageSessions: [{ pageId: "page-1" }],
@@ -60,10 +60,13 @@ describe("WorkbenchLayoutSnapshotSchema", () => {
 
     const parsed = WorkbenchLayoutSnapshotSchema.parse({
       ...legacy,
+      version: 2,
       spaceOrder: ["ops", "default"],
     });
 
     expect(parsed.projectOrder).toEqual(["ops", "default"]);
+    expect(parsed.version).toBe(3);
+    expect(parsed.sessionViewsBySessionId).toEqual({});
     expect("spaceOrder" in parsed).toBe(false);
   });
 

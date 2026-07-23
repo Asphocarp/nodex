@@ -4,13 +4,13 @@ import {
   SESSION_CONTEXT_MENU_ACTION_IDS,
   buildSessionContextMenuItems,
 } from "./session-context-menu-model";
-import { makeProjectSessionPanelLayout } from "../../../shared/project-session-panel-layout";
 
 function makeSession(overrides: Partial<ProjectSession> = {}): ProjectSession {
   const now = "2026-06-08T00:00:00.000Z";
   return {
     id: "session-1",
     projectId: "project-1",
+    initialDatabaseViewId: null,
     noThreadFallbackTitle: "Session one",
     displayTitle: "Session one",
     order: 1,
@@ -19,21 +19,7 @@ function makeSession(overrides: Partial<ProjectSession> = {}): ProjectSession {
     archived: false,
     archivedAt: null,
     unread: false,
-    leftPaneCollapsed: false,
-    panels: {
-      right: {
-        collapsed: false,
-        layout: makeProjectSessionPanelLayout([], null, "right"),
-        size: { widthPx: 600 },
-      },
-      bottom: {
-        collapsed: true,
-        layout: makeProjectSessionPanelLayout([], null, "bottom"),
-        size: { heightPx: 280 },
-      },
-    },
     thread: null,
-    tabs: [],
     createdAt: now,
     updatedAt: now,
     ...overrides,

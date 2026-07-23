@@ -72,6 +72,7 @@ function browserTargetIdentity(
 ): BrowserSidebarTabIdentity {
   return {
     browserConversationId: target.browserConversationId,
+    browserViewScopeId: target.browserViewScopeId,
     browserTabId: target.browserTabId,
   };
 }

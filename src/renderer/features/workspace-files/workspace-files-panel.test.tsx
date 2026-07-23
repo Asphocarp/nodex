@@ -4,7 +4,6 @@ import { render, settleAsyncRender } from "../../test/dom";
 import { TestQueryProvider } from "../../test/query";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import type { Project, ProjectSession, WorkspaceFileDirectoryEntry } from "@/lib/types";
-import { makeProjectSessionPanelLayout } from "../../../shared/project-session-panel-layout";
 import type { WorkspaceFilesTab } from "./workspace-file-types";
 
 let WorkspaceFilesPanel: typeof import("./workspace-files-panel")["WorkspaceFilesPanel"];
@@ -279,6 +278,7 @@ const project: Project = {
 const activeSession: ProjectSession = {
   id: "session-1",
   projectId: project.id,
+  initialDatabaseViewId: null,
   noThreadFallbackTitle: "Session",
   displayTitle: "Session",
   order: 0,
@@ -287,21 +287,7 @@ const activeSession: ProjectSession = {
   archived: false,
   archivedAt: null,
   unread: false,
-  leftPaneCollapsed: false,
-  panels: {
-    right: {
-      collapsed: false,
-      layout: makeProjectSessionPanelLayout(["files-tab"], "files-tab"),
-      size: { widthPx: 600 },
-    },
-    bottom: {
-      collapsed: true,
-      layout: makeProjectSessionPanelLayout([], null),
-      size: { heightPx: 280 },
-    },
-  },
   thread: null,
-  tabs: [],
   createdAt: CREATED_AT,
   updatedAt: CREATED_AT,
 };

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, vi, test } from "vitest";
-import type { ProjectSessionTab } from "@/lib/types";
+import type { WorkbenchTabProjection } from "@/lib/types";
 import { render, settleAsyncRender } from "../../test/dom";
 import { browserSidebarRendererWebviewManager } from "./browser-sidebar-webview-manager";
 
@@ -44,6 +44,7 @@ describe("BrowserSidebarHiddenWebviewHosts", () => {
     render(
       <BrowserSidebarHiddenWebviewHosts
         sessionId="session-1"
+        browserViewScopeId="window-session-1"
         tabs={[{ ...browserTab, config: { projectId: "alpha", url: "about:blank" } }]}
         visibleTabIds={new Set()}
       />,
@@ -58,6 +59,7 @@ describe("BrowserSidebarHiddenWebviewHosts", () => {
     render(
       <BrowserSidebarHiddenWebviewHosts
         sessionId="session-1"
+        browserViewScopeId="window-session-1"
         tabs={[browserTab]}
         visibleTabIds={new Set()}
       />,
@@ -107,4 +109,4 @@ const browserTab = {
   state: null,
   createdAt: "2026-06-09T00:00:00.000Z",
   updatedAt: "2026-06-09T00:00:00.000Z",
-} satisfies ProjectSessionTab;
+} satisfies WorkbenchTabProjection;

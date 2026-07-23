@@ -3573,10 +3573,6 @@ export interface components {
                 readonly session_id: string;
             } | {
                 /** @enum {string} */
-                readonly kind: "session_tab";
-                readonly tab_id: string;
-            } | {
-                /** @enum {string} */
                 readonly kind: "thread";
                 readonly thread_id: string;
             } | {
@@ -3788,8 +3784,6 @@ export interface components {
         };
         /** @enum {string} */
         readonly ProjectLifecycle: "active" | "inactive" | "archived";
-        /** @enum {string} */
-        readonly ProjectSessionDatabaseView: "kanban" | "list" | "toggle-list" | "canvas" | "calendar";
         readonly ProjectSessionIntent: {
             /** @enum {string} */
             readonly kind: "rename";
@@ -3807,55 +3801,9 @@ export interface components {
             /** @enum {string} */
             readonly kind: "set_archived";
         } | {
-            readonly bottom_panel?: null | components["schemas"]["ProjectSessionPanelStatePatch"];
-            readonly fallback_title?: string | null;
             /** @enum {string} */
-            readonly kind: "patch_view_state";
-            readonly left_pane_collapsed?: boolean | null;
-            readonly right_panel?: null | components["schemas"]["ProjectSessionPanelStatePatch"];
-        } | {
-            /** @enum {string} */
-            readonly kind: "replace_panel_layout";
-            readonly layout: unknown;
-            readonly panel_id: components["schemas"]["ProjectSessionPanelId"];
-        } | {
-            readonly content: components["schemas"]["ProjectSessionTabContent"];
-            /** @enum {string} */
-            readonly kind: "create_tab";
-            readonly panel_id: components["schemas"]["ProjectSessionPanelId"];
-            readonly tab_id: string;
-            readonly target_leaf_id?: string | null;
+            readonly kind: "set_fallback_title";
             readonly title: string;
-        } | {
-            /** @enum {string} */
-            readonly kind: "delete_tab";
-            readonly layout?: unknown;
-            readonly tab_id: string;
-        } | {
-            readonly before_tab_id?: string | null;
-            /** @enum {string} */
-            readonly kind: "move_tab";
-            readonly panel_id: components["schemas"]["ProjectSessionPanelId"];
-            readonly source_layout?: unknown;
-            readonly tab_id: string;
-            readonly target_layout?: unknown;
-            readonly target_leaf_id?: string | null;
-        } | {
-            readonly content?: null | components["schemas"]["ProjectSessionTabContent"];
-            /** @enum {string} */
-            readonly kind: "update_tab";
-            readonly state?: unknown;
-            /** Format: int64 */
-            readonly state_key?: number | null;
-            readonly tab_id: string;
-            readonly title?: string | null;
-        } | {
-            /** @enum {string} */
-            readonly kind: "replace_tab_state";
-            readonly state: unknown;
-            /** Format: int64 */
-            readonly state_key: number;
-            readonly tab_id: string;
         } | {
             readonly expected_project_id?: string | null;
             /** @enum {string} */
@@ -3877,53 +3825,6 @@ export interface components {
         } | {
             /** @enum {string} */
             readonly kind: "all";
-        };
-        /** @enum {string} */
-        readonly ProjectSessionPanelId: "right" | "bottom";
-        readonly ProjectSessionPanelSizePatch: {
-            readonly full_width?: boolean | null;
-            /** Format: double */
-            readonly height_px?: number | null;
-            /** Format: double */
-            readonly width_px?: number | null;
-        };
-        readonly ProjectSessionPanelStatePatch: {
-            readonly collapsed?: boolean | null;
-            readonly layout?: unknown;
-            readonly size?: null | components["schemas"]["ProjectSessionPanelSizePatch"];
-        };
-        readonly ProjectSessionTabContent: {
-            readonly database_view_id?: string | null;
-            /** @enum {string} */
-            readonly kind: "db_view";
-            readonly view: components["schemas"]["ProjectSessionDatabaseView"];
-        } | {
-            /** @enum {string} */
-            readonly kind: "page_stage";
-            readonly page_id: string;
-            readonly project_id: string;
-            readonly title_snapshot?: string | null;
-        } | {
-            /** @enum {string} */
-            readonly kind: "terminal";
-            readonly terminal_session_id: string;
-        } | {
-            readonly browser_tab_id?: string | null;
-            readonly device_toolbar_visible?: boolean | null;
-            readonly favicon_url?: string | null;
-            /** @enum {string} */
-            readonly kind: "browser";
-            readonly title?: string | null;
-            readonly url?: string | null;
-        } | {
-            /** @enum {string} */
-            readonly kind: "review";
-        } | {
-            readonly cwd?: string | null;
-            /** @enum {string} */
-            readonly kind: "files";
-            readonly path?: string | null;
-            readonly workspace_root?: string | null;
         };
         readonly ProjectSource: {
             /** Format: int64 */
@@ -3999,7 +3900,7 @@ export interface components {
             readonly created_at: string;
             readonly display_title: string;
             readonly id: string;
-            readonly left_pane_collapsed: boolean;
+            readonly initial_database_view_id?: string | null;
             readonly no_thread_fallback_title: string;
             /** Format: int64 */
             readonly order: number;
@@ -4009,21 +3910,6 @@ export interface components {
             readonly project_id?: string | null;
             readonly thread_id?: string | null;
             readonly unread: boolean;
-            readonly updated_at: string;
-        };
-        readonly ProjectWorkspaceSessionTab: {
-            readonly content: components["schemas"]["ProjectSessionTabContent"];
-            readonly created_at: string;
-            readonly id: string;
-            /** Format: int64 */
-            readonly order: number;
-            readonly panel_id: components["schemas"]["ProjectSessionPanelId"];
-            readonly project_id?: string | null;
-            readonly session_id: string;
-            readonly state: unknown;
-            /** Format: int64 */
-            readonly state_key: number;
-            readonly title: string;
             readonly updated_at: string;
         };
         readonly ProjectWorkspaceSidebar: {
@@ -4693,13 +4579,7 @@ export interface components {
                 } | {
                     /** @enum {string} */
                     readonly kind: "session";
-                    readonly panels: unknown;
                     readonly session: components["schemas"]["ProjectWorkspaceSessionSummary"];
-                    readonly tabs: readonly components["schemas"]["ProjectWorkspaceSessionTab"][];
-                } | {
-                    /** @enum {string} */
-                    readonly kind: "session_tab";
-                    readonly tab: components["schemas"]["ProjectWorkspaceSessionTab"];
                 } | {
                     /** @enum {string} */
                     readonly kind: "thread";

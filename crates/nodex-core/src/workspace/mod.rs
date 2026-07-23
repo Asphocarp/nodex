@@ -1,6 +1,5 @@
 mod execution;
 mod mutation;
-mod panel_layout;
 mod read;
 mod session_lifecycle;
 mod session_mutation;

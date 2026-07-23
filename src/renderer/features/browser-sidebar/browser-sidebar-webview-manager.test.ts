@@ -9,6 +9,7 @@ import type {
   BrowserSidebarWebviewDestroyed,
   BrowserSidebarWebviewHostCreated,
 } from "../../../shared/browser-sidebar";
+import { makeBrowserSidebarRoutePartition } from "../../../shared/browser-sidebar";
 
 let activeManagers: BrowserSidebarRendererWebviewManager[] = [];
 
@@ -35,12 +36,16 @@ const visibleBounds = { x: 10, y: 20, width: 320, height: 240 };
 function getManagerRoot(
   browserTabId = "tab-browser",
   browserConversationId?: string,
+  browserViewScopeId?: string,
 ) {
   const conversationSelector = browserConversationId === undefined
     ? ""
     : `[data-browser-sidebar-conversation-id='${browserConversationId}']`;
+  const scopeSelector = browserViewScopeId === undefined
+    ? ""
+    : `[data-browser-sidebar-view-scope-id='${browserViewScopeId}']`;
   return document.body.querySelector<HTMLElement>(
-    `[data-browser-sidebar-webview-manager-root]${conversationSelector}[data-browser-sidebar-browser-tab-id='${browserTabId}']`,
+    `[data-browser-sidebar-webview-manager-root]${conversationSelector}${scopeSelector}[data-browser-sidebar-browser-tab-id='${browserTabId}']`,
   );
 }
 
@@ -55,9 +60,11 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     const manager = createManager();
     const created: BrowserSidebarWebviewHostCreated[] = [];
 
-    const mountGeneration = manager.claimMountGeneration({ browserConversationId: "session-1", browserTabId: "tab-browser" });
+    const mountGeneration = manager.claimMountGeneration({ browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1", browserTabId: "tab-browser" });
     manager.syncWebview({
       browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1",
       projectId: "alpha",
       browserTabId: "tab-browser",
       hostKind: "panel",
@@ -77,7 +84,11 @@ describe("BrowserSidebarRendererWebviewManager", () => {
 
     expect(root?.querySelectorAll("webview").length).toBe(1);
     expect(webview?.getAttribute("partition")).toBe(
-      "persist:codex-browser-app-route:session-1%00tab-browser",
+      makeBrowserSidebarRoutePartition({
+        browserConversationId: "session-1",
+        browserViewScopeId: "window-session-1",
+        browserTabId: "tab-browser",
+      }),
     );
     expect(root?.style.left).toBe("10px");
     expect(root?.style.top).toBe("20px");
@@ -92,15 +103,17 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     expect(created[0]?.mountGeneration).toBe(1);
   });
 
-  test("partitions equal browser tab ids by conversation identity", () => {
+  test("partitions equal browser tab ids by window view scope", () => {
     const manager = createManager();
     const browserTabId = "browser:shared";
     const firstIdentity = {
       browserConversationId: "conversation/one",
+      browserViewScopeId: "window-session-1",
       browserTabId,
     } as const;
     const secondIdentity = {
-      browserConversationId: "conversation/two",
+      browserConversationId: "conversation/one",
+      browserViewScopeId: "window-session-2",
       browserTabId,
     } as const;
 
@@ -125,25 +138,35 @@ describe("BrowserSidebarRendererWebviewManager", () => {
       onHostCreated: () => undefined,
     });
 
-    const firstRoot = getManagerRoot(browserTabId, firstIdentity.browserConversationId);
-    const secondRoot = getManagerRoot(browserTabId, secondIdentity.browserConversationId);
+    const firstRoot = getManagerRoot(
+      browserTabId,
+      firstIdentity.browserConversationId,
+      firstIdentity.browserViewScopeId,
+    );
+    const secondRoot = getManagerRoot(
+      browserTabId,
+      secondIdentity.browserConversationId,
+      secondIdentity.browserViewScopeId,
+    );
     expect(firstGeneration).toBe(1);
     expect(secondGeneration).toBe(1);
     expect(firstRoot === secondRoot).toBe(false);
     expect(firstRoot?.querySelector("webview")?.getAttribute("partition")).toBe(
-      "persist:codex-browser-app-route:conversation%2Fone%00browser%3Ashared",
+      makeBrowserSidebarRoutePartition(firstIdentity),
     );
     expect(secondRoot?.querySelector("webview")?.getAttribute("partition")).toBe(
-      "persist:codex-browser-app-route:conversation%2Ftwo%00browser%3Ashared",
+      makeBrowserSidebarRoutePartition(secondIdentity),
     );
   });
 
   test("keeps retained visible hosts on the retained webview layer", () => {
     const manager = createManager();
 
-    const mountGeneration = manager.claimMountGeneration({ browserConversationId: "session-1", browserTabId: "tab-retained" });
+    const mountGeneration = manager.claimMountGeneration({ browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1", browserTabId: "tab-retained" });
     manager.syncWebview({
       browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1",
       projectId: "alpha",
       browserTabId: "tab-retained",
       hostKind: "retained",
@@ -164,9 +187,11 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     const manager = createManager();
     const destroyed: BrowserSidebarWebviewDestroyed[] = [];
 
-    const firstGeneration = manager.claimMountGeneration({ browserConversationId: "session-1", browserTabId: "tab-browser" });
+    const firstGeneration = manager.claimMountGeneration({ browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1", browserTabId: "tab-browser" });
     manager.syncWebview({
       browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1",
       projectId: "alpha",
       browserTabId: "tab-browser",
       hostKind: "panel",
@@ -175,9 +200,11 @@ describe("BrowserSidebarRendererWebviewManager", () => {
       mountGeneration: firstGeneration,
       onHostCreated: () => undefined,
     });
-    const secondGeneration = manager.claimMountGeneration({ browserConversationId: "session-1", browserTabId: "tab-browser" });
+    const secondGeneration = manager.claimMountGeneration({ browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1", browserTabId: "tab-browser" });
     manager.syncWebview({
       browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1",
       projectId: "alpha",
       browserTabId: "tab-browser",
       hostKind: "panel",
@@ -189,6 +216,7 @@ describe("BrowserSidebarRendererWebviewManager", () => {
 
     manager.destroyWebviewAtHostRequest({
       browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1",
       browserTabId: "tab-browser",
       mountGeneration: firstGeneration,
       reason: "unmounted",
@@ -203,9 +231,11 @@ describe("BrowserSidebarRendererWebviewManager", () => {
   test("backgrounds a detached visible host without reparenting the guest webview", async () => {
     const manager = createManager();
 
-    const mountGeneration = manager.claimMountGeneration({ browserConversationId: "session-1", browserTabId: "tab-browser" });
+    const mountGeneration = manager.claimMountGeneration({ browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1", browserTabId: "tab-browser" });
     manager.syncWebview({
       browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1",
       projectId: "alpha",
       browserTabId: "tab-browser",
       hostKind: "panel",
@@ -221,7 +251,8 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     const originalParent = webview?.parentElement;
     expect(webview !== null).toBe(true);
 
-    manager.detachWebview({ browserConversationId: "session-1", browserTabId: "tab-browser" }, mountGeneration);
+    manager.detachWebview({ browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1", browserTabId: "tab-browser" }, mountGeneration);
     await Promise.resolve();
 
     expect(getManagerRoot() === root).toBe(true);
@@ -234,9 +265,11 @@ describe("BrowserSidebarRendererWebviewManager", () => {
   test("preserves one navigated guest across visible A to hidden B to visible A claims", () => {
     const manager = createManager();
 
-    const firstGeneration = manager.claimMountGeneration({ browserConversationId: "session-1", browserTabId: "tab-browser" });
+    const firstGeneration = manager.claimMountGeneration({ browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1", browserTabId: "tab-browser" });
     manager.syncWebview({
       browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1",
       projectId: "alpha",
       browserTabId: "tab-browser",
       hostKind: "panel",
@@ -253,9 +286,11 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     expect(webview !== null).toBe(true);
     (webview as BrowserSidebarWebviewElement).getURL = () => "https://example.com/navigated";
 
-    const secondGeneration = manager.claimMountGeneration({ browserConversationId: "session-1", browserTabId: "tab-browser" });
+    const secondGeneration = manager.claimMountGeneration({ browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1", browserTabId: "tab-browser" });
     manager.syncWebview({
       browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1",
       projectId: "alpha",
       browserTabId: "tab-browser",
       hostKind: "background",
@@ -271,9 +306,11 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     expect(webview?.parentElement === originalParent).toBe(true);
     expect(webview?.getAttribute("src")).toBe("https://example.com/first");
 
-    const thirdGeneration = manager.claimMountGeneration({ browserConversationId: "session-1", browserTabId: "tab-browser" });
+    const thirdGeneration = manager.claimMountGeneration({ browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1", browserTabId: "tab-browser" });
     manager.syncWebview({
       browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1",
       projectId: "alpha",
       browserTabId: "tab-browser",
       hostKind: "panel",
@@ -295,9 +332,11 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     const manager = createManager();
     const created: BrowserSidebarWebviewHostCreated[] = [];
 
-    const mountGeneration = manager.claimMountGeneration({ browserConversationId: "session-1", browserTabId: "tab-browser" });
+    const mountGeneration = manager.claimMountGeneration({ browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1", browserTabId: "tab-browser" });
     manager.syncWebview({
       browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1",
       projectId: "alpha",
       browserTabId: "tab-browser",
       hostKind: "panel",
@@ -323,9 +362,11 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     const created: BrowserSidebarWebviewHostCreated[] = [];
     const destroyed: BrowserSidebarWebviewDestroyed[] = [];
 
-    const mountGeneration = manager.claimMountGeneration({ browserConversationId: "session-1", browserTabId: "tab-browser" });
+    const mountGeneration = manager.claimMountGeneration({ browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1", browserTabId: "tab-browser" });
     manager.syncWebview({
       browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1",
       projectId: "alpha",
       browserTabId: "tab-browser",
       hostKind: "panel",
@@ -341,6 +382,7 @@ describe("BrowserSidebarRendererWebviewManager", () => {
 
     manager.destroyWebviewAtHostRequest({
       browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1",
       browserTabId: "tab-browser",
       mountGeneration,
       reason: "closed",
@@ -358,6 +400,7 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     const manager = createManager();
     const identity = {
       browserConversationId: "session-1",
+      browserViewScopeId: "window-session-1",
       browserTabId: "tab-browser",
     } as const;
     const mountGeneration = manager.claimMountGeneration(identity);

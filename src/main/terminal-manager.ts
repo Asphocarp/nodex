@@ -10,6 +10,8 @@ import type {
   TerminalRunActionRequest,
   TerminalSessionSnapshot,
   TerminalSize,
+  TerminalTakeOverViewRequest,
+  TerminalViewLeaseResult,
 } from "../shared/types";
 import { readTerminalProcessMetricsByRootPid } from "./terminal-process-metrics";
 import { appendTextTail } from "../shared/bounded-text";
@@ -20,6 +22,7 @@ type TerminalEventName =
   | "terminal-data"
   | "terminal-init-log"
   | "terminal-attached"
+  | "terminal-view-lease-revoked"
   | "terminal-error"
   | "terminal-exit";
 
@@ -28,7 +31,8 @@ type TerminalEventPayload =
   | { sessionId: string; data: string; snapshot: TerminalSessionSnapshot }
   | { sessionId: string; snapshot: TerminalSessionSnapshot }
   | { sessionId: string; message: string }
-  | { sessionId: string; exitCode: number | null };
+  | { sessionId: string; exitCode: number | null; reason: "exited" | "killed" }
+  | { sessionId: string; generation: number; ownerWindowSessionId: string };
 
 type EmitTerminalEvent = (
   channel: TerminalEventName,
@@ -43,7 +47,6 @@ interface TerminalBackendHandle {
 
 interface TerminalManagerSession {
   sessionId: string;
-  ownerWebContentsId: number;
   conversationId: string | null;
   projectSessionId: string | null;
   cwd: string | null;
@@ -56,13 +59,29 @@ interface TerminalManagerSession {
   rssKb: bigint | null;
   childProcessCount: number | null;
   processMetricsSampledAtMs: number | null;
-  attached: boolean;
   buffer: string;
   truncated: boolean;
   exited: boolean;
   exitCode: number | null;
-  lastSize: TerminalSize;
+  lease: TerminalViewLease | null;
+  leaseGeneration: number;
   pendingAction: Promise<void> | null;
+}
+
+interface TerminalViewLease {
+  windowSessionId: string;
+  webContentsId: number;
+  size: TerminalSize;
+  generation: number;
+}
+
+interface TerminalEventPublisher {
+  broadcast(channel: TerminalEventName, payload: TerminalEventPayload): void;
+  sendToWebContentsId(
+    webContentsId: number,
+    channel: TerminalEventName,
+    payload: TerminalEventPayload,
+  ): void;
 }
 
 const logger = getLogger({ subsystem: "terminal" });
@@ -168,16 +187,23 @@ export class TerminalManager {
   private readonly sessionsById = new Map<string, TerminalManagerSession>();
   private readonly sessionByConversationId = new Map<string, string>();
   private readonly sessionByProjectSessionId = new Map<string, string>();
+  private readonly fallbackEmittersByWebContentsId = new Map<number, EmitTerminalEvent>();
+  private eventPublisher: TerminalEventPublisher | null = null;
+
+  configureEventPublisher(publisher: TerminalEventPublisher): void {
+    this.eventPublisher = publisher;
+  }
 
   create(
     owner: Electron.WebContents,
+    windowSessionId: string,
     request: TerminalCreateRequest,
     emit: EmitTerminalEvent,
-  ): void {
+  ): TerminalViewLeaseResult {
+    this.rememberEmitter(owner.id, emit);
     const existing = this.sessionsById.get(request.sessionId);
     if (existing) {
-      this.attach(owner, request, emit);
-      return;
+      return this.acquireViewLease(owner, windowSessionId, request, emit);
     }
 
     if (request.backendKind === "remote") {
@@ -186,7 +212,7 @@ export class TerminalManager {
         request.sessionId,
         "Remote terminal backend is not available in this Nodex build.",
       );
-      return;
+      return { status: "not_found" };
     }
 
     const size = normalizeSize(request.size);
@@ -194,7 +220,6 @@ export class TerminalManager {
     const shell = getDefaultShell();
     const session: TerminalManagerSession = {
       sessionId: request.sessionId,
-      ownerWebContentsId: owner.id,
       conversationId: request.conversationId ?? null,
       projectSessionId: request.projectSessionId ?? null,
       cwd,
@@ -207,12 +232,17 @@ export class TerminalManager {
       rssKb: null,
       childProcessCount: null,
       processMetricsSampledAtMs: null,
-      attached: false,
       buffer: "",
       truncated: false,
       exited: false,
       exitCode: null,
-      lastSize: size,
+      lease: {
+        windowSessionId,
+        webContentsId: owner.id,
+        size,
+        generation: 1,
+      },
+      leaseGeneration: 1,
       pendingAction: null,
     };
 
@@ -223,22 +253,30 @@ export class TerminalManager {
     if (!spawned) {
       this.unlinkSession(session);
       this.sessionsById.delete(session.sessionId);
-      return;
+      return { status: "not_found" };
     }
 
-    this.flushInit(session, emit, true);
-    this.sendAttached(session, emit);
+    this.flushInit(session, true);
+    this.sendAttached(session);
+    return {
+      status: "acquired",
+      generation: session.leaseGeneration,
+      snapshot: this.snapshotSession(session),
+    };
   }
 
-  attach(
+  acquireViewLease(
     owner: Electron.WebContents,
+    windowSessionId: string,
     request: TerminalAttachRequest,
     emit: EmitTerminalEvent,
-  ): void {
+  ): TerminalViewLeaseResult {
+    this.rememberEmitter(owner.id, emit);
     const session = this.sessionsById.get(request.sessionId);
     if (!session) {
-      this.create(
+      return this.create(
         owner,
+        windowSessionId,
         {
           sessionId: request.sessionId,
           conversationId: request.conversationId,
@@ -248,26 +286,53 @@ export class TerminalManager {
         },
         emit,
       );
-      return;
     }
-
-    if (!this.ensureOwner(owner, session, emit)) return;
 
     session.conversationId = request.conversationId ?? session.conversationId;
     session.projectSessionId = request.projectSessionId ?? session.projectSessionId;
-    session.lastSize = normalizeSize(request.size);
     this.linkSession(session);
-
-    if (session.backend) {
-      this.resize(owner, session.sessionId, session.lastSize, emit);
+    const existingLease = session.lease;
+    if (
+      existingLease
+      && (
+        existingLease.webContentsId !== owner.id
+        || existingLease.windowSessionId !== windowSessionId
+      )
+    ) {
+      return {
+        status: "conflict",
+        generation: existingLease.generation,
+        ownerWindowSessionId: existingLease.windowSessionId,
+        snapshot: this.snapshotSession(session),
+      };
     }
 
-    this.flushInit(session, emit);
-    this.sendAttached(session, emit);
+    const status = existingLease ? "already_owned" : "acquired";
+    const size = normalizeSize(request.size);
+    if (existingLease) {
+      existingLease.size = size;
+    } else {
+      session.leaseGeneration += 1;
+      session.lease = {
+        windowSessionId,
+        webContentsId: owner.id,
+        size,
+        generation: session.leaseGeneration,
+      };
+    }
+    this.resizeBackend(session, size, emit);
+    this.flushInit(session);
+    this.sendAttached(session);
+    return {
+      status,
+      generation: session.lease?.generation ?? session.leaseGeneration,
+      snapshot: this.snapshotSession(session),
+    };
   }
 
   write(
     owner: Electron.WebContents,
+    windowSessionId: string,
     sessionId: string,
     data: string,
     emit: EmitTerminalEvent,
@@ -278,7 +343,7 @@ export class TerminalManager {
       return;
     }
 
-    if (!this.ensureOwner(owner, session, emit)) return;
+    if (!this.ensureLeaseOwner(owner, windowSessionId, session, emit)) return;
     if (!session.backend || session.exited) {
       this.emitError(emit, sessionId, "Terminal session is not running.");
       return;
@@ -289,45 +354,133 @@ export class TerminalManager {
 
   resize(
     owner: Electron.WebContents,
+    windowSessionId: string,
     sessionId: string,
     size: TerminalSize,
     emit: EmitTerminalEvent,
   ): void {
     const session = this.sessionsById.get(sessionId);
     if (!session) return;
-    if (!this.ensureOwner(owner, session, emit)) return;
+    if (!this.ensureLeaseOwner(owner, windowSessionId, session, emit)) return;
 
     const normalizedSize = normalizeSize(size);
+    const lease = session.lease;
+    if (!lease) return;
     if (
-      normalizedSize.cols === session.lastSize.cols &&
-      normalizedSize.rows === session.lastSize.rows
+      normalizedSize.cols === lease.size.cols &&
+      normalizedSize.rows === lease.size.rows
     ) {
       return;
     }
 
-    session.lastSize = normalizedSize;
-    if (!session.backend || session.exited) return;
-
-    try {
-      session.backend.process.resize(normalizedSize.cols, normalizedSize.rows);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to resize terminal.";
-      this.emitError(emit, sessionId, message);
-    }
+    lease.size = normalizedSize;
+    this.resizeBackend(session, normalizedSize, emit);
   }
 
-  close(owner: Electron.WebContents, sessionId: string, emit: EmitTerminalEvent): void {
+  releaseViewLease(
+    owner: Electron.WebContents,
+    windowSessionId: string,
+    sessionId: string,
+  ): void {
     const session = this.sessionsById.get(sessionId);
     if (!session) return;
-    if (!this.ensureOwner(owner, session, emit)) return;
+    const lease = session.lease;
+    if (
+      !lease
+      || lease.webContentsId !== owner.id
+      || lease.windowSessionId !== windowSessionId
+    ) {
+      return;
+    }
+    session.lease = null;
+  }
 
+  killSession(sessionId: string): void {
+    const session = this.sessionsById.get(sessionId);
+    if (!session) return;
     this.disposeBackend(session, true);
     this.unlinkSession(session);
     this.sessionsById.delete(sessionId);
+    this.broadcast("terminal-exit", {
+      sessionId,
+      exitCode: null,
+      reason: "killed",
+    });
+  }
+
+  takeOverViewLease(
+    owner: Electron.WebContents,
+    windowSessionId: string,
+    request: TerminalTakeOverViewRequest,
+    emit: EmitTerminalEvent,
+  ): TerminalViewLeaseResult {
+    this.rememberEmitter(owner.id, emit);
+    const session = this.sessionsById.get(request.sessionId);
+    if (!session) return { status: "not_found" };
+    const previousLease = session.lease;
+    if (!previousLease) {
+      return this.acquireViewLease(owner, windowSessionId, {
+        sessionId: request.sessionId,
+        size: request.size,
+      }, emit);
+    }
+    if (
+      previousLease.webContentsId === owner.id
+      && previousLease.windowSessionId === windowSessionId
+    ) {
+      return this.acquireViewLease(owner, windowSessionId, {
+        sessionId: request.sessionId,
+        size: request.size,
+      }, emit);
+    }
+    if (previousLease.generation !== request.expectedGeneration) {
+      return {
+        status: "stale",
+        generation: previousLease.generation,
+        ownerWindowSessionId: previousLease.windowSessionId,
+        snapshot: this.snapshotSession(session),
+      };
+    }
+
+    session.leaseGeneration += 1;
+    const nextGeneration = session.leaseGeneration;
+    this.sendToWebContentsId(
+      previousLease.webContentsId,
+      "terminal-view-lease-revoked",
+      {
+        sessionId: session.sessionId,
+        generation: nextGeneration,
+        ownerWindowSessionId: windowSessionId,
+      },
+    );
+    session.lease = {
+      windowSessionId,
+      webContentsId: owner.id,
+      size: normalizeSize(request.size),
+      generation: nextGeneration,
+    };
+    this.resizeBackend(session, session.lease.size, emit);
+    this.flushInit(session);
+    this.sendAttached(session);
+    return {
+      status: "acquired",
+      generation: session.lease.generation,
+      snapshot: this.snapshotSession(session),
+    };
+  }
+
+  releaseLeasesForWebContents(webContentsId: number): void {
+    for (const session of this.sessionsById.values()) {
+      if (session.lease?.webContentsId === webContentsId) {
+        session.lease = null;
+      }
+    }
+    this.fallbackEmittersByWebContentsId.delete(webContentsId);
   }
 
   async runAction(
     owner: Electron.WebContents,
+    windowSessionId: string,
     request: TerminalRunActionRequest,
     emit: EmitTerminalEvent,
   ): Promise<void> {
@@ -335,6 +488,7 @@ export class TerminalManager {
     if (!session) {
       this.create(
         owner,
+        windowSessionId,
         {
           sessionId: request.sessionId,
           conversationId: request.conversationId,
@@ -345,16 +499,28 @@ export class TerminalManager {
         },
         emit,
       );
-      this.write(owner, request.sessionId, commandWithNewline(request.command), emit);
+      this.write(
+        owner,
+        windowSessionId,
+        request.sessionId,
+        commandWithNewline(request.command),
+        emit,
+      );
       return;
     }
 
-    if (!this.ensureOwner(owner, session, emit)) return;
+    if (!this.ensureLeaseOwner(owner, windowSessionId, session, emit)) return;
 
     const previousAction = session.pendingAction ?? Promise.resolve();
     const nextAction = previousAction
       .catch(() => undefined)
-      .then(() => this.restartForAction(owner, session, request, emit));
+      .then(() => this.restartForAction(
+        owner,
+        windowSessionId,
+        session,
+        request,
+        emit,
+      ));
     const trackedAction = nextAction.finally(() => {
       if (session.pendingAction === trackedAction) session.pendingAction = null;
     });
@@ -463,11 +629,12 @@ export class TerminalManager {
 
   private async restartForAction(
     owner: Electron.WebContents,
+    windowSessionId: string,
     session: TerminalManagerSession,
     request: TerminalRunActionRequest,
     emit: EmitTerminalEvent,
   ): Promise<void> {
-    if (!this.ensureOwner(owner, session, emit)) return;
+    if (!this.ensureLeaseOwner(owner, windowSessionId, session, emit)) return;
 
     this.disposeBackend(session, true);
 
@@ -482,14 +649,14 @@ export class TerminalManager {
     session.exitCode = null;
     session.osPid = null;
     this.clearSessionProcessMetrics(session);
-    session.attached = false;
-    session.lastSize = normalizeSize(request.size ?? session.lastSize);
+    const size = normalizeSize(request.size ?? session.lease?.size);
+    if (session.lease) session.lease.size = size;
     this.linkSession(session);
 
-    if (!this.spawnLocalBackend(session, session.lastSize, emit)) return;
+    if (!this.spawnLocalBackend(session, size, emit)) return;
 
-    this.flushInit(session, emit, true);
-    this.sendAttached(session, emit);
+    this.flushInit(session, true);
+    this.sendAttached(session);
     session.backend?.process.write(commandWithNewline(request.command));
   }
 
@@ -525,9 +692,10 @@ export class TerminalManager {
         session.buffer = nextBuffer.buffer;
         session.truncated = session.truncated || nextBuffer.truncated;
         observeBrowserSidebarPtyData(session.sessionId, data);
-        if (session.attached) {
-          emit("terminal-data", { sessionId: session.sessionId, data });
-        }
+        this.sendToLease(session, "terminal-data", {
+          sessionId: session.sessionId,
+          data,
+        });
       });
 
       const onExitDisposable = proc.onExit(({ exitCode }) => {
@@ -535,9 +703,11 @@ export class TerminalManager {
         session.exitCode = typeof exitCode === "number" ? exitCode : null;
         this.clearSessionProcessMetrics(session);
         this.disposeBackend(session, false);
-        emit("terminal-exit", {
+        session.lease = null;
+        this.broadcast("terminal-exit", {
           sessionId: session.sessionId,
           exitCode: session.exitCode,
+          reason: "exited",
         });
       });
 
@@ -551,7 +721,7 @@ export class TerminalManager {
 
       logger.info("Terminal session spawned", {
         sessionId: session.sessionId,
-        ownerWebContentsId: session.ownerWebContentsId,
+        leaseWindowSessionId: session.lease?.windowSessionId ?? null,
         cwd,
         shell,
         osPid: session.osPid,
@@ -597,17 +767,23 @@ export class TerminalManager {
     session.processMetricsSampledAtMs = null;
   }
 
-  private ensureOwner(
+  private ensureLeaseOwner(
     owner: Electron.WebContents,
+    windowSessionId: string,
     session: TerminalManagerSession,
     emit: EmitTerminalEvent,
   ): boolean {
-    if (session.ownerWebContentsId === owner.id) return true;
+    if (
+      session.lease?.webContentsId === owner.id
+      && session.lease.windowSessionId === windowSessionId
+    ) {
+      return true;
+    }
 
     this.emitError(
       emit,
       session.sessionId,
-      "Terminal session is owned by another window.",
+      "Terminal is active in another window.",
     );
     return false;
   }
@@ -622,27 +798,82 @@ export class TerminalManager {
 
   private flushInit(
     session: TerminalManagerSession,
-    emit: EmitTerminalEvent,
     force = false,
   ): void {
     if (force || session.buffer.length > 0) {
-      emit("terminal-init-log", {
+      this.sendToLease(session, "terminal-init-log", {
         sessionId: session.sessionId,
         data: session.buffer,
         snapshot: this.snapshotSession(session),
       });
     }
-    session.attached = true;
   }
 
   private sendAttached(
     session: TerminalManagerSession,
-    emit: EmitTerminalEvent,
   ): void {
-    emit("terminal-attached", {
+    this.sendToLease(session, "terminal-attached", {
       sessionId: session.sessionId,
       snapshot: this.snapshotSession(session),
     });
+  }
+
+  private resizeBackend(
+    session: TerminalManagerSession,
+    size: TerminalSize,
+    emit: EmitTerminalEvent,
+  ): void {
+    if (!session.backend || session.exited) return;
+    try {
+      session.backend.process.resize(size.cols, size.rows);
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : "Failed to resize terminal.";
+      this.emitError(emit, session.sessionId, message);
+    }
+  }
+
+  private rememberEmitter(
+    webContentsId: number,
+    emit: EmitTerminalEvent,
+  ): void {
+    this.fallbackEmittersByWebContentsId.set(webContentsId, emit);
+  }
+
+  private sendToLease(
+    session: TerminalManagerSession,
+    channel: TerminalEventName,
+    payload: TerminalEventPayload,
+  ): void {
+    const lease = session.lease;
+    if (!lease) return;
+    this.sendToWebContentsId(lease.webContentsId, channel, payload);
+  }
+
+  private sendToWebContentsId(
+    webContentsId: number,
+    channel: TerminalEventName,
+    payload: TerminalEventPayload,
+  ): void {
+    if (this.eventPublisher) {
+      this.eventPublisher.sendToWebContentsId(webContentsId, channel, payload);
+      return;
+    }
+    this.fallbackEmittersByWebContentsId.get(webContentsId)?.(channel, payload);
+  }
+
+  private broadcast(
+    channel: TerminalEventName,
+    payload: TerminalEventPayload,
+  ): void {
+    if (this.eventPublisher) {
+      this.eventPublisher.broadcast(channel, payload);
+      return;
+    }
+    for (const emit of new Set(this.fallbackEmittersByWebContentsId.values())) {
+      emit(channel, payload);
+    }
   }
 
   private linkSession(session: TerminalManagerSession): void {
@@ -687,6 +918,13 @@ export class TerminalManager {
       truncated: session.truncated,
       exited: session.exited,
       exitCode: session.exitCode,
+      viewLease: session.lease
+        ? {
+            windowSessionId: session.lease.windowSessionId,
+            generation: session.lease.generation,
+            size: session.lease.size,
+          }
+        : null,
     };
   }
 }

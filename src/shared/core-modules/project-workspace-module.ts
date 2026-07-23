@@ -2,11 +2,6 @@ import type {
   CodexPermissionMode,
   CodexThreadActiveFlag,
   CodexThreadStatusType,
-  PanelId,
-  ProjectSessionPanelLayout,
-  ProjectSessionPanelState,
-  ProjectSessionTabConfig,
-  ProjectSessionTabKind,
 } from "../types";
 import type {
   CommittedModuleValue,
@@ -178,38 +173,10 @@ export interface ProjectWorkspaceSessionSummary {
   readonly archived: boolean;
   readonly archivedAt: string | null;
   readonly unread: boolean;
-  readonly leftPaneCollapsed: boolean;
+  readonly initialDatabaseViewId: string | null;
   readonly threadId: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
-}
-
-export interface ProjectWorkspaceSessionTab {
-  readonly id: string;
-  readonly sessionId: string;
-  readonly projectId: string | null;
-  readonly browserTabId: string | null;
-  readonly panelId: PanelId;
-  readonly kind: ProjectSessionTabKind;
-  readonly title: string;
-  readonly order: number;
-  readonly config: ProjectSessionTabConfig;
-  readonly stateKey: number;
-  readonly state: unknown;
-  readonly createdAt: string;
-  readonly updatedAt: string;
-}
-
-export interface ProjectSessionPanelSizePatch {
-  readonly widthPx?: number;
-  readonly heightPx?: number;
-  readonly fullWidth?: boolean;
-}
-
-export interface ProjectSessionPanelStatePatch {
-  readonly collapsed?: boolean;
-  readonly layout?: ProjectSessionPanelLayout;
-  readonly size?: ProjectSessionPanelSizePatch;
 }
 
 export type ProjectWorkspaceRead =
@@ -221,7 +188,6 @@ export type ProjectWorkspaceRead =
       readonly includeArchived?: boolean;
     }
   | { readonly kind: "session"; readonly sessionId: string }
-  | { readonly kind: "session_tab"; readonly tabId: string }
   | { readonly kind: "thread"; readonly threadId: string }
   | {
       readonly kind: "threads";
@@ -259,10 +225,7 @@ export type ProjectWorkspaceReadValue =
   | {
       readonly kind: "session";
       readonly session: ProjectWorkspaceSessionSummary;
-      readonly panels: Readonly<Record<PanelId, ProjectSessionPanelState>>;
-      readonly tabs: readonly ProjectWorkspaceSessionTab[];
     }
-  | { readonly kind: "session_tab"; readonly tab: ProjectWorkspaceSessionTab }
   | {
       readonly kind: "thread";
       readonly thread: ProjectWorkspaceThread;
@@ -301,56 +264,7 @@ export type ProjectSessionIntent =
   | { readonly kind: "set_pinned"; readonly pinned: boolean }
   | { readonly kind: "set_unread"; readonly unread: boolean }
   | { readonly kind: "set_archived"; readonly archived: boolean }
-  | {
-      readonly kind: "patch_view_state";
-      readonly fallbackTitle?: string;
-      readonly leftPaneCollapsed?: boolean;
-      readonly rightPanel?: ProjectSessionPanelStatePatch;
-      readonly bottomPanel?: ProjectSessionPanelStatePatch;
-    }
-  | {
-      readonly kind: "replace_panel_layout";
-      readonly panelId: PanelId;
-      readonly layout: ProjectSessionPanelLayout;
-    }
-  | {
-      readonly kind: "create_tab";
-      readonly tabId: string;
-      readonly panelId: PanelId;
-      readonly targetLeafId?: string;
-      readonly browserTabId?: string;
-      readonly tabKind: ProjectSessionTabKind;
-      readonly title: string;
-      readonly config: ProjectSessionTabConfig;
-    }
-  | {
-      readonly kind: "delete_tab";
-      readonly tabId: string;
-      readonly layout?: ProjectSessionPanelLayout;
-    }
-  | {
-      readonly kind: "move_tab";
-      readonly tabId: string;
-      readonly panelId: PanelId;
-      readonly targetLeafId?: string;
-      readonly beforeTabId?: string;
-      readonly sourceLayout?: ProjectSessionPanelLayout;
-      readonly targetLayout?: ProjectSessionPanelLayout;
-    }
-  | {
-      readonly kind: "update_tab";
-      readonly tabId: string;
-      readonly title?: string;
-      readonly config?: ProjectSessionTabConfig;
-      readonly stateKey?: number;
-      readonly state?: unknown;
-    }
-  | {
-      readonly kind: "replace_tab_state";
-      readonly tabId: string;
-      readonly stateKey: number;
-      readonly state: unknown;
-    }
+  | { readonly kind: "set_fallback_title"; readonly title: string }
   | {
       readonly kind: "link_thread";
       readonly threadId: string;

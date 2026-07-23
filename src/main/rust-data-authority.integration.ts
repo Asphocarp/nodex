@@ -1663,12 +1663,8 @@ describe("Electron native data authority", () => {
       });
       await expect(workspace.updateProjectSession(createdSession.id, {
         noThreadFallbackTitle: "Electron Session Updated",
-        leftPaneCollapsed: true,
-        panels: { bottom: { collapsed: false, size: { heightPx: 340 } } },
       })).resolves.toMatchObject({
         noThreadFallbackTitle: "Electron Session Updated",
-        leftPaneCollapsed: true,
-        panels: { bottom: { collapsed: false, size: { heightPx: 340 } } },
       });
       await expect(
         workspace.setPinnedProjectSessionOrder(createdProject.id, {
@@ -1679,57 +1675,6 @@ describe("Electron native data authority", () => {
           expect.objectContaining({ id: createdSession.id, pinnedOrder: 0 }),
         ]),
       );
-      const firstBrowserTab = await workspace.createProjectSessionTab({
-        sessionId: createdSession.id,
-        panelId: "right",
-        kind: "browser",
-        title: "Browser One",
-        config: { projectId: createdProject.id, url: "https://example.test/one" },
-      });
-      const secondBrowserTab = await workspace.createProjectSessionTab({
-        sessionId: createdSession.id,
-        panelId: "right",
-        kind: "browser",
-        title: "Browser Two",
-        config: { projectId: createdProject.id, url: "https://example.test/two" },
-      });
-      await expect(workspace.updateProjectSessionTab(firstBrowserTab.id, {
-        title: "Browser One Updated",
-        stateKey: 1,
-        state: { scrollY: 24 },
-      })).resolves.toMatchObject({
-        title: "Browser One Updated",
-        stateKey: 1,
-        state: { scrollY: 24 },
-      });
-      const tabbedSession = await workspace.getProjectSession(createdSession.id);
-      if (!tabbedSession) throw new Error("Created Session disappeared");
-      const splitSession = await workspace.splitProjectSessionPanelGroup({
-        sessionId: createdSession.id,
-        panelId: "right",
-        leafId: tabbedSession.panels.right.layout.activeLeafId,
-        side: "right",
-        tabId: secondBrowserTab.id,
-      });
-      expect(splitSession?.tabs.map((tab) => tab.id)).toEqual(
-        expect.arrayContaining([firstBrowserTab.id, secondBrowserTab.id]),
-      );
-      expect(
-        splitSession?.panels.right.layout.root.type,
-      ).toBe("split");
-      const movedSession = await workspace.moveProjectSessionTab({
-        tabId: firstBrowserTab.id,
-        targetPanelId: "bottom",
-      });
-      expect(
-        movedSession?.tabs.find((tab) => tab.id === firstBrowserTab.id)?.panelId,
-      ).toBe("bottom");
-      await expect(
-        workspace.deleteProjectSessionTab(secondBrowserTab.id),
-      ).resolves.toBe(true);
-      await expect(
-        workspace.getProjectSessionTab(secondBrowserTab.id),
-      ).resolves.toBeNull();
       const threadTimestamp = Date.now();
       await expect(workspace.upsertProjectSessionThreadLink({
         sessionId: createdSession.id,
@@ -1848,13 +1793,6 @@ describe("Electron native data authority", () => {
         projectId: createdProject.id,
         noThreadFallbackTitle: "Electron native move",
       });
-      const moveBrowserTab = await workspace.createProjectSessionTab({
-        sessionId: moveSession.id,
-        panelId: "right",
-        kind: "browser",
-        title: "Move Browser",
-        config: { projectId: createdProject.id, url: "https://example.test/move" },
-      });
       await workspace.upsertProjectSessionThreadLink({
         sessionId: moveSession.id,
         projectId: createdProject.id,
@@ -1888,10 +1826,6 @@ describe("Electron native data authority", () => {
       });
       await expect(workspace.getProjectSession(moveSession.id)).resolves.toMatchObject({
         projectId: moveTargetProject.id,
-        tabs: [expect.objectContaining({
-          id: moveBrowserTab.id,
-          projectId: moveTargetProject.id,
-        })],
       });
       const projectlessSession = await workspace.createProjectSession({
         projectId: null,

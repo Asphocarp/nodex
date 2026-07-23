@@ -24,7 +24,7 @@ import {
 import {
   BROWSER_SIDEBAR_DEVICE_PRESETS,
   DEFAULT_BROWSER_SIDEBAR_FIND_STATE,
-  requireProjectSessionBrowserTabId,
+  requireWorkbenchBrowserTabProjectionId,
   type BrowserBrowsingDataKind,
   type BrowserSidebarBrowserUseViewportEvent,
   type BrowserSidebarBrowserUseStateSnapshot,
@@ -64,7 +64,11 @@ import {
   type BrowserLocalServerShowMode,
   type BrowserLocalServerSortMode,
 } from "./browser-sidebar-ui-model";
-import type { ProjectSession, ProjectSessionTab } from "@/lib/types";
+import type {
+  WorkbenchTabProjection,
+  WorkbenchTabUpdateInput,
+} from "@/lib/types";
+import type { WindowLocalProjectSession } from "@/lib/window-session-view-adapter";
 import { invoke } from "@/lib/api";
 import { useRegisterContentSearchBrowserTarget } from "@/features/content-search/content-search-context";
 import {
@@ -90,7 +94,7 @@ import {
   NodexDropdownSeparator,
 } from "@/components/ui/dropdown";
 
-type BrowserTab = ProjectSessionTab & { preview?: true };
+type BrowserTab = WorkbenchTabProjection & { preview?: true };
 
 const BROWSER_CHROME_CLASS =
   "relative z-10 h-toolbar-pane min-w-0 shrink-0 border-b border-token-border bg-token-main-surface-primary";
@@ -109,7 +113,11 @@ const LOCAL_SERVER_THUMBNAIL_DATA_URI =
   "data:image/svg+xml,%3Csvg width='84' height='52' viewBox='0 0 84 52' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='84' height='52' rx='10' fill='%231B1D21'/%3E%3Crect x='10' y='10' width='64' height='7' rx='3.5' fill='%2330363D'/%3E%3Crect x='10' y='23' width='42' height='6' rx='3' fill='%23282D34'/%3E%3Crect x='10' y='34' width='55' height='6' rx='3' fill='%23282D34'/%3E%3Ccircle cx='69' cy='38' r='4' fill='%2316A34A'/%3E%3C/svg%3E";
 const DEFAULT_BROWSER_SNAPSHOT: Omit<
   BrowserSidebarTabSnapshot,
-  "browserConversationId" | "browserTabId" | "projectId" | "updatedAt"
+  | "browserConversationId"
+  | "browserViewScopeId"
+  | "browserTabId"
+  | "projectId"
+  | "updatedAt"
 > = {
   webContentsId: null,
   mountGeneration: 0,
@@ -144,20 +152,29 @@ const DEFAULT_BROWSER_SNAPSHOT: Omit<
 export function BrowserSidebarPanel({
   tab,
   activeSession,
+  browserViewScopeId,
   onRefreshSessions,
+  onUpdateTab = () => null,
   boundsSyncTrigger,
   activeForContentSearch = false,
 }: {
   tab: BrowserTab;
-  activeSession: ProjectSession;
-  onRefreshSessions: (projectId: string | null) => Promise<ProjectSession[]>;
+  activeSession: WindowLocalProjectSession;
+  browserViewScopeId: string;
+  onRefreshSessions: (
+    projectId: string | null,
+  ) => Promise<WindowLocalProjectSession[]>;
+  onUpdateTab?: (
+    tabId: string,
+    patch: WorkbenchTabUpdateInput,
+  ) => WorkbenchTabProjection | null;
   boundsSyncTrigger?: MotionValue<number>;
   activeForContentSearch?: boolean;
 }) {
   const browserRuntimeAvailable = typeof window !== "undefined" && Boolean(window.api);
   const webviewHostRef = useRef<HTMLDivElement | null>(null);
   const [snapshot, setSnapshot] = useState<BrowserSidebarTabSnapshot>(() =>
-    makeInitialSnapshot(tab, activeSession)
+    makeInitialSnapshot(tab, activeSession, browserViewScopeId)
   );
   const [addressValue, setAddressValue] = useState(readBrowserAddressValue(snapshot.url));
   const [addressFocused, setAddressFocused] = useState(false);
@@ -179,7 +196,7 @@ export function BrowserSidebarPanel({
   const command = useCallback(async (input: BrowserSidebarCommand): Promise<BrowserSidebarCommandResult> => {
     return invoke("browser-sidebar-command", input) as Promise<BrowserSidebarCommandResult>;
   }, []);
-  const browserTabId = requireProjectSessionBrowserTabId(tab);
+  const browserTabId = requireWorkbenchBrowserTabProjectionId(tab);
   const tabInitialUrl = readBrowserConfigUrl(tab);
   const tabFaviconUrl = readBrowserConfigFavicon(tab);
   const tabDeviceToolbarVisible = readBrowserConfigDeviceToolbarVisible(tab);
@@ -187,8 +204,9 @@ export function BrowserSidebarPanel({
   const tabTitle = tab.title;
   const browserIdentity = useMemo(() => ({
     browserConversationId: activeSession.id,
+    browserViewScopeId,
     browserTabId,
-  }), [activeSession.id, browserTabId]);
+  }), [activeSession.id, browserTabId, browserViewScopeId]);
   const contentSearchBrowserTarget = useMemo(() => {
     if (!activeForContentSearch || pageActionsDisabled) return null;
     return {
@@ -333,7 +351,7 @@ export function BrowserSidebarPanel({
     const title = snapshot.title || "Browser";
     const url = isBlankBrowserUrl(snapshot.url) ? undefined : snapshot.url;
     const timeout = window.setTimeout(() => {
-      void invoke("project-session-tabs:update", tab.id, {
+      onUpdateTab(tab.id, {
         title,
         config: {
           projectId: tab.projectId,
@@ -342,11 +360,12 @@ export function BrowserSidebarPanel({
           ...(snapshot.faviconUrl ? { faviconUrl: snapshot.faviconUrl } : {}),
           deviceToolbarVisible: snapshot.deviceToolbarVisible,
         },
-      }).then(() => onRefreshSessions(tab.projectId));
+      });
     }, 650);
     return () => window.clearTimeout(timeout);
   }, [
     onRefreshSessions,
+    onUpdateTab,
     snapshot.deviceToolbarVisible,
     snapshot.faviconUrl,
     snapshot.title,
@@ -453,7 +472,9 @@ export function BrowserSidebarPanel({
   ) ?? null;
   const showBrowserUseCursor = cursor?.visible === true;
   const activeBrowserUseTabId = browserUseState
-    ?.activeBrowserTabIdsByConversation[browserIdentity.browserConversationId] ?? null;
+    ?.activeBrowserTabIdsByConversationScope[
+      `${browserIdentity.browserConversationId}\0${browserIdentity.browserViewScopeId}`
+    ] ?? null;
   const activeBrowserUseTab = browserUseState?.tabs.find((item) =>
     item.browserConversationId === browserIdentity.browserConversationId
     && item.browserTabId === activeBrowserUseTabId
@@ -1307,12 +1328,17 @@ export function BrowserUnavailableState() {
   );
 }
 
-function makeInitialSnapshot(tab: BrowserTab, activeSession: ProjectSession): BrowserSidebarTabSnapshot {
+function makeInitialSnapshot(
+  tab: BrowserTab,
+  activeSession: WindowLocalProjectSession,
+  browserViewScopeId = "unassigned-window-session",
+): BrowserSidebarTabSnapshot {
   const url = normalizeBrowserNavigationUrl(readBrowserConfigUrl(tab));
   return {
     ...DEFAULT_BROWSER_SNAPSHOT,
     browserConversationId: activeSession.id,
-    browserTabId: requireProjectSessionBrowserTabId(tab),
+    browserViewScopeId,
+    browserTabId: requireWorkbenchBrowserTabProjectionId(tab),
     projectId: tab.projectId,
     url,
     title: readBrowserConfigTitle(tab) || tab.title || "New tab",

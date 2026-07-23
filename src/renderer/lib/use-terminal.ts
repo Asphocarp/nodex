@@ -274,7 +274,13 @@ export interface UseTerminalReturn {
   exitCode: number | null;
   isUnavailable: boolean;
   error: string | null;
+  leaseConflict: {
+    generation: number;
+    ownerWindowSessionId: string;
+  } | null;
   reconnect: () => void;
+  takeOver: () => void;
+  kill: () => void;
 }
 
 export function useTerminal({
@@ -296,6 +302,10 @@ export function useTerminal({
   const [isExited, setIsExited] = useState(false);
   const [exitCode, setExitCode] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [leaseConflict, setLeaseConflict] = useState<{
+    generation: number;
+    ownerWindowSessionId: string;
+  } | null>(null);
   onNewTerminalTabRef.current = onNewTerminalTab;
 
   const latestOptionsRef = useRef({
@@ -332,6 +342,27 @@ export function useTerminal({
       size,
     });
   }, [hasValidCwd, terminalId]);
+
+  const takeOver = useCallback(() => {
+    const conflict = terminalSessionStore.getLeaseConflict(terminalId);
+    const term = termRef.current;
+    const fit = fitRef.current;
+    if (!conflict || !term || !fit || !isTerminalRuntimeAvailable()) return;
+
+    const size = fitAndResize(terminalId, term, fit) ?? {
+      cols: term.cols,
+      rows: term.rows,
+    };
+    void terminalSessionStore.takeOver({
+      sessionId: terminalId,
+      expectedGeneration: conflict.generation,
+      size,
+    });
+  }, [terminalId]);
+
+  const kill = useCallback(() => {
+    terminalSessionStore.kill(terminalId);
+  }, [terminalId]);
 
   useEffect(() => {
     if (!visible || !hasValidCwd || !containerRef.current || !isTerminalRuntimeAvailable()) return;
@@ -400,6 +431,7 @@ export function useTerminal({
         setIsExited(event.snapshot.exited);
         setExitCode(event.snapshot.exitCode);
         setError(null);
+        setLeaseConflict(null);
         return;
       }
 
@@ -409,9 +441,31 @@ export function useTerminal({
         return;
       }
 
+      if (event.type === "lease-conflict") {
+        const snapshot = terminalSessionStore.getSnapshot(terminalId);
+        replayDisplayLog(snapshot.buffer);
+        setIsConnected(false);
+        setIsExited(snapshot.exited);
+        setExitCode(snapshot.exitCode);
+        setError(null);
+        setLeaseConflict({
+          generation: event.generation,
+          ownerWindowSessionId: event.ownerWindowSessionId,
+        });
+        return;
+      }
+
+      if (event.type === "lease-acquired") {
+        setIsConnected(true);
+        setError(null);
+        setLeaseConflict(null);
+        return;
+      }
+
       setIsConnected(false);
       setIsExited(true);
       setExitCode(event.exitCode);
+      setLeaseConflict(null);
     };
 
     const unsubscribe = terminalSessionStore.subscribe(terminalId, handleStoreEvent);
@@ -496,6 +550,7 @@ export function useTerminal({
       for (const disposable of disposables) {
         disposable.dispose();
       }
+      terminalSessionStore.release(terminalId);
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
@@ -515,6 +570,7 @@ export function useTerminal({
     setIsExited(snapshot.exited);
     setExitCode(snapshot.exitCode);
     setError(terminalSessionStore.getError(terminalId));
+    setLeaseConflict(terminalSessionStore.getLeaseConflict(terminalId));
   }, [terminalId]);
 
   return {
@@ -524,6 +580,9 @@ export function useTerminal({
     exitCode,
     isUnavailable: !isTerminalRuntimeAvailable(),
     error,
+    leaseConflict,
     reconnect,
+    takeOver,
+    kill,
   };
 }

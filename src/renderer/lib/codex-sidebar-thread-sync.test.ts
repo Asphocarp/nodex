@@ -106,6 +106,7 @@ function makeSession(input: {
   return {
     id: input.id,
     projectId: "alpha",
+    initialDatabaseViewId: null,
     noThreadFallbackTitle: input.id,
     displayTitle: input.id,
     order: input.order,
@@ -114,10 +115,7 @@ function makeSession(input: {
     archived: false,
     archivedAt: null,
     unread: false,
-    leftPaneCollapsed: false,
-    panels: {} as ProjectSession["panels"],
     thread: null,
-    tabs: [],
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: input.updatedAt ?? "2026-01-01T00:00:00.000Z",
   };

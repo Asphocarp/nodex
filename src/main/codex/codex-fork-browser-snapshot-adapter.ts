@@ -1,74 +1,67 @@
 import { createHash } from "node:crypto";
 import {
-  makeDefaultBrowserSidebarTabId,
-  requireProjectSessionBrowserTabId,
+  makeBrowserSidebarConversationScopeKey,
   type BrowserSidebarBrowserUseStateSnapshot,
   type BrowserSidebarDeviceToolbarState,
   type BrowserSidebarStateSnapshot,
 } from "../../shared/browser-sidebar";
-import { getProjectSessionPanelActiveLeaf } from "../../shared/project-session-panel-layout";
 import type {
-  PanelId,
-  ProjectSession,
-  ProjectSessionTab,
-} from "../../shared/types";
+  CodexForkBrowserSidePanelSnapshot,
+  CodexForkBrowserTabDescriptor,
+  CodexForkBrowserViewContext,
+} from "../../shared/codex-fork-browser-transfer";
+export type {
+  CodexForkBrowserSidePanelSnapshot,
+  CodexForkBrowserTabDescriptor,
+} from "../../shared/codex-fork-browser-transfer";
+import { listWorkbenchPanelLeaves } from "../../shared/workbench-panel-layout";
+import type { ProjectSession } from "../../shared/types";
+import type {
+  WorkbenchPanelId,
+  WorkbenchSessionViewSnapshot,
+  WorkbenchSessionViewTab,
+} from "../../shared/workbench-session-view";
 import type { CodexForkSidePanelSnapshotAdapter } from "./codex-fork-side-panel-transfer";
-
-export interface CodexForkBrowserTabDescriptor {
-  active: boolean;
-  readonly browserTabId: string;
-  readonly deviceToolbarState: BrowserSidebarDeviceToolbarState;
-  readonly initialUrl: string | null;
-  readonly insertAfterTabId: string | null;
-  readonly kind: "browser";
-  readonly panel: PanelId;
-  readonly tabId: string;
-}
-
-export interface CodexForkBrowserSidePanelSnapshot {
-  readonly bottomPanelOpen: boolean;
-  readonly focusArea: "main" | "right-panel" | "bottom-panel";
-  readonly rightPanelFullWidth: boolean;
-  readonly rightPanelOpen: boolean;
-  readonly sourceBrowserConversationId: string;
-  readonly tabs: readonly CodexForkBrowserTabDescriptor[];
-  readonly targetBrowserConversationId: string;
-}
 
 export interface CodexForkBrowserRuntime {
   getBrowserUseStateSnapshot(): BrowserSidebarBrowserUseStateSnapshot;
-  getConversationBrowserTabIds(browserConversationId: string): string[];
+  getConversationBrowserTabIds(
+    browserConversationId: string,
+    browserViewScopeId: string,
+  ): string[];
   getDeviceToolbarTabState(
-    identity: { browserConversationId: string; browserTabId: string },
+    identity: {
+      browserConversationId: string;
+      browserViewScopeId: string;
+      browserTabId: string;
+    },
   ): BrowserSidebarDeviceToolbarState;
   getStateSnapshot(): BrowserSidebarStateSnapshot;
   openClonedBrowserTab(input: {
     browserConversationId: string;
+    browserViewScopeId: string;
     browserTabId: string;
     initialUrl?: string;
     projectId: string | null;
   }): unknown;
   primeTransferredBrowserTabId(
     browserConversationId: string,
+    browserViewScopeId: string,
     browserTabId: string,
   ): void;
   setDeviceToolbarTabState(
-    identity: { browserConversationId: string; browserTabId: string },
+    identity: {
+      browserConversationId: string;
+      browserViewScopeId: string;
+      browserTabId: string;
+    },
     state: BrowserSidebarDeviceToolbarState,
   ): void;
 }
 
 export interface CodexForkBrowserSnapshotAdapterDependencies {
-  createTargetBrowserPanelTab(input: {
-    browserTabId: string;
-    durableTabId: string;
-    initialUrl?: string;
-    panel: PanelId;
-    targetProjectSession: ProjectSession;
-  }): Promise<ProjectSessionTab>;
   getProjectSession(projectSessionId: string): Promise<ProjectSession | null>;
   resolveBrowserConversationId(conversationId: string): Promise<string>;
-  resolveProjectSession(conversationId: string): Promise<ProjectSession | null>;
   runtime: CodexForkBrowserRuntime;
 }
 
@@ -85,10 +78,12 @@ const DEFAULT_DEVICE_TOOLBAR_STATE: BrowserSidebarDeviceToolbarState = {
 function browserRuntimeSnapshot(
   state: BrowserSidebarStateSnapshot,
   browserConversationId: string,
+  browserViewScopeId: string,
   browserTabId: string,
 ) {
   return state.tabs.find((tab) =>
     tab.browserConversationId === browserConversationId
+    && tab.browserViewScopeId === browserViewScopeId
     && tab.browserTabId === browserTabId
   ) ?? null;
 }
@@ -96,232 +91,175 @@ function browserRuntimeSnapshot(
 function browserUseSnapshot(
   state: BrowserSidebarBrowserUseStateSnapshot,
   browserConversationId: string,
+  browserViewScopeId: string,
   browserTabId: string,
 ) {
   return state.tabs.find((tab) =>
     tab.browserConversationId === browserConversationId
+    && tab.browserViewScopeId === browserViewScopeId
     && tab.browserTabId === browserTabId
     && !tab.released
   ) ?? null;
 }
 
-function captureBrowserDescriptor(input: {
+function initialUrlForBrowser(
+  browserState: BrowserSidebarStateSnapshot,
+  browserUseState: BrowserSidebarBrowserUseStateSnapshot,
+  browserConversationId: string,
+  browserViewScopeId: string,
+  browserTabId: string,
+): string | null {
+  return browserRuntimeSnapshot(
+    browserState,
+    browserConversationId,
+    browserViewScopeId,
+    browserTabId,
+  )?.url ?? browserUseSnapshot(
+    browserUseState,
+    browserConversationId,
+    browserViewScopeId,
+    browserTabId,
+  )?.url ?? null;
+}
+
+function browserTabsInPanel(
+  view: WorkbenchSessionViewSnapshot,
+  panel: WorkbenchPanelId,
+): Array<Extract<WorkbenchSessionViewTab, { kind: "browser" }>> {
+  return listWorkbenchPanelLeaves(view.panels[panel].layout)
+    .flatMap((leaf) => leaf.tabIds)
+    .map((tabId) => view.tabsById[tabId])
+    .filter((
+      tab,
+    ): tab is Extract<WorkbenchSessionViewTab, { kind: "browser" }> =>
+      tab?.kind === "browser"
+    );
+}
+
+function capturePanelDescriptors(input: {
   browserConversationId: string;
+  browserViewScopeId: string;
   browserState: BrowserSidebarStateSnapshot;
   browserUseState: BrowserSidebarBrowserUseStateSnapshot;
-  insertAfterTabId: string | null;
-  panel: PanelId;
+  panel: WorkbenchPanelId;
   runtime: CodexForkBrowserRuntime;
-  tab: ProjectSessionTab;
-  activeTabId: string | null;
-}): CodexForkBrowserTabDescriptor {
-  const browserTabId = requireProjectSessionBrowserTabId(input.tab);
-  const runtimeSnapshot = browserRuntimeSnapshot(
-    input.browserState,
-    input.browserConversationId,
-    browserTabId,
-  );
-  const useSnapshot = browserUseSnapshot(
-    input.browserUseState,
-    input.browserConversationId,
-    browserTabId,
-  );
-  return {
-    active: input.tab.id === input.activeTabId,
-    browserTabId,
+  view: WorkbenchSessionViewSnapshot;
+}): CodexForkBrowserTabDescriptor[] {
+  const activeTabId = listWorkbenchPanelLeaves(
+    input.view.panels[input.panel].layout,
+  ).find((leaf) =>
+    leaf.id === input.view.panels[input.panel].layout.activeLeafId
+  )?.activeTabId ?? null;
+
+  return browserTabsInPanel(input.view, input.panel).map((tab) => ({
+    active: tab.id === activeTabId,
+    browserTabId: tab.config.browserTabId,
     deviceToolbarState: input.runtime.getDeviceToolbarTabState({
       browserConversationId: input.browserConversationId,
-      browserTabId,
+      browserViewScopeId: input.browserViewScopeId,
+      browserTabId: tab.config.browserTabId,
     }) ?? DEFAULT_DEVICE_TOOLBAR_STATE,
-    initialUrl: runtimeSnapshot?.url ?? useSnapshot?.url ?? null,
-    insertAfterTabId: input.insertAfterTabId,
+    initialUrl: initialUrlForBrowser(
+      input.browserState,
+      input.browserUseState,
+      input.browserConversationId,
+      input.browserViewScopeId,
+      tab.config.browserTabId,
+    ) ?? tab.config.url ?? null,
     kind: "browser",
     panel: input.panel,
-    tabId: input.tab.id,
-  };
+    tabId: tab.id,
+  }));
 }
 
-function capturePanelBrowserDescriptors(input: {
-  browserConversationId: string;
-  browserState: BrowserSidebarStateSnapshot;
-  browserUseState: BrowserSidebarBrowserUseStateSnapshot;
-  panel: PanelId;
-  runtime: CodexForkBrowserRuntime;
-  session: ProjectSession;
-}): CodexForkBrowserTabDescriptor[] {
-  const activeTabId = getProjectSessionPanelActiveLeaf(
-    input.session.panels[input.panel].layout,
-  ).activeTabId;
-  const descriptors: CodexForkBrowserTabDescriptor[] = [];
-  let activeWasEncountered = false;
-  let repairedActive: CodexForkBrowserTabDescriptor | null = null;
-  let insertAfterTabId: string | null = null;
-
-  for (const tab of input.session.tabs.filter((candidate) => candidate.panelId === input.panel)) {
-    if (tab.id === activeTabId) {
-      activeWasEncountered = true;
-      repairedActive = descriptors.at(-1) ?? null;
-    }
-    if (tab.kind !== "browser") continue;
-
-    const descriptor = captureBrowserDescriptor({
-      ...input,
-      activeTabId,
-      insertAfterTabId,
-      tab,
-    });
-    descriptors.push(descriptor);
-    if (activeWasEncountered && repairedActive === null) repairedActive = descriptor;
-    insertAfterTabId = descriptor.tabId;
-  }
-
-  if (!descriptors.some((descriptor) => descriptor.active) && repairedActive !== null) {
-    repairedActive.active = true;
-  }
-  return descriptors;
-}
-
-function appendFirst(ordered: string[], seen: Set<string>, value: string): void {
-  if (seen.has(value)) return;
-  seen.add(value);
-  ordered.push(value);
-}
-
-function captureMountedSnapshot(
-  session: ProjectSession,
+function captureViewSnapshot(
+  context: CodexForkBrowserViewContext,
   browserConversationId: string,
   runtime: CodexForkBrowserRuntime,
 ): CodexForkBrowserSidePanelSnapshot {
   const browserState = runtime.getStateSnapshot();
   const browserUseState = runtime.getBrowserUseStateSnapshot();
-  const right = capturePanelBrowserDescriptors({
+  const right = capturePanelDescriptors({
     browserConversationId,
+    browserViewScopeId: context.browserViewScopeId,
     browserState,
     browserUseState,
     panel: "right",
     runtime,
-    session,
+    view: context.view,
   });
-  const bottom = capturePanelBrowserDescriptors({
+  const bottom = capturePanelDescriptors({
     browserConversationId,
+    browserViewScopeId: context.browserViewScopeId,
     browserState,
     browserUseState,
     panel: "bottom",
     runtime,
-    session,
+    view: context.view,
   });
-  const visible = [...right, ...bottom];
-  const representedBrowserIds = new Set(
-    visible.map((descriptor) => descriptor.browserTabId),
-  );
-  const orderedBrowserIds: string[] = [];
-  const seenBrowserIds = new Set<string>();
-  for (const descriptor of visible) {
-    appendFirst(orderedBrowserIds, seenBrowserIds, descriptor.browserTabId);
-  }
-  for (const browserUseTab of browserUseState.tabs) {
-    if (
-      browserUseTab.browserConversationId !== browserConversationId
-      || browserUseTab.released
-    ) {
-      continue;
-    }
-    appendFirst(orderedBrowserIds, seenBrowserIds, browserUseTab.browserTabId);
-  }
-
-  const rememberedBrowserTabId =
-    browserUseState.activeBrowserTabIdsByConversation[browserConversationId] ?? null;
-  const activeRightBrowserTabId = right.find((descriptor) => descriptor.active)?.browserTabId ?? null;
-  const activeBottomBrowserTabId = bottom.find((descriptor) => descriptor.active)?.browserTabId ?? null;
-  const focusedBrowserTabId = rememberedBrowserTabId !== null
-    && seenBrowserIds.has(rememberedBrowserTabId)
-    ? rememberedBrowserTabId
-    : activeRightBrowserTabId
-      ?? activeBottomBrowserTabId
-      ?? orderedBrowserIds.at(-1)
-      ?? null;
-  const extras: CodexForkBrowserTabDescriptor[] = [];
-  let insertAfterTabId = right.at(-1)?.tabId ?? null;
-  for (const browserTabId of orderedBrowserIds) {
-    if (representedBrowserIds.has(browserTabId)) continue;
-    representedBrowserIds.add(browserTabId);
-    const snapshot = browserRuntimeSnapshot(
-      browserState,
-      browserConversationId,
-      browserTabId,
-    );
-    const useSnapshot = browserUseSnapshot(
-      browserUseState,
-      browserConversationId,
-      browserTabId,
-    );
-    const descriptor: CodexForkBrowserTabDescriptor = {
-      active: browserTabId === focusedBrowserTabId,
-      browserTabId,
-      deviceToolbarState: runtime.getDeviceToolbarTabState({
-        browserConversationId,
-        browserTabId,
-      }),
-      initialUrl: snapshot?.url ?? useSnapshot?.url ?? null,
-      insertAfterTabId,
-      kind: "browser",
-      panel: "right",
-      tabId: browserTabId,
-    };
-    extras.push(descriptor);
-    insertAfterTabId = descriptor.tabId;
-  }
-
   return {
-    bottomPanelOpen: !session.panels.bottom.collapsed,
-    focusArea: "main",
-    rightPanelFullWidth: session.panels.right.size.fullWidth === true,
-    rightPanelOpen: !session.panels.right.collapsed,
+    bottomPanelOpen: !context.view.panels.bottom.collapsed,
+    focusArea: context.view.lastFocusedPanelId === "bottom"
+      ? "bottom-panel"
+      : context.view.lastFocusedPanelId === "right"
+        ? "right-panel"
+        : "main",
+    rightPanelFullWidth: context.view.panels.right.size.fullWidth === true,
+    rightPanelOpen: !context.view.panels.right.collapsed,
     sourceBrowserConversationId: browserConversationId,
-    tabs: [...visible, ...extras],
+    sourceBrowserViewScopeId: context.browserViewScopeId,
+    tabs: [...right, ...bottom],
     targetBrowserConversationId: browserConversationId,
+    targetBrowserViewScopeId: context.browserViewScopeId,
   };
 }
 
-function captureFallbackSnapshot(
+function captureRuntimeFallback(
   browserConversationId: string,
+  browserViewScopeId: string,
   runtime: CodexForkBrowserRuntime,
 ): CodexForkBrowserSidePanelSnapshot {
   const browserState = runtime.getStateSnapshot();
   const browserUseState = runtime.getBrowserUseStateSnapshot();
-  const browserTabIds = runtime.getConversationBrowserTabIds(browserConversationId);
+  const browserTabIds = runtime.getConversationBrowserTabIds(
+    browserConversationId,
+    browserViewScopeId,
+  );
+  const rememberedBrowserTabId =
+    browserUseState.activeBrowserTabIdsByConversationScope[
+      makeBrowserSidebarConversationScopeKey({
+        browserConversationId,
+        browserViewScopeId,
+      })
+    ] ?? browserTabIds.at(-1) ?? null;
   return {
     bottomPanelOpen: false,
     focusArea: "main",
     rightPanelFullWidth: false,
-    rightPanelOpen: false,
+    rightPanelOpen: browserTabIds.length > 0,
     sourceBrowserConversationId: browserConversationId,
-    tabs: browserTabIds.map((browserTabId, index) => {
-      const snapshot = browserRuntimeSnapshot(
-        browserState,
+    sourceBrowserViewScopeId: browserViewScopeId,
+    tabs: browserTabIds.map((browserTabId) => ({
+      active: browserTabId === rememberedBrowserTabId,
+      browserTabId,
+      deviceToolbarState: runtime.getDeviceToolbarTabState({
         browserConversationId,
+        browserViewScopeId,
         browserTabId,
-      );
-      const useSnapshot = browserUseSnapshot(
+      }) ?? DEFAULT_DEVICE_TOOLBAR_STATE,
+      initialUrl: initialUrlForBrowser(
+        browserState,
         browserUseState,
         browserConversationId,
+        browserViewScopeId,
         browserTabId,
-      );
-      return {
-        active: index === browserTabIds.length - 1,
-        browserTabId,
-        deviceToolbarState: runtime.getDeviceToolbarTabState({
-          browserConversationId,
-          browserTabId,
-        }),
-        initialUrl: snapshot?.url ?? useSnapshot?.url ?? null,
-        insertAfterTabId: browserTabIds[index - 1] ?? null,
-        kind: "browser" as const,
-        panel: "right" as const,
-        tabId: browserTabId,
-      };
-    }),
+      ),
+      kind: "browser",
+      panel: "right",
+      tabId: browserTabId,
+    })),
     targetBrowserConversationId: browserConversationId,
+    targetBrowserViewScopeId: browserViewScopeId,
   };
 }
 
@@ -329,122 +267,118 @@ function rebaseSnapshot(
   snapshot: CodexForkBrowserSidePanelSnapshot,
   targetBrowserConversationId: string,
 ): CodexForkBrowserSidePanelSnapshot {
-  const sourceDefaultBrowserTabId = makeDefaultBrowserSidebarTabId(
-    snapshot.sourceBrowserConversationId,
-  );
-  const targetDefaultBrowserTabId = makeDefaultBrowserSidebarTabId(
-    targetBrowserConversationId,
-  );
-  const targetTabIdsBySourceTabId = new Map<string, string>();
-  for (const descriptor of snapshot.tabs) {
-    targetTabIdsBySourceTabId.set(
-      descriptor.tabId,
-      descriptor.browserTabId === sourceDefaultBrowserTabId
-        ? targetDefaultBrowserTabId
-        : descriptor.tabId,
-    );
-  }
-
   return {
     ...snapshot,
-    tabs: snapshot.tabs.map((descriptor) => ({
-      ...descriptor,
-      browserTabId: descriptor.browserTabId === sourceDefaultBrowserTabId
-        ? targetDefaultBrowserTabId
-        : descriptor.browserTabId,
-      insertAfterTabId: descriptor.insertAfterTabId === null
-        ? null
-        : targetTabIdsBySourceTabId.get(descriptor.insertAfterTabId)
-          ?? descriptor.insertAfterTabId,
-      tabId: targetTabIdsBySourceTabId.get(descriptor.tabId)
-        ?? descriptor.tabId,
-    })),
     targetBrowserConversationId,
   };
 }
 
-function makeDurableTargetTabId(
-  targetProjectSessionId: string,
-  descriptor: CodexForkBrowserTabDescriptor,
+function remintIdentity(
+  prefix: string,
+  targetSessionId: string,
+  sourceId: string,
   index: number,
 ): string {
   const digest = createHash("sha256")
-    .update(targetProjectSessionId)
+    .update(targetSessionId)
     .update("\0")
-    .update(descriptor.tabId)
+    .update(sourceId)
     .update("\0")
     .update(String(index))
     .digest("hex");
-  return `fork-browser:${digest.slice(0, 48)}`;
+  return `${prefix}:${digest.slice(0, 48)}`;
 }
 
 export function createCodexForkBrowserSnapshotAdapter(
   dependencies: CodexForkBrowserSnapshotAdapterDependencies,
 ): CodexForkSidePanelSnapshotAdapter<CodexForkBrowserSidePanelSnapshot> {
   return {
-    async capture(sourceConversationId) {
-      const session = await dependencies.resolveProjectSession(sourceConversationId);
-      const browserConversationId = session?.id
-        ?? await dependencies.resolveBrowserConversationId(sourceConversationId);
-      return session
-        ? captureMountedSnapshot(session, browserConversationId, dependencies.runtime)
-        : captureFallbackSnapshot(browserConversationId, dependencies.runtime);
+    async capture(sourceConversationId, sourceViewContext) {
+      const browserConversationId = await dependencies.resolveBrowserConversationId(
+        sourceConversationId,
+      );
+      if (
+        sourceViewContext
+        && sourceViewContext.view.sessionId === browserConversationId
+      ) {
+        return captureViewSnapshot(
+          sourceViewContext,
+          browserConversationId,
+          dependencies.runtime,
+        );
+      }
+      return captureRuntimeFallback(
+        browserConversationId,
+        sourceViewContext?.browserViewScopeId
+          ?? `headless:${browserConversationId}`,
+        dependencies.runtime,
+      );
     },
 
     async rebase(snapshot, input) {
       return rebaseSnapshot(
         snapshot,
-        await dependencies.resolveBrowserConversationId(input.targetConversationId),
+        await dependencies.resolveBrowserConversationId(
+          input.targetConversationId,
+        ),
       );
     },
 
     async apply(snapshot, input) {
-      const targetProjectSession = await dependencies.getProjectSession(
+      const targetSession = await dependencies.getProjectSession(
         input.targetProjectSessionId,
       );
-      if (!targetProjectSession) {
+      if (!targetSession) {
         throw new Error("Target project session was not found");
       }
-      if (snapshot.targetBrowserConversationId !== targetProjectSession.id) {
+      if (snapshot.targetBrowserConversationId !== targetSession.id) {
         throw new Error("Target browser conversation identity is not stable");
       }
 
-      for (const [index, descriptor] of snapshot.tabs.entries()) {
-        if (
-          descriptor.browserTabId
-          !== makeDefaultBrowserSidebarTabId(snapshot.targetBrowserConversationId)
-        ) {
-          dependencies.runtime.primeTransferredBrowserTabId(
-            snapshot.targetBrowserConversationId,
+      const applied: CodexForkBrowserSidePanelSnapshot = {
+        ...snapshot,
+        targetBrowserViewScopeId: input.targetBrowserViewScopeId,
+        tabs: snapshot.tabs.map((descriptor, index) => ({
+          ...descriptor,
+          browserTabId: remintIdentity(
+            "fork-browser-runtime",
+            targetSession.id,
             descriptor.browserTabId,
-          );
-        }
-        const initialUrl = descriptor.initialUrl ?? undefined;
-        await dependencies.createTargetBrowserPanelTab({
-          browserTabId: descriptor.browserTabId,
-          durableTabId: makeDurableTargetTabId(
-            input.targetProjectSessionId,
-            descriptor,
             index,
           ),
-          ...(initialUrl === undefined ? {} : { initialUrl }),
-          panel: descriptor.panel,
-          targetProjectSession,
-        });
+          tabId: remintIdentity(
+            "fork-browser-view",
+            targetSession.id,
+            descriptor.tabId,
+            index,
+          ),
+        })),
+      };
+
+      for (const descriptor of applied.tabs) {
+        dependencies.runtime.primeTransferredBrowserTabId(
+          applied.targetBrowserConversationId,
+          applied.targetBrowserViewScopeId,
+          descriptor.browserTabId,
+        );
+        const initialUrl = descriptor.initialUrl ?? undefined;
         dependencies.runtime.openClonedBrowserTab({
-          browserConversationId: snapshot.targetBrowserConversationId,
+          browserConversationId: applied.targetBrowserConversationId,
+          browserViewScopeId: applied.targetBrowserViewScopeId,
           browserTabId: descriptor.browserTabId,
           ...(initialUrl === undefined ? {} : { initialUrl }),
-          projectId: targetProjectSession.projectId,
+          projectId: targetSession.projectId,
         });
         dependencies.runtime.setDeviceToolbarTabState(
           {
-            browserConversationId: snapshot.targetBrowserConversationId,
+            browserConversationId: applied.targetBrowserConversationId,
+            browserViewScopeId: applied.targetBrowserViewScopeId,
             browserTabId: descriptor.browserTabId,
           },
           descriptor.deviceToolbarState,
         );
       }
+      return applied;
     },
   };
 }

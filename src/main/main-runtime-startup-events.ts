@@ -10,6 +10,10 @@ export interface MainRuntimeStartupEventHandlers {
   consumeOpenUrlDeepLink: (url: string) => void;
 }
 
+export function requestsExplicitNewWindow(argv: string[]): boolean {
+  return argv.includes("--new-window");
+}
+
 export function collectSecondInstancesForStartupReplay(
   context: MainRuntimeStartupEventContext,
   handlers: MainRuntimeStartupEventHandlers,

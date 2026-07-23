@@ -38,6 +38,7 @@ function makeSession(): ProjectSession {
   return {
     id: "session-1",
     projectId: "project-1",
+    initialDatabaseViewId: null,
     noThreadFallbackTitle: "Alpha chat",
     displayTitle: "Alpha chat",
     order: 0,
@@ -46,9 +47,6 @@ function makeSession(): ProjectSession {
     archived: false,
     archivedAt: null,
     unread: false,
-    leftPaneCollapsed: false,
-    panels: {} as ProjectSession["panels"],
-    tabs: [],
     thread: {
       sessionId: "session-1",
       projectId: "project-1",
@@ -118,6 +116,7 @@ function makeTerminal(): TerminalSessionSnapshot {
     truncated: false,
     exited: false,
     exitCode: null,
+    viewLease: null,
   };
 }
 

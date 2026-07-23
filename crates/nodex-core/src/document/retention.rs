@@ -410,7 +410,6 @@ fn analyze_candidate(
             &document_ids_json,
             &database_view_ids_json,
         )?
-        || has_session_reference(connection, closure, &database_view_ids)?
         || has_page_behavior_reference(connection, closure, &block_ids_json)?
     {
         return Ok(CandidateAnalysis {
@@ -719,87 +718,6 @@ fn has_relational_reference(
         || external_index != 0
         || active_database_dependents != 0
         || dangling_view_positions != 0)
-}
-
-fn has_session_reference(
-    connection: &Connection,
-    closure: &CandidateClosure,
-    database_view_ids: &BTreeSet<String>,
-) -> Result<bool, StoreError> {
-    let tabs = connection
-        .prepare(
-            "SELECT tab.kind, tab.config_json, tab.project_id, session.project_id \
-             FROM project_session_tabs tab \
-             JOIN project_sessions session ON session.id = tab.session_id \
-             WHERE session.archived = 0 ORDER BY tab.id",
-        )?
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, Option<String>>(3)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    for (kind, config_json, tab_project_id, session_project_id) in tabs {
-        if session_project_id.is_some() && session_project_id != tab_project_id {
-            return Ok(true);
-        }
-        let config = serde_json::from_str::<Value>(&config_json)
-            .ok()
-            .and_then(|value| value.as_object().cloned());
-        let Some(config) = config else {
-            return Ok(true);
-        };
-        let project_id = config.get("projectId").and_then(Value::as_str);
-        if kind != "browser" && project_id.is_none() {
-            return Ok(true);
-        }
-        if kind == "page_stage" {
-            let Some(page_id) = config.get("pageId").and_then(Value::as_str) else {
-                return Ok(true);
-            };
-            if closure.block_ids.contains(page_id) {
-                return Ok(true);
-            }
-        }
-        if kind != "db_view" {
-            continue;
-        }
-        if config.get("view").is_none() {
-            return Ok(true);
-        }
-        if let Some(view_id) = config.get("databaseViewId").and_then(Value::as_str) {
-            if database_view_ids.contains(view_id) {
-                return Ok(true);
-            }
-            continue;
-        }
-        let Some(project_id) = project_id else {
-            return Ok(true);
-        };
-        let primary_views = connection
-            .prepare(
-                "SELECT view.id FROM project_database_bindings binding \
-                 JOIN database_containers container \
-                   ON container.block_id = binding.database_block_id \
-                 JOIN database_views view ON view.id = container.default_view_id \
-                   AND view.database_block_id = container.block_id \
-                   AND view.lifecycle = 'active' \
-                 WHERE binding.project_id = ?1 AND binding.lifecycle = 'active' \
-                 ORDER BY view.id",
-            )?
-            .query_map([project_id], |row| row.get::<_, String>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        if primary_views.len() != 1 {
-            return Ok(true);
-        }
-        if database_view_ids.contains(&primary_views[0]) {
-            return Ok(true);
-        }
-    }
-    Ok(false)
 }
 
 fn has_page_behavior_reference(
@@ -1340,7 +1258,7 @@ mod tests {
     }
 
     #[test]
-    fn active_session_target_retains_a_tombstone() {
+    fn session_domain_state_does_not_retain_a_window_local_page_target() {
         let fixture = Fixture::new();
         fixture.insert_deleted_block("block:session-target");
         fixture
@@ -1349,36 +1267,25 @@ mod tests {
             .call(|connection| {
                 connection.execute(
                     "INSERT INTO project_sessions( \
-                       id, project_id, no_thread_fallback_title, \"order\", panel_state_json, \
+                       id, project_id, no_thread_fallback_title, \"order\", \
                        created_at, updated_at \
-                     ) VALUES ('session:retention', ?1, 'Retention', 0, '{}', ?2, ?2)",
-                    params![PROJECT_ID, "2026-01-01T00:00:00.000Z"],
-                )?;
-                connection.execute(
-                    "INSERT INTO project_session_tabs( \
-                       id, session_id, project_id, kind, title, config_json, \"order\", \
-                       created_at, updated_at \
-                     ) VALUES ( \
-                       'tab:retention', 'session:retention', ?1, 'page_stage', 'Page', \
-                       '{\"projectId\":\"project:block-retention\",\
-                         \"pageId\":\"block:session-target\"}', 0, ?2, ?2 \
-                     )",
+                     ) VALUES ('session:retention', ?1, 'Retention', 0, ?2, ?2)",
                     params![PROJECT_ID, "2026-01-01T00:00:00.000Z"],
                 )?;
                 let summary = run_block_retention_pass(connection, 0)?;
-                assert_eq!(summary.retained_candidates, 1);
-                assert_eq!(summary.collected_blocks, 0);
+                assert_eq!(summary.retained_candidates, 0);
+                assert_eq!(summary.collected_blocks, 1);
                 assert_eq!(
                     connection.query_row(
                         "SELECT count(*) FROM blocks WHERE id = 'block:session-target'",
                         [],
                         |row| row.get::<_, i64>(0),
                     )?,
-                    1
+                    0
                 );
                 Ok(())
             })
-            .expect("retain session target");
+            .expect("collect window-local target");
     }
 
     #[test]

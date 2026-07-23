@@ -10,7 +10,6 @@ import {
 import { createDefaultWorkbenchLayoutSnapshot } from "../../shared/workbench-layout";
 import type {
   AppUpdateStatus,
-  ProjectSessionTabDeleteInput,
   WindowSessionBootstrap,
   WorkbenchLayoutSnapshot,
 } from "./types";
@@ -148,6 +147,7 @@ function resolveUnsupportedAppUpdateStatus(): AppUpdateStatus {
 }
 
 let browserWindowSessionLayout = createDefaultWorkbenchLayoutSnapshot();
+let browserWindowSessionLayoutRevision = 0;
 let browserCommandKeybindingOverrides: CommandKeybindingOverrides = {};
 let browserCodexPersonality: import("../../shared/types").CodexPersonality = "friendly";
 
@@ -158,6 +158,8 @@ function createBrowserWindowSessionBootstrap(
   return {
     session: {
       id: "browser-window-session",
+      lifecycle: { state: "open" },
+      layoutRevision: browserWindowSessionLayoutRevision,
       layout,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -738,210 +740,6 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       }
       return res.json();
     }
-    case "project-session-tabs:create": {
-      const [input] = args as [{ sessionId: string }];
-      const res = await fetch(
-        toApiUrl(`/api/project-sessions/${input.sessionId}/tabs`),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(input),
-        },
-      );
-      return res.json();
-    }
-    case "project-session-tabs:update": {
-      const [tabId, input] = args as [string, object];
-      const res = await fetch(toApiUrl(`/api/project-session-tabs/${tabId}`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
-      return res.ok ? res.json() : null;
-    }
-    case "project-session-panels:update": {
-      const [sessionId, panelId, input] = args as [string, string, object];
-      const res = await fetch(
-        toApiUrl(`/api/project-sessions/${sessionId}/panels/${panelId}`),
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(input),
-        },
-      );
-      return res.ok ? res.json() : null;
-    }
-    case "project-session-panels:split": {
-      const [input] = args as [{ sessionId: string; panelId: string }];
-      const res = await fetch(
-        toApiUrl(
-          `/api/project-sessions/${input.sessionId}/panels/${input.panelId}/split`,
-        ),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(input),
-        },
-      );
-      return res.ok ? res.json() : null;
-    }
-    case "project-session-panels:ensure-right-leaf": {
-      const [input] = args as [{ sessionId: string; panelId: string }];
-      const res = await fetch(
-        toApiUrl(
-          `/api/project-sessions/${input.sessionId}/panels/${input.panelId}/ensure-right-leaf`,
-        ),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(input),
-        },
-      );
-      return res.ok ? res.json() : null;
-    }
-    case "project-session-panels:merge": {
-      const [input] = args as [{ sessionId: string; panelId: string }];
-      const res = await fetch(
-        toApiUrl(
-          `/api/project-sessions/${input.sessionId}/panels/${input.panelId}/merge`,
-        ),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(input),
-        },
-      );
-      return res.ok ? res.json() : null;
-    }
-    case "project-session-panels:activate": {
-      const [input] = args as [{ sessionId: string; panelId: string }];
-      const res = await fetch(
-        toApiUrl(
-          `/api/project-sessions/${input.sessionId}/panels/${input.panelId}/active-group`,
-        ),
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(input),
-        },
-      );
-      return res.ok ? res.json() : null;
-    }
-    case "project-session-panels:resize": {
-      const [input] = args as [{ sessionId: string; panelId: string }];
-      const res = await fetch(
-        toApiUrl(
-          `/api/project-sessions/${input.sessionId}/panels/${input.panelId}/resize-group`,
-        ),
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(input),
-        },
-      );
-      return res.ok ? res.json() : null;
-    }
-    case "project-session-panels:maximize": {
-      const [input] = args as [{ sessionId: string; panelId: string }];
-      const res = await fetch(
-        toApiUrl(
-          `/api/project-sessions/${input.sessionId}/panels/${input.panelId}/maximized-group`,
-        ),
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(input),
-        },
-      );
-      return res.ok ? res.json() : null;
-    }
-    case "project-session-tabs:state:update": {
-      const [tabId, stateKey, state] = args as [string, number, unknown];
-      const res = await fetch(
-        toApiUrl(`/api/project-session-tabs/${tabId}/state`),
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ stateKey, state }),
-        },
-      );
-      return res.ok ? res.json() : null;
-    }
-    case "project-session-tabs:delete": {
-      const [input] = args as [string | ProjectSessionTabDeleteInput];
-      const tabId = typeof input === "string" ? input : input.tabId;
-      const deleteBody: Partial<ProjectSessionTabDeleteInput> = {};
-      if (typeof input !== "string") {
-        if (
-          input.preserveEmptyLeafIds &&
-          input.preserveEmptyLeafIds.length > 0
-        ) {
-          deleteBody.preserveEmptyLeafIds = input.preserveEmptyLeafIds;
-        }
-        if (input.preferredActiveLeafId !== undefined) {
-          deleteBody.preferredActiveLeafId = input.preferredActiveLeafId;
-        }
-        if (input.preferredActiveTabId !== undefined) {
-          deleteBody.preferredActiveTabId = input.preferredActiveTabId;
-        }
-      }
-      const hasDeleteBody = Object.keys(deleteBody).length > 0;
-      const res = await fetch(toApiUrl(`/api/project-session-tabs/${tabId}`), {
-        method: "DELETE",
-        ...(hasDeleteBody
-          ? {
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(deleteBody),
-            }
-          : {}),
-      });
-      const data = await res.json();
-      return data.success ?? false;
-    }
-    case "project-session-tabs:reorder": {
-      const [input] = args as [
-        {
-          sessionId: string;
-          panelId: string;
-          leafId?: string;
-          orderedTabIds: string[];
-        },
-      ];
-      const res = await fetch(
-        toApiUrl(`/api/project-sessions/${input.sessionId}/tabs/reorder`),
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            panelId: input.panelId,
-            leafId: input.leafId,
-            orderedTabIds: input.orderedTabIds,
-          }),
-        },
-      );
-      return res.ok ? res.json() : null;
-    }
-    case "project-session-tabs:move": {
-      const [input] = args as [
-        {
-          tabId: string;
-          targetPanelId: string;
-          targetLeafId?: string;
-          targetIndex?: number;
-          preserveEmptyLeafIds?: string[];
-          splitTarget?: object;
-        },
-      ];
-      const res = await fetch(
-        toApiUrl(`/api/project-session-tabs/${input.tabId}/move`),
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(input),
-        },
-      );
-      return res.ok ? res.json() : null;
-    }
     case "project-session-threads:attach": {
       const [input] = args as [{ sessionId: string }];
       const res = await fetch(
@@ -1260,8 +1058,18 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       return parseProductFeatureGates(await response.json());
     }
     case "window-sessions:save-layout": {
-      const [layout] = args as [WorkbenchLayoutSnapshot];
-      browserWindowSessionLayout = layout;
+      const [input] = args as [{
+        sessionId: string;
+        revision: number;
+        layout: WorkbenchLayoutSnapshot;
+      }];
+      if (
+        input.sessionId === "browser-window-session"
+        && input.revision > browserWindowSessionLayoutRevision
+      ) {
+        browserWindowSessionLayout = input.layout;
+        browserWindowSessionLayoutRevision = input.revision;
+      }
       return createBrowserWindowSessionBootstrap(browserWindowSessionLayout);
     }
     case "window-sessions:update-bounds": {

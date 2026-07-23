@@ -1,7 +1,8 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, vi, test } from "vitest";
 import { act, fireEvent } from "@testing-library/react";
 import type { MotionValue } from "motion/react";
-import type { ProjectSession, ProjectSessionTab } from "@/lib/types";
+import type { WorkbenchTabProjection } from "@/lib/types";
+import type { WindowLocalProjectSession } from "@/lib/window-session-view-adapter";
 import { render, settleAsyncRender } from "../../test/dom";
 import { browserSidebarRendererWebviewManager } from "./browser-sidebar-webview-manager";
 
@@ -49,6 +50,7 @@ describe("BrowserSidebarPanel chrome", () => {
       <BrowserSidebarPanel
         tab={browserTab}
         activeSession={activeSession}
+        browserViewScopeId="window-session-1"
         onRefreshSessions={async () => [activeSession]}
       />,
     );
@@ -71,6 +73,7 @@ describe("BrowserSidebarPanel chrome", () => {
       <BrowserSidebarPanel
         tab={loadedBrowserTab}
         activeSession={{ ...activeSession, tabs: [loadedBrowserTab] }}
+        browserViewScopeId="window-session-1"
         onRefreshSessions={async () => [{ ...activeSession, tabs: [loadedBrowserTab] }]}
       />,
     );
@@ -92,6 +95,7 @@ describe("BrowserSidebarPanel chrome", () => {
       <BrowserSidebarPanel
         tab={loadedBrowserTab}
         activeSession={{ ...activeSession, tabs: [loadedBrowserTab] }}
+        browserViewScopeId="window-session-1"
         onRefreshSessions={async () => [{ ...activeSession, tabs: [loadedBrowserTab] }]}
       />,
     );
@@ -107,6 +111,7 @@ describe("BrowserSidebarPanel chrome", () => {
       <BrowserSidebarPanel
         tab={loadedBrowserTab}
         activeSession={{ ...activeSession, tabs: [loadedBrowserTab] }}
+        browserViewScopeId="window-session-1"
         onRefreshSessions={async () => [{ ...activeSession, tabs: [loadedBrowserTab] }]}
       />,
     );
@@ -127,6 +132,7 @@ describe("BrowserSidebarPanel chrome", () => {
       <BrowserSidebarPanel
         tab={loadedBrowserTab}
         activeSession={{ ...activeSession, tabs: [loadedBrowserTab] }}
+        browserViewScopeId="window-session-1"
         onRefreshSessions={async () => [{ ...activeSession, tabs: [loadedBrowserTab] }]}
         boundsSyncTrigger={boundsSyncTrigger}
       />,
@@ -160,6 +166,7 @@ describe("BrowserSidebarPanel chrome", () => {
       <BrowserSidebarPanel
         tab={loadedBrowserTab}
         activeSession={{ ...activeSession, tabs: [loadedBrowserTab] }}
+        browserViewScopeId="window-session-1"
         onRefreshSessions={async () => [{ ...activeSession, tabs: [loadedBrowserTab] }]}
       />,
     );
@@ -221,7 +228,7 @@ function setElementRect(
   });
 }
 
-const browserTab: ProjectSessionTab & { preview: true } = {
+const browserTab: WorkbenchTabProjection & { preview: true } = {
   id: "tab-browser",
   sessionId: "session-1",
   browserTabId: "tab-browser",
@@ -241,9 +248,10 @@ const browserTab: ProjectSessionTab & { preview: true } = {
   preview: true,
 };
 
-const activeSession: ProjectSession = {
+const activeSession: WindowLocalProjectSession = {
   id: "session-1",
   projectId: "alpha",
+  initialDatabaseViewId: null,
   noThreadFallbackTitle: "Session",
   displayTitle: "Session",
   order: 0,
@@ -252,7 +260,6 @@ const activeSession: ProjectSession = {
   archived: false,
   archivedAt: null,
   unread: false,
-  leftPaneCollapsed: false,
   panels: {
     right: {
       collapsed: false,
@@ -287,7 +294,7 @@ const activeSession: ProjectSession = {
   updatedAt: "2026-06-09T00:00:00.000Z",
 };
 
-const loadedBrowserTab: ProjectSessionTab = {
+const loadedBrowserTab: WorkbenchTabProjection = {
   id: browserTab.id,
   sessionId: browserTab.sessionId,
   browserTabId: browserTab.browserTabId,

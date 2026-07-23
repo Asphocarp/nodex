@@ -56,11 +56,14 @@ import { parsePageDeepLink, parseSessionDeepLink } from "../shared/page-deeplink
 import {
   isWindowSessionBoundsVisible,
   WindowSessionState,
+  type AcquiredWindowSession,
+  type WindowSessionCloseDisposition,
 } from "./window-session-state";
 import type {
   WindowSessionBounds,
+  WindowSessionNewWindowRequest,
   WindowSessionRecord,
-  WindowSessionSeed,
+  WindowSessionSaveLayoutInput,
 } from "../shared/window-session";
 import { getLogger, shutdownBackendLogger } from "./logging/logger";
 import { AppUpdateService } from "./app-update-service";
@@ -71,6 +74,7 @@ import {
   CYCLE_PANEL_TAB_PREVIOUS_HOST_CHANNEL,
   NAVIGATE_BACK_HOST_CHANNEL,
   NAVIGATE_FORWARD_HOST_CHANNEL,
+  REQUEST_NEW_WINDOW_HOST_CHANNEL,
   WORKBENCH_CONTENT_SEARCH_COMMAND,
   WORKBENCH_THREAD_RENAME_COMMAND,
   WORKBENCH_SIDEBAR_TOGGLE_COMMAND,
@@ -90,7 +94,10 @@ import {
   parseBrowserSidebarRoutePartition,
 } from "../shared/browser-sidebar";
 import type { BootstrapRuntimeEvent } from "./bootstrap-events";
-import { collectSecondInstancesForStartupReplay } from "./main-runtime-startup-events";
+import {
+  collectSecondInstancesForStartupReplay,
+  requestsExplicitNewWindow,
+} from "./main-runtime-startup-events";
 import {
   captureMainException,
   captureMainMessage,
@@ -114,7 +121,10 @@ import {
   resolveElectronWindowBackdrop,
   shouldUseOpaqueElectronWindowSurface,
 } from "./electron-window-backdrop";
-import { buildWorkbenchViewMenu } from "./application-menu";
+import {
+  buildWindowFileMenu,
+  buildWorkbenchViewMenu,
+} from "./application-menu";
 import { installCliCommand } from "./cli-command-installer";
 import { shouldGrantAppRendererPermission } from "./renderer-permissions";
 import {
@@ -184,7 +194,6 @@ const allowImmediateWindowClose = new Set<number>();
 const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 1500;
 let windowSessionState: WindowSessionState | null = null;
 let appQuitRequested = false;
-let lastClosedWindowSessionId: string | null = null;
 let appInitializationStep: AppInitializationStep = { phase: "opening" };
 let appInitializationStepChangedAt = performance.now();
 let appInitializationPromise: Promise<void> = Promise.resolve();
@@ -356,23 +365,81 @@ function focusLastWindow(): void {
     return;
   }
 
-  if (!serverUrlForWindows) return;
-  const session = createWindowSession();
-  const createdWindow = createWindow(serverUrlForWindows, { session });
-  createdWindow.show();
-  createdWindow.focus();
+  openNewWindow();
 }
 
-function createWindowSession(seed?: WindowSessionSeed): WindowSessionRecord {
-  if (!windowSessionState) {
-    throw new Error("Window session state is unavailable");
+function openNewWindow(sourceWebContentsId?: number): BrowserWindow | null {
+  if (!serverUrlForWindows || !windowSessionState) return null;
+  let acquired: AcquiredWindowSession | null = null;
+
+  try {
+    acquired = windowSessionState.acquireSessionForNewWindow(sourceWebContentsId);
+    const window = createWindow(serverUrlForWindows, {
+      session: acquired.session,
+    });
+    window.show();
+    window.focus();
+    return window;
+  } catch (error) {
+    if (acquired?.kind === "reopened") {
+      try {
+        windowSessionState.rollbackReopenSession(acquired.previousRecord);
+      } catch (rollbackError) {
+        logger.error("Could not roll back failed Window Session acquisition", {
+          error: rollbackError instanceof Error
+            ? rollbackError.message
+            : String(rollbackError),
+          windowSessionId: acquired.session.id,
+        });
+        captureMainException(rollbackError, {
+          tags: {
+            phase: "window-session-acquisition-rollback",
+          },
+        });
+      }
+    }
+    logger.error("Could not open a new window", {
+      error: error instanceof Error ? error.message : String(error),
+      windowSessionId: acquired?.session.id,
+    });
+    captureMainException(error, {
+      tags: {
+        phase: "window-session-acquisition",
+      },
+    });
+    return null;
   }
-  return windowSessionState.createSession(seed);
 }
 
-function openNewWindow(seed?: WindowSessionSeed): BrowserWindow | null {
-  if (!serverUrlForWindows) return null;
-  const session = createWindowSession(seed);
+function requestNewWindowFromActiveWindow(): void {
+  if (windowSessionState?.hasClosedSessionAvailable()) {
+    openNewWindow();
+    return;
+  }
+  const sourceWindow = BrowserWindow.getFocusedWindow() ?? getLastFocusedWindow();
+  if (!sourceWindow || sourceWindow.isDestroyed()) {
+    openNewWindow();
+    return;
+  }
+  const sourceWebContentsId = sourceWindow.webContents.id;
+  if (
+    rendererInitializationReports.has(sourceWebContentsId)
+    && safeSendToWindow(sourceWindow, REQUEST_NEW_WINDOW_HOST_CHANNEL)
+  ) {
+    return;
+  }
+  openNewWindow(sourceWebContentsId);
+}
+
+function openClonedWindow(
+  sourceWebContentsId: number,
+  override: WindowSessionNewWindowRequest,
+): BrowserWindow | null {
+  if (!serverUrlForWindows || !windowSessionState) return null;
+  const session = windowSessionState.cloneSessionForWindow(
+    sourceWebContentsId,
+    override,
+  );
   const window = createWindow(serverUrlForWindows, { session });
   window.show();
   window.focus();
@@ -465,7 +532,7 @@ function configureApplicationMenus(
       label: "New Window",
       accelerator: menuAccelerator("newWindow"),
       click: () => {
-        openNewWindow();
+        requestNewWindowFromActiveWindow();
       },
     },
   ];
@@ -516,24 +583,13 @@ function configureApplicationMenus(
         },
       ],
     } satisfies MenuItemConstructorOptions] : []),
-    {
-      label: "File",
-      submenu: [
-        {
-          label: "New Window",
-          accelerator: menuAccelerator("newWindow"),
-          click: () => {
-            openNewWindow();
-          },
-        },
-        { type: "separator" },
-        {
-          label: "Close Window",
-          accelerator: menuAccelerator("closeWindow"),
-          click: closeFocusedWindow,
-        },
-      ],
-    },
+    buildWindowFileMenu({
+      commandKeymapState,
+      onNewWindow: () => {
+        requestNewWindowFromActiveWindow();
+      },
+      onCloseWindow: closeFocusedWindow,
+    }),
     { role: "editMenu" },
     {
       label: "Navigate",
@@ -984,6 +1040,7 @@ function createWindow(
     const webviewParams = params as typeof params & {
       "data-browser-sidebar-browser-tab-id"?: string;
       "data-browser-sidebar-conversation-id"?: string;
+      "data-browser-sidebar-view-scope-id"?: string;
       nodeintegration?: string;
       preload?: string;
       webpreferences?: string;
@@ -993,8 +1050,12 @@ function createWindow(
       routeIdentity === null
       || webviewParams["data-browser-sidebar-conversation-id"]
         !== routeIdentity.browserConversationId
+      || webviewParams["data-browser-sidebar-view-scope-id"]
+        !== routeIdentity.browserViewScopeId
       || webviewParams["data-browser-sidebar-browser-tab-id"]
         !== routeIdentity.browserTabId
+      || windowSessionState?.getSessionIdForWindow(window.webContents.id)
+        !== routeIdentity.browserViewScopeId
     ) {
       event.preventDefault();
       return;
@@ -1020,15 +1081,17 @@ function createWindow(
   }
 
   const webContentsId = window.webContents.id;
-  openWindows.set(webContentsId, window);
+  if (!windowSessionState) {
+    window.destroy();
+    throw new Error("Window session state is unavailable");
+  }
+
   let rendererClientRegistration: RendererClientRegistration | null = null;
   if (rendererClientRouter) {
     rendererClientRegistration = rendererClientRouter.register(window.webContents);
   }
-  windowSessionState?.assignWindow(webContentsId, options.session.id);
   syncMacWindowTitle(window);
   applyElectronWindowBackdrop(window, true);
-  lastFocusedWindowId = webContentsId;
 
   const refreshWindowBackdropForTheme = () => {
     applyElectronWindowBackdrop(window, true);
@@ -1040,6 +1103,9 @@ function createWindow(
   } else if (savedBounds?.mode === "fullscreen") {
     window.setFullScreen(true);
   }
+
+  let closeDisposition: WindowSessionCloseDisposition = "unexpected";
+  let finalCloseBounds: WindowSessionBounds | undefined;
 
   const closeHandler = (event: Electron.Event) => {
     if (allowImmediateWindowClose.has(webContentsId)) {
@@ -1056,13 +1122,13 @@ function createWindow(
 
     const finishClose = () => {
       pendingCloseResolvers.delete(webContentsId);
-      allowImmediateWindowClose.add(webContentsId);
-      windowSessionState?.updateBounds(webContentsId, captureWindowSessionBounds(window));
-      const sessionId = windowSessionState?.getSessionIdForWindow(webContentsId);
-      if (!appQuitRequested && openWindows.size === 1 && sessionId) {
-        lastClosedWindowSessionId = sessionId;
+      if (window.isDestroyed()) {
+        allowImmediateWindowClose.delete(webContentsId);
+        return;
       }
-      if (window.isDestroyed()) return;
+      allowImmediateWindowClose.add(webContentsId);
+      finalCloseBounds = captureWindowSessionBounds(window);
+      closeDisposition = appQuitRequested ? "app-quit" : "user-close";
       window.close();
     };
 
@@ -1073,6 +1139,7 @@ function createWindow(
     });
 
     if (!safeSendToWindow(window, "app:flush-before-close", [webContentsId])) {
+      clearTimeout(timeout);
       finishClose();
     }
   };
@@ -1130,10 +1197,28 @@ function createWindow(
     });
   });
   window.on("closed", () => {
+    try {
+      windowSessionState?.detachWindow(webContentsId, {
+        disposition: closeDisposition,
+        bounds: finalCloseBounds,
+      });
+    } catch (error) {
+      logger.error("Could not finalize Window Session close", {
+        error: error instanceof Error ? error.message : String(error),
+        webContentsId,
+      });
+      captureMainException(error, {
+        tags: {
+          phase: "window-session-close",
+        },
+        extra: {
+          webContentsId,
+        },
+      });
+    }
     rendererClientRegistration?.dispose();
     rendererClientRegistration = null;
     nativeTheme.off("updated", refreshWindowBackdropForTheme);
-    windowSessionState?.clearWindow(webContentsId);
     pendingCloseResolvers.delete(webContentsId);
     allowImmediateWindowClose.delete(webContentsId);
     electronWindowOpaqueSurfaceModes.delete(window.id);
@@ -1144,29 +1229,15 @@ function createWindow(
     }
   });
 
+  try {
+    windowSessionState.attachWindow(webContentsId, options.session.id);
+  } catch (error) {
+    window.destroy();
+    throw error;
+  }
+  openWindows.set(webContentsId, window);
+  lastFocusedWindowId = webContentsId;
   return window;
-}
-
-function retainRestorableWindowSessions(): void {
-  if (!windowSessionState) return;
-
-  for (const [webContentsId, window] of openWindows) {
-    if (window.isDestroyed()) continue;
-    windowSessionState.updateBounds(webContentsId, captureWindowSessionBounds(window));
-  }
-
-  const openSessionIds = [...openWindows.keys()]
-    .map((webContentsId) => windowSessionState?.getSessionIdForWindow(webContentsId) ?? null)
-    .filter((sessionId): sessionId is string => typeof sessionId === "string");
-
-  if (openSessionIds.length > 0) {
-    windowSessionState.retainSessions(openSessionIds);
-    return;
-  }
-
-  if (lastClosedWindowSessionId) {
-    windowSessionState.retainSessions([lastClosedWindowSessionId]);
-  }
 }
 
 let databaseNotifierBridgesRegistered = false;
@@ -1457,13 +1528,6 @@ function registerDesktopActivationHandler(): void {
   if (desktopActivationHandlerRegistered) return;
   desktopActivationHandlerRegistered = true;
   app.on("activate", () => {
-    const currentServerUrl = serverUrlForWindows;
-    if (!currentServerUrl) return;
-    if (openWindows.size === 0) {
-      const session = createWindowSession();
-      createWindow(currentServerUrl, { session });
-      return;
-    }
     focusLastWindow();
   });
 }
@@ -1525,9 +1589,12 @@ function handleSecondInstanceArgv(argv: string[]): boolean {
     return true;
   }
 
-  if (openNewWindow()) return true;
+  if (requestsExplicitNewWindow(argv)) {
+    requestNewWindowFromActiveWindow();
+    return true;
+  }
   focusLastWindow();
-  return false;
+  return true;
 }
 
 function collectStartupDeepLinks(context: MainRuntimeStartupContext): string[][] {
@@ -1543,7 +1610,6 @@ function beginMainRuntimeShutdown(): void {
   if (runtimeShutdownStarted) return;
   runtimeShutdownStarted = true;
   appQuitRequested = true;
-  retainRestorableWindowSessions();
   logger.info("Nodex before-quit");
   coreEventSubscription?.close();
   coreEventSubscription = null;
@@ -1922,8 +1988,12 @@ export async function runMainAppStartup(
         rendererClientId,
       });
     },
-    onCreateWindow: (seed) => {
-      openNewWindow(seed);
+    onCreateWindow: (sourceWebContentsId, request) => {
+      if (request.activeProjectSessionId === undefined) {
+        openNewWindow(sourceWebContentsId);
+        return;
+      }
+      openClonedWindow(sourceWebContentsId, request);
     },
     onBootstrapWindowSession: (webContentsId) => {
       if (!windowSessionState) {
@@ -1936,14 +2006,14 @@ export async function runMainAppStartup(
       }
       return { session };
     },
-    onSaveWindowSessionLayout: (webContentsId, layout) => {
+    onSaveWindowSessionLayout: (webContentsId, input: WindowSessionSaveLayoutInput) => {
       if (!windowSessionState) {
         throw new Error("Window session state is unavailable");
       }
       const window = openWindows.get(webContentsId);
       const session = windowSessionState.saveLayout(
         webContentsId,
-        layout,
+        input,
         window && !window.isDestroyed() ? captureWindowSessionBounds(window) : undefined,
       );
       if (window) {
@@ -1954,6 +2024,8 @@ export async function runMainAppStartup(
     onUpdateWindowSessionBounds: (webContentsId, bounds) => {
       windowSessionState?.updateBounds(webContentsId, bounds);
     },
+    resolveWindowSessionId: (webContentsId) =>
+      windowSessionState?.getSessionIdForWindow(webContentsId) ?? null,
     onGetAppUpdateStatus: () =>
       appUpdateService?.getStatus() ?? resolveUnsupportedAppUpdateStatus(),
     onCheckForAppUpdate: async () =>

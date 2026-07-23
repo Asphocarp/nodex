@@ -1,6 +1,6 @@
-import type { PanelId, ProjectSessionPanelSplitSide } from "@/lib/types";
+import type { PanelId, WorkbenchPanelSplitSide } from "@/lib/types";
 
-export type PanelGroupBodyDropZone = "center" | ProjectSessionPanelSplitSide;
+export type PanelGroupBodyDropZone = "center" | WorkbenchPanelSplitSide;
 
 export type PanelTabDragData = Record<string | symbol, unknown> & {
   type: "project-session-panel-tab";
@@ -60,7 +60,7 @@ export type PanelTabDropCommit =
     tabId: string;
     targetPanelId: PanelId;
     targetLeafId: string;
-    side: ProjectSessionPanelSplitSide;
+    side: WorkbenchPanelSplitSide;
   };
 
 export interface PanelTabRect {

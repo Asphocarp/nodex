@@ -224,7 +224,9 @@ query rows never become host Document children.
 ### Project
 
 A Project is an execution context, not content. It owns filesystem sources,
-sessions, tabs, terminals, Codex Threads, runtime settings, and approval policy.
+sessions, Codex Threads, runtime settings, and approval policy. A Window Session
+owns the tabs and panels through which one app window presents those resources;
+Terminal and Browser Modules own their live runtimes.
 It binds exactly one primary Database and has lifecycle `active | inactive |
 archived`. One Database has at most one active Project.
 
@@ -380,7 +382,9 @@ state is rejected rather than replayed.
 | NFM, preview, search, schedule, asset, and Page summary | rebuildable projections |
 | Restorable Document states | immutable semantic Document revisions |
 | Presence, cursor, selection, leases | ephemeral collaboration state |
-| Project sessions, tabs, panels, Threads | Project execution domain |
+| Project Sessions and Thread links | Project execution domain |
+| Per-window Session tabs, panels, selection, and geometry | Window Session view |
+| Browser guests and Terminal PTYs | Main-process runtime Modules |
 
 ## Invariants
 
@@ -471,9 +475,11 @@ and remount through current descriptors.
 
 Presence, cursors, selection, disclosure, search, focus, active View, and leases
 are not durable content. Disclosure may persist as disposable profile-local
-preference by stable Block ID. Project sessions, tabs, panels, and Codex Thread
-ownership remain execution/shell concepts. A durable `db_view` tab points to a
-stable View ID; interaction state remains window-local.
+preference by stable Block ID. Project Sessions and Codex Thread links are
+shared execution concepts. Tabs, panel trees, active leaves, geometry, and
+navigation history are Window Session view state; their descriptors may point
+to shared Page/Database resources or Main-owned Browser/Terminal runtimes
+without becoming another authority for those targets.
 
 ## Naming rules
 

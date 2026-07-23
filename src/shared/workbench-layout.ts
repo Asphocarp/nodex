@@ -1,3 +1,5 @@
+import type { WorkbenchSessionViewSnapshot } from "./workbench-session-view";
+
 export type WorkbenchLayoutView = "kanban" | "list" | "toggle-list" | "canvas" | "calendar";
 export type WorkbenchLayoutStageId = "db" | "pages" | "threads" | "files";
 export type WorkbenchLayoutStageNavDirection = "left" | "right";
@@ -39,7 +41,7 @@ export interface WorkbenchLayoutDockSnapshot {
 }
 
 export interface WorkbenchLayoutSnapshot {
-  version: 2;
+  version: 3;
   dbProjectId: string | null;
   activeProjectSessionId: string | null;
   threadsProjectId: string | null;
@@ -64,6 +66,7 @@ export interface WorkbenchLayoutSnapshot {
   activeFilesTabId: string;
   stagePanelWidths: Record<string, number>;
   slidingWindowPaneCount: number;
+  sessionViewsBySessionId: Record<string, WorkbenchSessionViewSnapshot>;
 }
 
 function createDefaultDockTree(): WorkbenchLayoutSnapshot["dock"]["tree"] {
@@ -80,7 +83,7 @@ function createDefaultDockTree(): WorkbenchLayoutSnapshot["dock"]["tree"] {
 
 export function createDefaultWorkbenchLayoutSnapshot(): WorkbenchLayoutSnapshot {
   return {
-    version: 2,
+    version: 3,
     dbProjectId: null,
     activeProjectSessionId: null,
     threadsProjectId: null,
@@ -116,5 +119,6 @@ export function createDefaultWorkbenchLayoutSnapshot(): WorkbenchLayoutSnapshot 
     activeFilesTabId: "diff",
     stagePanelWidths: {},
     slidingWindowPaneCount: 2,
+    sessionViewsBySessionId: {},
   };
 }

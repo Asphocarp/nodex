@@ -9,6 +9,7 @@ import {
   NAVIGATE_BACK_HOST_CHANNEL,
   NAVIGATE_FORWARD_HOST_CHANNEL,
   OPEN_CONTENT_SEARCH_HOST_CHANNEL,
+  REQUEST_NEW_WINDOW_HOST_CHANNEL,
   RENAME_THREAD_HOST_CHANNEL,
   TOGGLE_SIDEBAR_HOST_CHANNEL,
 } from "../shared/window-navigation";
@@ -131,6 +132,13 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.on(CLOSE_PANEL_TAB_HOST_CHANNEL, listener);
     return () => {
       ipcRenderer.removeListener(CLOSE_PANEL_TAB_HOST_CHANNEL, listener);
+    };
+  },
+  onRequestNewWindow: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on(REQUEST_NEW_WINDOW_HOST_CHANNEL, listener);
+    return () => {
+      ipcRenderer.removeListener(REQUEST_NEW_WINDOW_HOST_CHANNEL, listener);
     };
   },
   onWorkbenchCommand: (callback: (invocation: WorkbenchCommandInvocation) => void) => {

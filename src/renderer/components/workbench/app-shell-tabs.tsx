@@ -131,6 +131,7 @@ export interface AppShellTabContextMenuActionItem {
   type?: "item";
   label: string;
   disabled?: boolean;
+  tone?: "default" | "destructive";
   onSelect: () => void;
 }
 
@@ -922,6 +923,7 @@ function AppShellTab({
                 disabled={item.disabled}
                 className={cn(
                   "cursor-interaction rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm outline-hidden hover:bg-token-list-hover-background focus:bg-token-list-hover-background",
+                  item.tone === "destructive" && "text-token-error-foreground",
                   item.disabled && "cursor-default opacity-50",
                 )}
                 onSelect={item.disabled ? undefined : item.onSelect}

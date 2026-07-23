@@ -13,6 +13,7 @@ import {
   WorkbenchStageNavDirectionSchema,
   WorkbenchViewSchema,
 } from "./workbench";
+import { WorkbenchSessionViewSnapshotSchema } from "./workbench-session-view";
 
 const UnknownRecordSchema = z.record(z.string(), z.unknown());
 
@@ -97,7 +98,9 @@ const migrateWorkbenchLayoutSnapshot = (value: unknown): unknown => {
   if (record.version === 2) {
     return {
       ...record,
+      version: 3,
       projectOrder: record.projectOrder ?? record.spaceOrder ?? [],
+      sessionViewsBySessionId: {},
     };
   }
   if (record.version !== 1) return value;
@@ -132,20 +135,21 @@ const migrateWorkbenchLayoutSnapshot = (value: unknown): unknown => {
 
   return {
     ...record,
-    version: 2,
+    version: 3,
     projectOrder: record.projectOrder ?? record.spaceOrder ?? [],
     focusedStage: record.focusedStage === "cards" ? "pages" : record.focusedStage,
     activePagesTabId: record.activePagesTabId ?? record.activeCardsTabId ?? "",
     recentPageSessions,
     pageStage,
     dock: migratePageStageDockIdentity(record.dock),
+    sessionViewsBySessionId: {},
   };
 };
 
 export const WorkbenchLayoutSnapshotSchema = z.preprocess(
   migrateWorkbenchLayoutSnapshot,
   z.object({
-    version: z.literal(2),
+    version: z.literal(3),
     dbProjectId: z.string().nullable(),
     activeProjectSessionId: z.string().nullable().catch(null),
     threadsProjectId: z.string().nullable(),
@@ -170,5 +174,9 @@ export const WorkbenchLayoutSnapshotSchema = z.preprocess(
     activeFilesTabId: z.string(),
     stagePanelWidths: NumberRecordSchema.catch({}),
     slidingWindowPaneCount: z.number().finite().catch(2),
+    sessionViewsBySessionId: z.record(
+      z.string(),
+      WorkbenchSessionViewSnapshotSchema,
+    ).catch({}),
   }),
 ) satisfies z.ZodType<WorkbenchLayoutSnapshot>;

@@ -1,15 +1,15 @@
 import type {
-  ProjectSessionPanelLayout,
-  ProjectSessionPanelLayoutV2,
-  ProjectSessionPanelNode,
-  ProjectSessionPanelSplitSide,
-  ProjectSessionSplitBranch,
-  ProjectSessionSplitLeaf,
-} from "./types";
+  WorkbenchPanelLayout,
+  WorkbenchPanelLayoutV2,
+  WorkbenchPanelNode,
+  WorkbenchPanelSplitSide,
+  WorkbenchPanelSplitBranch,
+  WorkbenchPanelSplitLeaf,
+} from "./workbench-session-view";
 
-export const PROJECT_SESSION_PANEL_LAYOUT_VERSION = 2;
-export const PROJECT_SESSION_PANEL_MIN_RATIO = 0.15;
-export const PROJECT_SESSION_PANEL_MAX_RATIO = 0.85;
+export const WORKBENCH_PANEL_LAYOUT_VERSION = 2;
+export const WORKBENCH_PANEL_MIN_RATIO = 0.15;
+export const WORKBENCH_PANEL_MAX_RATIO = 0.85;
 
 interface NormalizePanelLayoutOptions {
   preferredActiveTabId?: string | null;
@@ -20,7 +20,7 @@ interface SplitPanelLeafInput {
   leafId: string;
   newLeafId: string;
   newBranchId: string;
-  side: ProjectSessionPanelSplitSide;
+  side: WorkbenchPanelSplitSide;
   tabId?: string;
 }
 
@@ -28,7 +28,7 @@ interface InsertPanelLeafInput {
   leafId: string;
   newLeafId: string;
   newBranchId: string;
-  side: ProjectSessionPanelSplitSide;
+  side: WorkbenchPanelSplitSide;
 }
 
 interface MovePanelTabInput {
@@ -51,7 +51,7 @@ interface PruneEmptyPanelLeavesOptions {
 interface MovePanelLeafInput {
   sourceLeafId: string;
   targetLeafId: string;
-  side: ProjectSessionPanelSplitSide;
+  side: WorkbenchPanelSplitSide;
   newBranchId: string;
 }
 
@@ -68,7 +68,7 @@ function uniqueStrings(values: readonly string[]): string[] {
 
 function clampRatio(ratio: number): number {
   if (!Number.isFinite(ratio)) return 0.5;
-  return Math.min(PROJECT_SESSION_PANEL_MAX_RATIO, Math.max(PROJECT_SESSION_PANEL_MIN_RATIO, ratio));
+  return Math.min(WORKBENCH_PANEL_MAX_RATIO, Math.max(WORKBENCH_PANEL_MIN_RATIO, ratio));
 }
 
 function normalizeMruTabIds(
@@ -87,7 +87,7 @@ function makeLeaf(
   tabIds: string[],
   activeTabId: string | null,
   mruTabIds: readonly string[] = [],
-): ProjectSessionSplitLeaf {
+): WorkbenchPanelSplitLeaf {
   const uniqueTabIds = uniqueStrings(tabIds);
   const resolvedActiveTabId = activeTabId && uniqueTabIds.includes(activeTabId)
     ? activeTabId
@@ -101,15 +101,15 @@ function makeLeaf(
   };
 }
 
-export function makeProjectSessionPanelLayout(
+export function makeWorkbenchPanelLayout(
   tabIds: readonly string[],
   activeTabId: string | null,
   leafId = "main",
-): ProjectSessionPanelLayoutV2 {
+): WorkbenchPanelLayoutV2 {
   const uniqueTabIds = uniqueStrings(tabIds);
   const leaf = makeLeaf(leafId, uniqueTabIds, activeTabId);
   return {
-    version: PROJECT_SESSION_PANEL_LAYOUT_VERSION,
+    version: WORKBENCH_PANEL_LAYOUT_VERSION,
     root: leaf,
     activeLeafId: leaf.id,
     mruLeafIds: [leaf.id],
@@ -117,9 +117,9 @@ export function makeProjectSessionPanelLayout(
   };
 }
 
-export function listProjectSessionPanelLeaves(layout: ProjectSessionPanelLayout): ProjectSessionSplitLeaf[] {
-  const leaves: ProjectSessionSplitLeaf[] = [];
-  const visit = (node: ProjectSessionPanelNode) => {
+export function listWorkbenchPanelLeaves(layout: WorkbenchPanelLayout): WorkbenchPanelSplitLeaf[] {
+  const leaves: WorkbenchPanelSplitLeaf[] = [];
+  const visit = (node: WorkbenchPanelNode) => {
     if (node.type === "leaf") {
       leaves.push(node);
       return;
@@ -131,14 +131,14 @@ export function listProjectSessionPanelLeaves(layout: ProjectSessionPanelLayout)
   return leaves;
 }
 
-export function getProjectSessionPanelTopRightLeafId(node: ProjectSessionPanelNode): string {
+export function getWorkbenchPanelTopRightLeafId(node: WorkbenchPanelNode): string {
   if (node.type === "leaf") return node.id;
-  return getProjectSessionPanelTopRightLeafId(node.direction === "horizontal" ? node.second : node.first);
+  return getWorkbenchPanelTopRightLeafId(node.direction === "horizontal" ? node.second : node.first);
 }
 
-export function getProjectSessionPanelTopLeftLeafId(node: ProjectSessionPanelNode): string {
+export function getWorkbenchPanelTopLeftLeafId(node: WorkbenchPanelNode): string {
   if (node.type === "leaf") return node.id;
-  return getProjectSessionPanelTopLeftLeafId(node.first);
+  return getWorkbenchPanelTopLeftLeafId(node.first);
 }
 
 interface PanelLeafRect {
@@ -151,8 +151,8 @@ interface PanelLeafRect {
 
 const RECT_EPSILON = 0.000001;
 
-function collectProjectSessionPanelLeafRects(
-  node: ProjectSessionPanelNode,
+function collectWorkbenchPanelLeafRects(
+  node: WorkbenchPanelNode,
   rect: Omit<PanelLeafRect, "id">,
 ): PanelLeafRect[] {
   if (node.type === "leaf") return [{ ...rect, id: node.id }];
@@ -161,15 +161,15 @@ function collectProjectSessionPanelLeafRects(
   if (node.direction === "horizontal") {
     const splitX = rect.left + (rect.right - rect.left) * ratio;
     return [
-      ...collectProjectSessionPanelLeafRects(node.first, { ...rect, right: splitX }),
-      ...collectProjectSessionPanelLeafRects(node.second, { ...rect, left: splitX }),
+      ...collectWorkbenchPanelLeafRects(node.first, { ...rect, right: splitX }),
+      ...collectWorkbenchPanelLeafRects(node.second, { ...rect, left: splitX }),
     ];
   }
 
   const splitY = rect.top + (rect.bottom - rect.top) * ratio;
   return [
-    ...collectProjectSessionPanelLeafRects(node.first, { ...rect, bottom: splitY }),
-    ...collectProjectSessionPanelLeafRects(node.second, { ...rect, top: splitY }),
+    ...collectWorkbenchPanelLeafRects(node.first, { ...rect, bottom: splitY }),
+    ...collectWorkbenchPanelLeafRects(node.second, { ...rect, top: splitY }),
   ];
 }
 
@@ -177,11 +177,11 @@ function rectsVerticallyOverlap(left: PanelLeafRect, right: PanelLeafRect): bool
   return Math.min(left.bottom, right.bottom) - Math.max(left.top, right.top) > RECT_EPSILON;
 }
 
-export function findNearestProjectSessionPanelLeafToRight(
-  layout: ProjectSessionPanelLayout,
+export function findNearestWorkbenchPanelLeafToRight(
+  layout: WorkbenchPanelLayout,
   sourceLeafId: string,
 ): string | null {
-  const rects = collectProjectSessionPanelLeafRects(layout.root, {
+  const rects = collectWorkbenchPanelLeafRects(layout.root, {
     left: 0,
     top: 0,
     right: 1,
@@ -212,28 +212,28 @@ export function findNearestProjectSessionPanelLeafToRight(
   return candidates[0]?.rect.id ?? null;
 }
 
-export function flattenProjectSessionPanelTabIds(layout: ProjectSessionPanelLayout): string[] {
-  return listProjectSessionPanelLeaves(layout).flatMap((leaf) => leaf.tabIds);
+export function flattenWorkbenchPanelTabIds(layout: WorkbenchPanelLayout): string[] {
+  return listWorkbenchPanelLeaves(layout).flatMap((leaf) => leaf.tabIds);
 }
 
-export function findProjectSessionPanelLeaf(
-  layout: ProjectSessionPanelLayout,
+export function findWorkbenchPanelLeaf(
+  layout: WorkbenchPanelLayout,
   leafId: string | null | undefined,
-): ProjectSessionSplitLeaf | null {
+): WorkbenchPanelSplitLeaf | null {
   if (!leafId) return null;
-  return listProjectSessionPanelLeaves(layout).find((leaf) => leaf.id === leafId) ?? null;
+  return listWorkbenchPanelLeaves(layout).find((leaf) => leaf.id === leafId) ?? null;
 }
 
-export function findProjectSessionPanelLeafForTab(
-  layout: ProjectSessionPanelLayout,
+export function findWorkbenchPanelLeafForTab(
+  layout: WorkbenchPanelLayout,
   tabId: string | null | undefined,
-): ProjectSessionSplitLeaf | null {
+): WorkbenchPanelSplitLeaf | null {
   if (!tabId) return null;
-  return listProjectSessionPanelLeaves(layout).find((leaf) => leaf.tabIds.includes(tabId)) ?? null;
+  return listWorkbenchPanelLeaves(layout).find((leaf) => leaf.tabIds.includes(tabId)) ?? null;
 }
 
-export function getProjectSessionPanelActiveLeaf(layout: ProjectSessionPanelLayout): ProjectSessionSplitLeaf {
-  const leaves = listProjectSessionPanelLeaves(layout);
+export function getWorkbenchPanelActiveLeaf(layout: WorkbenchPanelLayout): WorkbenchPanelSplitLeaf {
+  const leaves = listWorkbenchPanelLeaves(layout);
   if (leaves.length === 0) {
     return makeLeaf("main", [], null);
   }
@@ -241,16 +241,16 @@ export function getProjectSessionPanelActiveLeaf(layout: ProjectSessionPanelLayo
   return activeLeaf ?? leaves[0] ?? makeLeaf("main", [], null);
 }
 
-function updateMruLeafIds(layout: ProjectSessionPanelLayoutV2, activeLeafId: string): string[] {
-  const validLeafIds = new Set(listProjectSessionPanelLeaves(layout).map((leaf) => leaf.id));
+function updateMruLeafIds(layout: WorkbenchPanelLayoutV2, activeLeafId: string): string[] {
+  const validLeafIds = new Set(listWorkbenchPanelLeaves(layout).map((leaf) => leaf.id));
   const next = [activeLeafId, ...layout.mruLeafIds].filter((leafId) => validLeafIds.has(leafId));
   return uniqueStrings(next);
 }
 
 function mapNode(
-  node: ProjectSessionPanelNode,
-  visitor: (node: ProjectSessionPanelNode) => ProjectSessionPanelNode,
-): ProjectSessionPanelNode {
+  node: WorkbenchPanelNode,
+  visitor: (node: WorkbenchPanelNode) => WorkbenchPanelNode,
+): WorkbenchPanelNode {
   if (node.type === "leaf") return visitor(node);
   return visitor({
     ...node,
@@ -260,10 +260,10 @@ function mapNode(
 }
 
 function replaceLeaf(
-  node: ProjectSessionPanelNode,
+  node: WorkbenchPanelNode,
   leafId: string,
-  replacement: ProjectSessionPanelNode,
-): ProjectSessionPanelNode {
+  replacement: WorkbenchPanelNode,
+): WorkbenchPanelNode {
   if (node.type === "leaf") return node.id === leafId ? replacement : node;
   return {
     ...node,
@@ -273,12 +273,12 @@ function replaceLeaf(
 }
 
 function normalizeNode(
-  node: ProjectSessionPanelNode,
+  node: WorkbenchPanelNode,
   knownTabIds: Set<string>,
   seenTabIds: Set<string>,
   seenNodeIds: Set<string>,
   nextDuplicateId: () => number,
-): ProjectSessionPanelNode {
+): WorkbenchPanelNode {
   const baseId = node.id.trim() || (node.type === "leaf" ? "leaf" : "split");
   const id = seenNodeIds.has(baseId) ? `${baseId}:${nextDuplicateId()}` : baseId;
   seenNodeIds.add(id);
@@ -304,10 +304,10 @@ function normalizeNode(
 }
 
 function updateLeafTabs(
-  node: ProjectSessionPanelNode,
+  node: WorkbenchPanelNode,
   leafId: string,
-  update: (leaf: ProjectSessionSplitLeaf) => ProjectSessionSplitLeaf,
-): ProjectSessionPanelNode {
+  update: (leaf: WorkbenchPanelSplitLeaf) => WorkbenchPanelSplitLeaf,
+): WorkbenchPanelNode {
   return mapNode(node, (candidate) => {
     if (candidate.type !== "leaf" || candidate.id !== leafId) return candidate;
     return update(candidate);
@@ -315,10 +315,10 @@ function updateLeafTabs(
 }
 
 function normalizeV2Layout(
-  layout: ProjectSessionPanelLayoutV2,
+  layout: WorkbenchPanelLayoutV2,
   allTabIds: readonly string[],
   options: NormalizePanelLayoutOptions,
-): ProjectSessionPanelLayoutV2 {
+): WorkbenchPanelLayoutV2 {
   const knownTabIds = new Set(allTabIds);
   const seenTabIds = new Set<string>();
   const seenNodeIds = new Set<string>();
@@ -328,15 +328,15 @@ function normalizeV2Layout(
     return duplicateIndex;
   };
   let root = normalizeNode(layout.root, knownTabIds, seenTabIds, seenNodeIds, nextDuplicateId);
-  let leaves = listProjectSessionPanelLeaves({ ...layout, root });
+  let leaves = listWorkbenchPanelLeaves({ ...layout, root });
   if (leaves.length === 0) {
     root = makeLeaf("main", [], null);
-    leaves = listProjectSessionPanelLeaves({ ...layout, root });
+    leaves = listWorkbenchPanelLeaves({ ...layout, root });
   }
 
   const preferredLeafId =
     options.preferredActiveLeafId
-    ?? findProjectSessionPanelLeafForTab({ ...layout, root }, options.preferredActiveTabId)?.id
+    ?? findWorkbenchPanelLeafForTab({ ...layout, root }, options.preferredActiveTabId)?.id
     ?? layout.activeLeafId
     ?? leaves[0]?.id
     ?? "main";
@@ -363,16 +363,16 @@ function normalizeV2Layout(
     return makeLeaf(node.id, uniqueStrings(node.tabIds), node.activeTabId, node.mruTabIds);
   });
 
-  const normalized: ProjectSessionPanelLayoutV2 = {
-    version: PROJECT_SESSION_PANEL_LAYOUT_VERSION,
+  const normalized: WorkbenchPanelLayoutV2 = {
+    version: WORKBENCH_PANEL_LAYOUT_VERSION,
     root,
     activeLeafId,
     mruLeafIds: [],
     maximizedLeafId: layout.maximizedLeafId ?? null,
   };
-  const validLeafIds = new Set(listProjectSessionPanelLeaves(normalized).map((leaf) => leaf.id));
+  const validLeafIds = new Set(listWorkbenchPanelLeaves(normalized).map((leaf) => leaf.id));
   const activeFromPreferredTab = options.preferredActiveTabId
-    ? findProjectSessionPanelLeafForTab(normalized, options.preferredActiveTabId)?.id
+    ? findWorkbenchPanelLeafForTab(normalized, options.preferredActiveTabId)?.id
     : null;
   const finalActiveLeafId = activeFromPreferredTab && validLeafIds.has(activeFromPreferredTab)
     ? activeFromPreferredTab
@@ -380,7 +380,7 @@ function normalizeV2Layout(
       ? activeLeafId
       : [...validLeafIds][0] ?? "main";
 
-  return activateNormalizedProjectSessionPanelLeaf(
+  return activateNormalizedWorkbenchPanelLeaf(
     {
       ...normalized,
       activeLeafId: finalActiveLeafId,
@@ -394,12 +394,12 @@ function normalizeV2Layout(
   );
 }
 
-export function normalizeProjectSessionPanelLayout(
-  value: ProjectSessionPanelLayout | null | undefined,
+export function normalizeWorkbenchPanelLayout(
+  value: WorkbenchPanelLayout | null | undefined,
   allTabIds: readonly string[],
   options: NormalizePanelLayoutOptions = {},
-): ProjectSessionPanelLayoutV2 {
-  const fallback = makeProjectSessionPanelLayout(
+): WorkbenchPanelLayoutV2 {
+  const fallback = makeWorkbenchPanelLayout(
     allTabIds,
     options.preferredActiveTabId ?? allTabIds[0] ?? null,
   );
@@ -407,26 +407,26 @@ export function normalizeProjectSessionPanelLayout(
   return normalizeV2Layout(value, allTabIds, options);
 }
 
-export function activateProjectSessionPanelLeaf(
-  layout: ProjectSessionPanelLayout,
+export function activateWorkbenchPanelLeaf(
+  layout: WorkbenchPanelLayout,
   leafId: string,
   tabId?: string | null,
-): ProjectSessionPanelLayoutV2 {
-  const normalized = normalizeProjectSessionPanelLayout(layout, flattenProjectSessionPanelTabIds(layout), {
+): WorkbenchPanelLayoutV2 {
+  const normalized = normalizeWorkbenchPanelLayout(layout, flattenWorkbenchPanelTabIds(layout), {
     preferredActiveLeafId: leafId,
     preferredActiveTabId: tabId,
   });
-  return activateNormalizedProjectSessionPanelLeaf(normalized, leafId, tabId);
+  return activateNormalizedWorkbenchPanelLeaf(normalized, leafId, tabId);
 }
 
-function activateNormalizedProjectSessionPanelLeaf(
-  normalized: ProjectSessionPanelLayoutV2,
+function activateNormalizedWorkbenchPanelLeaf(
+  normalized: WorkbenchPanelLayoutV2,
   leafId: string,
   tabId?: string | null,
-): ProjectSessionPanelLayoutV2 {
-  const targetLeaf = findProjectSessionPanelLeaf(normalized, leafId)
-    ?? findProjectSessionPanelLeafForTab(normalized, tabId)
-    ?? getProjectSessionPanelActiveLeaf(normalized);
+): WorkbenchPanelLayoutV2 {
+  const targetLeaf = findWorkbenchPanelLeaf(normalized, leafId)
+    ?? findWorkbenchPanelLeafForTab(normalized, tabId)
+    ?? getWorkbenchPanelActiveLeaf(normalized);
   const activeTabId = tabId && targetLeaf.tabIds.includes(tabId)
     ? tabId
     : targetLeaf.activeTabId;
@@ -444,19 +444,19 @@ function activateNormalizedProjectSessionPanelLeaf(
   };
 }
 
-export function splitProjectSessionPanelLeaf(
-  layout: ProjectSessionPanelLayout,
+export function splitWorkbenchPanelLeaf(
+  layout: WorkbenchPanelLayout,
   input: SplitPanelLeafInput,
-): ProjectSessionPanelLayoutV2 {
+): WorkbenchPanelLayoutV2 {
   const allTabIds = uniqueStrings([
-    ...flattenProjectSessionPanelTabIds(layout),
+    ...flattenWorkbenchPanelTabIds(layout),
     ...(input.tabId ? [input.tabId] : []),
   ]);
-  const normalized = normalizeProjectSessionPanelLayout(layout, allTabIds, {
+  const normalized = normalizeWorkbenchPanelLayout(layout, allTabIds, {
     preferredActiveLeafId: input.leafId,
     preferredActiveTabId: input.tabId,
   });
-  const targetLeaf = findProjectSessionPanelLeaf(normalized, input.leafId);
+  const targetLeaf = findWorkbenchPanelLeaf(normalized, input.leafId);
   if (!targetLeaf) return normalized;
   if (!input.tabId) return normalized;
   if (!targetLeaf.tabIds.includes(input.tabId)) return normalized;
@@ -466,7 +466,7 @@ export function splitProjectSessionPanelLeaf(
   const updatedTarget = makeLeaf(targetLeaf.id, targetTabIds, targetLeaf.activeTabId, targetLeaf.mruTabIds);
   const newLeaf = makeLeaf(input.newLeafId, [input.tabId], input.tabId);
   const direction = input.side === "left" || input.side === "right" ? "horizontal" : "vertical";
-  const newBranch: ProjectSessionSplitBranch = {
+  const newBranch: WorkbenchPanelSplitBranch = {
     type: "split",
     id: input.newBranchId,
     direction,
@@ -474,7 +474,7 @@ export function splitProjectSessionPanelLeaf(
     second: input.side === "left" || input.side === "up" ? updatedTarget : newLeaf,
     ratio: 0.5,
   };
-  const next = normalizeProjectSessionPanelLayout(
+  const next = normalizeWorkbenchPanelLayout(
     {
       ...normalized,
       root: replaceLeaf(normalized.root, targetLeaf.id, newBranch),
@@ -482,7 +482,7 @@ export function splitProjectSessionPanelLeaf(
       mruLeafIds: [newLeaf.id, ...normalized.mruLeafIds],
       maximizedLeafId: null,
     },
-    flattenProjectSessionPanelTabIds({
+    flattenWorkbenchPanelTabIds({
       ...normalized,
       root: replaceLeaf(normalized.root, targetLeaf.id, newBranch),
     }),
@@ -494,20 +494,20 @@ export function splitProjectSessionPanelLeaf(
   return next;
 }
 
-export function insertProjectSessionPanelLeaf(
-  layout: ProjectSessionPanelLayout,
+export function insertWorkbenchPanelLeaf(
+  layout: WorkbenchPanelLayout,
   input: InsertPanelLeafInput,
-): ProjectSessionPanelLayoutV2 {
-  const allTabIds = flattenProjectSessionPanelTabIds(layout);
-  const normalized = normalizeProjectSessionPanelLayout(layout, allTabIds, {
+): WorkbenchPanelLayoutV2 {
+  const allTabIds = flattenWorkbenchPanelTabIds(layout);
+  const normalized = normalizeWorkbenchPanelLayout(layout, allTabIds, {
     preferredActiveLeafId: input.leafId,
   });
-  const targetLeaf = findProjectSessionPanelLeaf(normalized, input.leafId);
+  const targetLeaf = findWorkbenchPanelLeaf(normalized, input.leafId);
   if (!targetLeaf) return normalized;
 
   const newLeaf = makeLeaf(input.newLeafId, [], null);
   const direction = input.side === "left" || input.side === "right" ? "horizontal" : "vertical";
-  const newBranch: ProjectSessionSplitBranch = {
+  const newBranch: WorkbenchPanelSplitBranch = {
     type: "split",
     id: input.newBranchId,
     direction,
@@ -517,7 +517,7 @@ export function insertProjectSessionPanelLeaf(
   };
   const root = replaceLeaf(normalized.root, targetLeaf.id, newBranch);
 
-  return normalizeProjectSessionPanelLayout(
+  return normalizeWorkbenchPanelLayout(
     {
       ...normalized,
       root,
@@ -532,17 +532,17 @@ export function insertProjectSessionPanelLeaf(
   );
 }
 
-export function moveProjectSessionPanelTab(
-  layout: ProjectSessionPanelLayout,
+export function moveWorkbenchPanelTab(
+  layout: WorkbenchPanelLayout,
   input: MovePanelTabInput,
-): ProjectSessionPanelLayoutV2 {
-  const allTabIds = uniqueStrings([...flattenProjectSessionPanelTabIds(layout), input.tabId]);
-  const normalized = normalizeProjectSessionPanelLayout(layout, allTabIds, {
+): WorkbenchPanelLayoutV2 {
+  const allTabIds = uniqueStrings([...flattenWorkbenchPanelTabIds(layout), input.tabId]);
+  const normalized = normalizeWorkbenchPanelLayout(layout, allTabIds, {
     preferredActiveTabId: input.tabId,
     preferredActiveLeafId: input.targetLeafId,
   });
-  const targetLeaf = findProjectSessionPanelLeaf(normalized, input.targetLeafId)
-    ?? getProjectSessionPanelActiveLeaf(normalized);
+  const targetLeaf = findWorkbenchPanelLeaf(normalized, input.targetLeafId)
+    ?? getWorkbenchPanelActiveLeaf(normalized);
 
   let root = mapNode(normalized.root, (node) => {
     if (node.type !== "leaf") return node;
@@ -558,7 +558,7 @@ export function moveProjectSessionPanelTab(
     return makeLeaf(leaf.id, nextIds, input.tabId, [input.tabId, ...leaf.mruTabIds]);
   });
 
-  return normalizeProjectSessionPanelLayout(
+  return normalizeWorkbenchPanelLayout(
     {
       ...normalized,
       root,
@@ -574,20 +574,20 @@ export function moveProjectSessionPanelTab(
   );
 }
 
-export function reorderProjectSessionPanelLeafTabs(
-  layout: ProjectSessionPanelLayout,
+export function reorderWorkbenchPanelLeafTabs(
+  layout: WorkbenchPanelLayout,
   leafId: string,
   orderedTabIds: readonly string[],
-): ProjectSessionPanelLayoutV2 {
-  const normalized = normalizeProjectSessionPanelLayout(layout, flattenProjectSessionPanelTabIds(layout), {
+): WorkbenchPanelLayoutV2 {
+  const normalized = normalizeWorkbenchPanelLayout(layout, flattenWorkbenchPanelTabIds(layout), {
     preferredActiveLeafId: leafId,
   });
-  const leaf = findProjectSessionPanelLeaf(normalized, leafId);
+  const leaf = findWorkbenchPanelLeaf(normalized, leafId);
   if (!leaf) return normalized;
   const selected = orderedTabIds.filter((tabId) => leaf.tabIds.includes(tabId));
   const remaining = leaf.tabIds.filter((tabId) => !selected.includes(tabId));
   const finalOrder = [...selected, ...remaining];
-  return activateProjectSessionPanelLeaf(
+  return activateWorkbenchPanelLeaf(
     {
       ...normalized,
       root: updateLeafTabs(normalized.root, leaf.id, (current) =>
@@ -599,25 +599,25 @@ export function reorderProjectSessionPanelLeafTabs(
   );
 }
 
-export function removeProjectSessionPanelTab(
-  layout: ProjectSessionPanelLayout,
+export function removeWorkbenchPanelTab(
+  layout: WorkbenchPanelLayout,
   tabId: string,
   options: RemovePanelTabOptions = {},
-): ProjectSessionPanelLayoutV2 {
-  const allTabIds = flattenProjectSessionPanelTabIds(layout).filter((candidate) => candidate !== tabId);
-  const normalized = normalizeProjectSessionPanelLayout(layout, allTabIds, options);
+): WorkbenchPanelLayoutV2 {
+  const allTabIds = flattenWorkbenchPanelTabIds(layout).filter((candidate) => candidate !== tabId);
+  const normalized = normalizeWorkbenchPanelLayout(layout, allTabIds, options);
   const root = mapNode(normalized.root, (node) => {
     if (node.type !== "leaf") return node;
     const tabIds = node.tabIds.filter((candidate) => candidate !== tabId);
     return makeLeaf(node.id, tabIds, node.activeTabId, node.mruTabIds);
   });
-  return normalizeProjectSessionPanelLayout({ ...normalized, root }, allTabIds, options);
+  return normalizeWorkbenchPanelLayout({ ...normalized, root }, allTabIds, options);
 }
 
 function removeLeafFromNode(
-  node: ProjectSessionPanelNode,
+  node: WorkbenchPanelNode,
   leafId: string,
-): { node: ProjectSessionPanelNode | null; removed: ProjectSessionSplitLeaf | null } {
+): { node: WorkbenchPanelNode | null; removed: WorkbenchPanelSplitLeaf | null } {
   if (node.type === "leaf") {
     return node.id === leafId ? { node: null, removed: node } : { node, removed: null };
   }
@@ -641,13 +641,13 @@ function removeLeafFromNode(
   return { node, removed: null };
 }
 
-export function pruneEmptyProjectSessionPanelLeaves(
-  layout: ProjectSessionPanelLayout,
+export function pruneEmptyWorkbenchPanelLeaves(
+  layout: WorkbenchPanelLayout,
   options: PruneEmptyPanelLeavesOptions = {},
-): ProjectSessionPanelLayoutV2 {
-  const allTabIds = flattenProjectSessionPanelTabIds(layout);
-  const normalized = normalizeProjectSessionPanelLayout(layout, allTabIds, options);
-  const leaves = listProjectSessionPanelLeaves(normalized);
+): WorkbenchPanelLayoutV2 {
+  const allTabIds = flattenWorkbenchPanelTabIds(layout);
+  const normalized = normalizeWorkbenchPanelLayout(layout, allTabIds, options);
+  const leaves = listWorkbenchPanelLeaves(normalized);
   if (leaves.length <= 1) return normalized;
 
   const preserved = new Set(options.preserveLeafIds ?? []);
@@ -659,21 +659,21 @@ export function pruneEmptyProjectSessionPanelLeaves(
   const removableLeafIds = new Set(emptyLeafIds);
   if (leaves.length - removableLeafIds.size <= 0) {
     const fallbackLeaf =
-      findProjectSessionPanelLeaf(normalized, options.preferredActiveLeafId)
-      ?? findProjectSessionPanelLeafForTab(normalized, options.preferredActiveTabId)
-      ?? getProjectSessionPanelActiveLeaf(normalized)
+      findWorkbenchPanelLeaf(normalized, options.preferredActiveLeafId)
+      ?? findWorkbenchPanelLeafForTab(normalized, options.preferredActiveTabId)
+      ?? getWorkbenchPanelActiveLeaf(normalized)
       ?? leaves[0];
     if (fallbackLeaf) removableLeafIds.delete(fallbackLeaf.id);
   }
 
-  let root: ProjectSessionPanelNode | null = normalized.root;
+  let root: WorkbenchPanelNode | null = normalized.root;
   for (const leafId of removableLeafIds) {
     if (!root) break;
     root = removeLeafFromNode(root, leafId).node;
   }
   if (!root) root = makeLeaf("main", [], null);
 
-  return normalizeProjectSessionPanelLayout(
+  return normalizeWorkbenchPanelLayout(
     {
       ...normalized,
       root,
@@ -681,47 +681,47 @@ export function pruneEmptyProjectSessionPanelLeaves(
         ? null
         : normalized.maximizedLeafId,
     },
-    flattenProjectSessionPanelTabIds({ ...normalized, root }),
+    flattenWorkbenchPanelTabIds({ ...normalized, root }),
     {
       preferredActiveLeafId: options.preferredActiveLeafId ?? normalized.activeLeafId,
-      preferredActiveTabId: options.preferredActiveTabId ?? getProjectSessionPanelActiveLeaf(normalized).activeTabId,
+      preferredActiveTabId: options.preferredActiveTabId ?? getWorkbenchPanelActiveLeaf(normalized).activeTabId,
     },
   );
 }
 
-export function removeProjectSessionPanelLeaf(
-  layout: ProjectSessionPanelLayout,
+export function removeWorkbenchPanelLeaf(
+  layout: WorkbenchPanelLayout,
   leafId: string,
-): ProjectSessionPanelLayoutV2 {
-  const normalized = normalizeProjectSessionPanelLayout(layout, flattenProjectSessionPanelTabIds(layout), {
+): WorkbenchPanelLayoutV2 {
+  const normalized = normalizeWorkbenchPanelLayout(layout, flattenWorkbenchPanelTabIds(layout), {
     preferredActiveLeafId: leafId,
   });
-  const leaves = listProjectSessionPanelLeaves(normalized);
+  const leaves = listWorkbenchPanelLeaves(normalized);
   const leaf = leaves.find((candidate) => candidate.id === leafId);
   if (!leaf || leaf.tabIds.length > 0 || leaves.length <= 1) return normalized;
 
   const removed = removeLeafFromNode(normalized.root, leaf.id);
   if (!removed.node) return normalized;
-  return normalizeProjectSessionPanelLayout(
+  return normalizeWorkbenchPanelLayout(
     {
       ...normalized,
       root: removed.node,
       maximizedLeafId: normalized.maximizedLeafId === leaf.id ? null : normalized.maximizedLeafId,
     },
-    flattenProjectSessionPanelTabIds({ ...normalized, root: removed.node }),
+    flattenWorkbenchPanelTabIds({ ...normalized, root: removed.node }),
   );
 }
 
-export function moveProjectSessionPanelLeaf(
-  layout: ProjectSessionPanelLayout,
+export function moveWorkbenchPanelLeaf(
+  layout: WorkbenchPanelLayout,
   input: MovePanelLeafInput,
-): ProjectSessionPanelLayoutV2 {
-  const normalized = normalizeProjectSessionPanelLayout(layout, flattenProjectSessionPanelTabIds(layout), {
+): WorkbenchPanelLayoutV2 {
+  const normalized = normalizeWorkbenchPanelLayout(layout, flattenWorkbenchPanelTabIds(layout), {
     preferredActiveLeafId: input.sourceLeafId,
   });
-  const sourceLeaf = findProjectSessionPanelLeaf(normalized, input.sourceLeafId);
-  const targetLeaf = findProjectSessionPanelLeaf(normalized, input.targetLeafId);
-  const leaves = listProjectSessionPanelLeaves(normalized);
+  const sourceLeaf = findWorkbenchPanelLeaf(normalized, input.sourceLeafId);
+  const targetLeaf = findWorkbenchPanelLeaf(normalized, input.targetLeafId);
+  const leaves = listWorkbenchPanelLeaves(normalized);
   if (!sourceLeaf || !targetLeaf || sourceLeaf.id === targetLeaf.id || leaves.length <= 1) return normalized;
 
   const removed = removeLeafFromNode(normalized.root, sourceLeaf.id);
@@ -729,7 +729,7 @@ export function moveProjectSessionPanelLeaf(
 
   const direction = input.side === "left" || input.side === "right" ? "horizontal" : "vertical";
   const movedLeaf = removed.removed;
-  const newBranch: ProjectSessionSplitBranch = {
+  const newBranch: WorkbenchPanelSplitBranch = {
     type: "split",
     id: input.newBranchId,
     direction,
@@ -738,7 +738,7 @@ export function moveProjectSessionPanelLeaf(
     ratio: 0.5,
   };
   const root = replaceLeaf(removed.node, targetLeaf.id, newBranch);
-  return normalizeProjectSessionPanelLayout(
+  return normalizeWorkbenchPanelLayout(
     {
       ...normalized,
       root,
@@ -746,7 +746,7 @@ export function moveProjectSessionPanelLeaf(
       mruLeafIds: [movedLeaf.id, ...normalized.mruLeafIds.filter((leafId) => leafId !== movedLeaf.id)],
       maximizedLeafId: null,
     },
-    flattenProjectSessionPanelTabIds({ ...normalized, root }),
+    flattenWorkbenchPanelTabIds({ ...normalized, root }),
     {
       preferredActiveLeafId: movedLeaf.id,
       preferredActiveTabId: movedLeaf.activeTabId,
@@ -754,14 +754,14 @@ export function moveProjectSessionPanelLeaf(
   );
 }
 
-export function mergeProjectSessionPanelLeaf(
-  layout: ProjectSessionPanelLayout,
+export function mergeWorkbenchPanelLeaf(
+  layout: WorkbenchPanelLayout,
   leafId: string,
-): ProjectSessionPanelLayoutV2 {
-  const normalized = normalizeProjectSessionPanelLayout(layout, flattenProjectSessionPanelTabIds(layout), {
+): WorkbenchPanelLayoutV2 {
+  const normalized = normalizeWorkbenchPanelLayout(layout, flattenWorkbenchPanelTabIds(layout), {
     preferredActiveLeafId: leafId,
   });
-  const leaves = listProjectSessionPanelLeaves(normalized);
+  const leaves = listWorkbenchPanelLeaves(normalized);
   if (leaves.length <= 1) return normalized;
 
   const leafIndex = leaves.findIndex((leaf) => leaf.id === leafId);
@@ -785,7 +785,7 @@ export function mergeProjectSessionPanelLeaf(
       ]),
     )
   );
-  return normalizeProjectSessionPanelLayout(
+  return normalizeWorkbenchPanelLayout(
     {
       ...normalized,
       root: mergedRoot,
@@ -793,7 +793,7 @@ export function mergeProjectSessionPanelLeaf(
       mruLeafIds: [targetLeaf.id, ...normalized.mruLeafIds.filter((candidate) => candidate !== leafId)],
       maximizedLeafId: normalized.maximizedLeafId === leafId ? null : normalized.maximizedLeafId,
     },
-    flattenProjectSessionPanelTabIds({ ...normalized, root: mergedRoot }),
+    flattenWorkbenchPanelTabIds({ ...normalized, root: mergedRoot }),
     {
       preferredActiveLeafId: targetLeaf.id,
       preferredActiveTabId: removed.removed.activeTabId,
@@ -801,12 +801,12 @@ export function mergeProjectSessionPanelLeaf(
   );
 }
 
-export function setProjectSessionPanelBranchRatio(
-  layout: ProjectSessionPanelLayout,
+export function setWorkbenchPanelBranchRatio(
+  layout: WorkbenchPanelLayout,
   branchId: string,
   ratio: number,
-): ProjectSessionPanelLayoutV2 {
-  const normalized = normalizeProjectSessionPanelLayout(layout, flattenProjectSessionPanelTabIds(layout));
+): WorkbenchPanelLayoutV2 {
+  const normalized = normalizeWorkbenchPanelLayout(layout, flattenWorkbenchPanelTabIds(layout));
   const root = mapNode(normalized.root, (node) => {
     if (node.type !== "split" || node.id !== branchId) return node;
     return {
@@ -814,19 +814,19 @@ export function setProjectSessionPanelBranchRatio(
       ratio: clampRatio(ratio),
     };
   });
-  return normalizeProjectSessionPanelLayout({ ...normalized, root }, flattenProjectSessionPanelTabIds(normalized));
+  return normalizeWorkbenchPanelLayout({ ...normalized, root }, flattenWorkbenchPanelTabIds(normalized));
 }
 
-export function setProjectSessionPanelMaximizedLeaf(
-  layout: ProjectSessionPanelLayout,
+export function setWorkbenchPanelMaximizedLeaf(
+  layout: WorkbenchPanelLayout,
   leafId: string | null,
-): ProjectSessionPanelLayoutV2 {
-  const normalized = normalizeProjectSessionPanelLayout(layout, flattenProjectSessionPanelTabIds(layout), {
+): WorkbenchPanelLayoutV2 {
+  const normalized = normalizeWorkbenchPanelLayout(layout, flattenWorkbenchPanelTabIds(layout), {
     preferredActiveLeafId: leafId,
   });
-  const maximizedLeafId = leafId && findProjectSessionPanelLeaf(normalized, leafId) ? leafId : null;
+  const maximizedLeafId = leafId && findWorkbenchPanelLeaf(normalized, leafId) ? leafId : null;
   return {
-    ...activateProjectSessionPanelLeaf(normalized, maximizedLeafId ?? normalized.activeLeafId),
+    ...activateWorkbenchPanelLeaf(normalized, maximizedLeafId ?? normalized.activeLeafId),
     maximizedLeafId,
   };
 }

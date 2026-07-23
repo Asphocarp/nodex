@@ -738,7 +738,7 @@ const EMPTY_TEST_BROWSER_TRANSFER_STATE_READER = {
   getStateSnapshot: (): BrowserSidebarStateSnapshot => ({ tabs: [] }),
   getBrowserUseStateSnapshot: (): BrowserSidebarBrowserUseStateSnapshot => ({
     tabs: [],
-    activeBrowserTabIdsByConversation: {},
+    activeBrowserTabIdsByConversationScope: {},
     cursors: [],
   }),
 };
@@ -903,7 +903,7 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
     deleteProjectSession: async () => false,
     archiveProjectSession: async () => null,
     setProjectSessionPinned: async () => null,
-    createProjectSessionTab: async () => {
+    createWorkbenchTabProjection: async () => {
       throw new Error("Project Session tab creation is not configured for this test");
     },
     detachProjectSessionThread: async () => false,
@@ -1442,7 +1442,7 @@ function makeRecordingForkSidePanelTransferLifecycle(
     },
     consumeTarget: async ({ targetConversationId, targetProjectSessionId }) => {
       events.push(`consume:${targetConversationId}:${targetProjectSessionId}`);
-      return true;
+      return null;
     },
     clear: () => {
       events.push("clear");

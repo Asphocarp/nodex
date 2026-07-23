@@ -218,10 +218,13 @@ for (const entry of readdirSync(path.join(repositoryRoot, "src/main/local-store"
 }
 
 for (const file of sourceFiles("crates/nodex-core/src")) {
+  if (file === "crates/nodex-core/src/infrastructure/legacy_migration.rs") {
+    continue;
+  }
   assertAbsent(
     file,
     [/\bv83\b/i],
-    "Core accepts only the v84 import boundary",
+    "Core runtime modules accept only the normalized v84 import boundary",
   );
 }
 assertAbsent(

@@ -12,6 +12,7 @@ export const OPEN_CONTENT_SEARCH_HOST_CHANNEL = "open-content-search";
 export const CYCLE_PANEL_TAB_PREVIOUS_HOST_CHANNEL = "cycle-panel-tab-previous";
 export const CYCLE_PANEL_TAB_NEXT_HOST_CHANNEL = "cycle-panel-tab-next";
 export const CLOSE_PANEL_TAB_HOST_CHANNEL = "close-panel-tab";
+export const REQUEST_NEW_WINDOW_HOST_CHANNEL = "request-new-window";
 
 export type WorkbenchNavigationCommandId =
   | typeof NAVIGATE_BACK_COMMAND_ID

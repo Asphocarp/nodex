@@ -14,17 +14,17 @@ import {
   type AppShellTabItem,
 } from "./app-shell-tabs";
 import {
-  findProjectSessionPanelLeaf,
-  getProjectSessionPanelTopLeftLeafId,
-  getProjectSessionPanelTopRightLeafId,
-} from "../../../shared/project-session-panel-layout";
+  findWorkbenchPanelLeaf,
+  getWorkbenchPanelTopLeftLeafId,
+  getWorkbenchPanelTopRightLeafId,
+} from "../../../shared/workbench-panel-layout";
 import type {
   PanelId,
-  ProjectSessionPanelLayout,
-  ProjectSessionPanelNode,
-  ProjectSessionPanelSplitSide,
-  ProjectSessionSplitBranch,
-  ProjectSessionSplitLeaf,
+  WorkbenchPanelLayout,
+  WorkbenchPanelNode,
+  WorkbenchPanelSplitSide,
+  WorkbenchPanelSplitBranch,
+  WorkbenchPanelSplitLeaf,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
@@ -48,7 +48,7 @@ const PANEL_GROUP_RATIO_ACK_EPSILON = 0.000_001;
 interface PanelGroupTreeProps {
   sessionId: string;
   panelId: PanelId;
-  layout: ProjectSessionPanelLayout;
+  layout: WorkbenchPanelLayout;
   tabItemsByLeafId: Record<string, AppShellTabItem[]>;
   activeTabIdsByLeafId: Record<string, string | null>;
   renderEmptyLeaf: (leafId: string) => ReactNode;
@@ -67,9 +67,9 @@ interface PanelGroupTreeProps {
     targetPanelId: PanelId,
     targetLeafId: string,
     targetIndex?: number,
-    splitTarget?: { leafId: string; side: ProjectSessionPanelSplitSide },
+    splitTarget?: { leafId: string; side: WorkbenchPanelSplitSide },
   ) => void;
-  onSplitGroup: (leafId: string, side: ProjectSessionPanelSplitSide, tabId?: string) => void;
+  onSplitGroup: (leafId: string, side: WorkbenchPanelSplitSide, tabId?: string) => void;
   onFocusGroup?: (leafId: string) => void;
   onActivateGroup: (leafId: string, tabId?: string | null) => void;
   onResizeGroup: (branchId: string, ratio: number) => Promise<void> | void;
@@ -150,16 +150,16 @@ export function PanelGroupTree({
   }, [onMoveTab, onReorderTab, panelId, sessionId]);
 
   const maximizedLeafId = layout.maximizedLeafId ?? null;
-  const maximizedLeaf = maximizedLeafId ? findProjectSessionPanelLeaf(layout, maximizedLeafId) : null;
+  const maximizedLeaf = maximizedLeafId ? findWorkbenchPanelLeaf(layout, maximizedLeafId) : null;
   const activeLeafId = layout.activeLeafId;
   const rootNode = maximizedLeaf ?? layout.root;
   const headerStartInsetLeafId = headerStartInsetPx && headerStartInsetPx > 0
-    ? getProjectSessionPanelTopLeftLeafId(rootNode)
+    ? getWorkbenchPanelTopLeftLeafId(rootNode)
     : null;
   const headerEndInsetLeafId = headerEndInsetPx && headerEndInsetPx > 0
-    ? getProjectSessionPanelTopRightLeafId(rootNode)
+    ? getWorkbenchPanelTopRightLeafId(rootNode)
     : null;
-  const afterListLeafId = renderAfterList ? getProjectSessionPanelTopRightLeafId(rootNode) : null;
+  const afterListLeafId = renderAfterList ? getWorkbenchPanelTopRightLeafId(rootNode) : null;
   return (
     <div
       data-panel-group-tree={panelId}
@@ -306,7 +306,7 @@ function arePanelTabDropIntentsEqual(
 function PanelGroupNode(props: {
   sessionId: string;
   panelId: PanelId;
-  node: ProjectSessionPanelNode;
+  node: WorkbenchPanelNode;
   activeLeafId: string;
   activeDragId: string | null;
   previewIntent: PanelTabDropIntent | null;
@@ -331,9 +331,9 @@ function PanelGroupNode(props: {
     targetPanelId: PanelId,
     targetLeafId: string,
     targetIndex?: number,
-    splitTarget?: { leafId: string; side: ProjectSessionPanelSplitSide },
+    splitTarget?: { leafId: string; side: WorkbenchPanelSplitSide },
   ) => void;
-  onSplitGroup: (leafId: string, side: ProjectSessionPanelSplitSide, tabId?: string) => void;
+  onSplitGroup: (leafId: string, side: WorkbenchPanelSplitSide, tabId?: string) => void;
   onFocusGroup?: (leafId: string) => void;
   onActivateGroup: (leafId: string, tabId?: string | null) => void;
   onResizeGroup: (branchId: string, ratio: number) => Promise<void> | void;
@@ -348,7 +348,7 @@ function PanelGroupSplit({
   branch,
   onResizeGroup,
   ...props
-}: Omit<Parameters<typeof PanelGroupNode>[0], "node"> & { branch: ProjectSessionSplitBranch }) {
+}: Omit<Parameters<typeof PanelGroupNode>[0], "node"> & { branch: WorkbenchPanelSplitBranch }) {
   const [optimisticRatio, setOptimisticRatio] = useState<number | null>(null);
   const resizeCommitIdRef = useRef(0);
   const ratio = optimisticRatio ?? branch.ratio;
@@ -440,7 +440,7 @@ function PanelGroupLeaf({
   onSplitGroup,
   onFocusGroup,
   onActivateGroup,
-}: Omit<Parameters<typeof PanelGroupNode>[0], "node"> & { leaf: ProjectSessionSplitLeaf }) {
+}: Omit<Parameters<typeof PanelGroupNode>[0], "node"> & { leaf: WorkbenchPanelSplitLeaf }) {
   const tabs = tabItemsByLeafId[leaf.id] ?? [];
   const activeTabId = activeTabIdsByLeafId[leaf.id] ?? tabs[0]?.id ?? null;
   const isActive = leaf.id === activeLeafId;
@@ -555,7 +555,7 @@ function PanelGroupSash({
   onDragRatio,
   onCommitRatio,
 }: {
-  branch: ProjectSessionSplitBranch;
+  branch: WorkbenchPanelSplitBranch;
   ratio: number;
   onDragRatio: (ratio: number | null) => void;
   onCommitRatio: (ratio: number) => void;

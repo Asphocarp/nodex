@@ -18,8 +18,14 @@ export interface WindowSessionBounds {
   mode: "normal" | "maximized" | "fullscreen";
 }
 
+export type WindowSessionLifecycle =
+  | { state: "open" }
+  | { state: "closed"; closedAt: string };
+
 export interface WindowSessionRecord {
   id: string;
+  lifecycle: WindowSessionLifecycle;
+  layoutRevision: number;
   layout: WorkbenchLayoutSnapshot;
   createdAt: string;
   updatedAt: string;
@@ -28,7 +34,7 @@ export interface WindowSessionRecord {
 }
 
 export interface WindowSessionCatalog {
-  version: 1;
+  version: 3;
   lastActiveSessionId: string;
   sessions: WindowSessionRecord[];
 }
@@ -37,6 +43,12 @@ export interface WindowSessionBootstrap {
   session: WindowSessionRecord;
 }
 
-export interface WindowSessionSeed {
-  layout?: WorkbenchLayoutSnapshot;
+export interface WindowSessionNewWindowRequest {
+  activeProjectSessionId?: string | null;
+}
+
+export interface WindowSessionSaveLayoutInput {
+  sessionId: string;
+  revision: number;
+  layout: WorkbenchLayoutSnapshot;
 }

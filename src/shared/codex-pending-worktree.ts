@@ -33,6 +33,7 @@ interface CodexPendingWorktreeRequestBase {
   readonly browserTransferSourceBrowserTabId?: string | null;
   readonly browserTransferSourceBrowserTabIds?: readonly string[] | null;
   readonly browserTransferSourceConversationId?: string | null;
+  readonly browserTransferSourceViewScopeId?: string | null;
   readonly sourceWorkspaceRoot: string;
   readonly startingState?: CodexPendingWorktreeStartingState | null;
   readonly localEnvironmentConfigPath?: string | null;

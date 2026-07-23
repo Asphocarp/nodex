@@ -11,6 +11,40 @@ import {
 
 export const TOGGLE_BOTTOM_PANEL_MENU_ITEM_ID = "view.toggleBottomPanel";
 
+interface WindowFileMenuOptions {
+  commandKeymapState: CommandKeymapState;
+  onNewWindow: () => void;
+  onCloseWindow: () => void;
+}
+
+export function buildWindowFileMenu(
+  options: WindowFileMenuOptions,
+): MenuItemConstructorOptions {
+  const accelerator = (commandId: string): string | undefined =>
+    toElectronAccelerator(
+      getPrimaryCommandAccelerator(options.commandKeymapState, commandId),
+    );
+
+  return {
+    label: "File",
+    submenu: [
+      {
+        id: "file.newWindow",
+        label: "New Window",
+        accelerator: accelerator("newWindow"),
+        click: options.onNewWindow,
+      },
+      { type: "separator" },
+      {
+        id: "file.closeWindow",
+        label: "Close Window",
+        accelerator: accelerator("closeWindow"),
+        click: options.onCloseWindow,
+      },
+    ],
+  };
+}
+
 export function buildWorkbenchViewMenu(
   commandKeymapState: CommandKeymapState,
   onExecuteCommand: (invocation: WorkbenchCommandInvocation) => void,

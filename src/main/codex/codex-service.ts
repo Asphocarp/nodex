@@ -232,6 +232,11 @@ import type {
   BrowserSidebarBrowserUseStateSnapshot,
   BrowserSidebarStateSnapshot,
 } from "../../shared/browser-sidebar";
+import type {
+  CodexForkBrowserSidePanelSnapshot,
+  CodexForkBrowserTransferConsumeInput,
+  CodexForkBrowserViewContext,
+} from "../../shared/codex-fork-browser-transfer";
 import { parseAssetSource } from "../../shared/assets";
 import {
   getTerminalInteractionBufferKey,
@@ -7199,47 +7204,10 @@ export class CodexService extends EventEmitter {
       .browserSidebarService as CodexForkBrowserRuntime;
     this.browserTransferStateReader ??= runtime;
     const adapter = createCodexForkBrowserSnapshotAdapter({
-      createTargetBrowserPanelTab: async ({
-        browserTabId,
-        durableTabId,
-        initialUrl,
-        panel,
-        targetProjectSession,
-      }) => {
-        const currentSession = await this.projectWorkspace.getProjectSession(
-          targetProjectSession.id,
-        );
-        const existing = currentSession?.tabs.find(
-          (tab) => tab.id === durableTabId,
-        );
-        if (existing) {
-          if (
-            existing.kind !== "browser"
-            || existing.browserTabId !== browserTabId
-          ) {
-            throw new Error("Fork browser target tab identity changed");
-          }
-          return existing;
-        }
-        return await this.projectWorkspace.createProjectSessionTab({
-          browserTabId,
-          clientTabId: durableTabId,
-          config: {
-            projectId: targetProjectSession.projectId,
-            ...(initialUrl === undefined ? {} : { url: initialUrl }),
-          },
-          kind: "browser",
-          panelId: panel,
-          sessionId: targetProjectSession.id,
-          title: "Browser",
-        });
-      },
       getProjectSession: (projectSessionId) =>
         this.projectWorkspace.getProjectSession(projectSessionId),
       resolveBrowserConversationId: (conversationId) =>
         this.resolveForkBrowserConversationId(conversationId),
-      resolveProjectSession: (conversationId) =>
-        this.resolveForkBrowserProjectSession(conversationId),
       runtime,
     });
     this.forkSidePanelTransferLifecycle =
@@ -7251,18 +7219,16 @@ export class CodexService extends EventEmitter {
     this.forkSidePanelTransferLifecycle?.discardPending(pendingWorktreeId);
   }
 
-  async consumeForkSidePanelTransfer(input: {
-    readonly routeKind: "local-thread";
-    readonly targetConversationId: string;
-    readonly targetProjectSessionId: string;
-  }): Promise<boolean> {
+  async consumeForkSidePanelTransfer(
+    input: CodexForkBrowserTransferConsumeInput,
+  ): Promise<CodexForkBrowserSidePanelSnapshot | null> {
     const session = await this.projectWorkspace.getProjectSession(
       input.targetProjectSessionId,
     );
     if (!session || session.thread?.threadId !== input.targetConversationId) {
       throw new Error("Target project session does not own the conversation");
     }
-    return await this.forkSidePanelTransferLifecycle?.consumeTarget(input) ?? false;
+    return await this.forkSidePanelTransferLifecycle?.consumeTarget(input) ?? null;
   }
 
   private assertLocalPendingWorktreeHost(hostId: string): void {
@@ -13619,11 +13585,7 @@ export class CodexService extends EventEmitter {
     const session = await this.projectWorkspace.getProjectSession(
       input.thread.sessionId,
     );
-    if (
-      session?.tabs.every(
-        (tab) => tab.kind === "browser" || tab.kind === "terminal",
-      )
-    ) {
+    if (session) {
       const moved = await this.projectWorkspace.moveThread({
         threadId: input.thread.threadId,
         sourceProjectId: input.thread.projectId,
@@ -13641,19 +13603,7 @@ export class CodexService extends EventEmitter {
       });
       return;
     }
-
-    if (session) {
-      await this.projectWorkspace.archiveProjectSession(session.id);
-    }
-    await this.projectWorkspace.detachProjectSessionThread(
-      input.thread.sessionId,
-    );
-    this.logger.info("Archived non-portable Session before Thread re-home", {
-      threadId: input.thread.threadId,
-      sessionId: input.thread.sessionId,
-      fromProjectId: input.thread.projectId,
-      toProjectId: input.targetProjectId,
-    });
+    return;
   }
 
   private async upsertLinkFromThread(
@@ -14419,6 +14369,7 @@ export class CodexService extends EventEmitter {
     readonly effectiveCollaborationMode: CodexCollaborationModeKind | undefined;
     readonly executionProfile: AgentExecutionProfile | null;
     readonly explicitThreadName: string | null;
+    readonly browserViewScopeId: string;
     readonly signal?: AbortSignal;
   }): Promise<Extract<CodexThreadStartForSessionResult, { readonly kind: "pending" }>> {
     if (input.signal?.aborted) throw new Error("Request canceled");
@@ -14561,6 +14512,7 @@ export class CodexService extends EventEmitter {
       const browserTransfer = captureCodexOrdinaryBrowserTransfer({
         browserState: browserTransferStateReader.getStateSnapshot(),
         browserUseState: browserTransferStateReader.getBrowserUseStateSnapshot(),
+        browserViewScopeId: input.browserViewScopeId,
         enabled: true,
         session: input.session,
       });
@@ -14701,7 +14653,10 @@ export class CodexService extends EventEmitter {
 
   async startThreadForSession(
     input: CodexThreadStartForSessionInput,
-    options: { signal?: AbortSignal } = {},
+    options: {
+      signal?: AbortSignal;
+      browserViewScopeId?: string;
+    } = {},
   ): Promise<CodexThreadStartForSessionResult> {
     const startedAt = Date.now();
     const requestedRunInTarget = input.runInTarget ?? "localProject";
@@ -14764,6 +14719,8 @@ export class CodexService extends EventEmitter {
           effectiveCollaborationMode,
           executionProfile,
           explicitThreadName,
+          browserViewScopeId:
+            options.browserViewScopeId ?? `headless:${input.sessionId}`,
           ...(options.signal ? { signal: options.signal } : {}),
         });
       }
@@ -15159,6 +15116,7 @@ export class CodexService extends EventEmitter {
   async forkProjectSessionThread(
     sessionId: string,
     input: ProjectSessionForkInput,
+    sourceViewContext?: CodexForkBrowserViewContext,
   ): Promise<ProjectSessionForkResult> {
     await this.ensureClientReady();
 
@@ -15169,6 +15127,12 @@ export class CodexService extends EventEmitter {
     }
     if (!sourceSession.thread) {
       throw new Error("Session has no Codex thread to fork");
+    }
+    if (
+      sourceViewContext
+      && sourceViewContext.view.sessionId !== sourceSession.id
+    ) {
+      throw new Error("Fork source view does not belong to the source session");
     }
     const sourceThread = sourceSession.thread;
     const sourceWorkspaceInheritance = resolveCodexForkWorkspaceInheritance(sourceThread);
@@ -15234,6 +15198,7 @@ export class CodexService extends EventEmitter {
         pendingWorktreeId: created.pendingWorktreeId,
         sourceConversationId: sourceThreadId,
         sourceWorkspaceRoot: sourceThread.cwd,
+        ...(sourceViewContext ? { sourceViewContext } : {}),
       });
       if (!created.clientThreadId) {
         throw new Error("Pending fork did not allocate a client thread id");
@@ -15376,6 +15341,7 @@ export class CodexService extends EventEmitter {
     await (await this.ensureForkSidePanelTransferLifecycle())?.stageDirect({
       sourceConversationId: sourceThreadId,
       targetConversationId: detail.threadId,
+      ...(sourceViewContext ? { sourceViewContext } : {}),
     });
 
     const nextSession = nextSessionBox.value;

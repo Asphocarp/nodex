@@ -1351,21 +1351,22 @@ mod tests {
                 )
             );
             if *fixture_name == "v57-early" {
-                let (kind, config): (String, String) = connection
+                let block_type: String = connection
                     .query_row(
-                        "SELECT kind, config_json FROM project_session_tabs WHERE id = ?1",
-                        ["019b7e12-5c00-7000-8000-000000005702"],
-                        |row| Ok((row.get(0)?, row.get(1)?)),
+                        "SELECT type FROM blocks WHERE id = ?1",
+                        ["019b7e12-5c00-7000-8000-000000005700"],
+                        |row| row.get(0),
                     )
-                    .expect("migrated early-v57 Page tab");
-                let config: serde_json::Value =
-                    serde_json::from_str(&config).expect("Page tab config");
-                assert_eq!(kind, "page_stage");
-                assert_eq!(
-                    config.get("pageId").and_then(serde_json::Value::as_str),
-                    Some("019b7e12-5c00-7000-8000-000000005700")
-                );
-                assert!(config.get("cardId").is_none());
+                    .expect("migrated early-v57 Page");
+                assert_eq!(block_type, "page");
+                let initial_database_view_id: Option<String> = connection
+                    .query_row(
+                        "SELECT initial_database_view_id FROM project_sessions WHERE id = ?1",
+                        ["019b7e12-5c00-7000-8000-000000005701"],
+                        |row| row.get(0),
+                    )
+                    .expect("migrated early-v57 Session");
+                assert_eq!(initial_database_view_id, None);
                 let thread: (String, String, String, String, String, String, String) = connection
                     .query_row(
                         "SELECT thread_name, thread_preview, model_provider, cwd, \

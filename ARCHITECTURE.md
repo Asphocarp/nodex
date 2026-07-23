@@ -100,26 +100,21 @@ and committed Core events become renderer Library or Workspace invalidations.
 Workspace events carry a typed Project-catalog change kind, explicit Session
 summary scopes (`project`, `projectless`, or `all`), and exact Session detail
 identities in addition to audit-oriented affected identities. A Host replay-gap
-repair broadens the detail invalidation to `all`, because omitted events may have
-changed panel or tab state without changing a summary. The event bridge maps only
+repair broadens the detail invalidation to `all`, because omitted events may
+have changed Session domain state outside a known scope. The event bridge maps only
 catalog mutations to the global Project subscription and routes Session invalidations
 through one global typed subscription, so one aggregate event never
 turns routine chat activity into a Project-list refresh.
-Project catalog reads, creation, metadata/source updates, sidebar and pinned ordering,
-and archival all pass through one Workspace Adapter. Its Session startup/list
-and exact-snapshot reads hydrate the existing camel-cased IPC model from Core
-without opening SQLite in Electron; Session creation/deletion, ordinary and
-pinned ordering, pin, archive/restore, and unread transitions use the same
-Adapter and one native aggregate each. Tab creation, metadata/state replacement,
-deletion, cross-panel movement, panel split/ensure/merge/activation/resize/
-maximize, leaf-local tab reorder, and composite Session view updates also cross
-that boundary. Tab-only calls resolve their owning Session through an exact
-Workspace read instead of scanning repositories, while delete and move carry
-the Adapter-compiled final layout into the same native aggregate as the tab
-mutation. Thread metadata upsert plus Session attach and guarded detach also
-cross this boundary as one native aggregate. The loopback Project, Session,
-panel, tab, and Thread-link routes dereference that same Core-backed Workspace
-port for both IPC and HTTP. Owned Document descriptor reads
+Project catalog reads, creation, metadata/source updates, sidebar and pinned
+ordering, and archival all pass through one Workspace Adapter. Session reads
+contain only Project or projectless scope, first-materialization Database View,
+title, ordering, pin/archive/unread state, optional Thread link, and timestamps.
+Session creation/deletion, ordering, pin, archive/restore, unread, and Thread
+link transitions use the same native aggregate. Tabs, panel trees, selection,
+and geometry never cross that Core boundary; the renderer combines Query-owned
+Session domain data with its assigned Window Session view. The loopback Project,
+Session, and Thread-link routes dereference the Core-backed Workspace port for
+both IPC and HTTP. Owned Document descriptor reads
 and owner preparation select the same Project or trusted Library Core scope as
 subsequent synchronization; Library results remove the compatibility storage
 Project before crossing IPC. Project-scoped live Yjs subscribe,
@@ -428,7 +423,7 @@ tests for each deep transaction aggregate and for pre-transaction rejection,
 post-commit Document cache/publication recovery, published legacy imports and
 exact v84 import, online backup,
 restore journaling/runtime reset, and abrupt WAL exit. It also starts from a
-fresh restricted `.generated` Profile and reports the reopened v89 Store's
+fresh restricted `.generated` Profile and reports the reopened v90 Store's
 durable head, integrity result, and foreign-key result. The Electron loopback
 test in the same gate proves that private Core health/lifecycle/Store
 Administration UDS paths remain unreachable over the public HTTP adapter.
@@ -444,10 +439,10 @@ SQLite transaction rather than composing public Module calls, so one durable
 Library receipt and event represent the operation.
 
 The Project Workspace read boundary returns active Project execution contexts
-and non-archived startup Sessions, or resolves an exact Project, normalized
-Session panel/tab aggregate, complete Codex Thread descriptor, persisted Thread
-execution context, root/child Thread collection, managed-worktree set, or durable
-sidebar snapshot.
+and non-archived startup Sessions, or resolves an exact Project, domain-only
+Session descriptor, complete Codex Thread descriptor, persisted Thread execution
+context, root/child Thread collection, managed-worktree set, or durable sidebar
+snapshot. Session panel/tab arrangement never crosses this Core boundary.
 Profile/Library Adapter identity, Project lifecycle, primary Database bindings,
 JSON bounds, store epoch, and event head are validated by the Module; incomplete
 bindings and cross-Library rows fail closed.
@@ -456,19 +451,19 @@ clock. On first materialization, the Host derives creation from the Thread's
 UUIDv7 timestamp when available and normalizes it to the protocol's second
 precision. Existing creation is immutable, while every later observation can
 advance `updatedAt` but can never move it behind either the durable creation or
-the previous update. Store v89 applies the same canonicalization to persisted
+the previous update. Store v89 applied the same canonicalization to persisted
 UUIDv7 Threads and repairs any remaining inverted custom-id pair before current
 Store validation.
 Automation now
 owns its accepted definition, lease, run, reminder, and Scheduled Page
-occurrence surface. Store Administration owns v89 readiness, backup listing,
+occurrence surface. Store Administration owns v90 readiness, backup listing,
 online SQLite backup creation, and whole-store restore through the same
 generated `read`/`apply` boundary. A backup uses a deterministic operation-owned
 directory, publishes a v2-compatible manifest last, validates the immutable
 snapshot, fsyncs database, assets, manifest, and directories, then commits its
 receipt/event. A retry after filesystem publication but before the SQLite
 receipt adopts only an exact operation/request-fingerprint match. Restore
-semantically validates the complete v89 Document/Canvas/projection/managed-asset
+semantically validates the complete v90 Document/Canvas/projection/managed-asset
 closure, optionally creates a safety backup inside one maintenance generation,
 installs through the Core-owned journal, rotates `storeEpoch`, resets Document
 cache and realtime state, republishes the runtime descriptor, and clears the
@@ -670,40 +665,35 @@ Generic persisted renderer atoms remain shell-owned until their owning semantic
 Module adopts a typed field; Core does not provide a catch-all JSON persistence
 surface.
 
-Workspace owns the durable Session panel/tab aggregate as well. The versioned
-contract names the target panel, tab kind, optional browser identity, and target
-leaf instead of asking an Adapter to reconstruct those facts from JSON. Core
-validates kind-specific tab configuration against the Session Project, resolves
-and authorizes active Database Views, preserves review/Database-View uniqueness,
-normalizes bounded v2 split trees, and persists layout plus depth-first flat tab
-order in one receipt/event transaction. Create/focus, layout replacement,
-cross-panel move, and delete all keep each durable tab in exactly one leaf;
-delete/move prune non-final empty leaves while ordinary layout replacement may
-retain an explicitly visible empty leaf. Typed view-state patches own left-pane
-collapse plus right/bottom collapse and size without rewriting tab timestamps.
-Tab metadata updates rerun kind-specific validation and Database View
-authorization, while opaque versioned tab state is replaced as one bounded
-`state_key`/JSON pair. Page Stage config retains its independent content Project
-instead of being rewritten to the owning Session Project.
+Window Sessions own the Session panel/tab aggregate. A strict
+`WorkbenchSessionViewSnapshot` stores resource descriptors and normalized
+right/bottom split trees; those trees are the only tab placement and ordering
+source. Pure renderer mutations create, update, activate, reorder, move, split,
+merge, resize, maximize, and remove local view state without IPC or Core
+invalidation. The Window Session catalog persists complete Workbench layout v3
+snapshots with monotonic revisions and atomic replacement. Catalog lifecycle is
+independent of BrowserWindow attachment: an `open` Window Session is eligible
+for cold-start restoration, while a deliberately closed Window Session remains
+as bounded history that can be reopened with the same identity and layout.
 
 Session collection lifecycle is owned by the same Workspace boundary. Creation
 uses an explicit retry-stable identity and inserts at the head of the target
 Project or projectless order. Ordinary and pinned reorder intents preserve the
 established partial-order behavior over non-archived Sessions; archive clears
-pin/unread state and restore retains the sparse order. A Project move is allowed
-only for an empty Session or one containing portable Browser/Terminal tabs, and
-atomically rewrites the Session, every portable tab row owner, each Browser
-config Project, and any linked Codex Thread before publishing one Workspace
-receipt/event. Terminal config contains only PTY identity and needs no ownership
-rewrite. Deletion cascades the panel/tab and Thread-link
-aggregate without deleting the independently owned Codex Thread.
-Codex fork side-panel transfer is a Host-owned, process-local snapshot lifecycle,
-but every durable source/target Session resolution and cloned browser-tab write
-uses this selected asynchronous Workspace boundary. Capture, rebase, pending
-promotion, and target consumption are awaited so navigation cannot overtake the
-durable target tabs; a failed apply retains the snapshot for retry. The
-canonical-to-client Thread identity aliases used during resolution remain in the
-Host-owned persisted-atoms file and are not a second SQLite authority.
+pin/unread state and restore retains the sparse order. A Project move updates
+the Session and linked Codex Thread without inspecting one window's tabs.
+Deletion cascades only the Thread-link aggregate without deleting the
+independently owned Codex Thread; Window Sessions reconcile the removed view
+locally.
+
+Codex fork side-panel transfer is a Host-owned, process-local snapshot
+lifecycle. Capture receives the initiating Window Session scope and view,
+validates it, clones Browser runtime state into the target Window Session with
+reminted identities, and returns descriptors for local application. It never
+reads or writes Core layout. Capture, rebase, pending promotion, and target
+consumption are awaited so navigation cannot overtake the transfer; a failed
+apply retains the snapshot for retry. Canonical-to-client Thread aliases remain
+Host-owned and are not a second SQLite authority.
 
 The native Automation Module now owns Scheduled Automation definitions and due
 work leases in SQLite. v84 adds an optimistic definition revision, imports the
@@ -864,7 +854,7 @@ or the Electron client from reaching the local store.
 - `lib/page-detail-store.ts`: grant-aware renderer cache for versioned Page Detail keyed by Project/Page. It registers exact Page/Document dependencies with the central projection registry and does not use View visibility as existence authority. The read model proves the exclusive Page parent and optional Source membership/schema/value slice; title/body remain exact-head projections edited through the owned Y.Doc surface.
 - `lib/database-row-detail-store.ts`: explicitly bounded cache for the wide Database-row projection used by Kanban/calendar consumers. It requires active membership and is never a Page-opening boundary.
 - `lib/use-kanban.ts` and `lib/use-projects.ts`: stateful owners over API channels. `use-kanban` remains store-backed via `useSyncExternalStore`; `use-projects` uses TanStack Query for server-state cache, invalidation, and cross-consumer request dedupe. Page history is a cursor read model owned by `history-panel.tsx`, while typing undo stays inside the mounted Document surface.
-- `lib/use-workbench-state.ts`: one transactional App-atom aggregate for renderer-window layout and explicit project-context slices, hydrated from session/window snapshots and persisted through the window-session adapters. Session panels and durable terminal tabs are not owned here; project-session SQLite state is the primary model.
+- `lib/use-workbench-state.ts`: one transactional App-atom aggregate for renderer-window layout and explicit project-context slices, hydrated from Window Session snapshots and persisted through the Window Session adapters. Its `sessionViewsBySessionId` values own local panel trees and tab descriptors; Project Session domain data remains Query/Core-owned.
 - `lib/workbench-persisted-schemas.ts`: renderer-side persisted-state schema/parsing layer for workbench/session history maps, tabs, panel widths, and restart-friendly shell snapshots.
 - `lib/app-close-flush.ts`: renderer-side close-flush coordinator so all registered async flushers complete before one final Electron close ack is sent.
 - `lib/nodex-y-provider.ts`, `block-document-surface-runtime.ts`, `page-editor-session-registry.ts`, and `owned-block-document*.ts`: transport-neutral Yjs provider, registry-dispatched surface lifecycle, durable PageTab model sessions, and prepared-descriptor validation for one writable Block Document. They own state-vector synchronization, merged local-update batching, one durable command in flight, idempotent retry, realtime gap repair, remote-origin echo suppression, store-epoch/generation reset boundaries, bounded flush/checkpoint/close, accepted-lease drain across visual teardown, disposable-checkpoint isolation after fatal state, independent client sessions, and ephemeral Awareness. A PageTab session retains its Y.Doc/provider, BlockNote editor, UndoManager, and Yjs-relative cursor while inactive; React owns only a generation-fenced EditorView lease. Other owners use the same generic surface boundary with their schema-specific envelope and ordinary component lifetime.
@@ -872,7 +862,7 @@ or the Electron client from reaching the local store.
 - `lib/window-sessions.ts`: renderer helpers for bootstrapping the assigned window session and saving workbench layout snapshots through IPC.
 - `lib/dock-layout.ts`: dock split-tree helpers for the current persisted shell layout model.
 - `lib/use-workbench-shortcuts.ts`: app-wide stage-first keyboard shortcut mapping plus browser-runtime fallback dispatch for shell commands whose desktop accelerators are owned by Electron's application menu.
-- `lib/terminal-session-store.ts` and `lib/use-terminal.ts`: xterm terminal state and lifecycle. The store owns renderer session snapshots, active metadata, pending writes, resize dedupe, 16k buffer truncation, and `terminal-*` IPC fanout; the hook mounts `@xterm/xterm` with Clipboard/Fit/WebLinks add-ons, CSS-variable theme extraction, Codex terminal key handling, window-zoom mouse coordinate patching, and ResizeObserver-driven fit.
+- `lib/terminal-session-store.ts` and `lib/use-terminal.ts`: xterm terminal state and view-lease lifecycle. Main owns each PTY and grants one Window Session the interactive lease; the renderer store owns snapshots, lease status, pending writes, resize dedupe, 16k buffer truncation, takeover/release, and `terminal-*` IPC fanout. The hook mounts `@xterm/xterm` with Clipboard/Fit/WebLinks add-ons, CSS-variable theme extraction, Codex terminal key handling, window-zoom mouse coordinate patching, and ResizeObserver-driven fit.
 - `lib/use-codex-account-actions.ts`: auth/account command wrappers (`read`, login start/cancel, logout). For the active thread renderer, auth state flows from the local-conversation app-server manager substrate, not from this action layer.
 - `lib/codex-collaboration-mode-settings.ts`: global fallback collaboration mode persistence for no-thread/new-thread surfaces. Active thread collaboration mode is owned by the local-conversation manager record, not by shell-local storage.
 - `lib/nfm/*`: renderer wrappers over the shared NFM core plus the BlockNote adapter and clipboard/read-only helpers.
@@ -890,10 +880,10 @@ or the Electron client from reaching the local store.
 
 Block-first migration foundation:
 
-1. Core accepts the exact frozen v26, both v57, v68, v82, and v83 TypeScript inventories as historical import sources, the exact final TypeScript v84 inventory as its direct handoff, and exact Rust-owned v85/v86/v87/v88 stores. For a historical source, Core identifies the complete normalized physical inventory and takes an online database snapshot plus a validated asset-tree backup. The earlier v57 inventory receives a named-column rebuild of its Thread and Automation tables only inside that staging copy. Core then invokes the bundled hash-pinned migrator, reproducibly built from the fixed historical source plus reviewed compatibility overlays that retain legacy Page projection names and workflow-status identities, refresh recovered option registries, materialize explicit cross-Project Page references as same-Library read grants, retain missing targets as inert unresolved-reference diagnostics, and audit old identities on token boundaries in Database authority and committed evidence while leaving opaque Session UI state to its own schema validation. Core advances the candidate to exact v84, reconstructs authoritative Yjs content through Yrs—including BlockNote `tableHeader` matrices as canonical `headerRows`/`headerCols`—rebuilds only derived projections, validates the complete v84 handoff, and atomically publishes Rust ownership as v89 under a crash-recovery journal. Rust-owned v85 through v88 stores are validated exactly, backed up, and atomically upgraded before v89 publication. The v87 forward migration widens null tab ownership to Browser, Terminal, and exact-file Files while removing legacy Terminal config Project fields; v88 adds required projection impact plus its honest replay floor without changing the frozen v84 artifact; v89 is a data-only migration that canonicalizes Codex Thread creation from UUIDv7 evidence and repairs remaining inverted timestamp pairs. Unfrozen same-version lineages, near-matches, ambiguous owners, and future stores fail closed; a Rust-owned v89 store is validated exactly and never silently repaired.
+1. Core accepts the exact frozen v26, both v57, v68, v82, and v83 TypeScript inventories as historical import sources, the exact final TypeScript v84 inventory as its direct handoff, and exact Rust-owned v85/v86/v87/v88/v89 stores. For a historical source, Core identifies the complete normalized physical inventory and takes an online database snapshot plus a validated asset-tree backup. The earlier v57 inventory receives a named-column rebuild of its Thread and Automation tables only inside that staging copy. Core then invokes the bundled hash-pinned migrator, reproducibly built from the fixed historical source plus reviewed compatibility overlays that retain legacy Page projection names and workflow-status identities, refresh recovered option registries, materialize explicit cross-Project Page references as same-Library read grants, retain missing targets as inert unresolved-reference diagnostics, and audit old identities on token boundaries in Database authority and committed evidence while leaving opaque historical Session UI state to schema validation only. Core advances the candidate to exact v84, reconstructs authoritative Yjs content through Yrs—including BlockNote `tableHeader` matrices as canonical `headerRows`/`headerCols`—rebuilds only derived projections, validates the complete v84 handoff, and atomically publishes Rust ownership as v90 under a crash-recovery journal. Rust-owned v85 through v89 stores are validated exactly, backed up, and atomically upgraded before v90 publication. The historical v87 migration widened null tab ownership to Browser, Terminal, and exact-file Files; v88 added required projection impact plus its honest replay floor; v89 canonicalized Codex Thread clocks; and v90 removes Project Session panel/tab authority, preserving only one valid initial Database View target as `initial_database_view_id` while intentionally discarding historical window arrangement. Unfrozen same-version lineages, near-matches, ambiguous owners, and future stores fail closed; a Rust-owned v90 store is validated exactly and never silently repaired.
 2. A successful Document apply tentatively reconstructs and validates a Y.Doc, derives the changed title/Block identities from before/after state, reconciles the registry/index, and writes the binary update, immutable receipt, exact-blob checksum, state vector, reconstruction fingerprint, and new head under one immediate SQLite transaction. Receipts remain independently of update payload retention; compaction verifies a full snapshot at the current head, advances the physical reconstruction fingerprint, then atomically removes only its covered payload tail. Store epoch, Document generation, update identity, `headSeq`, Yjs state vector, exact-blob integrity, and non-canonical reconstruction fingerprint remain separate concepts.
 3. Production Page Stage prepares the exact owned descriptor before rendering content. Only a ready `yjs`/`block_tree` descriptor enters the Page editor: it mounts one independent Y.Doc surface, completes state-vector sync before resolving `Y.Text("title")` / `Y.XmlFragment("body")`, and binds BlockNote through its collaboration extension without projection-based initialization. Every active BlockNote-backed Document contains at least one registered application Block; a semantically blank Page is one stable-ID empty paragraph whose NFM/plain-text projections remain blank.
-4. A writable Block Document runtime normally belongs to one visible React effect incarnation. A durable PageTab is the explicit exception: its ProjectSession/tab-keyed model session retains the Y.Doc/provider, BlockNote editor, and UndoManager while the inactive React body and EditorView are absent. Switching away removes local Awareness and backgrounds a bounded persist without disconnecting the provider; returning mounts a fresh EditorView, reconciles current CRDT state, restores the selection from Yjs-relative positions plus PageTab-local scroll, and reactivates the main NFM editor only when it owned the Page's last focus intent. Tab close, ProjectSession archive, store-epoch/Document-generation/schema/owner identity replacement, or terminal reload destroys the retained model and provider exactly once; renderer close flushes every ready retained session before acknowledging shutdown. An unpromoted preview disposes on final view teardown, while promotion keeps its stable model identity. This is a deep runtime Module, never hidden DOM or Maitai state. Normal durable ACKs are quiet; sustained pending/offline/error/reset states are the only Page Stage sync chrome.
+4. A writable Block Document runtime normally belongs to one visible React effect incarnation. A durable PageTab is the explicit exception: its Window Session view/tab-keyed model session retains the Y.Doc/provider, BlockNote editor, and UndoManager while the inactive React body and EditorView are absent. Switching away removes local Awareness and backgrounds a bounded persist without disconnecting the provider; returning mounts a fresh EditorView, reconciles current CRDT state, restores the selection from Yjs-relative positions plus PageTab-local scroll, and reactivates the main NFM editor only when it owned the Page's last focus intent. Local tab close, Window Session view teardown, store-epoch/Document-generation/schema/owner identity replacement, or terminal reload destroys the retained model and provider exactly once; renderer close flushes every ready retained session before acknowledging shutdown. An unpromoted preview disposes on final view teardown, while promotion keeps its stable model identity. This is a deep runtime Module, never hidden DOM or Maitai state. Normal durable ACKs are quiet; sustained pending/offline/error/reset states are the only Page Stage sync chrome.
 5. Canonical Page and Database View references are childless and store only stable targets. A nested `page` shell and non-owning `pageRef` resolve through the same flat Page outliner Adapter; collapsed rows use summary projections without a provider, while disclosure mounts the target Page's independent Document. Runtime boundaries never copy a target title or body into the host Y.Doc.
 6. The relocation Hub makes `Move to Page` a stable-ID, dual-Document transaction. Every active surface locally commits composition, flushes its provider, becomes temporarily non-editable, and ACKs its durable head. The writer prepares again after those ACKs; failure before commit cancels the lease, while response loss after commit resolves through the immutable receipt and state-vector resync.
 7. Whole-store backup/restore is a Core-wide maintenance boundary, not a raw file operation. Core drains admitted writes and managed-asset mutations, takes an online SQLite snapshot, validates the complete staged database/assets closure, and records DB/WAL/assets replacement in an fsynced journal. Startup rolls every pre-commit phase back to the complete old store or finishes cleanup after a durable `committed` phase. The installed DB rotates `storeEpoch`, clears native caches/subscriptions/connection-bound operations, and republishes the runtime descriptor. Electron performs a controlled relaunch after the successful restore result so every Host Adapter reconnects to the new epoch.
@@ -914,17 +904,17 @@ Board read flow:
 
 Project sessions and sidebar flow:
 1. The renderer shell loads `codex:sidebar:snapshot({ refresh:false })` as the cold-start left-sidebar read model so SQLite can render immediately. External chat discovery is driven by `codex:sidebar:sync`, whose `read | stale | force` policies let the renderer force a mount/project-change reconciliation, run stale-gated focus/heartbeat/host-message reconciliation, or read only the SQLite snapshot for local session changes.
-2. Main treats app-server `thread/list` as the sidebar discovery authority for interactive root threads and coalesces in-flight sidebar sync across windows with a short stale gate and failure backoff. Full-list refreshes and app-server `thread/started` notifications share one reconciliation path through the backend-selected Workspace port: skip non-sidebar helper/reviewer threads, match cwd to the longest normalized project source prefix, and create/reuse a project-bound or projectless Session. An empty Session or one containing only portable Browser/Terminal tabs uses Core's atomic Thread move; a Session with Project-scoped work is archived and detached before a replacement is materialized in the target Project. The final sidebar snapshot is rebuilt from the native Workspace read receipt rather than from a parallel Electron-owned Thread/Session projection.
+2. Main treats app-server `thread/list` as the sidebar discovery authority for interactive root threads and coalesces in-flight sidebar sync across windows with a short stale gate and failure backoff. Full-list refreshes and app-server `thread/started` notifications share one reconciliation path through the backend-selected Workspace port: skip non-sidebar helper/reviewer threads, match cwd to the longest normalized Project source prefix, and create/reuse a project-bound or projectless Session. Re-home decisions use Session/Thread domain state only; a window's open resources cannot block or redirect them. The final sidebar snapshot is rebuilt from the native Workspace read receipt rather than from a parallel Electron-owned Thread/Session projection.
 3. Sidebar reconciliation results are main-broadcast shared state, not only IPC return values. Successful renderer-initiated syncs, notification materialization, and forced unknown-notification repairs emit `sidebarSyncUpdated` host messages so every open window can write the same sidebar snapshot query and refresh affected session summaries. A no-op `thread/list` upsert only refreshes the `codex_threads` read model; it does not emit `project-sessions-changed`. Thread title/preview/status/archive/updatedAt changes are sidebar catalog changes, while `project-sessions-changed` is reserved for true session container or thread-link changes such as create/delete/reorder/pin/unread/archive/unarchive/materialize/re-home/attach/detach.
-4. The renderer loads lightweight `project-sessions:list-summaries` for sidebar scope refreshes so catalog churn never pulls panel layouts or tabs into the thread-open hot path. TanStack Query is the sole renderer owner of project-session summary keys by project/projectless scope and detail keys by session id; `WorkbenchShell` derives rows and first-load state directly from those queries and never mirrors them into component state or an in-flight promise map. Background invalidation retains the last summaries, while a cold query is pending from the first render. Full session detail is fetched through `project-sessions:get` only for the selected session, sidebar intent, and explicit panel/tab actions, then seeded from mutations that already return a full session. Full `project-sessions:list` remains an explicit slow path for operations that truly need every session's panel state. `useSidebarThreadSyncModel` owns the single global Session invalidation subscription, including inactive projects and projectless rows. `WorkbenchShell` mounts exactly one selected task page and constructs only that session's panel tree. Switching tasks unmounts the previous page synchronously; Query, Codex conversation execution, Browser, and Terminal continuity remain in their deeper owners, while renderer-only restoration comes from scoped Maitai state.
-5. Core owns the shared Workspace and Automation trees. Workspace tables persist Project/sidebar order, Session layouts/tabs, Thread metadata, pin/unread/archive state, and parent-linked subagent metadata; attached root rows are projected without treating Session order as Thread order. Automation definitions, revisions, schedules, leases, run lifecycle, inbox/read state, archived message excerpts, occurrences, and reminder receipts are one native aggregate. Electron keeps only transient view state and external execution/presentation duties. The Workbench `/automations` route and `automation_update` list/search/view/mutation modes read this same Core authority; no TOML definition or SQLite mirror is a second source.
+4. The renderer loads domain-only `project-sessions:list-summaries` for sidebar scope refreshes. TanStack Query owns Project Session summary/detail server state; `WorkbenchShell` projects the selected Session together with that renderer's Window Session view. Background invalidation retains the local panel tree and tabs while shared labels, lifecycle, Thread link, and resource targets refresh. Switching tasks unmounts the previous page synchronously; Query, Codex conversation execution, Browser, Terminal, and editor continuity remain in their deeper owners.
+5. Core owns the shared Workspace and Automation trees. Workspace tables persist Project/sidebar order, Session domain and Thread metadata, pin/unread/archive state, and parent-linked subagent metadata. Window Session files persist per-window Workbench views. Automation definitions, revisions, schedules, leases, run lifecycle, inbox/read state, archived message excerpts, occurrences, and reminder receipts remain one native aggregate. Electron keeps OS/runtime duties and explicit Window Session presentation persistence without mirroring Core data.
    Automation-run lifecycle mutations emit `codex:automation-runs:updated`, which refreshes Scheduled task rows, automation-run inbox queries, and the Codex sidebar/recent thread snapshot. Cron execution is a command-only main-process runner: it owns workspace setup, app-server commands, tool/request transport, run status, and protocol-turn inbox extraction, but it never hydrates, merges, or broadcasts a conversation transcript. Heartbeats require a fresh renderer-state lease from the exact current conversation owner; main resumes/starts transport only and never claims a headless conversation-owner role. Brokered automation requests are replayed after a renderer later adopts the task.
 6. Project session list results include a service-derived `displayTitle`. Attached sessions resolve it from `thread.threadName || thread.threadPreview || noThreadFallbackTitle || "New thread"`; blank sessions resolve it from `noThreadFallbackTitle || "New thread"`. `noThreadFallbackTitle` is not a Codex thread title authority.
-7. Window/session UI state owns only the active project, active session, and transient focus/history. Project-bound session selection updates both active project and session. Projectless session selection updates only active session and leaves active project as the DB/workbench fallback.
-8. Project creation seeds one ordinary pinned `Database View` session with an open full-width right-panel `db_view` tab for that Project's durable primary View ID. This happens only during Project creation, fresh default-Project initialization, or one-time schema migration; `project-sessions:list` never recreates it after the user renames, unpins, archives, or deletes it. Projectless sessions do not receive this starter DB session and cannot own Project-scoped DB/Page tabs.
-9. `db_view` tabs are unique per durable `databaseViewId`, so one session may open multiple Views from the same Project while duplicate opens focus the existing tab. `review` remains the singleton right-panel kind. Browser tabs are first-class multi-tabs with their own webview lifecycle, title/favicon state, context menu actions, and browsing history. Terminal tabs are session-owned bottom-panel tabs by default and carry only `terminalSessionId`; Pages never own terminals. Browser and Terminal are portable between Project and projectless Session ownership. A null-owned Files tab is valid only for an explicit resource path; the generic Files tree, Database View, Page Stage, and Review remain Project-scoped.
-10. Project Workspace contract 2 represents every durable tab with the strict tagged `ProjectSessionTabContent` union used by create, update, and read. The Core storage Adapter deliberately splits ownership from content targeting: `project_session_tabs.project_id` is the nullable Project attaching the row to a Session, while only the Page Stage variant carries a distinct Project authorization context. Cross-Project Page Stage tabs can therefore host an authorized foreign Page without loading the wrong Board. Browser identity exists only in Browser content; Terminal content contains only `terminalSessionId`. The internal `kind + config_json + browser_tab_id` columns are never exposed as an untyped wire contract, and malformed stored combinations fail closed on read.
-11. Renderer-local panel previews are intentionally outside SQLite. Files and Browser previews occupy one preview slot per session panel leaf, replace each other within that leaf, and are persisted only when pinned through the normal session-tab create API.
+7. Window Session UI state owns active Project/Session, focus/history, every Session panel tree, and local tab descriptors. Project-bound Session selection updates both active Project and Session. Projectless Session selection updates only active Session and leaves active Project as the Database/Workbench fallback.
+8. Project creation seeds one ordinary pinned `Database View` Session whose `initialDatabaseViewId` targets the Project's durable primary View. A Window Session materializes that target into one full-width local right-panel tab only when it has no existing view record for the Session. Closing every local tab consumes no Core state and does not cause reseeding.
+9. Local `db_view` descriptors are unique per durable `databaseViewId` within one Session view, while `review` remains the singleton right-panel kind. Browser descriptors use Window Session-scoped Browser runtime identities. Terminal descriptors carry a PTY resource ID and acquire one interactive lease at a time. Files, Page Stage, Review, and Database View descriptors retain explicit target authorization context where required.
+10. `WorkbenchSessionViewSnapshot` is the strict tagged tab contract. Descriptors carry stable resource targets but no Session owner, panel, or order; the containing view and its two panel trees provide those coordinates. Malformed kind/config combinations fail at the Window Session codec boundary.
+11. Panel previews remain renderer-memory state. Files and Browser previews occupy one preview slot per Session panel leaf, replace each other within that leaf, and enter the Window Session snapshot only when pinned.
 12. Renderer-local side-chat tabs are also outside SQLite but use a separate leaf-scoped lifecycle from previews. The renderer creates `sidechat-loading:<parentThreadId>:<index>` tabs, asks main to start an ephemeral fork, replaces the loading tab with `sidechat:<threadId>`, and discards the backing temporary thread when the tab closes.
 
 Codex Threads flow:
@@ -959,11 +949,14 @@ The installed `@openai/codex` app-server is the wire-contract authority. `pnpm r
 19. The Diff stage is a workbench-owned review surface, not a transcript diff card. `Last turn` review comes from the active conversation turn diff, while `unstaged` / `staged` / `branch` / `commit` review data flows through dedicated main-process Git review IPC. Git review is metadata-first: main builds file summaries from machine-readable Git status/stat/raw channels before exposing optional textual patch bodies, untracked files are diffed through Git rather than decoded in Node as UTF-8, and renderer rows lazily request per-file diff bodies instead of parsing an aggregate snapshot patch. `git:review:patch` is a read-only full-patch query for copy/export actions; `git:apply-patch` is the mutating apply/revert boundary. The Review source selector only changes that data source; it does not start a Codex review prompt. Branch commit choices are loaded through `git:review:branch-commits`, and pull-request status, checks, comments, diffs, merge, update, and create operations flow through typed `gh`-backed main-process IPC with disabled states for missing CLI/auth/remote.
 
 Workbench reopen flow:
-1. Main process keeps a profile-local window session catalog in `window-sessions-v1.json`; this is the cold-launch restore source for window count, layout snapshot, focus recency, and saved window bounds.
+1. Main process keeps a profile-local Window Session catalog in `window-sessions-v3.json`; this is the cold-launch restore and closed-window history source for window count, Workbench layout v3 (including local Session views), monotonic layout revision, focus recency, saved window bounds, and explicit `open | closed` lifecycle. Existing v2 and v1 catalogs migrate forward without deleting their source files. Writes use a bounded validated atomic replace; a malformed v3 file is preserved with a `.corrupt` suffix before a fresh catalog is created.
 2. Renderer bootstrap consumes its assigned window session through IPC before mounting the shell. No workspace catalog or deleted legacy snapshot store participates in bootstrap.
-3. Live workbench state continues to persist window-locally in `sessionStorage` as an in-session fallback, while durable reopen flows through window sessions. For the project-session shell, this window-local layer may remember active project/session/tab, pane widths, collapse overrides, and focus history; the shared session tree and tab order stay in SQLite.
-4. On close, renderer flushes the current layout snapshot, Page draft state, and registered close flushers before sending the final close ack.
-5. Each window saves its own session layout. New windows are seeded from an explicit layout request, the last-focused window-session layout, or the default workbench layout.
+3. Live Workbench state is one renderer-window App aggregate. Durable reopen flows through Window Sessions; no localStorage/sessionStorage or Core mirror owns Session tabs or panels.
+4. On close, renderer flushes the current layout snapshot, Page draft state, and registered close flushers before sending the final close ack. Main marks the Window Session closed only after the BrowserWindow's definitive `closed` event; app quit and unexpected destruction retain `open` lifecycle so cold-start recovery is not mistaken for deliberate dismissal.
+5. Generic New Window acquisition reattaches the most recently closed Window Session in reverse close order, preserving its exact Window Session, tab, split-tree, Browser-scope, layout-revision, and saved-bounds identities. If BrowserWindow construction fails, Main restores the exact closed catalog record.
+6. When no closed Window Session is available, New Window asks the trusted requesting renderer to flush its latest state, clones that layout with reminted tab/leaf/branch/Browser/editor identities, and then evolves independently. A targeted `Open in new window` request always clones its source with the active-Session override and never consumes unrelated closed history; a generic request with neither closed history nor a live source creates a fresh Window Session.
+7. Startup policy operates only on `open` records. `all` restores all open Window Sessions, `last-window` restores one and closes the other previously open records into recoverable history, and `none` closes every previously open record before creating a fresh Window Session. If a restoring policy finds no open record, it reopens the most recently closed record before falling back to a fresh one.
+8. Closed history is compacted by recency and serialized size. Main retains at most twenty closed records by default and then evicts the oldest closed records until the catalog fits the 32 MiB ceiling; open records are never evicted.
 
 ## Invariants
 - Canonical content may be exact and large, but every rendered, parsed, formatted, accessible, or incrementally accumulated projection has an explicit feature-owned budget. Exact files and attachment bodies stay with their main-process owner; exact conversation and tool payloads stay in canonical conversation state. The owning ingress bounds intentionally lossy observations such as live log tails, the owning parser rejects over-budget Markdown/diffs/configuration before parsing, and renderer leaves mount only bounded previews or the shared viewport-rendered source reader. CSS height and `overflow` are layout choices, never content-performance boundaries. Shared helpers in `src/shared/content-budget.ts` implement byte/line/preview/tail mechanics without choosing feature policy.
@@ -1022,7 +1015,7 @@ Workbench reopen flow:
 - Sidebar manual order is durable-thread identity state, not project-session layout state. Each regular lane starts from stable recency order and replaces only slots tracked by its stored manual IDs. A manual-order command publishes only the refreshed sidebar snapshot: it neither rewrites `project_sessions.order` nor emits a project-session change. Cross-Project moves atomically commit thread/session ownership with every affected manual-order scope; the owning session gets the deterministic head of its new shell scope, while sidebar `before`/`end` intent changes only the destination manual-order authority. The per-project pinned lane is projected separately from global pin order; pin/unpin therefore changes lanes without deleting the thread's project manual identity.
 - Attached project sessions must never use `project_sessions.no_thread_fallback_title` as the primary chat title. Codex thread title authority is app-server metadata, reflected locally through `codex_threads.thread_name`; project sessions expose only a derived `displayTitle` for shell rendering.
 - Session-created threads must not create hidden Pages or Page-thread ownership links.
-- Project-session panel layouts must normalize to at least one leaf per right/bottom panel. Durable tab ids are uniquely owned by one leaf, unknown tab ids are removed, unassigned durable tabs are appended to the active leaf, non-final empty durable leaves are pruned unless the renderer is preserving them for visible preview/side-chat tabs, active leaf/tab ids resolve to valid fallbacks, split ratios are clamped, and the flat `project_session_tabs` panel order is derived from depth-first leaf order after every durable panel mutation.
+- Each Window Session's Project Session panel layout normalizes to at least one leaf per right/bottom panel. Local tab IDs occur in exactly one leaf, unknown IDs are removed, unplaced descriptors are repaired into the active right leaf, non-final empty leaves are pruned unless a visible transient surface preserves them, active/MRU identities resolve to valid fallbacks, sizes and split ratios are bounded, and panel-tree depth-first order is the only placement/order source.
 - Project-session panel tab drag-and-drop separates tab-row insertion from body split targets: tab-row drops render a non-layout-shifting insertion marker and commit leaf-scoped reorder/move operations, while body drops use a 10% edge threshold for split previews and center drops for group merge.
 - Side-chat threads are ephemeral manager/cache records only. They must not create durable Codex thread links, session thread links, project thread-list entries, project-session tab rows, archive records, or cold-start restore targets.
 - Codex thread creation is session-first and includes immediate first-turn submission for durable thread materialization.

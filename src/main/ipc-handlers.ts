@@ -97,7 +97,6 @@ import {
 import { renameProjectSessionChat } from "./project-session-rename-service";
 import { captureMainException } from "./observability/sentry-main";
 import { getLogger } from "./logging/logger";
-import type { WorkbenchLayoutSnapshot } from "../shared/workbench-layout";
 import type { IpcApi, IpcEvents } from "../shared/ipc-api";
 import type {
   DocumentRelocationLeaseResponseRequest,
@@ -106,8 +105,10 @@ import type {
 import type {
   WindowSessionBootstrap,
   WindowSessionBounds,
-  WindowSessionSeed,
+  WindowSessionNewWindowRequest,
+  WindowSessionSaveLayoutInput,
 } from "../shared/window-session";
+import { WorkbenchSessionViewSnapshotSchema } from "../shared/schemas/workbench-session-view";
 import { productFeatureGates } from "./product-feature-gates";
 import { readThirdPartyNotices } from "./third-party-notices";
 import type {
@@ -120,7 +121,6 @@ import {
   broadcastBrowserSidebarEvent,
 } from "./browser-sidebar-service";
 import {
-  deleteProjectSessionTabWithBrowserCleanupUsing,
   deleteProjectSessionWithBrowserCleanupUsing,
 } from "./project-session-browser-ownership";
 import {
@@ -543,11 +543,15 @@ function refreshBrowserSidebarCommandAccelerators(): void {
 }
 
 interface RegisterIpcHandlersOptions {
-  onCreateWindow?: (seed?: WindowSessionSeed) => void;
+  resolveWindowSessionId?: (webContentsId: number) => string | null;
+  onCreateWindow?: (
+    sourceWebContentsId: number,
+    request: WindowSessionNewWindowRequest,
+  ) => void;
   onBootstrapWindowSession?: (webContentsId: number) => WindowSessionBootstrap;
   onSaveWindowSessionLayout?: (
     webContentsId: number,
-    layout: WorkbenchLayoutSnapshot,
+    input: WindowSessionSaveLayoutInput,
   ) => WindowSessionBootstrap;
   onUpdateWindowSessionBounds?: (
     webContentsId: number,
@@ -697,6 +701,42 @@ export function registerIpcHandlers(
   const projectWorkspace: DesktopProjectWorkspacePort =
     options.projectWorkspace
       ?? createUnconfiguredIpcAuthority("Project Workspace authority");
+  const requireBrowserViewScope = (
+    senderId: number,
+    scopeId: string,
+  ): void => {
+    const expectedScopeId = options.resolveWindowSessionId?.(senderId) ?? null;
+    if (!expectedScopeId || expectedScopeId !== scopeId) {
+      throw new Error("Browser view scope does not belong to the requesting window");
+    }
+  };
+  const requireAssignedWindowSessionId = (senderId: number): string => {
+    const windowSessionId = options.resolveWindowSessionId?.(senderId) ?? null;
+    if (!windowSessionId) {
+      throw new Error("The requesting window has no assigned Window Session");
+    }
+    return windowSessionId;
+  };
+  const validateBrowserCommandScope = (
+    senderId: number,
+    command: BrowserSidebarCommand,
+  ): void => {
+    if ("browserViewScopeId" in command) {
+      requireBrowserViewScope(senderId, command.browserViewScopeId);
+      return;
+    }
+    if ("tab" in command && "browserViewScopeId" in command.tab) {
+      requireBrowserViewScope(senderId, command.tab.browserViewScopeId);
+      return;
+    }
+    if ("cursor" in command && "browserViewScopeId" in command.cursor) {
+      requireBrowserViewScope(senderId, command.cursor.browserViewScopeId);
+      return;
+    }
+    if ("event" in command && "browserViewScopeId" in command.event) {
+      requireBrowserViewScope(senderId, command.event.browserViewScopeId);
+    }
+  };
   const projectLifecycleService = createProjectLifecycleService({
     projectWorkspace,
     browserRuntime: browserSidebarService,
@@ -724,6 +764,26 @@ export function registerIpcHandlers(
   resolveRemoteHostedPipThreadId = async (sessionId) =>
     (await projectWorkspace.getProjectSession(sessionId))?.thread?.threadId ?? null;
   ensureBrowserSidebarEventBridge();
+  terminalManager.configureEventPublisher({
+    broadcast: (channel, payload) => {
+      safeBroadcastToWindows(
+        BrowserWindow.getAllWindows(),
+        channel as keyof IpcEvents,
+        [payload as never],
+      );
+    },
+    sendToWebContentsId: (webContentsId, channel, payload) => {
+      const target = BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.id === webContentsId)
+        ?.webContents;
+      if (!target) return;
+      safeSendToWebContents(
+        target,
+        channel as keyof IpcEvents,
+        [payload as never],
+      );
+    },
+  });
 
   const gitBranchWatches = new Map<
     number,
@@ -732,6 +792,15 @@ export function registerIpcHandlers(
   const gitBranchWatchCleanupBound = new Set<number>();
   const gitReviewWatches = new Map<string, GitReviewLiveSubscription>();
   const gitReviewWatchCleanupBound = new Set<number>();
+  const terminalLeaseCleanupBound = new Set<number>();
+  const bindTerminalLeaseCleanup = (sender: Electron.WebContents): void => {
+    if (terminalLeaseCleanupBound.has(sender.id)) return;
+    terminalLeaseCleanupBound.add(sender.id);
+    sender.once("destroyed", () => {
+      terminalLeaseCleanupBound.delete(sender.id);
+      terminalManager.releaseLeasesForWebContents(sender.id);
+    });
+  };
 
   const focusNotificationOriginWindow = (
     window: BrowserWindow | null,
@@ -899,9 +968,9 @@ export function registerIpcHandlers(
       codexService.discardPendingForkSidePanelTransfer(pendingWorktreeId);
     },
   );
-  registerHandle("codex:fork-side-panel-transfer:consume", async (_, input) => {
-    const consumed = await codexService.consumeForkSidePanelTransfer(input);
-    return consumed;
+  registerHandle("codex:fork-side-panel-transfer:consume", async (event, input) => {
+    requireBrowserViewScope(event.sender.id, input.targetBrowserViewScopeId);
+    return await codexService.consumeForkSidePanelTransfer(input);
   });
 
   registerHandle("diagnostics:renderer-log", (_, input) => {
@@ -1534,10 +1603,6 @@ export function registerIpcHandlers(
         projectId,
         includeArchived: options?.includeArchived === true,
         sessionCount: sessions.length,
-        tabCount: sessions.reduce(
-          (sum, session) => sum + session.tabs.length,
-          0,
-        ),
         linkedThreadCount: sessions.filter((session) => session.thread !== null)
           .length,
         approxPayloadBytes,
@@ -1603,7 +1668,6 @@ export function registerIpcHandlers(
     logDevRuntimeMetric("ipc.project_sessions_get", {
       sessionId,
       found: session !== null,
-      tabCount: session?.tabs.length ?? 0,
       approxPayloadBytes: approximateJsonPayloadBytes(session),
       durationMs: getDevRuntimeMetricDurationMs(startedAt),
     });
@@ -1634,7 +1698,6 @@ export function registerIpcHandlers(
     return await deleteProjectSessionWithBrowserCleanupUsing({
       sessionId,
       browserRuntime: browserSidebarService,
-      getProjectSession: projectWorkspace.getProjectSession,
       deleteProjectSession: projectWorkspace.deleteProjectSession,
     });
   });
@@ -1697,81 +1760,27 @@ export function registerIpcHandlers(
 
   registerHandle(
     "project-sessions:fork",
-    async (_, sessionId: string, input) =>
-      await codexService.forkProjectSessionThread(
+    async (event, sessionId: string, input, sourceViewContext) => {
+      if (sourceViewContext) {
+        requireBrowserViewScope(
+          event.sender.id,
+          sourceViewContext.browserViewScopeId,
+        );
+      }
+      const parsedViewContext = sourceViewContext
+        ? {
+            browserViewScopeId: sourceViewContext.browserViewScopeId,
+            view: WorkbenchSessionViewSnapshotSchema.parse(
+              sourceViewContext.view,
+            ),
+          }
+        : undefined;
+      return await codexService.forkProjectSessionThread(
         sessionId,
         input,
-      ),
-  );
-
-  registerHandle("project-session-tabs:create", async (_, input) =>
-    await projectWorkspace.createProjectSessionTab(input),
-  );
-
-  registerHandle("project-session-tabs:update", async (_, tabId: string, input) =>
-    await projectWorkspace.updateProjectSessionTab(tabId, input),
-  );
-
-  registerHandle(
-    "project-session-panels:update",
-    async (_, sessionId: string, panelId, input) =>
-      await projectWorkspace.updateProjectSessionPanel(
-        sessionId,
-        panelId,
-        input,
-      ),
-  );
-
-  registerHandle("project-session-panels:split", async (_, input) =>
-    await projectWorkspace.splitProjectSessionPanelGroup(input),
-  );
-
-  registerHandle("project-session-panels:ensure-right-leaf", async (_, input) =>
-    await projectWorkspace.ensureProjectSessionPanelLeafToRight(input),
-  );
-
-  registerHandle("project-session-panels:merge", async (_, input) =>
-    await projectWorkspace.mergeProjectSessionPanelGroup(input),
-  );
-
-  registerHandle("project-session-panels:activate", async (_, input) =>
-    await projectWorkspace.activateProjectSessionPanelGroup(input),
-  );
-
-  registerHandle("project-session-panels:resize", async (_, input) =>
-    await projectWorkspace.resizeProjectSessionPanelGroup(input),
-  );
-
-  registerHandle("project-session-panels:maximize", async (_, input) =>
-    await projectWorkspace.maximizeProjectSessionPanelGroup(input),
-  );
-
-  registerHandle(
-    "project-session-tabs:state:update",
-    async (_, tabId: string, stateKey: number, state) =>
-      await projectWorkspace.updateProjectSessionTabState(
-        tabId,
-        stateKey,
-        state,
-      ),
-  );
-
-  registerHandle("project-session-tabs:delete", async (_, input) =>
-    await deleteProjectSessionTabWithBrowserCleanupUsing({
-      input,
-      browserRuntime: browserSidebarService,
-      getProjectSessionTab: projectWorkspace.getProjectSessionTab,
-      deleteProjectSessionTab: projectWorkspace.deleteProjectSessionTab,
-      getProjectSession: projectWorkspace.getProjectSession,
-    }),
-  );
-
-  registerHandle("project-session-tabs:reorder", async (_, input) =>
-    await projectWorkspace.reorderProjectSessionTabs(input),
-  );
-
-  registerHandle("project-session-tabs:move", async (_, input) =>
-    await projectWorkspace.moveProjectSessionTab(input),
+        parsedViewContext,
+      );
+    },
   );
 
   registerHandle("project-session-threads:attach", async (_, input) =>
@@ -2120,9 +2129,9 @@ export function registerIpcHandlers(
     return true;
   });
 
-  registerHandle("window:new", (_, seed?: WindowSessionSeed) => {
+  registerHandle("window:new", (event, request: WindowSessionNewWindowRequest = {}) => {
     if (!options.onCreateWindow) return false;
-    options.onCreateWindow(seed);
+    options.onCreateWindow(event.sender.id, request);
     return true;
   });
 
@@ -2137,11 +2146,11 @@ export function registerIpcHandlers(
 
   registerHandle(
     "window-sessions:save-layout",
-    (event, layout: WorkbenchLayoutSnapshot) => {
+    (event, input: WindowSessionSaveLayoutInput) => {
       if (!options.onSaveWindowSessionLayout) {
         throw new Error("Window session state is unavailable");
       }
-      return options.onSaveWindowSessionLayout(event.sender.id, layout);
+      return options.onSaveWindowSessionLayout(event.sender.id, input);
     },
   );
 
@@ -2470,8 +2479,10 @@ export function registerIpcHandlers(
   // Browser sidebar
   registerHandle(
     "browser-sidebar-command",
-    async (_event, command: BrowserSidebarCommand) =>
-      browserSidebarService.handleCommand(command),
+    async (event, command: BrowserSidebarCommand) => {
+      validateBrowserCommandScope(event.sender.id, command);
+      return browserSidebarService.handleCommand(command);
+    },
   );
 
   registerHandle(
@@ -2481,47 +2492,93 @@ export function registerIpcHandlers(
   );
   registerHandle(
     "browser-sidebar-webview-host-created",
-    async (_event, event: BrowserSidebarWebviewHostCreated) =>
-      browserSidebarService.handleWebviewHostCreated(event),
+    async (ipcEvent, event: BrowserSidebarWebviewHostCreated) => {
+      requireBrowserViewScope(ipcEvent.sender.id, event.browserViewScopeId);
+      return browserSidebarService.handleWebviewHostCreated(event);
+    },
   );
   registerHandle(
     "browser-sidebar-webview-destroyed",
-    async (_event, event: BrowserSidebarWebviewDestroyed) =>
-      browserSidebarService.handleWebviewDestroyed(event),
+    async (ipcEvent, event: BrowserSidebarWebviewDestroyed) => {
+      requireBrowserViewScope(ipcEvent.sender.id, event.browserViewScopeId);
+      return browserSidebarService.handleWebviewDestroyed(event);
+    },
   );
 
   // Terminal
   registerHandle("terminal-create", async (event, input) => {
     const sender = event.sender;
-    await runWithTerminalProjectAdmission(projectWorkspace, input, () => {
-      terminalManager.create(sender, input, (channel, payload) => {
+    const windowSessionId = requireAssignedWindowSessionId(sender.id);
+    bindTerminalLeaseCleanup(sender);
+    return await runWithTerminalProjectAdmission(projectWorkspace, input, () => {
+      return terminalManager.create(sender, windowSessionId, input, (channel, payload) => {
         sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
       });
     });
   });
 
-  registerHandle("terminal-attach", async (event, input) => {
+  registerHandle("terminal-acquire-view", async (event, input) => {
     const sender = event.sender;
-    await runWithTerminalProjectAdmission(projectWorkspace, input, () => {
-      terminalManager.attach(sender, input, (channel, payload) => {
-        sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
-      });
+    const windowSessionId = requireAssignedWindowSessionId(sender.id);
+    bindTerminalLeaseCleanup(sender);
+    return await runWithTerminalProjectAdmission(projectWorkspace, input, () => {
+      return terminalManager.acquireViewLease(
+        sender,
+        windowSessionId,
+        input,
+        (channel, payload) => {
+          sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
+        },
+      );
     });
+  });
+
+  registerHandle("terminal-take-over-view", (event, input) => {
+    const sender = event.sender;
+    const windowSessionId = requireAssignedWindowSessionId(sender.id);
+    bindTerminalLeaseCleanup(sender);
+    return terminalManager.takeOverViewLease(
+      sender,
+      windowSessionId,
+      input,
+      (channel, payload) => {
+        sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
+      },
+    );
+  });
+
+  registerHandle("terminal-release-view", (event, sessionId: string) => {
+    terminalManager.releaseViewLease(
+      event.sender,
+      requireAssignedWindowSessionId(event.sender.id),
+      sessionId,
+    );
   });
 
   registerHandle("terminal-write", (event, sessionId: string, data: string) => {
     const sender = event.sender;
-    terminalManager.write(sender, sessionId, data, (channel, payload) => {
+    terminalManager.write(
+      sender,
+      requireAssignedWindowSessionId(sender.id),
+      sessionId,
+      data,
+      (channel, payload) => {
       sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
-    });
+      },
+    );
   });
 
   registerHandle("terminal-run-action", async (event, input) => {
     const sender = event.sender;
     await runWithTerminalProjectAdmission(projectWorkspace, input, async () => {
-      await terminalManager.runAction(sender, input, (channel, payload) => {
+      await terminalManager.runAction(
+        sender,
+        requireAssignedWindowSessionId(sender.id),
+        input,
+        (channel, payload) => {
         sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
-      });
+        },
+      );
     });
   });
 
@@ -2531,16 +2588,20 @@ export function registerIpcHandlers(
 
   registerHandle("terminal-resize", (event, sessionId: string, size) => {
     const sender = event.sender;
-    terminalManager.resize(sender, sessionId, size, (channel, payload) => {
+    terminalManager.resize(
+      sender,
+      requireAssignedWindowSessionId(sender.id),
+      sessionId,
+      size,
+      (channel, payload) => {
       sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
-    });
+      },
+    );
   });
 
-  registerHandle("terminal-close", (event, sessionId: string) => {
-    const sender = event.sender;
-    terminalManager.close(sender, sessionId, (channel, payload) => {
-      sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
-    });
+  registerHandle("terminal-kill", (event, sessionId: string) => {
+    requireAssignedWindowSessionId(event.sender.id);
+    terminalManager.killSession(sessionId);
   });
 
   registerHandle("thread-terminal-snapshot", (_, threadId: string) =>
@@ -2823,6 +2884,9 @@ export function registerIpcHandlers(
       try {
         return await codexService.startThreadForSession(input, {
           signal: controller.signal,
+          browserViewScopeId:
+            options.resolveWindowSessionId?.(event.sender.id)
+            ?? `headless:${input.sessionId}`,
         });
       } finally {
         event.sender.removeListener("destroyed", abortWhenRendererCloses);
@@ -3136,6 +3200,7 @@ export function registerIpcHandlers(
           await codexService.registerBackgroundProcessRunAction(input);
           await terminalManager.runAction(
             sender,
+            requireAssignedWindowSessionId(sender.id),
             terminalInput,
             (channel, payload) => {
               sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);

@@ -189,6 +189,8 @@ function WorkbenchApp({
     setActiveRecentPageSession: setActiveRecentPageSessionState,
     closeRecentPageSession,
     reorderRecentPageSessions,
+    sessionViewsBySessionId,
+    setSessionView,
     buildLayoutSnapshot,
   } = useWorkbenchState(projects, {
     initialLayoutSnapshot: initialWindowSessionBootstrap.session.layout,
@@ -251,6 +253,13 @@ function WorkbenchApp({
   const latestLayoutRef = useRef<WorkbenchLayoutSnapshot>(
     initialWindowSessionBootstrap.session.layout,
   );
+  const latestSerializedLayoutRef = useRef(
+    JSON.stringify(initialWindowSessionBootstrap.session.layout),
+  );
+  const layoutRevisionRef = useRef(
+    initialWindowSessionBootstrap.session.layoutRevision,
+  );
+  const layoutSaveChainRef = useRef<Promise<void>>(Promise.resolve());
   const layoutSaveTimerRef = useRef<number | null>(null);
   const reconciledProjectQueryRef = useRef<string | null>(null);
 
@@ -277,11 +286,28 @@ function WorkbenchApp({
 
   useEffect(() => {
     latestLayoutRef.current = currentLayout;
+    const serialized = JSON.stringify(currentLayout);
+    if (serialized === latestSerializedLayoutRef.current) return;
+    latestSerializedLayoutRef.current = serialized;
+    layoutRevisionRef.current += 1;
   }, [currentLayout]);
 
   const flushWindowSessionLayout = useCallback(async () => {
-    await saveWindowSessionLayout(latestLayoutRef.current);
-  }, []);
+    const input = {
+      sessionId: initialWindowSessionBootstrap.session.id,
+      revision: layoutRevisionRef.current,
+      layout: latestLayoutRef.current,
+    };
+    const save = layoutSaveChainRef.current.then(async () => {
+      const accepted = await saveWindowSessionLayout(input);
+      layoutRevisionRef.current = Math.max(
+        layoutRevisionRef.current,
+        accepted.session.layoutRevision,
+      );
+    });
+    layoutSaveChainRef.current = save.catch(() => undefined);
+    await save;
+  }, [initialWindowSessionBootstrap.session.id]);
 
   useEffect(() => {
     if (layoutSaveTimerRef.current !== null) {
@@ -1102,33 +1128,31 @@ function WorkbenchApp({
     setKeyboardShortcutsSettingsOpenTick((tick) => tick + 1);
   }, []);
 
-  const handleRequestNewWindow = useCallback(async () => {
+  const flushBeforeWindowClone = useCallback(async () => {
     if (layoutSaveTimerRef.current !== null) {
       window.clearTimeout(layoutSaveTimerRef.current);
       layoutSaveTimerRef.current = null;
     }
     await pageStagePersistRef.current?.();
     await flushWindowSessionLayout();
-    await invoke("window:new", {
-      layout: latestLayoutRef.current,
-    });
   }, [flushWindowSessionLayout]);
 
-  const handleOpenProjectSessionInNewWindow = useCallback(async (session: { id: string; projectId: string | null }) => {
-    if (layoutSaveTimerRef.current !== null) {
-      window.clearTimeout(layoutSaveTimerRef.current);
-      layoutSaveTimerRef.current = null;
-    }
-    await pageStagePersistRef.current?.();
-    await flushWindowSessionLayout();
-    await invoke("window:new", {
-      layout: {
-        ...latestLayoutRef.current,
-        ...(session.projectId === null ? {} : { dbProjectId: session.projectId }),
-        activeProjectSessionId: session.id,
-      },
+  const handleRequestNewWindow = useCallback(async () => {
+    await flushBeforeWindowClone();
+    await invoke("window:new", {});
+  }, [flushBeforeWindowClone]);
+
+  useEffect(() => {
+    if (!window.api?.onRequestNewWindow) return undefined;
+    return window.api.onRequestNewWindow(() => {
+      void handleRequestNewWindow();
     });
-  }, [flushWindowSessionLayout]);
+  }, [handleRequestNewWindow]);
+
+  const handleOpenProjectSessionInNewWindow = useCallback(async (session: { id: string; projectId: string | null }) => {
+    await flushBeforeWindowClone();
+    await invoke("window:new", { activeProjectSessionId: session.id });
+  }, [flushBeforeWindowClone]);
 
   const handleOpenCommandPalette = useCallback((request?: CommandMenuOpenRequest) => {
     setCommandPaletteInitialMode(request?.mode ?? "root");
@@ -1145,9 +1169,11 @@ function WorkbenchApp({
     shiftSlidingWindow: handleShortcutShiftSlidingWindow,
     switchToStageIndex: handleShortcutSwitchToStageIndex,
     switchToProjectIndex: navigateToProjectIndex,
-    onRequestNewWindow: () => {
-      void handleRequestNewWindow();
-    },
+    onRequestNewWindow: window.api?.onRequestNewWindow
+      ? undefined
+      : () => {
+          void handleRequestNewWindow();
+        },
     onRequestCommandPalette: handleOpenCommandPalette,
     onRequestProjectPicker: handleOpenProjectPicker,
     onRequestTaskSearch: handleOpenTaskSearch,
@@ -1199,6 +1225,7 @@ function WorkbenchApp({
       />
       <HeartbeatAutomationController />
       <WorkbenchShell
+      windowSessionId={initialWindowSessionBootstrap.session.id}
       libraryWorkspaceEnabled={productFeatureGates.libraryWorkspace}
       projects={projects}
       projectCatalogError={projectsError}
@@ -1209,6 +1236,8 @@ function WorkbenchApp({
       activeSearchQuery={resolvedSearchQuery}
       initialActiveProjectSessionId={initialWindowSessionBootstrap.session.layout.activeProjectSessionId ?? null}
       onActiveProjectSessionChange={setActiveProjectSessionId}
+      sessionViewsBySessionId={sessionViewsBySessionId}
+      setSessionView={setSessionView}
       activeDbViewPrefs={activeDbViewPrefs}
       searchByProject={searchByProject}
       dbViewPrefsByProject={dbViewPrefsByProject}

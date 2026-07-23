@@ -2,7 +2,6 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect } from "react";
 import { WorkspaceFilesPanel } from "./workspace-files-panel";
 import type { Project, ProjectSession, WorkspaceFileDirectoryEntry } from "@/lib/types";
-import { makeProjectSessionPanelLayout } from "../../../shared/project-session-panel-layout";
 
 const WORKSPACE_ROOT = "/Users/asc/repo/nodex";
 const WORKTREE_FILE = "/Users/asc/.nodex/worktrees/abcd/nodex/README.md";
@@ -33,6 +32,7 @@ const project: Project = {
 const session: ProjectSession = {
   id: "session-files-story",
   projectId: project.id,
+  initialDatabaseViewId: null,
   noThreadFallbackTitle: "Files story",
   displayTitle: "Files story",
   order: 0,
@@ -41,21 +41,7 @@ const session: ProjectSession = {
   archived: false,
   archivedAt: null,
   unread: false,
-  leftPaneCollapsed: false,
-  panels: {
-    right: {
-      collapsed: false,
-      layout: makeProjectSessionPanelLayout(["files-tab"], "files-tab"),
-      size: { widthPx: 600 },
-    },
-    bottom: {
-      collapsed: true,
-      layout: makeProjectSessionPanelLayout([], null),
-      size: { heightPx: 280 },
-    },
-  },
   thread: null,
-  tabs: [],
   createdAt: CREATED_AT,
   updatedAt: CREATED_AT,
 };

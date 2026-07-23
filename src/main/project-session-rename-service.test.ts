@@ -6,6 +6,7 @@ function makeSession(overrides: Partial<ProjectSession> = {}): ProjectSession {
   return {
     id: "session-1",
     projectId: "project-1",
+    initialDatabaseViewId: null,
     noThreadFallbackTitle: "Current title",
     displayTitle: "Current title",
     order: 1,
@@ -14,10 +15,7 @@ function makeSession(overrides: Partial<ProjectSession> = {}): ProjectSession {
     archived: false,
     archivedAt: null,
     unread: false,
-    leftPaneCollapsed: false,
-    panels: {} as ProjectSession["panels"],
     thread: null,
-    tabs: [],
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,

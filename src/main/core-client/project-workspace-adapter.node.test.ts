@@ -33,29 +33,11 @@ const sessionSummary = (overrides: Record<string, unknown> = {}) => ({
   archived: false,
   archived_at: null,
   unread: true,
-  left_pane_collapsed: false,
+  initial_database_view_id: "view:one",
   thread_id: "thread:one",
   created_at: "2026-07-19T15:00:00.000Z",
   updated_at: "2026-07-19T15:01:00.000Z",
   ...overrides,
-});
-
-const emptyPanel = (id: string) => ({
-  collapsed: true,
-  layout: {
-    version: 2 as const,
-    root: {
-      type: "leaf" as const,
-      id,
-      tabIds: [],
-      activeTabId: null,
-      mruTabIds: [],
-    },
-    activeLeafId: id,
-    mruLeafIds: [id],
-    maximizedLeafId: null,
-  },
-  size: {},
 });
 
 const thread = {
@@ -130,7 +112,7 @@ describe("Core Project Workspace adapter", () => {
   test("maps Project reads and preserves Date values at the IPC boundary", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 3,
       store_epoch: "epoch:test",
       value: {
@@ -159,7 +141,7 @@ describe("Core Project Workspace adapter", () => {
   test("requests archived Projects only when the caller opts into the collection", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 4,
       store_epoch: "epoch:test",
       value: {
@@ -185,7 +167,7 @@ describe("Core Project Workspace adapter", () => {
   test("lists every Project-owned Thread for lifecycle preflight", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 5,
       store_epoch: "epoch:test",
       value: {
@@ -210,7 +192,7 @@ describe("Core Project Workspace adapter", () => {
   test("uses the current binding revision for one Project update aggregate", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 3,
       store_epoch: "epoch:test",
       value: { kind: "project", project: project() },
@@ -231,7 +213,7 @@ describe("Core Project Workspace adapter", () => {
       store_epoch: "epoch:test",
     });
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 4,
       store_epoch: "epoch:test",
       value: {
@@ -260,7 +242,7 @@ describe("Core Project Workspace adapter", () => {
   test("sets Project lifecycle through the target-state Core intent", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 3,
       store_epoch: "epoch:test",
       value: { kind: "project", project: project() },
@@ -281,7 +263,7 @@ describe("Core Project Workspace adapter", () => {
       store_epoch: "epoch:test",
     });
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 4,
       store_epoch: "epoch:test",
       value: {
@@ -307,7 +289,7 @@ describe("Core Project Workspace adapter", () => {
   test("returns an idempotent lifecycle result without another Core mutation", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 4,
       store_epoch: "epoch:test",
       value: {
@@ -326,7 +308,7 @@ describe("Core Project Workspace adapter", () => {
   test("reads and replaces one Thread dynamic-tool catalog through its execution context", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 10,
       store_epoch: "epoch:test",
       value: {
@@ -361,7 +343,7 @@ describe("Core Project Workspace adapter", () => {
       store_epoch: "epoch:test",
     });
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 11,
       store_epoch: "epoch:test",
       value: {
@@ -416,7 +398,7 @@ describe("Core Project Workspace adapter", () => {
   test("reads and persists a Project permission mode without requiring a Thread", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 11,
       store_epoch: "epoch:test",
       value: { kind: "project_permission_mode", mode: null },
@@ -437,7 +419,7 @@ describe("Core Project Workspace adapter", () => {
       store_epoch: "epoch:test",
     });
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 12,
       store_epoch: "epoch:test",
       value: { kind: "project_permission_mode", mode: "full-access" },
@@ -502,7 +484,7 @@ describe("Core Project Workspace adapter", () => {
         store_epoch: "epoch:test",
       });
       client.enqueueWorkspaceRead({
-        contract_version: 3,
+        contract_version: 4,
         event_head: eventSequence,
         store_epoch: "epoch:test",
         value: { kind: "thread", thread: persisted },
@@ -580,13 +562,13 @@ describe("Core Project Workspace adapter", () => {
       store_epoch: "epoch:test",
     });
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 13,
       store_epoch: "epoch:test",
       value: { kind: "thread", thread: movedThread },
     });
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 13,
       store_epoch: "epoch:test",
       value: {
@@ -642,7 +624,7 @@ describe("Core Project Workspace adapter", () => {
   test("reads and commits Thread unread state through Workspace authority", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 12,
       store_epoch: "epoch:test",
       value: { kind: "thread", thread },
@@ -663,7 +645,7 @@ describe("Core Project Workspace adapter", () => {
       store_epoch: "epoch:test",
     });
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 13,
       store_epoch: "epoch:test",
       value: {
@@ -721,7 +703,7 @@ describe("Core Project Workspace adapter", () => {
         store_epoch: "epoch:test",
       });
       client.enqueueWorkspaceRead({
-        contract_version: 3,
+        contract_version: 4,
         event_head: eventSequence,
         store_epoch: "epoch:test",
         value: {
@@ -783,7 +765,7 @@ describe("Core Project Workspace adapter", () => {
     };
     const enqueueEmptySidebar = (eventHead: number) => {
       client.enqueueWorkspaceRead({
-        contract_version: 3,
+        contract_version: 4,
         event_head: eventHead,
         store_epoch: "epoch:test",
         value: {
@@ -799,7 +781,7 @@ describe("Core Project Workspace adapter", () => {
     enqueueApply("operation:archive-thread", 15);
     enqueueEmptySidebar(15);
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 15,
       store_epoch: "epoch:test",
       value: { kind: "thread", thread: { ...thread, archived: true } },
@@ -854,7 +836,7 @@ describe("Core Project Workspace adapter", () => {
       updated_at_ms: 200,
     };
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 14,
       store_epoch: "epoch:test",
       value: { kind: "background_processes", processes: [process] },
@@ -875,7 +857,7 @@ describe("Core Project Workspace adapter", () => {
       store_epoch: "epoch:test",
     });
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 15,
       store_epoch: "epoch:test",
       value: {
@@ -969,7 +951,7 @@ describe("Core Project Workspace adapter", () => {
         readonly pinnedOrder?: number | null;
       } = {},
     ) => client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: eventHead,
       store_epoch: "epoch:test",
       value: {
@@ -1189,21 +1171,16 @@ describe("Core Project Workspace adapter", () => {
   test("hydrates one complete Session without leaking Core wire casing", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 5,
       store_epoch: "epoch:test",
       value: {
         kind: "session",
         session: sessionSummary(),
-        panels: {
-          right: emptyPanel("right:root"),
-          bottom: emptyPanel("bottom:root"),
-        },
-        tabs: [],
       },
     });
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 5,
       store_epoch: "epoch:test",
       value: { kind: "thread", thread },
@@ -1214,13 +1191,12 @@ describe("Core Project Workspace adapter", () => {
       expect.objectContaining({
         id: "session:one",
         displayTitle: "Thread one",
-        leftPaneCollapsed: false,
+        initialDatabaseViewId: "view:one",
         thread: expect.objectContaining({
           threadId: "thread:one",
           statusType: "idle",
           cwd: "/workspace/one",
         }),
-        tabs: [],
       }),
     );
     expect(client.workspaceReads).toEqual([
@@ -1247,7 +1223,7 @@ describe("Core Project Workspace adapter", () => {
       store_epoch: "epoch:test",
     });
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 6,
       store_epoch: "epoch:test",
       value: {
@@ -1258,11 +1234,6 @@ describe("Core Project Workspace adapter", () => {
           display_title: "Created",
           no_thread_fallback_title: "Created",
         }),
-        panels: {
-          right: emptyPanel("right:root"),
-          bottom: emptyPanel("bottom:root"),
-        },
-        tabs: [],
       },
     });
     const adapter = createCoreProjectWorkspaceAdapter(client);
@@ -1290,260 +1261,18 @@ describe("Core Project Workspace adapter", () => {
     ]);
   });
 
-  test("creates a browser tab through one Session aggregate", async () => {
-    const client = new FakeCoreClient();
-    client.enqueueWorkspaceApply({
-      value: {
-        affected_project_ids: ["project:one"],
-        affected_session_ids: ["session:one"],
-        affected_thread_ids: [],
-      },
-      receipt: {
-        operation_id: "operation:create-tab",
-        duplicate: false,
-        affected_project_ids: ["project:one"],
-        affected_session_ids: ["session:one"],
-      },
-      event_sequence: 7,
-      store_epoch: "epoch:test",
-    });
-    client.enqueueWorkspaceRead({
-      contract_version: 3,
-      event_head: 7,
-      store_epoch: "epoch:test",
-      value: {
-        kind: "session",
-        session: sessionSummary({ thread_id: null }),
-        panels: {
-          right: emptyPanel("right:root"),
-          bottom: emptyPanel("bottom:root"),
-        },
-        tabs: [{
-          id: "tab:browser",
-          session_id: "session:one",
-          project_id: "project:one",
-          panel_id: "right",
-          title: "Browser",
-          order: 0,
-          content: {
-            kind: "browser",
-            browser_tab_id: "browser:one",
-            url: "https://example.test",
-          },
-          state_key: 0,
-          state: {},
-          created_at: "2026-07-19T15:02:00.000Z",
-          updated_at: "2026-07-19T15:02:00.000Z",
-        }],
-      },
-    });
-    const adapter = createCoreProjectWorkspaceAdapter(client);
-
-    await expect(adapter.createProjectSessionTab({
-      sessionId: "session:one",
-      panelId: "right",
-      clientTabId: "tab:browser",
-      browserTabId: "browser:one",
-      kind: "browser",
-      title: "Browser",
-      config: { projectId: "project:one", url: "https://example.test" },
-    })).resolves.toMatchObject({
-      id: "tab:browser",
-      browserTabId: "browser:one",
-      config: { projectId: "project:one" },
-    });
-    expect(client.workspaceApplies).toEqual([{
-      operationId: expect.any(String),
-      intent: {
-        kind: "mutate_session",
-        session_id: "session:one",
-        intent: {
-          kind: "create_tab",
-          tab_id: "tab:browser",
-          panel_id: "right",
-          target_leaf_id: null,
-          title: "Browser",
-          content: {
-            kind: "browser",
-            browser_tab_id: "browser:one",
-            url: "https://example.test",
-          },
-        },
-      },
-    }]);
-  });
-
-  test("creates and reads a projectless Terminal with no inferred Project field", async () => {
-    const client = new FakeCoreClient();
-    client.enqueueWorkspaceApply({
-      value: {
-        affected_project_ids: [],
-        affected_session_ids: ["session:projectless"],
-        affected_thread_ids: [],
-      },
-      receipt: {
-        operation_id: "operation:create-projectless-terminal",
-        duplicate: false,
-        affected_project_ids: [],
-        affected_session_ids: ["session:projectless"],
-      },
-      event_sequence: 9,
-      store_epoch: "epoch:test",
-    });
-    client.enqueueWorkspaceRead({
-      contract_version: 3,
-      event_head: 9,
-      store_epoch: "epoch:test",
-      value: {
-        kind: "session",
-        session: sessionSummary({
-          id: "session:projectless",
-          project_id: null,
-          thread_id: null,
-        }),
-        panels: {
-          right: emptyPanel("right:root"),
-          bottom: emptyPanel("bottom:root"),
-        },
-        tabs: [{
-          id: "tab:terminal",
-          session_id: "session:projectless",
-          project_id: null,
-          panel_id: "bottom",
-          title: "Terminal",
-          order: 0,
-          content: {
-            kind: "terminal",
-            terminal_session_id: "terminal:projectless",
-          },
-          state_key: 0,
-          state: {},
-          created_at: "2026-07-19T15:02:00.000Z",
-          updated_at: "2026-07-19T15:02:00.000Z",
-        }],
-      },
-    });
-    const adapter = createCoreProjectWorkspaceAdapter(client);
-
-    await expect(adapter.createProjectSessionTab({
-      sessionId: "session:projectless",
-      panelId: "bottom",
-      clientTabId: "tab:terminal",
-      kind: "terminal",
-      title: "Terminal",
-      config: { terminalSessionId: "terminal:projectless" },
-    })).resolves.toMatchObject({
-      projectId: null,
-      kind: "terminal",
-      config: { terminalSessionId: "terminal:projectless" },
-    });
-    expect(client.workspaceApplies[0]?.intent).toMatchObject({
-      kind: "mutate_session",
-      session_id: "session:projectless",
-      intent: {
-        kind: "create_tab",
-        content: {
-          kind: "terminal",
-          terminal_session_id: "terminal:projectless",
-        },
-      },
-    });
-    expect(client.workspaceApplies[0]?.intent).not.toHaveProperty(
-      "intent.content.project_id",
-    );
-  });
-
-  test("updates tab metadata and state in one native aggregate", async () => {
-    const client = new FakeCoreClient();
-    const coreTab = (overrides: Record<string, unknown> = {}) => ({
-      id: "tab:browser",
-      session_id: "session:one",
-      project_id: "project:one",
-      panel_id: "right" as const,
-      title: "Browser",
-      order: 0,
-      content: { kind: "browser" as const, browser_tab_id: "browser:one" },
-      state_key: 0,
-      state: {},
-      created_at: "2026-07-19T15:02:00.000Z",
-      updated_at: "2026-07-19T15:02:00.000Z",
-      ...overrides,
-    });
-    client.enqueueWorkspaceRead({
-      contract_version: 3,
-      event_head: 7,
-      store_epoch: "epoch:test",
-      value: { kind: "session_tab", tab: coreTab() },
-    });
-    client.enqueueWorkspaceApply({
-      value: {
-        affected_project_ids: ["project:one"],
-        affected_session_ids: ["session:one"],
-        affected_thread_ids: [],
-      },
-      receipt: {
-        operation_id: "operation:update-tab",
-        duplicate: false,
-        affected_project_ids: ["project:one"],
-        affected_session_ids: ["session:one"],
-      },
-      event_sequence: 8,
-      store_epoch: "epoch:test",
-    });
-    client.enqueueWorkspaceRead({
-      contract_version: 3,
-      event_head: 8,
-      store_epoch: "epoch:test",
-      value: {
-        kind: "session_tab",
-        tab: coreTab({ title: "Updated", state_key: 2, state: { scrollY: 4 } }),
-      },
-    });
-    const adapter = createCoreProjectWorkspaceAdapter(client);
-
-    await expect(adapter.updateProjectSessionTab("tab:browser", {
-      title: "Updated",
-      stateKey: 2,
-      state: { scrollY: 4 },
-    })).resolves.toMatchObject({
-      title: "Updated",
-      stateKey: 2,
-      state: { scrollY: 4 },
-    });
-    expect(client.workspaceApplies).toEqual([{
-      operationId: expect.any(String),
-      intent: {
-        kind: "mutate_session",
-        session_id: "session:one",
-        intent: {
-          kind: "update_tab",
-          tab_id: "tab:browser",
-          title: "Updated",
-          state_key: 2,
-          state: { scrollY: 4 },
-        },
-      },
-    }]);
-  });
-
-  test("updates fallback title and view state in one Session aggregate", async () => {
+  test("updates fallback title in one Session aggregate", async () => {
     const client = new FakeCoreClient();
     const enqueueSession = (
       eventHead: number,
       overrides: Record<string, unknown> = {},
-      bottomOverrides: Record<string, unknown> = {},
     ) => client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: eventHead,
       store_epoch: "epoch:test",
       value: {
         kind: "session",
         session: sessionSummary({ thread_id: null, ...overrides }),
-        panels: {
-          right: emptyPanel("right:root"),
-          bottom: { ...emptyPanel("bottom:root"), ...bottomOverrides },
-        },
-        tabs: [],
       },
     });
     enqueueSession(8);
@@ -1567,20 +1296,14 @@ describe("Core Project Workspace adapter", () => {
       {
         no_thread_fallback_title: "Updated fallback",
         display_title: "Updated fallback",
-        left_pane_collapsed: true,
       },
-      { collapsed: false, size: { heightPx: 360 } },
     );
     const adapter = createCoreProjectWorkspaceAdapter(client);
 
     await expect(adapter.updateProjectSession("session:one", {
       noThreadFallbackTitle: "Updated fallback",
-      leftPaneCollapsed: true,
-      panels: { bottom: { collapsed: false, size: { heightPx: 360 } } },
     })).resolves.toMatchObject({
       noThreadFallbackTitle: "Updated fallback",
-      leftPaneCollapsed: true,
-      panels: { bottom: { collapsed: false, size: { heightPx: 360 } } },
     });
     expect(client.workspaceApplies).toEqual([{
       operationId: expect.any(String),
@@ -1588,13 +1311,8 @@ describe("Core Project Workspace adapter", () => {
         kind: "mutate_session",
         session_id: "session:one",
         intent: {
-          kind: "patch_view_state",
-          fallback_title: "Updated fallback",
-          left_pane_collapsed: true,
-          bottom_panel: {
-            collapsed: false,
-            size: { height_px: 360 },
-          },
+          kind: "set_fallback_title",
+          title: "Updated fallback",
         },
       },
     }]);
@@ -1603,21 +1321,16 @@ describe("Core Project Workspace adapter", () => {
   test("upserts and attaches a Thread in one Session aggregate", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 9,
       store_epoch: "epoch:test",
       value: {
         kind: "session",
         session: sessionSummary({ thread_id: null }),
-        panels: {
-          right: emptyPanel("right:root"),
-          bottom: emptyPanel("bottom:root"),
-        },
-        tabs: [],
       },
     });
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 9,
       store_epoch: "epoch:test",
       value: { kind: "thread", thread },
@@ -1638,21 +1351,16 @@ describe("Core Project Workspace adapter", () => {
       store_epoch: "epoch:test",
     });
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 10,
       store_epoch: "epoch:test",
       value: {
         kind: "session",
         session: sessionSummary(),
-        panels: {
-          right: emptyPanel("right:root"),
-          bottom: emptyPanel("bottom:root"),
-        },
-        tabs: [],
       },
     });
     client.enqueueWorkspaceRead({
-      contract_version: 3,
+      contract_version: 4,
       event_head: 10,
       store_epoch: "epoch:test",
       value: {

@@ -7,9 +7,9 @@ import type {
   BrowserSidebarWebviewHostCreated,
   BrowserSidebarWebviewHostKind,
 } from "../../../shared/browser-sidebar";
-import { requireProjectSessionBrowserTabId } from "../../../shared/browser-sidebar";
+import { requireWorkbenchBrowserTabProjectionId } from "../../../shared/browser-sidebar";
 import { isBlankBrowserUrl, normalizeBrowserNavigationUrl } from "../../../shared/browser-url";
-import type { ProjectSessionTab } from "@/lib/types";
+import type { WorkbenchTabProjection } from "@/lib/types";
 import { invoke } from "@/lib/api";
 import { browserSidebarRendererWebviewManager } from "./browser-sidebar-webview-manager";
 import {
@@ -21,12 +21,14 @@ import {
 
 interface BrowserSidebarHiddenWebviewHostsProps {
   sessionId: string;
-  tabs: ProjectSessionTab[];
+  browserViewScopeId: string;
+  tabs: WorkbenchTabProjection[];
   visibleTabIds: ReadonlySet<string>;
 }
 
 interface HiddenHostDescriptor {
   browserConversationId: string;
+  browserViewScopeId: string;
   browserTabId: string;
   projectId: string | null;
   hostKind: BrowserSidebarWebviewHostKind;
@@ -38,6 +40,7 @@ interface HiddenHostDescriptor {
 
 export function BrowserSidebarHiddenWebviewHosts({
   sessionId,
+  browserViewScopeId,
   tabs,
   visibleTabIds,
 }: BrowserSidebarHiddenWebviewHostsProps) {
@@ -69,13 +72,16 @@ export function BrowserSidebarHiddenWebviewHosts({
   const descriptors = useMemo(() => {
     const snapshotsByTabId = new Map(
       snapshots
-        .filter((snapshot) => snapshot.browserConversationId === sessionId)
+        .filter((snapshot) =>
+          snapshot.browserConversationId === sessionId
+          && snapshot.browserViewScopeId === browserViewScopeId
+        )
         .map((snapshot) => [snapshot.browserTabId, snapshot]),
     );
     const browserDescriptors = tabs.flatMap((tab): HiddenHostDescriptor[] => {
       if (tab.kind !== "browser") return [];
       if (visibleTabIds.has(tab.id)) return [];
-      const browserTabId = requireProjectSessionBrowserTabId(tab);
+      const browserTabId = requireWorkbenchBrowserTabProjectionId(tab);
       const snapshot = snapshotsByTabId.get(browserTabId);
       const snapshotUrl = snapshot?.url && !isBlankBrowserUrl(snapshot.url) ? snapshot.url : null;
       const configUrl = readBrowserConfigUrl(tab);
@@ -84,6 +90,7 @@ export function BrowserSidebarHiddenWebviewHosts({
       if (snapshot && !snapshot.hasBrowserPage) return [];
       return [{
         browserConversationId: sessionId,
+        browserViewScopeId,
         browserTabId,
         projectId: tab.projectId,
         hostKind: "background",
@@ -95,14 +102,18 @@ export function BrowserSidebarHiddenWebviewHosts({
     });
 
     const activeBrowserUseTabId =
-      browserUseState?.activeBrowserTabIdsByConversation[sessionId] ?? null;
+      browserUseState?.activeBrowserTabIdsByConversationScope[
+        `${sessionId}\0${browserViewScopeId}`
+      ] ?? null;
     const browserUseDescriptors = (browserUseState?.tabs ?? []).flatMap((tab): HiddenHostDescriptor[] => {
       if (tab.browserConversationId !== sessionId) return [];
+      if (tab.browserViewScopeId !== browserViewScopeId) return [];
       if (tab.released) return [];
       if (tab.browserTabId === activeBrowserUseTabId) return [];
       if (isBlankBrowserUrl(tab.url)) return [];
       return [{
         browserConversationId: tab.browserConversationId,
+        browserViewScopeId: tab.browserViewScopeId,
         browserTabId: tab.browserTabId,
         projectId: tab.projectId,
         hostKind: "retained",
@@ -112,13 +123,13 @@ export function BrowserSidebarHiddenWebviewHosts({
     });
 
     return [...browserDescriptors, ...browserUseDescriptors];
-  }, [browserUseState, sessionId, snapshots, tabs, visibleTabIds]);
+  }, [browserUseState, browserViewScopeId, sessionId, snapshots, tabs, visibleTabIds]);
 
   return (
     <>
       {descriptors.map((descriptor) => (
         <HiddenBrowserWebviewHost
-          key={`${descriptor.hostKind}:${descriptor.browserConversationId}:${descriptor.browserTabId}`}
+          key={`${descriptor.hostKind}:${descriptor.browserConversationId}:${descriptor.browserViewScopeId}:${descriptor.browserTabId}`}
           descriptor={descriptor}
         />
       ))}
@@ -134,6 +145,7 @@ function HiddenBrowserWebviewHost({ descriptor }: { descriptor: HiddenHostDescri
     void invoke("browser-sidebar-command", {
       type: "register-tab",
       browserConversationId: descriptor.browserConversationId,
+      browserViewScopeId: descriptor.browserViewScopeId,
       browserTabId: descriptor.browserTabId,
       projectId: descriptor.projectId,
       initialUrl,
@@ -141,17 +153,19 @@ function HiddenBrowserWebviewHost({ descriptor }: { descriptor: HiddenHostDescri
       faviconUrl: descriptor.faviconUrl,
       deviceToolbarVisible: descriptor.deviceToolbarVisible,
     });
-  }, [descriptor.browserConversationId, descriptor.browserTabId, descriptor.deviceToolbarVisible, descriptor.faviconUrl, descriptor.projectId, descriptor.title, initialUrl]);
+  }, [descriptor.browserConversationId, descriptor.browserTabId, descriptor.browserViewScopeId, descriptor.deviceToolbarVisible, descriptor.faviconUrl, descriptor.projectId, descriptor.title, initialUrl]);
 
   useLayoutEffect(() => {
     if (!window.api) return undefined;
     if (isBlankBrowserUrl(initialUrl)) return undefined;
     const mountGeneration = browserSidebarRendererWebviewManager.claimMountGeneration({
       browserConversationId: descriptor.browserConversationId,
+      browserViewScopeId: descriptor.browserViewScopeId,
       browserTabId: descriptor.browserTabId,
     });
     browserSidebarRendererWebviewManager.syncWebview({
       browserConversationId: descriptor.browserConversationId,
+      browserViewScopeId: descriptor.browserViewScopeId,
       browserTabId: descriptor.browserTabId,
       projectId: descriptor.projectId,
       hostKind: descriptor.hostKind,
@@ -168,10 +182,11 @@ function HiddenBrowserWebviewHost({ descriptor }: { descriptor: HiddenHostDescri
     return () => {
       browserSidebarRendererWebviewManager.detachWebview({
         browserConversationId: descriptor.browserConversationId,
+        browserViewScopeId: descriptor.browserViewScopeId,
         browserTabId: descriptor.browserTabId,
       }, mountGeneration);
     };
-  }, [descriptor.browserConversationId, descriptor.browserTabId, descriptor.hostKind, descriptor.projectId, initialUrl]);
+  }, [descriptor.browserConversationId, descriptor.browserTabId, descriptor.browserViewScopeId, descriptor.hostKind, descriptor.projectId, initialUrl]);
 
   return null;
 }

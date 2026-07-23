@@ -88,6 +88,18 @@ import type {
   CodexProtocolServerRequestOf,
   CodexCanonicalSetupCodexStepResponse,
 } from "./codex-conversation-state/codex-conversation-state";
+import type {
+  WorkbenchPanelSplitSide,
+} from "./workbench-session-view";
+export type {
+  WorkbenchPanelLayout,
+  WorkbenchPanelNode,
+  WorkbenchPanelSize,
+  WorkbenchPanelSplitBranch,
+  WorkbenchPanelSplitLeaf,
+  WorkbenchPanelSplitSide,
+  WorkbenchPanelState,
+} from "./workbench-session-view";
 
 export type {
   CodexCanonicalConversationState,
@@ -494,17 +506,17 @@ export interface ProjectPinnedOrderInput {
 export type ProjectSessionDbView =
   "kanban" | "list" | "toggle-list" | "canvas" | "calendar";
 
-export type ProjectSessionTabKind =
+export type WorkbenchTabKind =
   "db_view" | "page_stage" | "terminal" | "browser" | "review" | "files";
 
 export const PROJECT_SESSION_SINGLETON_TAB_KINDS = [
   "review",
-] as const satisfies readonly ProjectSessionTabKind[];
+] as const satisfies readonly WorkbenchTabKind[];
 
 export type ProjectSessionSingletonTabKind =
   (typeof PROJECT_SESSION_SINGLETON_TAB_KINDS)[number];
 
-export interface ProjectSessionDbViewTabConfig {
+export interface WorkbenchProjectionDbViewTabConfig {
   projectId: string;
   /**
    * Durable Database View identity. This is optional only at the input type
@@ -516,13 +528,13 @@ export interface ProjectSessionDbViewTabConfig {
   view: ProjectSessionDbView;
 }
 
-export interface ProjectSessionPageStageTabConfig {
+export interface WorkbenchProjectionPageStageTabConfig {
   projectId: string;
   pageId: string;
   titleSnapshot?: string;
 }
 
-export interface ProjectSessionTerminalTabConfig {
+export interface WorkbenchProjectionTerminalTabConfig {
   terminalSessionId: string;
 }
 
@@ -578,6 +590,39 @@ export interface TerminalSessionSnapshot {
   truncated: boolean;
   exited: boolean;
   exitCode: number | null;
+  viewLease: TerminalViewLeaseSnapshot | null;
+}
+
+export interface TerminalViewLeaseSnapshot {
+  windowSessionId: string;
+  generation: number;
+  size: TerminalSize;
+}
+
+export type TerminalViewLeaseResult =
+  | {
+      status: "acquired" | "already_owned";
+      generation: number;
+      snapshot: TerminalSessionSnapshot;
+    }
+  | {
+      status: "conflict";
+      generation: number;
+      ownerWindowSessionId: string;
+      snapshot: TerminalSessionSnapshot;
+    }
+  | {
+      status: "stale";
+      generation: number;
+      ownerWindowSessionId: string;
+      snapshot: TerminalSessionSnapshot;
+    }
+  | { status: "not_found" };
+
+export interface TerminalTakeOverViewRequest {
+  sessionId: string;
+  expectedGeneration: number;
+  size: TerminalSize;
 }
 
 export interface TerminalDataEvent {
@@ -604,13 +649,20 @@ export interface TerminalErrorEvent {
 export interface TerminalExitEvent {
   sessionId: string;
   exitCode: number | null;
+  reason: "exited" | "killed";
 }
 
-export interface ProjectSessionProjectScopedTabConfig {
+export interface TerminalViewLeaseRevokedEvent {
+  sessionId: string;
+  generation: number;
+  ownerWindowSessionId: string;
+}
+
+export interface WorkbenchProjectionProjectScopedTabConfig {
   projectId: string;
 }
 
-export interface ProjectSessionFilesTabConfig {
+export interface WorkbenchProjectionFilesTabConfig {
   projectId: string | null;
   hostId: "local";
   workspaceRoot: string | null;
@@ -618,7 +670,7 @@ export interface ProjectSessionFilesTabConfig {
   path?: string;
 }
 
-export interface ProjectSessionBrowserTabConfig {
+export interface WorkbenchProjectionBrowserTabConfig {
   projectId: string | null;
   url?: string;
   title?: string;
@@ -626,24 +678,24 @@ export interface ProjectSessionBrowserTabConfig {
   deviceToolbarVisible?: boolean;
 }
 
-export interface ProjectSessionTabConfigByKind {
-  db_view: ProjectSessionDbViewTabConfig;
-  page_stage: ProjectSessionPageStageTabConfig;
-  terminal: ProjectSessionTerminalTabConfig;
-  browser: ProjectSessionBrowserTabConfig;
-  review: ProjectSessionProjectScopedTabConfig;
-  files: ProjectSessionFilesTabConfig;
+export interface WorkbenchProjectionTabConfigByKind {
+  db_view: WorkbenchProjectionDbViewTabConfig;
+  page_stage: WorkbenchProjectionPageStageTabConfig;
+  terminal: WorkbenchProjectionTerminalTabConfig;
+  browser: WorkbenchProjectionBrowserTabConfig;
+  review: WorkbenchProjectionProjectScopedTabConfig;
+  files: WorkbenchProjectionFilesTabConfig;
 }
 
-export type ProjectSessionTabConfig =
-  ProjectSessionTabConfigByKind[ProjectSessionTabKind];
+export type WorkbenchProjectionTabConfig =
+  WorkbenchProjectionTabConfigByKind[WorkbenchTabKind];
 
-export type ProjectSessionTabConfiguration = {
-  [Kind in ProjectSessionTabKind]: {
+export type WorkbenchProjectionTabConfiguration = {
+  [Kind in WorkbenchTabKind]: {
     kind: Kind;
-    config: ProjectSessionTabConfigByKind[Kind];
+    config: WorkbenchProjectionTabConfigByKind[Kind];
   };
-}[ProjectSessionTabKind];
+}[WorkbenchTabKind];
 
 export type WorkspaceFileHostId = "local";
 
@@ -708,52 +760,9 @@ export type WorkspaceFileWriteResult =
   | { outcome: "saved"; mtimeMs: number | null }
   | { outcome: "conflict"; mtimeMs: number | null };
 
-export interface ProjectSessionSplitLeaf {
-  type: "leaf";
-  id: string;
-  tabIds: string[];
-  activeTabId: string | null;
-  mruTabIds: string[];
-}
-
-export interface ProjectSessionSplitBranch {
-  type: "split";
-  id: string;
-  direction: "horizontal" | "vertical";
-  first: ProjectSessionPanelNode;
-  second: ProjectSessionPanelNode;
-  ratio: number;
-}
-
-export type ProjectSessionPanelNode =
-  ProjectSessionSplitLeaf | ProjectSessionSplitBranch;
-
-export interface ProjectSessionPanelLayoutV2 {
-  version: 2;
-  root: ProjectSessionPanelNode;
-  activeLeafId: string;
-  mruLeafIds: string[];
-  maximizedLeafId?: string | null;
-}
-
-export type ProjectSessionPanelLayout = ProjectSessionPanelLayoutV2;
-
 export type PanelId = "right" | "bottom";
-export type ProjectSessionPanelSplitSide = "left" | "right" | "up" | "down";
 
-export interface ProjectSessionPanelSize {
-  widthPx?: number;
-  heightPx?: number;
-  fullWidth?: boolean;
-}
-
-export interface ProjectSessionPanelState {
-  collapsed: boolean;
-  layout: ProjectSessionPanelLayout;
-  size: ProjectSessionPanelSize;
-}
-
-interface ProjectSessionTabBase {
+interface WorkbenchTabProjectionBase {
   id: string;
   sessionId: string;
   projectId: string | null;
@@ -766,17 +775,17 @@ interface ProjectSessionTabBase {
   updatedAt: string;
 }
 
-type PersistedProjectSessionTabVariant<
-  Configuration extends ProjectSessionTabConfiguration = ProjectSessionTabConfiguration,
+type PersistedWorkbenchProjectionTabVariant<
+  Configuration extends WorkbenchProjectionTabConfiguration = WorkbenchProjectionTabConfiguration,
 > = Configuration extends { kind: "browser" }
   ? Configuration & { browserTabId: string }
   : Configuration & { browserTabId: null };
 
-export type ProjectSessionTabVariant = PersistedProjectSessionTabVariant;
+export type WorkbenchProjectionTabVariant = PersistedWorkbenchProjectionTabVariant;
 
-export type ProjectSessionTab = ProjectSessionTabBase & ProjectSessionTabVariant;
+export type WorkbenchTabProjection = WorkbenchTabProjectionBase & WorkbenchProjectionTabVariant;
 
-export type ProjectSessionBrowserTab = Extract<ProjectSessionTab, { kind: "browser" }>;
+export type WorkbenchBrowserTabProjection = Extract<WorkbenchTabProjection, { kind: "browser" }>;
 
 export interface ProjectSessionThreadLink {
   sessionId: string;
@@ -803,6 +812,7 @@ export interface ProjectSessionThreadLink {
 export interface ProjectSession {
   id: string;
   projectId: string | null;
+  initialDatabaseViewId: string | null;
   noThreadFallbackTitle: string;
   displayTitle: string;
   order: number;
@@ -811,15 +821,12 @@ export interface ProjectSession {
   archived: boolean;
   archivedAt: string | null;
   unread: boolean;
-  leftPaneCollapsed: boolean;
-  panels: Record<PanelId, ProjectSessionPanelState>;
   thread: ProjectSessionThreadLink | null;
-  tabs: ProjectSessionTab[];
   createdAt: string;
   updatedAt: string;
 }
 
-export type ProjectSessionSummary = Omit<ProjectSession, "panels" | "tabs">;
+export type ProjectSessionSummary = ProjectSession;
 
 export interface ProjectSessionCreateInput {
   projectId: string | null;
@@ -832,8 +839,6 @@ export interface ProjectSessionListOptions {
 
 export interface ProjectSessionUpdateInput {
   noThreadFallbackTitle?: string;
-  leftPaneCollapsed?: boolean;
-  panels?: Partial<Record<PanelId, Partial<ProjectSessionPanelState>>>;
 }
 
 export interface ProjectSessionRenameInput {
@@ -877,7 +882,7 @@ export type ProjectSessionForkResult =
   | ProjectSessionReadyForkResult
   | ProjectSessionPendingForkResult;
 
-interface ProjectSessionTabCreateBase {
+interface WorkbenchTabProjectionCreateBase {
   sessionId: string;
   panelId: PanelId;
   targetLeafId?: string;
@@ -885,37 +890,37 @@ interface ProjectSessionTabCreateBase {
   title: string;
 }
 
-type ProjectSessionTabCreateVariant<
-  Configuration extends ProjectSessionTabConfiguration = ProjectSessionTabConfiguration,
+type WorkbenchTabProjectionCreateVariant<
+  Configuration extends WorkbenchProjectionTabConfiguration = WorkbenchProjectionTabConfiguration,
 > = Configuration extends { kind: "browser" }
   ? Configuration & { browserTabId?: string }
   : Configuration & { browserTabId?: never };
 
-export type ProjectSessionTabCreateInput = ProjectSessionTabCreateBase &
-  ProjectSessionTabCreateVariant;
+export type WorkbenchTabCreateInput = WorkbenchTabProjectionCreateBase &
+  WorkbenchTabProjectionCreateVariant;
 
-export interface ProjectSessionTabUpdateInput {
+export interface WorkbenchTabUpdateInput {
   title?: string;
-  config?: ProjectSessionTabConfig;
+  config?: WorkbenchProjectionTabConfig;
   stateKey?: number;
   state?: unknown;
 }
 
-export interface ProjectSessionTabDeleteInput {
+export interface WorkbenchTabDeleteInput {
   tabId: string;
   preserveEmptyLeafIds?: string[];
   preferredActiveLeafId?: string | null;
   preferredActiveTabId?: string | null;
 }
 
-export interface ProjectSessionTabReorderInput {
+export interface WorkbenchTabReorderInput {
   sessionId: string;
   panelId: PanelId;
   leafId?: string;
   orderedTabIds: string[];
 }
 
-export interface ProjectSessionTabMoveInput {
+export interface WorkbenchTabMoveInput {
   tabId: string;
   targetPanelId: PanelId;
   targetLeafId?: string;
@@ -923,52 +928,52 @@ export interface ProjectSessionTabMoveInput {
   preserveEmptyLeafIds?: string[];
   splitTarget?: {
     leafId: string;
-    side: ProjectSessionPanelSplitSide;
+    side: WorkbenchPanelSplitSide;
   };
 }
 
-export interface ProjectSessionPanelSplitInput {
+export interface WorkbenchPanelSplitInput {
   sessionId: string;
   panelId: PanelId;
   leafId: string;
-  side: ProjectSessionPanelSplitSide;
+  side: WorkbenchPanelSplitSide;
   tabId?: string;
   preserveEmptyLeafIds?: string[];
 }
 
-export interface ProjectSessionPanelEnsureRightLeafInput {
+export interface WorkbenchPanelEnsureRightLeafInput {
   sessionId: string;
   panelId: PanelId;
   sourceLeafId: string;
 }
 
-export interface ProjectSessionPanelEnsureRightLeafResult {
+export interface WorkbenchPanelEnsureRightLeafResult {
   session: ProjectSession;
   leafId: string;
   created: boolean;
 }
 
-export interface ProjectSessionPanelMergeInput {
+export interface WorkbenchPanelMergeInput {
   sessionId: string;
   panelId: PanelId;
   leafId: string;
 }
 
-export interface ProjectSessionPanelActivateInput {
+export interface WorkbenchPanelActivateInput {
   sessionId: string;
   panelId: PanelId;
   leafId: string;
   tabId?: string | null;
 }
 
-export interface ProjectSessionPanelResizeInput {
+export interface WorkbenchPanelResizeInput {
   sessionId: string;
   panelId: PanelId;
   branchId: string;
   ratio: number;
 }
 
-export interface ProjectSessionPanelMaximizeInput {
+export interface WorkbenchPanelMaximizeInput {
   sessionId: string;
   panelId: PanelId;
   leafId: string | null;

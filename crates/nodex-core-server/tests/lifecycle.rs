@@ -873,7 +873,7 @@ fn incompatible_idle_core_drains_before_a_replacement_starts() {
 }
 
 #[test]
-fn workspace_contract_mismatch_is_replaced_before_a_projectless_terminal_request() {
+fn workspace_contract_mismatch_is_replaced_before_a_projectless_session_request() {
     let directory = tempdir().expect("disposable stale-runtime Profile");
     let home = directory.path().canonicalize().expect("absolute home");
     let executable = env!("CARGO_BIN_EXE_nodex-core");
@@ -1033,7 +1033,7 @@ fn workspace_contract_mismatch_is_replaced_before_a_projectless_terminal_request
     assert_eq!(replacement.expected, expected_stale_generation);
     assert_eq!(
         replacement.candidate_manifest.modules[3].versions,
-        VersionRange::exact(3)
+        VersionRange::exact(4)
     );
 
     let selected = selection.descriptor;
@@ -1069,83 +1069,56 @@ fn workspace_contract_mismatch_is_replaced_before_a_projectless_terminal_request
         ),
         ("x-nodex-connection-binding", binding.as_str()),
     ];
-    for (operation_id, intent) in [
-        (
-            "workspace-create-projectless-session",
-            serde_json::json!({
-                "kind": "create_session",
-                "session_id": "session:projectless-regression",
-                "project_id": null,
-                "title": "Projectless"
-            }),
-        ),
-        (
-            "workspace-create-projectless-terminal",
-            serde_json::json!({
-                "kind": "mutate_session",
-                "session_id": "session:projectless-regression",
-                "intent": {
-                    "kind": "create_tab",
-                    "tab_id": "tab:projectless-terminal-regression",
-                    "panel_id": "bottom",
-                    "target_leaf_id": null,
-                    "title": "Terminal",
-                    "content": {
-                        "kind": "terminal",
-                        "terminal_session_id": "terminal:projectless-regression"
-                    }
-                }
-            }),
-        ),
-    ] {
-        let apply = serde_json::json!({
-            "contract_version": 3,
-            "operation_id": operation_id,
-            "store_epoch": selected.store_epoch,
-            "intent": intent
-        })
-        .to_string();
-        let raw_response = request_with_headers(
-            &selected.socket_path,
-            &selected_auth,
-            "POST",
-            "/core/v1/modules/workspace/apply",
-            &apply,
-            &connection_headers,
-        );
-        assert!(
-            raw_response.starts_with("HTTP/1.1 200"),
-            "unexpected Workspace apply response: {raw_response:?}"
-        );
-        let response = response_json(&raw_response);
-        assert_eq!(response["status"], "ok", "{response}");
-    }
-    let terminal = response_json(&request_with_headers(
+    let apply = serde_json::json!({
+        "contract_version": 4,
+        "operation_id": "workspace-create-projectless-session",
+        "store_epoch": selected.store_epoch,
+        "intent": {
+            "kind": "create_session",
+            "session_id": "session:projectless-regression",
+            "project_id": null,
+            "title": "Projectless"
+        }
+    })
+    .to_string();
+    let raw_response = request_with_headers(
+        &selected.socket_path,
+        &selected_auth,
+        "POST",
+        "/core/v1/modules/workspace/apply",
+        &apply,
+        &connection_headers,
+    );
+    assert!(
+        raw_response.starts_with("HTTP/1.1 200"),
+        "unexpected Workspace apply response: {raw_response:?}"
+    );
+    let response = response_json(&raw_response);
+    assert_eq!(response["status"], "ok", "{response}");
+
+    let session = response_json(&request_with_headers(
         &selected.socket_path,
         &selected_auth,
         "POST",
         "/core/v1/modules/workspace/read",
         &serde_json::json!({
-            "contract_version": 3,
+            "contract_version": 4,
             "read": {
-                "kind": "session_tab",
-                "tab_id": "tab:projectless-terminal-regression"
+                "kind": "session",
+                "session_id": "session:projectless-regression"
             }
         })
         .to_string(),
         &connection_headers,
     ));
-    assert_eq!(terminal["status"], "ok", "{terminal}");
+    assert_eq!(session["status"], "ok", "{session}");
     assert_eq!(
-        terminal["payload"]["value"]["tab"]["project_id"],
+        session["payload"]["value"]["session"]["project_id"],
         serde_json::Value::Null
     );
     assert_eq!(
-        terminal["payload"]["value"]["tab"]["content"],
-        serde_json::json!({
-            "kind": "terminal",
-            "terminal_session_id": "terminal:projectless-regression"
-        })
+        session["payload"]["value"]["session"]["initial_database_view_id"],
+        serde_json::Value::Null
     );
 
     let shutdown = response_json(&request_with_headers(

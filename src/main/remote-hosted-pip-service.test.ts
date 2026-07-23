@@ -56,6 +56,7 @@ function createHarness() {
 function createBrowserUseTab(overrides: Partial<BrowserUseTabState> = {}): BrowserUseTabState {
   return {
     browserConversationId: "session-1",
+    browserViewScopeId: "window-session-1",
     browserTabId: "tab-1",
     captureActive: true,
     projectId: "project-1",
@@ -78,8 +79,11 @@ function createBrowserUseSnapshot(
   tabs: BrowserUseTabState[],
 ): BrowserSidebarBrowserUseStateSnapshot {
   return {
-    activeBrowserTabIdsByConversation: Object.fromEntries(
-      tabs.map((tab) => [tab.browserConversationId, tab.browserTabId]),
+    activeBrowserTabIdsByConversationScope: Object.fromEntries(
+      tabs.map((tab) => [
+        `${tab.browserConversationId}\0${tab.browserViewScopeId}`,
+        tab.browserTabId,
+      ]),
     ),
     cursors: [],
     tabs,

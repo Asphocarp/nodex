@@ -6,7 +6,6 @@ import type {
   CodexThreadActiveFlag,
   CodexThreadStatusType,
   CodexThreadSummary,
-  PanelId,
   Project,
   ProjectCreateInput,
   ProjectOrderInput,
@@ -18,22 +17,7 @@ import type {
   ProjectSessionPinnedInput,
   ProjectSessionPinnedOrderInput,
   ProjectSessionRenameInput,
-  ProjectSessionPanelActivateInput,
-  ProjectSessionPanelEnsureRightLeafInput,
-  ProjectSessionPanelEnsureRightLeafResult,
-  ProjectSessionPanelMaximizeInput,
-  ProjectSessionPanelMergeInput,
-  ProjectSessionPanelResizeInput,
-  ProjectSessionPanelSplitInput,
-  ProjectSessionPanelState,
   ProjectSessionSummary,
-  ProjectSessionTab,
-  ProjectSessionTabVariant,
-  ProjectSessionTabCreateInput,
-  ProjectSessionTabDeleteInput,
-  ProjectSessionTabMoveInput,
-  ProjectSessionTabReorderInput,
-  ProjectSessionTabUpdateInput,
   ProjectSessionThreadLink,
   ProjectSessionThreadLinkInput,
   ProjectSessionUnreadInput,
@@ -43,41 +27,10 @@ import type {
 import type { AgentExecutionProfile } from "../../shared/agent-runtime";
 import type { DynamicToolCatalogSelection } from "../codex/dynamic-tool-registry";
 import {
-  ProjectSessionPanelActivateInputSchema,
-  ProjectSessionPanelEnsureRightLeafInputSchema,
-  ProjectSessionPanelMaximizeInputSchema,
-  ProjectSessionPanelMergeInputSchema,
-  ProjectSessionPanelResizeInputSchema,
-  ProjectSessionPanelSplitInputSchema,
-  ProjectSessionTabCreateInputSchema,
-  ProjectSessionTabDeleteInputSchema,
-  ProjectSessionTabMoveInputSchema,
-  ProjectSessionTabReorderInputSchema,
   ProjectSessionThreadLinkInputSchema,
   ProjectSessionRenameInputSchema,
   ProjectSessionUpdateInputSchema,
-  ProjectSessionPanelsSchema,
-  parseProjectSessionTabConfig,
 } from "../../shared/schemas/project-sessions";
-import {
-  activateProjectSessionPanelLeaf,
-  findNearestProjectSessionPanelLeafToRight,
-  findProjectSessionPanelLeaf,
-  findProjectSessionPanelLeafForTab,
-  getProjectSessionPanelActiveLeaf,
-  insertProjectSessionPanelLeaf,
-  listProjectSessionPanelLeaves,
-  mergeProjectSessionPanelLeaf,
-  moveProjectSessionPanelLeaf,
-  moveProjectSessionPanelTab,
-  normalizeProjectSessionPanelLayout,
-  pruneEmptyProjectSessionPanelLeaves,
-  removeProjectSessionPanelTab,
-  reorderProjectSessionPanelLeafTabs,
-  setProjectSessionPanelBranchRatio,
-  setProjectSessionPanelMaximizedLeaf,
-  splitProjectSessionPanelLeaf,
-} from "../../shared/project-session-panel-layout";
 import { CoreModuleResponseError } from "./core-client";
 import type {
   CoreClientPort,
@@ -92,11 +45,6 @@ type CoreSessionSummary = Extract<
   ProjectWorkspaceReadSnapshot["value"],
   { kind: "sessions" }
 >["sessions"][number];
-type CoreSessionTab = Extract<
-  ProjectWorkspaceReadSnapshot["value"],
-  { kind: "session" }
->["tabs"][number];
-type CoreSessionTabContent = CoreSessionTab["content"];
 type CoreThread = Extract<
   ProjectWorkspaceReadSnapshot["value"],
   { kind: "thread" }
@@ -257,51 +205,6 @@ export interface DesktopProjectWorkspacePort {
   markProjectSessionUnread(
     sessionId: string,
     input: ProjectSessionUnreadInput,
-  ): Promise<ProjectSession | null>;
-  createProjectSessionTab(
-    input: ProjectSessionTabCreateInput,
-  ): Promise<ProjectSessionTab>;
-  splitProjectSessionPanelGroup(
-    input: ProjectSessionPanelSplitInput,
-  ): Promise<ProjectSession | null>;
-  ensureProjectSessionPanelLeafToRight(
-    input: ProjectSessionPanelEnsureRightLeafInput,
-  ): Promise<ProjectSessionPanelEnsureRightLeafResult | null>;
-  mergeProjectSessionPanelGroup(
-    input: ProjectSessionPanelMergeInput,
-  ): Promise<ProjectSession | null>;
-  activateProjectSessionPanelGroup(
-    input: ProjectSessionPanelActivateInput,
-  ): Promise<ProjectSession | null>;
-  resizeProjectSessionPanelGroup(
-    input: ProjectSessionPanelResizeInput,
-  ): Promise<ProjectSession | null>;
-  maximizeProjectSessionPanelGroup(
-    input: ProjectSessionPanelMaximizeInput,
-  ): Promise<ProjectSession | null>;
-  reorderProjectSessionTabs(
-    input: ProjectSessionTabReorderInput,
-  ): Promise<ProjectSession | null>;
-  getProjectSessionTab(tabId: string): Promise<ProjectSessionTab | null>;
-  updateProjectSessionTab(
-    tabId: string,
-    input: ProjectSessionTabUpdateInput,
-  ): Promise<ProjectSessionTab | null>;
-  updateProjectSessionTabState(
-    tabId: string,
-    stateKey: number,
-    state: unknown,
-  ): Promise<ProjectSessionTab | null>;
-  updateProjectSessionPanel(
-    sessionId: string,
-    panelId: PanelId,
-    input: Partial<ProjectSession["panels"][PanelId]>,
-  ): Promise<ProjectSession | null>;
-  deleteProjectSessionTab(
-    input: string | ProjectSessionTabDeleteInput,
-  ): Promise<boolean>;
-  moveProjectSessionTab(
-    input: ProjectSessionTabMoveInput,
   ): Promise<ProjectSession | null>;
   upsertProjectSessionThreadLink(
     input: ProjectSessionThreadLinkInput,
@@ -641,175 +544,10 @@ const fromCoreSessionSummary = (
   archived: session.archived,
   archivedAt: session.archived_at ?? null,
   unread: session.unread,
-  leftPaneCollapsed: session.left_pane_collapsed,
+  initialDatabaseViewId: session.initial_database_view_id ?? null,
   thread,
   createdAt: session.created_at,
   updatedAt: session.updated_at,
-});
-
-const fromCoreTabContent = (
-  content: CoreSessionTabContent,
-  owningProjectId: string | null,
-): ProjectSessionTabVariant => {
-  switch (content.kind) {
-    case "db_view":
-      return {
-        browserTabId: null,
-        kind: content.kind,
-        config: parseProjectSessionTabConfig(content.kind, {
-          projectId: owningProjectId,
-          databaseViewId: content.database_view_id,
-          view: content.view,
-        }),
-      };
-    case "page_stage":
-      return {
-        browserTabId: null,
-        kind: content.kind,
-        config: parseProjectSessionTabConfig(content.kind, {
-          projectId: content.project_id,
-          pageId: content.page_id,
-          titleSnapshot: content.title_snapshot,
-        }),
-      };
-    case "terminal":
-      return {
-        browserTabId: null,
-        kind: content.kind,
-        config: parseProjectSessionTabConfig(content.kind, {
-          terminalSessionId: content.terminal_session_id,
-        }),
-      };
-    case "browser":
-      if (!content.browser_tab_id) {
-        throw new Error("Core Browser tab content has no durable browser identity");
-      }
-      return {
-        browserTabId: content.browser_tab_id,
-        kind: content.kind,
-        config: parseProjectSessionTabConfig(content.kind, {
-          projectId: owningProjectId,
-          url: content.url,
-          title: content.title,
-          faviconUrl: content.favicon_url,
-          deviceToolbarVisible: content.device_toolbar_visible,
-        }),
-      };
-    case "review":
-      return {
-        browserTabId: null,
-        kind: content.kind,
-        config: parseProjectSessionTabConfig(content.kind, {
-          projectId: owningProjectId,
-        }),
-      };
-    case "files":
-      return {
-        browserTabId: null,
-        kind: content.kind,
-        config: parseProjectSessionTabConfig(content.kind, {
-          projectId: owningProjectId,
-          hostId: "local",
-          workspaceRoot: content.workspace_root ?? null,
-          cwd: content.cwd ?? null,
-          path: content.path,
-        }),
-      };
-  }
-};
-
-const toCoreTabContent = (
-  kind: ProjectSessionTab["kind"],
-  config: ProjectSessionTab["config"],
-  browserTabId?: string | null,
-): CoreSessionTabContent => {
-  const parsed = parseProjectSessionTabConfig(kind, config);
-  switch (kind) {
-    case "db_view":
-      return {
-        kind,
-        ...("databaseViewId" in parsed && parsed.databaseViewId
-          ? { database_view_id: parsed.databaseViewId }
-          : {}),
-        view: "view" in parsed ? parsed.view : "kanban",
-      };
-    case "page_stage":
-      if (!("pageId" in parsed)) throw new Error("Page tab content is invalid");
-      return {
-        kind,
-        project_id: parsed.projectId,
-        page_id: parsed.pageId,
-        ...(parsed.titleSnapshot !== undefined
-          ? { title_snapshot: parsed.titleSnapshot }
-          : {}),
-      };
-    case "terminal":
-      if (!("terminalSessionId" in parsed)) {
-        throw new Error("Terminal tab content is invalid");
-      }
-      return { kind, terminal_session_id: parsed.terminalSessionId };
-    case "browser":
-      return {
-        kind,
-        ...(browserTabId ? { browser_tab_id: browserTabId } : {}),
-        ...("url" in parsed && parsed.url !== undefined ? { url: parsed.url } : {}),
-        ...("title" in parsed && parsed.title !== undefined
-          ? { title: parsed.title }
-          : {}),
-        ...("faviconUrl" in parsed && parsed.faviconUrl !== undefined
-          ? { favicon_url: parsed.faviconUrl }
-          : {}),
-        ...("deviceToolbarVisible" in parsed &&
-        parsed.deviceToolbarVisible !== undefined
-          ? { device_toolbar_visible: parsed.deviceToolbarVisible }
-          : {}),
-      };
-    case "review":
-      return { kind };
-    case "files":
-      return {
-        kind,
-        ...("workspaceRoot" in parsed && parsed.workspaceRoot !== null
-          ? { workspace_root: parsed.workspaceRoot }
-          : {}),
-        ...("cwd" in parsed && parsed.cwd !== null ? { cwd: parsed.cwd } : {}),
-        ...("path" in parsed && parsed.path !== undefined ? { path: parsed.path } : {}),
-      };
-  }
-};
-
-const fromCoreTab = (tab: CoreSessionTab): ProjectSessionTab => ({
-  id: tab.id,
-  sessionId: tab.session_id,
-  projectId: tab.project_id ?? null,
-  ...fromCoreTabContent(tab.content, tab.project_id ?? null),
-  panelId: tab.panel_id,
-  title: tab.title,
-  order: tab.order,
-  stateKey: tab.state_key,
-  state: tab.state,
-  createdAt: tab.created_at,
-  updatedAt: tab.updated_at,
-});
-
-const toCorePanelPatch = (panel: Partial<ProjectSessionPanelState>) => ({
-  ...(panel.collapsed !== undefined ? { collapsed: panel.collapsed } : {}),
-  ...(panel.layout !== undefined ? { layout: panel.layout } : {}),
-  ...(panel.size !== undefined
-    ? {
-        size: {
-          ...(panel.size.widthPx !== undefined
-            ? { width_px: panel.size.widthPx }
-            : {}),
-          ...(panel.size.heightPx !== undefined
-            ? { height_px: panel.size.heightPx }
-            : {}),
-          ...(panel.size.fullWidth !== undefined
-            ? { full_width: panel.size.fullWidth }
-            : {}),
-        },
-      }
-    : {}),
 });
 
 export function createCoreProjectWorkspaceAdapter(
@@ -900,33 +638,7 @@ export function createCoreProjectWorkspaceAdapter(
     }
     const summary = snapshot.value.session;
     const thread = await readThread(summary);
-    const tabs = snapshot.value.tabs.map(fromCoreTab);
-    const panels = ProjectSessionPanelsSchema.parse(snapshot.value.panels) as Record<
-      PanelId,
-      ProjectSession["panels"][PanelId]
-    >;
-    return {
-      ...fromCoreSessionSummary(summary, thread),
-      panels,
-      tabs,
-    };
-  };
-
-  const readTab = async (tabId: string): Promise<ProjectSessionTab | null> => {
-    let snapshot: ProjectWorkspaceReadSnapshot;
-    try {
-      snapshot = await client.workspaceRead({
-        kind: "session_tab",
-        tab_id: tabId,
-      });
-    } catch (error) {
-      if (isNotFound(error)) return null;
-      throw error;
-    }
-    if (snapshot.value.kind !== "session_tab") {
-      throw new Error("Core returned the wrong Project Workspace read variant");
-    }
-    return fromCoreTab(snapshot.value.tab);
+    return fromCoreSessionSummary(summary, thread);
   };
 
   const listSummaries = async (
@@ -1038,45 +750,6 @@ export function createCoreProjectWorkspaceAdapter(
     intent: Parameters<CoreClientPort["workspaceApply"]>[0]["intent"],
   ): Promise<void> => {
     await client.workspaceApply({ operationId: randomUUID(), intent });
-  };
-
-  const replacePanelLayout = async (
-    sessionId: string,
-    panelId: PanelId,
-    layout: ProjectSession["panels"][PanelId]["layout"],
-  ): Promise<ProjectSession | null> => {
-    await apply({
-      kind: "mutate_session",
-      session_id: sessionId,
-      intent: {
-        kind: "replace_panel_layout",
-        panel_id: panelId,
-        layout,
-      },
-    });
-    return await readSession(sessionId);
-  };
-
-  const cleanupPanelLayout = (
-    layout: ProjectSession["panels"][PanelId]["layout"],
-    tabIds: readonly string[],
-    options: {
-      readonly preserveEmptyLeafIds?: readonly string[];
-      readonly preferredActiveLeafId?: string | null;
-      readonly preferredActiveTabId?: string | null;
-    } = {},
-  ) => {
-    const normalizeOptions = {
-      preferredActiveLeafId: options.preferredActiveLeafId,
-      preferredActiveTabId: options.preferredActiveTabId,
-    };
-    return pruneEmptyProjectSessionPanelLeaves(
-      normalizeProjectSessionPanelLayout(layout, tabIds, normalizeOptions),
-      {
-        ...normalizeOptions,
-        preserveLeafIds: options.preserveEmptyLeafIds,
-      },
-    );
   };
 
   const getProject = async (projectId: string): Promise<Project | null> => {
@@ -1191,9 +864,7 @@ export function createCoreProjectWorkspaceAdapter(
       const current = await readSession(sessionId);
       if (!current) return null;
       if (
-        parsed.noThreadFallbackTitle === undefined &&
-        parsed.leftPaneCollapsed === undefined &&
-        parsed.panels === undefined
+        parsed.noThreadFallbackTitle === undefined
       ) {
         return current;
       }
@@ -1201,19 +872,8 @@ export function createCoreProjectWorkspaceAdapter(
         kind: "mutate_session",
         session_id: sessionId,
         intent: {
-          kind: "patch_view_state",
-          ...(parsed.noThreadFallbackTitle !== undefined
-            ? { fallback_title: parsed.noThreadFallbackTitle }
-            : {}),
-          ...(parsed.leftPaneCollapsed !== undefined
-            ? { left_pane_collapsed: parsed.leftPaneCollapsed }
-            : {}),
-          ...(parsed.panels?.right
-            ? { right_panel: toCorePanelPatch(parsed.panels.right) }
-            : {}),
-          ...(parsed.panels?.bottom
-            ? { bottom_panel: toCorePanelPatch(parsed.panels.bottom) }
-            : {}),
+          kind: "set_fallback_title",
+          title: parsed.noThreadFallbackTitle,
         },
       });
       return await readSession(sessionId);
@@ -1314,387 +974,6 @@ export function createCoreProjectWorkspaceAdapter(
         intent: { kind: "set_unread", unread: input.unread },
       });
       return await readSession(sessionId);
-    },
-    createProjectSessionTab: async (input) => {
-      const parsed = ProjectSessionTabCreateInputSchema.parse(input);
-      const tabId = parsed.clientTabId ?? randomUUID();
-      await apply({
-        kind: "mutate_session",
-        session_id: parsed.sessionId,
-        intent: {
-          kind: "create_tab",
-          tab_id: tabId,
-          panel_id: parsed.panelId,
-          target_leaf_id: parsed.targetLeafId ?? null,
-          title: parsed.title,
-          content: toCoreTabContent(
-            parsed.kind,
-            parsed.config,
-            parsed.browserTabId,
-          ),
-        },
-      });
-      const session = await readSession(parsed.sessionId);
-      const exact = session?.tabs.find((tab) => tab.id === tabId);
-      if (exact) return exact;
-      const equivalent = session?.tabs.find((tab) => {
-        if (tab.kind === parsed.kind && (parsed.kind === "review")) return true;
-        if (tab.kind !== "db_view" || parsed.kind !== "db_view") return false;
-        return "databaseViewId" in tab.config &&
-          "databaseViewId" in parsed.config &&
-          tab.config.databaseViewId === parsed.config.databaseViewId;
-      });
-      if (!equivalent) {
-        throw new Error(`Created Project Session tab not found: ${tabId}`);
-      }
-      return equivalent;
-    },
-    splitProjectSessionPanelGroup: async (input) => {
-      const parsed = ProjectSessionPanelSplitInputSchema.parse(input);
-      const session = await readSession(parsed.sessionId);
-      if (!session) return null;
-      if (
-        parsed.tabId &&
-        !session.tabs.some(
-          (tab) => tab.id === parsed.tabId && tab.panelId === parsed.panelId,
-        )
-      ) {
-        throw new Error("Tab does not belong to the target panel");
-      }
-      const panelTabIds = session.tabs
-        .filter((tab) => tab.panelId === parsed.panelId)
-        .map((tab) => tab.id);
-      const layout = cleanupPanelLayout(
-        splitProjectSessionPanelLeaf(session.panels[parsed.panelId].layout, {
-          leafId: parsed.leafId,
-          side: parsed.side,
-          tabId: parsed.tabId,
-          newLeafId: randomUUID(),
-          newBranchId: randomUUID(),
-        }),
-        panelTabIds,
-        {
-          preserveEmptyLeafIds: parsed.preserveEmptyLeafIds,
-          preferredActiveLeafId: parsed.leafId,
-          preferredActiveTabId: parsed.tabId ?? null,
-        },
-      );
-      return await replacePanelLayout(parsed.sessionId, parsed.panelId, layout);
-    },
-    ensureProjectSessionPanelLeafToRight: async (input) => {
-      const parsed = ProjectSessionPanelEnsureRightLeafInputSchema.parse(input);
-      const session = await readSession(parsed.sessionId);
-      if (!session) return null;
-      const panelTabIds = session.tabs
-        .filter((tab) => tab.panelId === parsed.panelId)
-        .map((tab) => tab.id);
-      const layout = normalizeProjectSessionPanelLayout(
-        session.panels[parsed.panelId].layout,
-        panelTabIds,
-        { preferredActiveLeafId: parsed.sourceLeafId },
-      );
-      const sourceLeaf = findProjectSessionPanelLeaf(
-        layout,
-        parsed.sourceLeafId,
-      );
-      if (!sourceLeaf) return null;
-      const existingLeafId = findNearestProjectSessionPanelLeafToRight(
-        layout,
-        sourceLeaf.id,
-      );
-      if (existingLeafId) {
-        return { session, leafId: existingLeafId, created: false };
-      }
-      const leafId = randomUUID();
-      const next = await replacePanelLayout(
-        parsed.sessionId,
-        parsed.panelId,
-        insertProjectSessionPanelLeaf(layout, {
-          leafId: sourceLeaf.id,
-          side: "right",
-          newLeafId: leafId,
-          newBranchId: randomUUID(),
-        }),
-      );
-      return next ? { session: next, leafId, created: true } : null;
-    },
-    mergeProjectSessionPanelGroup: async (input) => {
-      const parsed = ProjectSessionPanelMergeInputSchema.parse(input);
-      const session = await readSession(parsed.sessionId);
-      if (!session) return null;
-      return await replacePanelLayout(
-        parsed.sessionId,
-        parsed.panelId,
-        mergeProjectSessionPanelLeaf(
-          session.panels[parsed.panelId].layout,
-          parsed.leafId,
-        ),
-      );
-    },
-    activateProjectSessionPanelGroup: async (input) => {
-      const parsed = ProjectSessionPanelActivateInputSchema.parse(input);
-      const session = await readSession(parsed.sessionId);
-      if (!session) return null;
-      return await replacePanelLayout(
-        parsed.sessionId,
-        parsed.panelId,
-        activateProjectSessionPanelLeaf(
-          session.panels[parsed.panelId].layout,
-          parsed.leafId,
-          parsed.tabId,
-        ),
-      );
-    },
-    resizeProjectSessionPanelGroup: async (input) => {
-      const parsed = ProjectSessionPanelResizeInputSchema.parse(input);
-      const session = await readSession(parsed.sessionId);
-      if (!session) return null;
-      return await replacePanelLayout(
-        parsed.sessionId,
-        parsed.panelId,
-        setProjectSessionPanelBranchRatio(
-          session.panels[parsed.panelId].layout,
-          parsed.branchId,
-          parsed.ratio,
-        ),
-      );
-    },
-    maximizeProjectSessionPanelGroup: async (input) => {
-      const parsed = ProjectSessionPanelMaximizeInputSchema.parse(input);
-      const session = await readSession(parsed.sessionId);
-      if (!session) return null;
-      return await replacePanelLayout(
-        parsed.sessionId,
-        parsed.panelId,
-        setProjectSessionPanelMaximizedLeaf(
-          session.panels[parsed.panelId].layout,
-          parsed.leafId,
-        ),
-      );
-    },
-    reorderProjectSessionTabs: async (input) => {
-      const parsed = ProjectSessionTabReorderInputSchema.parse(input);
-      const session = await readSession(parsed.sessionId);
-      if (!session) return null;
-      const panelTabs = session.tabs.filter(
-        (tab) => tab.panelId === parsed.panelId,
-      );
-      const layout = normalizeProjectSessionPanelLayout(
-        session.panels[parsed.panelId].layout,
-        panelTabs.map((tab) => tab.id),
-      );
-      const selected = new Set(parsed.orderedTabIds);
-      const targetLeaf = parsed.leafId
-        ? findProjectSessionPanelLeaf(layout, parsed.leafId)
-        : panelTabs.length === parsed.orderedTabIds.length
-          ? getProjectSessionPanelActiveLeaf(layout)
-          : listProjectSessionPanelLeaves(layout).find((leaf) =>
-              leaf.tabIds.some((tabId) => selected.has(tabId)),
-            ) ?? null;
-      const leafId = targetLeaf?.id ?? getProjectSessionPanelActiveLeaf(layout).id;
-      return await replacePanelLayout(
-        parsed.sessionId,
-        parsed.panelId,
-        reorderProjectSessionPanelLeafTabs(
-          layout,
-          leafId,
-          parsed.orderedTabIds,
-        ),
-      );
-    },
-    getProjectSessionTab: readTab,
-    updateProjectSessionTab: async (tabId, input) => {
-      const current = await readTab(tabId);
-      if (!current) return null;
-      const hasState = Object.prototype.hasOwnProperty.call(input, "state");
-      await apply({
-        kind: "mutate_session",
-        session_id: current.sessionId,
-        intent: {
-          kind: "update_tab",
-          tab_id: tabId,
-          ...(input.title !== undefined ? { title: input.title } : {}),
-          ...(input.config !== undefined
-            ? {
-                content: toCoreTabContent(
-                  current.kind,
-                  input.config,
-                  current.browserTabId,
-                ),
-              }
-            : {}),
-          ...(input.stateKey !== undefined ? { state_key: input.stateKey } : {}),
-          ...(hasState ? { state: input.state } : {}),
-        },
-      });
-      return await readTab(tabId);
-    },
-    updateProjectSessionTabState: async (tabId, stateKey, state) => {
-      const current = await readTab(tabId);
-      if (!current) return null;
-      await apply({
-        kind: "mutate_session",
-        session_id: current.sessionId,
-        intent: {
-          kind: "replace_tab_state",
-          tab_id: tabId,
-          state_key: stateKey,
-          state,
-        },
-      });
-      return await readTab(tabId);
-    },
-    updateProjectSessionPanel: async (sessionId, panelId, input) => {
-      if (!(await readSession(sessionId))) return null;
-      await apply({
-        kind: "mutate_session",
-        session_id: sessionId,
-        intent: {
-          kind: "patch_view_state",
-          ...(panelId === "right"
-            ? { right_panel: toCorePanelPatch(input) }
-            : { bottom_panel: toCorePanelPatch(input) }),
-        },
-      });
-      return await readSession(sessionId);
-    },
-    deleteProjectSessionTab: async (input) => {
-      const parsed = typeof input === "string"
-        ? { tabId: input }
-        : ProjectSessionTabDeleteInputSchema.parse(input);
-      const tab = await readTab(parsed.tabId);
-      if (!tab) return false;
-      const session = await readSession(tab.sessionId);
-      if (!session) return false;
-      const panelTabIds = session.tabs
-        .filter(
-          (candidate) =>
-            candidate.panelId === tab.panelId && candidate.id !== tab.id,
-        )
-        .map((candidate) => candidate.id);
-      const layout = cleanupPanelLayout(
-        removeProjectSessionPanelTab(
-          session.panels[tab.panelId].layout,
-          tab.id,
-          {
-            preferredActiveLeafId: parsed.preferredActiveLeafId,
-            preferredActiveTabId: parsed.preferredActiveTabId,
-          },
-        ),
-        panelTabIds,
-        {
-          preserveEmptyLeafIds: parsed.preserveEmptyLeafIds,
-          preferredActiveLeafId: parsed.preferredActiveLeafId,
-          preferredActiveTabId: parsed.preferredActiveTabId,
-        },
-      );
-      await apply({
-        kind: "mutate_session",
-        session_id: tab.sessionId,
-        intent: { kind: "delete_tab", tab_id: tab.id, layout },
-      });
-      return true;
-    },
-    moveProjectSessionTab: async (input) => {
-      const parsed = ProjectSessionTabMoveInputSchema.parse(input);
-      const tab = await readTab(parsed.tabId);
-      if (!tab) return null;
-      const session = await readSession(tab.sessionId);
-      if (!session) return null;
-      const sourcePanelId = tab.panelId;
-      const targetPanelId = parsed.targetPanelId;
-      const sourcePanelTabIds = session.tabs
-        .filter((candidate) => candidate.panelId === sourcePanelId)
-        .map((candidate) => candidate.id);
-      const sourceLayoutBeforeMove = normalizeProjectSessionPanelLayout(
-        session.panels[sourcePanelId].layout,
-        sourcePanelTabIds,
-      );
-      const sourceLeaf = findProjectSessionPanelLeafForTab(
-        sourceLayoutBeforeMove,
-        parsed.tabId,
-      );
-      if (
-        parsed.splitTarget &&
-        sourcePanelId === targetPanelId &&
-        sourceLeaf?.id === parsed.splitTarget.leafId &&
-        sourceLeaf.tabIds.length <= 1
-      ) {
-        return session;
-      }
-      const sourceTabIds = session.tabs
-        .filter(
-          (candidate) =>
-            candidate.panelId === sourcePanelId && candidate.id !== parsed.tabId,
-        )
-        .map((candidate) => candidate.id);
-      const targetTabIds = session.tabs
-        .filter(
-          (candidate) =>
-            candidate.panelId === targetPanelId || candidate.id === parsed.tabId,
-        )
-        .map((candidate) => candidate.id);
-      const sourceLayout = cleanupPanelLayout(
-        removeProjectSessionPanelTab(
-          session.panels[sourcePanelId].layout,
-          parsed.tabId,
-        ),
-        sourceTabIds,
-        { preserveEmptyLeafIds: parsed.preserveEmptyLeafIds },
-      );
-      const baseTargetLayout = sourcePanelId === targetPanelId
-        ? sourceLayout
-        : normalizeProjectSessionPanelLayout(
-            session.panels[targetPanelId].layout,
-            targetTabIds,
-          );
-      let targetLayout = baseTargetLayout;
-      if (
-        parsed.splitTarget &&
-        sourcePanelId === targetPanelId &&
-        sourceLeaf &&
-        sourceLeaf.tabIds.length === 1 &&
-        sourceLeaf.id !== parsed.splitTarget.leafId
-      ) {
-        targetLayout = moveProjectSessionPanelLeaf(sourceLayoutBeforeMove, {
-          sourceLeafId: sourceLeaf.id,
-          targetLeafId: parsed.splitTarget.leafId,
-          side: parsed.splitTarget.side,
-          newBranchId: randomUUID(),
-        });
-      } else if (parsed.splitTarget) {
-        targetLayout = splitProjectSessionPanelLeaf(baseTargetLayout, {
-          leafId: parsed.splitTarget.leafId,
-          side: parsed.splitTarget.side,
-          tabId: parsed.tabId,
-          newLeafId: randomUUID(),
-          newBranchId: randomUUID(),
-        });
-      } else {
-        targetLayout = moveProjectSessionPanelTab(baseTargetLayout, {
-          tabId: parsed.tabId,
-          targetLeafId: parsed.targetLeafId,
-          targetIndex: parsed.targetIndex,
-        });
-      }
-      targetLayout = cleanupPanelLayout(targetLayout, targetTabIds, {
-        preserveEmptyLeafIds: parsed.preserveEmptyLeafIds,
-        preferredActiveTabId: parsed.tabId,
-      });
-      await apply({
-        kind: "mutate_session",
-        session_id: tab.sessionId,
-        intent: {
-          kind: "move_tab",
-          tab_id: parsed.tabId,
-          panel_id: targetPanelId,
-          target_leaf_id: parsed.targetLeafId ?? null,
-          before_tab_id: null,
-          source_layout: sourceLayout,
-          target_layout: targetLayout,
-        },
-      });
-      return await readSession(tab.sessionId);
     },
     upsertProjectSessionThreadLink: async (input) => {
       const parsed = ProjectSessionThreadLinkInputSchema.parse(input);

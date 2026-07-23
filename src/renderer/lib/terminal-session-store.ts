@@ -10,6 +10,9 @@ import type {
   TerminalRunActionRequest,
   TerminalSessionSnapshot,
   TerminalSize,
+  TerminalTakeOverViewRequest,
+  TerminalViewLeaseResult,
+  TerminalViewLeaseRevokedEvent,
 } from "../../shared/types";
 import { appendTextTail } from "../../shared/bounded-text";
 
@@ -20,7 +23,19 @@ export type TerminalStoreEvent =
   | { type: "init-log"; sessionId: string; data: string; snapshot: TerminalSessionSnapshot }
   | { type: "attached"; sessionId: string; snapshot: TerminalSessionSnapshot }
   | { type: "error"; sessionId: string; message: string }
-  | { type: "exit"; sessionId: string; exitCode: number | null };
+  | {
+      type: "lease-conflict";
+      sessionId: string;
+      generation: number;
+      ownerWindowSessionId: string;
+    }
+  | { type: "lease-acquired"; sessionId: string; generation: number }
+  | {
+      type: "exit";
+      sessionId: string;
+      exitCode: number | null;
+      reason: "exited" | "killed";
+    };
 
 type TerminalStoreListener = (event: TerminalStoreEvent) => void;
 type TerminalExitListener = (event: { sessionId: string; exitCode: number | null }) => void;
@@ -32,6 +47,10 @@ interface RendererTerminalRecord {
   error: string | null;
   pendingWrites: string[];
   lastResize: TerminalSize | null;
+  leaseConflict: {
+    generation: number;
+    ownerWindowSessionId: string;
+  } | null;
 }
 
 function createEmptySnapshot(sessionId: string): TerminalSessionSnapshot {
@@ -52,6 +71,7 @@ function createEmptySnapshot(sessionId: string): TerminalSessionSnapshot {
     truncated: false,
     exited: false,
     exitCode: null,
+    viewLease: null,
   };
 }
 
@@ -114,6 +134,9 @@ export class TerminalSessionStore {
       window.api!.on("terminal-exit", (payload) => {
         this.handleExit(payload as TerminalExitEvent);
       }),
+      window.api!.on("terminal-view-lease-revoked", (payload) => {
+        this.handleLeaseRevoked(payload as TerminalViewLeaseRevokedEvent);
+      }),
     ];
   }
 
@@ -131,6 +154,13 @@ export class TerminalSessionStore {
 
   getError(sessionId: string): string | null {
     return this.getRecord(sessionId).error;
+  }
+
+  getLeaseConflict(sessionId: string): {
+    generation: number;
+    ownerWindowSessionId: string;
+  } | null {
+    return this.getRecord(sessionId).leaseConflict;
   }
 
   getVersion(): number {
@@ -164,7 +194,7 @@ export class TerminalSessionStore {
     };
   }
 
-  async createOrAttach(input: TerminalCreateRequest): Promise<void> {
+  async createOrAttach(input: TerminalCreateRequest): Promise<TerminalViewLeaseResult | null> {
     this.closingSessionIds.delete(input.sessionId);
     this.ensureEventSubscriptions();
     this.mergeSnapshot(input.sessionId, {
@@ -175,11 +205,16 @@ export class TerminalSessionStore {
       backendKind: input.backendKind ?? "local",
     });
 
-    if (!hasApi()) return;
-    await window.api!.invoke("terminal-create", input);
+    if (!hasApi()) return null;
+    const result = await window.api!.invoke(
+      "terminal-create",
+      input,
+    ) as TerminalViewLeaseResult;
+    this.applyLeaseResult(input.sessionId, result);
+    return result;
   }
 
-  async attach(input: TerminalAttachRequest): Promise<void> {
+  async attach(input: TerminalAttachRequest): Promise<TerminalViewLeaseResult | null> {
     this.closingSessionIds.delete(input.sessionId);
     this.ensureEventSubscriptions();
     this.mergeSnapshot(input.sessionId, {
@@ -188,8 +223,26 @@ export class TerminalSessionStore {
       cwd: input.cwd ?? null,
     });
 
-    if (!hasApi()) return;
-    await window.api!.invoke("terminal-attach", input);
+    if (!hasApi()) return null;
+    const result = await window.api!.invoke(
+      "terminal-acquire-view",
+      input,
+    ) as TerminalViewLeaseResult;
+    this.applyLeaseResult(input.sessionId, result);
+    return result;
+  }
+
+  async takeOver(
+    input: TerminalTakeOverViewRequest,
+  ): Promise<TerminalViewLeaseResult | null> {
+    this.ensureEventSubscriptions();
+    if (!hasApi()) return null;
+    const result = await window.api!.invoke(
+      "terminal-take-over-view",
+      input,
+    ) as TerminalViewLeaseResult;
+    this.applyLeaseResult(input.sessionId, result);
+    return result;
   }
 
   async runAction(input: TerminalRunActionRequest): Promise<void> {
@@ -240,14 +293,19 @@ export class TerminalSessionStore {
     void window.api!.invoke("terminal-resize", sessionId, { cols, rows });
   }
 
-  close(sessionId: string): void {
+  release(sessionId: string): void {
     if (this.closingSessionIds.has(sessionId)) return;
     this.closingSessionIds.add(sessionId);
     if (hasApi()) {
-      void window.api!.invoke("terminal-close", sessionId);
+      void window.api!.invoke("terminal-release-view", sessionId);
     }
     this.records.delete(sessionId);
     this.emitVersionChanged();
+  }
+
+  kill(sessionId: string): void {
+    if (!hasApi()) return;
+    void window.api!.invoke("terminal-kill", sessionId);
   }
 
   resolveTitle(sessionId: string, fallbackTitle: string | null | undefined, index: number): string {
@@ -273,6 +331,7 @@ export class TerminalSessionStore {
       error: null,
       pendingWrites: [],
       lastResize: null,
+      leaseConflict: null,
     };
     this.records.set(sessionId, record);
     return record;
@@ -320,6 +379,7 @@ export class TerminalSessionStore {
     record.snapshot = payload.snapshot;
     record.attached = true;
     record.error = null;
+    record.leaseConflict = null;
     this.flushPendingWrites(payload.sessionId, record);
     this.emitSession(payload.sessionId, {
       type: "attached",
@@ -352,9 +412,73 @@ export class TerminalSessionStore {
       type: "exit",
       sessionId: payload.sessionId,
       exitCode: payload.exitCode,
+      reason: payload.reason,
     });
     this.records.delete(payload.sessionId);
     this.emitExit(payload);
+    this.emitVersionChanged();
+  }
+
+  private handleLeaseRevoked(payload: TerminalViewLeaseRevokedEvent): void {
+    const record = this.getRecord(payload.sessionId);
+    record.attached = false;
+    record.snapshot = {
+      ...record.snapshot,
+      viewLease: {
+        windowSessionId: payload.ownerWindowSessionId,
+        generation: payload.generation,
+        size: record.snapshot.viewLease?.size ?? { cols: 80, rows: 24 },
+      },
+    };
+    record.leaseConflict = {
+      generation: payload.generation,
+      ownerWindowSessionId: payload.ownerWindowSessionId,
+    };
+    this.emitSession(payload.sessionId, {
+      type: "lease-conflict",
+      sessionId: payload.sessionId,
+      generation: payload.generation,
+      ownerWindowSessionId: payload.ownerWindowSessionId,
+    });
+    this.emitVersionChanged();
+  }
+
+  private applyLeaseResult(
+    sessionId: string,
+    result: TerminalViewLeaseResult,
+  ): void {
+    const record = this.getRecord(sessionId);
+    if (result.status === "not_found") {
+      record.attached = false;
+      record.error = "Terminal session does not exist.";
+      this.emitVersionChanged();
+      return;
+    }
+    record.snapshot = result.snapshot;
+    if (result.status === "conflict" || result.status === "stale") {
+      record.attached = false;
+      record.leaseConflict = {
+        generation: result.generation,
+        ownerWindowSessionId: result.ownerWindowSessionId,
+      };
+      this.emitSession(sessionId, {
+        type: "lease-conflict",
+        sessionId,
+        generation: result.generation,
+        ownerWindowSessionId: result.ownerWindowSessionId,
+      });
+      this.emitVersionChanged();
+      return;
+    }
+    record.attached = true;
+    record.error = null;
+    record.leaseConflict = null;
+    this.emitSession(sessionId, {
+      type: "lease-acquired",
+      sessionId,
+      generation: result.generation,
+    });
+    this.flushPendingWrites(sessionId, record);
     this.emitVersionChanged();
   }
 

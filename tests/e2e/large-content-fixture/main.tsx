@@ -9,7 +9,7 @@ import { ThreadStartProgressPanel } from "@/features/local-conversation/view/loc
 import { ToolCallRawDialog } from "@/features/local-conversation/view/shared/tools/tool-call-inspection";
 import type { Project, ProjectSession } from "@/lib/types";
 import { createLargeContentFixtures } from "../../../src/main/performance/large-content-fixtures";
-import { makeProjectSessionPanelLayout } from "../../../src/shared/project-session-panel-layout";
+import { makeWorkbenchPanelLayout } from "../../../src/shared/workbench-panel-layout";
 import { formatBoundedWorktreeOutput } from "../../../src/shared/worktree-output";
 import "../../../src/renderer/globals.css";
 
@@ -45,6 +45,7 @@ function buildSession(): ProjectSession {
   return {
     id: "session:large-content-performance",
     projectId: project.id,
+    initialDatabaseViewId: null,
     noThreadFallbackTitle: "Large content performance",
     displayTitle: "Large content performance",
     order: 0,
@@ -53,21 +54,7 @@ function buildSession(): ProjectSession {
     archived: false,
     archivedAt: null,
     unread: false,
-    leftPaneCollapsed: false,
-    panels: {
-      right: {
-        collapsed: false,
-        layout: makeProjectSessionPanelLayout(["files:large-content-performance"], "files:large-content-performance"),
-        size: { widthPx: 960 },
-      },
-      bottom: {
-        collapsed: true,
-        layout: makeProjectSessionPanelLayout([], null),
-        size: { heightPx: 280 },
-      },
-    },
     thread: null,
-    tabs: [],
     createdAt,
     updatedAt: createdAt,
   };

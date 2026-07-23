@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { collectSecondInstancesForStartupReplay } from "./main-runtime-startup-events";
+import {
+  collectSecondInstancesForStartupReplay,
+  requestsExplicitNewWindow,
+} from "./main-runtime-startup-events";
 
 describe("collectSecondInstancesForStartupReplay", () => {
   test("consumes initial argv and queued deep links before replaying plain second instances", () => {
@@ -29,5 +32,14 @@ describe("collectSecondInstancesForStartupReplay", () => {
     );
     expect(replay.length).toBe(1);
     expect(replay[0]?.join(",")).toBe("--new-window");
+  });
+});
+
+describe("requestsExplicitNewWindow", () => {
+  test("distinguishes an explicit new-window launch from an ordinary second instance", () => {
+    expect(requestsExplicitNewWindow(["nodex", "--new-window"])).toBe(true);
+    expect(requestsExplicitNewWindow(["nodex", "--new-window=false"])).toBe(false);
+    expect(requestsExplicitNewWindow(["nodex", "--original-process-start-time=1"]))
+      .toBe(false);
   });
 });

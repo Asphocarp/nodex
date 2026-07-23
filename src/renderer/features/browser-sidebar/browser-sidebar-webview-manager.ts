@@ -2,6 +2,7 @@ import {
   makeBrowserSidebarRoutePartition,
   makeBrowserSidebarTabKey,
   type BrowserSidebarDestroyWebviewRequest,
+  type BrowserSidebarTabIdentity,
   type BrowserSidebarWebviewDestroyed,
   type BrowserSidebarWebviewHostCreated,
   type BrowserSidebarWebviewHostKind,
@@ -26,10 +27,7 @@ export interface BrowserSidebarWebviewBounds {
   height: number;
 }
 
-interface WebviewHostKey {
-  browserConversationId: string;
-  browserTabId: string;
-}
+type WebviewHostKey = BrowserSidebarTabIdentity;
 
 interface ManagedWebviewInput extends WebviewHostKey {
   projectId: string | null;
@@ -82,6 +80,7 @@ class BrowserSidebarRendererWebviewHost implements ManagedBrowserWebviewHost {
     this.webview = document.createElement("webview") as BrowserSidebarWebviewElement;
     this.container.setAttribute("data-browser-sidebar-webview-manager-root", "");
     this.container.setAttribute("data-browser-sidebar-conversation-id", input.browserConversationId);
+    this.container.setAttribute("data-browser-sidebar-view-scope-id", input.browserViewScopeId);
     this.container.setAttribute("data-browser-sidebar-browser-tab-id", input.browserTabId);
     this.container.setAttribute("data-browser-sidebar-webview-host-kind", input.hostKind);
     this.webview.className = "h-full w-full";
@@ -91,6 +90,7 @@ class BrowserSidebarRendererWebviewHost implements ManagedBrowserWebviewHost {
     this.webview.setAttribute("partition", makeBrowserSidebarRoutePartition(input));
     this.webview.setAttribute("src", normalizeInitialWebviewUrl(input.initialUrl));
     this.webview.setAttribute("data-browser-sidebar-conversation-id", input.browserConversationId);
+    this.webview.setAttribute("data-browser-sidebar-view-scope-id", input.browserViewScopeId);
     this.webview.setAttribute("data-browser-sidebar-browser-tab-id", input.browserTabId);
     this.webview.setAttribute("data-browser-sidebar-webview-host-root", "");
     this.webview.setAttribute("data-browser-sidebar-webview-host-kind", input.hostKind);
@@ -114,6 +114,7 @@ class BrowserSidebarRendererWebviewHost implements ManagedBrowserWebviewHost {
     this.shouldPaint = input.shouldPaint !== false;
     this.windowZoom = input.windowZoom ?? 1;
     this.container.setAttribute("data-browser-sidebar-conversation-id", input.browserConversationId);
+    this.container.setAttribute("data-browser-sidebar-view-scope-id", input.browserViewScopeId);
     this.container.setAttribute("data-browser-sidebar-browser-tab-id", input.browserTabId);
     this.container.setAttribute("data-browser-sidebar-webview-host-kind", input.hostKind);
     this.webview.setAttribute("data-browser-sidebar-mount-generation", String(input.mountGeneration));
@@ -249,6 +250,7 @@ class BrowserSidebarRendererWebviewHost implements ManagedBrowserWebviewHost {
     }
     latestInput.onHostCreated({
       browserConversationId: latestInput.browserConversationId,
+      browserViewScopeId: latestInput.browserViewScopeId,
       browserTabId: latestInput.browserTabId,
       projectId: latestInput.projectId,
       hostKind: latestInput.hostKind,
@@ -314,6 +316,7 @@ export class BrowserSidebarRendererWebviewManager {
     }
     onDestroyed({
       browserConversationId: request.browserConversationId,
+      browserViewScopeId: request.browserViewScopeId,
       browserTabId: request.browserTabId,
       mountGeneration: request.mountGeneration,
       reason: request.reason,

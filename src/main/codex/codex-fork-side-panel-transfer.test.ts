@@ -166,7 +166,7 @@ describe("CodexForkSidePanelTransferManager", () => {
       routeKind: "local-thread",
       targetConversationId: "target",
       targetProjectSessionId: "session-target",
-    })).toBe(true);
+    })).toEqual({ value: "source->target" });
     expect(events.slice(-2).join(",")).toBe(
       "apply-prefix:source->target:session-target,apply-complete:target",
     );
@@ -175,7 +175,7 @@ describe("CodexForkSidePanelTransferManager", () => {
       routeKind: "local-thread",
       targetConversationId: "target",
       targetProjectSessionId: "session-target",
-    })).toBe(false);
+    })).toBe(null);
   });
 
   test("retains target and replays an applied prefix after an apply throw", async () => {
@@ -204,7 +204,7 @@ describe("CodexForkSidePanelTransferManager", () => {
       routeKind: "local-thread",
       targetConversationId: "target",
       targetProjectSessionId: "session-target",
-    })).toBe(true);
+    })).toEqual({ value: "source->target" });
     expect(events.filter((event) => event.startsWith("apply-prefix:")).length).toBe(2);
   });
 

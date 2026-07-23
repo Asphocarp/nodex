@@ -50,7 +50,15 @@ function ConnectedTerminalPanel({
   projectSessionId,
   onNewTerminalTab,
 }: TerminalPanelProps) {
-  const { containerRef, isUnavailable, error, reconnect } = useTerminal({
+  const {
+    containerRef,
+    isUnavailable,
+    error,
+    leaseConflict,
+    reconnect,
+    takeOver,
+    kill,
+  } = useTerminal({
     terminalId,
     visible: true,
     cwd,
@@ -69,7 +77,34 @@ function ConnectedTerminalPanel({
         ) : (
           <div className="relative h-full w-full overflow-hidden">
             <div ref={containerRef} className="h-full w-full overflow-hidden" />
-            {error ? (
+            {leaseConflict ? (
+              <div className="absolute inset-0 flex items-center justify-center bg-token-main-surface-primary/85 px-6 backdrop-blur-sm">
+                <div className="max-w-sm text-center">
+                  <p className="text-sm font-medium text-token-text-primary">
+                    Active in another window
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-token-text-secondary">
+                    This terminal can be viewed here after transferring its interactive lease.
+                  </p>
+                  <div className="mt-3 flex items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      className="rounded-md bg-token-foreground px-3 py-1.5 text-xs font-medium text-token-main-surface-primary hover:opacity-90"
+                      onClick={takeOver}
+                    >
+                      Take over
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-md px-3 py-1.5 text-xs text-token-error-foreground hover:bg-token-error-background"
+                      onClick={kill}
+                    >
+                      Kill terminal
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : error ? (
               <div className="absolute inset-x-3 bottom-3 flex items-center gap-2 rounded-lg bg-token-foreground/10 px-3 py-2 text-sm text-token-text-primary backdrop-blur">
                 <span className="min-w-0 flex-1 truncate">{error}</span>
                 <button

@@ -1,19 +1,15 @@
 use nodex_core_contracts::workspace::{
-    ProjectLifecycle, ProjectSessionPanelId, ProjectSessionTabKind, ProjectSource,
-    ProjectWorkspaceExecutionContext, ProjectWorkspaceProject, ProjectWorkspaceRead,
-    ProjectWorkspaceReadValue, ProjectWorkspaceSessionSummary, ProjectWorkspaceSessionTab,
+    ProjectLifecycle, ProjectSource, ProjectWorkspaceExecutionContext, ProjectWorkspaceProject,
+    ProjectWorkspaceRead, ProjectWorkspaceReadValue, ProjectWorkspaceSessionSummary,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
-use super::panel_layout::{parse_panel_id, parse_panels};
-use super::session_mutation::{decode_tab_content, parse_tab_kind};
 use super::thread::{read_permission_mode, read_thread, read_threads};
 use super::{execution, sidebar};
 
 const MAX_ID_LENGTH: usize = 512;
-const MAX_TAB_JSON_BYTES: usize = 2 * 1024 * 1024;
 
 struct ProjectRow {
     id: String,
@@ -39,8 +35,7 @@ struct SessionRow {
     archived: i64,
     archived_at: Option<String>,
     unread: i64,
-    left_pane_collapsed: i64,
-    panel_state_json: String,
+    initial_database_view_id: Option<String>,
     thread_id: Option<String>,
     thread_name: Option<String>,
     thread_preview: Option<String>,
@@ -99,46 +94,9 @@ pub(super) fn read(
             validate_id("session_id", &session_id)?;
             let row = read_session(connection, library_id, &session_id)?
                 .ok_or_else(|| not_found("Project Session is unavailable"))?;
-            let tabs = read_session_tabs(connection, &session_id, row.project_id.as_deref())?;
-            let right_tab_ids = tabs
-                .iter()
-                .filter(|tab| tab.panel_id == ProjectSessionPanelId::Right)
-                .map(|tab| tab.id.clone())
-                .collect::<Vec<_>>();
-            let bottom_tab_ids = tabs
-                .iter()
-                .filter(|tab| tab.panel_id == ProjectSessionPanelId::Bottom)
-                .map(|tab| tab.id.clone())
-                .collect::<Vec<_>>();
-            let panels = parse_panels(&row.panel_state_json, &right_tab_ids, &bottom_tab_ids)?
-                .into_value()?;
             Ok(ProjectWorkspaceReadValue::Session {
                 session: session_summary(row),
-                panels,
-                tabs,
             })
-        }
-        ProjectWorkspaceRead::SessionTab { tab_id } => {
-            validate_id("tab_id", &tab_id)?;
-            let session_id = connection
-                .query_row(
-                    "SELECT tab.session_id FROM project_session_tabs tab \
-                     JOIN project_sessions session ON session.id = tab.session_id \
-                     LEFT JOIN projects project ON project.id = session.project_id \
-                     WHERE tab.id = ?1 \
-                       AND (session.project_id IS NULL OR project.library_id = ?2)",
-                    params![tab_id, library_id],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()?
-                .ok_or_else(|| not_found("Project Session tab is unavailable"))?;
-            let session = read_session(connection, library_id, &session_id)?
-                .ok_or_else(|| corrupt("Project Session tab owner is unavailable"))?;
-            let tab = read_session_tabs(connection, &session_id, session.project_id.as_deref())?
-                .into_iter()
-                .find(|tab| tab.id == tab_id)
-                .ok_or_else(|| corrupt("Project Session tab disappeared during its read"))?;
-            Ok(ProjectWorkspaceReadValue::SessionTab { tab })
         }
         ProjectWorkspaceRead::Thread { thread_id } => {
             validate_id("thread_id", &thread_id)?;
@@ -366,8 +324,8 @@ fn read_sessions(
 ) -> Result<Vec<ProjectWorkspaceSessionSummary>, StoreError> {
     let sql = "SELECT session.id, session.project_id, session.no_thread_fallback_title, \
            session.\"order\", session.pinned, session.pinned_order, session.archived, \
-           session.archived_at, session.unread, session.left_pane_collapsed, \
-           session.panel_state_json, thread.thread_id, thread.thread_name, \
+           session.archived_at, session.unread, session.initial_database_view_id, \
+           thread.thread_id, thread.thread_name, \
            thread.thread_preview, session.created_at, session.updated_at \
          FROM project_sessions session \
          LEFT JOIN project_session_threads link ON link.session_id = session.id \
@@ -412,8 +370,8 @@ fn read_session(
         .query_row(
             "SELECT session.id, session.project_id, session.no_thread_fallback_title, \
                session.\"order\", session.pinned, session.pinned_order, session.archived, \
-               session.archived_at, session.unread, session.left_pane_collapsed, \
-               session.panel_state_json, thread.thread_id, thread.thread_name, \
+               session.archived_at, session.unread, session.initial_database_view_id, \
+               thread.thread_id, thread.thread_name, \
                thread.thread_preview, session.created_at, session.updated_at \
              FROM project_sessions session \
              LEFT JOIN project_session_threads link ON link.session_id = session.id \
@@ -441,13 +399,12 @@ fn session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {
         archived: row.get(6)?,
         archived_at: row.get(7)?,
         unread: row.get(8)?,
-        left_pane_collapsed: row.get(9)?,
-        panel_state_json: row.get(10)?,
-        thread_id: row.get(11)?,
-        thread_name: row.get(12)?,
-        thread_preview: row.get(13)?,
-        created_at: row.get(14)?,
-        updated_at: row.get(15)?,
+        initial_database_view_id: row.get(9)?,
+        thread_id: row.get(10)?,
+        thread_name: row.get(11)?,
+        thread_preview: row.get(12)?,
+        created_at: row.get(13)?,
+        updated_at: row.get(14)?,
     })
 }
 
@@ -474,105 +431,11 @@ fn session_summary(row: SessionRow) -> ProjectWorkspaceSessionSummary {
         archived: row.archived == 1,
         archived_at: row.archived_at,
         unread: row.unread == 1,
-        left_pane_collapsed: row.left_pane_collapsed == 1,
+        initial_database_view_id: row.initial_database_view_id,
         thread_id: row.thread_id,
         created_at: row.created_at,
         updated_at: row.updated_at,
     }
-}
-
-fn read_session_tabs(
-    connection: &Connection,
-    session_id: &str,
-    session_project_id: Option<&str>,
-) -> Result<Vec<ProjectWorkspaceSessionTab>, StoreError> {
-    let rows = connection
-        .prepare(
-            "SELECT id, session_id, project_id, browser_tab_id, panel_id, kind, title, \
-               \"order\", config_json, state_key, state_json, created_at, updated_at \
-             FROM project_session_tabs WHERE session_id = ?1 \
-             ORDER BY CASE panel_id WHEN 'right' THEN 0 ELSE 1 END, \
-               \"order\", created_at, id",
-        )?
-        .query_map([session_id], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, String>(6)?,
-                row.get::<_, i64>(7)?,
-                row.get::<_, String>(8)?,
-                row.get::<_, i64>(9)?,
-                row.get::<_, String>(10)?,
-                row.get::<_, String>(11)?,
-                row.get::<_, String>(12)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    rows.into_iter()
-        .map(
-            |(
-                id,
-                session_id,
-                project_id,
-                browser_tab_id,
-                panel_id,
-                kind,
-                title,
-                order,
-                config_json,
-                state_key,
-                state_json,
-                created_at,
-                updated_at,
-            )| {
-                if config_json.len() > MAX_TAB_JSON_BYTES || state_json.len() > MAX_TAB_JSON_BYTES {
-                    return Err(corrupt("Project Session tab JSON exceeds its bound"));
-                }
-                let config = serde_json::from_str::<serde_json::Value>(&config_json)
-                    .map_err(|_| corrupt("Project Session tab config JSON is invalid"))?;
-                if !config.is_object() {
-                    return Err(corrupt("Project Session tab config must be an object"));
-                }
-                let state = serde_json::from_str::<serde_json::Value>(&state_json)
-                    .map_err(|_| corrupt("Project Session tab state JSON is invalid"))?;
-                if state_key < 0 {
-                    return Err(corrupt("Project Session tab state key is invalid"));
-                }
-                if project_id.as_deref() != session_project_id {
-                    return Err(corrupt(
-                        "Project Session tab Project differs from its owning Session",
-                    ));
-                }
-                let panel_id = parse_panel_id(&panel_id)?;
-                let kind = parse_tab_kind(&kind)?;
-                if matches!(kind, ProjectSessionTabKind::Browser)
-                    != browser_tab_id
-                        .as_deref()
-                        .is_some_and(|identity| !identity.trim().is_empty())
-                {
-                    return Err(corrupt("Project Session browser identity is invalid"));
-                }
-                let content = decode_tab_content(kind, &config, browser_tab_id)?;
-                Ok(ProjectWorkspaceSessionTab {
-                    id,
-                    session_id,
-                    project_id,
-                    panel_id,
-                    title,
-                    order,
-                    content,
-                    state_key,
-                    state,
-                    created_at,
-                    updated_at,
-                })
-            },
-        )
-        .collect()
 }
 
 fn require_project(
@@ -615,9 +478,7 @@ fn corrupt(message: &str) -> StoreError {
 
 #[cfg(test)]
 mod tests {
-    use nodex_core_contracts::workspace::{
-        ProjectSessionTabContent, ProjectWorkspaceRead, ProjectWorkspaceReadValue,
-    };
+    use nodex_core_contracts::workspace::{ProjectWorkspaceRead, ProjectWorkspaceReadValue};
     use nodex_core_contracts::{
         AdapterKind, BoundModuleContext, CoreErrorCode, LibraryId, ModuleReadRequest,
         PROJECT_WORKSPACE_CONTRACT_VERSION, ProfileId, ProjectId,
@@ -700,31 +561,22 @@ mod tests {
                             '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'); \
                          INSERT INTO project_sessions( \
                            id, project_id, no_thread_fallback_title, \"order\", pinned, \
-                           pinned_order, archived, archived_at, unread, left_pane_collapsed, \
-                           panel_state_json, created_at, updated_at \
+                           pinned_order, archived, archived_at, unread, \
+                           initial_database_view_id, created_at, updated_at \
                          ) VALUES \
-                           ('session-project', 'project-1', 'Fallback', 2, 1, 0, 0, NULL, 1, 0, \
-                            '{\"right\":{\"layout\":{\"kind\":\"leaf\",\"id\":\"right\"}}}', \
+                           ('session-project', 'project-1', 'Fallback', 2, 1, 0, 0, NULL, 1, NULL, \
                             '2026-07-19T03:31:00.000Z', '2026-07-19T03:34:00.000Z'), \
                            ('session-archived', 'project-1', 'Archived session', 3, 0, NULL, 1, \
-                            '2026-07-19T03:35:00.000Z', 0, 0, '{}', \
+                            '2026-07-19T03:35:00.000Z', 0, NULL, \
                             '2026-07-19T03:32:00.000Z', '2026-07-19T03:35:00.000Z'), \
                            ('session-archived-project', 'project-2', 'Archived project', 0, 0, \
-                            NULL, 0, NULL, 0, 0, '{}', \
+                            NULL, 0, NULL, 0, NULL, \
                             '2026-07-19T03:32:00.000Z', '2026-07-19T03:35:00.000Z'), \
                            ('session-foreign', 'project-foreign', 'Foreign session', 0, 0, NULL, \
-                            0, NULL, 0, 0, '{}', \
+                            0, NULL, 0, NULL, \
                             '2026-07-19T03:33:00.000Z', '2026-07-19T03:33:00.000Z'), \
-                           ('session-projectless', NULL, 'Projectless', 0, 0, NULL, 0, NULL, 0, 0, \
-                            '{}', '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'); \
-                         INSERT INTO project_session_tabs( \
-                           id, session_id, project_id, browser_tab_id, panel_id, kind, title, \
-                           config_json, state_key, state_json, \"order\", created_at, updated_at \
-                         ) VALUES ( \
-                           'tab-1', 'session-project', 'project-1', 'browser-1', 'right', \
-                           'browser', 'Browser', '{\"projectId\":\"project-1\"}', 0, '{}', 0, \
-                           '2026-07-19T03:32:00.000Z', '2026-07-19T03:32:00.000Z' \
-                         ); \
+                           ('session-projectless', NULL, 'Projectless', 0, 0, NULL, 0, NULL, 0, \
+                            NULL, '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'); \
                          INSERT INTO codex_threads( \
                            thread_id, project_id, thread_name, thread_preview, model_provider, \
                            managed_worktree_path, status_type, status_active_flags_json, archived, \
@@ -874,41 +726,16 @@ mod tests {
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].id, "session-projectless");
 
-        let ProjectWorkspaceReadValue::Session {
-            session,
-            panels,
-            tabs,
-        } = read(
+        let ProjectWorkspaceReadValue::Session { session } = read(
             &module,
             ProjectWorkspaceRead::Session {
                 session_id: "session-project".to_owned(),
             },
-        )
-        else {
+        ) else {
             panic!("session snapshot");
         };
         assert_eq!(session.display_title, "Thread preview");
-        assert_eq!(panels["right"]["layout"]["version"], 2);
-        assert_eq!(panels["right"]["layout"]["root"]["id"], "main");
-        assert_eq!(tabs.len(), 1);
-        assert_eq!(tabs[0].id, "tab-1");
-
-        let ProjectWorkspaceReadValue::SessionTab { tab } = read(
-            &module,
-            ProjectWorkspaceRead::SessionTab {
-                tab_id: "tab-1".to_owned(),
-            },
-        ) else {
-            panic!("session tab snapshot");
-        };
-        assert_eq!(tab.session_id, "session-project");
-        assert!(matches!(
-            tab.content,
-            ProjectSessionTabContent::Browser {
-                browser_tab_id: Some(ref browser_tab_id),
-                ..
-            } if browser_tab_id == "browser-1"
-        ));
+        assert_eq!(session.initial_database_view_id, None);
 
         let ProjectWorkspaceReadValue::Thread { thread } = read(
             &module,
@@ -959,32 +786,8 @@ mod tests {
     }
 
     #[test]
-    fn fails_closed_for_invalid_panel_state_and_adapter_identity() {
-        let (_directory, kernel, module) = seeded_module();
-        kernel
-            .writer()
-            .call(|connection| {
-                connection.execute(
-                    "UPDATE project_sessions SET panel_state_json = '[]' \
-                     WHERE id = 'session-project'",
-                    [],
-                )?;
-                Ok(())
-            })
-            .expect("corrupt panel state");
-        let corrupt = module
-            .read(
-                &context(),
-                ModuleReadRequest {
-                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
-                    read: ProjectWorkspaceRead::Session {
-                        session_id: "session-project".to_owned(),
-                    },
-                },
-            )
-            .expect_err("reject corrupt panel state");
-        assert_eq!(corrupt.code, CoreErrorCode::StoreCorrupt);
-
+    fn fails_closed_for_adapter_identity() {
+        let (_directory, _kernel, module) = seeded_module();
         let mut foreign = context();
         foreign.library_id = LibraryId("library-foreign".to_owned());
         let unauthorized = module

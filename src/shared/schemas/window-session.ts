@@ -4,6 +4,7 @@ import type {
   WindowSessionBounds,
   WindowSessionBootstrap,
   WindowSessionCatalog,
+  WindowSessionLifecycle,
   WindowSessionRecord,
 } from "../window-session";
 import { WorkbenchLayoutSnapshotSchema } from "./workbench-layout";
@@ -22,8 +23,20 @@ export const WindowSessionBoundsSchema = z.object({
   mode: z.enum(["normal", "maximized", "fullscreen"]).catch("normal"),
 }) satisfies z.ZodType<WindowSessionBounds>;
 
+export const WindowSessionLifecycleSchema = z.discriminatedUnion("state", [
+  z.object({
+    state: z.literal("open"),
+  }).strict(),
+  z.object({
+    state: z.literal("closed"),
+    closedAt: z.string().min(1),
+  }).strict(),
+]) satisfies z.ZodType<WindowSessionLifecycle>;
+
 export const WindowSessionRecordSchema = z.object({
   id: z.string().min(1),
+  lifecycle: WindowSessionLifecycleSchema,
+  layoutRevision: z.number().int().nonnegative(),
   layout: WorkbenchLayoutSnapshotSchema,
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -32,10 +45,39 @@ export const WindowSessionRecordSchema = z.object({
 }) satisfies z.ZodType<WindowSessionRecord>;
 
 export const WindowSessionCatalogSchema = z.object({
-  version: z.literal(1),
-  lastActiveSessionId: z.string().min(1),
+  version: z.literal(3),
+  lastActiveSessionId: z.string(),
   sessions: z.array(WindowSessionRecordSchema),
 }) satisfies z.ZodType<WindowSessionCatalog>;
+
+const LegacyWindowSessionRecordV2Schema = z.object({
+  id: z.string().min(1),
+  layoutRevision: z.number().int().nonnegative(),
+  layout: WorkbenchLayoutSnapshotSchema,
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  focusedAt: z.string(),
+  bounds: WindowSessionBoundsSchema.optional().catch(undefined),
+}).strict();
+
+export const LegacyWindowSessionCatalogV2Schema = z.object({
+  version: z.literal(2),
+  lastActiveSessionId: z.string().min(1),
+  sessions: z.array(LegacyWindowSessionRecordV2Schema),
+}).strict();
+
+export const LegacyWindowSessionCatalogV1Schema = z.object({
+  version: z.literal(1),
+  lastActiveSessionId: z.string().min(1),
+  sessions: z.array(z.object({
+    id: z.string().min(1),
+    layout: WorkbenchLayoutSnapshotSchema,
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    focusedAt: z.string(),
+    bounds: WindowSessionBoundsSchema.optional().catch(undefined),
+  }).strict()),
+}).strict();
 
 export const WindowSessionBootstrapSchema = z.object({
   session: WindowSessionRecordSchema,

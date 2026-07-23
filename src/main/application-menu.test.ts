@@ -3,6 +3,7 @@ import type { MenuItemConstructorOptions } from "electron";
 import type { WorkbenchCommandInvocation } from "../shared/workbench-commands";
 import { createCommandKeymapState } from "../shared/command-keybindings";
 import {
+  buildWindowFileMenu,
   buildWorkbenchViewMenu,
   TOGGLE_BOTTOM_PANEL_MENU_ITEM_ID,
 } from "./application-menu";
@@ -20,6 +21,25 @@ function bottomPanelMenuItem(
   const item = submenu.find((candidate) => candidate.id === TOGGLE_BOTTOM_PANEL_MENU_ITEM_ID);
   if (!item) throw new Error("Expected the Toggle Bottom Panel menu item");
   return item;
+}
+
+function fileMenuItems(
+  platform: "macOS" | "windows" | "linux",
+  input: {
+    overrides?: Record<string, string[]>;
+    calls?: string[];
+  } = {},
+): MenuItemConstructorOptions[] {
+  const calls = input.calls ?? [];
+  const menu = buildWindowFileMenu({
+    commandKeymapState: createCommandKeymapState(
+      input.overrides ?? {},
+      platform,
+    ),
+    onNewWindow: () => calls.push("new"),
+    onCloseWindow: () => calls.push("close"),
+  });
+  return menu.submenu as MenuItemConstructorOptions[];
 }
 
 describe("application menu", () => {
@@ -52,5 +72,33 @@ describe("application menu", () => {
       commandId: "toggleBottomPanel",
       source: "menu",
     }]);
+  });
+
+  test.each(["macOS", "windows", "linux"] as const)(
+    "builds configurable window commands on %s",
+    (platform) => {
+      const items = fileMenuItems(platform);
+
+      expect(items.flatMap((item) => item.id ?? [])).toEqual([
+        "file.newWindow",
+        "file.closeWindow",
+      ]);
+      expect(items.find((item) => item.id === "file.newWindow")?.accelerator)
+        .toBe("CommandOrControl+Shift+N");
+      expect(items.find((item) => item.id === "file.closeWindow")?.accelerator)
+        .toBe("CommandOrControl+Shift+W");
+    },
+  );
+
+  test("dispatches each file action once", () => {
+    const calls: string[] = [];
+    const items = fileMenuItems("macOS", { calls });
+    const actionable = items.filter((item) => typeof item.click === "function");
+
+    for (const item of actionable) {
+      if (typeof item.click !== "function") continue;
+      item.click({} as never, {} as never, {} as never);
+    }
+    expect(calls).toEqual(["new", "close"]);
   });
 });

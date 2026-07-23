@@ -74,42 +74,6 @@ export function createDesktopProjectWorkspaceBridge(
       await (await resolve()).unarchiveProjectSession(sessionId),
     markProjectSessionUnread: async (sessionId, sessionInput) =>
       await (await resolve()).markProjectSessionUnread(sessionId, sessionInput),
-    createProjectSessionTab: async (tabInput) =>
-      await (await resolve()).createProjectSessionTab(tabInput),
-    splitProjectSessionPanelGroup: async (panelInput) =>
-      await (await resolve()).splitProjectSessionPanelGroup(panelInput),
-    ensureProjectSessionPanelLeafToRight: async (panelInput) =>
-      await (await resolve()).ensureProjectSessionPanelLeafToRight(panelInput),
-    mergeProjectSessionPanelGroup: async (panelInput) =>
-      await (await resolve()).mergeProjectSessionPanelGroup(panelInput),
-    activateProjectSessionPanelGroup: async (panelInput) =>
-      await (await resolve()).activateProjectSessionPanelGroup(panelInput),
-    resizeProjectSessionPanelGroup: async (panelInput) =>
-      await (await resolve()).resizeProjectSessionPanelGroup(panelInput),
-    maximizeProjectSessionPanelGroup: async (panelInput) =>
-      await (await resolve()).maximizeProjectSessionPanelGroup(panelInput),
-    reorderProjectSessionTabs: async (tabInput) =>
-      await (await resolve()).reorderProjectSessionTabs(tabInput),
-    getProjectSessionTab: async (tabId) =>
-      await (await resolve()).getProjectSessionTab(tabId),
-    updateProjectSessionTab: async (tabId, tabInput) =>
-      await (await resolve()).updateProjectSessionTab(tabId, tabInput),
-    updateProjectSessionTabState: async (tabId, stateKey, state) =>
-      await (await resolve()).updateProjectSessionTabState(
-        tabId,
-        stateKey,
-        state,
-      ),
-    updateProjectSessionPanel: async (sessionId, panelId, panelInput) =>
-      await (await resolve()).updateProjectSessionPanel(
-        sessionId,
-        panelId,
-        panelInput,
-      ),
-    deleteProjectSessionTab: async (tabInput) =>
-      await (await resolve()).deleteProjectSessionTab(tabInput),
-    moveProjectSessionTab: async (tabInput) =>
-      await (await resolve()).moveProjectSessionTab(tabInput),
     upsertProjectSessionThreadLink: async (threadInput) =>
       await (await resolve()).upsertProjectSessionThreadLink(threadInput),
     detachProjectSessionThread: async (sessionId) =>

@@ -4,7 +4,6 @@ import type { CodexAccountSnapshot, CodexSidebarThreadItem, Project, ProjectSess
 import type { ProjectRef } from "@/lib/use-workbench-state";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { CodexAutomationsIcon, ComposerPluginsIcon } from "@/components/shared/icons";
-import { makeProjectSessionPanelLayout } from "../../../shared/project-session-panel-layout";
 import {
   codexSidebarProjectThreadContainerId,
   isCodexSidebarThreadContainerId,
@@ -692,10 +691,10 @@ function makeStorySession(input: {
   threadId?: string;
   rightFullWidth?: boolean;
 }): ProjectSession {
-  const tabId = `${input.id}:db`;
   return {
     id: input.id,
     projectId: "nodex",
+    initialDatabaseViewId: "database-view:nodex:primary-kanban",
     noThreadFallbackTitle: input.title,
     displayTitle: input.title,
     order: 0,
@@ -704,19 +703,6 @@ function makeStorySession(input: {
     archived: false,
     archivedAt: null,
     unread: input.unread ?? false,
-    leftPaneCollapsed: true,
-    panels: {
-      right: {
-        collapsed: false,
-        layout: makeProjectSessionPanelLayout([tabId], tabId),
-        size: { widthPx: 600, fullWidth: input.rightFullWidth ?? false },
-      },
-      bottom: {
-        collapsed: true,
-        layout: makeProjectSessionPanelLayout([], null, "bottom"),
-        size: { heightPx: 280 },
-      },
-    },
     thread: input.threadId
       ? {
         sessionId: input.id,
@@ -735,23 +721,6 @@ function makeStorySession(input: {
         linkedAt: "2026-06-07T00:00:00.000Z",
       }
       : null,
-    tabs: [
-      {
-        id: tabId,
-        sessionId: input.id,
-        projectId: "nodex",
-        browserTabId: null,
-        panelId: "right",
-        kind: "db_view",
-        title: "DB View",
-        order: 0,
-        config: { projectId: "nodex", view: "kanban" },
-        stateKey: 0,
-        state: {},
-        createdAt: "2026-06-07T00:00:00.000Z",
-        updatedAt: "2026-06-07T00:00:00.000Z",
-      },
-    ],
     createdAt: "2026-06-07T00:00:00.000Z",
     updatedAt: "2026-06-07T00:00:00.000Z",
   };

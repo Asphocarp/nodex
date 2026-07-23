@@ -1,12 +1,11 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::Value;
 use utoipa::ToSchema;
 
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 3;
+pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 4;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -27,9 +26,6 @@ pub enum ProjectWorkspaceRead {
     },
     Session {
         session_id: String,
-    },
-    SessionTab {
-        tab_id: String,
     },
     Thread {
         thread_id: String,
@@ -83,11 +79,6 @@ pub enum ProjectWorkspaceReadValue {
     },
     Session {
         session: ProjectWorkspaceSessionSummary,
-        panels: Value,
-        tabs: Vec<ProjectWorkspaceSessionTab>,
-    },
-    SessionTab {
-        tab: ProjectWorkspaceSessionTab,
     },
     Thread {
         thread: Box<ProjectWorkspaceThread>,
@@ -464,146 +455,8 @@ pub struct ProjectWorkspaceSessionSummary {
     pub archived: bool,
     pub archived_at: Option<String>,
     pub unread: bool,
-    pub left_pane_collapsed: bool,
+    pub initial_database_view_id: Option<String>,
     pub thread_id: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ProjectSessionPanelId {
-    Right,
-    Bottom,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ProjectSessionTabKind {
-    DbView,
-    PageStage,
-    Terminal,
-    Browser,
-    Review,
-    Files,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-#[serde(rename_all = "kebab-case")]
-pub enum ProjectSessionDatabaseView {
-    Kanban,
-    List,
-    ToggleList,
-    Canvas,
-    Calendar,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ProjectSessionTabContent {
-    DbView {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        database_view_id: Option<String>,
-        view: ProjectSessionDatabaseView,
-    },
-    PageStage {
-        project_id: String,
-        page_id: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        title_snapshot: Option<String>,
-    },
-    Terminal {
-        terminal_session_id: String,
-    },
-    Browser {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        browser_tab_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        url: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        title: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        favicon_url: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        device_toolbar_visible: Option<bool>,
-    },
-    Review,
-    Files {
-        workspace_root: Option<String>,
-        cwd: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        path: Option<String>,
-    },
-}
-
-impl ProjectSessionTabContent {
-    pub fn kind(&self) -> ProjectSessionTabKind {
-        match self {
-            Self::DbView { .. } => ProjectSessionTabKind::DbView,
-            Self::PageStage { .. } => ProjectSessionTabKind::PageStage,
-            Self::Terminal { .. } => ProjectSessionTabKind::Terminal,
-            Self::Browser { .. } => ProjectSessionTabKind::Browser,
-            Self::Review => ProjectSessionTabKind::Review,
-            Self::Files { .. } => ProjectSessionTabKind::Files,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize, ToSchema)]
-pub struct ProjectSessionPanelSizePatch {
-    #[serde(
-        default,
-        deserialize_with = "deserialize_present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub width_px: Option<f64>,
-    #[serde(
-        default,
-        deserialize_with = "deserialize_present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub height_px: Option<f64>,
-    #[serde(
-        default,
-        deserialize_with = "deserialize_present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub full_width: Option<bool>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize, ToSchema)]
-pub struct ProjectSessionPanelStatePatch {
-    #[serde(
-        default,
-        deserialize_with = "deserialize_present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub collapsed: Option<bool>,
-    #[serde(
-        default,
-        deserialize_with = "deserialize_present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub layout: Option<Value>,
-    #[serde(
-        default,
-        deserialize_with = "deserialize_present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub size: Option<ProjectSessionPanelSizePatch>,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
-pub struct ProjectWorkspaceSessionTab {
-    pub id: String,
-    pub session_id: String,
-    pub project_id: Option<String>,
-    pub panel_id: ProjectSessionPanelId,
-    pub title: String,
-    pub order: i64,
-    pub content: ProjectSessionTabContent,
-    pub state_key: i64,
-    pub state: Value,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -756,86 +609,8 @@ pub enum ProjectSessionIntent {
     SetArchived {
         archived: bool,
     },
-    PatchViewState {
-        #[serde(
-            default,
-            deserialize_with = "deserialize_present",
-            skip_serializing_if = "Option::is_none"
-        )]
-        fallback_title: Option<String>,
-        #[serde(
-            default,
-            deserialize_with = "deserialize_present",
-            skip_serializing_if = "Option::is_none"
-        )]
-        left_pane_collapsed: Option<bool>,
-        #[serde(
-            default,
-            deserialize_with = "deserialize_present",
-            skip_serializing_if = "Option::is_none"
-        )]
-        right_panel: Option<ProjectSessionPanelStatePatch>,
-        #[serde(
-            default,
-            deserialize_with = "deserialize_present",
-            skip_serializing_if = "Option::is_none"
-        )]
-        bottom_panel: Option<ProjectSessionPanelStatePatch>,
-    },
-    ReplacePanelLayout {
-        panel_id: ProjectSessionPanelId,
-        layout: Value,
-    },
-    CreateTab {
-        tab_id: String,
-        panel_id: ProjectSessionPanelId,
-        target_leaf_id: Option<String>,
+    SetFallbackTitle {
         title: String,
-        content: ProjectSessionTabContent,
-    },
-    DeleteTab {
-        tab_id: String,
-        layout: Option<Value>,
-    },
-    MoveTab {
-        tab_id: String,
-        panel_id: ProjectSessionPanelId,
-        target_leaf_id: Option<String>,
-        before_tab_id: Option<String>,
-        source_layout: Option<Value>,
-        target_layout: Option<Value>,
-    },
-    UpdateTab {
-        tab_id: String,
-        #[serde(
-            default,
-            deserialize_with = "deserialize_present",
-            skip_serializing_if = "Option::is_none"
-        )]
-        title: Option<String>,
-        #[serde(
-            default,
-            deserialize_with = "deserialize_present",
-            skip_serializing_if = "Option::is_none"
-        )]
-        content: Option<ProjectSessionTabContent>,
-        #[serde(
-            default,
-            deserialize_with = "deserialize_present",
-            skip_serializing_if = "Option::is_none"
-        )]
-        state_key: Option<i64>,
-        #[serde(
-            default,
-            deserialize_with = "deserialize_present",
-            skip_serializing_if = "Option::is_none"
-        )]
-        state: Option<Value>,
-    },
-    ReplaceTabState {
-        tab_id: String,
-        state_key: i64,
-        state: Value,
     },
     LinkThread {
         thread_id: String,
@@ -926,38 +701,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        ProjectSessionIntent, ProjectWorkspaceIntent, ProjectWorkspaceThreadLane,
-        ProjectWorkspaceThreadPlacement,
+        ProjectWorkspaceIntent, ProjectWorkspaceThreadLane, ProjectWorkspaceThreadPlacement,
     };
-
-    #[test]
-    fn optional_tab_updates_reject_explicit_null_for_typed_content() {
-        let absent = serde_json::from_value::<ProjectSessionIntent>(json!({
-            "kind": "update_tab",
-            "tab_id": "tab-1"
-        }))
-        .expect("absent optional tab fields");
-        let encoded = serde_json::to_value(absent).expect("tab update round trip");
-        assert!(encoded.get("title").is_none());
-        assert!(encoded.get("content").is_none());
-
-        assert!(
-            serde_json::from_value::<ProjectSessionIntent>(json!({
-                "kind": "update_tab",
-                "tab_id": "tab-1",
-                "title": null
-            }))
-            .is_err()
-        );
-        assert!(
-            serde_json::from_value::<ProjectSessionIntent>(json!({
-                "kind": "update_tab",
-                "tab_id": "tab-1",
-                "content": null
-            }))
-            .is_err()
-        );
-    }
 
     #[test]
     fn thread_patch_distinguishes_absence_from_an_explicit_clear() {
