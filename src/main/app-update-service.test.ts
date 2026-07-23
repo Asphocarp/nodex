@@ -30,6 +30,7 @@ function createLogger() {
 
 function createService(overrides?: Partial<{
   currentVersion: string;
+  isInApplicationsFolder: boolean;
   isPackaged: boolean;
   platform: NodeJS.Platform;
   updater: FakeUpdater;
@@ -37,6 +38,7 @@ function createService(overrides?: Partial<{
   const updater = overrides?.updater ?? new FakeUpdater();
   const service = new AppUpdateService({
     currentVersion: overrides?.currentVersion ?? "0.1.5",
+    isInApplicationsFolder: overrides?.isInApplicationsFolder ?? true,
     isPackaged: overrides?.isPackaged ?? true,
     platform: overrides?.platform ?? "darwin",
     logger: createLogger(),
@@ -61,6 +63,21 @@ describe("AppUpdateService", () => {
     expect(status.supported).toBe(false);
     expect(status.status).toBe("unsupported");
     expect(status.currentVersion).toBe("0.1.5");
+  });
+
+  test("requires a packaged macOS app to be installed in Applications", () => {
+    const { service, updater } = createService({
+      isInApplicationsFolder: false,
+    });
+
+    const status = service.initialize();
+
+    expect(status).toMatchObject({
+      message: "Move Nodex to Applications to enable app updates.",
+      status: "unsupported",
+      supported: false,
+    });
+    expect(updater.listenerCount("checking-for-update")).toBe(0);
   });
 
   test("starts exactly one automatic check when enabled", () => {

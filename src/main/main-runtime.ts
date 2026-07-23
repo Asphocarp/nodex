@@ -3,6 +3,7 @@ import {
   Notification,
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   nativeImage,
   nativeTheme,
@@ -114,6 +115,7 @@ import {
   shouldUseOpaqueElectronWindowSurface,
 } from "./electron-window-backdrop";
 import { buildWorkbenchViewMenu } from "./application-menu";
+import { installCliCommand } from "./cli-command-installer";
 import { shouldGrantAppRendererPermission } from "./renderer-permissions";
 import {
   initializeDesktopDataAuthority,
@@ -413,6 +415,44 @@ async function requestHostMicrophonePermission(): Promise<void> {
   }
 }
 
+async function installCommandLineTool(): Promise<void> {
+  try {
+    const result = installCliCommand({
+      environmentPath: process.env.PATH,
+      sourcePath: join(process.resourcesPath, "bin/nodex"),
+      targetPath: join(app.getPath("home"), ".local/bin/nodex"),
+    });
+    const statusMessage = result.status === "already-installed"
+      ? "The Nodex command line tool is already installed."
+      : result.status === "updated"
+        ? "The Nodex command line tool was updated."
+        : "The Nodex command line tool was installed.";
+    const pathMessage = result.pathConfigured
+      ? `Run it as:\n\nnodex --help\n\nInstalled link: ${result.targetPath}`
+      : `Installed link: ${result.targetPath}\n\nAdd this line to your shell profile, then open a new terminal:\n\nexport PATH="$HOME/.local/bin:$PATH"`;
+    await dialog.showMessageBox({
+      type: "info",
+      buttons: ["OK"],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+      message: statusMessage,
+      detail: pathMessage,
+    });
+  } catch (error) {
+    logger.error("Could not install the Nodex command line tool", { error });
+    await dialog.showMessageBox({
+      type: "error",
+      buttons: ["OK"],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+      message: "Could not install the Nodex command line tool.",
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 function configureApplicationMenus(
   commandKeymapState = getCommandKeymapState(),
 ): void {
@@ -463,6 +503,15 @@ function configureApplicationMenus(
           label: "Check for Updates…",
           click: () => {
             void appUpdateService?.checkForUpdates("manual");
+          },
+        },
+        {
+          label: "Install Command Line Tool…",
+          enabled: app.isPackaged
+            && (typeof app.isInApplicationsFolder !== "function"
+              || app.isInApplicationsFolder()),
+          click: () => {
+            void installCommandLineTool();
           },
         },
       ],
@@ -1645,6 +1694,9 @@ export async function runMainAppStartup(
   windowSessionState = new WindowSessionState(app.getPath("userData"));
   appUpdateService = new AppUpdateService({
     currentVersion: app.getVersion(),
+    isInApplicationsFolder: process.platform !== "darwin"
+      || typeof app.isInApplicationsFolder !== "function"
+      || app.isInApplicationsFolder(),
     isPackaged: app.isPackaged,
     logger,
     platform: process.platform,

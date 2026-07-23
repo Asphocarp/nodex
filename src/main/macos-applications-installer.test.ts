@@ -50,6 +50,24 @@ describe("runMacApplicationsInstallerGate", () => {
     expect(conflictHandlerResult).toBe(true);
   });
 
+  test("never replaces an installed copy that is still running", async () => {
+    let conflictWasReported = false;
+    const result = await runMacApplicationsInstallerGate(makeEnvironment({
+      showInstallPrompt: async () => "move",
+      confirmMoveConflict: (conflictType) => {
+        conflictWasReported = conflictType === "existsAndRunning";
+        return true;
+      },
+      moveToApplicationsFolder: (options) => {
+        expect(options.conflictHandler?.("existsAndRunning")).toBe(false);
+        return false;
+      },
+    }));
+
+    expect(result).toBe("quit");
+    expect(conflictWasReported).toBe(true);
+  });
+
   test("uses the failed-move prompt when move returns false or throws", async () => {
     const failedChoices: MacApplicationsInstallerPromptChoice[] = [];
     const returnedFalse = await runMacApplicationsInstallerGate(makeEnvironment({

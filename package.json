@@ -105,6 +105,7 @@
     "package:mac": "pnpm run build && pnpm run stage:native-runtime:mac && electron-builder --mac --publish never",
     "package:mac:arm64": "pnpm run build && pnpm run stage:native-runtime:mac:arm64 && electron-builder --mac dmg zip --arm64 --publish never",
     "package:mac:x64": "pnpm run build && pnpm run stage:native-runtime:mac:x64 && electron-builder --mac dmg zip --x64 --publish never",
+    "install:local:mac": "tsx scripts/install-local-macos.ts",
     "package:all": "pnpm run build && pnpm run stage:codex-runtime:mac && electron-builder -mwl",
     "dev:storybook": "pnpm --filter @nodex/storybook storybook",
     "build:storybook": "pnpm --filter @nodex/storybook build",

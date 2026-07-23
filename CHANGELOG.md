@@ -20,6 +20,7 @@ All notable changes to this project will be documented in this file.
 - Added stable-ID Page Document mutation APIs and `nodex block` CLI commands for title, NFM import/export, and Block insert/update/delete/move operations, with exact-head receipts, equivalent Electron/browser behavior, and short editor flush/freeze fences for identity-destructive changes.
 - Added stable Block property mutation APIs for field-level scalar conflict detection and set add/remove intent, with equivalent Electron and browser behavior and exact retry receipts.
 - Added a packaged macOS startup prompt that offers to move Nodex into Applications before launching from another location.
+- Added an app-menu `Install Command Line Tool…` action that safely links the bundled native CLI into `~/.local/bin` without copying binaries or editing shell profiles.
 - Added opt-in Sentry crash diagnostics with a General settings toggle, local-content scrubber, and release source-map upload for readable production stacks.
 - Added a separate opt-in Sentry Session Replay toggle for masked renderer replays on diagnostic sessions.
 - Added opt-in Statsig product telemetry with anonymous identity, filtered web analytics, and General settings toggles.
@@ -57,6 +58,7 @@ All notable changes to this project will be documented in this file.
 - Added a Page Stage heading rail navigator for rich NFM descriptions, with automatic left-gutter markers for heading-heavy Pages.
 
 ### Changed
+- macOS distribution now treats the notarized app bundle as the single app/CLI/Core runtime closure: Homebrew exposes the bundled CLI while preserving Profile data on zap, app updates require an Applications install, and local source deployment uses a verified rollback-safe command instead of a destructive source installer.
 - Repeated local restarts can reuse a content-verified production bundle and release-lock-verified agent runtime, while Core startup is substantially faster and the blocking launch surface now uses the Nodex shimmer with real migration-only status instead of a fabricated progress bar.
 - Nodex now starts every production Profile through the native Rust Core; the former TypeScript/Rust authority selector and JavaScript storage engine are retired, exact published v26, v57, v68, v82, v83, and final v84 Profiles plus native v85/v86 stores are safely backed up and migrated one way to the Rust-owned v87 store before readiness, and task-history search delegates exclusively to Codex app-server.
 - Nodex Profile storage is now configured exclusively through `NODEX_HOME` or `[server].home`; the previous environment variable and TOML key are no longer accepted.
@@ -130,6 +132,8 @@ All notable changes to this project will be documented in this file.
 - Removed snapshot-based Kanban/editor body drops and whole-Page conflict overwrite recovery; Block movement now requires the stable-ID Document mutation boundary.
 
 ### Fixed
+- Fixed packaged native CLI first launch against legacy Profiles by letting Core discover and verify the app-bundled migrator itself; release verification now exercises an external CLI symlink and a real early-v57 migration with retained backup.
+- Fixed macOS installation/update conflicts so a running installed copy is never replaced and packaged copies outside Applications cannot start the self-updater.
 - Profiles using the earlier frozen v57 storage inventory now upgrade through the same isolated, backed-up Core migration path, including preservation of Thread fields, conversion of legacy Page tabs, and recovery of embedded Page and Database View references.
 - Fixed Thread Composer drafts so prompt text restores across task switches, restarts, and open windows; completed context survives retained Composer scopes; and failed send, queue, side-chat, or goal actions no longer erase user-authored drafts.
 - Fixed long thread transcripts so they virtualize immediately and restore native scroll, latest-turn follow geometry, measured windows, and activity-collapse choices from complete per-thread state instead of delayed placeholders or a 50-thread cache.

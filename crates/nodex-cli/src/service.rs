@@ -132,7 +132,7 @@ fn resolve_adapter() -> Option<PathBuf> {
     if let Some(explicit) = env::var_os(ADAPTER_ENVIRONMENT).filter(|value| !value.is_empty()) {
         return Some(PathBuf::from(explicit));
     }
-    let executable = env::current_exe().ok()?;
+    let executable = fs::canonicalize(env::current_exe().ok()?).ok()?;
     Some(default_adapter(&executable))
 }
 

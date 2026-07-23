@@ -83,10 +83,9 @@ cask "nodex" do
   auto_updates true
 
   app "Nodex.app"
+  binary "#{appdir}/Nodex.app/Contents/Resources/bin/nodex", target: "nodex"
 
   zap trash: [
-    "~/.nodex",
-    "~/Library/Application Support/nodex",
     "~/Library/Preferences/${bundleId}.plist",
     "~/Library/Saved Application State/${bundleId}.savedState",
   ]

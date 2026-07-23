@@ -484,7 +484,7 @@ fn materialized_table_header_count(
     let Some(value) = value.as_u64().and_then(|value| usize::try_from(value).ok()) else {
         return Err(invalid_materialized_content(
             block,
-            &format!("content.{key}"),
+            format!("content.{key}"),
             "table header count must be a non-negative integer",
         ));
     };
@@ -493,7 +493,7 @@ fn materialized_table_header_count(
     }
     Err(invalid_materialized_content(
         block,
-        &format!("content.{key}"),
+        format!("content.{key}"),
         "table header count exceeds the table dimensions",
     ))
 }

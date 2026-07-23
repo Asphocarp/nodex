@@ -608,13 +608,13 @@ nodex/
 │   └── backups/                # Whole-store backup snapshots (db + assets)
 ├── electron.vite.config.ts     # electron-vite config (main, preload, renderer)
 ├── electron-builder.yml        # Electron packaging + signing + publish config
-├── homebrew-cask-template.rb   # Generated local mirror of the Homebrew tap cask layout
 ├── resources/
 │   ├── icon.icns               # macOS app icon
 │   ├── icon.png                # PNG app icon
 │   └── entitlements.mac.plist  # macOS hardened runtime entitlements
 ├── scripts/
-│   └── generate-homebrew-cask.ts # Generates the tap cask pushed to junyudev/homebrew-tap
+│   ├── generate-homebrew-cask.ts # Generates the tap cask pushed to junyudev/homebrew-tap
+│   └── install-local-macos.ts  # Verifies and transactionally deploys an explicit local app bundle
 ├── src/
 │   ├── shared/
 │   │   ├── types.ts            # Shared TypeScript types (Page, Board, Project, etc.)
@@ -1056,7 +1056,9 @@ Codex Threads emit a separate Electron IPC stream (`codex:event`) from the main-
 
 ## CLI Reference
 
-The packaged native `nodex` binary is a UDS client of the detached Rust Core. It selects the Profile home with the same bootstrap precedence as Electron: nonblank `NODEX_HOME`, nearest project `.nodex/config.toml` over user `~/.nodex/config.toml`, then the default `~/.nodex`; config files are UTF-8, size-bounded, and malformed TOML fails closed instead of silently connecting to another Profile. It resolves a Project from an explicit unique ID/name, otherwise the longest containing managed-worktree root before considering the longest source root; equal candidates fail with stable IDs. `context`, `tree`, and `rg` honor one global `--database` exact ID/unique name or `--page` stable ID/title path, with the primary Database as default. Full Page IDs use `@<id>`, and exact authorized `/`-separated title paths never expose unauthorized candidates. `nodex read <page>` returns canonical `body.nested.md` bytes with a final LF; `--meta` returns the deterministic typed `meta.yaml` projection. Ordinary reads emit no validator, while `--prepare title.set`, `document.replace`, or `page.delete` asks Core for only the compatible narrow ETag. `nodex sed -n '<line>[,<line>]p' <page>` selects from those exact body bytes. `nodex history` returns the retained typed cursor timeline, and `nodex tree [scope]` traverses the selected Database or one authorized Page with fixed depth/node/cycle bounds. `--json` wraps stable machine output and errors; rejected commands exit 2.
+The packaged native `nodex` binary is a UDS client of the detached Rust Core. The app bundle is the one distribution and update closure for the CLI, Core, ripgrep, migrator, and ServiceManagement helper: Homebrew Cask links that bundled binary into the Homebrew prefix, while the macOS application menu's `Install Command Line Tool…` action creates or updates `~/.local/bin/nodex`. Neither path copies a standalone binary. The app action never edits shell startup files, reports when `~/.local/bin` is absent from `PATH`, and refuses to replace a non-symlink or a symlink not previously managed by Nodex.
+
+The CLI selects the Profile home with the same bootstrap precedence as Electron: nonblank `NODEX_HOME`, nearest project `.nodex/config.toml` over user `~/.nodex/config.toml`, then the default `~/.nodex`; config files are UTF-8, size-bounded, and malformed TOML fails closed instead of silently connecting to another Profile. It resolves a Project from an explicit unique ID/name, otherwise the longest containing managed-worktree root before considering the longest source root; equal candidates fail with stable IDs. `context`, `tree`, and `rg` honor one global `--database` exact ID/unique name or `--page` stable ID/title path, with the primary Database as default. Full Page IDs use `@<id>`, and exact authorized `/`-separated title paths never expose unauthorized candidates. `nodex read <page>` returns canonical `body.nested.md` bytes with a final LF; `--meta` returns the deterministic typed `meta.yaml` projection. Ordinary reads emit no validator, while `--prepare title.set`, `document.replace`, or `page.delete` asks Core for only the compatible narrow ETag. `nodex sed -n '<line>[,<line>]p' <page>` selects from those exact body bytes. `nodex history` returns the retained typed cursor timeline, and `nodex tree [scope]` traverses the selected Database or one authorized Page with fixed depth/node/cycle bounds. `--json` wraps stable machine output and errors; rejected commands exit 2.
 
 `nodex rg [flags] <pattern> [scope]` asks Core for a strict, immutable search lease over the selected primary Database, Database, Data Source, or Page. Core authorizes the complete recursive Page set and projects canonical `meta.yaml` plus `body.nested.md` bytes and their ownership/revision manifest inside one SQLite read transaction without reconstructing Yrs. Metadata and body files are cached independently by projection version and content hash, hard-linked into a current-user read-only lease on the same filesystem, and never accepted back as write input. A released unchanged tree is reusable only after Core revalidates every file; reuse assigns a fresh random lease and manifest while removing the old physical path. The CLI validates the commit marker, expiry, permissions, paths, byte lengths, and SHA-256 hashes before launching the bundled real ripgrep with no config and only the documented read-only flag subset. It remaps opaque physical names to sanitized logical ownership paths containing each full Page ID, preserves ripgrep status 1 for no matches, reports stale materialization as `MATERIALIZATION_STALE`, and releases the lease after success, failure, or SIGINT.
 
@@ -1130,7 +1132,7 @@ These can also be set via the `[server]` section in config.toml. Env vars overri
 
 In the desktop app, Settings -> Backups updates `~/.nodex/config.toml` `[server]` backup fields and reapplies the auto-backup scheduler immediately. If `NODEX_BACKUP_*` environment variables are set, those values remain effective and the UI marks the overridden fields.
 
-In the desktop app, Settings -> General -> `App updates` updates the user-level `~/.nodex/config.toml` `[server].app_updates_auto_check_enabled` flag. Browser mode and unpackaged/non-macOS runtimes report updater support as unavailable and do not perform background checks.
+In the desktop app, Settings -> General -> `App updates` updates the user-level `~/.nodex/config.toml` `[server].app_updates_auto_check_enabled` flag. Browser mode, unpackaged/non-macOS runtimes, and packaged apps running outside an Applications folder report updater support as unavailable and do not perform background checks.
 
 In the desktop app, Settings -> General -> `Diagnostics` updates user-level `[server]` fields for `diagnostics_enabled`, `diagnostics_dsn`, `diagnostics_environment`, `diagnostics_traces_sample_rate`, `diagnostics_replay_enabled`, `diagnostics_replays_session_sample_rate`, and `diagnostics_replays_on_error_sample_rate`. Diagnostics and Session Replay are disabled by default; Replay is a separate renderer-only opt-in that only runs when crash diagnostics are also enabled. When diagnostics are enabled without an explicit DSN, Nodex uses its bundled Sentry project DSN. Env overrides win and the UI disables overridden controls.
 
@@ -1154,6 +1156,33 @@ electron .               # runs package main: out/main/bootstrap.js
 ```bash
 pnpm run package          # Build + create macOS DMG + ZIP in dist/
 ```
+
+The notarized DMG is the direct-install artifact. A first launch outside an
+Applications folder can move the app through Electron's native installation
+gate; replacement is rejected while the installed Nodex copy is running.
+Homebrew installs the same DMG-backed `Nodex.app` and links its bundled CLI.
+Both channels retain Profile data on uninstall, and normal upgrades are owned
+by the installed app's signed ZIP updater. Installers and updaters never
+inspect, copy, or migrate `~/.nodex`; Core performs any recognized Profile
+migration behind its snapshot, staging, validation, and rollback boundary.
+
+Local source builds use an already-packaged app rather than a production
+installer. The deployer infers the current architecture's standard
+electron-builder output:
+
+```bash
+pnpm run package:mac
+pnpm run install:local:mac -- --install-cli
+```
+
+The local deployer defaults to `~/Applications/Nodex Dev.app`, verifies the
+source and same-filesystem staging copy, uses `ditto`, preserves the previous
+destination as a rollback app until the installed copy verifies, and requires
+`--allow-production-destination` before it can target
+`/Applications/Nodex.app`. `--app-path` remains available for a nonstandard
+package location. The deprecated `install.sh` only forwards to this command; it
+no longer installs dependencies, builds, runs
+`pnpm link`, installs skills, or deletes the production app.
 
 To release a new version, use the GitHub Actions `Prepare Release` workflow:
 ```bash

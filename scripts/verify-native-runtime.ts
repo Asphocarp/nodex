@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -9,9 +10,10 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -22,6 +24,7 @@ import {
 interface VerificationOptions {
   readonly appPath: string;
   readonly launchApp: boolean;
+  readonly legacyProfileFixturePath?: string;
   readonly requireDeveloperId: boolean;
   readonly targetArch: NativeRuntimeArchitecture;
   readonly verifyNotarization: boolean;
@@ -35,6 +38,11 @@ interface CommandResult {
 
 const expectedFileArchitecture = (architecture: NativeRuntimeArchitecture): string =>
   architecture === "arm64" ? "arm64" : "x86_64";
+
+const DEFAULT_LEGACY_PROFILE_FIXTURE = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../crates/nodex-core/tests/fixtures/legacy-profiles/v57-early.db",
+);
 
 const run = (command: string, arguments_: readonly string[], label: string): CommandResult => {
   const result = spawnSync(command, arguments_, { encoding: "utf8" });
@@ -203,20 +211,34 @@ const smokeNativeRuntime = async (
   const directory = mkdtempSync("/tmp/ndx-pkg-");
   const environment = restrictedEnvironment(directory);
   const cli = join(appPath, "Contents/Resources/bin/nodex");
+  const linkedCliDirectory = join(directory, "cli-bin");
+  const linkedCli = join(linkedCliDirectory, "nodex");
   const descriptor = join(environment.NODEX_HOME!, "run/core/core.json");
   try {
     chmodSync(directory, 0o700);
     mkdirSync(environment.TMPDIR!, { mode: 0o700 });
-    const version = runWithEnvironment(cli, ["--version"], environment, "Run packaged nodex");
+    mkdirSync(linkedCliDirectory, { mode: 0o700 });
+    symlinkSync(cli, linkedCli);
+    const version = runWithEnvironment(
+      linkedCli,
+      ["--version"],
+      environment,
+      "Run packaged nodex through its installed symlink",
+    );
     if (!/^nodex \d+\.\d+\.\d+/mu.test(version.stdout)) {
       throw new Error(`Packaged nodex returned an invalid version: ${version.stdout.trim()}`);
     }
-    const doctor = runWithEnvironment(cli, ["--json", "doctor"], environment, "Run packaged Core doctor");
+    const doctor = runWithEnvironment(
+      linkedCli,
+      ["--json", "doctor"],
+      environment,
+      "Run packaged Core doctor through its installed symlink",
+    );
     const envelope = JSON.parse(doctor.stdout) as { ok?: unknown };
     if (envelope.ok !== true) throw new Error("Packaged Core doctor did not return a successful envelope");
     const firstCore = readPackagedCoreIdentity(descriptor, expectedCoreSha256);
     const repeatedDoctor = runWithEnvironment(
-      cli,
+      linkedCli,
       ["--json", "doctor"],
       environment,
       "Reuse packaged Core doctor",
@@ -232,7 +254,7 @@ const smokeNativeRuntime = async (
     const searchBodyPath = join(directory, "search-smoke.nested.md");
     writeFileSync(searchBodyPath, `${searchSentinel}\n`, { encoding: "utf8", mode: 0o600 });
     const pageCreation = runWithEnvironment(
-      cli,
+      linkedCli,
       [
         "--json",
         "--project",
@@ -260,7 +282,7 @@ const smokeNativeRuntime = async (
       throw new Error("Packaged CLI search Page creation returned an invalid envelope");
     }
     const search = runWithEnvironment(
-      cli,
+      linkedCli,
       ["--project", "project:default", "rg", searchSentinel, `@${pageId}`],
       environment,
       "Run packaged CLI ripgrep",
@@ -269,7 +291,7 @@ const smokeNativeRuntime = async (
       throw new Error("Packaged CLI ripgrep did not return the created Page");
     }
     const service = runWithEnvironment(
-      cli,
+      linkedCli,
       ["--json", "service", "status"],
       environment,
       "Run packaged ServiceManagement status",
@@ -277,6 +299,53 @@ const smokeNativeRuntime = async (
     const serviceEnvelope = JSON.parse(service.stdout) as { ok?: unknown };
     if (serviceEnvelope.ok !== true) {
       throw new Error("Packaged ServiceManagement status did not return a successful envelope");
+    }
+    await waitForRuntimeExit(descriptor);
+  } finally {
+    if (!existsSync(descriptor)) {
+      removePrivateTemporaryDirectory(directory);
+    }
+  }
+};
+
+const smokeLegacyProfileMigration = async (
+  appPath: string,
+  legacyProfileFixturePath: string,
+): Promise<void> => {
+  const directory = mkdtempSync("/tmp/ndx-legacy-pkg-");
+  const environment = restrictedEnvironment(directory);
+  const profile = environment.NODEX_HOME!;
+  const descriptor = join(profile, "run/core/core.json");
+  const cli = join(appPath, "Contents/Resources/bin/nodex");
+  const linkedCliDirectory = join(directory, "cli-bin");
+  const linkedCli = join(linkedCliDirectory, "nodex");
+  try {
+    chmodSync(directory, 0o700);
+    mkdirSync(environment.TMPDIR!, { mode: 0o700 });
+    mkdirSync(profile, { mode: 0o700 });
+    mkdirSync(linkedCliDirectory, { mode: 0o700 });
+    copyFileSync(legacyProfileFixturePath, join(profile, "nodex.db"));
+    symlinkSync(cli, linkedCli);
+
+    const doctor = runWithEnvironment(
+      linkedCli,
+      ["--json", "doctor"],
+      environment,
+      "Migrate an early v57 Profile through the packaged CLI symlink",
+    );
+    if ((JSON.parse(doctor.stdout) as { ok?: unknown }).ok !== true) {
+      throw new Error("Migrated packaged Core doctor did not return a successful envelope");
+    }
+    const backupRoot = join(profile, "backups/core-migrations");
+    const backups = readdirSync(backupRoot)
+      .filter((entry) => !entry.startsWith("."))
+      .map((entry) => join(backupRoot, entry))
+      .filter((entry) => statSync(entry).isDirectory());
+    if (
+      backups.length !== 1
+      || !statSync(join(backups[0]!, "nodex.db")).isFile()
+    ) {
+      throw new Error("Packaged legacy migration did not retain one source database backup");
     }
     await waitForRuntimeExit(descriptor);
   } finally {
@@ -296,7 +365,7 @@ const runWithEnvironment = (
     cwd: environment.HOME,
     encoding: "utf8",
     env: environment,
-    timeout: 30_000,
+    timeout: 120_000,
   });
   if (result.error) throw new Error(`${label} could not complete: ${result.error.message}`);
   if (result.status !== 0) {
@@ -386,6 +455,10 @@ export async function verifyPackagedNativeRuntime(options: VerificationOptions):
   const coreManifest = manifest.binaries.find(({ name }) => name === "nodex-core");
   if (!coreManifest) throw new Error("Native runtime manifest omits nodex-core");
   await smokeNativeRuntime(appPath, coreManifest.sourceSha256);
+  await smokeLegacyProfileMigration(
+    appPath,
+    resolve(options.legacyProfileFixturePath ?? DEFAULT_LEGACY_PROFILE_FIXTURE),
+  );
   if (options.launchApp) await launchAppSmoke(appPath);
   process.stdout.write(`Verified packaged native runtime ${options.targetArch}\n`);
 }
@@ -404,7 +477,9 @@ const main = async (): Promise<void> => {
   const targetArch = readOption(arguments_, "--target-arch");
   if (!appPath || (targetArch !== "arm64" && targetArch !== "x64")) {
     throw new Error(
-      "usage: verify-native-runtime --app-path <Nodex.app> --target-arch arm64|x64 [--verify-signatures] [--require-developer-id] [--verify-notarization] [--launch-app]",
+      "usage: verify-native-runtime --app-path <Nodex.app> --target-arch arm64|x64 "
+      + "[--legacy-profile-fixture <legacy.db>] [--verify-signatures] "
+      + "[--require-developer-id] [--verify-notarization] [--launch-app]",
     );
   }
   const requireDeveloperId = arguments_.includes("--require-developer-id");
@@ -412,6 +487,8 @@ const main = async (): Promise<void> => {
   await verifyPackagedNativeRuntime({
     appPath,
     launchApp: arguments_.includes("--launch-app"),
+    legacyProfileFixturePath:
+      readOption(arguments_, "--legacy-profile-fixture") ?? undefined,
     requireDeveloperId,
     targetArch,
     verifyNotarization,

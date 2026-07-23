@@ -1,8 +1,9 @@
 export type MacApplicationsInstallerPromptChoice = "move" | "continue" | "quit";
 export type MacApplicationsInstallerResult = "continue" | "quit" | "moved";
+export type MacApplicationsMoveConflict = "exists" | "existsAndRunning";
 
 export interface MoveToApplicationsFolderOptions {
-  conflictHandler?: (conflictType: string) => boolean;
+  conflictHandler?: (conflictType: MacApplicationsMoveConflict) => boolean;
 }
 
 export interface MacApplicationsInstallerEnvironment {
@@ -12,7 +13,7 @@ export interface MacApplicationsInstallerEnvironment {
   showInstallPrompt: () => Promise<MacApplicationsInstallerPromptChoice>;
   showMoveFailedPrompt: (error: unknown) => Promise<Exclude<MacApplicationsInstallerPromptChoice, "move">>;
   moveToApplicationsFolder: (options: MoveToApplicationsFolderOptions) => boolean;
-  confirmMoveConflict?: (conflictType: string) => boolean;
+  confirmMoveConflict?: (conflictType: MacApplicationsMoveConflict) => boolean;
   log?: (level: "info" | "warn" | "error", message: string, fields?: Record<string, unknown>) => void;
 }
 
@@ -39,7 +40,10 @@ export async function runMacApplicationsInstallerGate(
 
   try {
     const moved = environment.moveToApplicationsFolder({
-      conflictHandler: environment.confirmMoveConflict,
+      conflictHandler: (conflictType) => {
+        const confirmed = environment.confirmMoveConflict?.(conflictType) ?? false;
+        return conflictType === "exists" && confirmed;
+      },
     });
     if (moved) {
       environment.log?.("info", "Moving app to Applications");

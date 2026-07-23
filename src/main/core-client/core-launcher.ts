@@ -201,12 +201,6 @@ const expectedCoreArtifactDigest = (
 };
 
 const legacyMigratorResourceRoot = (input: ResolveCoreExecutableInput): string => {
-  if (input.isPackaged) {
-    if (!input.appResourcesPath) {
-      throw new Error("Packaged legacy migration requires an app resources path");
-    }
-    return requireAbsolutePath(input.appResourcesPath, "App resources path");
-  }
   return path.join(
     requireAbsolutePath(
       input.repositoryRoot ?? process.cwd(),
@@ -245,6 +239,9 @@ export function resolveLegacyMigratorEnvironment(
   }
   if (configuredExecutable || configuredScript || configuredSha256) {
     throw new Error("Legacy migrator overrides must be configured together");
+  }
+  if (input.isPackaged) {
+    return {};
   }
 
   const resourceRoot = legacyMigratorResourceRoot(input);

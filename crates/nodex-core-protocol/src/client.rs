@@ -344,7 +344,7 @@ pub fn discover_core_executable() -> Result<PathBuf, ClientError> {
             path.display()
         )));
     }
-    let current = std::env::current_exe()?;
+    let current = fs::canonicalize(std::env::current_exe()?)?;
     let sibling = current
         .parent()
         .ok_or_else(|| ClientError::CoreExecutable("CLI executable has no parent".to_owned()))?

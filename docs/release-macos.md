@@ -32,6 +32,25 @@ Installer styling is checked in with the app: `electron-builder.yml` owns the DM
 
 For local Linux-path debugging, Nodex also ships a committed `act` harness for the `prepare` job. That harness intentionally stops after validation and never performs the candidate-build, commit, tag, push, or publish steps locally.
 
+## Installation and Update Contract
+
+The notarized DMG is the direct-install artifact. Users drag `Nodex.app` into
+Applications or accept the first-launch native move prompt. The ZIP is an
+updater payload, not a second manual installation format. A packaged copy
+running outside an Applications folder may continue for recovery, but it does
+not initialize `electron-updater`.
+
+Homebrew Cask installs the same app bundle and exposes
+`Contents/Resources/bin/nodex` through a `binary` symlink. Direct-install users
+can create the equivalent user-owned `~/.local/bin/nodex` link through
+`Nodex -> Install Command Line Tool…`. No channel copies the native CLI away
+from its sibling Core and bundled resources.
+
+Installation, Cask zap, and app updates never migrate or delete Profile content.
+In particular, `~/.nodex` and Nodex Application Support state are absent from
+the generated Cask zap list. Core alone recognizes, snapshots, stages,
+validates, and publishes legacy Profile migrations.
+
 ## One-Time Setup
 
 ### GitHub
@@ -230,7 +249,7 @@ Responsibilities:
    - `Contents/Helpers/Nodex Service.app`
 10. Extract the signed ZIP into a new `${RUNNER_TEMP}` install root. All runtime and launch checks use this extracted app, not the mutable builder output.
 11. Run `scripts/verify-codex-runtime.ts` against the fresh install. It validates every declared Agent artifact against its post-signing size and SHA-256, checks declared search-path tools as regular executables, runs bundled `interpreter --version`, and verifies the pinned Open Interpreter release provenance. Every embedded runtime executable must use the same TeamIdentifier as the enclosing app.
-12. Run `scripts/verify-native-runtime.ts` for the job architecture. It validates the closed native manifest against the final Developer ID-signed bytes, exact bundle destinations, regular executable modes, thin Mach-O architecture, macOS 12 load commands, the single shared `Resources/codex-path/rg` executable, the nested ServiceManagement bundle, Developer ID team consistency, and the final deep app seal. It also requires Core's authenticated self SHA-256 to equal `rust-core-runtime.json`. With a PATH limited to `/usr/bin:/bin` and nonexistent Cargo/Rustup homes, it runs `nodex --version`, cold-starts Core through `nodex --json doctor`, repeats the selector launch to prove compatible reuse of the same PID/start nonce, creates one disposable Page and finds it through `nodex rg`, queries optional service status, and keeps the fresh Electron app process alive through startup.
+12. Run `scripts/verify-native-runtime.ts` for the job architecture. It validates the closed native manifest against the final Developer ID-signed bytes, exact bundle destinations, regular executable modes, thin Mach-O architecture, macOS 12 load commands, the single shared `Resources/codex-path/rg` executable, the nested ServiceManagement bundle, Developer ID team consistency, and the final deep app seal. It also requires Core's authenticated self SHA-256 to equal `rust-core-runtime.json`. With a PATH limited to `/usr/bin:/bin` and nonexistent Cargo/Rustup homes, it invokes `nodex` through an external symlink, cold-starts Core through `nodex --json doctor`, repeats the selector launch to prove compatible reuse of the same PID/start nonce, creates one disposable Page and finds it through `nodex rg`, queries optional service status, migrates the frozen early-v57 fixture through only the packaged app's self-discovered migrator and confirms its source backup, and keeps the fresh Electron app process alive through startup.
 13. Require both notarization checks from the same verifier:
    - `spctl --assess --type execute --verbose=4`
    - `xcrun stapler validate`
@@ -327,6 +346,8 @@ The Homebrew cask generator assumes:
 - `app.jyu.nodex` is the canonical macOS bundle id for zap paths
 - the cask lives at `junyudev/homebrew-tap/Casks/nodex.rb`
 - the cask declares `auto_updates true`, because packaged macOS builds now self-update through GitHub Releases
+- the cask links `#{appdir}/Nodex.app/Contents/Resources/bin/nodex` as `nodex`
+- the cask zap list removes only disposable host preferences and saved state; it never includes `~/.nodex` or Nodex Application Support content
 
 Homebrew install path:
 
@@ -422,3 +443,21 @@ xcrun stapler validate "dist/mac-arm64/Nodex.app"
 ```
 
 Repeat the same flow for `pnpm run package:mac:x64` if Intel packaging is being validated locally.
+
+For a local unsigned developer deployment, keep packaging and installation
+separate. The installer infers the standard output for the current architecture:
+
+```bash
+pnpm run package:mac
+pnpm run install:local:mac -- \
+  --destination "$HOME/Applications/Nodex Dev.app" \
+  --install-cli
+```
+
+The deployer refuses a running Nodex process, verifies the source and staged
+bundle, copies with `ditto`, performs a same-filesystem replacement with a
+rollback app, verifies the installed result, and only then removes the rollback.
+It will not target `/Applications/Nodex.app` unless
+`--allow-production-destination` is explicit. A nonstandard package can still
+be selected with `--app-path`. `install.sh` is only a temporary deprecated
+forwarding shim for this command.

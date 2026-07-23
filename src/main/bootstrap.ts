@@ -76,6 +76,7 @@ function formatStartupError(error: unknown): string {
 }
 
 function createMacApplicationsInstallerEnvironment(): MacApplicationsInstallerEnvironment {
+  let moveConflictCancelled = false;
   return {
     platform: process.platform,
     isPackaged: app.isPackaged,
@@ -100,6 +101,10 @@ function createMacApplicationsInstallerEnvironment(): MacApplicationsInstallerEn
       return "quit";
     },
     showMoveFailedPrompt: async (error) => {
+      if (moveConflictCancelled) {
+        moveConflictCancelled = false;
+        return "quit";
+      }
       const response = await dialog.showMessageBox({
         type: "warning",
         buttons: ["Continue Anyway", "Quit"],
@@ -115,7 +120,21 @@ function createMacApplicationsInstallerEnvironment(): MacApplicationsInstallerEn
 
       return response.response === 0 ? "continue" : "quit";
     },
-    confirmMoveConflict: () => {
+    confirmMoveConflict: (conflictType) => {
+      if (conflictType === "existsAndRunning") {
+        moveConflictCancelled = true;
+        dialog.showMessageBoxSync({
+          type: "warning",
+          buttons: ["OK"],
+          defaultId: 0,
+          cancelId: 0,
+          noLink: true,
+          message: "Quit the installed copy of Nodex first.",
+          detail:
+            "Nodex cannot replace the copy in Applications while that copy is running.",
+        });
+        return false;
+      }
       const response = dialog.showMessageBoxSync({
         type: "warning",
         buttons: ["Cancel Move", "Replace Existing App"],
@@ -126,6 +145,7 @@ function createMacApplicationsInstallerEnvironment(): MacApplicationsInstallerEn
         detail: "A copy of Nodex already exists in the Applications folder.",
       });
 
+      moveConflictCancelled = response !== 1;
       return response === 1;
     },
     moveToApplicationsFolder: (options) => app.moveToApplicationsFolder(options),

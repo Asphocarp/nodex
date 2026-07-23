@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
@@ -28,6 +29,12 @@ const SHM_SUFFIX: &str = "-shm";
 const MIGRATOR_EXECUTABLE_ENV: &str = "NODEX_LEGACY_MIGRATOR_EXECUTABLE";
 const MIGRATOR_SCRIPT_ENV: &str = "NODEX_LEGACY_MIGRATOR_SCRIPT";
 const MIGRATOR_SHA256_ENV: &str = "NODEX_LEGACY_MIGRATOR_SHA256";
+const PACKAGED_RESOURCES_DIRECTORY_NAME: &str = "Resources";
+const PACKAGED_BIN_DIRECTORY_NAME: &str = "bin";
+const PACKAGED_CONTENTS_DIRECTORY_NAME: &str = "Contents";
+const PACKAGED_EXECUTABLE_NAME: &str = "Nodex";
+const PACKAGED_MIGRATOR_MANIFEST_NAME: &str = "legacy-profile-migrator.json";
+const PACKAGED_MIGRATOR_SCRIPT_NAME: &str = "legacy-profile-migrator.mjs";
 const SUPPORTED_SOURCE_VERSIONS: &[i64] = &[26, 57, 68, 82, 83];
 const EARLY_V57_SCHEMA_FINGERPRINT: &str =
     "ceb13a0d7504ef463395ba0bc694d3ab02501a1591322baab0ab3cdd2085ad37";
@@ -89,6 +96,19 @@ enum LegacyInventory {
 struct LegacyMigratorCommand {
     executable: PathBuf,
     script: PathBuf,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyMigratorManifest {
+    schema_version: u32,
+    bundle: LegacyMigratorManifestBundle,
+}
+
+#[derive(Debug, Deserialize)]
+struct LegacyMigratorManifestBundle {
+    path: String,
+    sha256: String,
 }
 
 pub(crate) fn migrate_legacy_profile_if_needed_with_observer(
@@ -516,14 +536,99 @@ fn legacy_schema_fingerprint(connection: &Connection) -> Result<String, StoreErr
 
 impl LegacyMigratorCommand {
     fn from_environment() -> Result<Self, StoreError> {
-        let executable = required_absolute_regular_file(MIGRATOR_EXECUTABLE_ENV)?;
-        let script = required_absolute_regular_file(MIGRATOR_SCRIPT_ENV)?;
-        let expected_hash = std::env::var(MIGRATOR_SHA256_ENV)
+        let configured_executable =
+            std::env::var_os(MIGRATOR_EXECUTABLE_ENV).filter(|value| !value.is_empty());
+        let configured_script =
+            std::env::var_os(MIGRATOR_SCRIPT_ENV).filter(|value| !value.is_empty());
+        let configured_hash = std::env::var(MIGRATOR_SHA256_ENV)
             .ok()
-            .filter(|value| is_sha256(value))
-            .ok_or_else(|| missing_migrator("Legacy migrator SHA-256 is unavailable"))?;
+            .filter(|value| !value.is_empty());
+        if configured_executable.is_none()
+            && configured_script.is_none()
+            && configured_hash.is_none()
+        {
+            return Self::from_packaged_core_executable(
+                &std::env::current_exe().map_err(io_error)?,
+            );
+        }
+        let (Some(configured_executable), Some(configured_script), Some(expected_hash)) =
+            (configured_executable, configured_script, configured_hash)
+        else {
+            return Err(missing_migrator(
+                "Legacy migrator overrides must be configured together",
+            ));
+        };
+        let executable = required_absolute_regular_path(
+            &PathBuf::from(configured_executable),
+            "Legacy Profile migration executable",
+        )?;
+        let script = required_absolute_regular_path(
+            &PathBuf::from(configured_script),
+            "Legacy Profile migration script",
+        )?;
+        if !is_sha256(&expected_hash) {
+            return Err(missing_migrator("Legacy migrator SHA-256 is unavailable"));
+        }
         let actual_hash = sha256_file(&script)?;
         if actual_hash != expected_hash {
+            return Err(missing_migrator(
+                "Legacy migrator bundle does not match its manifest",
+            ));
+        }
+        Ok(Self { executable, script })
+    }
+
+    fn from_packaged_core_executable(core_executable: &Path) -> Result<Self, StoreError> {
+        let bin_directory = core_executable
+            .parent()
+            .filter(|path| path.file_name() == Some(OsStr::new(PACKAGED_BIN_DIRECTORY_NAME)));
+        let resources_directory = bin_directory
+            .and_then(Path::parent)
+            .filter(|path| path.file_name() == Some(OsStr::new(PACKAGED_RESOURCES_DIRECTORY_NAME)));
+        let contents_directory = resources_directory
+            .and_then(Path::parent)
+            .filter(|path| path.file_name() == Some(OsStr::new(PACKAGED_CONTENTS_DIRECTORY_NAME)));
+        let application = contents_directory
+            .and_then(Path::parent)
+            .filter(|path| path.extension() == Some(OsStr::new("app")));
+        let (Some(resources_directory), Some(contents_directory), Some(_application)) =
+            (resources_directory, contents_directory, application)
+        else {
+            return Err(missing_migrator(
+                "Legacy Profile migration runtime is unavailable",
+            ));
+        };
+
+        let executable = required_absolute_regular_path(
+            &contents_directory
+                .join("MacOS")
+                .join(PACKAGED_EXECUTABLE_NAME),
+            "Packaged legacy migration executable",
+        )?;
+        let script = required_absolute_regular_path(
+            &resources_directory.join(PACKAGED_MIGRATOR_SCRIPT_NAME),
+            "Packaged legacy migration script",
+        )?;
+        let manifest_path = required_absolute_regular_path(
+            &resources_directory.join(PACKAGED_MIGRATOR_MANIFEST_NAME),
+            "Packaged legacy migration manifest",
+        )?;
+        let manifest = fs::read(&manifest_path)
+            .map_err(io_error)
+            .and_then(|bytes| {
+                serde_json::from_slice::<LegacyMigratorManifest>(&bytes)
+                    .map_err(|_| missing_migrator("Packaged legacy migrator manifest is invalid"))
+            })?;
+        if manifest.schema_version != 1
+            || manifest.bundle.path != "resources/legacy-profile-migrator.mjs"
+            || !is_sha256(&manifest.bundle.sha256)
+        {
+            return Err(missing_migrator(
+                "Packaged legacy migrator manifest is invalid",
+            ));
+        }
+        let actual_hash = sha256_file(&script)?;
+        if actual_hash != manifest.bundle.sha256 {
             return Err(missing_migrator(
                 "Legacy migrator bundle does not match its manifest",
             ));
@@ -550,23 +655,17 @@ impl LegacyMigratorCommand {
     }
 }
 
-fn required_absolute_regular_file(variable: &str) -> Result<PathBuf, StoreError> {
-    let path = std::env::var_os(variable)
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .ok_or_else(|| missing_migrator("Legacy Profile migration runtime is unavailable"))?;
+fn required_absolute_regular_path(path: &Path, label: &str) -> Result<PathBuf, StoreError> {
     if !path.is_absolute() {
         return Err(missing_migrator(
             "Legacy Profile migration runtime path must be absolute",
         ));
     }
-    let metadata = fs::symlink_metadata(&path).map_err(io_error)?;
+    let metadata = fs::symlink_metadata(path).map_err(io_error)?;
     if metadata.file_type().is_symlink() || !metadata.is_file() {
-        return Err(missing_migrator(
-            "Legacy Profile migration runtime must be a regular file",
-        ));
+        return Err(missing_migrator(&format!("{label} must be a regular file")));
     }
-    Ok(path)
+    Ok(path.to_owned())
 }
 
 fn snapshot_legacy_store(
@@ -1138,6 +1237,54 @@ mod tests {
             .canonicalize()
             .expect("legacy migrator bundle");
         LegacyMigratorCommand { executable, script }
+    }
+
+    fn packaged_migrator_fixture() -> (tempfile::TempDir, PathBuf, PathBuf, PathBuf) {
+        let directory = tempdir().expect("packaged app root");
+        let contents = directory.path().join("Nodex.app/Contents");
+        let resources = contents.join(PACKAGED_RESOURCES_DIRECTORY_NAME);
+        let bin = resources.join(PACKAGED_BIN_DIRECTORY_NAME);
+        let macos = contents.join("MacOS");
+        fs::create_dir_all(&bin).expect("packaged bin");
+        fs::create_dir_all(&macos).expect("packaged executable directory");
+        let core = bin.join("nodex-core");
+        let executable = macos.join(PACKAGED_EXECUTABLE_NAME);
+        let script = resources.join(PACKAGED_MIGRATOR_SCRIPT_NAME);
+        fs::write(&core, b"core").expect("packaged Core");
+        fs::write(&executable, b"electron").expect("packaged Electron");
+        fs::write(&script, b"legacy migrator").expect("packaged migrator");
+        let digest = sha256_file(&script).expect("packaged migrator digest");
+        fs::write(
+            resources.join(PACKAGED_MIGRATOR_MANIFEST_NAME),
+            format!(
+                r#"{{"schemaVersion":1,"bundle":{{"path":"resources/legacy-profile-migrator.mjs","sha256":"{digest}"}}}}"#,
+            ),
+        )
+        .expect("packaged manifest");
+        (directory, core, executable, script)
+    }
+
+    #[test]
+    fn discovers_the_closed_legacy_migrator_from_the_packaged_core() {
+        let (_directory, core, executable, script) = packaged_migrator_fixture();
+
+        let command =
+            LegacyMigratorCommand::from_packaged_core_executable(&core).expect("packaged migrator");
+
+        assert_eq!(command.executable, executable);
+        assert_eq!(command.script, script);
+    }
+
+    #[test]
+    fn rejects_a_tampered_packaged_legacy_migrator() {
+        let (_directory, core, _executable, script) = packaged_migrator_fixture();
+        fs::write(script, b"tampered").expect("tampered migrator");
+
+        let error = LegacyMigratorCommand::from_packaged_core_executable(&core)
+            .expect_err("tampered migrator must fail");
+
+        assert_eq!(error.code, StoreErrorCode::UnsupportedSchema);
+        assert!(error.message.contains("does not match"));
     }
 
     fn source_file_name(version: i64) -> &'static str {

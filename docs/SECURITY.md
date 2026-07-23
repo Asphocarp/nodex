@@ -17,10 +17,12 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   non-symlinked Core binary, then trusts readiness only after the existing
   descriptor, capability, UDS, and handshake checks succeed; failed startup
   never falls back to another authority.
-- Legacy Profile import does not restore JavaScript storage authority. The Host
-  resolves one absolute regular-file migrator executable and bundle from its
-  verified resources, while Core verifies the bundle against its manifest
-  SHA-256 before use. Core accepts only complete normalized schema fingerprints
+- Legacy Profile import does not restore JavaScript storage authority.
+  Packaged Core derives one absolute regular-file Electron executable,
+  migrator bundle, and canonical manifest from its own enclosing app layout;
+  development/test overrides must supply all three coordinates together. Core
+  verifies the bundle against its manifest SHA-256 before use and accepts only
+  complete normalized schema fingerprints
   for the frozen v26/two-v57/v68/v82/v83 inventories, creates an online database
   snapshot and validated no-symlink asset backup, and gives the hash-pinned,
   reproducibly generated sidecar only a staging Profile. Its reviewed
@@ -75,6 +77,12 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   the selected identities and accepted title/body semantic commands, never a
   filesystem path. Discard has no recursive caller-selected deletion path and
   refuses uncertainty instead of broadening cleanup.
+- Native CLI installation never copies an independently updatable executable.
+  Homebrew and the app-menu action link to the signed app-bundled CLI. The
+  app-menu path validates a regular executable and regular target directory,
+  creates only `~/.local/bin/nodex`, refuses non-symlinks and unrelated
+  symlinks, and updates an earlier Nodex app symlink through a staged link plus
+  rollback. It never edits a shell profile or requests elevated privileges.
 - Stable asset URI scheme avoids embedding brittle absolute local URLs.
 - Codex approvals are explicit protocol responses (`accept`/`decline`/etc) and are gated by the per-project Threads permission mode.
 - Codex user-input requests are never auto-answered and require explicit renderer interaction.

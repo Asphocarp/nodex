@@ -82,6 +82,13 @@ describe("native Core launcher", () => {
     });
   });
 
+  test("leaves packaged migrator discovery to the closed Core runtime", () => {
+    expect(resolveLegacyMigratorEnvironment({
+      appResourcesPath: "/Applications/Nodex.app/Contents/Resources",
+      isPackaged: true,
+    })).toEqual({});
+  });
+
   test("rejects partial or malformed legacy migrator overrides", () => {
     expect(() =>
       resolveLegacyMigratorEnvironment({

@@ -21,6 +21,7 @@ type UpdaterLike = Pick<
 
 interface AppUpdateServiceOptions {
   currentVersion: string;
+  isInApplicationsFolder: boolean;
   isPackaged: boolean;
   logger: LoggerLike;
   platform: NodeJS.Platform;
@@ -47,6 +48,7 @@ function roundProgressPercent(value: number): number {
 
 export class AppUpdateService {
   private readonly currentVersion: string;
+  private readonly isInApplicationsFolder: boolean;
   private readonly isPackaged: boolean;
   private readonly logger: LoggerLike;
   private readonly platform: NodeJS.Platform;
@@ -60,6 +62,7 @@ export class AppUpdateService {
 
   constructor(options: AppUpdateServiceOptions) {
     this.currentVersion = options.currentVersion;
+    this.isInApplicationsFolder = options.isInApplicationsFolder;
     this.isPackaged = options.isPackaged;
     this.logger = options.logger;
     this.platform = options.platform;
@@ -294,12 +297,21 @@ export class AppUpdateService {
       transferredBytes: null,
       totalBytes: null,
       checkedAt: null,
-      message: supported ? null : "App updates are only available in packaged macOS builds.",
+      message: supported ? null : this.unsupportedRuntimeMessage(),
     };
   }
 
   private isSupportedRuntime(): boolean {
-    return this.isPackaged && this.platform === "darwin";
+    return this.isPackaged
+      && this.platform === "darwin"
+      && this.isInApplicationsFolder;
+  }
+
+  private unsupportedRuntimeMessage(): string {
+    if (this.isPackaged && this.platform === "darwin" && !this.isInApplicationsFolder) {
+      return "Move Nodex to Applications to enable app updates.";
+    }
+    return "App updates are only available in packaged macOS builds.";
   }
 
   private setStatus(nextStatus: AppUpdateStatus): void {

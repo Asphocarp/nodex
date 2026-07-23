@@ -470,7 +470,7 @@ fn discover_rg_executable() -> Result<PathBuf, CliError> {
             format!("NODEX_RG_BINARY does not name a file: {}", path.display()),
         ));
     }
-    let current = std::env::current_exe().map_err(internal)?;
+    let current = fs::canonicalize(std::env::current_exe().map_err(internal)?).map_err(internal)?;
     if let Some(packaged) = packaged_rg_path(&current)
         && packaged.is_file()
     {
