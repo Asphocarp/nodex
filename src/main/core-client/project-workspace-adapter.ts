@@ -13,16 +13,20 @@ import type {
   ProjectPinnedOrderInput,
   ProjectSession,
   ProjectSessionCreateInput,
-  ProjectSessionListOptions,
   ProjectSessionPinnedInput,
   ProjectSessionPinnedOrderInput,
   ProjectSessionRenameInput,
   ProjectSessionSummary,
+  ProjectSessionThreadSummary,
+  ProjectSessionSummaryWindow,
+  ProjectSessionSummaryWindowInput,
   ProjectSessionThreadLink,
   ProjectSessionThreadLinkInput,
   ProjectSessionUnreadInput,
   ProjectSessionUpdateInput,
   ProjectUpdateInput,
+  ProjectWindow,
+  ProjectWindowInput,
 } from "../../shared/types";
 import type { AgentExecutionProfile } from "../../shared/agent-runtime";
 import type { DynamicToolCatalogSelection } from "../codex/dynamic-tool-registry";
@@ -39,20 +43,25 @@ import type {
 
 type CoreProject = Extract<
   ProjectWorkspaceReadSnapshot["value"],
-  { kind: "startup" }
->["projects"][number];
+  { kind: "project_window" }
+>["projects"]["items"][number];
 type CoreSessionSummary = Extract<
   ProjectWorkspaceReadSnapshot["value"],
-  { kind: "sessions" }
->["sessions"][number];
+  { kind: "session" }
+>["session"];
+type CoreTask = Extract<
+  ProjectWorkspaceReadSnapshot["value"],
+  { kind: "task_window" }
+>["tasks"]["items"][number];
+type CoreTaskThread = NonNullable<CoreTask["thread"]>;
 type CoreThread = Extract<
   ProjectWorkspaceReadSnapshot["value"],
   { kind: "thread" }
 >["thread"];
 type CoreBackgroundProcess = Extract<
   ProjectWorkspaceReadSnapshot["value"],
-  { kind: "background_processes" }
->["processes"][number];
+  { kind: "background_process_window" }
+>["processes"]["items"][number];
 
 export interface DesktopProjectWorkspaceThread {
   readonly threadId: string;
@@ -140,8 +149,31 @@ export interface DesktopProjectWorkspaceExecutionContext {
   readonly writableRoots: readonly string[];
 }
 
+export interface DesktopManagedWorktreeSummary {
+  readonly threadId: string;
+  readonly projectId: string;
+  readonly sessionId: string | null;
+  readonly sessionTitle: string | null;
+  readonly threadName: string | null;
+  readonly path: string;
+  readonly linkedAt: string;
+}
+
+export interface DesktopManagedWorktreeWindow {
+  readonly items: readonly DesktopManagedWorktreeSummary[];
+  readonly nextCursor: string | null;
+  readonly projectionRevision: number;
+}
+
+export interface DesktopAppServerSweepReconcileResult {
+  readonly threadIds: readonly string[];
+  readonly projectIds: readonly string[];
+}
+
 export interface DesktopProjectWorkspacePort {
-  listProjects(options?: { includeArchived?: boolean }): Promise<Project[]>;
+  /** Available (non-archived) Projects form one fixed 200-item domain collection. */
+  listProjects(): Promise<Project[]>;
+  listProjectWindow(input?: ProjectWindowInput): Promise<ProjectWindow>;
   getProject(projectId: string): Promise<Project | null>;
   readProjectPermissionMode(
     projectId: string,
@@ -155,28 +187,24 @@ export interface DesktopProjectWorkspacePort {
     projectId: string,
     input: ProjectUpdateInput,
   ): Promise<Project | null>;
-  reorderProjects(input: ProjectOrderInput): Promise<Project[]>;
+  reorderProjects(input: ProjectOrderInput): Promise<void>;
   setProjectPinned(
     projectId: string,
     input: ProjectPinnedInput,
   ): Promise<Project | null>;
-  setPinnedProjectOrder(input: ProjectPinnedOrderInput): Promise<Project[]>;
+  setPinnedProjectOrder(input: ProjectPinnedOrderInput): Promise<void>;
   setProjectLifecycle(
     projectId: string,
     lifecycle: Project["lifecycle"],
   ): Promise<Project | null>;
-  listProjectSessions(
+  listProjectSessionSummaryWindow(
     projectId: string | null,
-    options?: ProjectSessionListOptions,
-  ): Promise<ProjectSession[]>;
-  listProjectSessionSummaries(
-    projectId: string | null,
-    options?: ProjectSessionListOptions,
-  ): Promise<ProjectSessionSummary[]>;
-  listProjectThreads(
-    projectId: string | null,
-    options?: ProjectSessionListOptions,
-  ): Promise<DesktopProjectWorkspaceThread[]>;
+    input?: ProjectSessionSummaryWindowInput,
+  ): Promise<ProjectSessionSummaryWindow>;
+  readSidebarOverview(
+    includeArchived?: boolean,
+    input?: ProjectSessionSummaryWindowInput,
+  ): Promise<ProjectSessionSummaryWindow>;
   getProjectSession(sessionId: string): Promise<ProjectSession | null>;
   updateProjectSession(
     sessionId: string,
@@ -191,7 +219,7 @@ export interface DesktopProjectWorkspacePort {
   reorderProjectSessions(
     projectId: string,
     orderedSessionIds: string[],
-  ): Promise<ProjectSession[]>;
+  ): Promise<void>;
   setProjectSessionPinned(
     sessionId: string,
     input: ProjectSessionPinnedInput,
@@ -199,7 +227,7 @@ export interface DesktopProjectWorkspacePort {
   setPinnedProjectSessionOrder(
     projectId: string,
     input: ProjectSessionPinnedOrderInput,
-  ): Promise<ProjectSession[]>;
+  ): Promise<void>;
   archiveProjectSession(sessionId: string): Promise<ProjectSession | null>;
   unarchiveProjectSession(sessionId: string): Promise<ProjectSession | null>;
   markProjectSessionUnread(
@@ -237,6 +265,14 @@ export interface DesktopProjectWorkspacePort {
     readonly deleted: boolean;
     readonly sidebar: DesktopProjectWorkspaceSidebar;
   }>;
+  observeAppServerThreadWindow(
+    sweepId: string,
+    threadIds: readonly string[],
+  ): Promise<void>;
+  reconcileAppServerThreadSweep(
+    sweepId: string,
+    limit?: number,
+  ): Promise<DesktopAppServerSweepReconcileResult>;
   readThreadExecutionContext(
     threadId: string,
   ): Promise<DesktopProjectWorkspaceExecutionContext | null>;
@@ -255,13 +291,17 @@ export interface DesktopProjectWorkspacePort {
   listBackgroundProcesses(
     threadId?: string | null,
   ): Promise<CodexBackgroundProcessRecord[]>;
+  listManagedWorktreeWindow(
+    input?: {
+      projectId?: string | null;
+      after?: string | null;
+      first?: number;
+    },
+  ): Promise<DesktopManagedWorktreeWindow>;
   upsertBackgroundProcess(
     input: CodexBackgroundProcessRecord,
     options?: { readonly preserveStartedAt?: boolean },
   ): Promise<CodexBackgroundProcessRecord>;
-  readSidebar(
-    includeArchived: boolean,
-  ): Promise<DesktopProjectWorkspaceSidebar>;
   setProjectThreadOrder(
     projectId: string,
     orderedThreadIds: readonly string[] | null,
@@ -315,6 +355,11 @@ const fromCoreThread = (
   threadId: thread.thread_id,
   forkedFromId: thread.forked_from_id ?? null,
   parentThreadId: thread.parent_thread_id ?? undefined,
+  threadSource: thread.thread_source ?? null,
+  serviceName: thread.service_name ?? null,
+  agentNickname: thread.agent_nickname ?? null,
+  agentRole: thread.agent_role ?? null,
+  agentPath: thread.agent_path ?? null,
   threadName: thread.thread_name ?? undefined,
   threadPreview: thread.thread_preview,
   modelProvider: thread.model_provider,
@@ -332,6 +377,32 @@ const fromCoreThread = (
   projectlessOutputDirectory: thread.projectless_output_directory ?? null,
   projectlessWorkspaceBrowserRoot:
     thread.projectless_workspace_browser_root ?? null,
+  statusType: thread.status.status_type,
+  statusActiveFlags: [...thread.status.active_flags],
+  archived: thread.archived,
+  createdAt: thread.created_at,
+  updatedAt: thread.updated_at,
+  linkedAt: thread.linked_at,
+});
+
+const fromCoreTaskThread = (
+  thread: CoreTaskThread,
+  sessionId: string,
+  sessionProjectId: string | null,
+): ProjectSessionThreadSummary => ({
+  sessionId,
+  projectId: thread.project_id ?? sessionProjectId,
+  threadId: thread.thread_id,
+  forkedFromId: thread.forked_from_id ?? null,
+  parentThreadId: thread.parent_thread_id ?? undefined,
+  threadSource: thread.thread_source ?? null,
+  serviceName: thread.service_name ?? null,
+  agentNickname: thread.agent_nickname ?? null,
+  agentRole: thread.agent_role ?? null,
+  agentPath: thread.agent_path ?? null,
+  threadName: thread.thread_name ?? undefined,
+  threadPreview: thread.thread_preview,
+  cwd: thread.cwd ?? undefined,
   statusType: thread.status.status_type,
   statusActiveFlags: [...thread.status.active_flags],
   archived: thread.archived,
@@ -532,7 +603,7 @@ const toCoreThreadMoveMetadata = (
 
 const fromCoreSessionSummary = (
   session: CoreSessionSummary,
-  thread: ProjectSessionThreadLink | null,
+  thread: ProjectSessionThreadSummary | null,
 ): ProjectSessionSummary => ({
   id: session.id,
   projectId: session.project_id ?? null,
@@ -549,6 +620,26 @@ const fromCoreSessionSummary = (
   createdAt: session.created_at,
   updatedAt: session.updated_at,
 });
+
+const fromCoreSessionDetail = (
+  session: CoreSessionSummary,
+  thread: ProjectSessionThreadLink | null,
+): ProjectSession => ({
+  ...fromCoreSessionSummary(session, null),
+  thread,
+});
+
+const fromCoreTask = (task: CoreTask): ProjectSessionSummary =>
+  fromCoreSessionSummary(
+    task.session,
+    task.thread
+      ? fromCoreTaskThread(
+          task.thread,
+          task.session.id,
+          task.session.project_id ?? null,
+        )
+      : null,
+  );
 
 export function createCoreProjectWorkspaceAdapter(
   client: CoreClientPort,
@@ -638,54 +729,90 @@ export function createCoreProjectWorkspaceAdapter(
     }
     const summary = snapshot.value.session;
     const thread = await readThread(summary);
-    return fromCoreSessionSummary(summary, thread);
+    return fromCoreSessionDetail(summary, thread);
   };
 
-  const listSummaries = async (
+  const listSummaryWindow = async (
     projectId: string | null,
-    options?: ProjectSessionListOptions,
-  ): Promise<ProjectSessionSummary[]> => {
+    input?: ProjectSessionSummaryWindowInput,
+  ): Promise<ProjectSessionSummaryWindow> => {
     const snapshot = await client.workspaceRead({
-      kind: "sessions",
+      kind: "task_window",
       project_id: projectId,
-      include_archived: options?.includeArchived ?? false,
+      include_archived: input?.includeArchived ?? false,
+      window: {
+        after: input?.after ?? null,
+        first: input?.first,
+      },
     });
-    if (snapshot.value.kind !== "sessions") {
+    if (snapshot.value.kind !== "task_window") {
       throw new Error("Core returned the wrong Project Workspace read variant");
     }
-    return await Promise.all(
-      snapshot.value.sessions.map(async (summary) =>
-        fromCoreSessionSummary(summary, await readThread(summary)),
-      ),
-    );
+    const tasks = snapshot.value.tasks;
+    return {
+      items: tasks.items.map(fromCoreTask),
+      nextCursor: tasks.next_cursor ?? null,
+      hasMore: tasks.next_cursor !== null && tasks.next_cursor !== undefined,
+      projectionRevision: tasks.authority.projection_revision,
+    };
   };
 
-  const readProjects = async (
-    options?: { includeArchived?: boolean },
-  ): Promise<Project[]> => {
+  const readSidebarOverview = async (
+    includeArchived = false,
+    input?: ProjectSessionSummaryWindowInput,
+  ): Promise<ProjectSessionSummaryWindow> => {
     const snapshot = await client.workspaceRead({
-      kind: "projects",
-      include_archived: options?.includeArchived ?? false,
+      kind: "sidebar_overview",
+      include_archived: includeArchived,
+      pinned_window: {
+        after: input?.after ?? null,
+        first: input?.first ?? 100,
+      },
     });
-    if (snapshot.value.kind !== "projects") {
+    if (snapshot.value.kind !== "sidebar_overview") {
       throw new Error("Core returned the wrong Project Workspace read variant");
     }
-    return snapshot.value.projects.map(fromCoreProject);
+    const tasks = snapshot.value.pinned_tasks;
+    return {
+      items: tasks.items.map(fromCoreTask),
+      nextCursor: tasks.next_cursor ?? null,
+      hasMore: tasks.next_cursor !== null && tasks.next_cursor !== undefined,
+      projectionRevision: tasks.authority.projection_revision,
+    };
   };
 
-  const listProjectThreads = async (
-    projectId: string | null,
-    options?: ProjectSessionListOptions,
-  ): Promise<DesktopProjectWorkspaceThread[]> => {
+  const readProjectWindow = async (
+    input: ProjectWindowInput = {},
+  ): Promise<ProjectWindow> => {
     const snapshot = await client.workspaceRead({
-      kind: "threads",
-      project_id: projectId,
-      include_archived: options?.includeArchived ?? false,
+      kind: "project_window",
+      include_archived: input.includeArchived ?? false,
+      window: {
+        after: input.after ?? null,
+        first: input.first ?? 100,
+      },
     });
-    if (snapshot.value.kind !== "threads") {
+    if (snapshot.value.kind !== "project_window") {
       throw new Error("Core returned the wrong Project Workspace read variant");
     }
-    return snapshot.value.threads.map(fromCoreWorkspaceThread);
+    return {
+      items: snapshot.value.projects.items.map(fromCoreProject),
+      nextCursor: snapshot.value.projects.next_cursor ?? null,
+      hasMore: snapshot.value.projects.next_cursor !== null
+        && snapshot.value.projects.next_cursor !== undefined,
+      projectionRevision: snapshot.value.projects.authority.projection_revision,
+    };
+  };
+
+  const readProjects = async (): Promise<Project[]> => {
+    const window = await readProjectWindow({
+      includeArchived: false,
+      first: 200,
+    });
+    if (window.nextCursor !== null) {
+      throw new Error("Available Project collection exceeded its fixed Core bound");
+    }
+    return [...window.items];
   };
 
   const readProjectPermissionMode = async (
@@ -712,44 +839,64 @@ export function createCoreProjectWorkspaceAdapter(
   ): Promise<CodexBackgroundProcessRecord[]> => {
     const normalizedThreadId = threadId?.trim() || null;
     const snapshot = await client.workspaceRead({
-      kind: "background_processes",
+      kind: "background_process_window",
       thread_id: normalizedThreadId,
+      window: { after: null, first: 200 },
     });
-    if (snapshot.value.kind !== "background_processes") {
+    if (snapshot.value.kind !== "background_process_window") {
       throw new Error("Core returned the wrong Project Workspace read variant");
     }
-    return snapshot.value.processes.map(fromCoreBackgroundProcess);
+    if (snapshot.value.processes.next_cursor) {
+      throw new Error("Background process collection exceeded its fixed Core bound");
+    }
+    return snapshot.value.processes.items.map(fromCoreBackgroundProcess);
   };
 
-  const readSidebar = async (
-    includeArchived: boolean,
-  ): Promise<DesktopProjectWorkspaceSidebar> => {
+  const listManagedWorktreeWindow = async (
+    input: {
+      projectId?: string | null;
+      after?: string | null;
+      first?: number;
+    } = {},
+  ): Promise<DesktopManagedWorktreeWindow> => {
     const snapshot = await client.workspaceRead({
-      kind: "sidebar",
-      include_archived: includeArchived,
+      kind: "managed_worktree_window",
+      project_id: input.projectId ?? null,
+      window: {
+        after: input.after ?? null,
+        first: input.first ?? 200,
+      },
     });
-    if (snapshot.value.kind !== "sidebar") {
-      throw new Error("Core returned the wrong Project Workspace read variant");
+    if (snapshot.value.kind !== "managed_worktree_window") {
+      throw new Error("Core returned the wrong managed-worktree window variant");
     }
     return {
-      threads: snapshot.value.sidebar.threads.map(fromCoreWorkspaceThread),
-      projectThreadOrders: Object.fromEntries(
-        Object.entries(snapshot.value.sidebar.project_thread_orders).map(
-          ([projectId, threadIds]) => [projectId, [...threadIds]],
-        ),
-      ),
-      projectlessThreadOrder:
-        snapshot.value.sidebar.projectless_thread_order === null
-        || snapshot.value.sidebar.projectless_thread_order === undefined
-          ? null
-          : [...snapshot.value.sidebar.projectless_thread_order],
+      items: snapshot.value.worktrees.items.map((worktree) => ({
+        threadId: worktree.thread_id,
+        projectId: worktree.project_id,
+        sessionId: worktree.session_id ?? null,
+        sessionTitle: worktree.session_title ?? null,
+        threadName: worktree.thread_name ?? null,
+        path: worktree.path,
+        linkedAt: worktree.linked_at,
+      })),
+      nextCursor: snapshot.value.worktrees.next_cursor ?? null,
+      projectionRevision: snapshot.value.worktrees.authority.projection_revision,
     };
   };
 
+  const mutationSidebarReceipt = (
+    threads: readonly DesktopProjectWorkspaceThread[] = [],
+  ): DesktopProjectWorkspaceSidebar => ({
+    threads,
+    projectThreadOrders: {},
+    projectlessThreadOrder: null,
+  });
+
   const apply = async (
     intent: Parameters<CoreClientPort["workspaceApply"]>[0]["intent"],
-  ): Promise<void> => {
-    await client.workspaceApply({ operationId: randomUUID(), intent });
+  ): ReturnType<CoreClientPort["workspaceApply"]> => {
+    return await client.workspaceApply({ operationId: randomUUID(), intent });
   };
 
   const getProject = async (projectId: string): Promise<Project | null> => {
@@ -771,6 +918,7 @@ export function createCoreProjectWorkspaceAdapter(
 
   return {
     listProjects: readProjects,
+    listProjectWindow: readProjectWindow,
     getProject,
     readProjectPermissionMode,
     setProjectPermissionMode: async (projectId, mode) => {
@@ -820,7 +968,6 @@ export function createCoreProjectWorkspaceAdapter(
         kind: "reorder_projects",
         project_ids: input.orderedProjectIds,
       });
-      return await readProjects();
     },
     setProjectPinned: async (projectId, input) => {
       if (!(await getProject(projectId))) return null;
@@ -836,7 +983,6 @@ export function createCoreProjectWorkspaceAdapter(
         kind: "reorder_pinned_projects",
         project_ids: input.orderedProjectIds,
       });
-      return await readProjects();
     },
     setProjectLifecycle: async (projectId, lifecycle) => {
       const current = await getProject(projectId);
@@ -849,15 +995,8 @@ export function createCoreProjectWorkspaceAdapter(
       });
       return await getProject(projectId);
     },
-    listProjectSessions: async (projectId, options) => {
-      const summaries = await listSummaries(projectId, options);
-      const sessions = await Promise.all(
-        summaries.map((summary) => readSession(summary.id)),
-      );
-      return sessions.filter((session): session is ProjectSession => session !== null);
-    },
-    listProjectSessionSummaries: listSummaries,
-    listProjectThreads,
+    listProjectSessionSummaryWindow: listSummaryWindow,
+    readSidebarOverview,
     getProjectSession: readSession,
     updateProjectSession: async (sessionId, input) => {
       const parsed = ProjectSessionUpdateInputSchema.parse(input);
@@ -913,15 +1052,6 @@ export function createCoreProjectWorkspaceAdapter(
         project_id: projectId,
         session_ids: orderedSessionIds,
       });
-      return await Promise.all(
-        (await listSummaries(projectId)).map(async (summary) => {
-          const session = await readSession(summary.id);
-          if (!session) {
-            throw new Error(`Reordered Project Session not found: ${summary.id}`);
-          }
-          return session;
-        }),
-      );
     },
     setProjectSessionPinned: async (sessionId, input) => {
       if (!(await readSession(sessionId))) return null;
@@ -938,15 +1068,6 @@ export function createCoreProjectWorkspaceAdapter(
         project_id: projectId,
         session_ids: input.orderedSessionIds,
       });
-      return await Promise.all(
-        (await listSummaries(projectId)).map(async (summary) => {
-          const session = await readSession(summary.id);
-          if (!session) {
-            throw new Error(`Pinned Project Session not found: ${summary.id}`);
-          }
-          return session;
-        }),
-      );
     },
     archiveProjectSession: async (sessionId) => {
       if (!(await readSession(sessionId))) return null;
@@ -1147,7 +1268,7 @@ export function createCoreProjectWorkspaceAdapter(
       if (!thread) {
         throw new Error(`Unable to read moved Codex Thread '${input.threadId}'`);
       }
-      return { thread, sidebar: await readSidebar(false) };
+      return { thread, sidebar: mutationSidebarReceipt([thread]) };
     },
     setThreadUnread: async (threadId, unread) => {
       try {
@@ -1172,15 +1293,33 @@ export function createCoreProjectWorkspaceAdapter(
       } catch (error) {
         if (!isNotFound(error)) throw error;
       }
-      return await readSidebar(false);
+      return mutationSidebarReceipt();
     },
     deleteThread: async (threadId) => {
       const existing = await readCoreThread(threadId);
       if (!existing) {
-        return { deleted: false, sidebar: await readSidebar(false) };
+        return { deleted: false, sidebar: mutationSidebarReceipt() };
       }
       await apply({ kind: "delete_thread", thread_id: threadId });
-      return { deleted: true, sidebar: await readSidebar(false) };
+      return { deleted: true, sidebar: mutationSidebarReceipt() };
+    },
+    observeAppServerThreadWindow: async (sweepId, threadIds) => {
+      await apply({
+        kind: "observe_app_server_thread_window",
+        sweep_id: sweepId,
+        thread_ids: [...threadIds],
+      });
+    },
+    reconcileAppServerThreadSweep: async (sweepId, limit = 100) => {
+      const committed = await apply({
+        kind: "reconcile_app_server_thread_sweep",
+        sweep_id: sweepId,
+        limit,
+      });
+      return {
+        threadIds: committed.value.affected_thread_ids,
+        projectIds: committed.value.affected_project_ids,
+      };
     },
     readThreadExecutionContext,
     replaceThreadDynamicToolCatalogs: async (threadId, catalogs) => {
@@ -1223,6 +1362,7 @@ export function createCoreProjectWorkspaceAdapter(
       return context.writableRoots;
     },
     listBackgroundProcesses,
+    listManagedWorktreeWindow,
     upsertBackgroundProcess: async (input, options = {}) => {
       await apply({
         kind: "upsert_background_process",
@@ -1250,7 +1390,6 @@ export function createCoreProjectWorkspaceAdapter(
       }
       return persisted;
     },
-    readSidebar,
     setProjectThreadOrder: async (projectId, orderedThreadIds) => {
       await apply(orderedThreadIds === null
         ? {
@@ -1262,7 +1401,7 @@ export function createCoreProjectWorkspaceAdapter(
             project_id: projectId,
             ordered_thread_ids: [...orderedThreadIds],
           });
-      return await readSidebar(false);
+      return mutationSidebarReceipt();
     },
     setProjectlessThreadOrder: async (input) => {
       await apply({
@@ -1271,7 +1410,7 @@ export function createCoreProjectWorkspaceAdapter(
         visible_thread_ids: [...input.visibleThreadIds],
         next_visible_thread_ids: [...input.nextVisibleThreadIds],
       });
-      return await readSidebar(false);
+      return mutationSidebarReceipt();
     },
     setThreadPinned: async (threadId, pinned, beforeThreadId) => {
       try {
@@ -1290,14 +1429,15 @@ export function createCoreProjectWorkspaceAdapter(
       } catch (error) {
         if (!isNotFound(error)) throw error;
       }
-      return await readSidebar(false);
+      const thread = await getThread(threadId);
+      return mutationSidebarReceipt(thread ? [thread] : []);
     },
     reorderPinnedThreads: async (orderedThreadIds) => {
       await apply({
         kind: "reorder_pinned_threads",
         thread_ids: [...orderedThreadIds],
       });
-      return await readSidebar(false);
+      return mutationSidebarReceipt();
     },
   };
 }

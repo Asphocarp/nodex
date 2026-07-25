@@ -100,10 +100,19 @@ const occurrence = (overrides: Record<string, unknown> = {}) => ({
 const readSnapshot = (
   value: AutomationReadSnapshot["value"],
 ): AutomationReadSnapshot => ({
-  contract_version: 1,
+  contract_version: 2,
   store_epoch: "epoch:test",
   event_head: 7,
   value,
+});
+
+const collectionWindow = <T>(
+  items: readonly T[],
+  nextCursor: string | null = null,
+) => ({
+  items,
+  next_cursor: nextCursor,
+  authority: { projection_revision: 7 },
 });
 
 const committed = (
@@ -161,7 +170,7 @@ const createInput: CodexScheduledAutomationCreateInput = {
 describe("Desktop Automation Module bridge", () => {
   test("maps Automation events into authority-neutral invalidations", () => {
     expect(mapCoreAutomationEvent({
-      transport_version: 3,
+      transport_version: 4,
       event: {
         event_version: 2,
         sequence: 8,
@@ -196,8 +205,8 @@ describe("Desktop Automation Module bridge", () => {
       authority: Promise.resolve(rustRuntime(client)),
     });
     client.enqueueAutomationRead(readSnapshot({
-      kind: "definitions",
-      items: [definition({ automation_id: "daily-report-2" })],
+      kind: "definition",
+      item: null,
     }));
     client.enqueueAutomationApply(committed({ definitions: [definition()] }));
 
@@ -208,8 +217,8 @@ describe("Desktop Automation Module bridge", () => {
       executionEnvironment: "worktree",
     });
     expect(client.automationReads).toEqual([{
-      kind: "definitions",
-      include_deleted: true,
+      kind: "definition",
+      automation_id: "daily-report",
     }]);
     expect(client.automationApplies[0]?.intent).toEqual({
       kind: "create_definition",
@@ -419,7 +428,7 @@ describe("Desktop Automation Module bridge", () => {
     const windowEnd = new Date("2026-07-21T00:00:00.000Z");
     projectClient.enqueueAutomationRead(readSnapshot({
       kind: "occurrences",
-      items: [occurrence()],
+      window: collectionWindow([occurrence()], "nxc1.occurrences.next"),
     }));
 
     await expect(bridge.listPageOccurrences(
@@ -427,24 +436,42 @@ describe("Desktop Automation Module bridge", () => {
       windowStart,
       windowEnd,
       " planning ",
-    )).resolves.toMatchObject([{
-      id: "page:planning:2026-07-20T01:00:00.000Z",
-      pageId: "page:planning",
-      status: "plan",
-      priority: "p1-high",
-      scheduledStart: new Date("2026-07-20T01:00:00.000Z"),
-      occurrenceStart: new Date("2026-07-20T01:00:00.000Z"),
-      recurrence: { frequency: "weekly", byWeekdays: [1] },
-      runInTarget: "localProject",
-    }]);
+    )).resolves.toMatchObject({
+      items: [{
+        id: "page:planning:2026-07-20T01:00:00.000Z",
+        pageId: "page:planning",
+        status: "plan",
+        priority: "p1-high",
+        scheduledStart: new Date("2026-07-20T01:00:00.000Z"),
+        occurrenceStart: new Date("2026-07-20T01:00:00.000Z"),
+        recurrence: { frequency: "weekly", byWeekdays: [1] },
+        runInTarget: "localProject",
+      }],
+      nextCursor: "nxc1.occurrences.next",
+    });
     expect(resolveProjectClient).toHaveBeenCalledWith("project:one");
     expect(projectClient.automationReads).toEqual([{
       kind: "occurrences",
       window_start_ms: windowStart.getTime(),
       window_end_ms: windowEnd.getTime(),
       search_query: "planning",
-      limit: 20_000,
+      window: { after: null, first: 200 },
     }]);
+    projectClient.enqueueAutomationRead(readSnapshot({
+      kind: "occurrences",
+      window: collectionWindow([]),
+    }));
+    await expect(bridge.listPageOccurrences(
+      "project:one",
+      windowStart,
+      windowEnd,
+      "planning",
+      "nxc1.occurrences.next",
+    )).resolves.toEqual({ items: [], nextCursor: null });
+    expect(projectClient.automationReads[1]).toMatchObject({
+      kind: "occurrences",
+      window: { after: "nxc1.occurrences.next", first: 200 },
+    });
 
     projectClient.enqueueAutomationApply(committed({
       page_occurrence_mutation: {
@@ -556,7 +583,7 @@ describe("Desktop Automation Module bridge", () => {
     });
     const inboxValue = {
       kind: "inbox" as const,
-      items: [{
+      window: collectionWindow([{
         automation_id: "daily-report",
         automation_name: "Daily Report",
         title: "Daily Report",
@@ -569,11 +596,9 @@ describe("Desktop Automation Module bridge", () => {
         read_at_ms: 140,
         created_at_ms: 120,
         status: "PENDING_REVIEW" as const,
-      }],
+      }]),
       unread_counts: {
         total: 0,
-        automation_ids: [],
-        unread_runs: [],
       },
     };
     client.enqueueAutomationRead(readSnapshot(inboxValue));

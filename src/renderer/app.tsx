@@ -129,6 +129,9 @@ function WorkbenchApp({
   const workbenchV2Enabled = readWorkbenchV2Flag();
   const {
     projects,
+    hasMoreProjects,
+    loadingMoreProjects,
+    loadMoreProjects,
     loading,
     ready: projectsReady,
     error: projectsError,
@@ -1228,6 +1231,9 @@ function WorkbenchApp({
       windowSessionId={initialWindowSessionBootstrap.session.id}
       libraryWorkspaceEnabled={productFeatureGates.libraryWorkspace}
       projects={projects}
+      hasMoreProjects={hasMoreProjects}
+      loadingMoreProjects={loadingMoreProjects}
+      onLoadMoreProjects={loadMoreProjects}
       projectCatalogError={projectsError}
       onRetryProjects={refreshProjects}
       dbProjectId={resolvedDbProjectId}

@@ -113,12 +113,16 @@ describe("Electron native data authority", () => {
       expect(existsSync(databasePath)).toBe(true);
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
 
-      const startup = await runtime.rootClient.workspaceRead({ kind: "startup" });
-      if (startup.value.kind !== "startup") {
-        throw new Error("Core did not return the Workspace startup snapshot");
+      const projects = await runtime.rootClient.workspaceRead({
+        kind: "project_window",
+        include_archived: false,
+        window: { first: 50 },
+      });
+      if (projects.value.kind !== "project_window") {
+        throw new Error("Core did not return the Workspace Project window");
       }
-      const projectId = startup.value.projects[0]?.id;
-      if (!projectId) throw new Error("Core startup has no Project");
+      const projectId = projects.value.projects.items[0]?.id;
+      if (!projectId) throw new Error("Core Project window is empty");
       const desktopWorkspace = createDesktopProjectWorkspaceBridge({
         authority: Promise.resolve(runtime),
       });
@@ -130,9 +134,10 @@ describe("Electron native data authority", () => {
       );
       expect(projectsHttpResponse.status).toBe(200);
       await expect(projectsHttpResponse.json()).resolves.toMatchObject({
-        projects: expect.arrayContaining([
+        items: expect.arrayContaining([
           expect.objectContaining({ id: projectId }),
         ]),
+        nextCursor: null,
       });
       const sqlHttpResponse = await getHttpServerOptions(51_284).fetch(
         new Request(
@@ -150,20 +155,19 @@ describe("Electron native data authority", () => {
       const databaseCatalog = await database.read({
         version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId,
-        read: { target: { kind: "project_default" }, mode: "catalog" },
+        read: { target: { kind: "project_default" }, mode: "database" },
       });
       expect(databaseCatalog).toMatchObject({
         ok: true,
         value: {
           projectId,
           libraryId: runtime.rootClient.handshake.library_id,
-          value: { kind: "catalog" },
+          value: { kind: "database" },
         },
       });
-      if (!databaseCatalog.ok || databaseCatalog.value.value.kind !== "catalog") {
-        throw new Error("Expected Core Database catalog");
+      if (!databaseCatalog.ok || databaseCatalog.value.value.kind !== "database") {
+        throw new Error("Expected Core Database descriptor");
       }
-      expect(databaseCatalog.value.value.databases.length).toBeGreaterThan(0);
       __setHttpContentModuleDependenciesForTests({
         database: {
           read: (request) => database.read(request),
@@ -179,7 +183,7 @@ describe("Electron native data authority", () => {
             body: JSON.stringify({
               version: DATABASE_MODULE_V2_CONTRACT_VERSION,
               projectId,
-              read: { target: { kind: "project_default" }, mode: "catalog" },
+              read: { target: { kind: "project_default" }, mode: "database" },
             }),
           },
         ),
@@ -190,10 +194,10 @@ describe("Electron native data authority", () => {
         value: {
           projectId,
           libraryId: runtime.rootClient.handshake.library_id,
-          value: { kind: "catalog" },
+          value: { kind: "database" },
         },
       });
-      const primaryDatabase = databaseCatalog.value.value.databases[0];
+      const primaryDatabase = databaseCatalog.value.value.value;
       const primaryDataSource = primaryDatabase?.dataSources[0];
       const primaryView = primaryDatabase?.views.find((view) =>
         view.dataSourceId === primaryDataSource?.dataSourceId
@@ -1004,8 +1008,11 @@ describe("Electron native data authority", () => {
           ]),
         },
       });
-      const nativeBoard = await desktopDatabase.getBoardSummary(projectId);
-      expect(nativeBoard.board.columns.find((column) => column.id === "ship")?.cards)
+      const nativeWindow = await desktopDatabase.getDatabaseViewWindow(
+        projectId,
+        { first: 200 },
+      );
+      expect(nativeWindow.board.columns.find((column) => column.id === "ship")?.cards)
         .toEqual(expect.arrayContaining([
           expect.objectContaining({
             id: copiedDataSourcePageId,
@@ -1016,20 +1023,20 @@ describe("Electron native data authority", () => {
       __setHttpContentModuleDependenciesForTests({
         databaseProjections: desktopDatabase,
       });
-      const boardHttpResponse = await getHttpServerOptions(51_284).fetch(
+      const windowHttpResponse = await getHttpServerOptions(51_284).fetch(
         new Request(
-          `http://127.0.0.1:51284/api/projects/${projectId}/board-summary`,
+          `http://127.0.0.1:51284/api/projects/${projectId}/database-views/default/rows?first=200`,
         ),
       );
-      expect(boardHttpResponse.status).toBe(200);
-      await expect(boardHttpResponse.json()).resolves.toMatchObject({
+      expect(windowHttpResponse.status).toBe(200);
+      await expect(windowHttpResponse.json()).resolves.toMatchObject({
         projectId,
-        libraryId: nativeBoard.libraryId,
-        databaseId: nativeBoard.databaseId,
-        dataSourceId: nativeBoard.dataSourceId,
-        viewId: nativeBoard.viewId,
-        storeEpoch: nativeBoard.storeEpoch,
-        changeLogSeq: nativeBoard.changeLogSeq,
+        libraryId: nativeWindow.libraryId,
+        databaseId: nativeWindow.databaseId,
+        dataSourceId: nativeWindow.dataSourceId,
+        viewId: nativeWindow.viewId,
+        storeEpoch: nativeWindow.storeEpoch,
+        changeLogSeq: nativeWindow.changeLogSeq,
         board: {
           columns: expect.arrayContaining([
             expect.objectContaining({
@@ -1041,31 +1048,6 @@ describe("Electron native data authority", () => {
           ]),
         },
       });
-      const columnHttpResponse = await getHttpServerOptions(51_284).fetch(
-        new Request(
-          `http://127.0.0.1:51284/api/projects/${projectId}/column?id=ship`,
-        ),
-      );
-      expect(columnHttpResponse.status).toBe(200);
-      await expect(columnHttpResponse.json()).resolves.toMatchObject({
-        id: "ship",
-        cards: expect.arrayContaining([
-          expect.objectContaining({
-            id: copiedDataSourcePageId,
-            description: expect.any(String),
-          }),
-        ]),
-      });
-      await expect(desktopDatabase.getDatabaseRowsDetails(projectId, {
-        pageIds: [copiedDataSourcePageId, copiedDataSourcePageId],
-      })).resolves.toEqual([
-        expect.objectContaining({
-          id: copiedDataSourcePageId,
-          status: "ship",
-          description: expect.any(String),
-          runInTarget: "localProject",
-        }),
-      ]);
       await expect(desktopDatabase.getDatabaseRowPage(
         projectId,
         copiedDataSourcePageId,
@@ -1670,11 +1652,13 @@ describe("Electron native data authority", () => {
         workspace.setPinnedProjectSessionOrder(createdProject.id, {
           orderedSessionIds: [createdSession.id],
         }),
-      ).resolves.toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ id: createdSession.id, pinnedOrder: 0 }),
-        ]),
-      );
+      ).resolves.toBeUndefined();
+      await expect(
+        workspace.getProjectSession(createdSession.id),
+      ).resolves.toMatchObject({
+        id: createdSession.id,
+        pinnedOrder: 0,
+      });
       const threadTimestamp = Date.now();
       await expect(workspace.upsertProjectSessionThreadLink({
         sessionId: createdSession.id,
@@ -1774,9 +1758,7 @@ describe("Electron native data authority", () => {
         createdProject.id,
         ["thread:electron-session"],
       )).resolves.toMatchObject({
-        projectThreadOrders: {
-          [createdProject.id]: ["thread:electron-session"],
-        },
+        projectThreadOrders: {},
       });
       const clearedProjectOrder = await workspace.setProjectThreadOrder(
         createdProject.id,
@@ -1849,7 +1831,7 @@ describe("Electron native data authority", () => {
         visibleThreadIds: ["thread:electron-projectless-order"],
         nextVisibleThreadIds: ["thread:electron-projectless-order"],
       })).resolves.toMatchObject({
-        projectlessThreadOrder: ["thread:electron-projectless-order"],
+        projectlessThreadOrder: null,
       });
       await workspace.setThreadPinned(
         "thread:electron-projectless-order",
@@ -1860,16 +1842,10 @@ describe("Electron native data authority", () => {
         true,
         "thread:electron-projectless-order",
       )).resolves.toMatchObject({
-        threads: expect.arrayContaining([
-          expect.objectContaining({
-            threadId: "thread:electron-session",
-            pinnedOrder: 0,
-          }),
-          expect.objectContaining({
-            threadId: "thread:electron-projectless-order",
-            pinnedOrder: 1,
-          }),
-        ]),
+        threads: [expect.objectContaining({
+          threadId: "thread:electron-session",
+          pinnedOrder: 0,
+        })],
       });
       await expect(
         workspace.getProjectSession(createdSession.id),
@@ -1903,12 +1879,7 @@ describe("Electron native data authority", () => {
       await expect(workspace.reorderPinnedThreads([
         "thread:electron-session",
       ])).resolves.toMatchObject({
-        threads: expect.arrayContaining([
-          expect.objectContaining({
-            threadId: "thread:electron-session",
-            pinnedOrder: 0,
-          }),
-        ]),
+        threads: [],
       });
       await expect(workspace.setThreadUnread(
         "thread:electron-session",
@@ -1951,12 +1922,7 @@ describe("Electron native data authority", () => {
         "thread:electron-projectless-order",
         false,
       )).resolves.toMatchObject({
-        threads: expect.arrayContaining([
-          expect.objectContaining({
-            threadId: "thread:electron-projectless-order",
-            archived: false,
-          }),
-        ]),
+        threads: [],
       });
       await expect(
         workspace.getProjectSession(projectlessSession.id),
@@ -2263,11 +2229,14 @@ describe("Electron native data authority", () => {
       await workspace.setProjectPinned(projectId, { pinned: true });
       await workspace.setProjectPinned(createdProject.id, { pinned: true });
       const pinnedOrder = [createdProject.id, projectId];
-      const reorderedProjects = await workspace.setPinnedProjectOrder({
+      await workspace.setPinnedProjectOrder({
         orderedProjectIds: pinnedOrder,
       });
+      const reorderedProjects = await workspace.listProjectWindow({
+        first: 200,
+      });
       expect(
-        reorderedProjects
+        reorderedProjects.items
           .filter((project) => project.pinned)
           .sort((left, right) =>
             (left.pinnedOrder ?? Number.MAX_SAFE_INTEGER) -
@@ -2357,7 +2326,7 @@ describe("Electron native data authority", () => {
         createdProject.id,
         new Date("2026-07-19T00:00:00.000Z"),
         new Date("2026-07-21T00:00:00.000Z"),
-      )).resolves.toEqual([]);
+      )).resolves.toEqual({ items: [], nextCursor: null });
       __setHttpContentModuleDependenciesForTests({ automation });
       const occurrencesHttpResponse = await getHttpServerOptions(51_284).fetch(
         new Request(
@@ -2367,6 +2336,7 @@ describe("Electron native data authority", () => {
       expect(occurrencesHttpResponse.status).toBe(200);
       await expect(occurrencesHttpResponse.json()).resolves.toEqual({
         occurrences: [],
+        nextCursor: null,
       });
       await expect(
         automation.claimDueReminders(10, 120_000),
@@ -2426,9 +2396,10 @@ describe("Electron native data authority", () => {
       await expect(
         runtime.clientForProject(projectId).databaseRead({
           target: { kind: "project_default" },
-          mode: "catalog",
+          mode: "catalog_window",
+          window: { after: null, first: 10 },
         }),
-      ).resolves.toMatchObject({ value: { kind: "catalog" } });
+      ).resolves.toMatchObject({ value: { kind: "catalog_window" } });
 
       const canvasDocumentId = primaryCanvasDocumentId(projectId);
       const firstCanvas = createCoreCanvasSceneAdapter(

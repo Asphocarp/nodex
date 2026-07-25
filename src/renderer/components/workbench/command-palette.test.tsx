@@ -576,6 +576,7 @@ describe("CommandPaletteSurface", () => {
           results: [{
             projectId: "default",
             pageId: "body-only-page",
+            title: "Body-only page",
             status: "build",
             score: -1,
             excerpt: "Document vector clocks and replicated queue recovery.",

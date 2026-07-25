@@ -3,8 +3,6 @@ import {
   type DatabaseApplyResultV2,
   type DatabaseApplyV2,
   type DatabaseModuleErrorV2,
-  type DatabaseModuleReadRequestV2,
-  type DatabaseModuleReadResultV2,
   type DatabaseModuleReadSnapshotV2,
 } from "../../shared/database-module-v2";
 import {
@@ -12,13 +10,10 @@ import {
   compileDatabasePagesDrag,
 } from "../../shared/database-page-drag";
 import type { MovePageInput, MovePagesInput } from "../../shared/types";
-import { applyDatabaseModule, readDatabaseModule } from "./api";
+import { applyDatabaseModule } from "./api";
+import type { DatabaseViewRenderModel } from "./database-view-render-model";
 
 export interface DatabasePageDragRuntimeDependencies {
-  readonly read: (
-    projectId: string,
-    request: DatabaseModuleReadRequestV2,
-  ) => Promise<DatabaseModuleReadResultV2>;
   readonly apply: (
     projectId: string,
     request: DatabaseApplyV2,
@@ -33,33 +28,19 @@ export class DatabasePageDragMutationError extends Error {
 }
 
 const defaultDependencies: DatabasePageDragRuntimeDependencies = {
-  read: readDatabaseModule,
   apply: applyDatabaseModule,
 };
 
-const readCurrentQuery = async (
-  projectId: string,
-  dependencies: DatabasePageDragRuntimeDependencies,
-): Promise<DatabaseModuleReadSnapshotV2> => {
-  const result = await dependencies.read(projectId, {
+export const databaseViewRenderModelToDragSnapshot = (
+  view: DatabaseViewRenderModel,
+): DatabaseModuleReadSnapshotV2 => ({
     version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-    projectId,
-    read: { target: { kind: "project_default" }, mode: "query" },
+    projectId: view.projectId,
+    libraryId: view.libraryId,
+    storeEpoch: view.storeEpoch,
+    changeLogSeq: view.changeLogSeq,
+    value: { kind: "query", value: view.query },
   });
-  if (!result.ok) {
-    throw new DatabasePageDragMutationError(result.error);
-  }
-  if (result.value.value.kind !== "query") {
-    throw new Error("Project-default Database query returned another read mode");
-  }
-  return result.value;
-};
-
-const refreshRequired = (code: DatabaseModuleErrorV2["code"]): boolean =>
-  code === "revision_conflict"
-  || code === "resource_not_found"
-  || code === "authorization_denied"
-  || code === "store_not_initialized";
 
 const commitCompiledDrag = async (input: {
   readonly projectId: string;
@@ -68,21 +49,21 @@ const commitCompiledDrag = async (input: {
   readonly compile: (
     snapshot: DatabaseModuleReadSnapshotV2,
   ) => DatabaseApplyV2["operations"];
+  readonly snapshot: DatabaseModuleReadSnapshotV2;
   readonly dependencies: DatabasePageDragRuntimeDependencies;
 }): Promise<boolean> => {
-  const snapshot = await readCurrentQuery(input.projectId, input.dependencies);
   const request: DatabaseApplyV2 = {
     version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     operationId: input.operationId,
     projectId: input.projectId,
-    storeEpoch: snapshot.storeEpoch,
+    storeEpoch: input.snapshot.storeEpoch,
     actor: {
       kind: "renderer_page_drag",
       ...(input.clientSessionId
         ? { clientSessionId: input.clientSessionId }
         : {}),
     },
-    operations: input.compile(snapshot),
+    operations: input.compile(input.snapshot),
   };
 
   let retried = false;
@@ -97,13 +78,6 @@ const commitCompiledDrag = async (input: {
     result = await input.dependencies.apply(input.projectId, request);
   }
   if (result.ok) return true;
-  if (refreshRequired(result.error.code)) {
-    try {
-      await readCurrentQuery(input.projectId, input.dependencies);
-    } catch {
-      // Preserve the typed apply failure as the actionable error.
-    }
-  }
   throw new DatabasePageDragMutationError(result.error);
 };
 
@@ -112,6 +86,7 @@ export const commitDatabasePageDrag = async (input: {
   readonly clientSessionId?: string;
   readonly operationId: string;
   readonly move: MovePageInput;
+  readonly snapshot: DatabaseModuleReadSnapshotV2;
   readonly dependencies?: DatabasePageDragRuntimeDependencies;
 }): Promise<boolean> =>
   await commitCompiledDrag({
@@ -120,6 +95,7 @@ export const commitDatabasePageDrag = async (input: {
       ? { clientSessionId: input.clientSessionId }
       : {}),
     operationId: input.operationId,
+    snapshot: input.snapshot,
     compile: (snapshot) =>
       compileDatabasePageDrag({ move: input.move, snapshot }).operations,
     dependencies: input.dependencies ?? defaultDependencies,
@@ -130,6 +106,7 @@ export const commitDatabasePagesDrag = async (input: {
   readonly clientSessionId?: string;
   readonly operationId: string;
   readonly move: MovePagesInput;
+  readonly snapshot: DatabaseModuleReadSnapshotV2;
   readonly dependencies?: DatabasePageDragRuntimeDependencies;
 }): Promise<boolean> =>
   await commitCompiledDrag({
@@ -138,6 +115,7 @@ export const commitDatabasePagesDrag = async (input: {
       ? { clientSessionId: input.clientSessionId }
       : {}),
     operationId: input.operationId,
+    snapshot: input.snapshot,
     compile: (snapshot) =>
       compileDatabasePagesDrag({ move: input.move, snapshot }).operations,
     dependencies: input.dependencies ?? defaultDependencies,

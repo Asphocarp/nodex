@@ -1,17 +1,13 @@
 import { useEffect, useMemo } from "react";
-import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
+import { hashKey, useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Database, LayoutList } from "lucide-react";
 
 import type { LibraryRouteTarget } from "../../../shared/library-module";
-import {
-  DATABASE_MODULE_V2_CONTRACT_VERSION,
-  type LibraryDatabaseReadV2,
-} from "../../../shared/database-module-v2";
-import type { DatabaseViewId } from "../../../shared/database-identities";
-import {
-  readLibraryDatabaseModule,
-  readDatabaseModule,
-} from "../../lib/api";
+import type {
+  DatabaseViewWindowSnapshot,
+  LibraryDatabaseViewWindowSnapshot,
+} from "../../../shared/database-views";
+import { invoke } from "../../lib/api";
 import {
   invalidateExactQuery,
   projectionCursorForSnapshots,
@@ -31,20 +27,24 @@ const displayValue = (value: unknown): string => {
   return String(value);
 };
 
-const readDatabaseForContext = async (
+const readDatabaseWindowForContext = async (
   accessProjectId: string | undefined,
-  read: LibraryDatabaseReadV2,
-) => {
+  target:
+    | { readonly databaseViewId: string }
+    | { readonly databaseId: string },
+  after: string | null,
+): Promise<DatabaseViewWindowSnapshot | LibraryDatabaseViewWindowSnapshot> => {
   if (accessProjectId) {
-    return await readDatabaseModule(accessProjectId, {
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-      projectId: accessProjectId,
-      read,
+    return await invoke("database:view-window:get", accessProjectId, {
+      ...target,
+      after: after ?? undefined,
+      first: 100,
     });
   }
-  return await readLibraryDatabaseModule({
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-    read,
+  return await invoke("library-database:view-window:get", {
+    ...target,
+    after: after ?? undefined,
+    first: 100,
   });
 };
 
@@ -63,67 +63,53 @@ export function LibraryDatabaseRoute({
   const projectionRegistry = useProjectionInvalidationRegistry();
   const databaseId = target.kind === "database" ? target.databaseId : null;
   const directViewId = target.kind === "view" ? target.viewId : null;
-  const descriptorKey = useMemo(
-    () => queryKeys.libraryDatabases.descriptor(
-      accessProjectId,
-      databaseId,
-      directViewId,
-    ),
-    [accessProjectId, databaseId, directViewId],
-  );
-  const descriptor = useQuery({
-    queryKey: descriptorKey,
-    queryFn: async () => {
-      if (directViewId) return { viewId: directViewId } as const;
-      if (!databaseId) throw new Error("Library Database target is unavailable");
-      const result = await readDatabaseForContext(accessProjectId, {
-          target: { kind: "database", databaseId },
-          mode: "database",
-      });
-      if (!result.ok) throw new Error(result.error.message);
-      if (result.value.value.kind !== "database") {
-        throw new Error("Library Database read returned the wrong resource kind");
-      }
-      const viewId = result.value.value.value.database.defaultViewId;
-      if (!viewId) throw new Error("Database has no default View");
-      return {
-        viewId,
-        libraryId: result.value.libraryId,
-        storeEpoch: result.value.storeEpoch,
-        changeLogSeq: result.value.changeLogSeq,
-      } as const;
-    },
-  });
-  const viewId = descriptor.data?.viewId ?? null;
+  const targetIdentity = directViewId
+    ? `view:${directViewId}`
+    : databaseId
+    ? `database:${databaseId}`
+    : null;
   const queryKey = useMemo(
-    () => queryKeys.libraryDatabases.view(accessProjectId, viewId),
-    [accessProjectId, viewId],
+    () => queryKeys.libraryDatabases.view(accessProjectId, targetIdentity),
+    [accessProjectId, targetIdentity],
   );
-  const query = useQuery({
+  const query = useInfiniteQuery({
     queryKey,
-    enabled: viewId !== null,
-    queryFn: async () => {
-      const result = await readDatabaseForContext(accessProjectId, {
-          target: { kind: "view", viewId: viewId as DatabaseViewId },
-          mode: "query",
-      });
-      if (!result.ok) throw new Error(result.error.message);
-      if (result.value.value.kind !== "query") {
-        throw new Error("Library View read returned the wrong resource kind");
+    enabled: targetIdentity !== null,
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }) => {
+      if (targetIdentity?.startsWith("view:")) {
+        return await readDatabaseWindowForContext(
+          accessProjectId,
+          { databaseViewId: targetIdentity.slice("view:".length) },
+          pageParam,
+        );
       }
-      return {
-        libraryId: result.value.libraryId,
-        storeEpoch: result.value.storeEpoch,
-        changeLogSeq: result.value.changeLogSeq,
-        query: result.value.value.value,
-      };
+      if (targetIdentity?.startsWith("database:")) {
+        return await readDatabaseWindowForContext(
+          accessProjectId,
+          { databaseId: targetIdentity.slice("database:".length) },
+          pageParam,
+        );
+      }
+      throw new Error("Library Database target is unavailable");
     },
+    getNextPageParam: (window) => window.nextCursor ?? undefined,
   });
+  const windows = query.data?.pages;
+  const firstWindow = windows?.[0];
+  const value = useMemo(() => {
+    if (!firstWindow || !windows) return undefined;
+    return {
+      ...firstWindow.query,
+      rows: windows.flatMap((window) => window.query.rows),
+    };
+  }, [firstWindow, windows]);
 
   useEffect(() => {
-    const authority = query.data;
+    const authority = firstWindow;
     if (!authority) return;
-    const value = authority.query;
+    const initialValue = value;
+    if (!initialValue) return;
     return projectionRegistry.register({
       scope: accessProjectId
         ? {
@@ -132,10 +118,9 @@ export function LibraryDatabaseRoute({
             projectId: accessProjectId,
           }
         : { kind: "library", libraryId: authority.libraryId },
-      consumerKey: hashKey(["projection", descriptorKey, queryKey]),
+      consumerKey: hashKey(["projection", queryKey]),
       getDependencies: () => {
-        const current = queryClient.getQueryData<typeof authority>(queryKey)?.query
-          ?? value;
+        const current = value ?? initialValue;
         return {
           databaseIds: [current.database.databaseId],
           dataSourceIds: [current.dataSource.dataSourceId],
@@ -144,34 +129,25 @@ export function LibraryDatabaseRoute({
         };
       },
       getCursor: () => {
-        const snapshots: unknown[] = [
-          queryClient.getQueryData<typeof authority>(queryKey),
-        ];
-        if (!directViewId) {
-          snapshots.push(queryClient.getQueryData(descriptorKey));
-        }
-        return projectionCursorForSnapshots(snapshots);
+        return projectionCursorForSnapshots([
+          queryClient.getQueryData(queryKey),
+        ]);
       },
       invalidate: async () => {
-        await Promise.all([
-          invalidateExactQuery(queryClient, descriptorKey),
-          invalidateExactQuery(queryClient, queryKey),
-        ]);
+        await invalidateExactQuery(queryClient, queryKey);
       },
     });
   }, [
     accessProjectId,
-    descriptorKey,
-    directViewId,
+    firstWindow,
     projectionRegistry,
     query.data,
     queryClient,
     queryKey,
-    viewId,
+    value,
   ]);
 
-  const error = descriptor.error ?? query.error;
-  const value = query.data?.query;
+  const error = query.error;
   const visibleProperties = value?.properties.filter(
     (property) =>
       property.lifecycle === "active" &&
@@ -205,7 +181,7 @@ export function LibraryDatabaseRoute({
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto px-6 py-6">
-        {descriptor.isPending || query.isPending ? (
+        {query.isPending ? (
           <div className="py-20 text-center text-sm text-token-description-foreground" role="status">
             Opening Database…
           </div>
@@ -260,6 +236,18 @@ export function LibraryDatabaseRoute({
                 </div>
               ) : null}
             </div>
+            {query.hasNextPage ? (
+              <div className="flex justify-center py-4">
+                <button
+                  type="button"
+                  className="text-sm font-medium text-token-text-secondary hover:text-token-text-primary"
+                  disabled={query.isFetchingNextPage}
+                  onClick={() => void query.fetchNextPage()}
+                >
+                  {query.isFetchingNextPage ? "Loading…" : "Show more"}
+                </button>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>

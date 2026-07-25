@@ -41,6 +41,12 @@ export type DatabaseIntent = DatabaseApplyRequest["intent"];
 export type DatabaseApplyResponse = components["schemas"]["DatabaseApplyResponse"];
 export type DatabaseReadSnapshot = SuccessfulPayload<DatabaseReadResponse>;
 export type DatabaseCommittedValue = SuccessfulPayload<DatabaseApplyResponse>;
+export type CoreDatabaseRowSummary =
+  components["schemas"]["DatabaseRowSummary"];
+export type CoreDatabaseRowDetail =
+  components["schemas"]["DatabaseRowDetail"];
+export type CoreDatabaseViewWindow =
+  components["schemas"]["DatabaseViewWindow"];
 
 export type ProjectWorkspaceReadRequest = components["schemas"]["ProjectWorkspaceReadRequest"];
 export type ProjectWorkspaceRead = ProjectWorkspaceReadRequest["read"];

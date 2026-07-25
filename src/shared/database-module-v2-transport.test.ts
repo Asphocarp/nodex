@@ -16,7 +16,7 @@ const CUSTOM_PROPERTY_ID = "p_abcdefgh";
 const CUSTOM_OPTION_ID = "o_abcdefgh";
 
 const applyRequest = () => ({
-  version: 2,
+  version: DATABASE_MODULE_V2_CONTRACT_VERSION,
   operationId: "module-operation-2",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -83,7 +83,7 @@ const propertyRecord = () => ({
 describe("Database Module v2 transport boundary", () => {
   test("is additive and keeps the active v1 contract untouched", () => {
     expect(DATABASE_MODULE_CONTRACT_VERSION).toBe(1);
-    expect(DATABASE_MODULE_V2_CONTRACT_VERSION).toBe(2);
+    expect(DATABASE_MODULE_V2_CONTRACT_VERSION).toBe(3);
   });
 
   test("binds ordered option creation and value writes under one apply", () => {
@@ -232,11 +232,11 @@ describe("Database Module v2 transport boundary", () => {
     ).toThrow("databaseApplyV2.databaseBlockId is not supported");
   });
 
-  test("validates v2 View Property references on ad hoc reads", () => {
-    expect(
+  test("rejects removed ad hoc query reads at the transport boundary", () => {
+    expect(() =>
       bindDatabaseModuleReadV2(
         {
-          version: 2,
+          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
           projectId: "project-1",
           read: {
             target: { kind: "data_source", dataSourceId: "source-1" },
@@ -251,12 +251,12 @@ describe("Database Module v2 transport boundary", () => {
         },
         "project-1",
       ),
-    ).toMatchObject({ read: { mode: "query" } });
+    ).toThrow("target and mode are incompatible");
 
     expect(() =>
       bindDatabaseModuleReadV2(
         {
-          version: 2,
+          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
           projectId: "project-1",
           read: {
             target: { kind: "data_source", dataSourceId: "source-1" },
@@ -275,14 +275,14 @@ describe("Database Module v2 transport boundary", () => {
         },
         "project-1",
       ),
-    ).toThrow("propertyId must be a reserved built-in ID");
+    ).toThrow("target and mode are incompatible");
   });
 
   test("parses stored option registries while rejecting the removed key field", () => {
     const result = {
       ok: true,
       value: {
-        version: 2,
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId: "project-1",
         libraryId: "library-1",
         storeEpoch: "epoch-1",
@@ -339,7 +339,7 @@ describe("Database Module v2 transport boundary", () => {
     const receipt = {
       ok: true,
       value: {
-        version: 2,
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         operationId: "operation-1",
         projectId: "project-1",
         libraryId: "library-1",
@@ -371,7 +371,7 @@ describe("Database Module v2 transport boundary", () => {
     const read = parseLibraryDatabaseModuleReadResultV2({
       ok: true,
       value: {
-        version: 2,
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         accessContext: { kind: "library" },
         libraryId: "library-1",
         storeEpoch: "epoch-1",
@@ -394,7 +394,7 @@ describe("Database Module v2 transport boundary", () => {
     const apply = parseLibraryDatabaseApplyResultV2({
       ok: true,
       value: {
-        version: 2,
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         operationId: "operation-1",
         accessContext: { kind: "library" },
         libraryId: "library-1",

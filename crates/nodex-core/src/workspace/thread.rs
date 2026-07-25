@@ -23,10 +23,11 @@ const MAX_THREAD_NAME_UTF16: usize = 2_000;
 const MAX_SHORT_TEXT_BYTES: usize = 4_096;
 const MAX_REASONING_EFFORT_BYTES: usize = 64;
 const MAX_PATH_BYTES: usize = 16_384;
-const MAX_PREVIEW_BYTES: usize = 1024 * 1024;
+const MAX_PREVIEW_BYTES: usize = 1_024;
 const MAX_CATALOGS: usize = 64;
 const MAX_CATALOG_NAMESPACE_BYTES: usize = 256;
 const MAX_THREADS: usize = 100_000;
+const MAX_APP_SERVER_SWEEP_WINDOW: usize = 200;
 const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
 
 const THREAD_COLUMNS: &str = "
@@ -115,10 +116,12 @@ pub(super) fn read_thread(
         .transpose()
 }
 
+#[cfg(test)]
 pub(super) fn read_threads(
     connection: &Connection,
     library_id: &str,
     project_id: Option<&str>,
+    exact_project_scope: bool,
     parent_thread_id: Option<&str>,
     include_archived: bool,
 ) -> Result<Vec<ProjectWorkspaceThread>, StoreError> {
@@ -139,12 +142,14 @@ pub(super) fn read_threads(
              WHERE project.id = thread.project_id AND project.library_id = ?1 \
                AND (?4 = 1 OR project.lifecycle <> 'archived')\
            )) \
-           AND (?2 IS NULL OR thread.project_id = ?2) \
+           AND ((?5 = 0 AND (?2 IS NULL OR thread.project_id = ?2)) \
+             OR (?5 = 1 AND ((?2 IS NULL AND thread.project_id IS NULL) \
+               OR thread.project_id = ?2))) \
            AND ((?3 IS NULL AND thread.parent_thread_id IS NULL) \
              OR thread.parent_thread_id = ?3) \
            AND (?4 = 1 OR thread.archived = 0) \
          ORDER BY thread.updated_at DESC, thread.thread_id \
-         LIMIT ?5"
+         LIMIT ?6"
     );
     let rows = connection
         .prepare(&sql)?
@@ -154,6 +159,7 @@ pub(super) fn read_threads(
                 project_id,
                 parent_thread_id,
                 i64::from(include_archived),
+                i64::from(exact_project_scope),
                 i64::try_from(MAX_THREADS + 1).expect("thread bound fits i64"),
             ],
             thread_row,
@@ -363,9 +369,13 @@ pub(super) fn upsert_thread_records(
         MAX_PATH_BYTES,
         true,
     )?;
+    let normalized_thread_preview = patch
+        .thread_preview
+        .as_deref()
+        .map(super::task_window::bounded_preview);
     let thread_preview = merge_required_text(
         existing.as_ref().map(|row| row.thread_preview.as_str()),
-        patch.thread_preview.as_deref(),
+        normalized_thread_preview.as_deref(),
         "thread_preview",
         MAX_PREVIEW_BYTES,
         false,
@@ -572,6 +582,149 @@ pub(super) fn delete_thread(
         project_ids,
         session_ids,
         vec![thread_id.to_owned()],
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn observe_app_server_thread_window(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    sweep_id: &str,
+    thread_ids: &[String],
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    validate_id("sweep_id", sweep_id)?;
+    if thread_ids.len() > MAX_APP_SERVER_SWEEP_WINDOW {
+        return Err(invalid("App-server sweep window exceeds its Core bound"));
+    }
+    let unique = thread_ids.iter().collect::<BTreeSet<_>>();
+    if unique.len() != thread_ids.len() {
+        return Err(invalid(
+            "App-server sweep window contains duplicate Threads",
+        ));
+    }
+    let now = sqlite_now(connection)?;
+    let mut require = connection.prepare(
+        "SELECT count(*)
+         FROM codex_threads thread
+         LEFT JOIN projects project ON project.id = thread.project_id
+         WHERE thread.thread_id = ?1
+           AND thread.parent_thread_id IS NULL
+           AND (thread.project_id IS NULL OR project.library_id = ?2)",
+    )?;
+    let mut observe = connection.prepare(
+        "INSERT INTO workspace_app_server_thread_observations(
+           thread_id, last_seen_sweep_id, updated_at
+         ) VALUES (?1, ?2, ?3)
+         ON CONFLICT(thread_id) DO UPDATE SET
+           last_seen_sweep_id = excluded.last_seen_sweep_id,
+           updated_at = excluded.updated_at",
+    )?;
+    for thread_id in thread_ids {
+        validate_id("thread_id", thread_id)?;
+        if require.query_row(params![thread_id, library_id], |row| row.get::<_, i64>(0))? != 1 {
+            return Err(not_found(
+                "App-server sweep Thread is unavailable in this Library",
+            ));
+        }
+        observe.execute(params![thread_id, sweep_id, now])?;
+    }
+    finish_thread_mutation(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        "observe_app_server_thread_window",
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn reconcile_app_server_thread_sweep(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    sweep_id: &str,
+    limit: Option<u32>,
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    validate_id("sweep_id", sweep_id)?;
+    let limit = usize::try_from(limit.unwrap_or(100))
+        .map_err(|_| invalid("App-server sweep reconcile limit is invalid"))?;
+    if limit == 0 || limit > MAX_APP_SERVER_SWEEP_WINDOW {
+        return Err(invalid(
+            "App-server sweep reconcile limit exceeds its Core bound",
+        ));
+    }
+    let candidates = connection
+        .prepare(
+            "SELECT observation.thread_id, thread.project_id
+             FROM workspace_app_server_thread_observations observation
+             JOIN codex_threads thread ON thread.thread_id = observation.thread_id
+             LEFT JOIN projects project ON project.id = thread.project_id
+             WHERE observation.last_seen_sweep_id <> ?1
+               AND (thread.project_id IS NULL OR project.library_id = ?2)
+             ORDER BY observation.thread_id
+             LIMIT ?3",
+        )?
+        .query_map(
+            params![
+                sweep_id,
+                library_id,
+                i64::try_from(limit)
+                    .map_err(|_| invalid("App-server sweep reconcile limit is invalid"))?
+            ],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut project_ids = BTreeSet::new();
+    let mut session_ids = BTreeSet::new();
+    let now = sqlite_now(connection)?;
+    for (thread_id, project_id) in &candidates {
+        let linked = linked_session_ids(connection, library_id, thread_id, project_id.as_deref())?;
+        sync_linked_sessions_archived(connection, &linked, true, &now)?;
+        session_ids.extend(linked);
+        if let Some(project_id) = project_id {
+            project_ids.insert(project_id.clone());
+        }
+        let deleted = connection.execute(
+            "DELETE FROM codex_threads WHERE thread_id = ?1",
+            [thread_id],
+        )?;
+        if deleted != 1 {
+            return Err(corrupt(
+                "App-server sweep Thread disappeared during reconciliation",
+            ));
+        }
+    }
+    let project_ids = project_ids.into_iter().collect::<Vec<_>>();
+    let session_ids = session_ids.into_iter().collect::<Vec<_>>();
+    let summary_scopes = project_session_scopes(&project_ids, &session_ids);
+    finish_thread_mutation(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        "reconcile_app_server_thread_sweep",
+        summary_scopes,
+        project_ids,
+        session_ids,
+        candidates
+            .into_iter()
+            .map(|(thread_id, _)| thread_id)
+            .collect(),
     )
 }
 
@@ -1652,6 +1805,7 @@ fn require_project(
     Err(not_found("Project is unavailable in this Library"))
 }
 
+#[cfg(test)]
 fn require_known_project(
     connection: &Connection,
     library_id: &str,
@@ -1781,6 +1935,7 @@ fn internal(message: impl Into<String>) -> StoreError {
 mod tests {
     use std::fs;
 
+    use nodex_core_contracts::collection::CollectionWindowRequest;
     use nodex_core_contracts::workspace::{
         CodexPermissionMode, CodexThreadActiveFlag, CodexThreadStatusType, ProjectSessionIntent,
         ProjectWorkspaceBackgroundProcess, ProjectWorkspaceBackgroundProcessSource,
@@ -2215,16 +2370,19 @@ mod tests {
         assert!(!thread.has_unread_turn);
         assert_eq!(thread.managed_worktree_path, None);
 
-        let visible = read(
-            &module,
-            ProjectWorkspaceRead::Threads {
-                project_id: Some("project:default".to_owned()),
-                include_archived: None,
-            },
-        );
-        let ProjectWorkspaceReadValue::Threads { threads } = visible else {
-            panic!("Thread collection");
-        };
+        let threads = kernel
+            .writer()
+            .call(|connection| {
+                super::read_threads(
+                    connection,
+                    "library-1",
+                    Some("project:default"),
+                    true,
+                    None,
+                    false,
+                )
+            })
+            .expect("Thread collection");
         assert!(threads.is_empty());
 
         let stored = kernel
@@ -2512,17 +2670,22 @@ mod tests {
         };
         assert!(!restored_thread.archived);
 
-        let ProjectWorkspaceReadValue::ChildThreads { threads } = read(
+        let ProjectWorkspaceReadValue::ChildThreadWindow { threads } = read(
             &module,
-            ProjectWorkspaceRead::ChildThreads {
+            ProjectWorkspaceRead::ChildThreadWindow {
                 parent_thread_id: "thread-a".to_owned(),
                 include_archived: None,
+                window: CollectionWindowRequest {
+                    after: None,
+                    first: Some(50),
+                },
             },
         ) else {
             panic!("child Thread collection");
         };
         assert_eq!(
             threads
+                .items
                 .iter()
                 .map(|thread| thread.thread_id.as_str())
                 .collect::<Vec<_>>(),
@@ -2543,15 +2706,12 @@ mod tests {
             .expect_err("child Thread cannot be pinned");
         assert_eq!(child_pin.code, CoreErrorCode::InvalidInput);
 
-        let ProjectWorkspaceReadValue::Threads { threads: all_roots } = read(
-            &module,
-            ProjectWorkspaceRead::Threads {
-                project_id: None,
-                include_archived: None,
-            },
-        ) else {
-            panic!("all root Threads");
-        };
+        let all_roots = kernel
+            .writer()
+            .call(|connection| {
+                super::read_threads(connection, "library-1", None, true, None, false)
+            })
+            .expect("Projectless root Threads");
         assert!(
             all_roots
                 .iter()
@@ -2562,18 +2722,19 @@ mod tests {
                 .iter()
                 .all(|thread| thread.thread_id != "thread-child")
         );
-        let ProjectWorkspaceReadValue::Threads {
-            threads: project_roots,
-        } = read(
-            &module,
-            ProjectWorkspaceRead::Threads {
-                project_id: Some("project:default".to_owned()),
-                include_archived: None,
-            },
-        )
-        else {
-            panic!("Project root Threads");
-        };
+        let project_roots = kernel
+            .writer()
+            .call(|connection| {
+                super::read_threads(
+                    connection,
+                    "library-1",
+                    Some("project:default"),
+                    true,
+                    None,
+                    false,
+                )
+            })
+            .expect("Project root Threads");
         assert_eq!(project_roots.len(), 3);
 
         module
@@ -2890,20 +3051,27 @@ mod tests {
                 ),
             )
             .expect("update background process");
-        let ProjectWorkspaceReadValue::BackgroundProcesses { processes } = read(
+        let ProjectWorkspaceReadValue::BackgroundProcessWindow { processes } = read(
             &module,
-            ProjectWorkspaceRead::BackgroundProcesses {
+            ProjectWorkspaceRead::BackgroundProcessWindow {
                 thread_id: Some("thread-root".to_owned()),
+                window: CollectionWindowRequest {
+                    after: None,
+                    first: Some(50),
+                },
             },
         ) else {
             panic!("background processes read");
         };
-        assert_eq!(processes.len(), 1);
-        assert_eq!(processes[0].thread_title.as_deref(), Some("Root execution"));
-        assert_eq!(processes[0].cwd.as_deref(), Some("/workspace/a"));
-        assert_eq!(processes[0].command, "pnpm test:all");
-        assert_eq!(processes[0].started_at_ms, 10);
-        assert_eq!(processes[0].updated_at_ms, 30);
+        assert_eq!(processes.items.len(), 1);
+        assert_eq!(
+            processes.items[0].thread_title.as_deref(),
+            Some("Root execution")
+        );
+        assert_eq!(processes.items[0].cwd.as_deref(), Some("/workspace/a"));
+        assert_eq!(processes.items[0].command, "pnpm test:all");
+        assert_eq!(processes.items[0].started_at_ms, 10);
+        assert_eq!(processes.items[0].updated_at_ms, 30);
         module
             .apply(
                 &context(),
@@ -2913,23 +3081,27 @@ mod tests {
                         process: ProjectWorkspaceBackgroundProcess {
                             started_at_ms: 99,
                             updated_at_ms: 40,
-                            ..processes[0].clone()
+                            ..processes.items[0].clone()
                         },
                         preserve_started_at: Some(false),
                     },
                 ),
             )
             .expect("restart background process");
-        let ProjectWorkspaceReadValue::BackgroundProcesses { processes } = read(
+        let ProjectWorkspaceReadValue::BackgroundProcessWindow { processes } = read(
             &module,
-            ProjectWorkspaceRead::BackgroundProcesses {
+            ProjectWorkspaceRead::BackgroundProcessWindow {
                 thread_id: Some("thread-root".to_owned()),
+                window: CollectionWindowRequest {
+                    after: None,
+                    first: Some(50),
+                },
             },
         ) else {
             panic!("restarted background process read");
         };
-        assert_eq!(processes[0].started_at_ms, 99);
-        assert_eq!(processes[0].updated_at_ms, 40);
+        assert_eq!(processes.items[0].started_at_ms, 99);
+        assert_eq!(processes.items[0].updated_at_ms, 40);
 
         kernel
             .writer()
@@ -2972,5 +3144,90 @@ mod tests {
         };
         assert!(resolution.persisted);
         assert!(resolution.authority.is_none());
+    }
+
+    #[test]
+    fn only_a_completed_app_server_sweep_reconciles_missing_threads() {
+        let (_directory, _kernel, module) = seeded_module();
+        for thread_id in ["thread:sweep-a", "thread:sweep-b"] {
+            module
+                .apply(
+                    &context(),
+                    request(
+                        &format!("create-{thread_id}"),
+                        ProjectWorkspaceIntent::UpsertThread {
+                            thread_id: thread_id.to_owned(),
+                            patch: Box::new(ProjectWorkspaceThreadPatch {
+                                thread_name: Some(Some(thread_id.to_owned())),
+                                ..ProjectWorkspaceThreadPatch::default()
+                            }),
+                        },
+                    ),
+                )
+                .expect("sweep Thread");
+        }
+        module
+            .apply(
+                &context(),
+                request(
+                    "observe-sweep-one",
+                    ProjectWorkspaceIntent::ObserveAppServerThreadWindow {
+                        sweep_id: "sweep:one".to_owned(),
+                        thread_ids: vec!["thread:sweep-a".to_owned(), "thread:sweep-b".to_owned()],
+                    },
+                ),
+            )
+            .expect("first complete observation");
+        module
+            .apply(
+                &context(),
+                request(
+                    "observe-partial-sweep-two",
+                    ProjectWorkspaceIntent::ObserveAppServerThreadWindow {
+                        sweep_id: "sweep:two".to_owned(),
+                        thread_ids: vec!["thread:sweep-a".to_owned()],
+                    },
+                ),
+            )
+            .expect("partial second observation");
+
+        let ProjectWorkspaceReadValue::Thread { thread } = read(
+            &module,
+            ProjectWorkspaceRead::Thread {
+                thread_id: "thread:sweep-b".to_owned(),
+            },
+        ) else {
+            panic!("unseen Thread still exists before finalize");
+        };
+        assert_eq!(thread.thread_id, "thread:sweep-b");
+
+        let reconciled = module
+            .apply(
+                &context(),
+                request(
+                    "finalize-sweep-two",
+                    ProjectWorkspaceIntent::ReconcileAppServerThreadSweep {
+                        sweep_id: "sweep:two".to_owned(),
+                        limit: Some(100),
+                    },
+                ),
+            )
+            .expect("complete sweep reconciliation");
+        assert_eq!(
+            reconciled.committed.value.affected_thread_ids,
+            ["thread:sweep-b"]
+        );
+        let missing = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
+                    read: ProjectWorkspaceRead::Thread {
+                        thread_id: "thread:sweep-b".to_owned(),
+                    },
+                },
+            )
+            .expect_err("completed sweep deletes missing app-server Thread");
+        assert_eq!(missing.code, CoreErrorCode::NotFound);
     }
 }

@@ -340,16 +340,18 @@ fn resolve_page_destination(
                     mode: DatabaseReadMode::Database,
                     filter: None,
                     sort: None,
+                    window: None,
+                    page_ids: None,
                 },
             )
             .map_err(map_client_error)?;
         match database.0 {
             ResponseEnvelope::Ok(snapshot) => {
-                let DatabaseReadValue::Database { value } = snapshot.value else {
+                let DatabaseReadValue::Database { .. } = snapshot.value else {
                     return Err(internal("Core returned the wrong Database owner snapshot"));
                 };
                 return Ok(LibraryPageWriteDestination::DataSource {
-                    data_source_id: active_data_source_id(&value)?,
+                    data_source_id: active_data_source_id(client, &project.id, unprefixed)?,
                     at,
                 });
             }
@@ -365,6 +367,8 @@ fn resolve_page_destination(
                 mode: DatabaseReadMode::DataSource,
                 filter: None,
                 sort: None,
+                window: None,
+                page_ids: None,
             },
         ))?;
         let DatabaseReadValue::DataSource { value } = source.value else {
@@ -400,24 +404,46 @@ fn primary_data_source(
             mode: DatabaseReadMode::Database,
             filter: None,
             sort: None,
+            window: None,
+            page_ids: None,
         },
     ))?;
-    let DatabaseReadValue::Database { value } = snapshot.value else {
+    let DatabaseReadValue::Database { .. } = snapshot.value else {
         return Err(internal(
             "Core returned the wrong primary Database snapshot",
         ));
     };
-    active_data_source_id(&value)
+    active_data_source_id(client, &project.id, &project.database_id)
 }
 
-fn active_data_source_id(value: &serde_json::Value) -> Result<String, CliError> {
-    value
-        .get("dataSources")
-        .and_then(serde_json::Value::as_array)
-        .and_then(|sources| {
-            sources.iter().find(|source| {
-                source.get("lifecycle").and_then(serde_json::Value::as_str) == Some("active")
-            })
+fn active_data_source_id(
+    client: &CoreClient,
+    project_id: &str,
+    database_id: &str,
+) -> Result<String, CliError> {
+    let snapshot = unwrap_database(client.database_read(
+        Some(project_id),
+        DatabaseRead {
+            target: DatabaseTarget::Database {
+                database_id: database_id.to_owned(),
+            },
+            mode: DatabaseReadMode::DataSourceWindow,
+            filter: None,
+            sort: None,
+            window: Some(Default::default()),
+            page_ids: None,
+        },
+    ))?;
+    let DatabaseReadValue::DataSourceWindow { data_sources } = snapshot.value else {
+        return Err(internal(
+            "Core returned the wrong Data Source selector window",
+        ));
+    };
+    data_sources
+        .items
+        .iter()
+        .find(|source| {
+            source.get("lifecycle").and_then(serde_json::Value::as_str) == Some("active")
         })
         .and_then(|source| source.get("dataSourceId"))
         .and_then(serde_json::Value::as_str)

@@ -386,6 +386,48 @@ CREATE UNIQUE INDEX idx_project_session_threads_thread
   ON project_session_threads(thread_id);
 "#;
 
+const V91_WORKSPACE_SIDEBAR_LANES_SCHEMA_SQL: &str = r#"
+CREATE TABLE workspace_sidebar_lanes (
+  scope_key TEXT PRIMARY KEY,
+  lane_kind TEXT NOT NULL CHECK (lane_kind IN ('project', 'projectless')),
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  order_mode TEXT NOT NULL CHECK (order_mode IN ('recency', 'manual')),
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+  updated_at TEXT NOT NULL,
+  CHECK (
+    (lane_kind = 'project' AND project_id IS NOT NULL AND scope_key = 'project:' || project_id)
+    OR (lane_kind = 'projectless' AND project_id IS NULL AND scope_key = 'projectless')
+  )
+) WITHOUT ROWID, STRICT;
+
+CREATE TABLE workspace_sidebar_positions (
+  scope_key TEXT NOT NULL
+    REFERENCES workspace_sidebar_lanes(scope_key) ON UPDATE CASCADE ON DELETE CASCADE,
+  thread_id TEXT NOT NULL
+    REFERENCES codex_threads(thread_id) ON UPDATE CASCADE ON DELETE CASCADE,
+  rank_key INTEGER NOT NULL CHECK (rank_key >= 0),
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (scope_key, thread_id),
+  UNIQUE (scope_key, rank_key)
+) WITHOUT ROWID, STRICT;
+
+CREATE INDEX idx_workspace_sidebar_positions_lane_rank
+  ON workspace_sidebar_positions(scope_key, rank_key, thread_id);
+CREATE INDEX idx_workspace_sidebar_positions_thread
+  ON workspace_sidebar_positions(thread_id, scope_key);
+
+CREATE TABLE workspace_app_server_thread_observations (
+  thread_id TEXT PRIMARY KEY
+    REFERENCES codex_threads(thread_id) ON UPDATE CASCADE ON DELETE CASCADE,
+  last_seen_sweep_id TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+) WITHOUT ROWID, STRICT;
+
+CREATE INDEX idx_workspace_app_server_thread_observations_sweep
+  ON workspace_app_server_thread_observations(last_seen_sweep_id, thread_id);
+"#;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentEngineFingerprint {
@@ -478,7 +520,7 @@ pub fn prepare_profile_store_with_observer(
         });
     }
 
-    if matches!(version, 85..=89) {
+    if matches!(version, 85..=90) {
         return upgrade_owned_store(connection, profile_home, version, observer);
     }
 
@@ -605,6 +647,7 @@ fn upgrade_owned_store(
         87 => validate_exact_v87_schema(connection)?,
         88 => validate_exact_v88_schema(connection)?,
         89 => validate_exact_v89_schema(connection)?,
+        90 => validate_exact_v90_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -621,13 +664,24 @@ fn upgrade_owned_store(
         |row| row.get(0),
     )?;
     with_immediate_transaction(connection, |transaction| {
-        if source_version == 85 {
+        if source_version < 86 {
             ensure_v86_execution_profile_schema(transaction)?;
         }
-        ensure_v87_project_session_tabs_schema(transaction)?;
-        ensure_v88_projection_impact_schema(transaction)?;
-        repair_v89_codex_thread_timestamps(transaction)?;
-        ensure_v90_window_owned_session_views_schema(transaction)?;
+        if source_version < 87 {
+            ensure_v87_project_session_tabs_schema(transaction)?;
+        }
+        if source_version < 88 {
+            ensure_v88_projection_impact_schema(transaction)?;
+        }
+        if source_version < 89 {
+            repair_v89_codex_thread_timestamps(transaction)?;
+        }
+        if source_version < 90 {
+            ensure_v90_window_owned_session_views_schema(transaction)?;
+        }
+        if source_version < 91 {
+            ensure_v91_workspace_sidebar_lanes_schema(transaction)?;
+        }
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
              WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
@@ -913,6 +967,7 @@ fn publish_current_store(
         ensure_v88_projection_impact_schema(transaction)?;
         repair_v89_codex_thread_timestamps(transaction)?;
         ensure_v90_window_owned_session_views_schema(transaction)?;
+        ensure_v91_workspace_sidebar_lanes_schema(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -935,6 +990,7 @@ fn create_fresh_store(
         ensure_v88_projection_impact_schema(transaction)?;
         repair_v89_codex_thread_timestamps(transaction)?;
         ensure_v90_window_owned_session_views_schema(transaction)?;
+        ensure_v91_workspace_sidebar_lanes_schema(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -1101,6 +1157,173 @@ fn ensure_v90_window_owned_session_views_schema(connection: &Connection) -> Resu
         ));
     }
     Ok(())
+}
+
+fn ensure_v91_workspace_sidebar_lanes_schema(connection: &Connection) -> Result<(), StoreError> {
+    connection.execute_batch(V91_WORKSPACE_SIDEBAR_LANES_SCHEMA_SQL)?;
+    migrate_legacy_workspace_sidebar_orders(connection)?;
+    normalize_workspace_thread_previews(connection)?;
+    connection.execute_batch(
+        "DROP TABLE codex_project_thread_orders;
+         DROP TABLE codex_sidebar_chat_order;",
+    )?;
+    let foreign_key_violation = connection
+        .prepare("PRAGMA foreign_key_check")?
+        .query_row([], |_| Ok(()))
+        .optional()?;
+    if foreign_key_violation.is_some() {
+        return Err(corrupt(
+            "v91 Workspace sidebar migration produced a foreign-key violation",
+        ));
+    }
+    Ok(())
+}
+
+fn migrate_legacy_workspace_sidebar_orders(connection: &Connection) -> Result<(), StoreError> {
+    let project_orders = connection
+        .prepare(
+            "SELECT project_id, ordered_thread_ids_json, updated_at
+             FROM codex_project_thread_orders ORDER BY project_id",
+        )?
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (project_id, raw_order, updated_at) in project_orders {
+        let scope_key = format!("project:{project_id}");
+        let order = decode_legacy_sidebar_order(&raw_order)?;
+        write_migrated_sidebar_lane(
+            connection,
+            &scope_key,
+            "project",
+            Some(&project_id),
+            &order,
+            &updated_at,
+        )?;
+    }
+
+    let projectless_order = connection
+        .query_row(
+            "SELECT ordered_thread_ids_json, updated_at
+             FROM codex_sidebar_chat_order WHERE singleton = 1",
+            [],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?;
+    if let Some((raw_order, updated_at)) = projectless_order {
+        let order = decode_legacy_sidebar_order(&raw_order)?;
+        write_migrated_sidebar_lane(
+            connection,
+            "projectless",
+            "projectless",
+            None,
+            &order,
+            &updated_at,
+        )?;
+    }
+    Ok(())
+}
+
+fn decode_legacy_sidebar_order(raw: &str) -> Result<Vec<String>, StoreError> {
+    let values = serde_json::from_str::<Vec<String>>(raw)
+        .map_err(|_| corrupt("Legacy Workspace sidebar order is invalid"))?;
+    let mut seen = std::collections::HashSet::new();
+    if values.len() > 100_000
+        || values.iter().any(|value| {
+            value.is_empty()
+                || value.trim() != value
+                || value.len() > 512
+                || !seen.insert(value.as_str())
+        })
+    {
+        return Err(corrupt("Legacy Workspace sidebar order is invalid"));
+    }
+    Ok(values)
+}
+
+fn write_migrated_sidebar_lane(
+    connection: &Connection,
+    scope_key: &str,
+    lane_kind: &str,
+    project_id: Option<&str>,
+    order: &[String],
+    updated_at: &str,
+) -> Result<(), StoreError> {
+    connection.execute(
+        "INSERT INTO workspace_sidebar_lanes(
+           scope_key, lane_kind, project_id, order_mode, revision, updated_at
+         ) VALUES (?1, ?2, ?3, 'manual', 1, ?4)",
+        params![scope_key, lane_kind, project_id, updated_at],
+    )?;
+    let mut validate = connection.prepare(
+        "SELECT count(*)
+         FROM codex_threads thread
+         LEFT JOIN codex_pinned_threads pinned ON pinned.thread_id = thread.thread_id
+         WHERE thread.thread_id = ?1
+           AND ((?2 IS NULL AND thread.project_id IS NULL) OR thread.project_id = ?2)
+           AND pinned.thread_id IS NULL",
+    )?;
+    let mut insert = connection.prepare(
+        "INSERT INTO workspace_sidebar_positions(
+           scope_key, thread_id, rank_key, revision, updated_at
+         ) VALUES (?1, ?2, ?3, 1, ?4)",
+    )?;
+    for (index, thread_id) in order.iter().enumerate() {
+        let matches_lane =
+            validate.query_row(params![thread_id, project_id], |row| row.get::<_, i64>(0))?;
+        if matches_lane != 1 {
+            return Err(corrupt(
+                "Legacy Workspace sidebar order contains a Thread outside its lane",
+            ));
+        }
+        let rank = i64::try_from(index + 1)
+            .ok()
+            .and_then(|value| value.checked_mul(1_000_000))
+            .ok_or_else(|| corrupt("Legacy Workspace sidebar order rank overflowed"))?;
+        insert.execute(params![scope_key, thread_id, rank, updated_at])?;
+    }
+    Ok(())
+}
+
+fn normalize_workspace_thread_previews(connection: &Connection) -> Result<(), StoreError> {
+    let previews = connection
+        .prepare("SELECT thread_id, thread_preview FROM codex_threads ORDER BY thread_id")?
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut update =
+        connection.prepare("UPDATE codex_threads SET thread_preview = ?1 WHERE thread_id = ?2")?;
+    for (thread_id, preview) in previews {
+        let normalized = bounded_workspace_preview(&preview);
+        if normalized == preview {
+            continue;
+        }
+        update.execute(params![normalized, thread_id])?;
+    }
+    Ok(())
+}
+
+fn bounded_workspace_preview(value: &str) -> String {
+    let mut utf16 = 0;
+    let mut bytes = 0;
+    value
+        .chars()
+        .take_while(|character| {
+            let next_utf16 = utf16 + character.len_utf16();
+            let next_bytes = bytes + character.len_utf8();
+            if next_utf16 > 240 || next_bytes > 1_024 {
+                return false;
+            }
+            utf16 = next_utf16;
+            bytes = next_bytes;
+            true
+        })
+        .collect()
 }
 
 /// Validates the durable Thread clock at startup and store-copy boundaries.
@@ -1555,27 +1778,39 @@ fn validate_core_metadata(
 }
 
 fn validate_exact_v85_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, false, false, false, false, 85)
+    validate_exact_core_schema(connection, false, false, false, false, false, 85)
 }
 
 fn validate_exact_v86_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, false, false, false, 86)
+    validate_exact_core_schema(connection, true, false, false, false, false, 86)
 }
 
 fn validate_exact_v87_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, false, false, 87)
+    validate_exact_core_schema(connection, true, true, false, false, false, 87)
 }
 
 fn validate_exact_v88_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, false, 88)
+    validate_exact_core_schema(connection, true, true, true, false, false, 88)
 }
 
 fn validate_exact_v89_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, false, 89)
+    validate_exact_core_schema(connection, true, true, true, false, false, 89)
+}
+
+fn validate_exact_v90_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, false, 90)
 }
 
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, CORE_SCHEMA_VERSION)
+    validate_exact_core_schema(
+        connection,
+        true,
+        true,
+        true,
+        true,
+        true,
+        CORE_SCHEMA_VERSION,
+    )
 }
 
 fn validate_exact_core_schema(
@@ -1584,6 +1819,7 @@ fn validate_exact_core_schema(
     include_portable_tabs: bool,
     include_projection_impact: bool,
     include_window_owned_session_views: bool,
+    include_workspace_sidebar_lanes: bool,
     schema_version: i64,
 ) -> Result<(), StoreError> {
     let expected = Connection::open_in_memory()?;
@@ -1603,6 +1839,9 @@ fn validate_exact_core_schema(
     }
     if include_window_owned_session_views {
         ensure_v90_window_owned_session_views_schema(&expected)?;
+    }
+    if include_workspace_sidebar_lanes {
+        ensure_v91_workspace_sidebar_lanes_schema(&expected)?;
     }
 
     let expected_inventory = read_schema_inventory(&expected)?;
@@ -1662,6 +1901,9 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     }
     if version >= 90 {
         ensure_v90_window_owned_session_views_schema(&expected)?;
+    }
+    if version >= 91 {
+        ensure_v91_workspace_sidebar_lanes_schema(&expected)?;
     }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
@@ -1947,6 +2189,73 @@ mod tests {
             Ok(())
         })
         .expect("seed v88 store");
+    }
+
+    fn seed_owned_v90_store_with_legacy_sidebar(home: &Path) {
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v90 writer");
+        install_v84_schema(&connection).expect("v84 schema");
+        with_immediate_transaction(&mut connection, |transaction| {
+            transaction.execute_batch(V85_SCHEMA_SQL)?;
+            transaction.execute_batch(V85_EXECUTION_SCHEMA_SQL)?;
+            ensure_automation_definition_revision(transaction)?;
+            ensure_automation_run_revision(transaction)?;
+            ensure_v86_execution_profile_schema(transaction)?;
+            ensure_v87_project_session_tabs_schema(transaction)?;
+            ensure_v88_projection_impact_schema(transaction)?;
+            ensure_v90_window_owned_session_views_schema(transaction)?;
+            transaction.execute(
+                "INSERT INTO core_store_metadata(
+                   id, schema_owner, store_format_version, migrated_from_version,
+                   migration_backup_name, migrated_at_unix_ms, projection_event_v2_floor
+                 ) VALUES (1, ?1, 90, NULL, NULL, 1, 1)",
+                [CORE_SCHEMA_OWNER],
+            )?;
+            transaction.execute(
+                "INSERT INTO projects(id, name, created, updated)
+                 VALUES ('project:legacy', 'Legacy', '2026-07-25', '2026-07-25')",
+                [],
+            )?;
+            let long_preview = "你🙂".repeat(400);
+            transaction.execute(
+                "INSERT INTO codex_threads(
+                   thread_id, project_id, thread_preview, model_provider, status_type,
+                   status_active_flags_json, archived, created_at, updated_at, linked_at
+                 ) VALUES (
+                   'thread:project', 'project:legacy', ?1, 'openai', 'idle',
+                   '[]', 0, 1, 2, '2026-07-25T00:00:00Z'
+                 )",
+                [&long_preview],
+            )?;
+            transaction.execute(
+                "INSERT INTO codex_threads(
+                   thread_id, project_id, thread_preview, model_provider, status_type,
+                   status_active_flags_json, archived, created_at, updated_at, linked_at
+                 ) VALUES (
+                   'thread:chat', NULL, ?1, 'openai', 'idle',
+                   '[]', 0, 1, 2, '2026-07-25T00:00:00Z'
+                 )",
+                [&long_preview],
+            )?;
+            transaction.execute(
+                "INSERT INTO codex_project_thread_orders(
+                   project_id, ordered_thread_ids_json, updated_at
+                 ) VALUES (
+                   'project:legacy', '[\"thread:project\"]', '2026-07-25T00:00:00Z'
+                 )",
+                [],
+            )?;
+            transaction.execute(
+                "INSERT INTO codex_sidebar_chat_order(
+                   singleton, ordered_thread_ids_json, updated_at
+                 ) VALUES (
+                   1, '[\"thread:chat\"]', '2026-07-25T00:00:00Z'
+                 )",
+                [],
+            )?;
+            transaction.pragma_update(None, "user_version", 90)?;
+            Ok(())
+        })
+        .expect("seed v90 sidebar store");
     }
 
     fn open_error(home: &Path) -> StoreError {
@@ -2277,6 +2586,101 @@ mod tests {
                 .expect("validate current v90 store exactly");
         assert!(reopen_events.is_empty());
         assert_eq!(reopened.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(reopened.preparation().migrated_from_version, None);
+        assert!(reopened.preparation().migration_backup_path.is_none());
+    }
+
+    #[test]
+    fn v90_upgrade_materializes_sidebar_ranks_and_unicode_safe_previews_once() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v90_store_with_legacy_sidebar(&home);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v90 Core store");
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(90));
+        upgraded
+            .writer()
+            .call(|connection| {
+                let lanes = connection
+                    .prepare(
+                        "SELECT scope_key, order_mode
+                         FROM workspace_sidebar_lanes
+                         ORDER BY scope_key",
+                    )?
+                    .query_map([], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                assert_eq!(
+                    lanes,
+                    [
+                        ("project:project:legacy".to_owned(), "manual".to_owned()),
+                        ("projectless".to_owned(), "manual".to_owned()),
+                    ]
+                );
+                let positions = connection
+                    .prepare(
+                        "SELECT scope_key, thread_id, rank_key
+                         FROM workspace_sidebar_positions
+                         ORDER BY scope_key, rank_key",
+                    )?
+                    .query_map([], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, i64>(2)?,
+                        ))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                assert_eq!(
+                    positions,
+                    [
+                        (
+                            "project:project:legacy".to_owned(),
+                            "thread:project".to_owned(),
+                            1_000_000,
+                        ),
+                        (
+                            "projectless".to_owned(),
+                            "thread:chat".to_owned(),
+                            1_000_000,
+                        ),
+                    ]
+                );
+                let preview = connection.query_row(
+                    "SELECT thread_preview FROM codex_threads
+                     WHERE thread_id = 'thread:project'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?;
+                assert!(preview.encode_utf16().count() <= 240);
+                assert!(preview.len() <= 1_024);
+                assert!(preview.ends_with('你') || preview.ends_with('🙂'));
+                let legacy_tables = connection.query_row(
+                    "SELECT count(*) FROM sqlite_schema
+                     WHERE type = 'table'
+                       AND name IN (
+                         'codex_project_thread_orders',
+                         'codex_sidebar_chat_order'
+                       )",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(legacy_tables, 0);
+                let observation_table = connection.query_row(
+                    "SELECT count(*) FROM sqlite_schema
+                     WHERE type = 'table'
+                       AND name = 'workspace_app_server_thread_observations'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(observation_table, 1);
+                Ok::<_, StoreError>(())
+            })
+            .expect("verify v91 sidebar migration");
+        drop(upgraded);
+
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen migrated v91 store");
         assert_eq!(reopened.preparation().migrated_from_version, None);
         assert!(reopened.preparation().migration_backup_path.is_none());
     }

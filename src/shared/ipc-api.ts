@@ -141,7 +141,6 @@ import type {
   HistorySettings,
   AppUpdateSettings,
   AppUpdateStatus,
-  BoardSummarySnapshot,
   CodexAccountSnapshot,
   CodexRateLimitResetInput,
   CodexRateLimitResetResult,
@@ -276,6 +275,8 @@ import type {
   CodexThreadGoalSetActionInput,
   CodexThreadGoalMaterializedDraft,
   CodexThreadSummary,
+  CodexThreadSummaryWindow,
+  CodexThreadSummaryWindowInput,
   ProtocolAppInfo,
   ProtocolExperimentalFeature,
   ProtocolMcpResourceReadParams,
@@ -297,7 +298,6 @@ import type {
   PageOccurrenceUpdateInput,
   DatabasePage,
   DatabasePageSummary,
-  DatabaseRowsDetailsInput,
   PageSearchInput,
   PageSearchResult,
   CommandPaletteThreadSearchInput,
@@ -309,7 +309,8 @@ import type {
   ProjectCreateInput,
   ProjectLifecycleInput,
   ProjectLifecycleMutationResult,
-  ProjectListOptions,
+  ProjectWindow,
+  ProjectWindowInput,
   ProjectOrderInput,
   ProjectPinnedInput,
   ProjectPinnedOrderInput,
@@ -318,8 +319,8 @@ import type {
   ProjectSessionCreateInput,
   ProjectSessionForkInput,
   ProjectSessionForkResult,
-  ProjectSessionListOptions,
-  ProjectSessionSummary,
+  ProjectSessionSummaryWindow,
+  ProjectSessionSummaryWindowInput,
   ProjectSessionPinnedInput,
   ProjectSessionPinnedOrderInput,
   ProjectSessionRenameInput,
@@ -364,6 +365,11 @@ import type {
   WorkspaceFileWriteInput,
   WorkspaceFileWriteResult,
 } from "./types";
+import type {
+  DatabaseViewWindowInput,
+  DatabaseViewWindowSnapshot,
+  LibraryDatabaseViewWindowSnapshot,
+} from "./database-views";
 import type {
   NativeContextMenuItem,
   NativeContextMenuOptions,
@@ -731,21 +737,21 @@ export interface IpcApi {
     args: [mutation: PersistedAtomMutation];
     result: PersistedAtomEvent;
   };
-  "projects:list": { args: [options?: ProjectListOptions]; result: Project[] };
+  "projects:list": { args: [input?: ProjectWindowInput]; result: ProjectWindow };
   "projects:get": { args: [projectId: string]; result: Project | null };
   "projects:create": { args: [input: ProjectCreateInput]; result: Project };
   "projects:update": {
     args: [projectId: string, updates: ProjectUpdateInput];
     result: Project | null;
   };
-  "projects:reorder": { args: [input: ProjectOrderInput]; result: Project[] };
+  "projects:reorder": { args: [input: ProjectOrderInput]; result: void };
   "projects:set-pinned": {
     args: [projectId: string, input: ProjectPinnedInput];
     result: Project | null;
   };
   "projects:set-pinned-order": {
     args: [input: ProjectPinnedOrderInput];
-    result: Project[];
+    result: void;
   };
   "projects:pick-source-root": { args: []; result: string | null };
   "workspace:pick-directory": {
@@ -756,13 +762,12 @@ export interface IpcApi {
     args: [projectId: string, input: ProjectLifecycleInput];
     result: ProjectLifecycleMutationResult;
   };
-  "project-sessions:list": {
-    args: [projectId: string | null, options?: ProjectSessionListOptions];
-    result: ProjectSession[];
-  };
-  "project-sessions:list-summaries": {
-    args: [projectId: string | null, options?: ProjectSessionListOptions];
-    result: ProjectSessionSummary[];
+  "workspace:tasks:list": {
+    args: [
+      projectId: string | null,
+      input?: ProjectSessionSummaryWindowInput,
+    ];
+    result: ProjectSessionSummaryWindow;
   };
   "project-sessions:get": {
     args: [sessionId: string];
@@ -783,7 +788,7 @@ export interface IpcApi {
   "project-sessions:delete": { args: [sessionId: string]; result: boolean };
   "project-sessions:reorder": {
     args: [projectId: string, orderedSessionIds: string[]];
-    result: ProjectSession[];
+    result: void;
   };
   "project-sessions:set-pinned": {
     args: [sessionId: string, input: ProjectSessionPinnedInput];
@@ -791,7 +796,7 @@ export interface IpcApi {
   };
   "project-sessions:set-pinned-order": {
     args: [projectId: string, input: ProjectSessionPinnedOrderInput];
-    result: ProjectSession[];
+    result: void;
   };
   "project-sessions:archive": {
     args: [sessionId: string];
@@ -821,10 +826,18 @@ export interface IpcApi {
     args: [sessionId: string];
     result: boolean;
   };
-  "board:summary:get": { args: [projectId: string]; result: BoardSummarySnapshot };
-  "database-rows:details:get": {
-    args: [projectId: string, input: DatabaseRowsDetailsInput];
-    result: DatabasePage[];
+  "database:view-window:get": {
+    args: [projectId: string, input: DatabaseViewWindowInput];
+    result: DatabaseViewWindowSnapshot;
+  };
+  "library-database:view-window:get": {
+    args: [
+      input: DatabaseViewWindowInput & (
+        | { readonly databaseViewId: string }
+        | { readonly databaseId: string }
+      ),
+    ];
+    result: LibraryDatabaseViewWindowSnapshot;
   };
   "pages:search": {
     args: [input: PageSearchInput];
@@ -840,8 +853,12 @@ export interface IpcApi {
       windowStart: Date,
       windowEnd: Date,
       searchQuery?: string,
+      after?: string | null,
     ];
-    result: { occurrences: PageOccurrence[] };
+    result: {
+      occurrences: PageOccurrence[];
+      nextCursor: string | null;
+    };
   };
   "page:occurrence:complete": {
     args: [
@@ -1241,8 +1258,8 @@ export interface IpcApi {
   };
   "codex:account:logout": { args: []; result: boolean };
   "codex:threads:list": {
-    args: [projectId: string, opts?: { includeArchived?: boolean }];
-    result: CodexThreadSummary[];
+    args: [projectId: string, input?: CodexThreadSummaryWindowInput];
+    result: CodexThreadSummaryWindow;
   };
   "codex:sidebar:snapshot": {
     args: [input?: { includeArchived?: boolean; refresh?: boolean }];

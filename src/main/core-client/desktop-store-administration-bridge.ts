@@ -17,7 +17,7 @@ import type {
 type CoreBackupRecord = Extract<
   Awaited<ReturnType<CoreClientPort["administrationRead"]>>["value"],
   { readonly kind: "backups" }
->["items"][number];
+>["backups"]["items"][number];
 
 export type DesktopStoreMaintenanceTask = Extract<
   StoreAdministrationIntent,
@@ -76,11 +76,17 @@ const createCorePort = (
   client: CoreClientPort,
 ): DesktopStoreAdministrationPort => {
   const listBackups = async (): Promise<BackupRecord[]> => {
-    const snapshot = await client.administrationRead({ kind: "backups" });
+    const snapshot = await client.administrationRead({
+      kind: "backups",
+      window: { after: null, first: 200 },
+    });
     if (snapshot.value.kind !== "backups") {
       throw new Error("Core returned a non-Backup Store Administration read");
     }
-    return snapshot.value.items.map(mapBackup);
+    if (snapshot.value.backups.next_cursor) {
+      throw new Error("Backup collection exceeded its fixed Core bound");
+    }
+    return snapshot.value.backups.items.map(mapBackup);
   };
 
   return {

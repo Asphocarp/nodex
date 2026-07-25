@@ -26,7 +26,6 @@ import type {
   PageOccurrenceCompleteInput,
   PageOccurrenceUpdateInput,
   PageSearchInput,
-  DatabaseRowsDetailsInput,
 } from "../shared/types";
 import { MAX_PAGE_WRITE_BODY_BYTES } from "../shared/page-limits";
 import {
@@ -177,10 +176,6 @@ function approximatePayloadBytes(value: unknown): number | null {
   }
 }
 
-function boardCardCount(board: { columns: Array<{ cards: unknown[] }> }): number {
-  return board.columns.reduce((sum, column) => sum + column.cards.length, 0);
-}
-
 interface HttpServerDependencies {
   browserRuntime: ProjectSessionBrowserRuntime;
   projectLifecycleService: ProjectLifecycleService | null;
@@ -212,9 +207,8 @@ export interface HttpContentModuleDependencies {
   projectWorkspace: DesktopProjectWorkspacePort;
   databaseProjections: Pick<
     DesktopDatabaseModuleBridge,
-    | "getBoardSummary"
-    | "getDatabaseColumn"
-    | "getDatabaseRowsDetails"
+    | "getDatabaseViewWindow"
+    | "getLibraryDatabaseViewWindow"
     | "getDatabaseRowPage"
   >;
   pageSearch: Pick<DesktopLibraryModuleBridge, "searchPages">;
@@ -846,10 +840,13 @@ const projectLifecycleAuthority = () =>
 // === Project routes ===
 
 app.get("/api/projects", async (c) => {
-  const projects = await projectWorkspaceAuthority().listProjects({
+  const first = Number(c.req.query("first") ?? 100);
+  const window = await projectWorkspaceAuthority().listProjectWindow({
     includeArchived: c.req.query("includeArchived") === "true",
+    after: c.req.query("after") ?? null,
+    first: Number.isFinite(first) ? first : 100,
   });
-  return c.json({ projects });
+  return c.json(window);
 });
 
 app.post("/api/projects", async (c) => {
@@ -874,10 +871,10 @@ app.post("/api/projects", async (c) => {
 app.put("/api/projects/order", async (c) => {
   const body = await c.req.json();
   try {
-    const projects = await projectWorkspaceAuthority().reorderProjects(
+    await projectWorkspaceAuthority().reorderProjects(
       ProjectOrderInputSchema.parse(body),
     );
-    return c.json({ projects });
+    return c.json({ ok: true });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
   }
@@ -886,10 +883,10 @@ app.put("/api/projects/order", async (c) => {
 app.put("/api/projects/pinned-order", async (c) => {
   const body = await c.req.json();
   try {
-    const projects = await projectWorkspaceAuthority().setPinnedProjectOrder(
+    await projectWorkspaceAuthority().setPinnedProjectOrder(
       ProjectPinnedOrderInputSchema.parse(body),
     );
-    return c.json({ projects });
+    return c.json({ ok: true });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
   }
@@ -964,24 +961,32 @@ app.put("/api/projects/:projectId/lifecycle", async (c) => {
 
 // === Project session routes ===
 
-app.get("/api/projects/:projectId/sessions", async (c) => {
+app.get("/api/workspace/tasks", async (c) => {
+  const rawProjectId = c.req.query("projectId");
+  const projectId = rawProjectId === undefined || rawProjectId === ""
+    ? null
+    : rawProjectId;
+  const rawFirst = c.req.query("first");
+  const first = rawFirst === undefined ? undefined : Number(rawFirst);
+  if (
+    first !== undefined
+    && (!Number.isSafeInteger(first) || first <= 0)
+  ) {
+    return c.json({ error: "first must be a positive integer" }, 400);
+  }
   try {
-    const includeArchived = c.req.query("includeArchived") === "true";
-    const options = {
-      includeArchived,
-    };
-    const sessions = c.req.query("summary") === "true"
-      ? await projectWorkspaceAuthority().listProjectSessionSummaries(
-          c.req.param("projectId"),
-          options,
-        )
-      : await projectWorkspaceAuthority().listProjectSessions(
-          c.req.param("projectId"),
-          options,
-        );
-    return c.json({ sessions });
+    return c.json(
+      await projectWorkspaceAuthority().listProjectSessionSummaryWindow(
+        projectId,
+        {
+          includeArchived: c.req.query("includeArchived") === "true",
+          after: c.req.query("after") ?? null,
+          first,
+        },
+      ),
+    );
   } catch (err) {
-    return c.json({ error: (err as Error).message }, 404);
+    return c.json({ error: (err as Error).message }, 400);
   }
 });
 
@@ -1057,9 +1062,9 @@ app.put("/api/projects/:projectId/sessions/pinned-order", async (c) => {
   const projectId = c.req.param("projectId");
   const body = await c.req.json();
   try {
-    const sessions = await projectWorkspaceAuthority()
+    await projectWorkspaceAuthority()
       .setPinnedProjectSessionOrder(projectId, body);
-    return c.json({ sessions });
+    return c.json({ ok: true });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
   }
@@ -1193,11 +1198,11 @@ app.put("/api/projects/:projectId/sessions/reorder", async (c) => {
   const body = await c.req.json();
   try {
     const orderedSessionIds = Array.isArray(body.orderedSessionIds) ? body.orderedSessionIds : [];
-    const sessions = await projectWorkspaceAuthority().reorderProjectSessions(
+    await projectWorkspaceAuthority().reorderProjectSessions(
       projectId,
       orderedSessionIds.filter((item: unknown): item is string => typeof item === "string"),
     );
-    return c.json({ sessions });
+    return c.json({ ok: true });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
   }
@@ -1222,20 +1227,68 @@ app.delete("/api/project-sessions/:sessionId/thread", async (c) => {
   return c.json({ success });
 });
 
-// === Board routes ===
-
-app.get("/api/projects/:projectId/board-summary", async (c) => {
+app.get("/api/projects/:projectId/database-views/:viewId/rows", async (c) => {
   const startedAt = Date.now();
-  const board = await httpServerDependencies.contentModules.databaseProjections
-    .getBoardSummary(c.req.param("projectId"));
-  logger.info("board summary payload served", {
-    channel: "GET /api/projects/:projectId/board-summary",
+  const rawFirst = c.req.query("first");
+  const first = rawFirst === undefined ? undefined : Number(rawFirst);
+  if (
+    first !== undefined
+    && (!Number.isSafeInteger(first) || first < 1 || first > 200)
+  ) {
+    return c.json({ error: "first must be an integer between 1 and 200" }, 400);
+  }
+  const rawViewId = c.req.param("viewId");
+  const window = await httpServerDependencies.contentModules.databaseProjections
+    .getDatabaseViewWindow(c.req.param("projectId"), {
+      ...(rawViewId === "default" ? {} : { databaseViewId: rawViewId }),
+      ...(c.req.query("after") ? { after: c.req.query("after") } : {}),
+      ...(first === undefined ? {} : { first }),
+    });
+  logger.info("Database View window payload served", {
+    channel: "GET /api/projects/:projectId/database-views/:viewId/rows",
     projectId: c.req.param("projectId"),
-    cardCount: boardCardCount(board.board),
-    approxPayloadBytes: approximatePayloadBytes(board),
+    rowCount: window.rows.length,
+    hasContinuation: window.nextCursor !== null,
+    approxPayloadBytes: approximatePayloadBytes(window),
     durationMs: Date.now() - startedAt,
   });
-  return c.json(board);
+  return c.json(window);
+});
+
+app.get("/api/library/database-views/:viewId/rows", async (c) => {
+  const rawFirst = c.req.query("first");
+  const first = rawFirst === undefined ? undefined : Number(rawFirst);
+  if (
+    first !== undefined
+    && (!Number.isSafeInteger(first) || first < 1 || first > 200)
+  ) {
+    return c.json({ error: "first must be an integer between 1 and 200" }, 400);
+  }
+  const window = await httpServerDependencies.contentModules.databaseProjections
+    .getLibraryDatabaseViewWindow({
+      databaseViewId: c.req.param("viewId"),
+      ...(c.req.query("after") ? { after: c.req.query("after") } : {}),
+      ...(first === undefined ? {} : { first }),
+    });
+  return c.json(window);
+});
+
+app.get("/api/library/databases/:databaseId/default-view/rows", async (c) => {
+  const rawFirst = c.req.query("first");
+  const first = rawFirst === undefined ? undefined : Number(rawFirst);
+  if (
+    first !== undefined
+    && (!Number.isSafeInteger(first) || first < 1 || first > 200)
+  ) {
+    return c.json({ error: "first must be an integer between 1 and 200" }, 400);
+  }
+  const window = await httpServerDependencies.contentModules.databaseProjections
+    .getLibraryDatabaseViewWindow({
+      databaseId: c.req.param("databaseId"),
+      ...(c.req.query("after") ? { after: c.req.query("after") } : {}),
+      ...(first === undefined ? {} : { first }),
+    });
+  return c.json(window);
 });
 
 // === Asset routes ===
@@ -1359,30 +1412,6 @@ app.get("/api/projects/:projectId/database-row", async (c) => {
   return c.json(result);
 });
 
-app.post("/api/projects/:projectId/database-rows/details", async (c) => {
-  const projectId = c.req.param("projectId");
-  const startedAt = Date.now();
-  const body = await c.req.json().catch(() => ({}));
-  if (!isRecord(body) || !Array.isArray(body.pageIds)) {
-    return c.json({ error: "Missing pageIds" }, 400);
-  }
-  const pageIds = body.pageIds.filter((pageId): pageId is string => typeof pageId === "string");
-  const pages = await httpServerDependencies.contentModules.databaseProjections
-    .getDatabaseRowsDetails(
-      projectId,
-      { pageIds } satisfies DatabaseRowsDetailsInput,
-    );
-  logger.info("database row details payload served", {
-    channel: "POST /api/projects/:projectId/database-rows/details",
-    projectId,
-    requestedPageCount: pageIds.length,
-    pageCount: pages.length,
-    approxPayloadBytes: approximatePayloadBytes(pages),
-    durationMs: Date.now() - startedAt,
-  });
-  return c.json(pages);
-});
-
 app.post("/api/pages/search", async (c) => {
   const startedAt = Date.now();
   const body = await c.req.json().catch(() => ({}));
@@ -1411,13 +1440,17 @@ app.get("/api/projects/:projectId/calendar/occurrences", async (c) => {
   const startRaw = c.req.query("start");
   const endRaw = c.req.query("end");
   const searchQuery = c.req.query("search") || undefined;
+  const after = c.req.query("after") || undefined;
 
   try {
     const start = parseRequiredDate("start", startRaw);
     const end = parseRequiredDate("end", endRaw);
-    const occurrences = await httpServerDependencies.contentModules.automation
-      .listPageOccurrences(projectId, start, end, searchQuery);
-    return c.json({ occurrences });
+    const window = await httpServerDependencies.contentModules.automation
+      .listPageOccurrences(projectId, start, end, searchQuery, after);
+    return c.json({
+      occurrences: window.items,
+      nextCursor: window.nextCursor,
+    });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
   }
@@ -1509,17 +1542,6 @@ app.put("/api/projects/:projectId/page-occurrence", pageWriteBodyLimit, async (c
   } catch (err) {
     return c.json({ success: false, error: (err as Error).message }, 400);
   }
-});
-
-// === Column route ===
-
-app.get("/api/projects/:projectId/column", async (c) => {
-  const projectId = c.req.param("projectId");
-  const columnId = parseOptionalWorkflowStatus(c.req.query("id"));
-  if (!columnId) return c.json({ error: "Missing id" }, 400);
-  const column = await httpServerDependencies.contentModules.databaseProjections
-    .getDatabaseColumn(projectId, columnId);
-  return c.json(column);
 });
 
 // === SSE events ===

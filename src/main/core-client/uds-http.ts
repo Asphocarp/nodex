@@ -1,4 +1,5 @@
 import { request as httpRequest, type IncomingMessage } from "node:http";
+import { CORE_TRANSPORT_BUDGETS } from "@nodex/core-protocol";
 
 import {
   decodeBoundedJson,
@@ -17,15 +18,18 @@ import type {
   DocumentResyncRequired,
 } from "./types";
 
-const MAX_JSON_REQUEST_BYTES = 64 * 1024;
-const MAX_JSON_RESPONSE_BYTES = 512 * 1024;
-// A committed event may contain one bounded 1 MiB module payload and one
-// bounded 1 MiB projection impact. Keep the authenticated wire envelope itself
-// bounded while leaving room for cursor and SSE framing overhead.
-const MAX_EVENT_FRAME_BYTES = (2 * 1024 * 1024) + (256 * 1024);
+const MAX_JSON_REQUEST_BYTES =
+  CORE_TRANSPORT_BUDGETS.ordinary_json_request_bytes;
+const MAX_JSON_RESPONSE_BYTES =
+  CORE_TRANSPORT_BUDGETS.ordinary_json_response_bytes;
+const MAX_DOCUMENT_JSON_REQUEST_BYTES =
+  CORE_TRANSPORT_BUDGETS.document_json_request_bytes;
+const MAX_DOCUMENT_RESPONSE_BYTES =
+  CORE_TRANSPORT_BUDGETS.document_response_bytes;
+const MAX_EVENT_FRAME_BYTES = CORE_TRANSPORT_BUDGETS.event_frame_bytes;
 const REQUEST_TIMEOUT_MS = 5_000;
-const MAX_CONFIGURED_JSON_RESPONSE_BYTES = 64 * 1024 * 1024;
 const MAX_CONFIGURED_REQUEST_TIMEOUT_MS = 120_000;
+const DOCUMENT_ROUTE_PREFIX = "/core/v1/modules/document/";
 
 export interface UdsHttpTransportOptions {
   readonly maximumJsonResponseBytes?: number;
@@ -43,6 +47,16 @@ export class CoreHttpError extends Error {
   ) {
     super(message);
     this.name = "CoreHttpError";
+  }
+}
+
+export class CoreResponseTooLargeError extends Error {
+  constructor(
+    readonly maximumBytes: number,
+    readonly observedAtLeastBytes: number,
+  ) {
+    super(`Core response exceeds ${maximumBytes} bytes`);
+    this.name = "CoreResponseTooLargeError";
   }
 }
 
@@ -78,7 +92,7 @@ export class UdsHttpTransport {
   ) {
     this.#maximumJsonResponseBytes = boundedPositiveInteger(
       options.maximumJsonResponseBytes ?? MAX_JSON_RESPONSE_BYTES,
-      MAX_CONFIGURED_JSON_RESPONSE_BYTES,
+      MAX_JSON_RESPONSE_BYTES,
       "Core JSON response limit",
     );
     this.#requestTimeoutMs = boundedPositiveInteger(
@@ -108,9 +122,16 @@ export class UdsHttpTransport {
     body?: unknown,
     requestHeaders: Readonly<Record<string, string>> = {},
   ): Promise<Response> {
+    const documentRoute = requestPath.startsWith(DOCUMENT_ROUTE_PREFIX);
+    const maximumRequestBytes = documentRoute
+      ? MAX_DOCUMENT_JSON_REQUEST_BYTES
+      : MAX_JSON_REQUEST_BYTES;
+    const maximumResponseBytes = documentRoute
+      ? MAX_DOCUMENT_RESPONSE_BYTES
+      : this.#maximumJsonResponseBytes;
     const encodedBody = body === undefined
       ? undefined
-      : encodeBoundedJson(body, MAX_JSON_REQUEST_BYTES, "Core request");
+      : encodeBoundedJson(body, maximumRequestBytes, "Core request");
 
     return new Promise<Response>((resolve, reject) => {
       let settled = false;
@@ -138,11 +159,11 @@ export class UdsHttpTransport {
           },
         },
         (response) => {
-          collectResponse(response, this.#maximumJsonResponseBytes)
+          collectResponse(response, maximumResponseBytes)
             .then((bytes) => {
               const value = decodeBoundedJson<Response>(
                 bytes,
-                this.#maximumJsonResponseBytes,
+                maximumResponseBytes,
                 "Core response",
               );
               const status = response.statusCode ?? 0;
@@ -383,6 +404,12 @@ const collectResponse = (
   maximumBytes: number,
 ): Promise<Uint8Array> =>
   new Promise((resolve, reject) => {
+    const declaredLength = parseContentLength(response);
+    if (declaredLength !== undefined && declaredLength > maximumBytes) {
+      reject(new CoreResponseTooLargeError(maximumBytes, declaredLength));
+      response.destroy();
+      return;
+    }
     const chunks: Buffer[] = [];
     let byteLength = 0;
     let settled = false;
@@ -394,8 +421,8 @@ const collectResponse = (
         return;
       }
       settled = true;
-      reject(new Error(`Core response exceeds ${maximumBytes} bytes`));
-      response.destroy(new Error(`Core response exceeds ${maximumBytes} bytes`));
+      reject(new CoreResponseTooLargeError(maximumBytes, byteLength));
+      response.destroy();
     });
     response.on("end", () => {
       if (settled) return;
@@ -408,6 +435,13 @@ const collectResponse = (
       reject(error);
     });
   });
+
+const parseContentLength = (response: IncomingMessage): number | undefined => {
+  const raw = response.headers["content-length"];
+  if (typeof raw !== "string" || !/^\d+$/.test(raw)) return undefined;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) ? value : undefined;
+};
 
 const errorMessage = (value: unknown): string => {
   if (

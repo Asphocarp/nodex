@@ -16,7 +16,7 @@ const envelope = (
   sequence: number,
   impact: ProjectionImpact,
 ): CoreEventEnvelope => ({
-  transport_version: 3,
+  transport_version: 4,
   event: {
     event_version: 2,
     sequence,

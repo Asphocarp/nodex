@@ -9,6 +9,8 @@ import type {
   DataSourcePageRowV2,
   DataSourcePropertyRecordV2,
 } from "../../shared/database-module-v2";
+import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../shared/database-module-v2";
+import type { DatabaseViewWindowSnapshot } from "../../shared/database-views";
 import type {
   DatabaseJsonValue,
   DatabasePropertyValueType,
@@ -323,3 +325,15 @@ export const buildDatabaseViewRenderModel = (
     readOnlyReason: null,
   };
 };
+
+export const buildDatabaseViewWindowRenderModel = (
+  window: DatabaseViewWindowSnapshot,
+): DatabaseViewRenderModel =>
+  buildDatabaseViewRenderModel({
+    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+    projectId: window.projectId,
+    libraryId: window.libraryId,
+    storeEpoch: window.storeEpoch,
+    changeLogSeq: window.changeLogSeq,
+    value: { kind: "query", value: window.query },
+  });

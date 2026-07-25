@@ -10,6 +10,7 @@ import {
   writeTextActionRecentColors,
 } from "@/lib/text-action-color-recents";
 import { render, settleAsyncRender } from "@/test/dom";
+import { TestQueryProvider } from "@/test/query";
 import { NfmMoveToMenuSurface } from "./nfm-move-to-menu";
 import type { NfmMoveToDestination } from "./nfm-move-to-menu-model";
 import { NFM_SEND_TO_THREAD_MODE_STORAGE_KEY } from "./nfm-send-to-thread-mode-settings";
@@ -159,8 +160,9 @@ function renderTextActionMenu(
   };
 
   const view = render(
-    <NodexTooltipProvider>
-      <NfmTextActionMenuSurface
+    <TestQueryProvider>
+      <NodexTooltipProvider>
+        <NfmTextActionMenuSurface
         currentBlockTypeLabel="Normal Text"
         blockTypeItems={[
           {
@@ -237,8 +239,9 @@ function renderTextActionMenu(
           actions.selectionHoldStates.push(active);
         }}
         {...props}
-      />
-    </NodexTooltipProvider>,
+        />
+      </NodexTooltipProvider>
+    </TestQueryProvider>,
   );
 
   return { actions, view };

@@ -6,6 +6,9 @@ import type {
   DatabaseModuleReadRequestV2,
   DatabaseModuleReadResultV2,
   DatabaseReadV2,
+  DatabaseContainerDescriptorV2,
+  DataSourceDescriptorV2,
+  DataSourcePropertyRecordV2,
   LibraryDatabaseApplyResultV2,
   LibraryDatabaseApplyV2,
   LibraryDatabaseModuleReadRequestV2,
@@ -25,6 +28,7 @@ import type {
   DatabaseCommittedValue,
   DatabaseIntent,
   DatabaseRead,
+  DatabaseReadSnapshot,
 } from "./types";
 
 export interface CoreDatabaseModuleAdapterInput {
@@ -38,7 +42,7 @@ export interface CoreDatabaseModuleAdapter {
   read(
     request: DatabaseModuleReadRequestV2,
   ): Promise<DatabaseModuleReadResultV2>;
-  readPage(pageId: string): Promise<DatabaseModuleReadResultV2>;
+  readCore(read: DatabaseRead): Promise<DatabaseReadSnapshot>;
   apply(request: DatabaseApplyV2): Promise<DatabaseApplyResultV2>;
 }
 
@@ -49,6 +53,7 @@ export interface CoreLibraryDatabaseModuleAdapterInput {
 }
 
 export interface CoreLibraryDatabaseModuleAdapter {
+  readCore(read: DatabaseRead): Promise<DatabaseReadSnapshot>;
   read(
     request: LibraryDatabaseModuleReadRequestV2,
   ): Promise<LibraryDatabaseModuleReadResultV2>;
@@ -69,8 +74,8 @@ const toCoreTarget = (target: DatabaseReadV2["target"]): DatabaseRead["target"] 
 const toCoreRead = (read: DatabaseReadV2): DatabaseRead => ({
   target: toCoreTarget(read.target),
   mode: read.mode,
-  filter: "filter" in read ? read.filter : undefined,
-  sort: "sort" in read ? read.sort ?? null : null,
+  filter: null,
+  sort: null,
 });
 
 const mapCoreError = (
@@ -325,6 +330,221 @@ const coreReceiptEvidence = (
   committedAt: committed.receipt.committed_at,
 });
 
+interface CoreWindowSlice {
+  readonly items: readonly unknown[];
+  readonly next_cursor?: string | null;
+}
+
+const readAllCoreWindow = async (
+  client: CoreClientPort,
+  maximumItems: number,
+  createRead: (after: string | null) => DatabaseRead,
+  selectWindow: (snapshot: DatabaseReadSnapshot) => CoreWindowSlice,
+): Promise<readonly unknown[]> => {
+  const items: unknown[] = [];
+  let after: string | null = null;
+  do {
+    const snapshot = await client.databaseRead(createRead(after));
+    const window = selectWindow(snapshot);
+    if (window.items.length > maximumItems - items.length) {
+      throw new Error("Fixed Database schema collection exceeded its Core bound");
+    }
+    items.push(...window.items);
+    after = window.next_cursor ?? null;
+  } while (after !== null);
+  return items;
+};
+
+const requireRecord = (
+  value: unknown,
+  label: string,
+): Record<string, unknown> => {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  throw new Error(`${label} is not an object`);
+};
+
+const requireString = (
+  value: Record<string, unknown>,
+  key: string,
+  label: string,
+): string => {
+  const result = value[key];
+  if (typeof result === "string" && result.length > 0) return result;
+  throw new Error(`${label} has no ${key}`);
+};
+
+const hydrateCoreProperty = async (
+  client: CoreClientPort,
+  input: unknown,
+): Promise<DataSourcePropertyRecordV2> => {
+  const property = requireRecord(input, "Core Property descriptor");
+  const rawConfig = property.config;
+  const metadata = Object.fromEntries(
+    Object.entries(property).filter(
+      ([key]) => key !== "optionCount" && key !== "config",
+    ),
+  );
+  const valueType = requireString(property, "valueType", "Core Property");
+  if (valueType !== "select" && valueType !== "multi_select") {
+    return {
+      ...metadata,
+      config: requireRecord(rawConfig, "Core Property config"),
+    } as unknown as DataSourcePropertyRecordV2;
+  }
+  const dataSourceId = requireString(
+    property,
+    "dataSourceId",
+    "Core Property",
+  );
+  const propertyId = requireString(property, "propertyId", "Core Property");
+  const options = await readAllCoreWindow(
+    client,
+    100,
+    (after) => ({
+      target: {
+        kind: "property",
+        data_source_id: dataSourceId,
+        property_id: propertyId,
+      },
+      mode: "option_window",
+      filter: null,
+      sort: null,
+      page_ids: null,
+      window: { after, first: 200 },
+    }),
+    (snapshot) => {
+      if (snapshot.value.kind !== "option_window") {
+        throw new Error("Core returned a non-option Database window");
+      }
+      return snapshot.value.options;
+    },
+  );
+  return {
+    ...metadata,
+    config: {
+      ...requireRecord(rawConfig, "Core Property config"),
+      options,
+    },
+  } as unknown as DataSourcePropertyRecordV2;
+};
+
+const hydrateCoreDataSource = async (
+  client: CoreClientPort,
+  compact: unknown,
+): Promise<DataSourceDescriptorV2> => {
+  const descriptor = requireRecord(compact, "Core Data Source descriptor");
+  const dataSource = requireRecord(
+    descriptor.dataSource,
+    "Core Data Source record",
+  );
+  const dataSourceId = requireString(
+    dataSource,
+    "dataSourceId",
+    "Core Data Source",
+  );
+  const compactProperties = await readAllCoreWindow(
+    client,
+    200,
+    (after) => ({
+      target: { kind: "data_source", data_source_id: dataSourceId },
+      mode: "property_window",
+      filter: null,
+      sort: null,
+      page_ids: null,
+      window: { after, first: 200 },
+    }),
+    (snapshot) => {
+      if (snapshot.value.kind !== "property_window") {
+        throw new Error("Core returned a non-Property Database window");
+      }
+      return snapshot.value.properties;
+    },
+  );
+  const properties: DataSourcePropertyRecordV2[] = [];
+  for (const property of compactProperties) {
+    properties.push(await hydrateCoreProperty(client, property));
+  }
+  return {
+    dataSource: dataSource as unknown as DataSourceDescriptorV2["dataSource"],
+    properties,
+  };
+};
+
+const hydrateCoreDatabase = async (
+  client: CoreClientPort,
+  compact: unknown,
+): Promise<DatabaseContainerDescriptorV2> => {
+  const descriptor = requireRecord(compact, "Core Database descriptor");
+  const database = requireRecord(descriptor.database, "Core Database record");
+  const databaseId = requireString(database, "databaseId", "Core Database");
+  const [dataSources, views] = await Promise.all([
+    readAllCoreWindow(
+      client,
+      200,
+      (after) => ({
+        target: { kind: "database", database_id: databaseId },
+        mode: "data_source_window",
+        filter: null,
+        sort: null,
+        page_ids: null,
+        window: { after, first: 200 },
+      }),
+      (snapshot) => {
+        if (snapshot.value.kind !== "data_source_window") {
+          throw new Error("Core returned a non-Data Source Database window");
+        }
+        return snapshot.value.data_sources;
+      },
+    ),
+    readAllCoreWindow(
+      client,
+      200,
+      (after) => ({
+        target: { kind: "database", database_id: databaseId },
+        mode: "view_descriptor_window",
+        filter: null,
+        sort: null,
+        page_ids: null,
+        window: { after, first: 200 },
+      }),
+      (snapshot) => {
+        if (snapshot.value.kind !== "view_descriptor_window") {
+          throw new Error("Core returned a non-View Database window");
+        }
+        return snapshot.value.views;
+      },
+    ),
+  ]);
+  return {
+    database:
+      database as unknown as DatabaseContainerDescriptorV2["database"],
+    dataSources:
+      dataSources as unknown as DatabaseContainerDescriptorV2["dataSources"],
+    views: views as unknown as DatabaseContainerDescriptorV2["views"],
+  };
+};
+
+const hydrateCoreReadValue = async (
+  client: CoreClientPort,
+  value: DatabaseReadSnapshot["value"],
+): Promise<unknown> => {
+  if (value.kind === "database") {
+    return {
+      kind: value.kind,
+      value: await hydrateCoreDatabase(client, value.value),
+    };
+  }
+  if (value.kind === "data_source") {
+    return {
+      kind: value.kind,
+      value: await hydrateCoreDataSource(client, value.value),
+    };
+  }
+  return value;
+};
+
 export const createCoreDatabaseModuleAdapter = (
   input: CoreDatabaseModuleAdapterInput,
 ): CoreDatabaseModuleAdapter => {
@@ -345,6 +565,7 @@ export const createCoreDatabaseModuleAdapter = (
       if (snapshot.store_epoch !== input.storeEpoch) {
         throw new Error("Core Database read crossed its Store epoch boundary");
       }
+      const value = await hydrateCoreReadValue(input.client, snapshot.value);
       return parseDatabaseModuleReadResultV2({
         ok: true,
         value: {
@@ -353,7 +574,7 @@ export const createCoreDatabaseModuleAdapter = (
           libraryId: input.libraryId,
           storeEpoch: snapshot.store_epoch,
           changeLogSeq: snapshot.event_head,
-          value: snapshot.value,
+          value,
         },
       });
     } catch (error) {
@@ -362,17 +583,18 @@ export const createCoreDatabaseModuleAdapter = (
   };
 
   return {
+    readCore: async (read) => {
+      const snapshot = await input.client.databaseRead(read);
+      if (snapshot.store_epoch !== input.storeEpoch) {
+        throw new Error("Core Database read crossed its Store epoch boundary");
+      }
+      return snapshot;
+    },
     read: async (request) => {
       const projectError = assertBoundProject(request.projectId);
       if (projectError) return { ok: false, error: projectError };
       return await readCore(toCoreRead(request.read));
     },
-    readPage: async (pageId) => await readCore({
-      target: { kind: "page", page_id: pageId },
-      mode: "query",
-      filter: undefined,
-      sort: null,
-    }),
     apply: async (request) => {
       const projectError = assertBoundProject(request.projectId);
       if (projectError) {
@@ -421,6 +643,13 @@ export const createCoreDatabaseModuleAdapter = (
 export const createCoreLibraryDatabaseModuleAdapter = (
   input: CoreLibraryDatabaseModuleAdapterInput,
 ): CoreLibraryDatabaseModuleAdapter => ({
+  readCore: async (read) => {
+    const snapshot = await input.client.databaseRead(read);
+    if (snapshot.store_epoch !== input.storeEpoch) {
+      throw new Error("Core Library Database read crossed its Store epoch boundary");
+    }
+    return snapshot;
+  },
   read: async (request) => {
     try {
       const snapshot = await input.client.databaseRead(toCoreRead(request.read));
@@ -435,7 +664,7 @@ export const createCoreLibraryDatabaseModuleAdapter = (
           libraryId: input.libraryId,
           storeEpoch: snapshot.store_epoch,
           changeLogSeq: snapshot.event_head,
-          value: snapshot.value,
+          value: await hydrateCoreReadValue(input.client, snapshot.value),
         },
       });
     } catch (error) {

@@ -3,11 +3,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
+import { CORE_TRANSPORT_BUDGETS } from "@nodex/core-protocol";
 
 import type { CoreEventReplayRequired } from "./types";
 import {
   CoreEventCompatibilityError,
   CoreEventReplayError,
+  CoreResponseTooLargeError,
   UdsHttpTransport,
 } from "./uds-http";
 
@@ -22,7 +24,7 @@ const replayBoundary: CoreEventReplayRequired = {
 
 const configureEventContract = (transport: UdsHttpTransport): UdsHttpTransport => {
   transport.configureEventContract({
-    transportVersion: 3,
+    transportVersion: 4,
     eventVersion: 2,
     storeEpoch: "epoch-1",
   });
@@ -84,8 +86,43 @@ const servePendingResponse = async (): Promise<string> => {
   return socketPath;
 };
 
+const serveJsonResponse = async (
+  serialized: string,
+  mode: "content-length" | "chunked" = "content-length",
+  declaredLength?: number,
+): Promise<string> => {
+  const directory = mkdtempSync(path.join(tmpdir(), "nodex-core-uds-test-"));
+  directories.push(directory);
+  const socketPath = path.join(directory, "core.sock");
+  const server = createServer((_request, response) => {
+    if (mode === "content-length") {
+      response.writeHead(200, {
+        "content-length": declaredLength ?? Buffer.byteLength(serialized),
+        "content-type": "application/json",
+        connection: "close",
+      });
+      response.end(serialized);
+      return;
+    }
+    response.writeHead(200, {
+      "content-type": "application/json",
+      "transfer-encoding": "chunked",
+      connection: "close",
+    });
+    const midpoint = Math.floor(serialized.length / 2);
+    response.write(serialized.slice(0, midpoint));
+    response.end(serialized.slice(midpoint));
+  });
+  servers.push(server);
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+  return socketPath;
+};
+
 const committedEvent = () => ({
-  transport_version: 3,
+  transport_version: 4,
   event: {
     event_version: 2,
     sequence: 1,
@@ -107,7 +144,7 @@ const committedEvent = () => ({
 
 const serveLargeCommittedEvent = async (): Promise<string> =>
   await serveCommittedEvent({
-    transport_version: 3,
+    transport_version: 4,
     event: {
       event_version: 2,
       sequence: 1,
@@ -154,15 +191,57 @@ afterEach(async () => {
 describe("UDS Core event replay boundaries", () => {
   test("bounds caller-specific response and timeout budgets", () => {
     expect(() => new UdsHttpTransport("/tmp/core.sock", "capability", {
-      maximumJsonResponseBytes: 64 * 1024 * 1024 + 1,
+      maximumJsonResponseBytes:
+        CORE_TRANSPORT_BUDGETS.ordinary_json_response_bytes + 1,
     })).toThrow("Core JSON response limit must be a positive integer");
     expect(() => new UdsHttpTransport("/tmp/core.sock", "capability", {
       requestTimeoutMs: 120_001,
     })).toThrow("Core request timeout must be a positive integer");
     expect(() => new UdsHttpTransport("/tmp/core.sock", "capability", {
-      maximumJsonResponseBytes: 16 * 1024 * 1024,
+      maximumJsonResponseBytes:
+        CORE_TRANSPORT_BUDGETS.ordinary_json_response_bytes,
       requestTimeoutMs: 60_000,
     })).not.toThrow();
+  });
+
+  test("reads an ordinary JSON response larger than the legacy 512 KiB limit", async () => {
+    const value = "x".repeat(600 * 1024);
+    const transport = new UdsHttpTransport(
+      await serveJsonResponse(JSON.stringify({ value })),
+      "test-capability",
+    );
+
+    await expect(
+      transport.requestJson<{ readonly value: string }>("GET", "/core/v1/health"),
+    ).resolves.toEqual({ value });
+  });
+
+  test("rejects an oversized declared ordinary JSON response before reading it", async () => {
+    const maximum = CORE_TRANSPORT_BUDGETS.ordinary_json_response_bytes;
+    const transport = new UdsHttpTransport(
+      await serveJsonResponse("{}", "content-length", maximum + 1),
+      "test-capability",
+    );
+
+    await expect(
+      transport.requestJson("GET", "/core/v1/health"),
+    ).rejects.toEqual(new CoreResponseTooLargeError(maximum, maximum + 1));
+  });
+
+  test("rejects an oversized chunked ordinary JSON response while streaming it", async () => {
+    const maximum = CORE_TRANSPORT_BUDGETS.ordinary_json_response_bytes;
+    const serialized = JSON.stringify({ value: "x".repeat(maximum) });
+    const transport = new UdsHttpTransport(
+      await serveJsonResponse(serialized, "chunked"),
+      "test-capability",
+    );
+
+    await expect(
+      transport.requestJson("GET", "/core/v1/health"),
+    ).rejects.toMatchObject({
+      name: "CoreResponseTooLargeError",
+      maximumBytes: maximum,
+    });
   });
 
   test("delivers an explicit resync boundary to a registered consumer", async () => {

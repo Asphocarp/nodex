@@ -2,14 +2,20 @@ use std::collections::BTreeSet;
 
 use nodex_core_contracts::automation::{
     AutomationInboxItem, AutomationIntent, AutomationRun, AutomationRunBulkResult,
-    AutomationRunStatus, AutomationRunUnreadCounts, AutomationUnreadRun,
+    AutomationRunStatus, AutomationRunUnreadCounts,
+};
+use nodex_core_contracts::collection::{
+    CollectionWindow, CollectionWindowAuthority, CollectionWindowRequest,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 
+use crate::infrastructure::collection_window::{WindowCandidate, assemble, normalize_request};
+use crate::infrastructure::cursor::{
+    self, CollectionCursorSubject, CursorDirection, KeysetCoordinate, KeysetValue,
+};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 const MAX_ID_LENGTH: usize = 512;
-const MAX_RUN_READ_LIMIT: u32 = 1_000;
 const MAX_BULK_RUNS: usize = 1_000;
 const MAX_TITLE_BYTES: usize = 16 * 1024;
 const MAX_INBOX_SUMMARY_BYTES: usize = 64 * 1024;
@@ -45,45 +51,139 @@ pub(super) fn read_run(
     run.map(|run| validate_run(connection, run)).transpose()
 }
 
-pub(super) fn read_runs(
+pub(super) fn read_runs_window(
     connection: &Connection,
+    library_id: &str,
+    event_head: i64,
     automation_id: Option<&str>,
     include_archived: bool,
-    limit: u32,
-) -> Result<Vec<AutomationRun>, StoreError> {
+    request: &CollectionWindowRequest,
+) -> Result<CollectionWindow<AutomationRun>, StoreError> {
     if let Some(automation_id) = automation_id {
         validate_id("automation_id", automation_id)?;
     }
-    if !(1..=MAX_RUN_READ_LIMIT).contains(&limit) {
-        return Err(invalid("Automation run read limit is invalid"));
-    }
+    let normalized = normalize_request(request)?;
+    let fingerprint =
+        cursor::query_fingerprint(&("automation_runs_v1", automation_id, include_archived))?;
+    let subject = CollectionCursorSubject {
+        kind: "automation_runs",
+        library_id,
+        query_fingerprint: &fingerprint,
+        projection_revision: event_head,
+    };
+    let after = normalized
+        .after
+        .map(|encoded| cursor::decode(connection, encoded, subject))
+        .transpose()?
+        .map(|(direction, coordinate)| {
+            if direction != CursorDirection::Forward || coordinate.values.len() != 1 {
+                return Err(invalid("Automation run cursor is incompatible"));
+            }
+            let [
+                KeysetValue::Integer {
+                    value: created_at_ms,
+                },
+            ] = coordinate.values.as_slice()
+            else {
+                return Err(invalid("Automation run cursor coordinate is invalid"));
+            };
+            Ok((*created_at_ms, coordinate.stable_id))
+        })
+        .transpose()?;
     let mut statement = connection.prepare(
         "SELECT thread_id, automation_id, run_revision, status, read_at, thread_title, \
                 source_cwd, inbox_title, inbox_summary, archived_user_message, \
                 archived_assistant_message, archived_reason, created_at, updated_at \
          FROM codex_automation_runs \
          WHERE (?1 IS NULL OR automation_id = ?1) AND (?2 OR status <> 'ARCHIVED') \
-         ORDER BY created_at DESC, thread_id LIMIT ?3",
+           AND (?3 IS NULL OR created_at < ?3 OR (created_at = ?3 AND thread_id > ?4)) \
+         ORDER BY created_at DESC, thread_id LIMIT ?5",
     )?;
-    statement
+    let rows = statement
         .query_map(
-            params![automation_id, include_archived, limit],
+            params![
+                automation_id,
+                include_archived,
+                after.as_ref().map(|value| value.0),
+                after.as_ref().map(|value| value.1.as_str()),
+                i64::try_from(normalized.first + 1)
+                    .map_err(|_| invalid("Automation run window size is invalid"))?,
+            ],
             run_from_row,
         )?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|_| corrupt("Automation run column types are invalid"))?
         .into_iter()
         .map(|run| validate_run(connection, run))
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+    let candidates = rows.into_iter().map(|item| WindowCandidate {
+        coordinate: KeysetCoordinate {
+            values: vec![KeysetValue::Integer {
+                value: item.created_at_ms,
+            }],
+            stable_id: item.thread_id.clone(),
+        },
+        item,
+    });
+    assemble(
+        candidates,
+        normalized.first,
+        CollectionWindowAuthority {
+            projection_revision: event_head,
+        },
+        |coordinate| {
+            cursor::mint(
+                connection,
+                subject,
+                CursorDirection::Forward,
+                coordinate.clone(),
+            )
+        },
+    )
 }
 
-pub(super) fn read_inbox(
+pub(super) fn read_inbox_window(
     connection: &Connection,
-    limit: u32,
-) -> Result<(Vec<AutomationInboxItem>, AutomationRunUnreadCounts), StoreError> {
-    if !(1..=MAX_RUN_READ_LIMIT).contains(&limit) {
-        return Err(invalid("Automation inbox read limit is invalid"));
-    }
+    library_id: &str,
+    event_head: i64,
+    request: &CollectionWindowRequest,
+) -> Result<
+    (
+        CollectionWindow<AutomationInboxItem>,
+        AutomationRunUnreadCounts,
+    ),
+    StoreError,
+> {
+    let normalized = normalize_request(request)?;
+    let fingerprint = cursor::query_fingerprint(&"automation_inbox_v1")?;
+    let subject = CollectionCursorSubject {
+        kind: "automation_inbox",
+        library_id,
+        query_fingerprint: &fingerprint,
+        projection_revision: event_head,
+    };
+    let after = normalized
+        .after
+        .map(|encoded| cursor::decode(connection, encoded, subject))
+        .transpose()?
+        .map(|(direction, coordinate)| {
+            if direction != CursorDirection::Forward || coordinate.values.len() != 2 {
+                return Err(invalid("Automation inbox cursor is incompatible"));
+            }
+            let [
+                KeysetValue::Integer {
+                    value: status_bucket,
+                },
+                KeysetValue::Integer {
+                    value: created_at_ms,
+                },
+            ] = coordinate.values.as_slice()
+            else {
+                return Err(invalid("Automation inbox cursor coordinate is invalid"));
+            };
+            Ok((*status_bucket, *created_at_ms, coordinate.stable_id))
+        })
+        .transpose()?;
     let mut statement = connection.prepare(
         "SELECT runs.automation_id, automations.name, \
                 COALESCE(automations.name, NULLIF(runs.inbox_title, ''), runs.thread_title), \
@@ -91,22 +191,65 @@ pub(super) fn read_inbox(
                          runs.archived_user_message, automations.prompt), \
                 runs.archived_assistant_message, runs.archived_user_message, \
                 runs.archived_reason, runs.source_cwd, runs.thread_id, runs.read_at, \
-                runs.created_at, runs.status \
+                runs.created_at, runs.status, \
+                CASE runs.status WHEN 'IN_PROGRESS' THEN 0 \
+                  WHEN 'PENDING_REVIEW' THEN 1 ELSE 2 END AS status_bucket \
          FROM codex_automation_runs runs \
          JOIN codex_scheduled_automations automations \
            ON automations.automation_id = runs.automation_id \
-         ORDER BY runs.status = 'IN_PROGRESS' DESC, \
-                  runs.status = 'PENDING_REVIEW' DESC, runs.created_at DESC, runs.thread_id \
-         LIMIT ?1",
+         WHERE (?1 IS NULL OR status_bucket > ?1 \
+           OR (status_bucket = ?1 AND runs.created_at < ?2) \
+           OR (status_bucket = ?1 AND runs.created_at = ?2 AND runs.thread_id > ?3)) \
+         ORDER BY status_bucket, runs.created_at DESC, runs.thread_id LIMIT ?4",
     )?;
-    let items = statement
-        .query_map([limit], inbox_from_row)?
+    let rows = statement
+        .query_map(
+            params![
+                after.as_ref().map(|value| value.0),
+                after.as_ref().map(|value| value.1),
+                after.as_ref().map(|value| value.2.as_str()),
+                i64::try_from(normalized.first + 1)
+                    .map_err(|_| invalid("Automation inbox window size is invalid"))?,
+            ],
+            |row| Ok((inbox_from_row(row)?, row.get::<_, i64>(12)?)),
+        )?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|_| corrupt("Automation inbox column types are invalid"))?
         .into_iter()
-        .map(validate_inbox_item)
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok((items, unread_counts(connection)?))
+        .map(|(item, status_bucket)| Ok((validate_inbox_item(item)?, status_bucket)))
+        .collect::<Result<Vec<_>, StoreError>>()?;
+    let candidates = rows
+        .into_iter()
+        .map(|(item, status_bucket)| WindowCandidate {
+            coordinate: KeysetCoordinate {
+                values: vec![
+                    KeysetValue::Integer {
+                        value: status_bucket,
+                    },
+                    KeysetValue::Integer {
+                        value: item.created_at_ms,
+                    },
+                ],
+                stable_id: item.thread_id.clone(),
+            },
+            item,
+        });
+    let window = assemble(
+        candidates,
+        normalized.first,
+        CollectionWindowAuthority {
+            projection_revision: event_head,
+        },
+        |coordinate| {
+            cursor::mint(
+                connection,
+                subject,
+                CursorDirection::Forward,
+                coordinate.clone(),
+            )
+        },
+    )?;
+    Ok((window, unread_counts(connection)?))
 }
 
 pub(super) fn apply(
@@ -703,35 +846,18 @@ fn select_run_ids<P: rusqlite::Params>(
 }
 
 fn unread_counts(connection: &Connection) -> Result<AutomationRunUnreadCounts, StoreError> {
-    let mut statement = connection.prepare(
-        "SELECT runs.automation_id, runs.thread_id \
+    let total = connection.query_row(
+        "SELECT count(*) \
          FROM codex_automation_runs runs \
          JOIN codex_scheduled_automations automations \
            ON automations.automation_id = runs.automation_id \
-         WHERE runs.read_at IS NULL AND runs.status IN ('PENDING_REVIEW', 'ACCEPTED') \
-         ORDER BY runs.automation_id, runs.thread_id",
+         WHERE runs.read_at IS NULL AND runs.status IN ('PENDING_REVIEW', 'ACCEPTED')",
+        [],
+        |row| row.get::<_, i64>(0),
     )?;
-    let unread_runs = statement
-        .query_map([], |row| {
-            Ok(AutomationUnreadRun {
-                automation_id: row.get(0)?,
-                thread_id: row.get(1)?,
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let automation_ids = unread_runs
-        .iter()
-        .map(|run| run.automation_id.clone())
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect();
-    let total = u32::try_from(unread_runs.len())
-        .map_err(|_| corrupt("Automation unread count exceeds its bound"))?;
-    Ok(AutomationRunUnreadCounts {
-        total,
-        automation_ids,
-        unread_runs,
-    })
+    let total =
+        u32::try_from(total).map_err(|_| corrupt("Automation unread count exceeds its bound"))?;
+    Ok(AutomationRunUnreadCounts { total })
 }
 
 fn run_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AutomationRun> {

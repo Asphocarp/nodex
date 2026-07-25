@@ -48,9 +48,14 @@ describe("HTTP content Module authority", () => {
   });
 
   test("routes Project Workspace reads through the configured authority", async () => {
-    const listProjects = vi.fn(async () => []);
+    const listProjectWindow = vi.fn(async () => ({
+      items: [],
+      nextCursor: null,
+      hasMore: false,
+      projectionRevision: 7,
+    }));
     __setHttpContentModuleDependenciesForTests({
-      projectWorkspace: { listProjects } as never,
+      projectWorkspace: { listProjectWindow } as never,
     });
 
     const response = await getHttpServerOptions(PORT).fetch(new Request(
@@ -58,22 +63,40 @@ describe("HTTP content Module authority", () => {
     ));
 
     expect(response.status).toBe(200);
-    expect(listProjects).toHaveBeenCalledWith({ includeArchived: false });
-    await expect(response.json()).resolves.toEqual({ projects: [] });
+    expect(listProjectWindow).toHaveBeenCalledWith({
+      includeArchived: false,
+      after: null,
+      first: 100,
+    });
+    await expect(response.json()).resolves.toEqual({
+      items: [],
+      nextCursor: null,
+      hasMore: false,
+      projectionRevision: 7,
+    });
   });
 
   test("opts into archived Project collection reads through the query string", async () => {
-    const listProjects = vi.fn(async () => []);
+    const listProjectWindow = vi.fn(async () => ({
+      items: [],
+      nextCursor: "nxc1.projects.next",
+      hasMore: true,
+      projectionRevision: 7,
+    }));
     __setHttpContentModuleDependenciesForTests({
-      projectWorkspace: { listProjects } as never,
+      projectWorkspace: { listProjectWindow } as never,
     });
 
     const response = await getHttpServerOptions(PORT).fetch(new Request(
-      `http://127.0.0.1:${PORT}/api/projects?includeArchived=true`,
+      `http://127.0.0.1:${PORT}/api/projects?includeArchived=true&after=nxc1.projects.current&first=25`,
     ));
 
     expect(response.status).toBe(200);
-    expect(listProjects).toHaveBeenCalledWith({ includeArchived: true });
+    expect(listProjectWindow).toHaveBeenCalledWith({
+      includeArchived: true,
+      after: "nxc1.projects.current",
+      first: 25,
+    });
   });
 
   test("restores a retained Project through the lifecycle route", async () => {
@@ -258,7 +281,7 @@ describe("HTTP content Module authority", () => {
     await expect(response.json()).resolves.toEqual({ error: "Core unavailable" });
   });
 
-  test("routes Board projections through the configured Database authority", async () => {
+  test("routes bounded Database View windows through the configured authority", async () => {
     const snapshot = {
       projectId: "project-native",
       libraryId: "library-native",
@@ -267,19 +290,24 @@ describe("HTTP content Module authority", () => {
       viewId: "view-native",
       storeEpoch: "epoch-native",
       changeLogSeq: 42,
+      projectionRevision: 42,
+      nextCursor: null,
+      rows: [],
       board: { columns: [] },
     };
-    const getBoardSummary = vi.fn(async () => snapshot);
+    const getDatabaseViewWindow = vi.fn(async () => snapshot);
     __setHttpContentModuleDependenciesForTests({
-      databaseProjections: { getBoardSummary } as never,
+      databaseProjections: { getDatabaseViewWindow } as never,
     });
 
     const response = await getHttpServerOptions(PORT).fetch(new Request(
-      `http://127.0.0.1:${PORT}/api/projects/project-native/board-summary`,
+      `http://127.0.0.1:${PORT}/api/projects/project-native/database-views/default/rows?first=25`,
     ));
 
     expect(response.status).toBe(200);
-    expect(getBoardSummary).toHaveBeenCalledWith("project-native");
+    expect(getDatabaseViewWindow).toHaveBeenCalledWith("project-native", {
+      first: 25,
+    });
     await expect(response.json()).resolves.toEqual(snapshot);
   });
 
@@ -312,13 +340,16 @@ describe("HTTP content Module authority", () => {
   });
 
   test("routes Calendar occurrences through the configured Automation authority", async () => {
-    const listPageOccurrences = vi.fn(async () => []);
+    const listPageOccurrences = vi.fn(async () => ({
+      items: [],
+      nextCursor: "nxc1.calendar.next",
+    }));
     __setHttpContentModuleDependenciesForTests({
       automation: { listPageOccurrences } as never,
     });
 
     const response = await getHttpServerOptions(PORT).fetch(new Request(
-      `http://127.0.0.1:${PORT}/api/projects/project-native/calendar/occurrences?start=2026-07-20T00:00:00.000Z&end=2026-07-21T00:00:00.000Z&search=native`,
+      `http://127.0.0.1:${PORT}/api/projects/project-native/calendar/occurrences?start=2026-07-20T00:00:00.000Z&end=2026-07-21T00:00:00.000Z&search=native&after=nxc1.calendar.current`,
     ));
 
     expect(response.status).toBe(200);
@@ -327,8 +358,12 @@ describe("HTTP content Module authority", () => {
       new Date("2026-07-20T00:00:00.000Z"),
       new Date("2026-07-21T00:00:00.000Z"),
       "native",
+      "nxc1.calendar.current",
     );
-    await expect(response.json()).resolves.toEqual({ occurrences: [] });
+    await expect(response.json()).resolves.toEqual({
+      occurrences: [],
+      nextCursor: "nxc1.calendar.next",
+    });
   });
 
   test("routes Backup inventory through Store Administration", async () => {
@@ -423,7 +458,7 @@ describe("HTTP content Module authority", () => {
     const apply = vi.fn(async (request): Promise<LibraryModuleApplyResult> => ({
       ok: true,
       value: {
-        version: 1,
+        version: 2,
         operationId: request.operationId,
         storeEpoch: request.storeEpoch,
         libraryId: "library-native",
@@ -458,7 +493,7 @@ describe("HTTP content Module authority", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          version: 1,
+          version: 2,
           operationId: "019c2000-0000-7000-8000-000000000001",
           storeEpoch: "epoch-native",
           operation: {

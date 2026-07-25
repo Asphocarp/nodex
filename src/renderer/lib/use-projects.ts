@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 import type {
   Project,
@@ -23,7 +23,9 @@ function getErrorMessage(err: unknown): string {
 export function useProjects() {
   const queryClient = useQueryClient();
   const [actionError, setActionError] = useState<string | null>(null);
-  const projectsQuery = useQuery(projectsListQueryOptions());
+  const projectsQuery = useInfiniteQuery(projectsListQueryOptions());
+  const projects = projectsQuery.data?.pages.flatMap((window) => window.items)
+    ?? EMPTY_PROJECTS;
 
   const refreshProjects = useCallback(async () => {
     setActionError(null);
@@ -87,12 +89,15 @@ export function useProjects() {
   });
 
   const { mutateAsync: reorderProjectsRequest } = useMutation({
-    mutationFn: (input: ProjectOrderInput) => invoke("projects:reorder", input) as Promise<Project[]>,
+    mutationFn: (input: ProjectOrderInput) => invoke("projects:reorder", input) as Promise<void>,
     onMutate: () => {
       setActionError(null);
     },
-    onSuccess: (nextProjects) => {
-      queryClient.setQueryData<Project[]>(PROJECTS_LIST_QUERY_KEY, nextProjects);
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: PROJECTS_LIST_QUERY_KEY,
+        exact: true,
+      });
     },
     onError: async () => {
       await queryClient.invalidateQueries({
@@ -123,12 +128,15 @@ export function useProjects() {
   });
 
   const { mutateAsync: setPinnedProjectOrderRequest } = useMutation({
-    mutationFn: (input: ProjectPinnedOrderInput) => invoke("projects:set-pinned-order", input) as Promise<Project[]>,
+    mutationFn: (input: ProjectPinnedOrderInput) => invoke("projects:set-pinned-order", input) as Promise<void>,
     onMutate: () => {
       setActionError(null);
     },
-    onSuccess: (nextProjects) => {
-      queryClient.setQueryData<Project[]>(PROJECTS_LIST_QUERY_KEY, nextProjects);
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: PROJECTS_LIST_QUERY_KEY,
+        exact: true,
+      });
     },
     onError: async () => {
       await queryClient.invalidateQueries({
@@ -169,12 +177,11 @@ export function useProjects() {
   );
 
   const reorderProjects = useCallback(
-    async (input: ProjectOrderInput): Promise<Project[]> => {
+    async (input: ProjectOrderInput): Promise<void> => {
       try {
-        return await reorderProjectsRequest(input);
+        await reorderProjectsRequest(input);
       } catch (err) {
         setActionError(getErrorMessage(err));
-        return [];
       }
     },
     [reorderProjectsRequest],
@@ -193,12 +200,11 @@ export function useProjects() {
   );
 
   const setPinnedProjectOrder = useCallback(
-    async (input: ProjectPinnedOrderInput): Promise<Project[]> => {
+    async (input: ProjectPinnedOrderInput): Promise<void> => {
       try {
-        return await setPinnedProjectOrderRequest(input);
+        await setPinnedProjectOrderRequest(input);
       } catch (err) {
         setActionError(getErrorMessage(err));
-        return [];
       }
     },
     [setPinnedProjectOrderRequest],
@@ -207,7 +213,13 @@ export function useProjects() {
   const queryError = projectsQuery.error ? getErrorMessage(projectsQuery.error) : null;
 
   return {
-    projects: projectsQuery.data ?? EMPTY_PROJECTS,
+    projects,
+    hasMoreProjects: projectsQuery.hasNextPage,
+    loadingMoreProjects: projectsQuery.isFetchingNextPage,
+    loadMoreProjects: async () => {
+      if (!projectsQuery.hasNextPage || projectsQuery.isFetchingNextPage) return;
+      await projectsQuery.fetchNextPage();
+    },
     loading: projectsQuery.isPending,
     ready: projectsQuery.isSuccess,
     error: actionError ?? queryError,
@@ -223,7 +235,7 @@ export function useProjects() {
 
 export function useRemovedProjects(open: boolean) {
   const queryClient = useQueryClient();
-  const projectsQuery = useQuery({
+  const projectsQuery = useInfiniteQuery({
     ...projectsListQueryOptions({ includeArchived: true }),
     enabled: open,
   });
@@ -246,9 +258,18 @@ export function useRemovedProjects(open: boolean) {
   });
 
   return {
-    projects: (projectsQuery.data ?? EMPTY_PROJECTS).filter(
+    projects: (
+      projectsQuery.data?.pages.flatMap((window) => window.items)
+      ?? EMPTY_PROJECTS
+    ).filter(
       (project) => project.lifecycle === "archived",
     ),
+    hasMoreProjects: projectsQuery.hasNextPage,
+    loadingMoreProjects: projectsQuery.isFetchingNextPage,
+    loadMoreProjects: async () => {
+      if (!projectsQuery.hasNextPage || projectsQuery.isFetchingNextPage) return;
+      await projectsQuery.fetchNextPage();
+    },
     loading: projectsQuery.isPending && open,
     error: projectsQuery.error ? getErrorMessage(projectsQuery.error) : null,
     retry: projectsQuery.refetch,

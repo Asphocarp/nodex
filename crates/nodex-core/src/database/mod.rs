@@ -2,6 +2,11 @@ pub(crate) mod authorization;
 mod genesis;
 mod mutation;
 pub(crate) mod read;
+mod window;
+
+pub(crate) const MAX_PROPERTY_OPTIONS: usize = 100;
+pub(crate) const MAX_DATA_SOURCE_PROPERTIES: usize = 200;
+pub(crate) const MAX_DATABASE_VIEWS: usize = 200;
 
 pub(crate) use genesis::create_database_authority_records;
 pub(crate) use mutation::{
@@ -239,6 +244,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use nodex_core_contracts::agent::{AgentExecutionAuthorization, AgentTurnProvenance};
+    use nodex_core_contracts::collection::CollectionWindowRequest;
     use nodex_core_contracts::database::{
         DatabaseAgentQuery, DatabaseIntent, DatabaseReadMode, DatabaseTarget,
         DatabaseTransferTarget,
@@ -526,6 +532,138 @@ mod tests {
         };
         let module = DatabaseModule::new("profile-1", "library-1", &kernel);
 
+        const BODY_SENTINEL: &str = "BODY-MUST-NOT-APPEAR-IN-DATABASE-WINDOW";
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE document_materializations SET nfm = ?1 \
+                     WHERE document_id = 'document:database-row'",
+                    [BODY_SENTINEL],
+                )?;
+                Ok(())
+            })
+            .expect("seed a Page body sentinel");
+        let first_window = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::ProjectDefault,
+                        mode: DatabaseReadMode::ViewWindow,
+                        filter: None,
+                        sort: None,
+                        window: Some(CollectionWindowRequest {
+                            after: None,
+                            first: Some(1),
+                        }),
+                        page_ids: None,
+                    },
+                },
+            )
+            .expect("read the first bounded Database View window");
+        let DatabaseReadValue::ViewWindow {
+            value: first_window,
+        } = first_window.value
+        else {
+            panic!("Database View window snapshot");
+        };
+        assert_eq!(first_window.rows.items.len(), 1);
+        assert_eq!(first_window.rows.items[0].page_id, "page:database-row");
+        let next_cursor = first_window
+            .rows
+            .next_cursor
+            .clone()
+            .expect("first window has a continuation");
+        let encoded_window =
+            serde_json::to_vec(&first_window).expect("encode Database View window");
+        assert!(encoded_window.len() < 1024 * 1024);
+        assert!(
+            !String::from_utf8(encoded_window)
+                .expect("window JSON is UTF-8")
+                .contains(BODY_SENTINEL)
+        );
+
+        let next_window = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::ProjectDefault,
+                        mode: DatabaseReadMode::ViewWindow,
+                        filter: None,
+                        sort: None,
+                        window: Some(CollectionWindowRequest {
+                            after: Some(next_cursor),
+                            first: Some(1),
+                        }),
+                        page_ids: None,
+                    },
+                },
+            )
+            .expect("continue the Database View window");
+        let DatabaseReadValue::ViewWindow { value: next_window } = next_window.value else {
+            panic!("next Database View window snapshot");
+        };
+        assert_eq!(
+            next_window
+                .rows
+                .items
+                .iter()
+                .map(|row| row.page_id.as_str())
+                .collect::<Vec<_>>(),
+            ["page:database-row-2"]
+        );
+        assert!(next_window.rows.next_cursor.is_none());
+
+        let rows_by_id = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::ProjectDefault,
+                        mode: DatabaseReadMode::RowsById,
+                        filter: None,
+                        sort: None,
+                        window: None,
+                        page_ids: Some(vec!["page:database-row-2".to_owned()]),
+                    },
+                },
+            )
+            .expect("read one Database row by identity");
+        let DatabaseReadValue::RowsById { value: rows_by_id } = rows_by_id.value else {
+            panic!("Database rows-by-ID snapshot");
+        };
+        assert_eq!(rows_by_id.rows.len(), 1);
+        assert_eq!(rows_by_id.rows[0].page_id, "page:database-row-2");
+
+        let row_detail = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::Page {
+                            page_id: "page:database-row".to_owned(),
+                        },
+                        mode: DatabaseReadMode::RowDetail,
+                        filter: None,
+                        sort: None,
+                        window: None,
+                        page_ids: None,
+                    },
+                },
+            )
+            .expect("read one Database row detail");
+        let DatabaseReadValue::RowDetail { value: row_detail } = row_detail.value else {
+            panic!("Database row detail snapshot");
+        };
+        assert_eq!(row_detail.summary.page_id, "page:database-row");
+        assert_eq!(row_detail.body_nfm, BODY_SENTINEL);
+
         let agent_query = module
             .read(
                 &context(),
@@ -540,24 +678,24 @@ mod tests {
                                 limit: Some(1),
                             }),
                         },
-                        mode: DatabaseReadMode::Query,
+                        mode: DatabaseReadMode::AgentQuery,
                         filter: None,
                         sort: None,
+                        window: None,
+                        page_ids: None,
                     },
                 },
             )
             .expect("query primary Data Source with exact Agent Turn authority");
-        let DatabaseReadValue::AgentQuery {
-            value,
-            next_cursor,
-            has_more,
-        } = agent_query.value
-        else {
+        let DatabaseReadValue::AgentQuery { value } = agent_query.value else {
             panic!("Agent Database query snapshot");
         };
-        assert_eq!(value["rows"][0]["page"]["pageId"], "page:database-row");
-        assert!(has_more);
-        let next_cursor = next_cursor.expect("Agent query has a next cursor");
+        assert_eq!(value.rows.items[0].page_id, "page:database-row");
+        assert!(value.rows.next_cursor.is_some());
+        let next_cursor = value
+            .rows
+            .next_cursor
+            .expect("Agent query has a next cursor");
         let cursor_before_change = next_cursor.clone();
         let mut continuation_authorization = agent_authorization.clone();
         continuation_authorization.call_id = "call:database-agent-next".to_owned();
@@ -575,24 +713,20 @@ mod tests {
                                 limit: Some(1),
                             }),
                         },
-                        mode: DatabaseReadMode::Query,
+                        mode: DatabaseReadMode::AgentQuery,
                         filter: None,
                         sort: None,
+                        window: None,
+                        page_ids: None,
                     },
                 },
             )
             .expect("continue exact Agent Database query");
-        let DatabaseReadValue::AgentQuery {
-            value,
-            next_cursor,
-            has_more,
-        } = next_agent_query.value
-        else {
+        let DatabaseReadValue::AgentQuery { value } = next_agent_query.value else {
             panic!("next Agent Database query snapshot");
         };
-        assert_eq!(value["rows"][0]["page"]["pageId"], "page:database-row-2");
-        assert!(!has_more);
-        assert!(next_cursor.is_none());
+        assert_eq!(value.rows.items[0].page_id, "page:database-row-2");
+        assert!(value.rows.next_cursor.is_none());
         let transfer = module
             .apply(
                 &context(),
@@ -629,9 +763,11 @@ mod tests {
                                 limit: Some(1),
                             }),
                         },
-                        mode: DatabaseReadMode::Query,
+                        mode: DatabaseReadMode::AgentQuery,
                         filter: None,
                         sort: None,
+                        window: None,
+                        page_ids: None,
                     },
                 },
             )
@@ -645,61 +781,64 @@ mod tests {
                     contract_version: DATABASE_CONTRACT_VERSION,
                     read: DatabaseRead {
                         target: DatabaseTarget::ProjectDefault,
-                        mode: DatabaseReadMode::Catalog,
+                        mode: DatabaseReadMode::CatalogWindow,
                         filter: None,
                         sort: None,
+                        window: Some(Default::default()),
+                        page_ids: None,
                     },
                 },
             )
             .expect("read catalog");
-        let DatabaseReadValue::Catalog { databases } = catalog.value else {
+        let DatabaseReadValue::CatalogWindow { databases } = catalog.value else {
             panic!("catalog snapshot");
         };
-        assert_eq!(databases.len(), 1);
-        assert_eq!(databases[0]["dataSources"][0]["dataSourceId"], SOURCE_ID);
-        assert_eq!(databases[0]["views"][0]["isDefault"], true);
-
-        let query = module
+        assert_eq!(databases.items.len(), 1);
+        assert_eq!(databases.items[0]["database"]["databaseId"], DATABASE_ID);
+        let data_sources = module
             .read(
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
                     read: DatabaseRead {
-                        target: DatabaseTarget::DataSource {
-                            data_source_id: SOURCE_ID.to_owned(),
+                        target: DatabaseTarget::Database {
+                            database_id: DATABASE_ID.to_owned(),
                         },
-                        mode: DatabaseReadMode::Query,
-                        filter: Some(json!({
-                            "kind": "clause",
-                            "propertyId": "status",
-                            "operator": "equals",
-                            "value": "triage"
-                        })),
-                        sort: Some(vec![json!({
-                            "field": { "kind": "title" },
-                            "direction": "asc",
-                            "nulls": "last"
-                        })]),
+                        mode: DatabaseReadMode::DataSourceWindow,
+                        filter: None,
+                        sort: None,
+                        window: Some(Default::default()),
+                        page_ids: None,
                     },
                 },
             )
-            .expect("query Data Source");
-        let DatabaseReadValue::DataSourceQuery { value } = query.value else {
-            panic!("Data Source query snapshot");
+            .expect("read Data Source descriptor window");
+        let DatabaseReadValue::DataSourceWindow { data_sources } = data_sources.value else {
+            panic!("Data Source descriptor window");
         };
-        assert_eq!(value["properties"].as_array().map(Vec::len), Some(8));
-        assert_eq!(value["rows"][0]["page"]["title"], "Fix sign-in");
-        assert_eq!(value["rows"][0]["values"]["status"]["value"], "triage");
-        assert_eq!(value["rows"][0]["bodyNfm"], "");
-        assert!(
-            value["rows"][0]["intrinsicProperties"]
-                .as_array()
-                .is_some_and(|properties| {
-                    properties.iter().any(|property| {
-                        property["key"] == "run.target" && property["value"] == "localProject"
-                    })
-                })
-        );
+        assert_eq!(data_sources.items[0]["dataSourceId"], SOURCE_ID);
+        let views = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::Database {
+                            database_id: DATABASE_ID.to_owned(),
+                        },
+                        mode: DatabaseReadMode::ViewDescriptorWindow,
+                        filter: None,
+                        sort: None,
+                        window: Some(Default::default()),
+                        page_ids: None,
+                    },
+                },
+            )
+            .expect("read View descriptor window");
+        let DatabaseReadValue::ViewDescriptorWindow { views } = views.value else {
+            panic!("View descriptor window");
+        };
+        assert_eq!(views.items[0]["isDefault"], true);
 
         let page_row = module
             .read(
@@ -710,18 +849,20 @@ mod tests {
                         target: DatabaseTarget::Page {
                             page_id: "page:database-row".to_owned(),
                         },
-                        mode: DatabaseReadMode::Query,
+                        mode: DatabaseReadMode::RowDetail,
                         filter: None,
                         sort: None,
+                        window: None,
+                        page_ids: None,
                     },
                 },
             )
             .expect("read exact Database Page row");
-        let DatabaseReadValue::DataSourceQuery { value: page_row } = page_row.value else {
+        let DatabaseReadValue::RowDetail { value: page_row } = page_row.value else {
             panic!("Database Page row snapshot");
         };
-        assert_eq!(page_row["rows"][0]["page"]["pageId"], "page:database-row");
-        assert_eq!(page_row["rows"][0]["position"]["order"], 0);
+        assert_eq!(page_row.summary.page_id, "page:database-row");
+        assert_eq!(page_row.summary.position_order, Some(0));
         kernel
             .writer()
             .call(|connection| {
@@ -734,6 +875,11 @@ mod tests {
                     transaction.execute(
                         "UPDATE pages SET lifecycle = 'archived' \
                          WHERE block_id = 'page:database-row'",
+                        [],
+                    )?;
+                    transaction.execute(
+                        "UPDATE page_read_model SET lifecycle = 'archived' \
+                         WHERE page_block_id = 'page:database-row'",
                         [],
                     )?;
                     Ok(())
@@ -749,20 +895,22 @@ mod tests {
                         target: DatabaseTarget::Page {
                             page_id: "page:database-row".to_owned(),
                         },
-                        mode: DatabaseReadMode::Query,
+                        mode: DatabaseReadMode::RowDetail,
                         filter: None,
                         sort: None,
+                        window: None,
+                        page_ids: None,
                     },
                 },
             )
             .expect("read archived Database Page row");
-        let DatabaseReadValue::DataSourceQuery {
+        let DatabaseReadValue::RowDetail {
             value: archived_row,
         } = archived_row.value
         else {
             panic!("archived Database Page row snapshot");
         };
-        assert_eq!(archived_row["rows"][0]["page"]["lifecycle"], "archived");
+        assert_eq!(archived_row.summary.lifecycle, "archived");
         kernel
             .writer()
             .call(|connection| {
@@ -775,6 +923,11 @@ mod tests {
                     transaction.execute(
                         "UPDATE pages SET lifecycle = 'active' \
                          WHERE block_id = 'page:database-row'",
+                        [],
+                    )?;
+                    transaction.execute(
+                        "UPDATE page_read_model SET lifecycle = 'active' \
+                         WHERE page_block_id = 'page:database-row'",
                         [],
                     )?;
                     Ok(())
@@ -929,7 +1082,7 @@ mod tests {
             .expect_err("roll back an invalid Database batch");
         assert_eq!(rollback.code, CoreErrorCode::RevisionConflict);
 
-        let value = module
+        let source = module
             .read(
                 &context(),
                 ModuleReadRequest {
@@ -938,24 +1091,107 @@ mod tests {
                         target: DatabaseTarget::DataSource {
                             data_source_id: SOURCE_ID.to_owned(),
                         },
-                        mode: DatabaseReadMode::Query,
+                        mode: DatabaseReadMode::DataSource,
                         filter: None,
                         sort: None,
+                        window: None,
+                        page_ids: None,
                     },
                 },
             )
-            .expect("read committed Database value");
-        let DatabaseReadValue::DataSourceQuery { value } = value.value else {
-            panic!("Data Source query snapshot");
+            .expect("read committed Data Source schema");
+        let DatabaseReadValue::DataSource { value: source } = source.value else {
+            panic!("Data Source descriptor snapshot");
         };
-        assert_eq!(value["dataSource"]["schemaRevision"], 3);
-        assert_eq!(value["properties"].as_array().map(Vec::len), Some(9));
-        assert_eq!(value["rows"][0]["values"]["risk"]["value"], "high");
-        assert!(value["properties"].as_array().is_some_and(|properties| {
+        assert_eq!(source["dataSource"]["schemaRevision"], 3);
+        let properties = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::DataSource {
+                            data_source_id: SOURCE_ID.to_owned(),
+                        },
+                        mode: DatabaseReadMode::PropertyWindow,
+                        filter: None,
+                        sort: None,
+                        window: Some(Default::default()),
+                        page_ids: None,
+                    },
+                },
+            )
+            .expect("read committed Property window");
+        let DatabaseReadValue::PropertyWindow { properties } = properties.value else {
+            panic!("Property window");
+        };
+        assert_eq!(properties.items.len(), 9);
+        assert!(
             properties
+                .items
                 .iter()
                 .all(|value| value["propertyId"] != "score")
-        }));
+        );
+        let status = properties
+            .items
+            .iter()
+            .find(|value| value["propertyId"] == "status")
+            .expect("status Property");
+        assert_eq!(status["config"]["options"], json!([]));
+        assert!(
+            status["optionCount"]
+                .as_u64()
+                .is_some_and(|count| count > 0)
+        );
+        let options = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::Property {
+                            data_source_id: SOURCE_ID.to_owned(),
+                            property_id: "status".to_owned(),
+                        },
+                        mode: DatabaseReadMode::OptionWindow,
+                        filter: None,
+                        sort: None,
+                        window: Some(CollectionWindowRequest {
+                            after: None,
+                            first: Some(1),
+                        }),
+                        page_ids: None,
+                    },
+                },
+            )
+            .expect("read first Property option window");
+        let DatabaseReadValue::OptionWindow { options } = options.value else {
+            panic!("Property option window");
+        };
+        assert_eq!(options.items.len(), 1);
+        assert!(options.next_cursor.is_some());
+        let row_window = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::View {
+                            view_id: VIEW_ID.to_owned(),
+                        },
+                        mode: DatabaseReadMode::ViewWindow,
+                        filter: None,
+                        sort: None,
+                        window: Some(Default::default()),
+                        page_ids: None,
+                    },
+                },
+            )
+            .expect("read committed Database row window");
+        let DatabaseReadValue::ViewWindow { value: row_window } = row_window.value else {
+            panic!("Database row window snapshot");
+        };
+        assert_eq!(row_window.rows.items[0].page_id, "page:database-row");
 
         const SECOND_VIEW_ID: &str = "018f1000-0000-7000-8000-000000000004";
         let ungrouped_config = json!({
@@ -1063,20 +1299,23 @@ mod tests {
                         target: DatabaseTarget::View {
                             view_id: SECOND_VIEW_ID.to_owned(),
                         },
-                        mode: DatabaseReadMode::Query,
+                        mode: DatabaseReadMode::ViewWindow,
                         filter: None,
                         sort: None,
+                        window: Some(Default::default()),
+                        page_ids: None,
                     },
                 },
             )
             .expect("query regrouped View");
-        let DatabaseReadValue::Query { value: grouped } = grouped.value else {
+        let DatabaseReadValue::ViewWindow { value: grouped } = grouped.value else {
             panic!("View query snapshot");
         };
-        assert_eq!(grouped["view"]["isDefault"], true);
-        assert_eq!(grouped["view"]["revision"], 2);
-        assert_eq!(grouped["rows"][0]["position"]["groupKey"], "high");
-        assert_eq!(grouped["rows"][0]["position"]["revision"], 1);
+        assert_eq!(
+            grouped.rows.items[0].effective_group_key.as_deref(),
+            Some("high")
+        );
+        assert_eq!(grouped.rows.items[0].position_revision, Some(1));
         kernel
             .writer()
             .call(|connection| {
@@ -1128,6 +1367,8 @@ mod tests {
                         mode: DatabaseReadMode::View,
                         filter: None,
                         sort: None,
+                        window: None,
+                        page_ids: None,
                     },
                 },
             )
@@ -1162,23 +1403,25 @@ mod tests {
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
                     read: DatabaseRead {
-                        target: DatabaseTarget::DataSource {
-                            data_source_id: SOURCE_ID.to_owned(),
+                        target: DatabaseTarget::View {
+                            view_id: SECOND_VIEW_ID.to_owned(),
                         },
-                        mode: DatabaseReadMode::Query,
+                        mode: DatabaseReadMode::ViewWindow,
                         filter: None,
                         sort: None,
+                        window: Some(Default::default()),
+                        page_ids: None,
                     },
                 },
             )
             .expect("read source after row transfer");
-        let DatabaseReadValue::DataSourceQuery {
+        let DatabaseReadValue::ViewWindow {
             value: empty_source,
         } = empty_source.value
         else {
             panic!("Data Source query snapshot");
         };
-        assert_eq!(empty_source["rows"].as_array().map(Vec::len), Some(0));
+        assert!(empty_source.rows.items.is_empty());
 
         module
             .apply(
@@ -1204,21 +1447,22 @@ mod tests {
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
                     read: DatabaseRead {
-                        target: DatabaseTarget::DataSource {
-                            data_source_id: SOURCE_ID.to_owned(),
+                        target: DatabaseTarget::View {
+                            view_id: SECOND_VIEW_ID.to_owned(),
                         },
-                        mode: DatabaseReadMode::Query,
+                        mode: DatabaseReadMode::ViewWindow,
                         filter: None,
                         sort: None,
+                        window: Some(Default::default()),
+                        page_ids: None,
                     },
                 },
             )
             .expect("read restored Database row");
-        let DatabaseReadValue::DataSourceQuery { value: returned } = returned.value else {
+        let DatabaseReadValue::ViewWindow { value: returned } = returned.value else {
             panic!("Data Source query snapshot");
         };
-        assert_eq!(returned["rows"][0]["membership"]["revision"], 3);
-        assert_eq!(returned["rows"][0]["values"]["risk"]["value"], "high");
+        assert_eq!(returned.rows.items[0].membership_revision, 3);
         let page_parent_rejection = module
             .apply(
                 &context(),
@@ -1251,6 +1495,8 @@ mod tests {
                         mode: DatabaseReadMode::DataSource,
                         filter: None,
                         sort: None,
+                        window: None,
+                        page_ids: None,
                     },
                 },
             )
@@ -1274,6 +1520,8 @@ mod tests {
                         mode: DatabaseReadMode::DataSource,
                         filter: None,
                         sort: None,
+                        window: None,
+                        page_ids: None,
                     },
                 },
             )

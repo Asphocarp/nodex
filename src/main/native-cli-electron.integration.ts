@@ -159,11 +159,15 @@ describe.skipIf(!packagedCli)("packaged native CLI and Electron authority", () =
       runtime = selected;
       expect(runtime.rootClient.handshake.generation.pid).toBe(coldCorePid);
 
-      const startup = await runtime.rootClient.workspaceRead({ kind: "startup" });
-      if (startup.value.kind !== "startup") {
-        throw new Error("Core did not return a Workspace startup snapshot");
+      const projects = await runtime.rootClient.workspaceRead({
+        kind: "project_window",
+        include_archived: false,
+        window: { first: 50 },
+      });
+      if (projects.value.kind !== "project_window") {
+        throw new Error("Core did not return a Workspace Project window");
       }
-      const project = startup.value.projects[0];
+      const project = projects.value.projects.items[0];
       if (!project) throw new Error("fresh Profile has no default Project");
       const databasePath = path.join(home, "nodex.db");
       const electronFiles = execFileSync(

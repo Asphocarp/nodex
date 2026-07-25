@@ -26,7 +26,12 @@ import {
 import { normalizeSearchText } from "@/lib/search-text";
 import { StatusIcon } from "@/lib/status-chip";
 import type { BoardSummary, Project } from "@/lib/types";
-import { useAllBoards } from "@/lib/use-all-boards";
+import { useProjects } from "@/lib/use-projects";
+import { useBoardsForProjects } from "@/lib/use-project-board-windows";
+import {
+  mergeDestinationSearchResults,
+  useProjectPageDestinationSearch,
+} from "@/lib/use-project-page-destination-search";
 import { cn } from "@/lib/utils";
 import {
   buildNfmMoveToSections,
@@ -57,6 +62,8 @@ export interface NfmMoveToMenuSurfaceProps extends NfmMoveToMenuProps {
   loading: boolean;
   loadError?: string | null;
   initialQuery?: string;
+  loadExpandedBoards?: boolean;
+  enableRemotePageSearch?: boolean;
 }
 
 const MOVE_TO_MENU_LOAD_DELAY_MS = 400;
@@ -315,17 +322,18 @@ export function NfmMoveToMenu({
 }: NfmMoveToMenuProps) {
   const {
     projects,
-    boards,
     loading,
     error,
-  } = useAllBoards();
+  } = useProjects();
 
   return (
     <NfmMoveToMenuSurface
       projects={projects}
-      boardMap={boards}
+      boardMap={new Map()}
       loading={loading}
       loadError={error}
+      loadExpandedBoards
+      enableRemotePageSearch
       sourceProjectId={sourceProjectId}
       sourcePageId={sourcePageId}
       onAccept={onAccept}
@@ -339,12 +347,14 @@ export function NfmMoveToMenu({
 
 export function NfmMoveToMenuSurface({
   projects,
-  boardMap,
+  boardMap: providedBoardMap,
   sourceProjectId,
   sourcePageId,
   loading,
   loadError = null,
   initialQuery = "",
+  loadExpandedBoards = false,
+  enableRemotePageSearch = false,
   resultScope = "all",
   ariaLabel = "Move blocks to",
   placeholder = "Move blocks to…",
@@ -359,6 +369,20 @@ export function NfmMoveToMenuSurface({
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(
     () => getDefaultNfmMoveToExpandedProjectIds(projects, sourceProjectId),
   );
+  const expandedProjects = useMemo(
+    () =>
+      loadExpandedBoards
+        ? projects.filter((project) => expandedProjectIds.has(project.id))
+        : [],
+    [expandedProjectIds, loadExpandedBoards, projects],
+  );
+  const expandedBoards = useBoardsForProjects(expandedProjects);
+  const boardMap = useMemo(() => {
+    if (!loadExpandedBoards) return providedBoardMap;
+    return new Map([...providedBoardMap, ...expandedBoards.boards]);
+  }, [expandedBoards.boards, loadExpandedBoards, providedBoardMap]);
+  const resolvedLoading = loading || expandedBoards.loading;
+  const resolvedLoadError = loadError ?? expandedBoards.error;
   const [acceptingRowId, setAcceptingRowId] = useState<string | null>(null);
   const [acceptError, setAcceptError] = useState<string | null>(null);
   const [showDelayedLoading, setShowDelayedLoading] = useState(false);
@@ -373,7 +397,7 @@ export function NfmMoveToMenuSurface({
   }, [initialQuery]);
 
   useEffect(() => {
-    if (!loading) {
+    if (!resolvedLoading) {
       setShowDelayedLoading(false);
       return;
     }
@@ -385,7 +409,7 @@ export function NfmMoveToMenuSurface({
     return () => {
       window.clearTimeout(timer);
     };
-  }, [loading]);
+  }, [resolvedLoading]);
 
   const searchIndex = useMemo(
     () => createNfmMoveToSearchIndex({
@@ -400,6 +424,17 @@ export function NfmMoveToMenuSurface({
     () => searchIndex.search(deferredQuery),
     [deferredQuery, searchIndex],
   );
+  const remoteSearchResult = useProjectPageDestinationSearch({
+    projects,
+    query: deferredQuery,
+    enabled: enableRemotePageSearch && resultScope !== "db-only",
+    sourceProjectId,
+    sourcePageId,
+  });
+  const resolvedSearchResult = useMemo(
+    () => mergeDestinationSearchResults(searchResult, remoteSearchResult),
+    [remoteSearchResult, searchResult],
+  );
   const sections = useMemo(
     () => buildNfmMoveToSections({
       projects,
@@ -408,7 +443,7 @@ export function NfmMoveToMenuSurface({
       sourcePageId,
       expandedProjectIds,
       query: deferredQuery,
-      searchResult,
+      searchResult: resolvedSearchResult,
       resultScope,
     }),
     [
@@ -417,14 +452,16 @@ export function NfmMoveToMenuSurface({
       expandedProjectIds,
       projects,
       resultScope,
-      searchResult,
+      resolvedSearchResult,
       sourcePageId,
       sourceProjectId,
     ],
   );
   const rows = useMemo(() => flattenNfmMoveToRows(sections), [sections]);
   const buildRowsForQuery = useCallback((nextQuery: string): readonly NfmMoveToRow[] => {
-    const nextSearchResult = searchIndex.search(nextQuery);
+    const nextSearchResult = normalizeSearchText(nextQuery) === resolvedSearchResult.normalizedQuery
+      ? resolvedSearchResult
+      : searchIndex.search(nextQuery);
     const nextSections = buildNfmMoveToSections({
       projects,
       boardMap,
@@ -441,6 +478,7 @@ export function NfmMoveToMenuSurface({
     expandedProjectIds,
     projects,
     resultScope,
+    resolvedSearchResult,
     searchIndex,
     sourcePageId,
     sourceProjectId,
@@ -461,7 +499,7 @@ export function NfmMoveToMenuSurface({
   const activeDescendantId = focusedIndex >= 0 && focusedIndex < rows.length
     ? getMoveToRowDomId(listboxId, focusedIndex)
     : undefined;
-  const displayError = acceptError ?? loadError;
+  const displayError = acceptError ?? resolvedLoadError;
   const visibleRowCount = rows.length;
   const disabled = Boolean(acceptingRowId);
 
@@ -578,7 +616,7 @@ export function NfmMoveToMenuSurface({
         />
       </div>
       <div className="notion-scroller vertical h-[374px] min-h-0 overflow-y-auto pb-3">
-        <div id={listboxId} role="listbox" aria-labelledby={comboboxId} aria-busy={rowsStale || loading}>
+        <div id={listboxId} role="listbox" aria-labelledby={comboboxId} aria-busy={rowsStale || resolvedLoading}>
           {sections.map((section) => {
             const startIndex = rowIndex;
             rowIndex += section.rows.length;
@@ -615,7 +653,7 @@ export function NfmMoveToMenuSurface({
           {displayError ? (
             <MoveToStatusRow>{MOVE_TO_MENU_ERROR}</MoveToStatusRow>
           ) : null}
-          {!loading && !displayError && visibleRowCount === 0 ? (
+          {!resolvedLoading && !displayError && visibleRowCount === 0 ? (
             <MoveToStatusRow>No results</MoveToStatusRow>
           ) : null}
         </div>

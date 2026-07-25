@@ -1,11 +1,12 @@
 import { describe, expect, test } from "vitest";
-import type {
-  DatabaseApplyResultV2,
-  DatabaseApplyV2,
-  DatabaseContainerDescriptorV2,
-  DatabaseModuleReadResultV2,
-  DatabaseModuleReadSnapshotV2,
-  DataSourceDescriptorV2,
+import {
+  DATABASE_MODULE_V2_CONTRACT_VERSION,
+  type DatabaseApplyResultV2,
+  type DatabaseApplyV2,
+  type DatabaseContainerDescriptorV2,
+  type DatabaseModuleReadResultV2,
+  type DatabaseModuleReadSnapshotV2,
+  type DataSourceDescriptorV2,
 } from "../../shared/database-module-v2";
 import {
   parseDatabaseId,
@@ -98,7 +99,7 @@ const snapshot = (
   value: DatabaseModuleReadSnapshotV2["value"],
   changeLogSeq = 4,
 ): DatabaseModuleReadSnapshotV2 => ({
-  version: 2,
+  version: DATABASE_MODULE_V2_CONTRACT_VERSION,
   projectId,
   libraryId,
   storeEpoch: "epoch-1",
@@ -117,7 +118,7 @@ const readResult = (
 const committed = (request: DatabaseApplyV2): DatabaseApplyResultV2 => ({
   ok: true,
   value: {
-    version: 2,
+    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     operationId: request.operationId,
     projectId,
     libraryId,
@@ -139,8 +140,8 @@ const readDependency = (
 ): DatabaseManagementRuntimeDependencies["read"] => async (
   _projectId,
   request,
-) => request.read.mode === "catalog"
-  ? readResult({ kind: "catalog", databases: [descriptor()] }, changeLogSeq)
+) => request.read.mode === "database"
+  ? readResult({ kind: "database", value: descriptor() }, changeLogSeq)
   : readResult({ kind: "data_source", value: source() }, changeLogSeq);
 
 describe("canonical Database management runtime", () => {

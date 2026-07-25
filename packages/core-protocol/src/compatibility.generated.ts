@@ -2,18 +2,18 @@ import type { components } from "./generated";
 
 export const CORE_CLIENT_REQUIREMENTS = {
   "transport": {
-    "min": 3,
-    "max": 3
+    "min": 4,
+    "max": 4
   },
   "event_version": 2,
   "modules": [
     {
       "module": "library",
-      "contract_version": 1
+      "contract_version": 2
     },
     {
       "module": "database",
-      "contract_version": 2
+      "contract_version": 3
     },
     {
       "module": "owned_document",
@@ -21,22 +21,30 @@ export const CORE_CLIENT_REQUIREMENTS = {
     },
     {
       "module": "project_workspace",
-      "contract_version": 4
+      "contract_version": 5
     },
     {
       "module": "automation",
-      "contract_version": 1
+      "contract_version": 2
     },
     {
       "module": "store_administration",
-      "contract_version": 1
+      "contract_version": 2
     }
   ],
   "accepted_store_formats": [
     {
       "lineage": "nodex-rust-core",
-      "version": 90,
-      "schema_fingerprint": "5ed6a9baa72223aae5fae81c92b335f7df976cd6cc676a61d4416a636de362ce"
+      "version": 91,
+      "schema_fingerprint": "c6cc471bbe04b3bcef872a921844561d8caf0e1b9faefaa6c592ca39ad35301d"
     }
   ]
 } as const satisfies components["schemas"]["CoreClientRequirements"];
+
+export const CORE_TRANSPORT_BUDGETS = {
+  "ordinary_json_request_bytes": 2097152,
+  "ordinary_json_response_bytes": 16777216,
+  "event_frame_bytes": 2359296,
+  "document_json_request_bytes": 67108864,
+  "document_response_bytes": 25165832
+} as const satisfies components["schemas"]["CoreTransportBudgets"];

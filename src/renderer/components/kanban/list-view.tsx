@@ -117,7 +117,10 @@ export function ListView({
   const {
     board,
     loading,
+    loadingMore,
+    hasMore,
     error,
+    loadMore,
   } = useKanban({ projectId, databaseViewId });
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const retainedScroll = useRetainedScrollPosition<HTMLDivElement>(scrollStateKey ?? null, {
@@ -466,7 +469,20 @@ export function ListView({
           </tbody>
         </table>
       </div>
-
+      {hasMore ? (
+        <div className="flex justify-center border-t border-(--table-border) py-2">
+          <button
+            type="button"
+            className="rounded-md px-3 py-1.5 text-xs font-medium text-(--foreground-secondary) hover:bg-(--surface-hover) disabled:opacity-50"
+            disabled={loadingMore}
+            onClick={() => {
+              void loadMore();
+            }}
+          >
+            {loadingMore ? "Loading…" : "Show more"}
+          </button>
+        </div>
+      ) : null}
     </>
   );
 }

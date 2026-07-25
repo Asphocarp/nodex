@@ -48,7 +48,16 @@ function OpenRemovedProjectsDialog({
 }: {
   onOpenChange: (open: boolean) => void;
 }) {
-  const { projects, loading, error, retry, restoreProject } = useRemovedProjects(true);
+  const {
+    projects,
+    loading,
+    error,
+    retry,
+    restoreProject,
+    hasMoreProjects,
+    loadingMoreProjects,
+    loadMoreProjects,
+  } = useRemovedProjects(true);
   const [restoringProjectIds, setRestoringProjectIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -84,6 +93,9 @@ function OpenRemovedProjectsDialog({
         loading={loading}
         error={error}
         restoringProjectIds={restoringProjectIds}
+        hasMoreProjects={hasMoreProjects}
+        loadingMoreProjects={loadingMoreProjects}
+        onLoadMoreProjects={() => void loadMoreProjects()}
         onRetry={() => void retry()}
         onRestore={(project) => void restore(project)}
       />
@@ -96,6 +108,9 @@ export function RemovedProjectsDialogView({
   loading,
   error,
   restoringProjectIds,
+  hasMoreProjects = false,
+  loadingMoreProjects = false,
+  onLoadMoreProjects,
   onRetry,
   onRestore,
 }: {
@@ -103,6 +118,9 @@ export function RemovedProjectsDialogView({
   loading: boolean;
   error: string | null;
   restoringProjectIds: ReadonlySet<string>;
+  hasMoreProjects?: boolean;
+  loadingMoreProjects?: boolean;
+  onLoadMoreProjects?: () => void;
   onRetry: () => void;
   onRestore: (project: Project) => void;
 }) {
@@ -151,6 +169,18 @@ export function RemovedProjectsDialogView({
             })}
           </ul>
         )}
+        {!loading && !error && hasMoreProjects ? (
+          <div className="flex justify-center pt-3">
+            <NodexButton
+              size="sm"
+              variant="ghost"
+              disabled={loadingMoreProjects}
+              onClick={onLoadMoreProjects}
+            >
+              {loadingMoreProjects ? "Loading…" : "Show more"}
+            </NodexButton>
+          </div>
+        ) : null}
       </div>
     </NodexDialogContent>
   );

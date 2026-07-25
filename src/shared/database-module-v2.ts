@@ -21,12 +21,10 @@ import type {
   DatabaseJsonValue,
   DatabasePropertyValueType,
   DatabaseViewConfigV2,
-  DatabaseViewFilterNode,
   DatabaseViewKind,
-  DatabaseViewSort,
 } from "./database-kernel";
 
-export const DATABASE_MODULE_V2_CONTRACT_VERSION = 2 as const;
+export const DATABASE_MODULE_V2_CONTRACT_VERSION = 3 as const;
 export const MAX_DATABASE_MODULE_V2_OPERATIONS = 64 as const;
 export const MAX_DATABASE_MODULE_V2_BULK_ENTRIES = 100 as const;
 
@@ -122,7 +120,7 @@ export interface DataSourceQueryResultV2 {
 export type DatabaseReadV2 =
   | {
       readonly target: { readonly kind: "project_default" };
-      readonly mode: "catalog" | "database" | "query";
+      readonly mode: "database";
     }
   | {
       readonly target: {
@@ -140,26 +138,13 @@ export type DatabaseReadV2 =
     }
   | {
       readonly target: {
-        readonly kind: "data_source";
-        readonly dataSourceId: DataSourceId;
-      };
-      readonly mode: "query";
-      readonly filter?: DatabaseViewFilterNode;
-      readonly sort?: readonly DatabaseViewSort[];
-    }
-  | {
-      readonly target: {
         readonly kind: "view";
         readonly viewId: DatabaseViewId;
       };
-      readonly mode: "view" | "query";
+      readonly mode: "view";
     };
 
 export type DatabaseReadValueV2 =
-  | {
-      readonly kind: "catalog";
-      readonly databases: readonly DatabaseContainerDescriptorV2[];
-    }
   | {
       readonly kind: "database";
       readonly value: DatabaseContainerDescriptorV2;

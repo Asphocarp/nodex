@@ -34,7 +34,7 @@ import {
   NodexDropdownSurface,
 } from "@/components/ui/dropdown";
 import { NodexTooltip } from "@/components/ui/tooltip";
-import { useAllBoards } from "@/lib/use-all-boards";
+import { useProjects } from "@/lib/use-projects";
 import type { Project } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import type {
@@ -43,7 +43,6 @@ import type {
 } from "@/lib/command-palette";
 import {
   buildCommandPalettePageDescriptionSearchScopeKey,
-  buildCommandPalettePageItemsFromBoardSummaries,
   searchCommandPalettePageDescriptions,
   selectCommandPalettePageResults,
   type CommandPalettePageDescriptionSearchBatch,
@@ -1218,18 +1217,8 @@ function MentionMenu({
   allowPageReferences: boolean;
 }) {
   const editor = useBlockNoteEditor();
-  const { boards, projects } = useAllBoards();
-  const pageItems = useMemo(
-    () =>
-      allowPageReferences
-        ? buildCommandPalettePageItemsFromBoardSummaries({
-            projects,
-            boardMap: boards,
-            activeProjectId: projectId,
-          })
-        : [],
-    [allowPageReferences, boards, projectId, projects],
-  );
+  const { projects } = useProjects();
+  const pageItems = useMemo<CommandPalettePage[]>(() => [], []);
   const pageSearchIndex = useCommandPalettePageSearchIndex(pageItems);
   const projectIdsForPageSearch = useMemo(
     () => (allowPageReferences ? projects.map((project) => project.id) : []),

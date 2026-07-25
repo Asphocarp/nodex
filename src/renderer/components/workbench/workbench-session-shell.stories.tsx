@@ -814,9 +814,9 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
         onCreateProject={async () => null}
         onUpdateProject={async () => null}
         onArchiveProject={async () => ({ kind: "not-found" })}
-        onReorderProjects={async () => args.workspace === "projectless-only" ? [] : PROJECTS}
+        onReorderProjects={async () => undefined}
         onSetProjectPinned={async () => null}
-        onSetPinnedProjectOrder={async () => args.workspace === "projectless-only" ? [] : PROJECTS}
+        onSetPinnedProjectOrder={async () => undefined}
         onRequestProjectPickerOpen={() => undefined}
         threadSearchOpenTick={0}
       />
@@ -959,8 +959,89 @@ function installStoryApi(
           const scopeKey = args[0] === null ? "__projectless__" : String(args[0]);
           return sessionsByProject[scopeKey] ?? [];
         }
-        if (channel === "board:summary:get") {
-          return STORY_BOARD;
+        if (channel === "database:view-window:get") {
+          const projectId = String(args[0] ?? "nodex");
+          const viewId = `database-view:${projectId}:primary-kanban`;
+          const databaseId = `database:${projectId}:primary`;
+          const dataSourceId = `${databaseId}:data-source:initial`;
+          return {
+            projectId,
+            libraryId: "library:test",
+            databaseId,
+            dataSourceId,
+            viewId,
+            storeEpoch: "epoch:story",
+            changeLogSeq: 1,
+            projectionRevision: 1,
+            nextCursor: null,
+            rows: STORY_BOARD.columns.flatMap((column) =>
+              column.cards.map((page, index) => ({
+                page,
+                groupKey: column.id,
+                rankKey: String(index).padStart(8, "0"),
+              }))
+            ),
+            board: STORY_BOARD,
+            view: {
+              id: viewId,
+              databaseBlockId: databaseId,
+              projectId,
+              name: "Tasks",
+              kind: "kanban",
+              config: {},
+              isPrimary: true,
+              createdAt: CREATED_AT,
+              updatedAt: CREATED_AT,
+            },
+            query: {
+              database: {
+                databaseId,
+                libraryId: "library:test",
+                name: "Tasks",
+                lifecycle: "active",
+                defaultViewId: viewId,
+                accessRevision: 1,
+                metadataRevision: 1,
+                createdAt: CREATED_AT,
+                updatedAt: CREATED_AT,
+              },
+              dataSource: {
+                dataSourceId,
+                libraryId: "library:test",
+                homeDatabaseId: databaseId,
+                name: "Pages",
+                schemaKey: "nodex.page",
+                schemaRevision: 1,
+                lifecycle: "active",
+                rankKey: "a",
+                createdAt: CREATED_AT,
+                updatedAt: CREATED_AT,
+              },
+              view: {
+                viewId,
+                databaseId,
+                dataSourceId,
+                name: "Tasks",
+                kind: "kanban",
+                config: {
+                  schemaKey: "nodex.database-view",
+                  schemaVersion: 2,
+                  filter: { kind: "group", operator: "and", children: [] },
+                  sort: [],
+                  group: null,
+                  display: { propertyIds: [], showTitle: true },
+                },
+                isDefault: true,
+                revision: 1,
+                rankKey: "a",
+                lifecycle: "active",
+                createdAt: CREATED_AT,
+                updatedAt: CREATED_AT,
+              },
+              properties: [],
+              rows: [],
+            },
+          };
         }
         if (channel === "library-module:read") {
           const read = (args[0] as LibraryModuleReadRequest).read;
@@ -1009,14 +1090,6 @@ function installStoryApi(
             projectId,
             buildStoryCardDetail(projectId, pageId),
           );
-        }
-        if (channel === "database-rows:details:get") {
-          const projectId = String(args[0] ?? "nodex");
-          const input = (args[1] ?? {}) as { pageIds?: string[] };
-          return (input.pageIds ?? []).flatMap((pageId) => {
-            const card = buildStoryCardDetail(projectId, pageId);
-            return card ? [card] : [];
-          });
         }
         if (channel === "project-session-threads:attach" || channel === "project-session-threads:detach") {
           return true;

@@ -7,6 +7,7 @@ use nodex_core_contracts::administration::{
     BackupTrigger, MaintenanceTask, SchemaOwner, StoreAdministrationIntent,
     StoreAdministrationRead, StoreAdministrationReadValue, StoreIntegrity, StoreReadiness,
 };
+use nodex_core_contracts::collection::CollectionWindowRequest;
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CoreErrorCode, LibraryId, ModuleApplyRequest,
     ModuleReadRequest, ProfileId, STORE_ADMINISTRATION_CONTRACT_VERSION, StoreEpoch,
@@ -22,6 +23,15 @@ use super::StoreAdministrationModule;
 const PROFILE_ID: &str = "profile:administration-test";
 const LIBRARY_ID: &str = "library:administration-test";
 const STORE_EPOCH: &str = "epoch:administration-test";
+
+fn backups_read() -> StoreAdministrationRead {
+    StoreAdministrationRead::Backups {
+        window: CollectionWindowRequest {
+            after: None,
+            first: Some(200),
+        },
+    }
+}
 
 struct Fixture {
     _home: TempDir,
@@ -277,20 +287,18 @@ fn reports_rust_readiness_and_publishes_a_valid_exact_retry_backup() {
     assert!(second.event.is_none());
 
     fs::create_dir(fixture.home().join("backups/not-a-backup")).expect("invalid backup dir");
-    let StoreAdministrationReadValue::Backups { items } =
-        fixture.read(StoreAdministrationRead::Backups)
-    else {
+    let StoreAdministrationReadValue::Backups { backups } = fixture.read(backups_read()) else {
         panic!("backup list")
     };
-    assert_eq!(items.len(), 1);
-    assert_eq!(items[0].backup_id, backup_id);
-    assert_eq!(items[0].version, 2);
-    assert_eq!(items[0].trigger, BackupTrigger::Manual);
-    assert_eq!(items[0].label.as_deref(), Some("before refactor"));
-    assert!(items[0].includes_assets);
-    assert!(items[0].db_bytes > 0);
-    assert_eq!(items[0].assets_bytes, b"managed asset".len() as u64);
-    assert_eq!(items[0].total_bytes, items[0].byte_length);
+    assert_eq!(backups.items.len(), 1);
+    assert_eq!(backups.items[0].backup_id, backup_id);
+    assert_eq!(backups.items[0].version, 2);
+    assert_eq!(backups.items[0].trigger, BackupTrigger::Manual);
+    assert_eq!(backups.items[0].label.as_deref(), Some("before refactor"));
+    assert!(backups.items[0].includes_assets);
+    assert!(backups.items[0].db_bytes > 0);
+    assert_eq!(backups.items[0].assets_bytes, b"managed asset".len() as u64);
+    assert_eq!(backups.items[0].total_bytes, backups.items[0].byte_length);
 
     assert_eq!(
         fixture.read(StoreAdministrationRead::Status),
@@ -908,12 +916,10 @@ fn deletes_one_backup_with_exact_replay_and_rejects_later_restore() {
         Some([backup_id.clone()].as_slice())
     );
     assert!(!fixture.home().join("backups").join(&backup_id).exists());
-    let StoreAdministrationReadValue::Backups { items } =
-        fixture.read(StoreAdministrationRead::Backups)
-    else {
+    let StoreAdministrationReadValue::Backups { backups } = fixture.read(backups_read()) else {
         panic!("backup list")
     };
-    assert!(items.is_empty());
+    assert!(backups.items.is_empty());
 
     let retry = fixture.delete_backup("administration:delete-backup:1", &backup_id);
     assert!(retry.committed.receipt.mutation.duplicate);
@@ -975,12 +981,10 @@ fn exact_delete_retry_finishes_physical_cleanup_after_receipt_commit() {
         })
         .expect("durable delete receipt");
     assert!(fixture.home().join("backups").join(&backup_id).exists());
-    let StoreAdministrationReadValue::Backups { items } =
-        fixture.read(StoreAdministrationRead::Backups)
-    else {
+    let StoreAdministrationReadValue::Backups { backups } = fixture.read(backups_read()) else {
         panic!("backup list")
     };
-    assert!(items.is_empty());
+    assert!(backups.items.is_empty());
 
     let retry = fixture.delete_backup(operation_id, &backup_id);
     assert!(retry.committed.receipt.mutation.duplicate);
@@ -1039,15 +1043,14 @@ fn prunes_only_automatic_backups_beyond_the_retention_count() {
     for backup_id in &expected_removed {
         assert!(!fixture.home().join("backups").join(backup_id).exists());
     }
-    let StoreAdministrationReadValue::Backups { items } =
-        fixture.read(StoreAdministrationRead::Backups)
-    else {
+    let StoreAdministrationReadValue::Backups { backups } = fixture.read(backups_read()) else {
         panic!("backup list")
     };
-    assert_eq!(items.len(), 2);
-    assert!(items.iter().any(|item| item.backup_id == manual_id));
+    assert_eq!(backups.items.len(), 2);
+    assert!(backups.items.iter().any(|item| item.backup_id == manual_id));
     assert!(
-        items
+        backups
+            .items
             .iter()
             .any(|item| item.backup_id == retained_automatic)
     );

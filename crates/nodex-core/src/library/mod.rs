@@ -840,7 +840,9 @@ mod tests {
         ProjectWorkspaceTurnAuthority, ProjectWorkspaceTurnAuthorityScope,
         ProjectWorkspaceTurnAuthoritySource,
     };
-    use nodex_core_contracts::{AdapterKind, LibraryId, ProfileId, ProjectId};
+    use nodex_core_contracts::{
+        AdapterKind, LibraryId, OWNED_DOCUMENT_CONTRACT_VERSION, ProfileId, ProjectId,
+    };
     use rusqlite::params;
     use sha2::{Digest, Sha256};
     use tempfile::tempdir;
@@ -2012,7 +2014,7 @@ mod tests {
                 .apply(
                     &persistent_context,
                     ModuleApplyRequest {
-                        contract_version: LIBRARY_CONTRACT_VERSION,
+                        contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                         operation_id: operation_id.to_owned(),
                         store_epoch: StoreEpoch("epoch-1".to_owned()),
                         intent: OwnedDocumentIntent::PrepareOwner {
@@ -2168,6 +2170,7 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].project_id, "project-1");
         assert_eq!(items[0].page_id, ROW_PAGE);
+        assert_eq!(items[0].title, "Say hi");
         assert_eq!(items[0].status, LibraryPageWorkflowStatus::Triage);
         assert_eq!(items[0].score, 1_000_000);
         let project_search_error = module
@@ -3485,7 +3488,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "shape-promote-source".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: OwnedDocumentIntent::ApplyOperationBatch {
@@ -3524,7 +3527,7 @@ mod tests {
             .apply(
                 &context,
                 ModuleApplyRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "shape-wrapper-source".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: OwnedDocumentIntent::ApplyOperationBatch {

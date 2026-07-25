@@ -14,11 +14,11 @@ import type {
 } from "../../shared/database-module-v2";
 import {
   DatabasePageProjectionError,
-  projectBoardSummary,
-  projectDatabaseColumn,
+  projectCoreDatabaseRowSummary,
   projectDatabasePage,
   projectDatabaseViewReference,
 } from "./database-page-projection";
+import type { CoreDatabaseRowSummary } from "./types";
 
 const dataSourceId = parseDataSourceId("source:test");
 const databaseId = parseDatabaseId("database:test");
@@ -205,6 +205,53 @@ const makeQuery = (
 });
 
 describe("native Database Page projections", () => {
+  test("uses canonical defaults when optional card Properties have no stored value", () => {
+    const row: CoreDatabaseRowSummary = {
+      page_id: "page:defaults",
+      lifecycle: "active",
+      title: "Defaults",
+      rich_title: plainTextToPortableRichText("Defaults"),
+      description_preview: "",
+      description_length: 0,
+      has_description: false,
+      database_values: { status: "triage" },
+      intrinsic_properties: {
+        "run.target": "localProject",
+        "run.localPath": null,
+        "run.baseBranch": null,
+        "run.worktreePath": null,
+        "run.environmentPath": null,
+        "schedule.isAllDay": false,
+        "schedule.timezone": null,
+        "recurrence.config": null,
+        "reminders.config": [],
+      },
+      database_value_revisions: {},
+      metadata_revision: 1,
+      parent_revision: 1,
+      document_id: "document:defaults",
+      document_generation: 1,
+      document_head_seq: 1,
+      membership_id: "membership:defaults",
+      membership_revision: 1,
+      membership_created_at: "2026-07-25T00:00:00.000Z",
+      created_at: "2026-07-25T00:00:00.000Z",
+      updated_at: "2026-07-25T00:00:00.000Z",
+    };
+
+    expect(projectCoreDatabaseRowSummary(row)).toMatchObject({
+      id: "page:defaults",
+      status: "triage",
+      tags: [],
+      priority: undefined,
+      estimate: undefined,
+      dueDate: undefined,
+      scheduledStart: undefined,
+      scheduledEnd: undefined,
+      assignee: undefined,
+    });
+  });
+
   test("builds the complete compatibility Page from one native query row", () => {
     const page = projectDatabasePage(makeRow("page:one"), properties, 3);
 
@@ -258,48 +305,6 @@ describe("native Database Page projections", () => {
 
     expect(() => projectDatabasePage({ ...row, intrinsicProperties }, properties))
       .toThrow("invalid relational metadata");
-  });
-
-  test("builds canonical Board columns and stable per-column row order", () => {
-    const board = projectBoardSummary(makeQuery([
-      makeRow("page:build-a"),
-      makeRow("page:triage", "triage"),
-      makeRow("page:build-b"),
-    ]));
-
-    expect(board.columns.map((column) => column.id)).toEqual([
-      "triage",
-      "plan",
-      "build",
-      "review",
-      "ship",
-    ]);
-    expect(board.columns.find((column) => column.id === "build")?.cards.map(
-      (card) => [card.id, card.order],
-    )).toEqual([
-      ["page:build-a", 0],
-      ["page:build-b", 1],
-    ]);
-    expect(board.columns.find((column) => column.id === "triage")?.cards[0])
-      .toMatchObject({
-        id: "page:triage",
-        order: 0,
-        hasDescription: true,
-      });
-  });
-
-  test("projects one full workflow column from the same query snapshot", () => {
-    const column = projectDatabaseColumn(makeQuery([
-      makeRow("page:build-a"),
-      makeRow("page:triage", "triage"),
-      makeRow("page:build-b"),
-    ]), "build");
-
-    expect(column).toMatchObject({ id: "build", name: "Build" });
-    expect(column.cards.map((card) => [card.id, card.order])).toEqual([
-      ["page:build-a", 0],
-      ["page:build-b", 1],
-    ]);
   });
 
   test("projects View identity and excludes an inline host without another read", () => {

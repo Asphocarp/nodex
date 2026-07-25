@@ -1,7 +1,4 @@
 use nodex_core_contracts::BoundModuleContext;
-use nodex_core_contracts::database::{
-    DatabaseRead, DatabaseReadMode, DatabaseReadValue, DatabaseTarget,
-};
 use nodex_core_contracts::library::{
     LibraryPageLifecycleAuthority, LibraryPageLifecycleDocument, LibraryPageLifecycleMembership,
     LibraryPageLifecycleParent, LibraryPageLifecyclePosition, LibraryPageLifecyclePreflight,
@@ -48,20 +45,18 @@ pub(super) fn read_preflight(
         .as_ref()
         .map(|project_id| project_id.0.as_str())
         .ok_or_else(|| unauthorized("Page lifecycle preflight requires a bound Project"))?;
-    let default_view = match database::read::read(
-        connection,
-        library_id,
-        context,
-        DatabaseRead {
-            target: DatabaseTarget::ProjectDefault,
-            mode: DatabaseReadMode::Query,
-            filter: None,
-            sort: None,
-        },
-    )? {
-        DatabaseReadValue::Query { value } => value,
-        _ => return Err(corrupt("Project default Database query is incomplete")),
-    };
+    let default_database_id =
+        database::authorization::project_primary_database(connection, library_id, project_id)?
+            .ok_or_else(|| corrupt("Project default Database is unavailable"))?;
+    let default_view_id = connection
+        .query_row(
+            "SELECT default_view_id FROM database_containers WHERE block_id = ?1",
+            [&default_database_id],
+            |row| row.get::<_, Option<String>>(0),
+        )?
+        .ok_or_else(|| corrupt("Project default Database has no default View"))?;
+    let default_view =
+        database::read::view_descriptor_query(connection, library_id, &default_view_id)?;
     let tags_property = read_tags_property(&default_view)?;
     let Some(row) = read_page_authority(connection, page_id)? else {
         return Ok(LibraryPageLifecyclePreflight {

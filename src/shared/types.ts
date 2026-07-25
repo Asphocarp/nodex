@@ -350,10 +350,6 @@ export type PageUpdateResult =
       status: "not_found";
     };
 
-export interface DatabaseRowsDetailsInput {
-  pageIds: string[];
-}
-
 export interface PageSearchInput {
   /** Project access contexts whose effective grants define the search scope. */
   projectIds: string[];
@@ -365,6 +361,7 @@ export interface PageSearchResult {
   /** Project access context that authorized this result. */
   projectId: string;
   pageId: string;
+  title: string;
   status: WorkflowStatus;
   score: number;
   excerpt: string;
@@ -469,6 +466,18 @@ export interface ProjectLifecycleInput {
 
 export interface ProjectListOptions {
   includeArchived?: boolean;
+}
+
+export interface ProjectWindowInput extends ProjectListOptions {
+  after?: string | null;
+  first?: number;
+}
+
+export interface ProjectWindow {
+  items: Project[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  projectionRevision: number;
 }
 
 export type ProjectArchiveBlocker =
@@ -793,6 +802,11 @@ export interface ProjectSessionThreadLink {
   threadId: string;
   forkedFromId?: string | null;
   parentThreadId?: string;
+  threadSource?: CodexThreadSummary["threadSource"];
+  serviceName?: string | null;
+  agentNickname?: string | null;
+  agentRole?: string | null;
+  agentPath?: string | null;
   threadName?: string;
   threadPreview: string;
   modelProvider: string;
@@ -801,6 +815,28 @@ export interface ProjectSessionThreadLink {
   managedWorktreePath?: string | null;
   projectlessOutputDirectory?: string | null;
   projectlessWorkspaceBrowserRoot?: string | null;
+  statusType: CodexThreadStatusType;
+  statusActiveFlags: CodexThreadActiveFlag[];
+  archived: boolean;
+  createdAt: number;
+  updatedAt: number;
+  linkedAt: string;
+}
+
+export interface ProjectSessionThreadSummary {
+  sessionId: string;
+  projectId: string | null;
+  threadId: string;
+  forkedFromId?: string | null;
+  parentThreadId?: string;
+  threadSource?: CodexThreadSummary["threadSource"];
+  serviceName?: string | null;
+  agentNickname?: string | null;
+  agentRole?: string | null;
+  agentPath?: string | null;
+  threadName?: string;
+  threadPreview: string;
+  cwd?: string;
   statusType: CodexThreadStatusType;
   statusActiveFlags: CodexThreadActiveFlag[];
   archived: boolean;
@@ -826,7 +862,22 @@ export interface ProjectSession {
   updatedAt: string;
 }
 
-export type ProjectSessionSummary = ProjectSession;
+export interface ProjectSessionSummary {
+  id: string;
+  projectId: string | null;
+  initialDatabaseViewId: string | null;
+  noThreadFallbackTitle: string;
+  displayTitle: string;
+  order: number;
+  pinned: boolean;
+  pinnedOrder: number | null;
+  archived: boolean;
+  archivedAt: string | null;
+  unread: boolean;
+  thread: ProjectSessionThreadSummary | null;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface ProjectSessionCreateInput {
   projectId: string | null;
@@ -835,6 +886,32 @@ export interface ProjectSessionCreateInput {
 
 export interface ProjectSessionListOptions {
   includeArchived?: boolean;
+}
+
+export interface ProjectSessionSummaryWindowInput
+  extends ProjectSessionListOptions {
+  after?: string | null;
+  first?: number;
+}
+
+export interface ProjectSessionSummaryWindow {
+  items: ProjectSessionSummary[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  projectionRevision: number;
+}
+
+export interface CodexThreadSummaryWindowInput {
+  includeArchived?: boolean;
+  after?: string | null;
+  first?: number;
+}
+
+export interface CodexThreadSummaryWindow {
+  items: CodexThreadSummary[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  projectionRevision: number;
 }
 
 export interface ProjectSessionUpdateInput {

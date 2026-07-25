@@ -110,7 +110,7 @@ pub(super) fn read(
         include_archived,
         &authorization.provenance.authority.actor_project_id,
     )?;
-    let offset = cursor_offset(
+    let after = search_cursor_identity(
         connection,
         requested_cursor,
         library_id,
@@ -161,20 +161,33 @@ pub(super) fn read(
             include_archived,
         )?,
     };
-    if offset > items.len() {
-        return Err(conflict(
-            "Agent search cursor is beyond the current result set",
-        ));
-    }
-    let has_more = offset.saturating_add(limit) < items.len();
-    let end = offset.saturating_add(limit).min(items.len());
-    let page = items.drain(offset..end).collect::<Vec<_>>();
+    let start = after
+        .as_deref()
+        .map(|after| {
+            items
+                .iter()
+                .position(|item| search_result_id(item) == after)
+                .map(|index| index + 1)
+                .ok_or_else(|| conflict("Agent search cursor coordinate is no longer available"))
+        })
+        .transpose()?
+        .unwrap_or(0);
+    let end = start.saturating_add(limit).min(items.len());
+    let has_more = end < items.len();
+    let page = items.drain(start..end).collect::<Vec<_>>();
     let next_cursor = if has_more {
+        let stable_id = page
+            .last()
+            .map(search_result_id)
+            .ok_or_else(|| corrupt("Agent search continuation has no result"))?;
         Some(cursor::mint(
             connection,
             library_id,
             &subject,
-            offset + page.len(),
+            cursor::KeysetCoordinate {
+                values: Vec::new(),
+                stable_id: stable_id.to_owned(),
+            },
             event_head,
         )?)
     } else {
@@ -1000,23 +1013,35 @@ fn search_subject(
     Ok(vec!["agent_search".to_owned(), fingerprint])
 }
 
-fn cursor_offset(
+fn search_cursor_identity(
     connection: &Connection,
     requested_cursor: Option<&str>,
     library_id: &str,
     subject: &[String],
     event_head: i64,
-) -> Result<usize, StoreError> {
+) -> Result<Option<String>, StoreError> {
     let Some(requested_cursor) = requested_cursor else {
-        return Ok(0);
+        return Ok(None);
     };
-    let decoded = cursor::decode(connection, requested_cursor, library_id, subject)?;
-    if decoded.change_log_seq != event_head {
-        return Err(conflict(
-            "Library content changed while Agent search results were being paged",
-        ));
+    let decoded = cursor::decode(
+        connection,
+        requested_cursor,
+        library_id,
+        subject,
+        event_head,
+    )?;
+    if !decoded.values.is_empty() {
+        return Err(invalid("Agent search cursor coordinate is invalid"));
     }
-    Ok(decoded.offset)
+    Ok(Some(decoded.stable_id))
+}
+
+fn search_result_id(result: &LibraryAgentSearchResult) -> &str {
+    match result {
+        LibraryAgentSearchResult::Page { id, .. } | LibraryAgentSearchResult::Block { id, .. } => {
+            id
+        }
+    }
 }
 
 fn search_limit(limit: Option<u32>) -> Result<usize, StoreError> {

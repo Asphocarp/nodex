@@ -83,6 +83,7 @@ function makeDescriptionResult(overrides: Partial<PageSearchResult> = {}): PageS
   return {
     projectId: overrides.projectId ?? "default",
     pageId: overrides.pageId ?? "page-1",
+    title: overrides.title ?? "Page One",
     status: overrides.status ?? "build",
     score: overrides.score ?? -1,
     excerpt: overrides.excerpt ?? "Server excerpt",

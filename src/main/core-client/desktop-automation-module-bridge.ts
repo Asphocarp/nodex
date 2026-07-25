@@ -32,22 +32,22 @@ import type {
 type CoreAutomationDefinition = Extract<
   AutomationReadSnapshot["value"],
   { readonly kind: "definitions" }
->["items"][number];
+>["window"]["items"][number];
 
 type CoreAutomationRun = Extract<
   AutomationReadSnapshot["value"],
   { readonly kind: "runs" }
->["items"][number];
+>["window"]["items"][number];
 
 type CoreAutomationInboxItem = Extract<
   AutomationReadSnapshot["value"],
   { readonly kind: "inbox" }
->["items"][number];
+>["window"]["items"][number];
 
 type CoreScheduledPageOccurrence = Extract<
   AutomationReadSnapshot["value"],
   { readonly kind: "occurrences" }
->["items"][number];
+>["window"]["items"][number];
 
 type CoreAutomationIntent = Parameters<
   CoreClientPort["automationApply"]
@@ -97,6 +97,11 @@ export interface DesktopReminderClaim {
 export interface DesktopPageOccurrenceMutationResult {
   readonly success: boolean;
   readonly error?: string;
+}
+
+export interface DesktopPageOccurrenceWindow {
+  readonly items: readonly PageOccurrence[];
+  readonly nextCursor: string | null;
 }
 
 export interface DesktopAutomationModulePort {
@@ -171,7 +176,8 @@ export interface DesktopAutomationModulePort {
     windowStart: Date,
     windowEnd: Date,
     searchQuery?: string,
-  ): Promise<PageOccurrence[]>;
+    after?: string | null,
+  ): Promise<DesktopPageOccurrenceWindow>;
   completePageOccurrence(
     projectId: string,
     input: PageOccurrenceCompleteInput,
@@ -487,17 +493,20 @@ const slugifyAutomationName = (name: string): string =>
     .replace(/^-+/, "")
     .replace(/-+$/, "");
 
-const createAutomationId = (
+const createAutomationId = async (
   name: string,
-  existingIds: ReadonlySet<string>,
-): string => {
+  isAvailable: (candidate: string) => Promise<boolean>,
+): Promise<string> => {
   const base = slugifyAutomationName(name) || "automation";
-  if (!existingIds.has(base)) return base;
-  for (let suffix = 2; suffix <= 20; suffix += 1) {
-    const candidate = `${base}-${suffix}`;
-    if (!existingIds.has(candidate)) return candidate;
+  for (let suffix = 1; suffix <= 20; suffix += 1) {
+    const candidate = suffix === 1 ? base : `${base}-${suffix}`;
+    if (await isAvailable(candidate)) return candidate;
   }
-  return `${base}-${randomUUID().slice(0, 8)}`;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const candidate = `${base}-${randomUUID().slice(0, 8)}`;
+    if (await isAvailable(candidate)) return candidate;
+  }
+  throw new Error("Unable to allocate a unique Scheduled Automation id");
 };
 
 const requireDefinition = (
@@ -586,37 +595,34 @@ const createCoreAutomationPort = (
       ? { success: true }
       : { success: false, error: result.error ?? "Occurrence update failed" };
   };
+  const readActiveDefinitions = async (): Promise<CoreAutomationDefinition[]> => {
+    const snapshot = await client.automationRead({
+      kind: "definitions",
+      include_deleted: false,
+      window: { after: null, first: 200 },
+    });
+    if (snapshot.value.kind !== "definitions") {
+      throw new Error("Core returned a non-Definitions Automation read");
+    }
+    if (snapshot.value.window.next_cursor) {
+      throw new Error(
+        "Active Scheduled Automation collection exceeded its fixed Core bound",
+      );
+    }
+    return [...snapshot.value.window.items];
+  };
 
   return {
-    listDefinitions: async () => {
-      const snapshot = await client.automationRead({
-        kind: "definitions",
-        include_deleted: false,
-      });
-      if (snapshot.value.kind !== "definitions") {
-        throw new Error("Core returned a non-Definitions Automation read");
-      }
-      return snapshot.value.items.map(mapDefinition);
-    },
+    listDefinitions: async () =>
+      (await readActiveDefinitions()).map(mapDefinition),
     getDefinition: async (id) => {
       const item = await readDefinition(id);
       return item ? mapDefinition(item) : null;
     },
     createDefinition: async (input) => {
-      const definitions = await client.automationRead({
-        kind: "definitions",
-        include_deleted: true,
-      });
-      if (definitions.value.kind !== "definitions") {
-        throw new Error("Core returned a non-Definitions Automation read");
-      }
-      const automationId = createAutomationId(
+      const automationId = await createAutomationId(
         input.name,
-        new Set(
-          definitions.value.items.map((definition) =>
-            definition.automation_id
-          ),
-        ),
+        async (candidate) => (await readDefinition(candidate)) === null,
       );
       const committed = await client.automationApply({
         operationId: operationId(`create:${automationId}`),
@@ -852,21 +858,45 @@ const createCoreAutomationPort = (
         expected_revision: run.run_revision,
       }))) !== null,
     readInbox: async (limit) => {
-      const snapshot = await client.automationRead({
-        kind: "inbox",
-        limit: limit ?? null,
-      });
-      if (snapshot.value.kind !== "inbox") {
-        throw new Error("Core returned a non-Inbox Automation read");
+      const requested = limit ?? 200;
+      if (!Number.isInteger(requested) || requested < 1 || requested > 1_000) {
+        throw new Error("Automation inbox limit must be between 1 and 1000");
       }
+      const items: CoreAutomationInboxItem[] = [];
+      let after: string | null = null;
+      let unreadTotal = 0;
+      do {
+        const snapshot = await client.automationRead({
+          kind: "inbox",
+          window: {
+            after,
+            first: Math.min(200, requested - items.length),
+          },
+        });
+        if (snapshot.value.kind !== "inbox") {
+          throw new Error("Core returned a non-Inbox Automation read");
+        }
+        items.push(...snapshot.value.window.items);
+        unreadTotal = snapshot.value.unread_counts.total;
+        after = items.length < requested
+          ? snapshot.value.window.next_cursor ?? null
+          : null;
+      } while (after !== null);
+      const mappedItems = items.map(mapInboxItem);
+      const unreadItems = mappedItems.filter((item) =>
+        item.readAt === null &&
+        (item.status === "PENDING_REVIEW" || item.status === "ACCEPTED")
+      );
       return {
-        items: snapshot.value.items.map(mapInboxItem),
+        items: mappedItems,
         unreadRunCounts: {
-          total: snapshot.value.unread_counts.total,
-          automationIds: [...snapshot.value.unread_counts.automation_ids],
-          unreadRuns: snapshot.value.unread_counts.unread_runs.map((run) => ({
-            automationId: run.automation_id,
-            threadId: run.thread_id,
+          total: unreadTotal,
+          automationIds: [...new Set(unreadItems.map((item) =>
+            item.automationId
+          ))],
+          unreadRuns: unreadItems.map((item) => ({
+            automationId: item.automationId,
+            threadId: item.threadId,
           })),
         },
       };
@@ -881,12 +911,12 @@ const createCoreAutomationPort = (
       if (!run) return null;
       const inbox = await client.automationRead({
         kind: "inbox",
-        limit: 200,
+        window: { after: null, first: 200 },
       });
       if (inbox.value.kind !== "inbox") {
         throw new Error("Core returned a non-Inbox Automation read");
       }
-      const item = inbox.value.items.find((candidate) =>
+      const item = inbox.value.window.items.find((candidate) =>
         candidate.thread_id === input.threadId
       );
       return item ? mapInboxItem(item) : null;
@@ -903,6 +933,7 @@ const createCoreAutomationPort = (
       windowStart,
       windowEnd,
       searchQuery,
+      after,
     ) => {
       const windowStartMs = finiteDateMilliseconds(windowStart, "window start");
       const windowEndMs = finiteDateMilliseconds(windowEnd, "window end");
@@ -911,12 +942,15 @@ const createCoreAutomationPort = (
         window_start_ms: windowStartMs,
         window_end_ms: windowEndMs,
         search_query: searchQuery?.trim() || null,
-        limit: 20_000,
+        window: { after: after ?? null, first: 200 },
       });
       if (snapshot.value.kind !== "occurrences") {
         throw new Error("Core returned a non-Occurrence Automation read");
       }
-      return snapshot.value.items.map(mapOccurrence);
+      return {
+        items: snapshot.value.window.items.map(mapOccurrence),
+        nextCursor: snapshot.value.window.next_cursor ?? null,
+      };
     },
     completePageOccurrence: async (projectId, input) =>
       await applyPageOccurrence(projectId, input.operationId, {
@@ -1071,11 +1105,13 @@ export const createDesktopAutomationModuleBridge = (
       windowStart,
       windowEnd,
       searchQuery,
+      after,
     ) => (await port()).listPageOccurrences(
       projectId,
       windowStart,
       windowEnd,
       searchQuery,
+      after,
     ),
     completePageOccurrence: async (projectId, occurrenceInput, sessionId) =>
       (await port()).completePageOccurrence(

@@ -5,9 +5,10 @@ use serde_json::Value;
 use utoipa::ToSchema;
 
 use crate::agent::AgentExecutionAuthorization;
+use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const DATABASE_CONTRACT_VERSION: u32 = 2;
+pub const DATABASE_CONTRACT_VERSION: u32 = 3;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -18,6 +19,10 @@ pub enum DatabaseTarget {
     },
     DataSource {
         data_source_id: String,
+    },
+    Property {
+        data_source_id: String,
+        property_id: String,
     },
     View {
         view_id: String,
@@ -38,11 +43,18 @@ pub enum DatabaseTarget {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DatabaseReadMode {
-    Catalog,
+    CatalogWindow,
     Database,
+    DataSourceWindow,
     DataSource,
+    PropertyWindow,
+    OptionWindow,
+    ViewDescriptorWindow,
     View,
-    Query,
+    AgentQuery,
+    ViewWindow,
+    RowsById,
+    RowDetail,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
@@ -51,6 +63,8 @@ pub struct DatabaseRead {
     pub mode: DatabaseReadMode,
     pub filter: Option<Value>,
     pub sort: Option<Vec<Value>>,
+    pub window: Option<CollectionWindowRequest>,
+    pub page_ids: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -63,29 +77,89 @@ pub struct DatabaseAgentQuery {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DatabaseReadValue {
-    Catalog {
-        databases: Vec<Value>,
+    CatalogWindow {
+        databases: CollectionWindow<Value>,
     },
     Database {
         value: Value,
     },
+    DataSourceWindow {
+        data_sources: CollectionWindow<Value>,
+    },
     DataSource {
         value: Value,
+    },
+    PropertyWindow {
+        properties: CollectionWindow<Value>,
+    },
+    OptionWindow {
+        options: CollectionWindow<Value>,
+    },
+    ViewDescriptorWindow {
+        views: CollectionWindow<Value>,
     },
     View {
         value: Value,
     },
-    Query {
-        value: Value,
-    },
-    DataSourceQuery {
-        value: Value,
-    },
     AgentQuery {
-        value: Value,
-        next_cursor: Option<String>,
-        has_more: bool,
+        value: DatabaseViewWindow,
     },
+    ViewWindow {
+        value: DatabaseViewWindow,
+    },
+    RowsById {
+        value: DatabaseRowsById,
+    },
+    RowDetail {
+        value: Box<DatabaseRowDetail>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseViewWindow {
+    pub database_id: String,
+    pub data_source_id: String,
+    pub view_id: String,
+    pub rows: CollectionWindow<DatabaseRowSummary>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseRowsById {
+    pub rows: Vec<DatabaseRowSummary>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseRowDetail {
+    pub summary: DatabaseRowSummary,
+    pub body_nfm: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseRowSummary {
+    pub page_id: String,
+    pub lifecycle: String,
+    pub title: String,
+    pub rich_title: Value,
+    pub description_preview: String,
+    pub description_length: i64,
+    pub has_description: bool,
+    pub database_values: BTreeMap<String, Value>,
+    pub intrinsic_properties: BTreeMap<String, Value>,
+    pub database_value_revisions: BTreeMap<String, i64>,
+    pub metadata_revision: i64,
+    pub parent_revision: i64,
+    pub document_id: String,
+    pub document_generation: i64,
+    pub document_head_seq: i64,
+    pub membership_id: String,
+    pub membership_revision: i64,
+    pub membership_created_at: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub effective_group_key: Option<String>,
+    pub rank_key: Option<String>,
+    pub position_revision: Option<i64>,
+    pub position_order: Option<i64>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]

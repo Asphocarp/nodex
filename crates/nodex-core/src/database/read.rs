@@ -1,16 +1,21 @@
-use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
 use nodex_core_contracts::BoundModuleContext;
 use nodex_core_contracts::agent::{AgentAuthorizationTarget, AgentProjectResourceAction};
+use nodex_core_contracts::collection::{
+    CollectionWindow, CollectionWindowAuthority, CollectionWindowRequest,
+};
 use nodex_core_contracts::database::{
-    DatabaseAgentQuery, DatabaseRead, DatabaseReadMode, DatabaseReadValue, DatabaseTarget,
+    DatabaseRead, DatabaseReadMode, DatabaseReadValue, DatabaseTarget,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Map, Value, json};
-use sha2::{Digest, Sha256};
 
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
+use crate::infrastructure::{
+    collection_window::{WindowCandidate, assemble, normalize_request},
+    cursor::{self, CollectionCursorSubject, CursorDirection, KeysetCoordinate},
+};
 
 use super::authorization::{authorize_database, authorize_required, project_primary_database};
 use super::is_trusted_library_database_context;
@@ -115,30 +120,71 @@ pub(crate) fn read_at_event_head(
         .transpose()?
         .flatten();
     match (&request.target, request.mode) {
-        (DatabaseTarget::ProjectDefault, DatabaseReadMode::Catalog) => {
+        (DatabaseTarget::ProjectDefault, DatabaseReadMode::ViewWindow) => {
+            let database_id =
+                primary_database_id.ok_or_else(|| not_found("Project has no primary Database"))?;
             let project_id = project_id
                 .ok_or_else(|| invalid("Library Database reads require a concrete target"))?;
-            let database_ids = connection
-                .prepare(
-                    "SELECT block_id FROM database_containers \
-                     WHERE library_id = ?1 AND lifecycle <> 'deleted' ORDER BY block_id",
-                )?
-                .query_map([library_id], |row| row.get::<_, String>(0))?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            let databases = database_ids
-                .into_iter()
-                .filter(|database_id| {
-                    authorize_database(
-                        connection,
-                        project_id,
-                        primary_database_id.as_deref(),
-                        database_id,
-                    )
-                    .unwrap_or(false)
-                })
-                .map(|database_id| database_descriptor(connection, library_id, &database_id))
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(DatabaseReadValue::Catalog { databases })
+            authorize_required(
+                connection,
+                Some(project_id),
+                Some(&database_id),
+                &database_id,
+            )?;
+            let view_id = default_view_for_database(connection, &database_id)?;
+            Ok(DatabaseReadValue::ViewWindow {
+                value: super::window::view_window(
+                    connection,
+                    library_id,
+                    event_head,
+                    &view_id,
+                    request
+                        .window
+                        .as_ref()
+                        .unwrap_or(&CollectionWindowRequest::default()),
+                )?,
+            })
+        }
+        (DatabaseTarget::ProjectDefault, DatabaseReadMode::RowsById) => {
+            let database_id =
+                primary_database_id.ok_or_else(|| not_found("Project has no primary Database"))?;
+            let project_id = project_id
+                .ok_or_else(|| invalid("Library Database reads require a concrete target"))?;
+            authorize_required(
+                connection,
+                Some(project_id),
+                Some(&database_id),
+                &database_id,
+            )?;
+            let view_id = default_view_for_database(connection, &database_id)?;
+            Ok(DatabaseReadValue::RowsById {
+                value: super::window::rows_by_id(
+                    connection,
+                    library_id,
+                    &view_id,
+                    request
+                        .page_ids
+                        .as_deref()
+                        .ok_or_else(|| invalid("Database rows-by-ID requires Page identities"))?,
+                )?,
+            })
+        }
+        (DatabaseTarget::ProjectDefault, DatabaseReadMode::CatalogWindow) => {
+            let project_id = project_id
+                .ok_or_else(|| invalid("Library Database reads require a concrete target"))?;
+            Ok(DatabaseReadValue::CatalogWindow {
+                databases: catalog_window(
+                    connection,
+                    library_id,
+                    event_head,
+                    project_id,
+                    primary_database_id.as_deref(),
+                    request
+                        .window
+                        .as_ref()
+                        .unwrap_or(&CollectionWindowRequest::default()),
+                )?,
+            })
         }
         (DatabaseTarget::ProjectDefault, DatabaseReadMode::Database) => {
             let database_id =
@@ -155,28 +201,6 @@ pub(crate) fn read_at_event_head(
                 value: database_descriptor(connection, library_id, &database_id)?,
             })
         }
-        (DatabaseTarget::ProjectDefault, DatabaseReadMode::Query) => {
-            let database_id =
-                primary_database_id.ok_or_else(|| not_found("Project has no primary Database"))?;
-            let project_id = project_id
-                .ok_or_else(|| invalid("Library Database reads require a concrete target"))?;
-            authorize_required(
-                connection,
-                Some(project_id),
-                Some(&database_id),
-                &database_id,
-            )?;
-            let view_id = connection
-                .query_row(
-                    "SELECT default_view_id FROM database_containers WHERE block_id = ?1",
-                    [&database_id],
-                    |row| row.get::<_, Option<String>>(0),
-                )?
-                .ok_or_else(|| not_found("Primary Database has no default View"))?;
-            Ok(DatabaseReadValue::Query {
-                value: query_view(connection, library_id, &view_id, None, None)?,
-            })
-        }
         (DatabaseTarget::Database { database_id }, DatabaseReadMode::Database) => {
             authorize_required(
                 connection,
@@ -186,6 +210,67 @@ pub(crate) fn read_at_event_head(
             )?;
             Ok(DatabaseReadValue::Database {
                 value: database_descriptor(connection, library_id, database_id)?,
+            })
+        }
+        (DatabaseTarget::Database { database_id }, DatabaseReadMode::ViewWindow) => {
+            authorize_required(
+                connection,
+                project_id,
+                primary_database_id.as_deref(),
+                database_id,
+            )?;
+            let view_id = default_view_for_database(connection, database_id)?;
+            Ok(DatabaseReadValue::ViewWindow {
+                value: super::window::view_window(
+                    connection,
+                    library_id,
+                    event_head,
+                    &view_id,
+                    request
+                        .window
+                        .as_ref()
+                        .unwrap_or(&CollectionWindowRequest::default()),
+                )?,
+            })
+        }
+        (DatabaseTarget::Database { database_id }, DatabaseReadMode::DataSourceWindow) => {
+            authorize_required(
+                connection,
+                project_id,
+                primary_database_id.as_deref(),
+                database_id,
+            )?;
+            Ok(DatabaseReadValue::DataSourceWindow {
+                data_sources: data_source_window(
+                    connection,
+                    library_id,
+                    event_head,
+                    database_id,
+                    request
+                        .window
+                        .as_ref()
+                        .unwrap_or(&CollectionWindowRequest::default()),
+                )?,
+            })
+        }
+        (DatabaseTarget::Database { database_id }, DatabaseReadMode::ViewDescriptorWindow) => {
+            authorize_required(
+                connection,
+                project_id,
+                primary_database_id.as_deref(),
+                database_id,
+            )?;
+            Ok(DatabaseReadValue::ViewDescriptorWindow {
+                views: view_descriptor_window(
+                    connection,
+                    library_id,
+                    event_head,
+                    database_id,
+                    request
+                        .window
+                        .as_ref()
+                        .unwrap_or(&CollectionWindowRequest::default()),
+                )?,
             })
         }
         (DatabaseTarget::DataSource { data_source_id }, DatabaseReadMode::DataSource) => {
@@ -200,7 +285,7 @@ pub(crate) fn read_at_event_head(
                 value: data_source_descriptor(connection, library_id, data_source_id)?,
             })
         }
-        (DatabaseTarget::DataSource { data_source_id }, DatabaseReadMode::Query) => {
+        (DatabaseTarget::DataSource { data_source_id }, DatabaseReadMode::PropertyWindow) => {
             let database_id = database_for_source(connection, library_id, data_source_id)?;
             authorize_required(
                 connection,
@@ -208,13 +293,44 @@ pub(crate) fn read_at_event_head(
                 primary_database_id.as_deref(),
                 &database_id,
             )?;
-            Ok(DatabaseReadValue::DataSourceQuery {
-                value: query_source(
+            Ok(DatabaseReadValue::PropertyWindow {
+                properties: property_window(
                     connection,
                     library_id,
+                    event_head,
                     data_source_id,
-                    request.filter.as_ref(),
-                    request.sort.as_deref(),
+                    request
+                        .window
+                        .as_ref()
+                        .unwrap_or(&CollectionWindowRequest::default()),
+                )?,
+            })
+        }
+        (
+            DatabaseTarget::Property {
+                data_source_id,
+                property_id,
+            },
+            DatabaseReadMode::OptionWindow,
+        ) => {
+            let database_id = database_for_source(connection, library_id, data_source_id)?;
+            authorize_required(
+                connection,
+                project_id,
+                primary_database_id.as_deref(),
+                &database_id,
+            )?;
+            Ok(DatabaseReadValue::OptionWindow {
+                options: option_window(
+                    connection,
+                    library_id,
+                    event_head,
+                    data_source_id,
+                    property_id,
+                    request
+                        .window
+                        .as_ref()
+                        .unwrap_or(&CollectionWindowRequest::default()),
                 )?,
             })
         }
@@ -230,7 +346,7 @@ pub(crate) fn read_at_event_head(
                 value: view_record(connection, view_id)?,
             })
         }
-        (DatabaseTarget::View { view_id }, DatabaseReadMode::Query) => {
+        (DatabaseTarget::View { view_id }, DatabaseReadMode::ViewWindow) => {
             let database_id = database_for_view(connection, library_id, view_id)?;
             authorize_required(
                 connection,
@@ -238,17 +354,40 @@ pub(crate) fn read_at_event_head(
                 primary_database_id.as_deref(),
                 &database_id,
             )?;
-            Ok(DatabaseReadValue::Query {
-                value: query_view(
+            Ok(DatabaseReadValue::ViewWindow {
+                value: super::window::view_window(
                     connection,
                     library_id,
+                    event_head,
                     view_id,
-                    request.filter.as_ref(),
-                    request.sort.as_deref(),
+                    request
+                        .window
+                        .as_ref()
+                        .unwrap_or(&CollectionWindowRequest::default()),
                 )?,
             })
         }
-        (DatabaseTarget::Page { page_id }, DatabaseReadMode::Query) => {
+        (DatabaseTarget::View { view_id }, DatabaseReadMode::RowsById) => {
+            let database_id = database_for_view(connection, library_id, view_id)?;
+            authorize_required(
+                connection,
+                project_id,
+                primary_database_id.as_deref(),
+                &database_id,
+            )?;
+            Ok(DatabaseReadValue::RowsById {
+                value: super::window::rows_by_id(
+                    connection,
+                    library_id,
+                    view_id,
+                    request
+                        .page_ids
+                        .as_deref()
+                        .ok_or_else(|| invalid("Database rows-by-ID requires Page identities"))?,
+                )?,
+            })
+        }
+        (DatabaseTarget::Page { page_id }, DatabaseReadMode::RowDetail) => {
             let data_source_id = data_source_for_page(connection, library_id, page_id)?;
             let database_id = database_for_source(connection, library_id, &data_source_id)?;
             authorize_required(
@@ -257,8 +396,11 @@ pub(crate) fn read_at_event_head(
                 primary_database_id.as_deref(),
                 &database_id,
             )?;
-            Ok(DatabaseReadValue::DataSourceQuery {
-                value: query_page(connection, library_id, page_id, &data_source_id)?,
+            let view_id = default_view_for_database(connection, &database_id)?;
+            Ok(DatabaseReadValue::RowDetail {
+                value: Box::new(super::window::row_detail(
+                    connection, library_id, &view_id, page_id,
+                )?),
             })
         }
         (
@@ -266,7 +408,7 @@ pub(crate) fn read_at_event_head(
                 data_source_id,
                 query,
             },
-            DatabaseReadMode::Query,
+            DatabaseReadMode::AgentQuery,
         ) => {
             crate::library::agent_authorization::authorize_execution(
                 connection,
@@ -278,16 +420,21 @@ pub(crate) fn read_at_event_head(
                 },
                 AgentProjectResourceAction::Read,
             )?;
-            let value = query_source(
-                connection,
-                library_id,
-                data_source_id,
-                request.filter.as_ref(),
-                request.sort.as_deref(),
-            )?;
-            paginate_agent_query(connection, library_id, event_head, &request, query, value)
+            let view_id = default_view_for_source(connection, library_id, data_source_id)?;
+            Ok(DatabaseReadValue::AgentQuery {
+                value: super::window::view_window(
+                    connection,
+                    library_id,
+                    event_head,
+                    &view_id,
+                    &CollectionWindowRequest {
+                        after: query.cursor.clone(),
+                        first: query.limit,
+                    },
+                )?,
+            })
         }
-        (DatabaseTarget::AgentView { view_id, query }, DatabaseReadMode::Query) => {
+        (DatabaseTarget::AgentView { view_id, query }, DatabaseReadMode::AgentQuery) => {
             crate::library::agent_authorization::authorize_execution(
                 connection,
                 context,
@@ -298,91 +445,510 @@ pub(crate) fn read_at_event_head(
                 },
                 AgentProjectResourceAction::Read,
             )?;
-            let value = query_view(
-                connection,
-                library_id,
-                view_id,
-                request.filter.as_ref(),
-                request.sort.as_deref(),
-            )?;
-            paginate_agent_query(connection, library_id, event_head, &request, query, value)
+            Ok(DatabaseReadValue::AgentQuery {
+                value: super::window::view_window(
+                    connection,
+                    library_id,
+                    event_head,
+                    view_id,
+                    &CollectionWindowRequest {
+                        after: query.cursor.clone(),
+                        first: query.limit,
+                    },
+                )?,
+            })
         }
         _ => Err(invalid("Database target and read mode are incompatible")),
     }
 }
 
-fn paginate_agent_query(
+fn catalog_window(
     connection: &Connection,
     library_id: &str,
     event_head: i64,
-    request: &DatabaseRead,
-    query: &DatabaseAgentQuery,
-    mut value: Value,
-) -> Result<DatabaseReadValue, StoreError> {
-    let limit = usize::try_from(query.limit.unwrap_or(50))
-        .map_err(|_| invalid("Agent Database query limit is invalid"))?;
-    if !(1..=200).contains(&limit) {
-        return Err(invalid(
-            "Agent Database query limit must be between 1 and 200",
-        ));
-    }
-    let target = match &request.target {
-        DatabaseTarget::AgentDataSource { data_source_id, .. } => {
-            ("data_source", data_source_id.as_str())
-        }
-        DatabaseTarget::AgentView { view_id, .. } => ("view", view_id.as_str()),
-        _ => return Err(invalid("Agent Database query target is invalid")),
+    project_id: &str,
+    primary_database_id: Option<&str>,
+    request: &CollectionWindowRequest,
+) -> Result<CollectionWindow<Value>, StoreError> {
+    let normalized = normalize_request(request)?;
+    let fingerprint =
+        cursor::query_fingerprint(&("database_catalog_v1", project_id, primary_database_id))?;
+    let subject = CollectionCursorSubject {
+        kind: "database_catalog",
+        library_id,
+        query_fingerprint: &fingerprint,
+        projection_revision: event_head,
     };
-    let fingerprint = serde_json::to_vec(&(
-        "nodex.agent.database.query.v1",
-        target,
-        &request.filter,
-        &request.sort,
-        &query.authorization.provenance.authority.actor_project_id,
-    ))
-    .map_err(|_| invalid("Agent Database query cannot be fingerprinted"))?;
-    let fingerprint = Sha256::digest(fingerprint)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    let subject = vec!["agent_database_query".to_owned(), fingerprint];
-    let offset = if let Some(cursor) = query.cursor.as_deref() {
-        let decoded = crate::library::cursor::decode(connection, cursor, library_id, &subject)?;
-        if decoded.change_log_seq != event_head {
-            return Err(StoreError::new(
-                StoreErrorCode::RevisionConflict,
-                "Database changed while Agent query results were being paged",
-                false,
-            ));
-        }
-        decoded.offset
-    } else {
-        0
-    };
-    let rows = value
-        .as_object_mut()
-        .and_then(|object| object.get_mut("rows"))
-        .and_then(Value::as_array_mut)
-        .ok_or_else(|| corrupt("Database query result has no row collection"))?;
-    if offset > rows.len() {
-        return Err(StoreError::new(
-            StoreErrorCode::RevisionConflict,
-            "Agent Database query cursor is outside the current result set",
-            false,
-        ));
-    }
-    let end = offset.saturating_add(limit).min(rows.len());
-    let has_more = end < rows.len();
-    let selected = rows[offset..end].to_vec();
-    *rows = selected;
-    let next_cursor = has_more
-        .then(|| crate::library::cursor::mint(connection, library_id, &subject, end, event_head))
+    let after = normalized
+        .after
+        .map(|encoded| cursor::decode(connection, encoded, subject))
+        .transpose()?
+        .map(|(direction, coordinate)| {
+            if direction != CursorDirection::Forward || !coordinate.values.is_empty() {
+                return Err(invalid("Database catalog cursor is incompatible"));
+            }
+            Ok(coordinate.stable_id)
+        })
         .transpose()?;
-    Ok(DatabaseReadValue::AgentQuery {
-        value,
-        next_cursor,
-        has_more,
+    let mut statement = connection.prepare(
+        "SELECT block_id FROM database_containers \
+         WHERE library_id = ?1 AND lifecycle <> 'deleted' \
+           AND (?2 IS NULL OR block_id > ?2) \
+         ORDER BY block_id",
+    )?;
+    let mut rows = statement.query(params![library_id, after.as_deref()])?;
+    let mut candidates = Vec::with_capacity(normalized.first + 1);
+    while candidates.len() <= normalized.first {
+        let Some(row) = rows.next()? else {
+            break;
+        };
+        let database_id = row.get::<_, String>(0)?;
+        if !authorize_database(connection, project_id, primary_database_id, &database_id)? {
+            continue;
+        }
+        candidates.push(WindowCandidate {
+            item: database_descriptor(connection, library_id, &database_id)?,
+            coordinate: KeysetCoordinate {
+                values: Vec::new(),
+                stable_id: database_id,
+            },
+        });
+    }
+    assemble(
+        candidates,
+        normalized.first,
+        CollectionWindowAuthority {
+            projection_revision: event_head,
+        },
+        |coordinate| {
+            cursor::mint(
+                connection,
+                subject,
+                CursorDirection::Forward,
+                coordinate.clone(),
+            )
+        },
+    )
+}
+
+fn data_source_window(
+    connection: &Connection,
+    library_id: &str,
+    event_head: i64,
+    database_id: &str,
+    request: &CollectionWindowRequest,
+) -> Result<CollectionWindow<Value>, StoreError> {
+    let normalized = normalize_request(request)?;
+    let fingerprint = cursor::query_fingerprint(&("database_data_sources_v1", database_id))?;
+    let subject = CollectionCursorSubject {
+        kind: "database_data_sources",
+        library_id,
+        query_fingerprint: &fingerprint,
+        projection_revision: event_head,
+    };
+    let RankCursor {
+        bucket: after_bucket,
+        rank: after_rank,
+        stable_id: after_id,
+    } = decode_rank_cursor(connection, subject, normalized.after)?;
+    let query_limit = i64::try_from(normalized.first.saturating_add(1))
+        .map_err(|_| invalid("Data Source window limit overflowed"))?;
+    let ids = connection
+        .prepare(
+            "SELECT id, 0, rank_key \
+             FROM data_sources WHERE home_database_block_id = ?1 AND lifecycle = 'active' \
+               AND (?2 IS NULL \
+                 OR CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END > ?2 \
+                 OR (CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END = ?2 AND rank_key > ?3) \
+                 OR (CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END = ?2 \
+                   AND rank_key = ?3 AND id > ?4)) \
+             ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, rank_key, id \
+             LIMIT ?5",
+        )?
+        .query_map(
+            params![database_id, after_bucket, after_rank, after_id, query_limit],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let candidates = ids
+        .into_iter()
+        .map(|(id, bucket, rank)| {
+            Ok(WindowCandidate {
+                item: source_record(connection, library_id, &id)?,
+                coordinate: KeysetCoordinate {
+                    values: vec![
+                        cursor::KeysetValue::Integer { value: bucket },
+                        cursor::KeysetValue::Text { value: rank },
+                    ],
+                    stable_id: id,
+                },
+            })
+        })
+        .collect::<Result<Vec<_>, StoreError>>()?;
+    assemble_database_window(
+        connection,
+        subject,
+        event_head,
+        normalized.first,
+        candidates,
+    )
+}
+
+fn view_descriptor_window(
+    connection: &Connection,
+    library_id: &str,
+    event_head: i64,
+    database_id: &str,
+    request: &CollectionWindowRequest,
+) -> Result<CollectionWindow<Value>, StoreError> {
+    let normalized = normalize_request(request)?;
+    let fingerprint = cursor::query_fingerprint(&("database_views_v1", database_id))?;
+    let subject = CollectionCursorSubject {
+        kind: "database_views",
+        library_id,
+        query_fingerprint: &fingerprint,
+        projection_revision: event_head,
+    };
+    let RankCursor {
+        bucket: after_bucket,
+        rank: after_rank,
+        stable_id: after_id,
+    } = decode_rank_cursor(connection, subject, normalized.after)?;
+    let query_limit = i64::try_from(normalized.first.saturating_add(1))
+        .map_err(|_| invalid("Database View window limit overflowed"))?;
+    let ids = connection
+        .prepare(
+            "SELECT id, 0, rank_key \
+             FROM database_views WHERE database_block_id = ?1 AND lifecycle = 'active' \
+               AND (?2 IS NULL \
+                 OR CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END > ?2 \
+                 OR (CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END = ?2 AND rank_key > ?3) \
+                 OR (CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END = ?2 \
+                   AND rank_key = ?3 AND id > ?4)) \
+             ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, rank_key, id \
+             LIMIT ?5",
+        )?
+        .query_map(
+            params![database_id, after_bucket, after_rank, after_id, query_limit],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let candidates = ids
+        .into_iter()
+        .map(|(id, bucket, rank)| {
+            Ok(WindowCandidate {
+                item: view_record(connection, &id)?,
+                coordinate: KeysetCoordinate {
+                    values: vec![
+                        cursor::KeysetValue::Integer { value: bucket },
+                        cursor::KeysetValue::Text { value: rank },
+                    ],
+                    stable_id: id,
+                },
+            })
+        })
+        .collect::<Result<Vec<_>, StoreError>>()?;
+    assemble_database_window(
+        connection,
+        subject,
+        event_head,
+        normalized.first,
+        candidates,
+    )
+}
+
+fn property_window(
+    connection: &Connection,
+    library_id: &str,
+    event_head: i64,
+    data_source_id: &str,
+    request: &CollectionWindowRequest,
+) -> Result<CollectionWindow<Value>, StoreError> {
+    let normalized = normalize_request(request)?;
+    let fingerprint = cursor::query_fingerprint(&("database_properties_v1", data_source_id))?;
+    let subject = CollectionCursorSubject {
+        kind: "database_properties",
+        library_id,
+        query_fingerprint: &fingerprint,
+        projection_revision: event_head,
+    };
+    let RankCursor {
+        bucket: after_bucket,
+        rank: after_rank,
+        stable_id: after_id,
+    } = decode_rank_cursor(connection, subject, normalized.after)?;
+    let query_limit = i64::try_from(normalized.first.saturating_add(1))
+        .map_err(|_| invalid("Property window limit overflowed"))?;
+    let candidates = connection
+        .prepare(
+            "SELECT id, data_source_id, name, value_type, config_json, rank_key, lifecycle, \
+               schema_revision, created_at, updated_at, \
+               CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END \
+             FROM data_source_properties WHERE data_source_id = ?1 AND lifecycle = 'active' \
+               AND (?2 IS NULL \
+                 OR CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END > ?2 \
+                 OR (CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END = ?2 AND rank_key > ?3) \
+                 OR (CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END = ?2 \
+                   AND rank_key = ?3 AND id > ?4)) \
+             ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, rank_key, id \
+             LIMIT ?5",
+        )?
+        .query_map(
+            params![
+                data_source_id,
+                after_bucket,
+                after_rank,
+                after_id,
+                query_limit
+            ],
+            |row| {
+                let id = row.get::<_, String>(0)?;
+                let value_type = row.get::<_, String>(3)?;
+                let config = parse_json(row.get::<_, String>(4)?, "Property config")?;
+                let (config, option_count) = compact_property_config(config, &value_type)?;
+                let rank = row.get::<_, String>(5)?;
+                let bucket = row.get::<_, i64>(10)?;
+                Ok(WindowCandidate {
+                    item: json!({
+                        "propertyId": id,
+                        "dataSourceId": row.get::<_, String>(1)?,
+                        "name": row.get::<_, String>(2)?,
+                        "valueType": value_type,
+                        "config": config,
+                        "optionCount": option_count,
+                        "rankKey": rank,
+                        "lifecycle": row.get::<_, String>(6)?,
+                        "revision": row.get::<_, i64>(7)?,
+                        "createdAt": row.get::<_, String>(8)?,
+                        "updatedAt": row.get::<_, String>(9)?,
+                    }),
+                    coordinate: KeysetCoordinate {
+                        values: vec![
+                            cursor::KeysetValue::Integer { value: bucket },
+                            cursor::KeysetValue::Text { value: rank },
+                        ],
+                        stable_id: id,
+                    },
+                })
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    assemble_database_window(
+        connection,
+        subject,
+        event_head,
+        normalized.first,
+        candidates,
+    )
+}
+
+fn option_window(
+    connection: &Connection,
+    library_id: &str,
+    event_head: i64,
+    data_source_id: &str,
+    property_id: &str,
+    request: &CollectionWindowRequest,
+) -> Result<CollectionWindow<Value>, StoreError> {
+    let normalized = normalize_request(request)?;
+    let fingerprint =
+        cursor::query_fingerprint(&("database_property_options_v1", data_source_id, property_id))?;
+    let subject = CollectionCursorSubject {
+        kind: "database_property_options",
+        library_id,
+        query_fingerprint: &fingerprint,
+        projection_revision: event_head,
+    };
+    let after = normalized
+        .after
+        .map(|encoded| cursor::decode(connection, encoded, subject))
+        .transpose()?
+        .map(|(direction, coordinate)| {
+            if direction != CursorDirection::Forward || !coordinate.values.is_empty() {
+                return Err(invalid("Property option cursor is incompatible"));
+            }
+            Ok(coordinate.stable_id)
+        })
+        .transpose()?;
+    let (value_type, config_json) = connection
+        .query_row(
+            "SELECT value_type, config_json FROM data_source_properties \
+             WHERE data_source_id = ?1 AND id = ?2 AND lifecycle = 'active'",
+            params![data_source_id, property_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Property is unavailable"))?;
+    if !matches!(value_type.as_str(), "select" | "multi_select") {
+        return Err(invalid("Property is not option-backed"));
+    }
+    let mut options = parse_json(config_json, "Property config")?
+        .get("options")
+        .and_then(Value::as_array)
+        .cloned()
+        .ok_or_else(|| corrupt("Property option registry is invalid"))?;
+    if options.len() > super::MAX_PROPERTY_OPTIONS {
+        return Err(corrupt("Property option registry exceeds its bound"));
+    }
+    options.sort_by(|left, right| option_id(left).cmp(option_id(right)));
+    let candidates = options
+        .into_iter()
+        .filter(|option| {
+            after
+                .as_deref()
+                .is_none_or(|after| option_id(option) > after)
+        })
+        .take(normalized.first.saturating_add(1))
+        .map(|option| {
+            let id = option_id(&option).to_owned();
+            WindowCandidate {
+                item: option,
+                coordinate: KeysetCoordinate {
+                    values: Vec::new(),
+                    stable_id: id,
+                },
+            }
+        })
+        .collect();
+    assemble_database_window(
+        connection,
+        subject,
+        event_head,
+        normalized.first,
+        candidates,
+    )
+}
+
+fn assemble_database_window(
+    connection: &Connection,
+    subject: CollectionCursorSubject<'_>,
+    event_head: i64,
+    first: usize,
+    candidates: Vec<WindowCandidate<Value>>,
+) -> Result<CollectionWindow<Value>, StoreError> {
+    assemble(
+        candidates,
+        first,
+        CollectionWindowAuthority {
+            projection_revision: event_head,
+        },
+        |coordinate| {
+            cursor::mint(
+                connection,
+                subject,
+                CursorDirection::Forward,
+                coordinate.clone(),
+            )
+        },
+    )
+}
+
+struct RankCursor {
+    bucket: Option<i64>,
+    rank: Option<String>,
+    stable_id: Option<String>,
+}
+
+fn decode_rank_cursor(
+    connection: &Connection,
+    subject: CollectionCursorSubject<'_>,
+    encoded: Option<&str>,
+) -> Result<RankCursor, StoreError> {
+    let Some(encoded) = encoded else {
+        return Ok(RankCursor {
+            bucket: None,
+            rank: None,
+            stable_id: None,
+        });
+    };
+    let (direction, coordinate) = cursor::decode(connection, encoded, subject)?;
+    let [
+        cursor::KeysetValue::Integer { value: bucket },
+        cursor::KeysetValue::Text { value: rank },
+    ] = coordinate.values.as_slice()
+    else {
+        return Err(invalid("Database descriptor cursor is incompatible"));
+    };
+    if direction != CursorDirection::Forward {
+        return Err(invalid(
+            "Database descriptor cursor direction is incompatible",
+        ));
+    }
+    Ok(RankCursor {
+        bucket: Some(*bucket),
+        rank: Some(rank.clone()),
+        stable_id: Some(coordinate.stable_id),
     })
+}
+
+fn compact_property_config(
+    mut config: Value,
+    value_type: &str,
+) -> rusqlite::Result<(Value, usize)> {
+    if !matches!(value_type, "select" | "multi_select") {
+        return Ok((config, 0));
+    }
+    let options = config
+        .get_mut("options")
+        .and_then(Value::as_array_mut)
+        .ok_or(rusqlite::Error::InvalidQuery)?;
+    let option_count = options.len();
+    options.clear();
+    Ok((config, option_count))
+}
+
+fn option_id(option: &Value) -> &str {
+    option.get("id").and_then(Value::as_str).unwrap_or("")
+}
+
+fn default_view_for_database(
+    connection: &Connection,
+    database_id: &str,
+) -> Result<String, StoreError> {
+    connection
+        .query_row(
+            "SELECT default_view_id FROM database_containers WHERE block_id = ?1",
+            [database_id],
+            |row| row.get::<_, Option<String>>(0),
+        )?
+        .ok_or_else(|| not_found("Database has no default View"))
+}
+
+fn default_view_for_source(
+    connection: &Connection,
+    library_id: &str,
+    data_source_id: &str,
+) -> Result<String, StoreError> {
+    connection
+        .query_row(
+            "SELECT view.id \
+             FROM database_views view \
+             JOIN database_containers database \
+               ON database.block_id = view.database_block_id \
+               AND database.library_id = ?1 \
+             WHERE view.data_source_id = ?2 \
+               AND view.lifecycle = 'active' \
+               AND database.lifecycle = 'active' \
+             ORDER BY CASE WHEN view.id = database.default_view_id THEN 0 ELSE 1 END, \
+               view.rank_key, view.id \
+             LIMIT 1",
+            params![library_id, data_source_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Data Source has no active View"))
 }
 
 fn database_for_source(
@@ -440,33 +1006,8 @@ fn database_descriptor(
     library_id: &str,
     database_id: &str,
 ) -> Result<Value, StoreError> {
-    let database = container_record(connection, library_id, database_id)?;
-    let data_source_ids = connection
-        .prepare(
-            "SELECT id FROM data_sources WHERE home_database_block_id = ?1 \
-             ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, rank_key, id",
-        )?
-        .query_map([database_id], |row| row.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let data_sources = data_source_ids
-        .into_iter()
-        .map(|data_source_id| source_record(connection, library_id, &data_source_id))
-        .collect::<Result<Vec<_>, _>>()?;
-    let view_ids = connection
-        .prepare(
-            "SELECT id FROM database_views WHERE database_block_id = ?1 \
-             ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, rank_key, id",
-        )?
-        .query_map([database_id], |row| row.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let views = view_ids
-        .into_iter()
-        .map(|view_id| view_record(connection, &view_id))
-        .collect::<Result<Vec<_>, _>>()?;
     Ok(json!({
-        "database": database,
-        "dataSources": data_sources,
-        "views": views,
+        "database": container_record(connection, library_id, database_id)?,
     }))
 }
 
@@ -477,7 +1018,6 @@ fn data_source_descriptor(
 ) -> Result<Value, StoreError> {
     Ok(json!({
         "dataSource": source_record(connection, library_id, data_source_id)?,
-        "properties": property_records(connection, data_source_id, false)?,
     }))
 }
 
@@ -577,6 +1117,36 @@ fn property_records(
         .map_err(StoreError::from)
 }
 
+fn property_record(
+    connection: &Connection,
+    data_source_id: &str,
+    property_id: &str,
+) -> Result<Value, StoreError> {
+    connection
+        .query_row(
+            "SELECT id, data_source_id, name, value_type, config_json, rank_key, lifecycle, \
+               schema_revision, created_at, updated_at FROM data_source_properties \
+             WHERE data_source_id = ?1 AND id = ?2",
+            params![data_source_id, property_id],
+            |row| {
+                Ok(json!({
+                    "propertyId": row.get::<_, String>(0)?,
+                    "dataSourceId": row.get::<_, String>(1)?,
+                    "name": row.get::<_, String>(2)?,
+                    "valueType": row.get::<_, String>(3)?,
+                    "config": parse_json(row.get::<_, String>(4)?, "Property config")?,
+                    "rankKey": row.get::<_, String>(5)?,
+                    "lifecycle": row.get::<_, String>(6)?,
+                    "revision": row.get::<_, i64>(7)?,
+                    "createdAt": row.get::<_, String>(8)?,
+                    "updatedAt": row.get::<_, String>(9)?,
+                }))
+            },
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Property is unavailable"))
+}
+
 fn view_record(connection: &Connection, view_id: &str) -> Result<Value, StoreError> {
     connection
         .query_row(
@@ -610,12 +1180,10 @@ fn view_record(connection: &Connection, view_id: &str) -> Result<Value, StoreErr
         .ok_or_else(|| not_found("Database View is unavailable"))
 }
 
-fn query_view(
+pub(crate) fn view_descriptor_query(
     connection: &Connection,
     library_id: &str,
     view_id: &str,
-    filter_override: Option<&Value>,
-    sort_override: Option<&[Value]>,
 ) -> Result<Value, StoreError> {
     let view = view_record(connection, view_id)?;
     if view.get("lifecycle").and_then(Value::as_str) != Some("active") {
@@ -623,234 +1191,19 @@ fn query_view(
     }
     let database_id = required_str(&view, "databaseId")?;
     let data_source_id = required_str(&view, "dataSourceId")?;
-    let config = view
-        .get("config")
-        .and_then(Value::as_object)
-        .ok_or_else(|| corrupt("Database View config is not an object"))?;
-    let filter = filter_override
-        .or_else(|| config.get("filter"))
-        .cloned()
-        .unwrap_or_else(empty_filter);
-    let sort = sort_override
-        .map(<[Value]>::to_vec)
-        .or_else(|| config.get("sort").and_then(Value::as_array).cloned())
-        .unwrap_or_default();
-    let group_property_id = config
-        .get("group")
-        .and_then(Value::as_object)
-        .and_then(|group| group.get("propertyId"))
-        .and_then(Value::as_str);
+    let tags_property = property_record(connection, data_source_id, "tags")?;
+    if tags_property.get("lifecycle").and_then(Value::as_str) != Some("active") {
+        return Err(not_found(
+            "Default Data Source tags Property is unavailable",
+        ));
+    }
     Ok(json!({
         "database": container_record(connection, library_id, database_id)?,
         "dataSource": source_record(connection, library_id, data_source_id)?,
         "view": view,
-        "properties": property_records(connection, data_source_id, true)?,
-        "rows": query_rows(
-            connection,
-            data_source_id,
-            Some(view_id),
-            group_property_id,
-            &filter,
-            &sort,
-        )?,
+        "properties": [tags_property],
+        "rows": [],
     }))
-}
-
-fn query_source(
-    connection: &Connection,
-    library_id: &str,
-    data_source_id: &str,
-    filter: Option<&Value>,
-    sort: Option<&[Value]>,
-) -> Result<Value, StoreError> {
-    let database_id = database_for_source(connection, library_id, data_source_id)?;
-    let default_filter = empty_filter();
-    Ok(json!({
-        "database": container_record(connection, library_id, &database_id)?,
-        "dataSource": source_record(connection, library_id, data_source_id)?,
-        "properties": property_records(connection, data_source_id, true)?,
-        "rows": query_rows(
-            connection,
-            data_source_id,
-            None,
-            None,
-            filter.unwrap_or(&default_filter),
-            sort.unwrap_or_default(),
-        )?,
-    }))
-}
-
-fn query_page(
-    connection: &Connection,
-    library_id: &str,
-    page_id: &str,
-    data_source_id: &str,
-) -> Result<Value, StoreError> {
-    let projection = page_data_source_projection(connection, library_id, page_id, data_source_id)?;
-    let view_id = projection
-        .database
-        .get("defaultViewId")
-        .and_then(Value::as_str);
-    let position = view_id
-        .map(|view_id| {
-            connection
-                .query_row(
-                    "SELECT position.group_key, position.rank_key, position.revision, \
-                       (SELECT count(*) FROM database_view_page_positions peer \
-                        WHERE peer.view_id = position.view_id \
-                          AND peer.group_key IS position.group_key \
-                          AND (peer.rank_key < position.rank_key \
-                            OR (peer.rank_key = position.rank_key \
-                              AND peer.page_block_id < position.page_block_id))) \
-                     FROM database_view_page_positions position \
-                     WHERE position.view_id = ?1 AND position.page_block_id = ?2",
-                    params![view_id, page_id],
-                    |row| {
-                        Ok(json!({
-                            "groupKey": row.get::<_, Option<String>>(0)?,
-                            "rankKey": row.get::<_, String>(1)?,
-                            "revision": row.get::<_, i64>(2)?,
-                            "order": row.get::<_, i64>(3)?,
-                        }))
-                    },
-                )
-                .optional()
-                .map_err(StoreError::from)
-        })
-        .transpose()?
-        .flatten();
-    let effective_group_key = position
-        .as_ref()
-        .and_then(|value| value.get("groupKey"))
-        .cloned()
-        .unwrap_or(Value::Null);
-    let (body_nfm, intrinsic_properties) = page_database_projection(connection, page_id)?;
-    let row = json!({
-        "page": page_record(connection, page_id)?,
-        "bodyNfm": body_nfm,
-        "intrinsicProperties": intrinsic_properties,
-        "membership": {
-            "membershipId": projection.membership_id,
-            "dataSourceId": projection.data_source_id,
-            "revision": projection.membership_revision,
-            "createdAt": projection.membership_created_at,
-        },
-        "values": projection.values,
-        "position": position,
-        "effectiveGroupKey": effective_group_key,
-    });
-    Ok(json!({
-        "database": projection.database,
-        "dataSource": projection.data_source,
-        "properties": projection.properties,
-        "rows": [row],
-    }))
-}
-
-fn query_rows(
-    connection: &Connection,
-    data_source_id: &str,
-    view_id: Option<&str>,
-    group_property_id: Option<&str>,
-    filter: &Value,
-    sort: &[Value],
-) -> Result<Vec<Value>, StoreError> {
-    let memberships = connection
-        .prepare(
-            "SELECT membership.id, membership.page_block_id, membership.revision, \
-               membership.created_at, position.group_key, position.rank_key, position.revision \
-             FROM data_source_page_memberships membership JOIN pages page \
-               ON page.block_id = membership.page_block_id \
-               AND page.parent_kind = 'data_source' AND page.parent_id = membership.data_source_id \
-               AND page.lifecycle = 'active' \
-             LEFT JOIN database_view_page_positions position \
-               ON position.view_id = ?1 AND position.page_block_id = membership.page_block_id \
-             WHERE membership.data_source_id = ?2 AND membership.removed_at IS NULL \
-             ORDER BY CASE WHEN position.rank_key IS NULL THEN 1 ELSE 0 END, \
-               position.group_key, position.rank_key, membership.page_block_id",
-        )?
-        .query_map(params![view_id, data_source_id], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, Option<String>>(5)?,
-                row.get::<_, Option<i64>>(6)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut rows = Vec::with_capacity(memberships.len());
-    for (membership_id, page_id, revision, created_at, group_key, rank_key, position_revision) in
-        memberships
-    {
-        let values = read_values(connection, data_source_id, &membership_id)?;
-        if !evaluate_filter(filter, &values)? {
-            continue;
-        }
-        let effective_group_key = group_property_id
-            .and_then(|property_id| values.get(property_id))
-            .and_then(|value| value.get("value"))
-            .and_then(group_key_for_value);
-        let position = rank_key.zip(position_revision).map(|(rank_key, revision)| {
-            json!({ "groupKey": group_key, "rankKey": rank_key, "revision": revision })
-        });
-        let (body_nfm, intrinsic_properties) = page_database_projection(connection, &page_id)?;
-        rows.push(json!({
-            "page": page_record(connection, &page_id)?,
-            "bodyNfm": body_nfm,
-            "intrinsicProperties": intrinsic_properties,
-            "membership": {
-                "membershipId": membership_id,
-                "dataSourceId": data_source_id,
-                "revision": revision,
-                "createdAt": created_at,
-            },
-            "values": values,
-            "position": position,
-            "effectiveGroupKey": effective_group_key,
-        }));
-    }
-    sort_rows(&mut rows, sort)?;
-    Ok(rows)
-}
-
-fn page_database_projection(
-    connection: &Connection,
-    page_id: &str,
-) -> Result<(String, Vec<Value>), StoreError> {
-    let body_nfm = connection
-        .query_row(
-            "SELECT materialization.nfm FROM pages page \
-             JOIN documents document ON document.id = page.document_id \
-             JOIN document_materializations materialization \
-               ON materialization.document_id = document.id \
-               AND materialization.generation = document.generation \
-               AND materialization.projected_seq = document.head_seq \
-               AND materialization.schema_version = document.schema_version \
-             WHERE page.block_id = ?1",
-            [page_id],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?
-        .ok_or_else(|| corrupt("Database Page has no exact-head body projection"))?;
-    let properties = connection
-        .prepare(
-            "SELECT property_key, value_type, value_json, revision \
-             FROM block_properties WHERE block_id = ?1 ORDER BY property_key",
-        )?
-        .query_map([page_id], |row| {
-            let value_json = row.get::<_, String>(2)?;
-            Ok(json!({
-                "key": row.get::<_, String>(0)?,
-                "valueType": row.get::<_, String>(1)?,
-                "value": parse_json(value_json, "Page intrinsic Property")?,
-                "revision": row.get::<_, i64>(3)?,
-            }))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok((body_nfm, properties))
 }
 
 fn read_values(
@@ -939,176 +1292,6 @@ pub(crate) fn page_record(connection: &Connection, page_id: &str) -> Result<Valu
         )
         .optional()?
         .ok_or_else(|| corrupt("Database membership has no exact-head Page projection"))
-}
-
-fn evaluate_filter(filter: &Value, values: &Map<String, Value>) -> Result<bool, StoreError> {
-    let object = filter
-        .as_object()
-        .ok_or_else(|| invalid("Database filter must be an object"))?;
-    match object.get("kind").and_then(Value::as_str) {
-        Some("group") => {
-            let children = object
-                .get("children")
-                .and_then(Value::as_array)
-                .ok_or_else(|| invalid("Database filter group requires children"))?;
-            let operator = object
-                .get("operator")
-                .and_then(Value::as_str)
-                .ok_or_else(|| invalid("Database filter group requires an operator"))?;
-            if operator == "and" {
-                for child in children {
-                    if !evaluate_filter(child, values)? {
-                        return Ok(false);
-                    }
-                }
-                return Ok(true);
-            }
-            if operator == "or" {
-                for child in children {
-                    if evaluate_filter(child, values)? {
-                        return Ok(true);
-                    }
-                }
-                return Ok(false);
-            }
-            Err(invalid("Database filter group operator is unsupported"))
-        }
-        Some("clause") => evaluate_clause(object, values),
-        _ => Err(invalid("Database filter kind is unsupported")),
-    }
-}
-
-fn evaluate_clause(
-    clause: &Map<String, Value>,
-    values: &Map<String, Value>,
-) -> Result<bool, StoreError> {
-    let property_id = clause
-        .get("propertyId")
-        .and_then(Value::as_str)
-        .ok_or_else(|| invalid("Database filter clause requires propertyId"))?;
-    let operator = clause
-        .get("operator")
-        .and_then(Value::as_str)
-        .ok_or_else(|| invalid("Database filter clause requires an operator"))?;
-    let current = values
-        .get(property_id)
-        .and_then(|record| record.get("value"));
-    let empty = current.is_none_or(|value| {
-        value.is_null() || value.as_str() == Some("") || value.as_array().is_some_and(Vec::is_empty)
-    });
-    if operator == "is_empty" {
-        return Ok(empty);
-    }
-    if operator == "is_not_empty" {
-        return Ok(!empty);
-    }
-    let expected = clause.get("value").unwrap_or(&Value::Null);
-    let current = current.unwrap_or(&Value::Null);
-    let equals = current == expected;
-    if operator == "equals" {
-        return Ok(equals);
-    }
-    if operator == "not_equals" {
-        return Ok(!equals);
-    }
-    let contains = if let (Some(current), Some(expected)) = (current.as_str(), expected.as_str()) {
-        current.contains(expected)
-    } else if let Some(current) = current.as_array() {
-        current.contains(expected)
-    } else {
-        false
-    };
-    match operator {
-        "contains" => Ok(contains),
-        "not_contains" => Ok(!contains),
-        _ => Err(invalid("Database filter clause operator is unsupported")),
-    }
-}
-
-fn sort_rows(rows: &mut [Value], sort: &[Value]) -> Result<(), StoreError> {
-    rows.sort_by(|left, right| {
-        for rule in sort {
-            let Some(rule) = rule.as_object() else {
-                continue;
-            };
-            let direction = rule
-                .get("direction")
-                .and_then(Value::as_str)
-                .unwrap_or("asc");
-            let field = rule.get("field").and_then(Value::as_object);
-            let ordering = match field
-                .and_then(|field| field.get("kind"))
-                .and_then(Value::as_str)
-            {
-                Some("title") => {
-                    compare_json(left.pointer("/page/title"), right.pointer("/page/title"))
-                }
-                Some("created") => compare_json(
-                    left.pointer("/page/createdAt"),
-                    right.pointer("/page/createdAt"),
-                ),
-                Some("property") => field
-                    .and_then(|field| field.get("propertyId"))
-                    .and_then(Value::as_str)
-                    .map(|property_id| {
-                        compare_json(
-                            left.get("values")
-                                .and_then(|values| values.get(property_id))
-                                .and_then(|record| record.get("value")),
-                            right
-                                .get("values")
-                                .and_then(|values| values.get(property_id))
-                                .and_then(|record| record.get("value")),
-                        )
-                    })
-                    .unwrap_or(Ordering::Equal),
-                _ => compare_json(
-                    left.pointer("/position/rankKey"),
-                    right.pointer("/position/rankKey"),
-                ),
-            };
-            let ordering = if direction == "desc" {
-                ordering.reverse()
-            } else {
-                ordering
-            };
-            if ordering != Ordering::Equal {
-                return ordering;
-            }
-        }
-        compare_json(left.pointer("/page/pageId"), right.pointer("/page/pageId"))
-    });
-    Ok(())
-}
-
-fn compare_json(left: Option<&Value>, right: Option<&Value>) -> Ordering {
-    match (left, right) {
-        (None | Some(Value::Null), None | Some(Value::Null)) => Ordering::Equal,
-        (None | Some(Value::Null), _) => Ordering::Greater,
-        (_, None | Some(Value::Null)) => Ordering::Less,
-        (Some(Value::String(left)), Some(Value::String(right))) => left.cmp(right),
-        (Some(Value::Number(left)), Some(Value::Number(right))) => left
-            .as_f64()
-            .partial_cmp(&right.as_f64())
-            .unwrap_or(Ordering::Equal),
-        (Some(Value::Bool(left)), Some(Value::Bool(right))) => left.cmp(right),
-        (Some(left), Some(right)) => left.to_string().cmp(&right.to_string()),
-    }
-}
-
-fn group_key_for_value(value: &Value) -> Option<String> {
-    if value.is_null() || value.as_str() == Some("") || value.as_array().is_some_and(Vec::is_empty)
-    {
-        return None;
-    }
-    value
-        .as_str()
-        .map(str::to_owned)
-        .or_else(|| Some(value.to_string()))
-}
-
-fn empty_filter() -> Value {
-    json!({ "kind": "group", "operator": "and", "children": [] })
 }
 
 fn required_str<'value>(value: &'value Value, key: &str) -> Result<&'value str, StoreError> {

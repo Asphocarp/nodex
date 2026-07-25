@@ -1002,8 +1002,14 @@ mod tests {
             )
         );
         let request = fixture.join().expect("join legacy fixture");
-        assert_eq!(request["version_handoff"]["protocol_min"], 3);
-        assert_eq!(request["version_handoff"]["protocol_max"], 3);
+        assert_eq!(
+            request["version_handoff"]["protocol_min"],
+            nodex_core_protocol::TRANSPORT_PROTOCOL_MIN
+        );
+        assert_eq!(
+            request["version_handoff"]["protocol_max"],
+            nodex_core_protocol::TRANSPORT_PROTOCOL_MAX
+        );
         assert_eq!(
             request["version_handoff"]["expected"],
             serde_json::to_value(expected).expect("legacy expected generation")

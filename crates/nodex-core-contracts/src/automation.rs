@@ -2,9 +2,10 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
 
+use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const AUTOMATION_CONTRACT_VERSION: u32 = 1;
+pub const AUTOMATION_CONTRACT_VERSION: u32 = 2;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -136,16 +137,8 @@ pub struct AutomationInboxItem {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-pub struct AutomationUnreadRun {
-    pub automation_id: String,
-    pub thread_id: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct AutomationRunUnreadCounts {
     pub total: u32,
-    pub automation_ids: Vec<String>,
-    pub unread_runs: Vec<AutomationUnreadRun>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -332,6 +325,7 @@ pub struct PageOccurrenceMutationResult {
 pub enum AutomationRead {
     Definitions {
         include_deleted: Option<bool>,
+        window: CollectionWindowRequest,
     },
     Definition {
         automation_id: String,
@@ -339,7 +333,7 @@ pub enum AutomationRead {
     Leases {
         automation_id: Option<String>,
         include_settled: Option<bool>,
-        limit: Option<u32>,
+        window: CollectionWindowRequest,
     },
     Run {
         thread_id: String,
@@ -347,24 +341,24 @@ pub enum AutomationRead {
     Runs {
         automation_id: Option<String>,
         include_archived: Option<bool>,
-        limit: Option<u32>,
+        window: CollectionWindowRequest,
     },
     Inbox {
-        limit: Option<u32>,
+        window: CollectionWindowRequest,
     },
     Occurrences {
         window_start_ms: i64,
         window_end_ms: i64,
         search_query: Option<String>,
-        limit: Option<u32>,
+        window: CollectionWindowRequest,
     },
     ReminderLeases {
         include_settled: Option<bool>,
-        limit: Option<u32>,
+        window: CollectionWindowRequest,
     },
     ReminderSnoozes {
         include_consumed: Option<bool>,
-        limit: Option<u32>,
+        window: CollectionWindowRequest,
     },
 }
 
@@ -372,32 +366,32 @@ pub enum AutomationRead {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AutomationReadValue {
     Definitions {
-        items: Vec<AutomationDefinition>,
+        window: CollectionWindow<AutomationDefinition>,
     },
     Definition {
         item: Option<Box<AutomationDefinition>>,
     },
     Leases {
-        items: Vec<AutomationLease>,
+        window: CollectionWindow<AutomationLease>,
     },
     Run {
         item: Option<Box<AutomationRun>>,
     },
     Runs {
-        items: Vec<AutomationRun>,
+        window: CollectionWindow<AutomationRun>,
     },
     Inbox {
-        items: Vec<AutomationInboxItem>,
+        window: CollectionWindow<AutomationInboxItem>,
         unread_counts: AutomationRunUnreadCounts,
     },
     Occurrences {
-        items: Vec<ScheduledPageOccurrence>,
+        window: CollectionWindow<ScheduledPageOccurrence>,
     },
     ReminderLeases {
-        items: Vec<ReminderLease>,
+        window: CollectionWindow<ReminderLease>,
     },
     ReminderSnoozes {
-        items: Vec<ReminderSnooze>,
+        window: CollectionWindow<ReminderSnooze>,
     },
 }
 

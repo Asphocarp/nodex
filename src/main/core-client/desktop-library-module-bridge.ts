@@ -1,5 +1,8 @@
 import { parseDatabaseId } from "../../shared/database-identities";
-import type { LibraryNavigationChangedEvent } from "../../shared/library-events";
+import {
+  LIBRARY_NAVIGATION_EVENT_VERSION,
+  type LibraryNavigationChangedEvent,
+} from "../../shared/library-events";
 import type {
   LibraryModuleApplyRequest,
   LibraryModuleApplyResult,
@@ -209,7 +212,7 @@ export function mapCoreLibraryEvent(
   const payload = envelope.event.payload;
   if (payload.module !== "library") return null;
   return {
-    version: 1,
+    version: LIBRARY_NAVIGATION_EVENT_VERSION,
     libraryId,
     storeEpoch: envelope.event.store_epoch,
     changeLogSeq: envelope.event.sequence,

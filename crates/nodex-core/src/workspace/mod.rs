@@ -1,9 +1,13 @@
+mod child_thread_window;
 mod execution;
+mod managed_worktree_window;
 mod mutation;
+mod project_window;
 mod read;
 mod session_lifecycle;
 mod session_mutation;
 mod sidebar;
+mod task_window;
 #[cfg(test)]
 mod test_support;
 mod thread;
@@ -89,7 +93,8 @@ impl ProjectWorkspaceModule {
         let library_id = self.library_id.clone();
         readers
             .read_default(move |connection| {
-                let identity = connection
+                let transaction = connection.unchecked_transaction()?;
+                let identity = transaction
                     .query_row(
                         "SELECT 1 FROM libraries WHERE id = ?1 AND profile_id = ?2",
                         rusqlite::params![library_id, profile_id],
@@ -103,7 +108,7 @@ impl ProjectWorkspaceModule {
                         false,
                     ));
                 }
-                let store_epoch = connection
+                let store_epoch = transaction
                     .query_row(
                         "SELECT store_epoch FROM block_store_metadata WHERE id = 1",
                         [],
@@ -111,7 +116,7 @@ impl ProjectWorkspaceModule {
                     )
                     .optional()?
                     .ok_or_else(|| corrupt("Profile store epoch is unavailable"))?;
-                let event_head = connection.query_row(
+                let event_head = transaction.query_row(
                     "SELECT COALESCE(max(seq), 0) FROM change_log",
                     [],
                     |row| row.get::<_, i64>(0),
@@ -120,7 +125,7 @@ impl ProjectWorkspaceModule {
                     contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     store_epoch: StoreEpoch(store_epoch),
                     event_head,
-                    value: read::read(connection, &library_id, request.read)?,
+                    value: read::read(&transaction, &library_id, event_head, request.read)?,
                 })
             })
             .map_err(core_error)

@@ -134,8 +134,12 @@ interface TestableCodexService {
   resolveThreadSummary: (threadId: string) => Promise<import("../../shared/types").CodexThreadSummary | null>;
   listProjectThreads: (
     projectId: string,
-    opts?: { includeArchived?: boolean },
-  ) => Promise<CodexThreadSummary[]>;
+    opts?: {
+      includeArchived?: boolean;
+      after?: string | null;
+      first?: number;
+    },
+  ) => Promise<import("../../shared/types").CodexThreadSummaryWindow>;
   syncSidebarThreads: (input?: { includeArchived?: boolean; refresh?: boolean }) => Promise<import("../../shared/types").CodexSidebarSnapshot>;
   syncSidebarThreadsDetailed: (input?: {
     includeArchived?: boolean;
@@ -780,7 +784,7 @@ const createTestAutomationModule = (): DesktopAutomationModulePort => ({
   }),
   setRunReadState: async () => null,
   markAllRunsRead: async () => 0,
-  listPageOccurrences: async () => [],
+  listPageOccurrences: async () => ({ items: [], nextCursor: null }),
   completePageOccurrence: async () => ({ success: false }),
   skipPageOccurrence: async () => ({ success: false }),
   updatePageOccurrence: async () => ({ success: false }),
@@ -885,6 +889,12 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
 
   const port = {
     listProjects: async () => [],
+    listProjectWindow: async () => ({
+      items: [],
+      nextCursor: null,
+      hasMore: false,
+      projectionRevision: 0,
+    }),
     getProject: async () => null,
     readProjectPermissionMode: async (projectId: string) =>
       permissionModes.get(projectId) ?? null,
@@ -896,6 +906,56 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
       throw new Error("Project creation is not configured for this test");
     },
     listProjectSessionSummaries: async () => [],
+    listProjectSessionSummaryWindow: async () => ({
+      items: [],
+      nextCursor: null,
+      hasMore: false,
+      projectionRevision: 0,
+    }),
+    readSidebarOverview: async () => ({
+      items: [...threads.values()]
+        .filter((thread) => thread.pinnedOrder !== null)
+        .map((thread) => ({
+          id: thread.sessionId ?? `session:${thread.threadId}`,
+          projectId: thread.projectId,
+          noThreadFallbackTitle: thread.threadName ?? "New thread",
+          displayTitle:
+            (thread.threadName ?? thread.threadPreview) || "New thread",
+          order: 0,
+          pinned: true,
+          pinnedOrder: thread.pinnedOrder,
+          archived: thread.archived,
+          archivedAt: null,
+          unread: thread.hasUnreadTurn,
+          initialDatabaseViewId: null,
+          thread: {
+            sessionId: thread.sessionId ?? `session:${thread.threadId}`,
+            projectId: thread.projectId,
+            threadId: thread.threadId,
+            forkedFromId: thread.forkedFromId,
+            parentThreadId: thread.parentThreadId ?? undefined,
+            threadName: thread.threadName ?? undefined,
+            threadPreview: thread.threadPreview,
+            modelProvider: thread.modelProvider,
+            executionProfile: thread.executionProfile,
+            cwd: thread.cwd ?? undefined,
+            managedWorktreePath: thread.managedWorktreePath,
+            projectlessOutputDirectory: thread.projectlessOutputDirectory,
+            projectlessWorkspaceBrowserRoot: thread.projectlessWorkspaceBrowserRoot,
+            statusType: thread.statusType,
+            statusActiveFlags: [...thread.statusActiveFlags],
+            archived: thread.archived,
+            createdAt: thread.createdAt,
+            updatedAt: thread.updatedAt,
+            linkedAt: thread.linkedAt,
+          },
+          createdAt: thread.linkedAt,
+          updatedAt: thread.linkedAt,
+        })),
+      nextCursor: null,
+      hasMore: false,
+      projectionRevision: 0,
+    }),
     getProjectSession: async () => null,
     createProjectSession: async () => {
       throw new Error("Project Session creation is not configured for this test");
@@ -957,6 +1017,11 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
       deleted: threads.delete(threadId),
       sidebar: readSidebar(),
     }),
+    observeAppServerThreadWindow: async () => undefined,
+    reconcileAppServerThreadSweep: async () => ({
+      threadIds: [],
+      projectIds: [],
+    }),
     readThreadExecutionContext: async (threadId: string) => {
       const thread = threads.get(threadId);
       if (!thread) return null;
@@ -982,6 +1047,11 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
       [...backgroundProcesses.values()].filter((process) =>
         threadId === null || threadId === undefined || process.threadId === threadId
       ),
+    listManagedWorktreeWindow: async () => ({
+      items: [],
+      nextCursor: null,
+      projectionRevision: 0,
+    }),
     upsertBackgroundProcess: async (input: CodexBackgroundProcessRecord) => {
       backgroundProcesses.set(input.id, input);
       return input;
@@ -1449,6 +1519,122 @@ function makeRecordingForkSidePanelTransferLifecycle(
     },
   };
 }
+
+test("returns after the first sidebar page and serializes a forced refresh at the window boundary", async () => {
+  let reconcileCalls = 0;
+  const projectWorkspace = {
+    ...createTestProjectWorkspace(),
+    reconcileAppServerThreadSweep: async () => {
+      reconcileCalls += 1;
+      return { threadIds: [], projectIds: [] };
+    },
+  } as DesktopProjectWorkspacePort;
+  const service = createService({ projectWorkspace });
+  const client = Reflect.get(service as object, "client") as {
+    start: () => Promise<void>;
+    request: (method: string, params: unknown) => Promise<unknown>;
+  };
+  const threadListRequests: Array<{ cursor: string | null; archived: boolean }> = [];
+  let releaseSecondWindow!: () => void;
+  const secondWindowGate = new Promise<void>((resolve) => {
+    releaseSecondWindow = resolve;
+  });
+  client.start = async () => undefined;
+  client.request = async (method, params) => {
+    if (method !== "thread/list") throw new Error(`Unexpected request: ${method}`);
+    const input = params as { cursor: string | null; archived: boolean };
+    threadListRequests.push({ cursor: input.cursor, archived: input.archived });
+    if (threadListRequests.length === 1) {
+      return { data: [], nextCursor: "active:page-2" };
+    }
+    if (threadListRequests.length === 2) {
+      await secondWindowGate;
+      return { data: [], nextCursor: null };
+    }
+    return { data: [], nextCursor: null };
+  };
+
+  try {
+    const first = await service.syncSidebarThreadsDetailed({
+      policy: "force",
+      reason: "manual",
+    });
+    expect(first.refreshed).toBe(true);
+    await waitForCondition(() => threadListRequests.length === 2, 1_000);
+
+    let secondResolved = false;
+    const second = service.syncSidebarThreadsDetailed({
+      policy: "force",
+      reason: "manual",
+    }).then((result) => {
+      secondResolved = true;
+      return result;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(secondResolved).toBe(false);
+    expect(threadListRequests.length).toBe(2);
+
+    releaseSecondWindow();
+    await second;
+    expect(threadListRequests.length).toBe(3);
+    await waitForCondition(() => reconcileCalls === 1, 1_000);
+    expect(threadListRequests.some((request) => request.archived)).toBe(true);
+  } finally {
+    releaseSecondWindow();
+    await service.shutdown();
+  }
+});
+
+test("does not reconcile an incomplete sidebar sweep and resumes its failed cursor", async () => {
+  vi.useFakeTimers();
+  const random = vi.spyOn(Math, "random").mockReturnValue(0.5);
+  let reconcileCalls = 0;
+  const projectWorkspace = {
+    ...createTestProjectWorkspace(),
+    reconcileAppServerThreadSweep: async () => {
+      reconcileCalls += 1;
+      return { threadIds: [], projectIds: [] };
+    },
+  } as DesktopProjectWorkspacePort;
+  const service = createService({ projectWorkspace });
+  const client = Reflect.get(service as object, "client") as {
+    start: () => Promise<void>;
+    request: (method: string, params: unknown) => Promise<unknown>;
+  };
+  const requests: Array<{ cursor: string | null; archived: boolean }> = [];
+  client.start = async () => undefined;
+  client.request = async (method, params) => {
+    if (method !== "thread/list") throw new Error(`Unexpected request: ${method}`);
+    const input = params as { cursor: string | null; archived: boolean };
+    requests.push({ cursor: input.cursor, archived: input.archived });
+    if (requests.length === 1) return { data: [], nextCursor: "active:page-2" };
+    if (requests.length === 2) throw new Error("temporary page failure");
+    return { data: [], nextCursor: null };
+  };
+
+  try {
+    await service.syncSidebarThreadsDetailed({
+      policy: "force",
+      reason: "manual",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(requests.map((request) => request.cursor)).toEqual([
+      null,
+      "active:page-2",
+    ]);
+    expect(reconcileCalls).toBe(0);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.runAllTimersAsync();
+    expect(requests[2]?.cursor).toBe("active:page-2");
+    expect(requests.some((request) => request.archived)).toBe(true);
+    expect(reconcileCalls).toBe(1);
+  } finally {
+    await service.shutdown();
+    random.mockRestore();
+    vi.useRealTimers();
+  }
+});
 
 test("reads Git settings live for every project-aware instruction build", async () => {
   let gitSettings: CodexGitSettings = {

@@ -1,9 +1,10 @@
 import { describe, expect, test } from "vitest";
 
-import type {
-  DatabaseApplyResultV2,
-  DatabaseApplyV2,
-  DatabaseModuleReadSnapshotV2,
+import {
+  DATABASE_MODULE_V2_CONTRACT_VERSION,
+  type DatabaseApplyResultV2,
+  type DatabaseApplyV2,
+  type DatabaseModuleReadSnapshotV2,
 } from "../../shared/database-module-v2";
 import {
   parseDatabaseId,
@@ -20,7 +21,7 @@ import {
 const timestamp = "2026-07-16T00:00:00.000Z";
 
 const snapshot = (): DatabaseModuleReadSnapshotV2 => ({
-  version: 2,
+  version: DATABASE_MODULE_V2_CONTRACT_VERSION,
   projectId: "project-1",
   libraryId: "library-1",
   storeEpoch: "epoch-1",
@@ -130,7 +131,7 @@ const snapshot = (): DatabaseModuleReadSnapshotV2 => ({
 const committed = (request: DatabaseApplyV2): DatabaseApplyResultV2 => ({
   ok: true,
   value: {
-    version: 2,
+    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     operationId: request.operationId,
     projectId: request.projectId,
     libraryId: "library-1",
@@ -151,7 +152,6 @@ describe("Database Page drag runtime", () => {
   test("retains the exact Page apply request across a lost response retry", async () => {
     const requests: DatabaseApplyV2[] = [];
     const dependencies: DatabasePageDragRuntimeDependencies = {
-      read: async () => ({ ok: true, value: snapshot() }),
       apply: async (_projectId, request) => {
         requests.push(request);
         if (requests.length === 1) throw new Error("response lost");
@@ -163,6 +163,7 @@ describe("Database Page drag runtime", () => {
       projectId: "project-1",
       clientSessionId: "window-1",
       operationId: "drag-1",
+      snapshot: snapshot(),
       move: {
         pageId: "page-1",
         fromStatus: "triage",
@@ -182,26 +183,26 @@ describe("Database Page drag runtime", () => {
     ]);
   });
 
-  test("refreshes once after a typed revision conflict", async () => {
-    let reads = 0;
+  test("surfaces a typed revision conflict without issuing an unbounded refresh", async () => {
+    let applies = 0;
     const dependencies: DatabasePageDragRuntimeDependencies = {
-      read: async () => {
-        reads += 1;
-        return { ok: true, value: snapshot() };
+      apply: async () => {
+        applies += 1;
+        return {
+          ok: false,
+          error: {
+            code: "revision_conflict",
+            message: "Page changed",
+            retryable: false,
+          },
+        };
       },
-      apply: async () => ({
-        ok: false,
-        error: {
-          code: "revision_conflict",
-          message: "Page changed",
-          retryable: false,
-        },
-      }),
     };
 
     await expect(commitDatabasePageDrag({
       projectId: "project-1",
       operationId: "drag-stale",
+      snapshot: snapshot(),
       move: {
         pageId: "page-1",
         fromStatus: "triage",
@@ -209,6 +210,6 @@ describe("Database Page drag runtime", () => {
       },
       dependencies,
     })).rejects.toBeInstanceOf(DatabasePageDragMutationError);
-    expect(reads).toBe(2);
+    expect(applies).toBe(1);
   });
 });

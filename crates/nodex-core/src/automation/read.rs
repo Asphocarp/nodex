@@ -4,22 +4,38 @@ use nodex_core_contracts::automation::{
     AutomationExecutionEnvironment, AutomationLease, AutomationLeaseStatus, AutomationRead,
     AutomationReadValue,
 };
+use nodex_core_contracts::collection::{
+    CollectionWindow, CollectionWindowAuthority, CollectionWindowRequest,
+};
 use rusqlite::{Connection, OptionalExtension, params};
 
+use crate::infrastructure::collection_window::{WindowCandidate, assemble, normalize_request};
+use crate::infrastructure::cursor::{
+    self, CollectionCursorSubject, CursorDirection, KeysetCoordinate, KeysetValue,
+};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 const MAX_ID_LENGTH: usize = 512;
-const MAX_LEASE_READ_LIMIT: u32 = 1_000;
 
 pub(super) fn read(
     connection: &Connection,
     library_id: &str,
+    event_head: i64,
     context: &BoundModuleContext,
     request: AutomationRead,
 ) -> Result<AutomationReadValue, StoreError> {
     match request {
-        AutomationRead::Definitions { include_deleted } => Ok(AutomationReadValue::Definitions {
-            items: read_definitions(connection, include_deleted.unwrap_or(false))?,
+        AutomationRead::Definitions {
+            include_deleted,
+            window,
+        } => Ok(AutomationReadValue::Definitions {
+            window: read_definition_window(
+                connection,
+                library_id,
+                event_head,
+                include_deleted.unwrap_or(false),
+                &window,
+            )?,
         }),
         AutomationRead::Definition { automation_id } => {
             validate_id("automation_id", &automation_id)?;
@@ -30,21 +46,19 @@ pub(super) fn read(
         AutomationRead::Leases {
             automation_id,
             include_settled,
-            limit,
+            window,
         } => {
             if let Some(automation_id) = automation_id.as_deref() {
                 validate_id("automation_id", automation_id)?;
             }
-            let limit = limit.unwrap_or(100);
-            if !(1..=MAX_LEASE_READ_LIMIT).contains(&limit) {
-                return Err(invalid("Automation lease read limit is invalid"));
-            }
             Ok(AutomationReadValue::Leases {
-                items: read_leases(
+                window: read_lease_window(
                     connection,
+                    library_id,
+                    event_head,
                     automation_id.as_deref(),
                     include_settled.unwrap_or(false),
-                    limit,
+                    &window,
                 )?,
             })
         }
@@ -54,19 +68,22 @@ pub(super) fn read(
         AutomationRead::Runs {
             automation_id,
             include_archived,
-            limit,
+            window,
         } => Ok(AutomationReadValue::Runs {
-            items: super::run::read_runs(
+            window: super::run::read_runs_window(
                 connection,
+                library_id,
+                event_head,
                 automation_id.as_deref(),
                 include_archived.unwrap_or(false),
-                limit.unwrap_or(100),
+                &window,
             )?,
         }),
-        AutomationRead::Inbox { limit } => {
-            let (items, unread_counts) = super::run::read_inbox(connection, limit.unwrap_or(200))?;
+        AutomationRead::Inbox { window } => {
+            let (window, unread_counts) =
+                super::run::read_inbox_window(connection, library_id, event_head, &window)?;
             Ok(AutomationReadValue::Inbox {
-                items,
+                window,
                 unread_counts,
             })
         }
@@ -74,7 +91,7 @@ pub(super) fn read(
             window_start_ms,
             window_end_ms,
             search_query,
-            limit,
+            window,
         } => {
             let project_id = context
                 .project_id
@@ -84,62 +101,135 @@ pub(super) fn read(
                     unauthorized("Scheduled Page occurrences require a bound Project")
                 })?;
             Ok(AutomationReadValue::Occurrences {
-                items: super::occurrence::read_occurrences(
+                window: super::occurrence::read_occurrence_window(
                     connection,
                     library_id,
-                    project_id,
-                    window_start_ms,
-                    window_end_ms,
-                    search_query.as_deref(),
-                    limit.unwrap_or(20_000),
+                    event_head,
+                    super::occurrence::OccurrenceWindowQuery {
+                        project_id,
+                        window_start_ms,
+                        window_end_ms,
+                        search_query: search_query.as_deref(),
+                    },
+                    &window,
                 )?,
             })
         }
         AutomationRead::ReminderLeases {
             include_settled,
-            limit,
+            window,
         } => Ok(AutomationReadValue::ReminderLeases {
-            items: super::reminder::read_leases(
+            window: super::reminder::read_lease_window(
                 connection,
+                library_id,
+                event_head,
                 context.project_id.as_ref().map(|value| value.0.as_str()),
                 include_settled.unwrap_or(false),
-                limit.unwrap_or(100),
+                &window,
             )?,
         }),
         AutomationRead::ReminderSnoozes {
             include_consumed,
-            limit,
+            window,
         } => Ok(AutomationReadValue::ReminderSnoozes {
-            items: super::reminder::read_snoozes(
+            window: super::reminder::read_snooze_window(
                 connection,
+                library_id,
+                event_head,
                 context.project_id.as_ref().map(|value| value.0.as_str()),
                 include_consumed.unwrap_or(false),
-                limit.unwrap_or(100),
+                &window,
             )?,
         }),
     }
 }
 
-pub(super) fn read_definitions(
+fn read_definition_window(
     connection: &Connection,
+    library_id: &str,
+    event_head: i64,
     include_deleted: bool,
-) -> Result<Vec<AutomationDefinition>, StoreError> {
+    request: &CollectionWindowRequest,
+) -> Result<CollectionWindow<AutomationDefinition>, StoreError> {
+    let normalized = normalize_request(request)?;
+    let fingerprint = cursor::query_fingerprint(&("automation_definitions_v1", include_deleted))?;
+    let subject = CollectionCursorSubject {
+        kind: "automation_definitions",
+        library_id,
+        query_fingerprint: &fingerprint,
+        projection_revision: event_head,
+    };
+    let after = normalized
+        .after
+        .map(|encoded| cursor::decode(connection, encoded, subject))
+        .transpose()?
+        .map(|(direction, coordinate)| {
+            if direction != CursorDirection::Forward || coordinate.values.len() != 1 {
+                return Err(invalid("Automation definition cursor is incompatible"));
+            }
+            let [
+                KeysetValue::Integer {
+                    value: created_at_ms,
+                },
+            ] = coordinate.values.as_slice()
+            else {
+                return Err(invalid(
+                    "Automation definition cursor coordinate is invalid",
+                ));
+            };
+            Ok((*created_at_ms, coordinate.stable_id))
+        })
+        .transpose()?;
     let mut statement = connection.prepare(
         "SELECT automation_id, definition_revision, kind, status, target_thread_id, name, \
                 prompt, rrule, model, model_provider, harness_id, reasoning_effort, service_tier, \
                 cwds_json, execution_environment, \
                 local_environment_config_path, next_run_at, last_run_at, created_at, updated_at \
          FROM codex_scheduled_automations \
-         WHERE ?1 OR status <> 'DELETED' \
-         ORDER BY created_at, automation_id",
+         WHERE (?1 OR status <> 'DELETED') \
+           AND (?2 IS NULL OR created_at > ?2 OR (created_at = ?2 AND automation_id > ?3)) \
+         ORDER BY created_at, automation_id LIMIT ?4",
     )?;
-    statement
-        .query_map([include_deleted], definition_from_row)?
+    let rows = statement
+        .query_map(
+            params![
+                include_deleted,
+                after.as_ref().map(|value| value.0),
+                after.as_ref().map(|value| value.1.as_str()),
+                i64::try_from(normalized.first + 1)
+                    .map_err(|_| invalid("Automation definition window size is invalid"))?,
+            ],
+            definition_from_row,
+        )?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|_| corrupt("Scheduled Automation definition column types are invalid"))?
         .into_iter()
         .map(validate_definition)
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+    let candidates = rows.into_iter().map(|item| WindowCandidate {
+        coordinate: KeysetCoordinate {
+            values: vec![KeysetValue::Integer {
+                value: item.created_at_ms,
+            }],
+            stable_id: item.automation_id.clone(),
+        },
+        item,
+    });
+    assemble(
+        candidates,
+        normalized.first,
+        CollectionWindowAuthority {
+            projection_revision: event_head,
+        },
+        |coordinate| {
+            cursor::mint(
+                connection,
+                subject,
+                CursorDirection::Forward,
+                coordinate.clone(),
+            )
+        },
+    )
 }
 
 pub(super) fn read_definition(
@@ -230,29 +320,100 @@ fn validate_definition(
     Ok(definition)
 }
 
-fn read_leases(
+fn read_lease_window(
     connection: &Connection,
+    library_id: &str,
+    event_head: i64,
     automation_id: Option<&str>,
     include_settled: bool,
-    limit: u32,
-) -> Result<Vec<AutomationLease>, StoreError> {
+    request: &CollectionWindowRequest,
+) -> Result<CollectionWindow<AutomationLease>, StoreError> {
+    let normalized = normalize_request(request)?;
+    let fingerprint =
+        cursor::query_fingerprint(&("automation_leases_v1", automation_id, include_settled))?;
+    let subject = CollectionCursorSubject {
+        kind: "automation_leases",
+        library_id,
+        query_fingerprint: &fingerprint,
+        projection_revision: event_head,
+    };
+    let after = normalized
+        .after
+        .map(|encoded| cursor::decode(connection, encoded, subject))
+        .transpose()?
+        .map(|(direction, coordinate)| {
+            if direction != CursorDirection::Forward || coordinate.values.len() != 2 {
+                return Err(invalid("Automation lease cursor is incompatible"));
+            }
+            let [
+                KeysetValue::Integer {
+                    value: scheduled_for_ms,
+                },
+                KeysetValue::Integer { value: attempt },
+            ] = coordinate.values.as_slice()
+            else {
+                return Err(invalid("Automation lease cursor coordinate is invalid"));
+            };
+            Ok((*scheduled_for_ms, *attempt, coordinate.stable_id))
+        })
+        .transpose()?;
     let mut statement = connection.prepare(
         "SELECT lease_id, automation_id, scheduled_for_ms, attempt, status, claimed_at_ms, \
                 expires_at_ms, settled_at_ms, retry_at_ms, reason_code \
          FROM core_automation_leases \
          WHERE (?1 IS NULL OR automation_id = ?1) AND (?2 OR status = 'claimed') \
-         ORDER BY scheduled_for_ms DESC, attempt DESC, lease_id DESC LIMIT ?3",
+           AND (?3 IS NULL OR scheduled_for_ms < ?3 \
+             OR (scheduled_for_ms = ?3 AND attempt < ?4) \
+             OR (scheduled_for_ms = ?3 AND attempt = ?4 AND lease_id < ?5)) \
+         ORDER BY scheduled_for_ms DESC, attempt DESC, lease_id DESC LIMIT ?6",
     )?;
-    statement
+    let rows = statement
         .query_map(
-            params![automation_id, include_settled, limit],
+            params![
+                automation_id,
+                include_settled,
+                after.as_ref().map(|value| value.0),
+                after.as_ref().map(|value| value.1),
+                after.as_ref().map(|value| value.2.as_str()),
+                i64::try_from(normalized.first + 1)
+                    .map_err(|_| invalid("Automation lease window size is invalid"))?,
+            ],
             lease_from_row,
         )?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|_| corrupt("Automation lease column types are invalid"))?
         .into_iter()
         .map(validate_lease)
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+    let candidates = rows.into_iter().map(|item| WindowCandidate {
+        coordinate: KeysetCoordinate {
+            values: vec![
+                KeysetValue::Integer {
+                    value: item.scheduled_for_ms,
+                },
+                KeysetValue::Integer {
+                    value: i64::from(item.attempt),
+                },
+            ],
+            stable_id: item.lease_id.clone(),
+        },
+        item,
+    });
+    assemble(
+        candidates,
+        normalized.first,
+        CollectionWindowAuthority {
+            projection_revision: event_head,
+        },
+        |coordinate| {
+            cursor::mint(
+                connection,
+                subject,
+                CursorDirection::Forward,
+                coordinate.clone(),
+            )
+        },
+    )
 }
 
 pub(super) fn read_lease(

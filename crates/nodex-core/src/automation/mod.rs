@@ -89,7 +89,13 @@ impl AutomationModule {
                     contract_version: AUTOMATION_CONTRACT_VERSION,
                     store_epoch: StoreEpoch(store_epoch),
                     event_head,
-                    value: read::read(&transaction, &library_id, &context, request.read)?,
+                    value: read::read(
+                        &transaction,
+                        &library_id,
+                        event_head,
+                        &context,
+                        request.read,
+                    )?,
                 };
                 transaction.commit()?;
                 Ok(snapshot)

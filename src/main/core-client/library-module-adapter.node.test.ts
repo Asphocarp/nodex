@@ -30,7 +30,7 @@ const identity = {
 const fakeHandshake = () => createFakeCoreHandshake(identity);
 
 const pageDetailSnapshot = () => ({
-  contract_version: 1 as const,
+  contract_version: 2 as const,
   store_epoch: identity.storeEpoch,
   event_head: 9,
   value: {
@@ -75,7 +75,7 @@ const pageDetailSnapshot = () => ({
 });
 
 const pageHistorySnapshot = () => ({
-  contract_version: 1 as const,
+  contract_version: 2 as const,
   store_epoch: identity.storeEpoch,
   event_head: 12,
   value: {
@@ -119,7 +119,7 @@ const pageHistorySnapshot = () => ({
 });
 
 const projectPageSearchSnapshot = () => ({
-  contract_version: 1 as const,
+  contract_version: 2 as const,
   store_epoch: identity.storeEpoch,
   event_head: 13,
   value: {
@@ -127,6 +127,7 @@ const projectPageSearchSnapshot = () => ({
     items: [{
       project_id: "project:test",
       page_id: "page:one",
+      title: "Page One",
       status: "build" as const,
       score: 1_000_000,
       excerpt: "Page search evidence",
@@ -135,7 +136,7 @@ const projectPageSearchSnapshot = () => ({
 });
 
 const pageTargetSnapshot = () => ({
-  contract_version: 1 as const,
+  contract_version: 2 as const,
   store_epoch: identity.storeEpoch,
   event_head: 14,
   value: {
@@ -154,7 +155,7 @@ const pageTargetSnapshot = () => ({
 });
 
 const pageOwnershipPathSnapshot = () => ({
-  contract_version: 1 as const,
+  contract_version: 2 as const,
   store_epoch: identity.storeEpoch,
   event_head: 14,
   value: {
@@ -172,7 +173,7 @@ const pageOwnershipPathSnapshot = () => ({
 });
 
 const pageLocationSnapshot = () => ({
-  contract_version: 1 as const,
+  contract_version: 2 as const,
   store_epoch: identity.storeEpoch,
   event_head: 14,
   value: {
@@ -248,7 +249,7 @@ const lifecycleDefaultView = () => ({
 });
 
 const pageLifecyclePreflightSnapshot = () => ({
-  contract_version: 1 as const,
+  contract_version: 2 as const,
   store_epoch: identity.storeEpoch,
   event_head: 15,
   value: {
@@ -974,6 +975,7 @@ describe("Core Library Module Adapter", () => {
     })).resolves.toEqual([{
       projectId: "project:test",
       pageId: "page:one",
+      title: "Page One",
       status: "build",
       score: 1_000_000,
       excerpt: "Page search evidence",
@@ -989,7 +991,7 @@ describe("Core Library Module Adapter", () => {
   test("maps one complete catalog read without exposing transport shapes", async () => {
     const client = new FakeCoreClient();
     client.enqueueRead({
-      contract_version: 1,
+      contract_version: 2,
       store_epoch: identity.storeEpoch,
       event_head: 7,
       value: {
@@ -1021,7 +1023,7 @@ describe("Core Library Module Adapter", () => {
     })).resolves.toEqual({
       ok: true,
       value: {
-        version: 1,
+        version: 2,
         profileId: identity.profileId,
         libraryId: identity.libraryId,
         storeEpoch: identity.storeEpoch,
@@ -1134,7 +1136,7 @@ describe("Core Library Module Adapter", () => {
     });
 
     await expect(bridge.apply({
-      version: 1,
+      version: 2,
       operationId: "operation:unbound",
       storeEpoch: identity.storeEpoch,
       operation: {
@@ -1214,7 +1216,7 @@ describe("Core Library Module Adapter", () => {
 
   test("maps only Library Core events into renderer invalidations", () => {
     expect(mapCoreLibraryEvent({
-      transport_version: 3,
+      transport_version: 4,
       event: {
         event_version: 2,
         sequence: 9,
@@ -1234,7 +1236,7 @@ describe("Core Library Module Adapter", () => {
         },
       },
     }, identity.libraryId)).toEqual({
-      version: 1,
+      version: 2,
       libraryId: identity.libraryId,
       storeEpoch: identity.storeEpoch,
       changeLogSeq: 9,

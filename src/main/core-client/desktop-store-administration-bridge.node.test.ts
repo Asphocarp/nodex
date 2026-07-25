@@ -30,7 +30,7 @@ const backup = {
 const readSnapshot = (
   value: StoreAdministrationReadSnapshot["value"],
 ): StoreAdministrationReadSnapshot => ({
-  contract_version: 1,
+  contract_version: 2,
   store_epoch: "epoch:test",
   event_head: 4,
   value,
@@ -76,7 +76,13 @@ describe("Desktop Store Administration bridge", () => {
     client.enqueueAdministrationApply(committed({ backup_id: backup.backup_id }));
     client.enqueueAdministrationRead(readSnapshot({
       kind: "backups",
-      items: [backup],
+      backups: {
+        items: [backup],
+        next_cursor: null,
+        authority: {
+          projection_revision: 4,
+        },
+      },
     }));
 
     await expect(bridge.createBackup({
@@ -124,7 +130,7 @@ describe("Desktop Store Administration bridge", () => {
 
   test("maps Store Administration events", () => {
     expect(mapCoreStoreAdministrationEvent({
-      transport_version: 3,
+      transport_version: 4,
       event: {
         event_version: 2,
         sequence: 5,

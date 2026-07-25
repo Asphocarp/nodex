@@ -216,6 +216,8 @@ import type {
   Project,
   ProjectArchiveBlocker,
   ProjectSession,
+  ProjectSessionSummary,
+  ProjectSessionSummaryWindow,
   ProjectSessionForkInput,
   ProjectSessionForkResult,
   UpdateWorktreeEnvironmentConfigInput,
@@ -2940,6 +2942,20 @@ export class CodexService extends EventEmitter {
   private threadSettingsUpdateSupport: "unknown" | "supported" | "unsupported" = "unknown";
   private mcpServerStatusesInFlight: Promise<ListMcpServerStatusResponse> | null = null;
   private sidebarSyncInFlight: Promise<CodexSidebarSyncResult> | null = null;
+  private sidebarSweepTimer: ReturnType<typeof setTimeout> | null = null;
+  private sidebarSweepWindowInFlight: Promise<void> | null = null;
+  private sidebarSweepGeneration = 0;
+  private sidebarSweepState: {
+    phase: "scan" | "reconcile";
+    sweepId: string;
+    cursor: string | null;
+    archived: boolean;
+    includeArchived: boolean;
+    projects: readonly Project[];
+    reason: CodexSidebarRefreshReason;
+    metadata: SidebarThreadSyncMetadata;
+    retryAttempt: number;
+  } | null = null;
   private sidebarThreadMoveQueue: Promise<void> = Promise.resolve();
   private sidebarSyncInFlightIncludeArchived: boolean | null = null;
   private sidebarLastSuccessfulRefreshAt = 0;
@@ -6965,6 +6981,12 @@ export class CodexService extends EventEmitter {
     }
     this.sidebarSyncInFlight = null;
     this.sidebarSyncInFlightIncludeArchived = null;
+    this.sidebarSweepGeneration += 1;
+    this.sidebarSweepState = null;
+    if (this.sidebarSweepTimer !== null) {
+      clearTimeout(this.sidebarSweepTimer);
+      this.sidebarSweepTimer = null;
+    }
     this.mcpServerStatusesInFlight = null;
     this.sidebarSnapshotCacheByIncludeArchived.clear();
     for (const pending of this.pendingApprovals.values()) {
@@ -7389,21 +7411,60 @@ export class CodexService extends EventEmitter {
 
   async listProjectThreads(
     projectId: string,
-    opts?: { includeArchived?: boolean },
-  ): Promise<CodexThreadSummary[]> {
+    input?: {
+      includeArchived?: boolean;
+      after?: string | null;
+      first?: number;
+    },
+  ): Promise<{
+    items: CodexThreadSummary[];
+    nextCursor: string | null;
+    hasMore: boolean;
+    projectionRevision: number;
+  }> {
     const normalizedProjectId = projectId.trim();
     if (!normalizedProjectId) throw new Error("Project id is required");
-    const sidebar = await this.readWorkspaceSidebar(
-      opts?.includeArchived === true,
+    const window = await this.projectWorkspace.listProjectSessionSummaryWindow(
+      normalizedProjectId,
+      input,
     );
-    return sidebar.threads
-      .filter((thread) =>
-        thread.projectId === normalizedProjectId
-        && thread.parentThreadId === null
-        && (opts?.includeArchived === true || !thread.archived)
-      )
-      .map((thread) => this.buildWorkspaceThreadSummary(thread))
-      .sort((left, right) => right.updatedAt - left.updatedAt);
+    return {
+      ...window,
+      items: window.items.flatMap((session): CodexThreadSummary[] => {
+        const thread = session.thread;
+        if (!thread || thread.parentThreadId) return [];
+        const cached = this.workspaceThreadProjectionById.get(thread.threadId);
+        return [{
+          threadId: thread.threadId,
+          projectId: session.projectId,
+          forkedFromId: thread.forkedFromId ?? null,
+          source: null,
+          ephemeral: false,
+          threadSource: thread.threadSource ?? null,
+          serviceName: thread.serviceName ?? null,
+          agentNickname: thread.agentNickname ?? null,
+          agentRole: thread.agentRole ?? null,
+          agentPath: thread.agentPath ?? null,
+          threadName: thread.threadName ?? null,
+          threadPreview: thread.threadPreview,
+          modelProvider: cached?.modelProvider ?? "openai",
+          executionProfile: cached?.executionProfile ?? null,
+          cwd: thread.cwd ?? null,
+          managedWorktreePath: cached?.managedWorktreePath ?? null,
+          projectlessOutputDirectory: cached?.projectlessOutputDirectory ?? null,
+          projectlessWorkspaceBrowserRoot:
+            cached?.projectlessWorkspaceBrowserRoot ?? null,
+          statusType: thread.statusType,
+          statusActiveFlags: [...thread.statusActiveFlags],
+          archived: session.archived || thread.archived,
+          pinned: session.pinned,
+          hasUnreadTurn: session.unread,
+          createdAt: thread.createdAt,
+          updatedAt: thread.updatedAt,
+          linkedAt: thread.linkedAt,
+        }];
+      }),
+    };
   }
 
   async syncSidebarThreads(input: {
@@ -7612,23 +7673,8 @@ export class CodexService extends EventEmitter {
     metadata?: SidebarThreadSyncMetadata;
   }): Promise<CodexSidebarSyncResult> {
     const metadata = input.metadata;
-    let sidebar = await this.readWorkspaceSidebar(input.includeArchived);
-    let repairedHiddenThread = false;
-    for (const thread of sidebar.threads) {
-      const summary = this.buildWorkspaceThreadSummary(thread);
-      if (!this.shouldHidePersistedNonSidebarThread(summary)) continue;
-      await this.hideNonSidebarThreadMaterialization(
-        thread.threadId,
-        "session-change",
-      );
-      repairedHiddenThread = true;
-    }
-    if (repairedHiddenThread) {
-      sidebar = await this.readWorkspaceSidebar(input.includeArchived);
-    }
     return {
-      snapshot: await this.buildWorkspaceSidebarSnapshot(
-        sidebar,
+      snapshot: await this.buildBoundedWorkspaceSidebarSnapshot(
         input.includeArchived,
       ),
       source: input.source,
@@ -7641,13 +7687,75 @@ export class CodexService extends EventEmitter {
     };
   }
 
+  private async buildBoundedWorkspaceSidebarSnapshot(
+    includeArchived: boolean,
+  ): Promise<CodexSidebarSnapshot> {
+    const overview = await this.projectWorkspace.readSidebarOverview(
+      includeArchived,
+    );
+    const tasks = overview.items.filter(
+      (task): task is ProjectSessionSummary & {
+        thread: NonNullable<ProjectSessionSummary["thread"]>;
+      } => task.thread !== null,
+    );
+    const clientThreadIdByThreadId = new Map(
+      listCodexClientThreadIdentities(
+        CODEX_APP_LOCAL_HOST_ID,
+        tasks.map((task) => task.thread.threadId),
+      ).map(({ threadId, clientThreadId }) => [threadId, clientThreadId] as const),
+    );
+    const projectAssignments: Record<string, string> = {};
+    const projectlessThreadIds: string[] = [];
+    const items = tasks.map((task): CodexSidebarThreadItem => {
+      const thread = task.thread;
+      const projectId = task.projectId ?? thread.projectId;
+      if (projectId) projectAssignments[thread.threadId] = projectId;
+      else projectlessThreadIds.push(thread.threadId);
+      const clientThreadId = clientThreadIdByThreadId.get(thread.threadId) ?? null;
+      return {
+        key: `local:${clientThreadId ?? thread.threadId}`,
+        kind: "local",
+        ...(clientThreadId ? { clientThreadId } : {}),
+        hostId: DEFAULT_CODEX_HOST_ID,
+        threadId: thread.threadId,
+        sessionId: task.id,
+        projectId,
+        title: task.displayTitle,
+        preview: thread.threadPreview,
+        cwd: thread.cwd ?? null,
+        updatedAt: thread.updatedAt,
+        createdAt: thread.createdAt,
+        pinned: task.pinned,
+        pinnedOrder: task.pinnedOrder,
+        unread: task.unread,
+        archived: task.archived || thread.archived,
+        statusType: thread.statusType,
+        statusActiveFlags: [...thread.statusActiveFlags],
+        projectless: projectId === null,
+        disabled: false,
+      };
+    });
+    const snapshot: CodexSidebarSnapshot = {
+      items,
+      pinnedThreadIds: items.map((item) => item.threadId),
+      projectAssignments,
+      projectlessThreadIds,
+      projectThreadOrders: {},
+      projectlessThreadOrder: null,
+      revision: this.sidebarSnapshotRevision,
+      generatedAt: Date.now(),
+    };
+    this.sidebarSnapshotCacheByIncludeArchived.set(includeArchived, {
+      revision: this.sidebarSnapshotRevision,
+      snapshot,
+    });
+    return snapshot;
+  }
+
   private async buildSidebarThreadMoveScope(
     projectId: string | null,
   ): Promise<CodexSidebarThreadMoveScope> {
-    return {
-      projectId,
-      sessions: await this.projectWorkspace.listProjectSessionSummaries(projectId),
-    };
+    return { projectId };
   }
 
   private async buildSidebarThreadMoveSuccess(input: {
@@ -7989,13 +8097,15 @@ export class CodexService extends EventEmitter {
     }
     this.rememberWorkspaceThread(moved.thread);
 
-    let sidebar = this.rememberWorkspaceSidebar(moved.sidebar);
+    this.rememberWorkspaceSidebar(moved.sidebar);
     if (pinned || targetLocation.pinned) {
       try {
-        sidebar = await this.projectWorkspace.setThreadPinned(
-          threadId,
-          targetLocation.pinned,
-          targetLocation.pinned ? input.beforeThreadId : undefined,
+        this.rememberWorkspaceSidebar(
+          await this.projectWorkspace.setThreadPinned(
+            threadId,
+            targetLocation.pinned,
+            targetLocation.pinned ? input.beforeThreadId : undefined,
+          ),
         );
       } catch (error) {
         this.logger.warn("Failed to save sidebar pin state after moving task", {
@@ -8014,7 +8124,6 @@ export class CodexService extends EventEmitter {
     markSidebarSyncScopeChanged(metadata, sourceProjectId);
     markSidebarSyncScopeChanged(metadata, targetProjectId);
     const syncResult = await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-      sidebar,
       metadata,
       "session-change",
     );
@@ -8044,14 +8153,13 @@ export class CodexService extends EventEmitter {
   ): Promise<CodexSidebarProjectThreadOrderResult> {
     const parsed = CodexSidebarProjectThreadOrderInputSchema.parse(input);
     const run = async () => {
-      const sidebar = await this.projectWorkspace.setProjectThreadOrder(
+      await this.projectWorkspace.setProjectThreadOrder(
         parsed.projectId,
         parsed.orderedThreadIds,
       );
       const metadata = createSidebarThreadSyncMetadata();
       markSidebarSyncScopeChanged(metadata, parsed.projectId);
       const syncResult = await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-        sidebar,
         metadata,
         "session-change",
       );
@@ -8072,18 +8180,15 @@ export class CodexService extends EventEmitter {
   ): Promise<CodexSidebarChatsThreadOrderResult> {
     const parsed = CodexSidebarChatsThreadOrderInputSchema.parse(input);
     const run = async () => {
-      const sidebar = await this.projectWorkspace.setProjectlessThreadOrder(
-        parsed,
-      );
+      await this.projectWorkspace.setProjectlessThreadOrder(parsed);
       const metadata = createSidebarThreadSyncMetadata();
       markSidebarSyncScopeChanged(metadata, null);
       const syncResult = await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-        sidebar,
         metadata,
         "session-change",
       );
       return {
-        orderedThreadIds: [...(sidebar.projectlessThreadOrder ?? [])],
+        orderedThreadIds: [...parsed.nextVisibleThreadIds],
         snapshot: syncResult.snapshot,
       };
     };
@@ -8096,13 +8201,19 @@ export class CodexService extends EventEmitter {
   }
 
   async listPinnedThreads(): Promise<string[]> {
-    const sidebar = await this.readWorkspaceSidebar(false);
-    return sidebar.threads
-      .filter((thread) => thread.pinnedOrder !== null)
-      .sort((left, right) => (
-        (left.pinnedOrder ?? 0) - (right.pinnedOrder ?? 0)
-      ))
-      .map((thread) => thread.threadId);
+    const threadIds: string[] = [];
+    let after: string | null = null;
+    do {
+      const window = await this.projectWorkspace.readSidebarOverview(false, {
+        after,
+        first: 200,
+      });
+      threadIds.push(...window.items.flatMap((task) => (
+        task.thread ? [task.thread.threadId] : []
+      )));
+      after = window.nextCursor;
+    } while (after !== null);
+    return threadIds;
   }
 
   async setThreadPinned(
@@ -8112,9 +8223,8 @@ export class CodexService extends EventEmitter {
   ): Promise<CodexSidebarSnapshot> {
     const normalizedThreadId = threadId.trim();
     if (!normalizedThreadId) {
-      const sidebar = await this.readWorkspaceSidebar(false);
       this.invalidateSidebarSnapshotCache();
-      return await this.buildWorkspaceSidebarSnapshot(sidebar);
+      return await this.buildBoundedWorkspaceSidebarSnapshot(false);
     }
 
     const sidebar = await this.projectWorkspace.setThreadPinned(
@@ -8127,13 +8237,12 @@ export class CodexService extends EventEmitter {
     );
     if (!thread) {
       this.invalidateSidebarSnapshotCache();
-      return await this.buildWorkspaceSidebarSnapshot(sidebar);
+      return await this.buildBoundedWorkspaceSidebarSnapshot(false);
     }
 
     const metadata = createSidebarThreadSyncMetadata();
     markSidebarSyncScopeChanged(metadata, thread.projectId);
     const result = await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-      sidebar,
       metadata,
       "session-change",
     );
@@ -8143,11 +8252,8 @@ export class CodexService extends EventEmitter {
   async setPinnedThreadOrder(
     orderedThreadIds: readonly string[],
   ): Promise<CodexSidebarSnapshot> {
-    const sidebar = await this.projectWorkspace.reorderPinnedThreads(
-      orderedThreadIds,
-    );
+    await this.projectWorkspace.reorderPinnedThreads(orderedThreadIds);
     const result = await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-      sidebar,
       createSidebarThreadSyncMetadata(),
       "session-change",
       { force: true },
@@ -8181,42 +8287,55 @@ export class CodexService extends EventEmitter {
   }): Promise<SidebarThreadSyncMetadata> {
     const startedAt = getDevRuntimeMetricStart();
     await this.ensureClientReady();
+    this.sidebarSweepGeneration += 1;
+    this.sidebarSweepState = null;
+    if (this.sidebarSweepTimer !== null) {
+      clearTimeout(this.sidebarSweepTimer);
+      this.sidebarSweepTimer = null;
+    }
+    await this.sidebarSweepWindowInFlight;
 
     const projects = await this.projectWorkspace.listProjects();
-    const archivedFilters = input.includeArchived ? [false, true] : [false];
     const metadata = createSidebarThreadSyncMetadata();
-    let pageCount = 0;
-    let threadCount = 0;
+    const sweepId = randomUUID();
 
     try {
-      for (const archived of archivedFilters) {
-        let cursor: string | null = null;
-        do {
-          const response = await this.requestSidebarThreadList({ cursor, archived });
-          pageCount += 1;
-          threadCount += response.data.length;
-
-          for (const thread of response.data) {
-            const result = await this.upsertSidebarThreadFromAppServerThread(thread, {
-              projects,
-              includeArchived: input.includeArchived,
-              reason: input.reason,
-            });
-            mergeSidebarThreadMaterialization(metadata, result);
-          }
-
-          cursor = response.nextCursor;
-        } while (cursor);
+      const response = await this.requestSidebarThreadList({
+        cursor: null,
+        archived: false,
+      });
+      const observedThreadIds = await this.materializeSidebarThreadListWindow(response, {
+        projects,
+        includeArchived: input.includeArchived,
+        reason: input.reason,
+        metadata,
+      });
+      if (observedThreadIds.length > 0) {
+        await this.projectWorkspace.observeAppServerThreadWindow(
+          sweepId,
+          observedThreadIds,
+        );
       }
+      this.scheduleSidebarThreadSweep({
+        phase: "scan",
+        sweepId,
+        cursor: response.nextCursor,
+        archived: response.nextCursor === null,
+        includeArchived: input.includeArchived,
+        projects,
+        reason: input.reason,
+        metadata,
+        retryAttempt: 0,
+      });
 
       logDevRuntimeMetric("codex.sidebar.refresh_thread_list", {
         outcome: "success",
         reason: input.reason,
         includeArchived: input.includeArchived,
-        archivedFilterCount: archivedFilters.length,
         projectCount: projects.length,
-        pageCount,
-        threadCount,
+        pageCount: 1,
+        threadCount: response.data.length,
+        continuationScheduled: true,
         changedProjectCount: metadata.changedProjectIds.size,
         projectlessChanged: metadata.projectlessChanged,
         materializedSessionCount: metadata.materializedSessionIds.size,
@@ -8229,14 +8348,163 @@ export class CodexService extends EventEmitter {
         outcome: "error",
         reason: input.reason,
         includeArchived: input.includeArchived,
-        archivedFilterCount: archivedFilters.length,
         projectCount: projects.length,
-        pageCount,
-        threadCount,
         error: error instanceof Error ? error.message : String(error),
         durationMs: getDevRuntimeMetricDurationMs(startedAt),
       });
       throw error;
+    }
+  }
+
+  private async materializeSidebarThreadListWindow(
+    response: ThreadListResponse,
+    input: {
+      projects: readonly Project[];
+      includeArchived: boolean;
+      reason: CodexSidebarRefreshReason;
+      metadata: SidebarThreadSyncMetadata;
+    },
+  ): Promise<string[]> {
+    const observedThreadIds: string[] = [];
+    for (const thread of response.data) {
+      const result = await this.upsertSidebarThreadFromAppServerThread(thread, {
+        projects: input.projects,
+        includeArchived: input.includeArchived,
+        reason: input.reason,
+      });
+      mergeSidebarThreadMaterialization(input.metadata, result);
+      if (result.summary && !result.summary.source?.parentThreadId) {
+        observedThreadIds.push(result.summary.threadId);
+      }
+    }
+    return observedThreadIds;
+  }
+
+  private scheduleSidebarThreadSweep(
+    state: NonNullable<CodexService["sidebarSweepState"]>,
+  ): void {
+    this.sidebarSweepState = state;
+    if (this.sidebarSweepTimer !== null) return;
+    const generation = this.sidebarSweepGeneration;
+    this.sidebarSweepTimer = setTimeout(() => {
+      this.sidebarSweepTimer = null;
+      void this.startSidebarThreadSweepWindow(generation);
+    }, 0);
+  }
+
+  private async startSidebarThreadSweepWindow(generation: number): Promise<void> {
+    const previous = this.sidebarSweepWindowInFlight;
+    if (previous) {
+      await previous;
+      if (generation !== this.sidebarSweepGeneration) return;
+    }
+    const running = this.runSidebarThreadSweepWindow(generation);
+    this.sidebarSweepWindowInFlight = running;
+    try {
+      await running;
+    } finally {
+      if (this.sidebarSweepWindowInFlight === running) {
+        this.sidebarSweepWindowInFlight = null;
+      }
+    }
+  }
+
+  private async runSidebarThreadSweepWindow(generation: number): Promise<void> {
+    if (generation !== this.sidebarSweepGeneration) return;
+    const state = this.sidebarSweepState;
+    if (!state) return;
+    try {
+      if (state.phase === "reconcile") {
+        const reconciled = await this.projectWorkspace.reconcileAppServerThreadSweep(
+          state.sweepId,
+          100,
+        );
+        if (generation !== this.sidebarSweepGeneration) return;
+        for (const projectId of reconciled.projectIds) {
+          markSidebarSyncScopeChanged(state.metadata, projectId);
+        }
+        if (reconciled.threadIds.length > 0) {
+          state.metadata.projectlessChanged = true;
+        }
+        if (reconciled.threadIds.length === 100) {
+          this.scheduleSidebarThreadSweep({
+            ...state,
+            retryAttempt: 0,
+          });
+          return;
+        }
+        this.sidebarSweepState = null;
+        const result = await this.buildWorkspaceSidebarSyncResult({
+          includeArchived: state.includeArchived,
+          source: "app-server",
+          refreshed: true,
+          refreshedAt: Date.now(),
+          metadata: state.metadata,
+        });
+        this.emitSidebarSyncUpdated(result, state.reason);
+        return;
+      }
+
+      const response = await this.requestSidebarThreadList({
+        cursor: state.cursor,
+        archived: state.archived,
+      });
+      if (generation !== this.sidebarSweepGeneration) return;
+      const observedThreadIds = await this.materializeSidebarThreadListWindow(response, state);
+      if (observedThreadIds.length > 0) {
+        await this.projectWorkspace.observeAppServerThreadWindow(
+          state.sweepId,
+          observedThreadIds,
+        );
+      }
+      if (generation !== this.sidebarSweepGeneration) return;
+
+      if (response.nextCursor) {
+        this.scheduleSidebarThreadSweep({
+          ...state,
+          phase: "scan",
+          cursor: response.nextCursor,
+          retryAttempt: 0,
+        });
+        return;
+      }
+      if (!state.archived) {
+        this.scheduleSidebarThreadSweep({
+          ...state,
+          phase: "scan",
+          cursor: null,
+          archived: true,
+          retryAttempt: 0,
+        });
+        return;
+      }
+
+      this.scheduleSidebarThreadSweep({
+        ...state,
+        phase: "reconcile",
+        cursor: null,
+        retryAttempt: 0,
+      });
+    } catch (error) {
+      if (generation !== this.sidebarSweepGeneration) return;
+      this.logger.warn("Could not continue background sidebar reconciliation", {
+        archived: state.archived,
+        cursorPresent: state.cursor !== null,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      const baseDelay = Math.min(
+        SIDEBAR_THREAD_SYNC_BACKOFF_INITIAL_MS * (2 ** state.retryAttempt),
+        SIDEBAR_THREAD_SYNC_BACKOFF_MAX_MS,
+      );
+      const retryDelay = Math.round(baseDelay * (0.8 + (Math.random() * 0.4)));
+      this.sidebarSweepState = {
+        ...state,
+        retryAttempt: state.retryAttempt + 1,
+      };
+      this.sidebarSweepTimer = setTimeout(() => {
+        this.sidebarSweepTimer = null;
+        void this.startSidebarThreadSweepWindow(generation);
+      }, retryDelay);
     }
   }
 
@@ -8695,101 +8963,6 @@ export class CodexService extends EventEmitter {
     );
   }
 
-  private async buildWorkspaceSidebarSnapshot(
-    sidebar: DesktopProjectWorkspaceSidebar,
-    includeArchived = false,
-  ): Promise<CodexSidebarSnapshot> {
-    this.rememberWorkspaceSidebar(sidebar);
-    const visibleThreads = sidebar.threads.filter((thread) => {
-      const summary = this.buildWorkspaceThreadSummary(thread);
-      if (this.shouldHidePersistedNonSidebarThread(summary)) return false;
-      return thread.parentThreadId === null || thread.sessionId !== null;
-    });
-    const sessionEntries = await Promise.all(
-      visibleThreads.map(async (thread) => [
-        thread.threadId,
-        thread.sessionId
-          ? await this.projectWorkspace.getProjectSession(thread.sessionId)
-          : null,
-      ] as const),
-    );
-    const sessionByThreadId = new Map(sessionEntries);
-    const clientThreadIdByThreadId = new Map(
-      listCodexClientThreadIdentities(
-        CODEX_APP_LOCAL_HOST_ID,
-        visibleThreads.map((thread) => thread.threadId),
-      ).map(({ threadId, clientThreadId }) => [threadId, clientThreadId] as const),
-    );
-    const projectAssignments: Record<string, string> = {};
-    const projectlessThreadIds: string[] = [];
-    const items = visibleThreads.map((thread): CodexSidebarThreadItem => {
-      const session = sessionByThreadId.get(thread.threadId) ?? null;
-      const projectId = session?.projectId ?? thread.projectId;
-      if (projectId) projectAssignments[thread.threadId] = projectId;
-      else projectlessThreadIds.push(thread.threadId);
-
-      const clientThreadId = clientThreadIdByThreadId.get(thread.threadId) ?? null;
-      const archived = thread.archived || session?.archived === true;
-      return {
-        key: `local:${clientThreadId ?? thread.threadId}`,
-        kind: "local",
-        ...(clientThreadId ? { clientThreadId } : {}),
-        hostId: DEFAULT_CODEX_HOST_ID,
-        threadId: thread.threadId,
-        sessionId: session?.id ?? thread.sessionId,
-        projectId,
-        title: session?.displayTitle ?? resolveSidebarThreadTitle(thread),
-        preview: thread.threadPreview,
-        cwd: thread.cwd,
-        updatedAt: thread.updatedAt,
-        createdAt: thread.createdAt,
-        pinned: thread.pinnedOrder !== null,
-        pinnedOrder: thread.pinnedOrder,
-        unread: session?.unread === true,
-        archived,
-        statusType: thread.statusType,
-        statusActiveFlags: [...thread.statusActiveFlags],
-        projectless: projectId === null,
-        disabled: false,
-      };
-    });
-    items.sort((left, right) => {
-      if (left.pinned && right.pinned) {
-        return (left.pinnedOrder ?? 0) - (right.pinnedOrder ?? 0);
-      }
-      if (left.pinned !== right.pinned) return left.pinned ? -1 : 1;
-      if (right.updatedAt !== left.updatedAt) {
-        return right.updatedAt - left.updatedAt;
-      }
-      return left.threadId.localeCompare(right.threadId);
-    });
-    const pinnedThreadIds = items
-      .filter((item) => item.pinned)
-      .map((item) => item.threadId);
-    const projectThreadOrders = Object.fromEntries(
-      Object.entries(sidebar.projectThreadOrders).map(
-        ([projectId, threadIds]) => [projectId, [...threadIds]],
-      ),
-    );
-    const snapshot: CodexSidebarSnapshot = {
-      items,
-      pinnedThreadIds,
-      projectAssignments,
-      projectlessThreadIds,
-      projectThreadOrders,
-      projectlessThreadOrder: sidebar.projectlessThreadOrder === null
-        ? null
-        : [...sidebar.projectlessThreadOrder],
-      revision: this.sidebarSnapshotRevision,
-      generatedAt: Date.now(),
-    };
-    this.sidebarSnapshotCacheByIncludeArchived.set(includeArchived, {
-      revision: this.sidebarSnapshotRevision,
-      snapshot,
-    });
-    return snapshot;
-  }
-
   private rememberWorkspaceThread(
     thread: DesktopProjectWorkspaceThread,
   ): DesktopProjectWorkspaceThread {
@@ -8829,14 +9002,6 @@ export class CodexService extends EventEmitter {
     if (thread) return this.rememberWorkspaceThread(thread);
     this.workspaceThreadProjectionById.delete(threadId);
     return null;
-  }
-
-  private async readWorkspaceSidebar(
-    includeArchived: boolean,
-  ): Promise<DesktopProjectWorkspaceSidebar> {
-    return this.rememberWorkspaceSidebar(
-      await this.projectWorkspace.readSidebar(includeArchived),
-    );
   }
 
   private buildWorkspaceThreadSummary(
@@ -8893,14 +9058,13 @@ export class CodexService extends EventEmitter {
   }
 
   private async emitWorkspaceSidebarSyncUpdatedFromMetadata(
-    sidebar: DesktopProjectWorkspaceSidebar,
     metadata: SidebarThreadSyncMetadata,
     reason: CodexSidebarRefreshReason,
     options: { readonly force?: boolean } = {},
   ): Promise<CodexSidebarSyncResult> {
     this.invalidateSidebarSnapshotCache();
     const result: CodexSidebarSyncResult = {
-      snapshot: await this.buildWorkspaceSidebarSnapshot(sidebar),
+      snapshot: await this.buildBoundedWorkspaceSidebarSnapshot(false),
       source: "core",
       refreshed: false,
       refreshedAt: this.sidebarLastSuccessfulRefreshAt,
@@ -8923,48 +9087,64 @@ export class CodexService extends EventEmitter {
   }
 
   private async listCommandPaletteSidebarChats(): Promise<CommandPaletteThreadSummary[]> {
-    const [sidebar, projects] = await Promise.all([
-      this.readWorkspaceSidebar(false),
-      this.projectWorkspace.listProjects(),
-    ]);
-    const snapshot = await this.buildWorkspaceSidebarSnapshot(sidebar, false);
-    const threadById = new Map(
-      sidebar.threads.map((thread) => [thread.threadId, thread] as const),
-    );
+    const projects = await this.projectWorkspace.listProjects();
     const projectNameById = new Map(
       projects.map((project) => [project.id, project.name] as const),
     );
     const seenThreadIds = new Set<string>();
     const summaries: CommandPaletteThreadSummary[] = [];
-
-    for (const item of snapshot.items) {
-      if (item.archived || item.disabled || seenThreadIds.has(item.threadId)) continue;
-      const thread = threadById.get(item.threadId);
-      if (!thread || thread.archived || thread.parentThreadId !== null) continue;
-      seenThreadIds.add(item.threadId);
-
-      summaries.push({
-        threadId: item.threadId,
-        sessionId: item.sessionId,
-        projectId: item.projectId,
-        projectName: item.projectId
-          ? projectNameById.get(item.projectId) ?? null
-          : null,
-        title: item.title,
-        preview: item.preview,
-        cwd: item.cwd,
-        gitBranch: null,
-        projectless: item.projectless,
-        pinned: item.pinned,
-        pinnedOrder: item.pinnedOrder,
-        statusType: item.statusType,
-        statusActiveFlags: item.statusActiveFlags,
-        createdAt: item.createdAt,
-        updatedAt: item.updatedAt,
-      });
+    const addWindow = (window: ProjectSessionSummaryWindow): void => {
+      for (const session of window.items) {
+        if (summaries.length >= 100) return;
+        const thread = session.thread;
+        if (
+          !thread
+          || thread.parentThreadId
+          || session.archived
+          || thread.archived
+          || seenThreadIds.has(thread.threadId)
+        ) {
+          continue;
+        }
+        seenThreadIds.add(thread.threadId);
+        summaries.push({
+          threadId: thread.threadId,
+          sessionId: session.id,
+          projectId: session.projectId,
+          projectName: session.projectId
+            ? projectNameById.get(session.projectId) ?? null
+            : null,
+          title: session.displayTitle,
+          preview: thread.threadPreview,
+          cwd: thread.cwd ?? null,
+          gitBranch: null,
+          projectless: session.projectId === null,
+          pinned: session.pinned,
+          pinnedOrder: session.pinnedOrder,
+          statusType: thread.statusType,
+          statusActiveFlags: [...thread.statusActiveFlags],
+          createdAt: thread.createdAt,
+          updatedAt: thread.updatedAt,
+        });
+      }
+    };
+    addWindow(await this.projectWorkspace.readSidebarOverview(false, {
+      first: 100,
+    }));
+    if (summaries.length < 100) {
+      addWindow(await this.projectWorkspace.listProjectSessionSummaryWindow(null, {
+        first: 100 - summaries.length,
+      }));
     }
-
-    return summaries;
+    for (const project of projects) {
+      if (summaries.length >= 100) break;
+      addWindow(await this.projectWorkspace.listProjectSessionSummaryWindow(
+        project.id,
+        { first: 100 - summaries.length },
+      ));
+    }
+    summaries.sort((left, right) => right.updatedAt - left.updatedAt);
+    return summaries.slice(0, 100);
   }
 
   async listCommandPaletteThreads(
@@ -9093,7 +9273,6 @@ export class CodexService extends EventEmitter {
       const metadata = createSidebarThreadSyncMetadata();
       markSidebarSyncScopeChanged(metadata, summary.projectId);
       await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-        await this.readWorkspaceSidebar(false),
         metadata,
         "host-message",
       );
@@ -9248,51 +9427,36 @@ export class CodexService extends EventEmitter {
 
   async listManagedWorktrees(): Promise<ManagedWorktreeRecord[]> {
     const managedRoot = path.resolve(getNodexHome(), "worktrees");
-    const [sidebar, projects] = await Promise.all([
-      this.readWorkspaceSidebar(true),
-      this.projectWorkspace.listProjects(),
-    ]);
+    const projects = await this.projectWorkspace.listProjects();
     const projectNameById = new Map(
       projects.map((project) => [project.id, project.name] as const),
     );
-    const sessions = await Promise.all(
-      sidebar.threads.map(async (thread) => [
-        thread.threadId,
-        thread.sessionId
-          ? await this.projectWorkspace.getProjectSession(thread.sessionId)
-          : null,
-      ] as const),
-    );
-    const sessionByThreadId = new Map(sessions);
-    const recordsByPath = sidebar.threads.reduce<Map<string, ManagedWorktreeRecord>>((acc, thread) => {
-      if (thread.parentThreadId !== null) return acc;
-      const link = this.buildWorkspaceThreadSummary(thread);
-      const resolvedPath = resolveManagedWorktreeGitRoot(link);
-      if (!resolvedPath) return acc;
-      if (!link.projectId) return acc;
-
-      if (!isPathWithin(managedRoot, resolvedPath)) return acc;
-
-      const existing = acc.get(resolvedPath);
-      if (existing && !isNewerLinkTime(existing.linkedAt, link.linkedAt)) {
-        return acc;
-      }
-
-      const session = sessionByThreadId.get(link.threadId) ?? null;
-
-      acc.set(resolvedPath, {
-        threadId: link.threadId,
-        projectId: link.projectId,
-        projectName: projectNameById.get(link.projectId) ?? null,
-        sessionId: session?.id ?? thread.sessionId,
-        sessionTitle: session?.displayTitle ?? null,
-        threadName: link.threadName,
-        path: resolvedPath,
-        exists: existsSync(resolvedPath),
-        linkedAt: link.linkedAt,
+    const recordsByPath = new Map<string, ManagedWorktreeRecord>();
+    let after: string | null = null;
+    do {
+      const window = await this.projectWorkspace.listManagedWorktreeWindow({
+        after,
+        first: 200,
       });
-      return acc;
-    }, new Map<string, ManagedWorktreeRecord>());
+      for (const worktree of window.items) {
+        const resolvedPath = worktree.path.trim();
+        if (!resolvedPath || !isPathWithin(managedRoot, resolvedPath)) continue;
+        const existing = recordsByPath.get(resolvedPath);
+        if (existing && !isNewerLinkTime(existing.linkedAt, worktree.linkedAt)) continue;
+        recordsByPath.set(resolvedPath, {
+          threadId: worktree.threadId,
+          projectId: worktree.projectId,
+          projectName: projectNameById.get(worktree.projectId) ?? null,
+          sessionId: worktree.sessionId,
+          sessionTitle: worktree.sessionTitle ?? worktree.threadName ?? "New thread",
+          threadName: worktree.threadName,
+          path: resolvedPath,
+          exists: existsSync(resolvedPath),
+          linkedAt: worktree.linkedAt,
+        });
+      }
+      after = window.nextCursor;
+    } while (after !== null);
 
     const records = Array.from(recordsByPath.values());
 
@@ -9313,14 +9477,18 @@ export class CodexService extends EventEmitter {
 
     await removeManagedWorktree(resolvedPath);
 
-    const sidebar = await this.readWorkspaceSidebar(true);
-    const linkedThreadIds = sidebar.threads
-      .filter((candidate) =>
-        resolveManagedWorktreeGitRoot(
-          this.buildWorkspaceThreadSummary(candidate),
-        ) === resolvedPath
-      )
-      .map((candidate) => candidate.threadId);
+    const linkedThreadIds: string[] = [];
+    let after: string | null = null;
+    do {
+      const window = await this.projectWorkspace.listManagedWorktreeWindow({
+        after,
+        first: 200,
+      });
+      linkedThreadIds.push(...window.items.flatMap((worktree) => (
+        worktree.path === resolvedPath ? [worktree.threadId] : []
+      )));
+      after = window.nextCursor;
+    } while (after !== null);
 
     const threadIdsToUnlink = Array.from(new Set([threadId, ...linkedThreadIds]));
 
@@ -13915,13 +14083,12 @@ export class CodexService extends EventEmitter {
     threadId: string,
     reason: CodexSidebarRefreshReason,
   ): Promise<void> {
-    const sidebar = await this.readWorkspaceSidebar(false);
-    const thread = sidebar.threads.find((candidate) => candidate.threadId === threadId);
+    const thread = await this.readWorkspaceThread(threadId);
     const projectId = thread?.projectId
       ?? this.getMaybeConversationRecord(threadId)?.detail?.projectId;
     const metadata = createSidebarThreadSyncMetadata();
     if (projectId !== undefined) markSidebarSyncScopeChanged(metadata, projectId);
-    await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(sidebar, metadata, reason);
+    await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(metadata, reason);
   }
 
   private async hasThreadTitle(threadId: string): Promise<boolean> {
@@ -16045,7 +16212,7 @@ export class CodexService extends EventEmitter {
       record.isStreaming = false;
       this.syncInactiveRendererOwnerCleanup(threadId);
       if (isThreadArchivedError(error)) {
-        const sidebar = this.rememberWorkspaceSidebar(
+        this.rememberWorkspaceSidebar(
           await this.projectWorkspace.setThreadArchived(threadId, true),
         );
         const persisted = await this.readWorkspaceThread(threadId);
@@ -16063,7 +16230,6 @@ export class CodexService extends EventEmitter {
         const metadata = createSidebarThreadSyncMetadata();
         markSidebarSyncScopeChanged(metadata, persisted?.projectId ?? detail?.projectId ?? null);
         await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-          sidebar,
           metadata,
           "host-message",
         );
@@ -17309,7 +17475,7 @@ export class CodexService extends EventEmitter {
       || this.getMaybeConversationRecord(threadId)?.hasUnreadTurn
       || this.acceptedConversationDocumentById.get(threadId)?.hasUnreadTurn,
     );
-    const sidebar = this.rememberWorkspaceSidebar(
+    this.rememberWorkspaceSidebar(
       await this.projectWorkspace.setThreadArchived(threadId, true),
     );
     await this.readWorkspaceThread(threadId);
@@ -17321,7 +17487,6 @@ export class CodexService extends EventEmitter {
     const metadata = createSidebarThreadSyncMetadata();
     if (previous) markSidebarSyncScopeChanged(metadata, previous.projectId);
     await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-      sidebar,
       metadata,
       "host-message",
     );
@@ -17395,7 +17560,7 @@ export class CodexService extends EventEmitter {
     await this.client.request<"thread/unarchive", ThreadUnarchiveResponse>("thread/unarchive", { threadId });
 
     const previous = await this.readWorkspaceThread(threadId);
-    const sidebar = this.rememberWorkspaceSidebar(
+    this.rememberWorkspaceSidebar(
       await this.projectWorkspace.setThreadArchived(threadId, false),
     );
     const persisted = await this.readWorkspaceThread(threadId);
@@ -17412,7 +17577,6 @@ export class CodexService extends EventEmitter {
     const metadata = createSidebarThreadSyncMetadata();
     if (previous) markSidebarSyncScopeChanged(metadata, previous.projectId);
     await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-      sidebar,
       metadata,
       "host-message",
     );
@@ -23342,7 +23506,6 @@ export class CodexService extends EventEmitter {
         const metadata = createSidebarThreadSyncMetadata();
         mergeSidebarThreadMaterialization(metadata, result);
         await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-          await this.readWorkspaceSidebar(false),
           metadata,
           "host-message",
         );
@@ -23391,7 +23554,6 @@ export class CodexService extends EventEmitter {
         const metadata = createSidebarThreadSyncMetadata();
         markSidebarSyncScopeChanged(metadata, updated.projectId);
         await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-          await this.readWorkspaceSidebar(false),
           metadata,
           "host-message",
         );
@@ -23439,7 +23601,7 @@ export class CodexService extends EventEmitter {
         || this.getMaybeConversationRecord(payload.threadId)?.hasUnreadTurn
         || this.acceptedConversationDocumentById.get(payload.threadId)?.hasUnreadTurn,
       );
-      const sidebar = this.rememberWorkspaceSidebar(
+      this.rememberWorkspaceSidebar(
         await this.projectWorkspace.setThreadArchived(
           payload.threadId,
           archived,
@@ -23477,7 +23639,6 @@ export class CodexService extends EventEmitter {
         this.syncAcceptedConversationSummary(payload.threadId, { syncCapabilityFlags: true });
       }
       await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-        sidebar,
         metadata,
         "host-message",
       );
@@ -23517,7 +23678,6 @@ export class CodexService extends EventEmitter {
       }
       this.emitEvent({ type: "threadDeleted", threadId: payload.threadId });
       await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-        deleted.sidebar,
         metadata,
         "host-message",
       );
@@ -23539,7 +23699,6 @@ export class CodexService extends EventEmitter {
         const metadata = createSidebarThreadSyncMetadata();
         markSidebarSyncScopeChanged(metadata, updated.projectId);
         await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-          await this.readWorkspaceSidebar(false),
           metadata,
           "host-message",
         );
@@ -23588,7 +23747,6 @@ export class CodexService extends EventEmitter {
         const metadata = createSidebarThreadSyncMetadata();
         markSidebarSyncScopeChanged(metadata, known.projectId);
         await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-          await this.readWorkspaceSidebar(false),
           metadata,
           "host-message",
         );
@@ -23634,7 +23792,6 @@ export class CodexService extends EventEmitter {
         const metadata = createSidebarThreadSyncMetadata();
         markSidebarSyncScopeChanged(metadata, known.projectId);
         await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-          await this.readWorkspaceSidebar(false),
           metadata,
           "host-message",
         );

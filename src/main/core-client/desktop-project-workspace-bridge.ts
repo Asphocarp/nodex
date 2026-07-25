@@ -21,7 +21,8 @@ export function createDesktopProjectWorkspaceBridge(
   };
 
   return {
-    listProjects: async (options) => await (await resolve()).listProjects(options),
+    listProjects: async () => await (await resolve()).listProjects(),
+    listProjectWindow: async (input) => await (await resolve()).listProjectWindow(input),
     getProject: async (projectId) =>
       await (await resolve()).getProject(projectId),
     readProjectPermissionMode: async (projectId) =>
@@ -40,12 +41,10 @@ export function createDesktopProjectWorkspaceBridge(
       await (await resolve()).setPinnedProjectOrder(projectInput),
     setProjectLifecycle: async (projectId, lifecycle) =>
       await (await resolve()).setProjectLifecycle(projectId, lifecycle),
-    listProjectSessions: async (projectId, options) =>
-      await (await resolve()).listProjectSessions(projectId, options),
-    listProjectSessionSummaries: async (projectId, options) =>
-      await (await resolve()).listProjectSessionSummaries(projectId, options),
-    listProjectThreads: async (projectId, options) =>
-      await (await resolve()).listProjectThreads(projectId, options),
+    listProjectSessionSummaryWindow: async (projectId, input) =>
+      await (await resolve()).listProjectSessionSummaryWindow(projectId, input),
+    readSidebarOverview: async (includeArchived, input) =>
+      await (await resolve()).readSidebarOverview(includeArchived, input),
     getProjectSession: async (sessionId) =>
       await (await resolve()).getProjectSession(sessionId),
     updateProjectSession: async (sessionId, sessionInput) =>
@@ -92,6 +91,10 @@ export function createDesktopProjectWorkspaceBridge(
       await (await resolve()).setThreadArchived(threadId, archived),
     deleteThread: async (threadId) =>
       await (await resolve()).deleteThread(threadId),
+    observeAppServerThreadWindow: async (sweepId, threadIds) =>
+      await (await resolve()).observeAppServerThreadWindow(sweepId, threadIds),
+    reconcileAppServerThreadSweep: async (sweepId, limit) =>
+      await (await resolve()).reconcileAppServerThreadSweep(sweepId, limit),
     readThreadExecutionContext: async (threadId) =>
       await (await resolve()).readThreadExecutionContext(threadId),
     replaceThreadDynamicToolCatalogs: async (threadId, catalogs) =>
@@ -105,10 +108,10 @@ export function createDesktopProjectWorkspaceBridge(
       await (await resolve()).replaceThreadWritableRoots(threadId, roots),
     listBackgroundProcesses: async (threadId) =>
       await (await resolve()).listBackgroundProcesses(threadId),
+    listManagedWorktreeWindow: async (input) =>
+      await (await resolve()).listManagedWorktreeWindow(input),
     upsertBackgroundProcess: async (processInput, options) =>
       await (await resolve()).upsertBackgroundProcess(processInput, options),
-    readSidebar: async (includeArchived) =>
-      await (await resolve()).readSidebar(includeArchived),
     setProjectThreadOrder: async (projectId, orderedThreadIds) =>
       await (await resolve()).setProjectThreadOrder(
         projectId,

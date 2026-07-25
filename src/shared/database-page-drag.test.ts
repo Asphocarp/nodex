@@ -1,8 +1,9 @@
 import { describe, expect, test } from "vitest";
 
-import type {
-  DatabaseModuleReadSnapshotV2,
-  DatabaseViewQueryResultV2,
+import {
+  DATABASE_MODULE_V2_CONTRACT_VERSION,
+  type DatabaseModuleReadSnapshotV2,
+  type DatabaseViewQueryResultV2,
 } from "./database-module-v2";
 import {
   parseDatabaseId,
@@ -161,7 +162,7 @@ const querySnapshot = (input: {
     ],
   };
   return {
-    version: 2,
+    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     projectId: "project-1",
     libraryId: "library-1",
     storeEpoch: "epoch-1",

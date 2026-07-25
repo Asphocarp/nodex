@@ -27,7 +27,7 @@ type DeferredValue<Value> = ReturnType<typeof deferred<Value>>;
 
 function envelope(sequence: number): CoreEventEnvelope {
   return {
-    transport_version: 3,
+    transport_version: 4,
     event: {
       event_version: 2,
       sequence,

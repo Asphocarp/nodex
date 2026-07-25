@@ -167,11 +167,15 @@ pub trait VersionedModuleContract {
 pub mod administration;
 pub mod agent;
 pub mod automation;
+pub mod collection;
 pub mod database;
 pub mod document;
 pub mod events;
 pub mod library;
 pub mod workspace;
+
+#[cfg(test)]
+mod collection_audit;
 
 pub use administration::STORE_ADMINISTRATION_CONTRACT_VERSION;
 pub use automation::AUTOMATION_CONTRACT_VERSION;
@@ -262,11 +266,11 @@ mod tests {
             [
                 ModuleContractVersion {
                     module: ModuleName::Library,
-                    contract_version: 1,
+                    contract_version: 2,
                 },
                 ModuleContractVersion {
                     module: ModuleName::Database,
-                    contract_version: 2,
+                    contract_version: 3,
                 },
                 ModuleContractVersion {
                     module: ModuleName::OwnedDocument,
@@ -274,15 +278,15 @@ mod tests {
                 },
                 ModuleContractVersion {
                     module: ModuleName::ProjectWorkspace,
-                    contract_version: 4,
+                    contract_version: 5,
                 },
                 ModuleContractVersion {
                     module: ModuleName::Automation,
-                    contract_version: 1,
+                    contract_version: 2,
                 },
                 ModuleContractVersion {
                     module: ModuleName::StoreAdministration,
-                    contract_version: 1,
+                    contract_version: 2,
                 },
             ]
         );

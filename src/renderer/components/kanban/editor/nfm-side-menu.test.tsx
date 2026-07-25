@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { render } from "@/test/dom";
+import { TestQueryProvider } from "@/test/query";
 import type { BoardSummary, DatabasePageSummary, Project } from "@/lib/types";
 import { plainTextToPortableRichText } from "../../../../shared/block-documents";
 import { NfmMoveToMenuSurface } from "./nfm-move-to-menu";
@@ -23,6 +24,14 @@ import {
 } from "./nfm-side-menu";
 
 const TEST_DATE = new Date("2026-01-01T00:00:00.000Z");
+
+function renderWithQuery(children: ReactNode) {
+  return render(
+    <TestQueryProvider>
+      {children}
+    </TestQueryProvider>,
+  );
+}
 
 function makeProject(id: string, name: string, icon?: string): Project {
   return {
@@ -194,7 +203,7 @@ function renderSideMenuSurface({
     );
   };
 
-  const view = render(renderSurface());
+  const view = renderWithQuery(renderSurface());
   return { calls, view };
 }
 
@@ -495,7 +504,7 @@ describe("nfm side menu surface", () => {
   });
 
   test("renders submenu flyouts outside the clipped main menu surface", async () => {
-    const view = render(<StatefulSideMenuSurface />);
+    const view = renderWithQuery(<StatefulSideMenuSurface />);
     const mainDialog = view.getByRole("dialog", { name: "Block actions" });
 
     fireEvent.click(view.getByRole("option", { name: /Turn into/ }));
@@ -515,7 +524,7 @@ describe("nfm side menu surface", () => {
       consoleErrors.push(args.map(String).join(" "));
     };
     try {
-      const view = render(
+      const view = renderWithQuery(
         <StatefulSideMenuSurface
           onMoveBlocksToDestination={(destination) => {
             calls.destinations.push(destination);
@@ -565,7 +574,7 @@ describe("nfm side menu surface", () => {
     const calls = {
       destinations: [] as NfmMoveToDestination[],
     };
-    const view = render(
+    const view = renderWithQuery(
       <StatefulSideMenuSurface
         onMoveBlocksToDestination={(destination) => {
           calls.destinations.push(destination);
@@ -611,7 +620,7 @@ describe("nfm side menu surface", () => {
     const calls = {
       destinations: [] as NfmMoveToDestination[],
     };
-    const view = render(
+    const view = renderWithQuery(
       <StatefulSideMenuSurface
         onMoveBlocksToDestination={(destination) => {
           calls.destinations.push(destination);
@@ -640,7 +649,7 @@ describe("nfm side menu surface", () => {
   });
 
   test("renders Move to loading, empty, and error states", async () => {
-    const loadingView = render(
+    const loadingView = renderWithQuery(
       <NfmMoveToMenuSurface
         projects={MOVE_TO_PROJECTS}
         boardMap={MOVE_TO_BOARD_MAP}
@@ -658,7 +667,7 @@ describe("nfm side menu surface", () => {
     }, { timeout: 650 });
     loadingView.unmount();
 
-    const emptyView = render(
+    const emptyView = renderWithQuery(
       <NfmMoveToMenuSurface
         projects={MOVE_TO_PROJECTS}
         boardMap={MOVE_TO_BOARD_MAP}
@@ -675,7 +684,7 @@ describe("nfm side menu surface", () => {
     expect(emptyView.getByText("No results")).not.toBeNull();
     emptyView.unmount();
 
-    const errorView = render(
+    const errorView = renderWithQuery(
       <NfmMoveToMenuSurface
         projects={MOVE_TO_PROJECTS}
         boardMap={MOVE_TO_BOARD_MAP}

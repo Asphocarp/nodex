@@ -76,8 +76,8 @@ describe("native desktop Nodex Agent dynamic service", () => {
         storeEpoch: "store-native-agent",
         changeLogSeq: 9,
         value: {
-          kind: "catalog" as const,
-          databases: [{
+          kind: "database" as const,
+          value: {
             database: {
               databaseId: "database-native-agent",
               name: "Tasks",
@@ -96,7 +96,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
               isDefault: true,
               lifecycle: "active",
             }],
-          }],
+          },
         },
       },
     }));
@@ -980,42 +980,114 @@ describe("native desktop Nodex Agent dynamic service", () => {
   });
 
   test("queries native Data Sources with exact Agent authority and Core pagination", async () => {
-    const databaseRead = vi.fn(async () => ({
-      store_epoch: "store-native-agent",
-      event_head: 13,
-      value: {
-        kind: "agent_query" as const,
-        value: {
-          database: {
-            databaseId: "database-native-agent",
-            libraryId: "library-native-agent",
-            name: "Tasks",
-            lifecycle: "active",
-            defaultViewId: null,
-            accessRevision: 1,
-            metadataRevision: 1,
-            createdAt: "2026-07-20T00:00:00.000Z",
-            updatedAt: "2026-07-20T00:00:00.000Z",
-          },
-          dataSource: {
-            dataSourceId: "data-source-native-agent",
-            libraryId: "library-native-agent",
-            homeDatabaseId: "database-native-agent",
-            name: "Tasks",
-            schemaKey: "nodex.data-source",
-            schemaRevision: 4,
-            lifecycle: "active",
-            rankKey: "a",
-            createdAt: "2026-07-20T00:00:00.000Z",
-            updatedAt: "2026-07-20T00:00:00.000Z",
-          },
-          properties: [],
-          rows: [],
-        },
-        has_more: true,
-        next_cursor: "nxl1.query.signature",
+    const database = {
+      databaseId: "database-native-agent",
+      libraryId: "library-native-agent",
+      name: "Tasks",
+      lifecycle: "active",
+      defaultViewId: "view-native-agent",
+      accessRevision: 1,
+      metadataRevision: 1,
+      createdAt: "2026-07-20T00:00:00.000Z",
+      updatedAt: "2026-07-20T00:00:00.000Z",
+    };
+    const dataSource = {
+      dataSourceId: "data-source-native-agent",
+      libraryId: "library-native-agent",
+      homeDatabaseId: "database-native-agent",
+      name: "Tasks",
+      schemaKey: "nodex.data-source",
+      schemaRevision: 4,
+      lifecycle: "active",
+      rankKey: "a",
+      createdAt: "2026-07-20T00:00:00.000Z",
+      updatedAt: "2026-07-20T00:00:00.000Z",
+    };
+    const view = {
+      viewId: "view-native-agent",
+      databaseId: "database-native-agent",
+      dataSourceId: "data-source-native-agent",
+      name: "Tasks",
+      kind: "list",
+      config: {
+        schemaKey: "nodex.database-view",
+        schemaVersion: 2,
+        filter: { kind: "group", operator: "and", children: [] },
+        sort: [],
+        group: null,
+        display: { propertyIds: [], showTitle: true },
       },
-    }));
+      isDefault: true,
+      revision: 1,
+      rankKey: "a",
+      lifecycle: "active",
+      createdAt: "2026-07-20T00:00:00.000Z",
+      updatedAt: "2026-07-20T00:00:00.000Z",
+    };
+    const databaseRead = vi.fn(async (read: { mode: string }) => {
+      const value = (() => {
+        switch (read.mode) {
+          case "database":
+            return {
+              kind: "database" as const,
+              value: { database },
+            };
+          case "data_source_window":
+            return {
+              kind: "data_source_window" as const,
+              data_sources: {
+                items: [dataSource],
+                next_cursor: null,
+                authority: { projection_revision: 13 },
+              },
+            };
+          case "view_descriptor_window":
+            return {
+              kind: "view_descriptor_window" as const,
+              views: {
+                items: [view],
+                next_cursor: null,
+                authority: { projection_revision: 13 },
+              },
+            };
+          case "data_source":
+            return {
+              kind: "data_source" as const,
+              value: { dataSource },
+            };
+          case "property_window":
+            return {
+              kind: "property_window" as const,
+              properties: {
+                items: [],
+                next_cursor: null,
+                authority: { projection_revision: 13 },
+              },
+            };
+          case "view":
+            return { kind: "view" as const, value: view };
+          default:
+            return {
+              kind: "agent_query" as const,
+              value: {
+                database_id: "database-native-agent",
+                data_source_id: "data-source-native-agent",
+                view_id: "view-native-agent",
+                rows: {
+                  items: [],
+                  next_cursor: "nxl1.query.signature",
+                  authority: { projection_revision: 13 },
+                },
+              },
+            };
+        }
+      })();
+      return {
+        store_epoch: "store-native-agent",
+        event_head: 13,
+        value,
+      };
+    });
     const runtime = {
       backend: "rust" as const,
       rootClient: {
@@ -1051,7 +1123,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
       },
       page: { hasMore: true, nextCursor: "nxl1.query.signature" },
     });
-    expect(databaseRead).toHaveBeenCalledWith(expect.objectContaining({
+    expect(databaseRead).toHaveBeenNthCalledWith(1, expect.objectContaining({
       target: expect.objectContaining({
         kind: "agent_data_source",
         data_source_id: "data-source-native-agent",
@@ -1062,7 +1134,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
           limit: 25,
         }),
       }),
-      mode: "query",
+      mode: "agent_query",
     }));
   });
 

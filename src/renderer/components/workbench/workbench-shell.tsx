@@ -226,13 +226,13 @@ import {
   prefetchProjectSessionDetail,
   projectSessionToSummary,
   seedProjectSessionDetail,
-  seedProjectSessionDetails,
   setProjectSessionSummaries,
 } from "@/lib/project-session-query-cache";
 import {
   projectSessionDetailQueryOptions,
   projectSessionSummariesQueryOptions,
 } from "@/lib/query-options";
+import { queryKeys } from "@/lib/query-keys";
 import {
   CODEX_SHELL_MEDIUM_WIDTH_PX,
   CODEX_SHELL_NARROW_WIDTH_PX,
@@ -324,6 +324,7 @@ import type {
   ProjectSessionForkResult,
   WorkbenchPanelState,
   ProjectSessionSummary,
+  ProjectSessionSummaryWindow,
   WorkbenchTabProjection,
   WorkbenchProjectionTabConfiguration,
   WorkbenchTabCreateInput,
@@ -871,24 +872,55 @@ function sortProjectSessionsForSidebar(sessions: ProjectSession[]): ProjectSessi
 }
 
 function applyProjectSessionSummaryToLoadedSession(
-  _session: ProjectSessionDomain,
+  session: ProjectSessionDomain,
   summary: ProjectSessionSummary,
   view: WorkbenchSessionViewSnapshot,
 ): ProjectSession {
-  return projectSessionWithWorkbenchView(summary, view);
+  return projectSessionWithWorkbenchView(
+    projectSessionSummaryToDetail(summary, session),
+    view,
+  );
 }
 
 function makeSummaryOnlyProjectSession(
   summary: ProjectSessionSummary,
   view: WorkbenchSessionViewSnapshot,
 ): ProjectSession {
-  return projectSessionWithWorkbenchView(summary, view);
+  return projectSessionWithWorkbenchView(
+    projectSessionSummaryToDetail(summary),
+    view,
+  );
+}
+
+function projectSessionSummaryToDetail(
+  summary: ProjectSessionSummary,
+  current?: ProjectSessionDomain,
+): ProjectSessionDomain {
+  const thread = summary.thread
+    ? current?.thread?.threadId === summary.thread.threadId
+      ? { ...current.thread, ...summary.thread }
+      : {
+          ...summary.thread,
+          modelProvider: "openai",
+          executionProfile: null,
+          managedWorktreePath: null,
+          projectlessOutputDirectory: null,
+          projectlessWorkspaceBrowserRoot: null,
+        }
+    : null;
+  return {
+    ...summary,
+    thread,
+  };
 }
 
 interface WorkbenchShellProps {
   windowSessionId: string;
   libraryWorkspaceEnabled: boolean;
   projects: Project[];
+  hasMoreProjects?: boolean;
+  loadingMoreProjects?: boolean;
+  onLoadMoreProjects?: () => Promise<void>;
   projectCatalogError?: string | null;
   onRetryProjects?: () => Promise<void> | void;
   dbProjectId: string | null;
@@ -955,9 +987,9 @@ interface WorkbenchShellProps {
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
   onArchiveProject: (projectId: string) => Promise<ProjectLifecycleMutationResult>;
-  onReorderProjects: (input: ProjectOrderInput) => Promise<Project[]>;
+  onReorderProjects: (input: ProjectOrderInput) => Promise<void>;
   onSetProjectPinned: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
-  onSetPinnedProjectOrder: (input: ProjectPinnedOrderInput) => Promise<Project[]>;
+  onSetPinnedProjectOrder: (input: ProjectPinnedOrderInput) => Promise<void>;
   onRequestProjectPickerOpen: () => void;
   threadSearchOpenTick: number;
   contentSearchOpenRequest?: ContentSearchOpenRequest | null;
@@ -2365,6 +2397,9 @@ export function WorkbenchShell({
   windowSessionId,
   libraryWorkspaceEnabled,
   projects,
+  hasMoreProjects = false,
+  loadingMoreProjects = false,
+  onLoadMoreProjects,
   projectCatalogError = null,
   onRetryProjects,
   dbProjectId,
@@ -2426,15 +2461,65 @@ export function WorkbenchShell({
   commandKeymapState,
 }: WorkbenchShellProps) {
   const queryClient = useQueryClient();
-  const projectSessionScopeIds = [...projects.map((project) => project.id), null];
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(dbProjectId);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(initialActiveProjectSessionId);
+  const [expandedProjectIds, setExpandedProjectIds] = useState(() =>
+    readInitialExpandedProjects(projects, dbProjectId),
+  );
+  const projectSessionScopeIds = [
+    ...projects
+      .filter((project) =>
+        expandedProjectIds.has(project.id) || project.id === activeProjectId
+      )
+      .map((project) => project.id),
+    null,
+  ];
   const projectSessionSummaryState = useQueries({
     queries: projectSessionScopeIds.map(projectSessionSummariesQueryOptions),
     combine: (results) => ({
-      summaries: results.map((result) => result.data ?? []),
+      windowsByScope: Object.fromEntries(results.map((result, index) => [
+        projectSessionScopeIds[index] ?? "__projectless__",
+        result.data ?? null,
+      ])),
       loading: results.some((result) => result.isPending),
       error: results.find((result) => result.error)?.error ?? null,
     }),
   });
+  const taskWindowLoadInFlightRef = useRef<Set<string>>(new Set());
+  const loadMoreProjectSessionSummaries = useCallback(async (
+    projectId: string | null,
+  ): Promise<void> => {
+    const scopeKey = projectId ?? "__projectless__";
+    if (taskWindowLoadInFlightRef.current.has(scopeKey)) return;
+    const queryKey = queryKeys.projectSessions.summaries(projectId);
+    const current =
+      queryClient.getQueryData<ProjectSessionSummaryWindow>(queryKey);
+    if (!current?.nextCursor) return;
+
+    taskWindowLoadInFlightRef.current.add(scopeKey);
+    try {
+      const next = await invoke("workspace:tasks:list", projectId, {
+        after: current.nextCursor,
+        first: 50,
+      });
+      queryClient.setQueryData<ProjectSessionSummaryWindow>(
+        queryKey,
+        (latest) => {
+          if (!latest || latest.nextCursor !== current.nextCursor) return latest;
+          const knownIds = new Set(latest.items.map((item) => item.id));
+          return {
+            ...next,
+            items: [
+              ...latest.items,
+              ...next.items.filter((item) => !knownIds.has(item.id)),
+            ],
+          };
+        },
+      );
+    } finally {
+      taskWindowLoadInFlightRef.current.delete(scopeKey);
+    }
+  }, [queryClient]);
   const materializedSessionViewsRef = useRef<
     Record<string, WorkbenchSessionViewSnapshot>
   >({});
@@ -2450,9 +2535,9 @@ export function WorkbenchShell({
     return materialized;
   }, [sessionViewsBySessionId]);
   const sessionsByProject = useMemo<Record<string, ProjectSession[]>>(() =>
-    Object.fromEntries(projects.map((project, index) => [
+    Object.fromEntries(projects.map((project) => [
       project.id,
-      projectSessionSummaryState.summaries[index]!.map((summary) => {
+      (projectSessionSummaryState.windowsByScope[project.id]?.items ?? []).map((summary) => {
         const detail = getCachedProjectSessionDetail(queryClient, summary.id);
         const view = resolveSessionView(detail ?? summary);
         return detail
@@ -2460,9 +2545,10 @@ export function WorkbenchShell({
           : makeSummaryOnlyProjectSession(summary, view);
       }),
     ])),
-  [projectSessionSummaryState.summaries, projects, queryClient, resolveSessionView]);
+  [projectSessionSummaryState.windowsByScope, projects, queryClient, resolveSessionView]);
   const projectlessSessions = useMemo(() => {
-    const summaries = projectSessionSummaryState.summaries[projects.length] ?? [];
+    const summaries =
+      projectSessionSummaryState.windowsByScope.__projectless__?.items ?? [];
     return summaries.map((summary) => {
       const detail = getCachedProjectSessionDetail(queryClient, summary.id);
       const view = resolveSessionView(detail ?? summary);
@@ -2471,23 +2557,22 @@ export function WorkbenchShell({
         : makeSummaryOnlyProjectSession(summary, view);
     });
   }, [
-    projectSessionSummaryState.summaries,
-    projects.length,
+    projectSessionSummaryState.windowsByScope,
     queryClient,
     resolveSessionView,
   ]);
   const loadingSessions = projectSessionSummaryState.loading;
+  const taskWindowHasMoreByScope = Object.fromEntries(
+    Object.entries(projectSessionSummaryState.windowsByScope).map(
+      ([scope, window]) => [scope, window?.hasMore === true],
+    ),
+  );
   const sessionsReady = !loadingSessions;
   const sessionError = projectSessionSummaryState.error instanceof Error
     ? projectSessionSummaryState.error.message
     : projectSessionSummaryState.error
       ? "Unable to load project sessions"
       : null;
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(dbProjectId);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(initialActiveProjectSessionId);
-  const [expandedProjectIds, setExpandedProjectIds] = useState(() =>
-    readInitialExpandedProjects(projects, dbProjectId),
-  );
   const [contextMenuSessionId, setContextMenuSessionId] = useState<string | null>(null);
   const [renameSession, setRenameSession] = useState<ProjectSession | null>(null);
   const [blockedSidebarThreadMove, setBlockedSidebarThreadMove] =
@@ -3348,14 +3433,20 @@ export function WorkbenchShell({
   }, [keyboardShortcutsSettingsOpenTick]);
 
   const refreshProjectSessions = useCallback(async (projectId: string | null) => {
-    const sessions = (await invoke(
-      "project-sessions:list",
+    const window = await invoke(
+      "workspace:tasks:list",
       projectId,
-    )) as ProjectSessionDomain[];
-    seedProjectSessionDetails(queryClient, sessions);
-    setProjectSessionSummaries(queryClient, projectId, sessions.map(projectSessionToSummary));
-    return sessions.map((session) =>
-      projectSessionWithWorkbenchView(session, resolveSessionView(session))
+      { first: 50 },
+    );
+    queryClient.setQueryData<ProjectSessionSummaryWindow>(
+      queryKeys.projectSessions.summaries(projectId),
+      window,
+    );
+    return window.items.map((session) =>
+      projectSessionWithWorkbenchView(
+        projectSessionSummaryToDetail(session),
+        resolveSessionView(session),
+      )
     );
   }, [queryClient, resolveSessionView]);
 
@@ -3412,13 +3503,16 @@ export function WorkbenchShell({
     }
     if (result.status === "unchanged") return;
 
-    const scopes = new Map([
-      [result.source.projectId ?? "__projectless__", result.source] as const,
-      [result.destination.projectId ?? "__projectless__", result.destination] as const,
+    const scopeIds = new Set([
+      result.source.projectId,
+      result.destination.projectId,
     ]);
-    for (const scope of scopes.values()) {
-      setProjectSessionSummaries(queryClient, scope.projectId, scope.sessions);
-    }
+    await Promise.all([...scopeIds].map(async (projectId) => {
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.projectSessions.summaries(projectId),
+        exact: true,
+      });
+    }));
     startTransition(() => {
       applySidebarThreadSnapshot(result.snapshot);
     });
@@ -6360,11 +6454,14 @@ export function WorkbenchShell({
     projectId: string | null,
     options?: { select?: boolean },
   ) => {
-    const sessions = projectId === null
-      ? projectlessSessions.length > 0
+    const cachedWindow = queryClient.getQueryData<ProjectSessionSummaryWindow>(
+      queryKeys.projectSessions.summaries(projectId),
+    );
+    const sessions = cachedWindow
+      ? projectId === null
         ? projectlessSessions
-        : await refreshProjectSessions(null)
-      : sessionsByProject[projectId] ?? await refreshProjectSessions(projectId);
+        : sessionsByProject[projectId] ?? []
+      : await refreshProjectSessions(projectId);
     const shouldSelect = options?.select !== false;
 
     for (const candidate of sessions) {
@@ -9969,6 +10066,9 @@ export function WorkbenchShell({
             <ProjectSessionSidebar
               libraryWorkspaceEnabled={libraryWorkspaceEnabled}
               projectRefs={projectRefs}
+              hasMoreProjects={hasMoreProjects}
+              loadingMoreProjects={loadingMoreProjects}
+              onLoadMoreProjects={onLoadMoreProjects}
               activeProjectId={activeProjectId}
               activeSessionId={activeSession?.id ?? null}
               activePendingClientThreadId={pendingWorktreeClientThreadId}
@@ -9983,6 +10083,8 @@ export function WorkbenchShell({
               projectsSectionCollapsed={projectsSectionCollapsed}
               chatsSectionCollapsed={chatsSectionCollapsed}
               loadingSessions={loadingSessions}
+              taskWindowHasMoreByScope={taskWindowHasMoreByScope}
+              onLoadMoreTaskWindow={loadMoreProjectSessionSummaries}
               width={sidebarWidth}
               animatedWidth={realSidebarMotion.animatedWidth}
               contentOpacity={realSidebarMotion.opacity}
@@ -10077,6 +10179,9 @@ export function WorkbenchShell({
                   floating
                   header={floatingSidebarHeader}
                   projectRefs={projectRefs}
+                  hasMoreProjects={hasMoreProjects}
+                  loadingMoreProjects={loadingMoreProjects}
+                  onLoadMoreProjects={onLoadMoreProjects}
                   activeProjectId={activeProjectId}
                   activeSessionId={activeSession?.id ?? null}
                   activePendingClientThreadId={pendingWorktreeClientThreadId}
@@ -10091,6 +10196,8 @@ export function WorkbenchShell({
                   projectsSectionCollapsed={projectsSectionCollapsed}
                   chatsSectionCollapsed={chatsSectionCollapsed}
                   loadingSessions={loadingSessions}
+                  taskWindowHasMoreByScope={taskWindowHasMoreByScope}
+                  onLoadMoreTaskWindow={loadMoreProjectSessionSummaries}
                   width={sidebarWidth}
                   getWindowZoom={getWindowZoom}
                   onResizeWidth={applySidebarWidth}
@@ -10325,6 +10432,8 @@ interface CodexSidebarPaginatedItemsProps<T> {
   forcedVisibleKey?: string | null;
   suppressedKeys?: ReadonlySet<string>;
   pagerClassName?: string;
+  hasMoreAtSource?: boolean;
+  onLoadMore?: () => void | Promise<void>;
   children: (
     pagination: CodexSidebarPaginationResult<T>,
     pager: ReactNode,
@@ -10340,6 +10449,8 @@ function CodexSidebarPaginatedItems<T>({
   forcedVisibleKey = null,
   suppressedKeys,
   pagerClassName = CODEX_SIDEBAR_DEFAULT_PAGER_ROW_CLASS,
+  hasMoreAtSource = false,
+  onLoadMore,
   children,
 }: CodexSidebarPaginatedItemsProps<T>) {
   const [extraPageCount, setExtraPageCount] = useState(1);
@@ -10378,15 +10489,27 @@ function CodexSidebarPaginatedItems<T>({
 
   const showMore = useCallback(() => {
     if (!expanded) {
+      if (hasMoreAtSource) {
+        void onLoadMore?.();
+      }
       setExtraPageCount(1);
       onExpandedChange?.(true);
       restorePagerFocus();
       return;
     }
 
+    if (hasMoreAtSource) {
+      void onLoadMore?.();
+    }
     setExtraPageCount((current) => current + 1);
     restorePagerFocus();
-  }, [expanded, onExpandedChange, restorePagerFocus]);
+  }, [
+    expanded,
+    hasMoreAtSource,
+    onExpandedChange,
+    onLoadMore,
+    restorePagerFocus,
+  ]);
 
   const showLess = useCallback(() => {
     setExtraPageCount(1);
@@ -10394,9 +10517,10 @@ function CodexSidebarPaginatedItems<T>({
     restorePagerFocus();
   }, [onExpandedChange, restorePagerFocus]);
 
-  const pager = pagination.showPager ? (
+  const hasOverflow = pagination.hasOverflow || hasMoreAtSource;
+  const pager = pagination.showPager || hasMoreAtSource ? (
     <div className={pagerClassName} role="listitem">
-      {pagination.hasOverflow ? (
+      {hasOverflow ? (
         <button
           ref={focusRestoreTargetRef}
           type="button"
@@ -10408,7 +10532,7 @@ function CodexSidebarPaginatedItems<T>({
       ) : null}
       {expanded ? (
         <button
-          ref={pagination.hasOverflow ? undefined : focusRestoreTargetRef}
+          ref={hasOverflow ? undefined : focusRestoreTargetRef}
           type="button"
           className={CODEX_SIDEBAR_PAGER_BUTTON_CLASS}
           onClick={showLess}
@@ -10548,6 +10672,8 @@ function SidebarThreadContainerRowsContent({
   forcedVisibleKey,
   suppressedKeys,
   loading,
+  hasMoreAtSource,
+  onLoadMore,
   onVisibleThreadOrderChange,
   renderThread,
 }: {
@@ -10560,6 +10686,8 @@ function SidebarThreadContainerRowsContent({
   forcedVisibleKey: string | null;
   suppressedKeys: ReadonlySet<string>;
   loading: boolean;
+  hasMoreAtSource: boolean;
+  onLoadMore: () => void | Promise<void>;
   onVisibleThreadOrderChange: (change: {
     visibleThreadKeys: string[];
     nextVisibleThreadKeys: string[];
@@ -10597,6 +10725,8 @@ function SidebarThreadContainerRowsContent({
         onExpandedChange={onExpandedChange}
         forcedVisibleKey={forcedVisibleKey}
         suppressedKeys={suppressedKeys}
+        hasMoreAtSource={hasMoreAtSource}
+        onLoadMore={onLoadMore}
       >
         {(pagination, pager) => (
           <div className="isolate flex flex-col [contain:layout]">
@@ -10648,6 +10778,8 @@ function SidebarProjectThreadRowsContent({
   forcedVisibleKey,
   suppressedKeys,
   loading,
+  hasMoreAtSource,
+  onLoadMore,
   onExpandedChange,
   onPinnedThreadOrderChange,
   onProjectThreadOrderChange,
@@ -10663,6 +10795,8 @@ function SidebarProjectThreadRowsContent({
   forcedVisibleKey: string | null;
   suppressedKeys: ReadonlySet<string>;
   loading: boolean;
+  hasMoreAtSource: boolean;
+  onLoadMore: () => void | Promise<void>;
   onExpandedChange: (expanded: boolean) => void;
   onPinnedThreadOrderChange: (change: {
     visibleThreadKeys: string[];
@@ -10774,6 +10908,8 @@ function SidebarProjectThreadRowsContent({
       forcedVisibleKey={forcedVisibleKey}
       suppressedKeys={suppressedKeys}
       pagerClassName={CODEX_SIDEBAR_PROJECT_THREAD_PAGER_ROW_CLASS}
+      hasMoreAtSource={hasMoreAtSource}
+      onLoadMore={onLoadMore}
     >
       {(pagination, pager) => {
         const pinnedThreadKeySet = new Set(displayedPinnedThreadKeys);
@@ -10853,6 +10989,8 @@ function SidebarThreadOrganizerSections({
   projectsSectionCollapsed,
   chatsSectionCollapsed,
   loadingSessions,
+  taskWindowHasMoreByScope,
+  onLoadMoreTaskWindow,
   model,
   onTogglePinnedThreadsSectionCollapsed,
   onToggleLibrarySectionCollapsed,
@@ -10887,6 +11025,9 @@ function SidebarThreadOrganizerSections({
   onOpenLibraryTarget,
   onOpenLibraryTargetInProject,
   activeLibraryTarget,
+  hasMoreProjects,
+  loadingMoreProjects,
+  onLoadMoreProjects,
 }: {
   libraryWorkspaceEnabled: boolean;
   activeProjectId: string | null;
@@ -10901,6 +11042,8 @@ function SidebarThreadOrganizerSections({
   projectsSectionCollapsed: boolean;
   chatsSectionCollapsed: boolean;
   loadingSessions: boolean;
+  taskWindowHasMoreByScope: Readonly<Record<string, boolean>>;
+  onLoadMoreTaskWindow: (projectId: string | null) => Promise<void>;
   model: CodexSidebarThreadSyncModel;
   onTogglePinnedThreadsSectionCollapsed: () => void;
   onToggleLibrarySectionCollapsed: () => void;
@@ -10927,9 +11070,9 @@ function SidebarThreadOrganizerSections({
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
   onArchiveProject: (projectId: string) => Promise<ProjectLifecycleMutationResult>;
-  onReorderProjects: (input: ProjectOrderInput) => Promise<Project[]>;
+  onReorderProjects: (input: ProjectOrderInput) => Promise<void>;
   onSetProjectPinned: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
-  onSetPinnedProjectOrder: (input: ProjectPinnedOrderInput) => Promise<Project[]>;
+  onSetPinnedProjectOrder: (input: ProjectPinnedOrderInput) => Promise<void>;
   onReorderProjectThreads: (projectId: string, orderedThreadIds: string[]) => Promise<void>;
   onReorderChatsThreads: (input: CodexSidebarChatsThreadOrderInput) => Promise<void>;
   onReorderPinnedThreads: (orderedThreadIds: readonly string[]) => Promise<unknown>;
@@ -10942,6 +11085,9 @@ function SidebarThreadOrganizerSections({
     title: string,
   ) => void | Promise<void>;
   activeLibraryTarget: LibraryRouteTarget | null;
+  hasMoreProjects: boolean;
+  loadingMoreProjects: boolean;
+  onLoadMoreProjects?: () => Promise<void>;
 }) {
   const [pinnedProjectsExpanded, setPinnedProjectsExpanded] = useState(false);
   const [projectsExpanded, setProjectsExpanded] = useState(false);
@@ -11429,6 +11575,7 @@ function SidebarThreadOrganizerSections({
       expanded: boolean;
       onExpandedChange: (expanded: boolean) => void;
       emptyText?: string;
+      readsProjectWindow?: boolean;
     },
   ) => (
     <CodexSidebarPaginatedItems
@@ -11438,6 +11585,8 @@ function SidebarThreadOrganizerSections({
       expanded={options.expanded}
       onExpandedChange={options.onExpandedChange}
       forcedVisibleKey={activeProjectId}
+      hasMoreAtSource={options.readsProjectWindow === true && hasMoreProjects}
+      onLoadMore={options.readsProjectWindow ? onLoadMoreProjects : undefined}
     >
       {(pagination, pager) => {
         const visibleGroupIds = pagination.visibleItems.map((group) => group.project.id);
@@ -11446,7 +11595,7 @@ function SidebarThreadOrganizerSections({
             visibleItems={pagination.visibleItems}
             pager={pager}
             emptyText={options.emptyText ?? "No projects"}
-            loading={loadingSessions}
+            loading={loadingSessions || loadingMoreProjects}
             reorderGroups={(nextVisibleGroupIds) => {
               if (options.reorderScope === "pinned") {
                 return reorderVisiblePinnedProjectGroups(visibleGroupIds, nextVisibleGroupIds);
@@ -11493,6 +11642,10 @@ function SidebarThreadOrganizerSections({
                     forcedVisibleKey={activeThreadKey}
                     suppressedKeys={sidebarArchivePendingKeys}
                     loading={loadingSessions}
+                    hasMoreAtSource={
+                      taskWindowHasMoreByScope[project.id] === true
+                    }
+                    onLoadMore={() => onLoadMoreTaskWindow(project.id)}
                     onPinnedThreadOrderChange={reorderVisiblePinnedThreads}
                     onProjectThreadOrderChange={onReorderProjectThreads}
                     getThreadId={getSidebarRealThreadId}
@@ -11623,6 +11776,7 @@ function SidebarThreadOrganizerSections({
           reorderScope: "projects",
           expanded: projectsExpanded,
           onExpandedChange: setProjectsExpanded,
+          readsProjectWindow: true,
         })}
       </CodexSidebarSection>
       <CodexSidebarSection
@@ -11649,6 +11803,10 @@ function SidebarThreadOrganizerSections({
           forcedVisibleKey={activeThreadKey}
           suppressedKeys={sidebarArchivePendingKeys}
           loading={loadingSessions}
+          hasMoreAtSource={
+            taskWindowHasMoreByScope.__projectless__ === true
+          }
+          onLoadMore={() => onLoadMoreTaskWindow(null)}
           onVisibleThreadOrderChange={reorderVisibleProjectlessThreads}
           renderThread={renderThreadRow}
         />
@@ -11677,6 +11835,8 @@ function ProjectSessionSidebar({
   projectsSectionCollapsed,
   chatsSectionCollapsed,
   loadingSessions,
+  taskWindowHasMoreByScope,
+  onLoadMoreTaskWindow,
   width,
   animatedWidth,
   contentOpacity,
@@ -11731,6 +11891,9 @@ function ProjectSessionSidebar({
   onLogout,
   onAccountErrorMessage,
   sidebarArchivePendingKeys,
+  hasMoreProjects,
+  loadingMoreProjects,
+  onLoadMoreProjects,
 }: {
   libraryWorkspaceEnabled: boolean;
   floating?: boolean;
@@ -11750,6 +11913,8 @@ function ProjectSessionSidebar({
   projectsSectionCollapsed: boolean;
   chatsSectionCollapsed: boolean;
   loadingSessions: boolean;
+  taskWindowHasMoreByScope: Readonly<Record<string, boolean>>;
+  onLoadMoreTaskWindow: (projectId: string | null) => Promise<void>;
   width: number;
   animatedWidth?: MotionValue<number>;
   contentOpacity?: MotionValue<number>;
@@ -11793,9 +11958,9 @@ function ProjectSessionSidebar({
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
   onArchiveProject: (projectId: string) => Promise<ProjectLifecycleMutationResult>;
-  onReorderProjects: (input: ProjectOrderInput) => Promise<Project[]>;
+  onReorderProjects: (input: ProjectOrderInput) => Promise<void>;
   onSetProjectPinned: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
-  onSetPinnedProjectOrder: (input: ProjectPinnedOrderInput) => Promise<Project[]>;
+  onSetPinnedProjectOrder: (input: ProjectPinnedOrderInput) => Promise<void>;
   onReorderProjectThreads: (projectId: string, orderedThreadIds: string[]) => Promise<void>;
   onReorderChatsThreads: (input: CodexSidebarChatsThreadOrderInput) => Promise<void>;
   onMoveSidebarThread: (drop: SidebarThreadDropRequest) => Promise<void>;
@@ -11811,6 +11976,9 @@ function ProjectSessionSidebar({
   onLogout: () => Promise<void>;
   onAccountErrorMessage: (message: string | null) => void;
   sidebarArchivePendingKeys: ReadonlySet<string>;
+  hasMoreProjects: boolean;
+  loadingMoreProjects: boolean;
+  onLoadMoreProjects?: () => Promise<void>;
 }) {
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const [pendingLibraryGrantDrop, setPendingLibraryGrantDrop] = useState<{
@@ -12104,6 +12272,8 @@ function ProjectSessionSidebar({
                   projectsSectionCollapsed={projectsSectionCollapsed}
                   chatsSectionCollapsed={chatsSectionCollapsed}
                   loadingSessions={loadingSessions}
+                  taskWindowHasMoreByScope={taskWindowHasMoreByScope}
+                  onLoadMoreTaskWindow={onLoadMoreTaskWindow}
                   model={sidebarThreadModel}
                   onTogglePinnedThreadsSectionCollapsed={onTogglePinnedProjectsSectionCollapsed}
                   onToggleLibrarySectionCollapsed={onToggleLibrarySectionCollapsed}
@@ -12138,6 +12308,9 @@ function ProjectSessionSidebar({
                   onOpenLibraryTarget={onOpenLibraryTarget}
                   onOpenLibraryTargetInProject={onOpenLibraryTargetInProject}
                   activeLibraryTarget={activeLibraryTarget}
+                  hasMoreProjects={hasMoreProjects}
+                  loadingMoreProjects={loadingMoreProjects}
+                  onLoadMoreProjects={onLoadMoreProjects}
                 />
               </SidebarReorderDndProvider>
               {libraryWorkspaceEnabled ? (

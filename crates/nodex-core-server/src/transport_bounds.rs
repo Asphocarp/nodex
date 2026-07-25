@@ -9,11 +9,12 @@ use serde_json::Value;
 
 use crate::document_wire;
 
-pub(crate) const MAX_JSON_REQUEST_BYTES: usize = 2 * 1024 * 1024;
+pub(crate) const MAX_JSON_REQUEST_BYTES: usize =
+    nodex_core_protocol::MAX_ORDINARY_JSON_REQUEST_BYTES;
 pub(crate) const MAX_DOCUMENT_REQUEST_BYTES: usize =
     nodex_core_protocol::MAX_DOCUMENT_JSON_REQUEST_BYTES;
-const MAX_JSON_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
-const MAX_DOCUMENT_RESPONSE_BYTES: usize = 16 * 1024 * 1024 + 8 * 1024 * 1024 + 8;
+const MAX_JSON_RESPONSE_BYTES: usize = nodex_core_protocol::MAX_ORDINARY_JSON_RESPONSE_BYTES;
+const MAX_DOCUMENT_RESPONSE_BYTES: usize = nodex_core_protocol::MAX_DOCUMENT_RESPONSE_BYTES;
 const MAX_JSON_DEPTH: usize = 32;
 const MAX_JSON_NODES: usize = 100_000;
 const MAX_JSON_ARRAY_ITEMS: usize = 65_536;
@@ -269,6 +270,35 @@ mod tests {
                 nodex_core_protocol::MAX_DOCUMENT_JSON_STRING_BYTES,
             ),
             Err("request JSON string exceeds its bound")
+        );
+    }
+
+    #[test]
+    fn ordinary_json_content_length_accepts_exact_limit_and_rejects_limit_plus_one() {
+        let exact = axum::http::HeaderMap::from_iter([(
+            CONTENT_LENGTH,
+            axum::http::HeaderValue::from_str(&MAX_JSON_RESPONSE_BYTES.to_string())
+                .expect("exact response length"),
+        )]);
+        let oversized = axum::http::HeaderMap::from_iter([(
+            CONTENT_LENGTH,
+            axum::http::HeaderValue::from_str(&(MAX_JSON_RESPONSE_BYTES + 1).to_string())
+                .expect("oversized response length"),
+        )]);
+
+        assert!(!content_length_exceeds(&exact, MAX_JSON_RESPONSE_BYTES));
+        assert!(content_length_exceeds(&oversized, MAX_JSON_RESPONSE_BYTES));
+    }
+
+    #[test]
+    fn server_ordinary_transport_budgets_are_protocol_owned() {
+        assert_eq!(
+            MAX_JSON_REQUEST_BYTES,
+            nodex_core_protocol::CORE_TRANSPORT_BUDGETS.ordinary_json_request_bytes as usize
+        );
+        assert_eq!(
+            MAX_JSON_RESPONSE_BYTES,
+            nodex_core_protocol::CORE_TRANSPORT_BUDGETS.ordinary_json_response_bytes as usize
         );
     }
 }

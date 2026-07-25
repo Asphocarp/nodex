@@ -35,6 +35,7 @@ function ProjectsHarness() {
       <span data-testid="project-count">{first.projects.length}:{second.projects.length}</span>
       <span data-testid="projects-ready">{String(first.ready)}</span>
       <span data-testid="projects-error">{first.error ?? ""}</span>
+      <span data-testid="projects-has-more">{String(first.hasMoreProjects)}</span>
       <span data-testid="archive-result">{archiveResult}</span>
       <button
         type="button"
@@ -48,6 +49,9 @@ function ProjectsHarness() {
       </button>
       <button type="button" onClick={() => void first.refresh()}>
         Retry projects
+      </button>
+      <button type="button" onClick={() => void first.loadMoreProjects()}>
+        Show more projects
       </button>
       <button
         type="button"
@@ -66,18 +70,35 @@ function ProjectsHarness() {
 describe("useProjects", () => {
   let projects: Project[];
   let listCalls = 0;
+  let paginateProjects = false;
   let projectChangeListener: ((event: unknown) => void) | null = null;
 
   beforeEach(() => {
     projects = [makeProject("alpha"), makeProject("beta")];
     listCalls = 0;
+    paginateProjects = false;
     projectChangeListener = null;
 
     installWindowApi({
       invoke: async (channel: string, ...args: unknown[]) => {
         if (channel === "projects:list") {
           listCalls += 1;
-          return projects;
+          const input = args[0] as { after?: string | null };
+          if (paginateProjects) {
+            const secondWindow = input.after === "projects:next";
+            return {
+              items: secondWindow ? projects.slice(2) : projects.slice(0, 2),
+              nextCursor: secondWindow ? null : "projects:next",
+              hasMore: !secondWindow,
+              projectionRevision: 1,
+            };
+          }
+          return {
+            items: projects,
+            nextCursor: null,
+            hasMore: false,
+            projectionRevision: listCalls,
+          };
         }
 
         if (channel === "projects:reorder") {
@@ -137,7 +158,34 @@ describe("useProjects", () => {
     expect(listCalls).toBe(2);
   });
 
-  test("updates the list cache after reorder without an extra list request", async () => {
+  test("loads a continuation only after an explicit request", async () => {
+    paginateProjects = true;
+    projects = [
+      makeProject("alpha"),
+      makeProject("beta"),
+      makeProject("gamma"),
+    ];
+    const view = render(
+      <TestQueryProvider>
+        <ProjectsHarness />
+      </TestQueryProvider>,
+    );
+
+    await waitFor(() => {
+      expect(view.getByTestId("project-count").textContent).toBe("2:2");
+    });
+    expect(view.getByTestId("projects-has-more").textContent).toBe("true");
+    expect(listCalls).toBe(1);
+
+    fireEvent.click(view.getByRole("button", { name: "Show more projects" }));
+    await waitFor(() => {
+      expect(view.getByTestId("project-count").textContent).toBe("3:3");
+    });
+    expect(view.getByTestId("projects-has-more").textContent).toBe("false");
+    expect(listCalls).toBe(2);
+  });
+
+  test("invalidates the bounded Project window after reorder", async () => {
     const view = render(
       <TestQueryProvider>
         <ProjectsHarness />
@@ -153,7 +201,7 @@ describe("useProjects", () => {
     await settleAsyncRender();
 
     expect(projects[0]?.id).toBe("beta");
-    expect(listCalls).toBe(1);
+    expect(listCalls).toBe(2);
   });
 
   test("archives through the typed lifecycle mutation and invalidates the active catalog", async () => {
@@ -182,7 +230,12 @@ describe("useProjects", () => {
         if (channel !== "projects:list") throw new Error(`Unexpected channel: ${channel}`);
         attempts += 1;
         if (attempts === 1) throw new Error("Project catalog unavailable");
-        return projects;
+        return {
+          items: projects,
+          nextCursor: null,
+          hasMore: false,
+          projectionRevision: attempts,
+        };
       },
       on: () => () => undefined,
     });

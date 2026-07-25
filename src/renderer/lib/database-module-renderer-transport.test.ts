@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vitest";
-import type { DatabaseApplyV2 } from "../../shared/database-module-v2";
+import {
+  DATABASE_MODULE_V2_CONTRACT_VERSION,
+  type DatabaseApplyV2,
+} from "../../shared/database-module-v2";
 import {
   parseDataSourceId,
   parseDataSourcePropertyId,
@@ -15,18 +18,35 @@ describe("Database Module renderer transport", () => {
       {
         ok: true,
         value: {
-          version: 2,
+          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
           projectId: "project/one",
           libraryId: "library-1",
           storeEpoch: "epoch-1",
           changeLogSeq: 2,
-          value: { kind: "catalog", databases: [] },
+          value: {
+            kind: "database",
+            value: {
+              database: {
+                databaseId: "database-1",
+                libraryId: "library-1",
+                name: "Tasks",
+                lifecycle: "active",
+                defaultViewId: null,
+                accessRevision: 1,
+                metadataRevision: 1,
+                createdAt: "2026-07-16T00:00:00.000Z",
+                updatedAt: "2026-07-16T00:00:00.000Z",
+              },
+              dataSources: [],
+              views: [],
+            },
+          },
         },
       },
       {
         ok: true,
         value: {
-          version: 2,
+          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
           operationId: "operation-1",
           projectId: "project/one",
           libraryId: "library-1",
@@ -55,15 +75,15 @@ describe("Database Module renderer transport", () => {
     }) as typeof fetch;
 
     const readRequest = {
-      version: 2 as const,
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId: "project/one",
       read: {
         target: { kind: "project_default" as const },
-        mode: "catalog" as const,
+        mode: "database" as const,
       },
     };
     const applyRequest: DatabaseApplyV2 = {
-      version: 2,
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId: "operation-1",
       projectId: "project/one",
       storeEpoch: "epoch-1",

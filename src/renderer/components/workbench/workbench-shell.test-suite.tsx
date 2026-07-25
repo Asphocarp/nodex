@@ -2101,13 +2101,39 @@ function renderWorkbench({
       };
     }
     if (channel === "codex:pending-worktrees:list") return [];
+    if (channel === "pages:search") {
+      const input = args[0] as {
+        projectIds?: string[];
+        query?: string;
+        limit?: number;
+      };
+      if (
+        input.projectIds?.includes("beta")
+        && input.query?.toLowerCase().includes("beta")
+      ) {
+        return [{
+          projectId: "beta",
+          pageId: "card-beta",
+          title: "Beta Card",
+          status: "build",
+          score: 1_000_000,
+          excerpt: "Beta Card",
+        }];
+      }
+      return [];
+    }
     if (channel === "project-sessions:list") {
       const projectId = args[0] === null ? projectlessSessionStateKey : String(args[0]);
       return (sessionState[projectId] ?? []).filter((session) => !session.archived);
     }
-    if (channel === "project-sessions:list-summaries") {
+    if (channel === "workspace:tasks:list") {
       const projectId = args[0] === null ? projectlessSessionStateKey : String(args[0]);
-      return (sessionState[projectId] ?? [])
+      const input = (args[1] ?? {}) as { after?: string | null; first?: number };
+      const first = input.first ?? 50;
+      const offset = input.after?.startsWith("test-window:")
+        ? Number(input.after.slice("test-window:".length))
+        : 0;
+      const summaries = (sessionState[projectId] ?? [])
         .filter((session) => !session.archived)
         .map((session) => ({
           id: session.id,
@@ -2125,6 +2151,15 @@ function renderWorkbench({
           createdAt: session.createdAt,
           updatedAt: session.updatedAt,
         }));
+      const items = summaries.slice(offset, offset + first);
+      const nextOffset = offset + items.length;
+      const hasMore = nextOffset < summaries.length;
+      return {
+        items,
+        nextCursor: hasMore ? `test-window:${nextOffset}` : null,
+        hasMore,
+        projectionRevision: 1,
+      };
     }
     if (channel === "project-sessions:get") {
       const sessionId = String(args[0]);
@@ -2349,18 +2384,14 @@ function renderWorkbench({
         generatedAt: 1,
       };
     }
-    if (channel === "board:summary:get") {
+    if (channel === "database:view-window:get") {
       const projectId = String(args[0] ?? "alpha");
-      if (projectId === "beta") {
-        return {
-          projectId,
-          libraryId: "library:test",
-          databaseId: "database:test:primary",
-          dataSourceId: "data-source:beta",
-          viewId: "view:beta",
-          storeEpoch: "epoch:test",
-          changeLogSeq: 1,
-          board: {
+      const viewId = projectId === "beta" ? "view:beta" : "view:alpha";
+      const dataSourceId = projectId === "beta"
+        ? "data-source:beta"
+        : "data-source:alpha";
+      const board = projectId === "beta"
+        ? {
             columns: [
               {
                 id: "build",
@@ -2383,54 +2414,124 @@ function renderWorkbench({
                 ],
               },
             ],
-          },
-        };
-      }
+          }
+        : {
+            columns: [
+              {
+                id: "build",
+                name: "Build",
+                cards: [
+                  {
+                    id: "card-1",
+                    projectId: "alpha",
+                    status: "build",
+                    title: "Card One",
+                    tags: [],
+                    archived: false,
+                    created: new Date("2026-06-07T00:00:00.000Z"),
+                    order: 0,
+                    revision: 1,
+                    descriptionPreview: "",
+                    descriptionLength: 0,
+                    hasDescription: false,
+                  },
+                  {
+                    id: "card-2",
+                    projectId: "alpha",
+                    status: "build",
+                    title: "Card Two",
+                    tags: [],
+                    archived: false,
+                    created: new Date("2026-06-07T00:00:00.000Z"),
+                    order: 1,
+                    revision: 1,
+                    descriptionPreview: "",
+                    descriptionLength: 0,
+                    hasDescription: false,
+                  },
+                ],
+              },
+            ],
+          };
+      const cards = board.columns.flatMap((column) => column.cards);
+      const databaseId = "database:test:primary";
+      const database = {
+        databaseId,
+        libraryId: "library:test",
+        name: "Tasks",
+        lifecycle: "active",
+        defaultViewId: viewId,
+        accessRevision: 1,
+        metadataRevision: 1,
+        createdAt: "2026-06-07T00:00:00.000Z",
+        updatedAt: "2026-06-07T00:00:00.000Z",
+      };
+      const dataSource = {
+        dataSourceId,
+        libraryId: "library:test",
+        homeDatabaseId: databaseId,
+        name: "Pages",
+        schemaKey: "nodex.page",
+        schemaRevision: 1,
+        lifecycle: "active",
+        rankKey: "a",
+        createdAt: "2026-06-07T00:00:00.000Z",
+        updatedAt: "2026-06-07T00:00:00.000Z",
+      };
+      const queryView = {
+        viewId,
+        databaseId,
+        dataSourceId,
+        name: projectId === "beta" ? "Beta" : "Alpha",
+        kind: "kanban",
+        config: {
+          schemaKey: "nodex.database-view",
+          schemaVersion: 2,
+          filter: { kind: "group", operator: "and", children: [] },
+          sort: [],
+          group: null,
+          display: { propertyIds: [], showTitle: true },
+        },
+        isDefault: true,
+        revision: 1,
+        rankKey: "a",
+        lifecycle: "active",
+        createdAt: "2026-06-07T00:00:00.000Z",
+        updatedAt: "2026-06-07T00:00:00.000Z",
+      };
       return {
         projectId,
         libraryId: "library:test",
-        databaseId: "database:test:primary",
-        dataSourceId: "data-source:alpha",
-        viewId: "view:alpha",
+        databaseId,
+        dataSourceId,
+        viewId,
         storeEpoch: "epoch:test",
         changeLogSeq: 1,
-        board: {
-          columns: [
-            {
-              id: "build",
-              name: "Build",
-              cards: [
-                {
-                  id: "card-1",
-                  projectId: "alpha",
-                  status: "build",
-                  title: "Card One",
-                  tags: [],
-                  archived: false,
-                  created: new Date("2026-06-07T00:00:00.000Z"),
-                  order: 0,
-                  revision: 1,
-                  descriptionPreview: "",
-                  descriptionLength: 0,
-                  hasDescription: false,
-                },
-                {
-                  id: "card-2",
-                  projectId: "alpha",
-                  status: "build",
-                  title: "Card Two",
-                  tags: [],
-                  archived: false,
-                  created: new Date("2026-06-07T00:00:00.000Z"),
-                  order: 1,
-                  revision: 1,
-                  descriptionPreview: "",
-                  descriptionLength: 0,
-                  hasDescription: false,
-                },
-              ],
-            },
-          ],
+        projectionRevision: 1,
+        nextCursor: null,
+        rows: cards.map((page, index) => ({
+          page,
+          groupKey: page.status,
+          rankKey: String(index).padStart(8, "0"),
+        })),
+        board,
+        view: {
+          id: viewId,
+          databaseBlockId: databaseId,
+          projectId,
+          name: queryView.name,
+          kind: queryView.kind,
+          config: queryView.config,
+          isPrimary: true,
+          createdAt: queryView.createdAt,
+          updatedAt: queryView.updatedAt,
+        },
+        query: {
+          database,
+          dataSource,
+          view: queryView,
+          properties: [],
+          rows: [],
         },
       };
     }
@@ -2486,51 +2587,6 @@ function renderWorkbench({
         order: 0,
         revision: 1,
       }, projectId, pageId);
-    }
-    if (channel === "database-rows:details:get") {
-      const input = (args[1] ?? {}) as { pageIds?: string[] };
-      return (input.pageIds ?? []).flatMap((pageId) => (
-        pageId === "card-beta"
-          ? [{
-              id: "card-beta",
-              projectId: "beta",
-              status: "build",
-              title: "Beta Card",
-              description: "",
-              tags: [],
-              archived: false,
-              created: new Date("2026-06-07T00:00:00.000Z"),
-              order: 0,
-              revision: 1,
-            }]
-          : pageId === "card-2"
-            ? [{
-                id: "card-2",
-                projectId: "alpha",
-                status: "build",
-                title: "Card Two",
-                description: "",
-                tags: [],
-                archived: false,
-                created: new Date("2026-06-07T00:00:00.000Z"),
-                order: 1,
-                revision: 1,
-              }]
-          : pageId === "card-1"
-            ? [{
-                id: "card-1",
-                projectId: "alpha",
-                status: "build",
-                title: "Card One",
-              description: "",
-              tags: [],
-              archived: false,
-              created: new Date("2026-06-07T00:00:00.000Z"),
-              order: 0,
-              revision: 1,
-            }]
-          : []
-      ));
     }
     if (channel === "project-sessions:update") {
       const sessionId = String(args[0]);
@@ -3097,9 +3153,9 @@ function renderWorkbench({
         onCreateProject={async () => null}
         onUpdateProject={async () => null}
         onArchiveProject={async () => ({ kind: "not-found" })}
-        onReorderProjects={async () => renderedProjects}
+        onReorderProjects={async () => undefined}
         onSetProjectPinned={async () => null}
-        onSetPinnedProjectOrder={async () => renderedProjects}
+        onSetPinnedProjectOrder={async () => undefined}
         onRequestProjectPickerOpen={() => undefined}
         threadSearchOpenTick={0}
         commandPaletteOpenTick={commandPaletteRequest.tick}
@@ -3556,7 +3612,7 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(text.includes("Database View")).toBe(true);
     expect(text.includes("DB:alpha:kanban")).toBe(true);
     expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "alpha")).toBe(false);
-    expect(invokeCalls.some((call) => call[0] === "project-sessions:list-summaries" && call[1] === "alpha")).toBe(true);
+    expect(invokeCalls.some((call) => call[0] === "workspace:tasks:list" && call[1] === "alpha")).toBe(true);
     expect(invokeCalls.some((call) => call[0] === "project-sessions:get" && call[1] === "session:alpha:database-view")).toBe(true);
   });
 
@@ -3579,7 +3635,7 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
 
     const initialSummaryCallCount = invokeCalls.filter(
-      (call) => call[0] === "project-sessions:list-summaries",
+      (call) => call[0] === "workspace:tasks:list",
     ).length;
     expect(screen.getByText("No projectless chats") !== null).toBe(true);
 
@@ -3594,7 +3650,7 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
 
     expect(invokeCalls.filter(
-      (call) => call[0] === "project-sessions:list-summaries",
+      (call) => call[0] === "workspace:tasks:list",
     ).length).toBe(initialSummaryCallCount);
     expect(screen.getByText("No projectless chats") !== null).toBe(true);
     expect(screen.queryByText("Loading chats...")).toBe(null);
@@ -3618,7 +3674,7 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(screen.getByText("Projectless only chat") !== null).toBe(true);
     expect(screen.queryByText("No projects found.")).toBe(null);
     expect(invokeCalls.some((call) =>
-      call[0] === "project-sessions:list-summaries" && call[1] === null
+      call[0] === "workspace:tasks:list" && call[1] === null
     )).toBe(true);
   });
 
@@ -3764,7 +3820,7 @@ describe(`workbench session shell / ${scope}`, () => {
           "alpha",
           "database-view:alpha:primary-kanban",
         ).getSnapshot().databaseView?.databaseViewId,
-      ).toBe("database-view:alpha:primary-kanban");
+      ).toBe("view:alpha");
     });
 
     const alphaSearch = within(getMountedSessionRoot(screen.container))
@@ -3800,7 +3856,9 @@ describe(`workbench session shell / ${scope}`, () => {
       "session:beta:work",
     ]));
     expect(invokeCalls.some((call) => call[0] === "project-sessions:list")).toBe(false);
-    expect(invokeCalls.some((call) => call[0] === "board:summary:get" && call[1] === "alpha")).toBe(false);
+    expect(invokeCalls.some((call) =>
+      call[0] === "database:view-window:get" && call[1] === "alpha"
+    )).toBe(false);
 
     const restoredAlphaSearch = within(getMountedSessionRoot(screen.container))
       .getByLabelText("Mock DB search alpha") as HTMLInputElement;
@@ -5077,7 +5135,7 @@ describe(`workbench session shell / ${scope}`, () => {
     }
   });
 
-  test("sidebar sync refreshes inactive project session cache", async () => {
+  test("sidebar sync does not hydrate an inactive collapsed Project lane", async () => {
     const sidebarSyncResult: CodexSidebarSyncResult = {
       snapshot: {
         items: [],
@@ -5125,7 +5183,7 @@ describe(`workbench session shell / ${scope}`, () => {
       call[0] === "project-sessions:list" && call[1] === "beta"
     ).length;
     const betaSummaryRefreshCountBefore = invokeCalls.filter((call) =>
-      call[0] === "project-sessions:list-summaries" && call[1] === "beta"
+      call[0] === "workspace:tasks:list" && call[1] === "beta"
     ).length;
     await act(async () => {
       codexHostMessageListener?.({
@@ -5140,9 +5198,9 @@ describe(`workbench session shell / ${scope}`, () => {
 
     await waitFor(() => {
       const betaSummaryRefreshCount = invokeCalls.filter((call) =>
-        call[0] === "project-sessions:list-summaries" && call[1] === "beta"
+        call[0] === "workspace:tasks:list" && call[1] === "beta"
       ).length;
-      expect(betaSummaryRefreshCount > betaSummaryRefreshCountBefore).toBe(true);
+      expect(betaSummaryRefreshCount).toBe(betaSummaryRefreshCountBefore);
       const betaFullRefreshCountAfter = invokeCalls.filter((call) =>
         call[0] === "project-sessions:list" && call[1] === "beta"
       ).length;
@@ -7334,7 +7392,7 @@ describe(`workbench session shell / ${scope}`, () => {
       worktreeBranchPrefix: "codex/",
       collaborationMode: "default",
     }));
-    expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "alpha")).toBe(true);
+    expect(invokeCalls.some((call) => call[0] === "workspace:tasks:list" && call[1] === "alpha")).toBe(true);
   });
 
   test("inline message edit calls rollback edit without refreshing source-null snapshot or seeding composer intent", async () => {
@@ -7503,7 +7561,7 @@ describe(`workbench session shell / ${scope}`, () => {
       worktreeBranchPrefix: "codex/",
       collaborationMode: "default",
     }));
-    expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "beta")).toBe(true);
+    expect(invokeCalls.some((call) => call[0] === "workspace:tasks:list" && call[1] === "beta")).toBe(true);
   });
 
   test("session composer submit passes the selected new-worktree target", async () => {
@@ -9358,7 +9416,7 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(screen.getByRole("tab", { name: /Beta project, DB View/ }) !== null).toBe(true);
   });
 
-  test("empty right panel Page action groups current-Project Pages before other Projects", async () => {
+  test("empty right panel Page action loads current-Project Pages and searches other Projects on demand", async () => {
     const emptySession = makeSession({
       id: "session:alpha:card-picker",
       tabs: [],
@@ -9377,16 +9435,23 @@ describe(`workbench session shell / ${scope}`, () => {
     });
     expect(screen.getByRole("combobox", { name: "Open Page" }) !== null).toBe(true);
     expect(screen.getByText("Current project") !== null).toBe(true);
-    expect(screen.getByText("Other projects") !== null).toBe(true);
+    expect(screen.queryByText("Other projects")).toBe(null);
+    expect(screen.queryByRole("option", { name: /Beta Card/ })).toBe(null);
 
     await waitFor(() => {
       expect(screen.getByRole("option", { name: /Card One/ }) !== null).toBe(true);
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "Open Page" }), {
+      target: { value: "Beta Card" },
+    });
+    await waitFor(() => {
+      expect(screen.getByText("Other projects") !== null).toBe(true);
       expect(screen.getByRole("option", { name: /Beta Card/ }) !== null).toBe(true);
     });
-    const dialogText = textContent(screen.getByRole("dialog", { name: "Open Page" }));
-    expect(dialogText.indexOf("Current project") < dialogText.indexOf("Other projects")).toBe(true);
-    expect(dialogText.indexOf("Card One") < dialogText.indexOf("Beta Card")).toBe(true);
-
+    expect(invokeCalls.some((call) =>
+      call[0] === "pages:search"
+      && (call[1] as { query?: string } | undefined)?.query === "beta card"
+    )).toBe(true);
     await act(async () => {
       fireEvent.click(screen.getByRole("option", { name: /Beta Card/ }));
       await Promise.resolve();

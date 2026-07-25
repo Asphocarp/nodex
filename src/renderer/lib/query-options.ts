@@ -1,8 +1,7 @@
-import { queryOptions } from "@tanstack/react-query";
+import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { invoke } from "./api";
 import { queryKeys } from "./query-keys";
 import type {
-  BoardSummarySnapshot,
   CodexAutomationRunsInboxResponse,
   CodexModelOption,
   CodexScheduledAutomationListResponse,
@@ -10,10 +9,10 @@ import type {
   ProtocolAppInfo,
   ProtocolExperimentalFeature,
   ProtocolListMcpServerStatusResponse,
-  Project,
   ProjectListOptions,
+  ProjectWindow,
   ProjectSession,
-  ProjectSessionSummary,
+  ProjectSessionSummaryWindow,
   ThreadNotificationSettings,
   WindowRestoreSettings,
   WorktreeEnvironmentConfigRecord,
@@ -28,6 +27,7 @@ import type {
   WorkspaceFileRequest,
   WorkspaceFileTextReadInput,
 } from "./types";
+import type { DatabaseViewWindowSnapshot } from "../../shared/database-views";
 import type { GitBranchState } from "../../shared/ipc-api";
 import type { CommandKeymapState } from "../../shared/command-keybindings";
 import type { ProtocolMcpResourceReadParams } from "../../shared/types";
@@ -38,23 +38,38 @@ const MCP_CATALOG_STALE_TIME_MS = 5 * 60_000;
 
 export function projectsListQueryOptions(options: ProjectListOptions = {}) {
   const includeArchived = options.includeArchived === true;
-  return queryOptions({
+  return infiniteQueryOptions({
     queryKey: queryKeys.projects.list(includeArchived),
-    queryFn: () => invoke("projects:list", { includeArchived }) as Promise<Project[]>,
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }): Promise<ProjectWindow> =>
+      await invoke("projects:list", {
+        includeArchived,
+        after: pageParam,
+        first: 100,
+      }) as ProjectWindow,
+    getNextPageParam: (window) => window.nextCursor ?? undefined,
   });
 }
 
 export function boardByProjectQueryOptions(projectId: string) {
   return queryOptions({
     queryKey: queryKeys.boards.byProject(projectId),
-    queryFn: () => invoke("board:summary:get", projectId) as Promise<BoardSummarySnapshot>,
+    queryFn: () =>
+      invoke(
+        "database:view-window:get",
+        projectId,
+        { first: 50 },
+      ) as Promise<DatabaseViewWindowSnapshot>,
   });
 }
 
 export function projectSessionSummariesQueryOptions(projectId: string | null) {
   return queryOptions({
     queryKey: queryKeys.projectSessions.summaries(projectId),
-    queryFn: () => invoke("project-sessions:list-summaries", projectId) as Promise<ProjectSessionSummary[]>,
+    queryFn: async (): Promise<ProjectSessionSummaryWindow> =>
+      await invoke("workspace:tasks:list", projectId, {
+        first: 50,
+      }) as ProjectSessionSummaryWindow,
     staleTime: 30_000,
   });
 }

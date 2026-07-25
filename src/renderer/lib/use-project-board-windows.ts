@@ -5,7 +5,6 @@ import { applyBoardChangeEventToBoard } from "@/lib/board-summary-events";
 import { boardByProjectQueryOptions } from "@/lib/query-options";
 import { queryKeys } from "@/lib/query-keys";
 import type { BoardSummary, BoardSummarySnapshot, Project } from "@/lib/types";
-import { useProjects } from "@/lib/use-projects";
 import { invalidateExactQuery } from "./query-invalidation";
 import { useProjectionInvalidationRegistry } from "./projection-invalidation-context";
 
@@ -164,17 +163,4 @@ export function useBoardsForProjects(
   }, []);
 
   return boardsQuery;
-}
-
-/**
- * Fetches boards for every project. Used by Page pickers and @ mention menus.
- */
-export function useAllBoards() {
-  const {
-    projects,
-    loading: projectsLoading,
-    error: projectsError,
-  } = useProjects();
-
-  return useBoardsForProjects(projects, projectsLoading, projectsError);
 }

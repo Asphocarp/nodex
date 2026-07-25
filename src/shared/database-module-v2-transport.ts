@@ -806,7 +806,7 @@ export const bindDatabaseModuleReadV2 = (
   if (target.kind === "project_default") {
     assertExactKeys(target, "databaseModuleReadV2.read.target", ["kind"]);
     assertExactKeys(read, "databaseModuleReadV2.read", ["target", "mode"]);
-    if (mode !== "catalog" && mode !== "database" && mode !== "query") {
+    if (mode !== "database") {
       throw new TypeError("Project-default Database read v2 mode is unsupported");
     }
     return {
@@ -854,39 +854,7 @@ export const bindDatabaseModuleReadV2 = (
     };
   }
 
-  if (target.kind === "data_source" && mode === "query") {
-    assertExactKeys(target, "databaseModuleReadV2.read.target", ["kind", "dataSourceId"]);
-    assertExactKeys(read, "databaseModuleReadV2.read", ["target", "mode"], ["filter", "sort"]);
-    const config = parseDatabaseViewConfigV2({
-      schemaKey: "nodex.database-view",
-      schemaVersion: 2,
-      filter: read.filter ?? { kind: "group", operator: "and", children: [] },
-      sort: read.sort ?? [],
-      group: null,
-      display: { propertyIds: [], showTitle: true },
-    });
-    if (config.sort.some((sort) => sort.field.kind === "manual")) {
-      throw new TypeError("Data Source queries cannot use manual View order");
-    }
-    return {
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-      projectId,
-      read: {
-        target: {
-          kind: "data_source",
-          dataSourceId: readDataSourceId(
-            target.dataSourceId,
-            "databaseModuleReadV2.dataSourceId",
-          ),
-        },
-        mode,
-        ...(read.filter === undefined ? {} : { filter: config.filter }),
-        ...(read.sort === undefined ? {} : { sort: config.sort }),
-      },
-    };
-  }
-
-  if (target.kind === "view" && (mode === "view" || mode === "query")) {
+  if (target.kind === "view" && mode === "view") {
     assertExactKeys(target, "databaseModuleReadV2.read.target", ["kind", "viewId"]);
     assertExactKeys(read, "databaseModuleReadV2.read", ["target", "mode"]);
     return {
@@ -1391,18 +1359,6 @@ const parseDataSourceQueryResult = (
 
 const parseReadValue = (value: unknown): DatabaseReadValueV2 => {
   const result = readRecord(value, "databaseModuleReadV2.value");
-  if (result.kind === "catalog") {
-    assertExactKeys(result, "databaseModuleReadV2.value", ["kind", "databases"]);
-    if (!Array.isArray(result.databases)) {
-      throw new TypeError("databaseModuleReadV2.value.databases must be an array");
-    }
-    return {
-      kind: "catalog",
-      databases: result.databases.map((entry, index) =>
-        parseContainerDescriptor(entry, `databaseModuleReadV2.value.databases[${index}]`),
-      ),
-    };
-  }
   assertExactKeys(result, "databaseModuleReadV2.value", ["kind", "value"]);
   if (result.kind === "database") {
     return { kind: "database", value: parseContainerDescriptor(result.value, "databaseModuleReadV2.value.value") };

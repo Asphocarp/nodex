@@ -41,6 +41,7 @@ const MAX_MODEL_BYTES: usize = 512;
 const MAX_REASONING_EFFORT_BYTES: usize = 64;
 const MAX_REASON_CODE_BYTES: usize = 128;
 const MAX_CLAIM_LIMIT: u32 = 100;
+const MAX_ACTIVE_DEFINITIONS: usize = 200;
 const MIN_LEASE_DURATION_MS: u64 = 1_000;
 const MAX_LEASE_DURATION_MS: u64 = 24 * 60 * 60 * 1_000;
 const MAX_RETRY_DELAY_MS: u64 = 7 * 24 * 60 * 60 * 1_000;
@@ -567,6 +568,7 @@ fn create_definition(
     if read_definition(connection, automation_id)?.is_some() {
         return Err(conflict("Scheduled Automation id already exists"));
     }
+    require_active_definition_capacity(connection)?;
     let definition = normalize_definition(connection, input)?;
     require_unique_active_heartbeat(
         connection,
@@ -665,6 +667,9 @@ fn update_definition(
             "Scheduled Automation definition revision changed",
             true,
         ));
+    }
+    if current.status == AutomationDefinitionStatus::Deleted {
+        require_active_definition_capacity(connection)?;
     }
     let definition = normalize_definition(connection, input)?;
     require_unique_active_heartbeat(connection, automation_id, status, &definition)?;
@@ -1667,6 +1672,25 @@ fn invalid(message: &str) -> StoreError {
     StoreError::new(StoreErrorCode::InvalidInput, message, false)
 }
 
+fn require_active_definition_capacity(connection: &Connection) -> Result<(), StoreError> {
+    let active_definitions = connection.query_row(
+        "SELECT count(*) FROM codex_scheduled_automations \
+         WHERE status <> 'DELETED'",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
+    if active_definitions
+        < i64::try_from(MAX_ACTIVE_DEFINITIONS).expect("active Scheduled Automation bound fits i64")
+    {
+        return Ok(());
+    }
+    Err(StoreError::new(
+        StoreErrorCode::ResourceExhausted,
+        "Active Scheduled Automation collection exceeds its fixed bound; delete one first",
+        false,
+    ))
+}
+
 fn not_found(message: &str) -> StoreError {
     StoreError::new(StoreErrorCode::NotFound, message, false)
 }
@@ -1708,6 +1732,7 @@ mod tests {
 
     use crate::automation::AutomationModule;
     use crate::database::DatabaseModule;
+    use crate::infrastructure::sqlite::StoreErrorCode;
     use crate::infrastructure::store::SqliteStoreKernel;
     use crate::library::LibraryModule;
     use crate::workspace::ProjectWorkspaceModule;
@@ -1777,6 +1802,40 @@ mod tests {
             execution_environment: None,
             local_environment_config_path: None,
         }
+    }
+
+    #[test]
+    fn active_definition_capacity_is_enforced_at_growth_ingress() {
+        let harness = harness();
+        harness
+            .kernel
+            .writer()
+            .call(|connection| {
+                for index in 0..super::MAX_ACTIVE_DEFINITIONS {
+                    connection.execute(
+                        "INSERT INTO codex_scheduled_automations(\
+                           automation_id, kind, status, name, prompt, rrule, cwds_json, \
+                           execution_environment, created_at, updated_at\
+                         ) VALUES (?1, 'cron', 'ACTIVE', ?1, '', \
+                           'FREQ=DAILY', '[]', 'local', 1, 1)",
+                        [format!("automation:capacity:{index}")],
+                    )?;
+                }
+
+                let error = super::require_active_definition_capacity(connection)
+                    .expect_err("full Scheduled Automation collection");
+                assert_eq!(error.code, StoreErrorCode::ResourceExhausted);
+
+                connection.execute(
+                    "UPDATE codex_scheduled_automations SET status = 'DELETED' \
+                     WHERE automation_id = 'automation:capacity:0'",
+                    [],
+                )?;
+                super::require_active_definition_capacity(connection)
+                    .expect("deleted definitions do not consume active capacity");
+                Ok(())
+            })
+            .expect("check Scheduled Automation capacity");
     }
 
     fn apply(
@@ -2077,13 +2136,15 @@ mod tests {
                     contract_version: AUTOMATION_CONTRACT_VERSION,
                     read: AutomationRead::Definitions {
                         include_deleted: None,
+                        window: Default::default(),
                     },
                 },
             )
             .expect("read Automations");
-        let AutomationReadValue::Definitions { items } = snapshot.value else {
+        let AutomationReadValue::Definitions { window } = snapshot.value else {
             panic!("definitions snapshot");
         };
+        let items = window.items;
         assert_eq!(items, created.committed.value.definitions);
         let definition = &items[0];
         assert_eq!(definition.model_provider.as_deref(), Some("anthropic"));
@@ -2343,14 +2404,15 @@ mod tests {
                     read: AutomationRead::Leases {
                         automation_id: Some("daily-report".to_owned()),
                         include_settled: Some(true),
-                        limit: None,
+                        window: Default::default(),
                     },
                 },
             )
             .expect("read leases");
-        let AutomationReadValue::Leases { items } = leases.value else {
+        let AutomationReadValue::Leases { window } = leases.value else {
             panic!("lease snapshot");
         };
+        let items = window.items;
         assert_eq!(items[0].status, AutomationLeaseStatus::Cancelled);
 
         let stale = apply(
@@ -2600,17 +2662,20 @@ mod tests {
                 &harness.context,
                 ModuleReadRequest {
                     contract_version: AUTOMATION_CONTRACT_VERSION,
-                    read: AutomationRead::Inbox { limit: None },
+                    read: AutomationRead::Inbox {
+                        window: Default::default(),
+                    },
                 },
             )
             .expect("read run inbox");
         let AutomationReadValue::Inbox {
-            items,
+            window,
             unread_counts,
         } = inbox.value
         else {
             panic!("inbox snapshot");
         };
+        let items = window.items;
         assert_eq!(items[0].title.as_deref(), Some("Daily report"));
         assert_eq!(
             items[0].description.as_deref(),
@@ -2853,14 +2918,15 @@ mod tests {
                             .expect("window end")
                             .timestamp_millis(),
                         search_query: Some("calendar authority".to_owned()),
-                        limit: None,
+                        window: Default::default(),
                     },
                 },
             )
             .expect("read occurrences");
-        let AutomationReadValue::Occurrences { items } = snapshot.value else {
+        let AutomationReadValue::Occurrences { window } = snapshot.value else {
             panic!("occurrence snapshot");
         };
+        let items = window.items;
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].title, "Calendar authority");
         assert_eq!(items[0].status, "triage");
@@ -2897,7 +2963,10 @@ mod tests {
                             .expect("window end")
                             .timestamp_millis(),
                         search_query: None,
-                        limit: Some(10),
+                        window: nodex_core_contracts::collection::CollectionWindowRequest {
+                            after: None,
+                            first: Some(10),
+                        },
                     },
                 },
             )
@@ -3560,14 +3629,18 @@ mod tests {
                     contract_version: AUTOMATION_CONTRACT_VERSION,
                     read: AutomationRead::ReminderLeases {
                         include_settled: Some(true),
-                        limit: Some(20),
+                        window: nodex_core_contracts::collection::CollectionWindowRequest {
+                            after: None,
+                            first: Some(20),
+                        },
                     },
                 },
             )
             .expect("read reminder leases");
-        let AutomationReadValue::ReminderLeases { items } = lease_snapshot.value else {
+        let AutomationReadValue::ReminderLeases { window } = lease_snapshot.value else {
             panic!("reminder lease snapshot");
         };
+        let items = window.items;
         assert_eq!(items.len(), 4);
     }
 }

@@ -10,10 +10,17 @@ use nodex_core_contracts::automation::{
     PageRecurrenceConfig, PageRecurrenceEndCondition, PageRecurrenceFrequency, PageReminderConfig,
     ScheduledPageOccurrence,
 };
+use nodex_core_contracts::collection::{
+    CollectionWindow, CollectionWindowAuthority, CollectionWindowRequest,
+};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
 
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
+use crate::infrastructure::{
+    collection_window::{WindowCandidate, assemble, normalize_request},
+    cursor::{self, CollectionCursorSubject, CursorDirection, KeysetCoordinate, KeysetValue},
+};
 
 const MAX_GENERATED_OCCURRENCES: usize = 20_000;
 const MAX_READ_LIMIT: u32 = 20_000;
@@ -30,6 +37,13 @@ const DATABASE_PROPERTY_KEYS: [&str; 8] = [
     "scheduled_end",
     "assignee",
 ];
+
+pub(super) struct OccurrenceWindowQuery<'a> {
+    pub project_id: &'a str,
+    pub window_start_ms: i64,
+    pub window_end_ms: i64,
+    pub search_query: Option<&'a str>,
+}
 
 const INTRINSIC_PROPERTY_KEYS: [&str; 9] = [
     "run.target",
@@ -136,6 +150,85 @@ impl ScheduleZone {
     }
 }
 
+pub(super) fn read_occurrence_window(
+    connection: &Connection,
+    library_id: &str,
+    event_head: i64,
+    query: OccurrenceWindowQuery<'_>,
+    request: &CollectionWindowRequest,
+) -> Result<CollectionWindow<ScheduledPageOccurrence>, StoreError> {
+    let normalized = normalize_request(request)?;
+    let normalized_search = query.search_query.unwrap_or_default().trim();
+    let fingerprint = cursor::query_fingerprint(&(
+        "automation_occurrences_v1",
+        query.project_id,
+        query.window_start_ms,
+        query.window_end_ms,
+        normalized_search,
+    ))?;
+    let subject = CollectionCursorSubject {
+        kind: "automation_occurrences",
+        library_id,
+        query_fingerprint: &fingerprint,
+        projection_revision: event_head,
+    };
+    let after = normalized
+        .after
+        .map(|encoded| cursor::decode(connection, encoded, subject))
+        .transpose()?
+        .map(|(direction, coordinate)| {
+            if direction != CursorDirection::Forward || coordinate.values.len() != 1 {
+                return Err(invalid("Scheduled Page occurrence cursor is incompatible"));
+            }
+            let [
+                KeysetValue::Integer {
+                    value: occurrence_start_ms,
+                },
+            ] = coordinate.values.as_slice()
+            else {
+                return Err(invalid(
+                    "Scheduled Page occurrence cursor coordinate is invalid",
+                ));
+            };
+            Ok((*occurrence_start_ms, coordinate.stable_id))
+        })
+        .transpose()?;
+    let items = collect_occurrences(
+        connection,
+        library_id,
+        query.project_id,
+        query.window_start_ms,
+        query.window_end_ms,
+        Some(normalized_search),
+        after.as_ref().map(|(start, id)| (*start, id.as_str())),
+        normalized.first + 1,
+    )?;
+    let candidates = items.into_iter().map(|item| WindowCandidate {
+        coordinate: KeysetCoordinate {
+            values: vec![KeysetValue::Integer {
+                value: item.occurrence_start_ms,
+            }],
+            stable_id: item.occurrence_id.clone(),
+        },
+        item,
+    });
+    assemble(
+        candidates,
+        normalized.first,
+        CollectionWindowAuthority {
+            projection_revision: event_head,
+        },
+        |coordinate| {
+            cursor::mint(
+                connection,
+                subject,
+                CursorDirection::Forward,
+                coordinate.clone(),
+            )
+        },
+    )
+}
+
 pub(super) fn read_occurrences(
     connection: &Connection,
     library_id: &str,
@@ -151,70 +244,106 @@ pub(super) fn read_occurrences(
     if !(1..=MAX_READ_LIMIT).contains(&limit) {
         return Err(invalid("Scheduled Page occurrence read limit is invalid"));
     }
-    require_active_project(connection, library_id, project_id)?;
-    let rows = read_scheduled_rows(connection, library_id, window_start_ms, window_end_ms, None)?;
-    let search_tokens = normalize_search_tokens(search_query.unwrap_or_default());
-    let mut items = Vec::new();
+    collect_occurrences(
+        connection,
+        library_id,
+        project_id,
+        window_start_ms,
+        window_end_ms,
+        search_query,
+        None,
+        limit as usize,
+    )
+}
 
-    for row in rows {
-        match crate::library::require_page_read_access(
-            connection,
-            library_id,
-            project_id,
-            &row.page_id,
-        ) {
-            Ok(()) => {}
-            Err(error)
-                if matches!(
-                    error.code,
-                    StoreErrorCode::NotFound | StoreErrorCode::Unauthorized
-                ) =>
-            {
-                continue;
-            }
-            Err(error) => return Err(error),
-        }
-        let projection = validate_and_project(connection, &row)?;
-        if !search_tokens.is_empty() && !matches_search(&projection, &search_tokens) {
-            continue;
-        }
-        let exceptions = read_exceptions(connection, &row.page_id)?;
-        let expanded = expand_occurrences(
-            projection.occurrence_start_ms,
-            projection.occurrence_end_ms,
-            projection.is_all_day,
-            projection.recurrence.as_ref(),
-            &projection.reminders,
-            projection.schedule_timezone.as_deref(),
-            &exceptions,
-            window_start_ms,
-            window_end_ms,
-        )?;
-        let first_start = projection.occurrence_start_ms;
-        for occurrence in expanded {
-            let mut item = projection.clone();
-            item.occurrence_id = format!(
-                "{}:{}",
-                item.page_id,
-                timestamp_to_iso(occurrence.start_ms)?
-            );
-            item.occurrence_start_ms = occurrence.start_ms;
-            item.occurrence_end_ms = occurrence.end_ms;
-            item.reminders = occurrence.reminders;
-            item.is_recurring = item.recurrence.is_some();
-            item.this_and_future_equivalent_to_all =
-                item.is_recurring && occurrence.start_ms <= first_start;
-            items.push(item);
-        }
+#[allow(clippy::too_many_arguments)]
+fn collect_occurrences(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    window_start_ms: i64,
+    window_end_ms: i64,
+    search_query: Option<&str>,
+    after: Option<(i64, &str)>,
+    limit: usize,
+) -> Result<Vec<ScheduledPageOccurrence>, StoreError> {
+    if window_end_ms <= window_start_ms {
+        return Ok(Vec::new());
     }
+    require_active_project(connection, library_id, project_id)?;
+    let search_tokens = normalize_search_tokens(search_query.unwrap_or_default());
+    let mut items = BTreeMap::new();
 
-    items.sort_by(|left, right| {
-        left.occurrence_start_ms
-            .cmp(&right.occurrence_start_ms)
-            .then_with(|| left.page_id.cmp(&right.page_id))
-    });
-    items.truncate(limit as usize);
-    Ok(items)
+    visit_scheduled_rows(
+        connection,
+        library_id,
+        window_start_ms,
+        window_end_ms,
+        None,
+        |row| {
+            match crate::library::require_page_read_access(
+                connection,
+                library_id,
+                project_id,
+                &row.page_id,
+            ) {
+                Ok(()) => {}
+                Err(error)
+                    if matches!(
+                        error.code,
+                        StoreErrorCode::NotFound | StoreErrorCode::Unauthorized
+                    ) =>
+                {
+                    return Ok(());
+                }
+                Err(error) => return Err(error),
+            }
+            let projection = validate_and_project(connection, &row)?;
+            if !search_tokens.is_empty() && !matches_search(&projection, &search_tokens) {
+                return Ok(());
+            }
+            let exceptions = read_exceptions(connection, &row.page_id)?;
+            let expanded = expand_occurrences(
+                projection.occurrence_start_ms,
+                projection.occurrence_end_ms,
+                projection.is_all_day,
+                projection.recurrence.as_ref(),
+                &projection.reminders,
+                projection.schedule_timezone.as_deref(),
+                &exceptions,
+                window_start_ms,
+                window_end_ms,
+            )?;
+            let first_start = projection.occurrence_start_ms;
+            for occurrence in expanded {
+                let mut item = projection.clone();
+                item.occurrence_id = format!(
+                    "{}:{}",
+                    item.page_id,
+                    timestamp_to_iso(occurrence.start_ms)?
+                );
+                item.occurrence_start_ms = occurrence.start_ms;
+                item.occurrence_end_ms = occurrence.end_ms;
+                item.reminders = occurrence.reminders;
+                item.is_recurring = item.recurrence.is_some();
+                item.this_and_future_equivalent_to_all =
+                    item.is_recurring && occurrence.start_ms <= first_start;
+                let coordinate = (item.occurrence_start_ms, item.occurrence_id.clone());
+                if after.is_some_and(|(start, id)| {
+                    coordinate.0 < start || (coordinate.0 == start && coordinate.1.as_str() <= id)
+                }) {
+                    continue;
+                }
+                items.insert(coordinate, item);
+                if items.len() > limit {
+                    items.pop_last();
+                }
+            }
+            Ok(())
+        },
+    )?;
+
+    Ok(items.into_values().collect())
 }
 
 pub(super) fn read_occurrences_for_reminders(
@@ -295,6 +424,29 @@ fn read_scheduled_rows(
     window_end_ms: i64,
     page_id: Option<&str>,
 ) -> Result<Vec<ScheduledRow>, StoreError> {
+    let mut result = Vec::new();
+    visit_scheduled_rows(
+        connection,
+        library_id,
+        window_start_ms,
+        window_end_ms,
+        page_id,
+        |row| {
+            result.push(row);
+            Ok(())
+        },
+    )?;
+    Ok(result)
+}
+
+fn visit_scheduled_rows(
+    connection: &Connection,
+    library_id: &str,
+    window_start_ms: i64,
+    window_end_ms: i64,
+    page_id: Option<&str>,
+    mut visitor: impl FnMut(ScheduledRow) -> Result<(), StoreError>,
+) -> Result<(), StoreError> {
     let window_start = timestamp_to_iso(window_start_ms)?;
     let window_end = timestamp_to_iso(window_end_ms)?;
     let mut statement = connection.prepare(
@@ -317,7 +469,7 @@ fn read_scheduled_rows(
            document.generation, document.head_seq, document.schema_version, document.readiness, \
            document.authority, materialization.generation, materialization.projected_seq, \
            materialization.schema_version, materialization.title, \
-           materialization.title_rich_json, materialization.nfm, materialization.updated_at, \
+           materialization.title_rich_json, materialization.preview, materialization.updated_at, \
            membership.id, source.id, position.view_order \
          FROM scheduled_page_index schedule \
          JOIN blocks block ON block.id = schedule.page_block_id \
@@ -344,45 +496,41 @@ fn read_scheduled_rows(
            AND (?4 IS NULL OR schedule.page_block_id = ?4) \
          ORDER BY schedule.scheduled_start, schedule.page_block_id",
     )?;
-    statement
-        .query_map(
-            params![library_id, window_end, window_start, page_id],
-            |row| {
-                Ok(ScheduledRow {
-                    page_id: row.get(0)?,
-                    storage_project_id: row.get(1)?,
-                    index_lifecycle: row.get(2)?,
-                    block_lifecycle: row.get(3)?,
-                    metadata_revision: row.get(4)?,
-                    source_metadata_revision: row.get(5)?,
-                    scheduled_start: row.get(6)?,
-                    scheduled_end: row.get(7)?,
-                    is_all_day: row.get::<_, i64>(8)? == 1,
-                    recurrence_json: row.get(9)?,
-                    reminders_json: row.get(10)?,
-                    schedule_timezone: row.get(11)?,
-                    block_created_at: row.get(12)?,
-                    block_updated_at: row.get(13)?,
-                    document_generation: row.get(14)?,
-                    document_head_seq: row.get(15)?,
-                    document_schema_version: row.get(16)?,
-                    document_readiness: row.get(17)?,
-                    document_authority: row.get(18)?,
-                    materialization_generation: row.get(19)?,
-                    materialization_projected_seq: row.get(20)?,
-                    materialization_schema_version: row.get(21)?,
-                    title: row.get(22)?,
-                    rich_title_json: row.get(23)?,
-                    description: row.get(24)?,
-                    materialization_updated_at: row.get(25)?,
-                    membership_id: row.get(26)?,
-                    data_source_id: row.get(27)?,
-                    view_order: row.get(28)?,
-                })
-            },
-        )?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(Into::into)
+    let mut rows = statement.query(params![library_id, window_end, window_start, page_id])?;
+    while let Some(row) = rows.next()? {
+        visitor(ScheduledRow {
+            page_id: row.get(0)?,
+            storage_project_id: row.get(1)?,
+            index_lifecycle: row.get(2)?,
+            block_lifecycle: row.get(3)?,
+            metadata_revision: row.get(4)?,
+            source_metadata_revision: row.get(5)?,
+            scheduled_start: row.get(6)?,
+            scheduled_end: row.get(7)?,
+            is_all_day: row.get::<_, i64>(8)? == 1,
+            recurrence_json: row.get(9)?,
+            reminders_json: row.get(10)?,
+            schedule_timezone: row.get(11)?,
+            block_created_at: row.get(12)?,
+            block_updated_at: row.get(13)?,
+            document_generation: row.get(14)?,
+            document_head_seq: row.get(15)?,
+            document_schema_version: row.get(16)?,
+            document_readiness: row.get(17)?,
+            document_authority: row.get(18)?,
+            materialization_generation: row.get(19)?,
+            materialization_projected_seq: row.get(20)?,
+            materialization_schema_version: row.get(21)?,
+            title: row.get(22)?,
+            rich_title_json: row.get(23)?,
+            description: row.get(24)?,
+            materialization_updated_at: row.get(25)?,
+            membership_id: row.get(26)?,
+            data_source_id: row.get(27)?,
+            view_order: row.get(28)?,
+        })?;
+    }
+    Ok(())
 }
 
 pub(super) fn read_scheduled_page(

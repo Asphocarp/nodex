@@ -1,15 +1,16 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const STORE_ADMINISTRATION_CONTRACT_VERSION: u32 = 1;
+pub const STORE_ADMINISTRATION_CONTRACT_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum StoreAdministrationRead {
     Status,
-    Backups,
+    Backups { window: CollectionWindowRequest },
     MaintenanceStatus,
 }
 
@@ -23,7 +24,7 @@ pub enum StoreAdministrationReadValue {
         integrity: StoreIntegrity,
     },
     Backups {
-        items: Vec<BackupRecord>,
+        backups: CollectionWindow<BackupRecord>,
     },
     MaintenanceStatus {
         active: bool,

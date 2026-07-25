@@ -57,6 +57,7 @@
     "core:test:electron-authority": "cargo build -p nodex-core-server --all-targets && node scripts/run-vitest-in-electron.mjs --config vitest.integration.config.ts src/main/rust-data-authority.integration.ts",
     "core:test:packaged-cli-electron": "node -e \"if (!process.env.NODEX_PACKAGED_CLI) throw new Error('NODEX_PACKAGED_CLI is required')\" && node scripts/run-vitest-in-electron.mjs --config vitest.integration.config.ts src/main/native-cli-electron.integration.ts",
     "core:failure-matrix": "tsx scripts/core-failure-matrix.ts",
+    "core:read-budget-gate": "tsx scripts/core-read-budget-gate.ts",
     "legacy-profile-migrator:build": "tsx scripts/build-legacy-profile-migrator.ts",
     "legacy-profile-migrator:verify": "tsx scripts/build-legacy-profile-migrator.ts --verify",
     "legacy-profile-migrator:verify-reproducible": "tsx scripts/build-legacy-profile-migrator.ts --verify-reproducible",

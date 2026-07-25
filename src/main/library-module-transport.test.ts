@@ -15,7 +15,7 @@ import {
 const result = (): LibraryModuleReadResult => ({
   ok: true,
   value: {
-    version: 1,
+    version: 2,
     profileId: "profile-1",
     libraryId: "library-1",
     storeEpoch: "epoch-1",
@@ -28,7 +28,7 @@ const operationId = "019f7399-7676-70ae-b2aa-168692b64d18";
 const pageId = "019f7399-7676-70ae-b2aa-168692b64d19";
 const documentId = "019f7399-7676-70ae-b2aa-168692b64d1a";
 const applyRequest = {
-  version: 1,
+  version: 2,
   operationId,
   storeEpoch: "epoch-1",
   operation: {
@@ -42,7 +42,7 @@ const applyRequest = {
 const applyResult = (): LibraryModuleApplyResult => ({
   ok: true,
   value: {
-    version: 1,
+    version: 2,
     operationId,
     storeEpoch: "epoch-1",
     libraryId: "library-1",
@@ -79,7 +79,7 @@ describe("Library Module IPC/HTTP transport", () => {
         return applyResult();
       },
     });
-    const request = { version: 1, read: { mode: "metadata" } };
+    const request = { version: 2, read: { mode: "metadata" } };
     expect(await handlers.get(LIBRARY_MODULE_READ_IPC_CHANNEL)?.(
       "trusted",
       request,

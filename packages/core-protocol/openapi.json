@@ -1598,79 +1598,6 @@
           "worktree"
         ]
       },
-      "AutomationInboxItem": {
-        "type": "object",
-        "required": [
-          "automation_id",
-          "thread_id",
-          "created_at_ms",
-          "status"
-        ],
-        "properties": {
-          "archived_assistant_message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "archived_reason": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "archived_user_message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "automation_id": {
-            "type": "string"
-          },
-          "automation_name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "created_at_ms": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "description": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "read_at_ms": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "source_cwd": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "$ref": "#/components/schemas/AutomationRunStatus"
-          },
-          "thread_id": {
-            "type": "string"
-          },
-          "title": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
       "AutomationLease": {
         "type": "object",
         "required": [
@@ -1870,98 +1797,10 @@
       "AutomationRunUnreadCounts": {
         "type": "object",
         "required": [
-          "total",
-          "automation_ids",
-          "unread_runs"
+          "total"
         ],
         "properties": {
-          "automation_ids": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
           "total": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "unread_runs": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AutomationUnreadRun"
-            }
-          }
-        }
-      },
-      "AutomationUnreadRun": {
-        "type": "object",
-        "required": [
-          "automation_id",
-          "thread_id"
-        ],
-        "properties": {
-          "automation_id": {
-            "type": "string"
-          },
-          "thread_id": {
-            "type": "string"
-          }
-        }
-      },
-      "BackupRecord": {
-        "type": "object",
-        "required": [
-          "version",
-          "backup_id",
-          "trigger",
-          "created_at",
-          "includes_assets",
-          "db_bytes",
-          "assets_bytes",
-          "total_bytes",
-          "byte_length"
-        ],
-        "properties": {
-          "assets_bytes": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "backup_id": {
-            "type": "string"
-          },
-          "byte_length": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "created_at": {
-            "type": "string"
-          },
-          "db_bytes": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "includes_assets": {
-            "type": "boolean"
-          },
-          "label": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "total_bytes": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "trigger": {
-            "$ref": "#/components/schemas/BackupTrigger"
-          },
-          "version": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
@@ -2024,6 +1863,1525 @@
           "systemError",
           "active"
         ]
+      },
+      "CollectionWindowAuthority": {
+        "type": "object",
+        "required": [
+          "projection_revision"
+        ],
+        "properties": {
+          "projection_revision": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "CollectionWindowRequest": {
+        "type": "object",
+        "properties": {
+          "after": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "first": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "CollectionWindow_AutomationDefinition": {
+        "type": "object",
+        "required": [
+          "items",
+          "authority"
+        ],
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/CollectionWindowAuthority"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "automation_id",
+                "definition_revision",
+                "kind",
+                "status",
+                "name",
+                "prompt",
+                "rrule",
+                "cwds",
+                "execution_environment",
+                "created_at_ms",
+                "updated_at_ms"
+              ],
+              "properties": {
+                "automation_id": {
+                  "type": "string"
+                },
+                "created_at_ms": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "cwds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "definition_revision": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "execution_environment": {
+                  "$ref": "#/components/schemas/AutomationExecutionEnvironment"
+                },
+                "harness_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "kind": {
+                  "$ref": "#/components/schemas/AutomationDefinitionKind"
+                },
+                "last_run_at_ms": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "local_environment_config_path": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "model": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "model_provider": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "next_run_at_ms": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "prompt": {
+                  "type": "string"
+                },
+                "reasoning_effort": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "rrule": {
+                  "type": "string"
+                },
+                "service_tier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "$ref": "#/components/schemas/AutomationDefinitionStatus"
+                },
+                "target_thread_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "updated_at_ms": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectionWindow_AutomationInboxItem": {
+        "type": "object",
+        "required": [
+          "items",
+          "authority"
+        ],
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/CollectionWindowAuthority"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "automation_id",
+                "thread_id",
+                "created_at_ms",
+                "status"
+              ],
+              "properties": {
+                "archived_assistant_message": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "archived_reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "archived_user_message": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "automation_id": {
+                  "type": "string"
+                },
+                "automation_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "created_at_ms": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "read_at_ms": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "source_cwd": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "$ref": "#/components/schemas/AutomationRunStatus"
+                },
+                "thread_id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectionWindow_AutomationLease": {
+        "type": "object",
+        "required": [
+          "items",
+          "authority"
+        ],
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/CollectionWindowAuthority"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "lease_id",
+                "automation_id",
+                "scheduled_for_ms",
+                "attempt",
+                "status",
+                "claimed_at_ms",
+                "expires_at_ms"
+              ],
+              "properties": {
+                "attempt": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                },
+                "automation_id": {
+                  "type": "string"
+                },
+                "claimed_at_ms": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "expires_at_ms": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "lease_id": {
+                  "type": "string"
+                },
+                "reason_code": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "retry_at_ms": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "scheduled_for_ms": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "settled_at_ms": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "status": {
+                  "$ref": "#/components/schemas/AutomationLeaseStatus"
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectionWindow_AutomationRun": {
+        "type": "object",
+        "required": [
+          "items",
+          "authority"
+        ],
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/CollectionWindowAuthority"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "thread_id",
+                "automation_id",
+                "run_revision",
+                "status",
+                "created_at_ms",
+                "updated_at_ms"
+              ],
+              "properties": {
+                "archived_assistant_message": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "archived_reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "archived_user_message": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "automation_id": {
+                  "type": "string"
+                },
+                "created_at_ms": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "inbox_summary": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "inbox_title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "read_at_ms": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "run_revision": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "source_cwd": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "$ref": "#/components/schemas/AutomationRunStatus"
+                },
+                "thread_id": {
+                  "type": "string"
+                },
+                "thread_title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "updated_at_ms": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectionWindow_BackupRecord": {
+        "type": "object",
+        "required": [
+          "items",
+          "authority"
+        ],
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/CollectionWindowAuthority"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "version",
+                "backup_id",
+                "trigger",
+                "created_at",
+                "includes_assets",
+                "db_bytes",
+                "assets_bytes",
+                "total_bytes",
+                "byte_length"
+              ],
+              "properties": {
+                "assets_bytes": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 0
+                },
+                "backup_id": {
+                  "type": "string"
+                },
+                "byte_length": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 0
+                },
+                "created_at": {
+                  "type": "string"
+                },
+                "db_bytes": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 0
+                },
+                "includes_assets": {
+                  "type": "boolean"
+                },
+                "label": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "total_bytes": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 0
+                },
+                "trigger": {
+                  "$ref": "#/components/schemas/BackupTrigger"
+                },
+                "version": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectionWindow_DatabaseRowSummary": {
+        "type": "object",
+        "required": [
+          "items",
+          "authority"
+        ],
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/CollectionWindowAuthority"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "page_id",
+                "lifecycle",
+                "title",
+                "rich_title",
+                "description_preview",
+                "description_length",
+                "has_description",
+                "database_values",
+                "intrinsic_properties",
+                "database_value_revisions",
+                "metadata_revision",
+                "parent_revision",
+                "document_id",
+                "document_generation",
+                "document_head_seq",
+                "membership_id",
+                "membership_revision",
+                "membership_created_at",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string"
+                },
+                "database_value_revisions": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "propertyNames": {
+                    "type": "string"
+                  }
+                },
+                "database_values": {
+                  "type": "object",
+                  "additionalProperties": {},
+                  "propertyNames": {
+                    "type": "string"
+                  }
+                },
+                "description_length": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "description_preview": {
+                  "type": "string"
+                },
+                "document_generation": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "document_head_seq": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "document_id": {
+                  "type": "string"
+                },
+                "effective_group_key": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "has_description": {
+                  "type": "boolean"
+                },
+                "intrinsic_properties": {
+                  "type": "object",
+                  "additionalProperties": {},
+                  "propertyNames": {
+                    "type": "string"
+                  }
+                },
+                "lifecycle": {
+                  "type": "string"
+                },
+                "membership_created_at": {
+                  "type": "string"
+                },
+                "membership_id": {
+                  "type": "string"
+                },
+                "membership_revision": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "metadata_revision": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "page_id": {
+                  "type": "string"
+                },
+                "parent_revision": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "position_order": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "position_revision": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "rank_key": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "rich_title": {},
+                "title": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectionWindow_ProjectWorkspaceBackgroundProcess": {
+        "type": "object",
+        "required": [
+          "items",
+          "authority"
+        ],
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/CollectionWindowAuthority"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "thread_id",
+                "item_id",
+                "command",
+                "source",
+                "started_at_ms",
+                "updated_at_ms"
+              ],
+              "properties": {
+                "command": {
+                  "type": "string"
+                },
+                "cwd": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "id": {
+                  "type": "string"
+                },
+                "item_id": {
+                  "type": "string"
+                },
+                "os_pid": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "process_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "source": {
+                  "$ref": "#/components/schemas/ProjectWorkspaceBackgroundProcessSource"
+                },
+                "started_at_ms": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "terminal_session_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "thread_id": {
+                  "type": "string"
+                },
+                "thread_title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "turn_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "updated_at_ms": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectionWindow_ProjectWorkspaceManagedWorktreeSummary": {
+        "type": "object",
+        "required": [
+          "items",
+          "authority"
+        ],
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/CollectionWindowAuthority"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "thread_id",
+                "project_id",
+                "path",
+                "linked_at"
+              ],
+              "properties": {
+                "linked_at": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "session_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "session_title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "thread_id": {
+                  "type": "string"
+                },
+                "thread_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectionWindow_ProjectWorkspaceProject": {
+        "type": "object",
+        "required": [
+          "items",
+          "authority"
+        ],
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/CollectionWindowAuthority"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "library_id",
+                "database_id",
+                "lifecycle",
+                "binding_revision",
+                "name",
+                "description",
+                "sources",
+                "pinned",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "binding_revision": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "created_at": {
+                  "type": "string"
+                },
+                "database_id": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "icon": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "id": {
+                  "type": "string"
+                },
+                "library_id": {
+                  "type": "string"
+                },
+                "lifecycle": {
+                  "$ref": "#/components/schemas/ProjectLifecycle"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "pinned": {
+                  "type": "boolean"
+                },
+                "pinned_order": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "primary_workspace_root": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "sources": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectSource"
+                  }
+                },
+                "updated_at": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectionWindow_ProjectWorkspaceTaskSummary": {
+        "type": "object",
+        "required": [
+          "items",
+          "authority"
+        ],
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/CollectionWindowAuthority"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "session"
+              ],
+              "properties": {
+                "session": {
+                  "$ref": "#/components/schemas/ProjectWorkspaceSessionSummary"
+                },
+                "thread": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ProjectWorkspaceTaskThreadSummary"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectionWindow_ProjectWorkspaceThreadSummary": {
+        "type": "object",
+        "required": [
+          "items",
+          "authority"
+        ],
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/CollectionWindowAuthority"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "thread_id",
+                "thread_preview",
+                "model_provider",
+                "status",
+                "archived",
+                "created_at",
+                "updated_at",
+                "linked_at"
+              ],
+              "properties": {
+                "agent_nickname": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "agent_path": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "agent_role": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "archived": {
+                  "type": "boolean"
+                },
+                "created_at": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "cwd": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "forked_from_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "harness_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "linked_at": {
+                  "type": "string"
+                },
+                "managed_worktree_path": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "model_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "model_provider": {
+                  "type": "string"
+                },
+                "parent_thread_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "project_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "projectless_output_directory": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "projectless_workspace_browser_root": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "reasoning_effort": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "service_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "service_tier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "session_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "$ref": "#/components/schemas/ProjectWorkspaceThreadStatus"
+                },
+                "thread_id": {
+                  "type": "string"
+                },
+                "thread_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "thread_preview": {
+                  "type": "string"
+                },
+                "thread_source": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "updated_at": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectionWindow_ReminderLease": {
+        "type": "object",
+        "required": [
+          "items",
+          "authority"
+        ],
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/CollectionWindowAuthority"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "lease_id",
+                "project_id",
+                "receipt_project_id",
+                "page_id",
+                "occurrence_start_ms",
+                "reminder_offset_minutes",
+                "due_at_ms",
+                "title",
+                "attempt",
+                "status",
+                "claimed_at_ms",
+                "expires_at_ms"
+              ],
+              "properties": {
+                "attempt": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                },
+                "claimed_at_ms": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "due_at_ms": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "expires_at_ms": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "lease_id": {
+                  "type": "string"
+                },
+                "occurrence_start_ms": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "page_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "reason_code": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "receipt_project_id": {
+                  "type": "string"
+                },
+                "reminder_offset_minutes": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "retry_at_ms": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "settled_at_ms": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "snooze_id": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "status": {
+                  "$ref": "#/components/schemas/ReminderLeaseStatus"
+                },
+                "title": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectionWindow_ReminderSnooze": {
+        "type": "object",
+        "required": [
+          "items",
+          "authority"
+        ],
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/CollectionWindowAuthority"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "snooze_id",
+                "project_id",
+                "page_id",
+                "occurrence_start_ms",
+                "due_at_ms",
+                "created_at_ms"
+              ],
+              "properties": {
+                "consumed_at_ms": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "created_at_ms": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "due_at_ms": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "occurrence_start_ms": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "page_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "snooze_id": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectionWindow_ScheduledPageOccurrence": {
+        "type": "object",
+        "required": [
+          "items",
+          "authority"
+        ],
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/CollectionWindowAuthority"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "occurrence_id",
+                "page_id",
+                "status",
+                "status_name",
+                "archived",
+                "title",
+                "rich_title",
+                "description",
+                "tags",
+                "occurrence_start_ms",
+                "occurrence_end_ms",
+                "is_all_day",
+                "reminders",
+                "metadata_revision",
+                "created_at",
+                "updated_at",
+                "order",
+                "is_recurring",
+                "this_and_future_equivalent_to_all"
+              ],
+              "properties": {
+                "archived": {
+                  "type": "boolean"
+                },
+                "assignee": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "created_at": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "due_date": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "estimate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "is_all_day": {
+                  "type": "boolean"
+                },
+                "is_recurring": {
+                  "type": "boolean"
+                },
+                "metadata_revision": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "occurrence_end_ms": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "occurrence_id": {
+                  "type": "string"
+                },
+                "occurrence_start_ms": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "order": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "page_id": {
+                  "type": "string"
+                },
+                "priority": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "recurrence": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/PageRecurrenceConfig"
+                    }
+                  ]
+                },
+                "reminders": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PageReminderConfig"
+                  }
+                },
+                "rich_title": {},
+                "run_in_base_branch": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "run_in_environment_path": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "run_in_local_path": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "run_in_target": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "run_in_worktree_path": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "schedule_timezone": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string"
+                },
+                "status_name": {
+                  "type": "string"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "this_and_future_equivalent_to_all": {
+                  "type": "boolean"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectionWindow_Value": {
+        "type": "object",
+        "required": [
+          "items",
+          "authority"
+        ],
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/CollectionWindowAuthority"
+          },
+          "items": {
+            "type": "array",
+            "items": {}
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
       },
       "CommittedCoreModuleEvent": {
         "type": "object",
@@ -3124,6 +4482,43 @@
         },
         "additionalProperties": false
       },
+      "CoreTransportBudgets": {
+        "type": "object",
+        "required": [
+          "ordinary_json_request_bytes",
+          "ordinary_json_response_bytes",
+          "event_frame_bytes",
+          "document_json_request_bytes",
+          "document_response_bytes"
+        ],
+        "properties": {
+          "document_json_request_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "document_response_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "event_frame_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "ordinary_json_request_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "ordinary_json_response_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "DatabaseAgentQuery": {
         "type": "object",
         "required": [
@@ -3251,11 +4646,18 @@
       "DatabaseReadMode": {
         "type": "string",
         "enum": [
-          "catalog",
+          "catalog_window",
           "database",
+          "data_source_window",
           "data_source",
+          "property_window",
+          "option_window",
+          "view_descriptor_window",
           "view",
-          "query"
+          "agent_query",
+          "view_window",
+          "rows_by_id",
+          "row_detail"
         ]
       },
       "DatabaseReadRequest": {
@@ -3263,6 +4665,167 @@
       },
       "DatabaseReadResponse": {
         "$ref": "#/components/schemas/ResponseEnvelope_ModuleReadSnapshot_DatabaseReadValue"
+      },
+      "DatabaseRowDetail": {
+        "type": "object",
+        "required": [
+          "summary",
+          "body_nfm"
+        ],
+        "properties": {
+          "body_nfm": {
+            "type": "string"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/DatabaseRowSummary"
+          }
+        }
+      },
+      "DatabaseRowSummary": {
+        "type": "object",
+        "required": [
+          "page_id",
+          "lifecycle",
+          "title",
+          "rich_title",
+          "description_preview",
+          "description_length",
+          "has_description",
+          "database_values",
+          "intrinsic_properties",
+          "database_value_revisions",
+          "metadata_revision",
+          "parent_revision",
+          "document_id",
+          "document_generation",
+          "document_head_seq",
+          "membership_id",
+          "membership_revision",
+          "membership_created_at",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "database_value_revisions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "database_values": {
+            "type": "object",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "description_length": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "description_preview": {
+            "type": "string"
+          },
+          "document_generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "document_head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "effective_group_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "has_description": {
+            "type": "boolean"
+          },
+          "intrinsic_properties": {
+            "type": "object",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "lifecycle": {
+            "type": "string"
+          },
+          "membership_created_at": {
+            "type": "string"
+          },
+          "membership_id": {
+            "type": "string"
+          },
+          "membership_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "metadata_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "parent_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "position_order": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "position_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "rank_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rich_title": {},
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "DatabaseRowsById": {
+        "type": "object",
+        "required": [
+          "rows"
+        ],
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseRowSummary"
+            }
+          }
+        }
       },
       "DatabaseTarget": {
         "oneOf": [
@@ -3313,6 +4876,28 @@
                 "enum": [
                   "data_source"
                 ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data_source_id",
+              "property_id",
+              "kind"
+            ],
+            "properties": {
+              "data_source_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "property"
+                ]
+              },
+              "property_id": {
+                "type": "string"
               }
             }
           },
@@ -3455,6 +5040,29 @@
             }
           }
         ]
+      },
+      "DatabaseViewWindow": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "data_source_id",
+          "view_id",
+          "rows"
+        ],
+        "properties": {
+          "data_source_id": {
+            "type": "string"
+          },
+          "database_id": {
+            "type": "string"
+          },
+          "rows": {
+            "$ref": "#/components/schemas/CollectionWindow_DatabaseRowSummary"
+          },
+          "view_id": {
+            "type": "string"
+          }
+        }
       },
       "DeletableOwnedSourceKind": {
         "type": "string",
@@ -9552,6 +11160,7 @@
         "required": [
           "project_id",
           "page_id",
+          "title",
           "status",
           "score",
           "excerpt"
@@ -9572,6 +11181,9 @@
           },
           "status": {
             "$ref": "#/components/schemas/LibraryPageWorkflowStatus"
+          },
+          "title": {
+            "type": "string"
           }
         }
       },
@@ -12142,6 +13754,57 @@
               {
                 "type": "object",
                 "required": [
+                  "sweep_id",
+                  "thread_ids",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "observe_app_server_thread_window"
+                    ]
+                  },
+                  "sweep_id": {
+                    "type": "string"
+                  },
+                  "thread_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "sweep_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "reconcile_app_server_thread_sweep"
+                    ]
+                  },
+                  "limit": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "sweep_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "thread_id",
                   "archived",
                   "kind"
@@ -13223,6 +14886,7 @@
               {
                 "type": "object",
                 "required": [
+                  "window",
                   "kind"
                 ],
                 "properties": {
@@ -13237,6 +14901,9 @@
                     "enum": [
                       "definitions"
                     ]
+                  },
+                  "window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
                   }
                 }
               },
@@ -13261,6 +14928,7 @@
               {
                 "type": "object",
                 "required": [
+                  "window",
                   "kind"
                 ],
                 "properties": {
@@ -13282,13 +14950,8 @@
                       "leases"
                     ]
                   },
-                  "limit": {
-                    "type": [
-                      "integer",
-                      "null"
-                    ],
-                    "format": "int32",
-                    "minimum": 0
+                  "window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
                   }
                 }
               },
@@ -13313,6 +14976,7 @@
               {
                 "type": "object",
                 "required": [
+                  "window",
                   "kind"
                 ],
                 "properties": {
@@ -13334,19 +14998,15 @@
                       "runs"
                     ]
                   },
-                  "limit": {
-                    "type": [
-                      "integer",
-                      "null"
-                    ],
-                    "format": "int32",
-                    "minimum": 0
+                  "window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
                   }
                 }
               },
               {
                 "type": "object",
                 "required": [
+                  "window",
                   "kind"
                 ],
                 "properties": {
@@ -13356,13 +15016,8 @@
                       "inbox"
                     ]
                   },
-                  "limit": {
-                    "type": [
-                      "integer",
-                      "null"
-                    ],
-                    "format": "int32",
-                    "minimum": 0
+                  "window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
                   }
                 }
               },
@@ -13371,6 +15026,7 @@
                 "required": [
                   "window_start_ms",
                   "window_end_ms",
+                  "window",
                   "kind"
                 ],
                 "properties": {
@@ -13380,19 +15036,14 @@
                       "occurrences"
                     ]
                   },
-                  "limit": {
-                    "type": [
-                      "integer",
-                      "null"
-                    ],
-                    "format": "int32",
-                    "minimum": 0
-                  },
                   "search_query": {
                     "type": [
                       "string",
                       "null"
                     ]
+                  },
+                  "window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
                   },
                   "window_end_ms": {
                     "type": "integer",
@@ -13407,6 +15058,7 @@
               {
                 "type": "object",
                 "required": [
+                  "window",
                   "kind"
                 ],
                 "properties": {
@@ -13422,19 +15074,15 @@
                       "reminder_leases"
                     ]
                   },
-                  "limit": {
-                    "type": [
-                      "integer",
-                      "null"
-                    ],
-                    "format": "int32",
-                    "minimum": 0
+                  "window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
                   }
                 }
               },
               {
                 "type": "object",
                 "required": [
+                  "window",
                   "kind"
                 ],
                 "properties": {
@@ -13450,13 +15098,8 @@
                       "reminder_snoozes"
                     ]
                   },
-                  "limit": {
-                    "type": [
-                      "integer",
-                      "null"
-                    ],
-                    "format": "int32",
-                    "minimum": 0
+                  "window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
                   }
                 }
               }
@@ -13487,6 +15130,15 @@
               "mode": {
                 "$ref": "#/components/schemas/DatabaseReadMode"
               },
+              "page_ids": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
               "sort": {
                 "type": [
                   "array",
@@ -13496,6 +15148,16 @@
               },
               "target": {
                 "$ref": "#/components/schemas/DatabaseTarget"
+              },
+              "window": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
+                  }
+                ]
               }
             }
           }
@@ -14476,20 +16138,7 @@
               {
                 "type": "object",
                 "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "startup"
-                    ]
-                  }
-                }
-              },
-              {
-                "type": "object",
-                "required": [
+                  "window",
                   "kind"
                 ],
                 "properties": {
@@ -14502,8 +16151,11 @@
                   "kind": {
                     "type": "string",
                     "enum": [
-                      "projects"
+                      "project_window"
                     ]
+                  },
+                  "window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
                   }
                 }
               },
@@ -14546,6 +16198,7 @@
               {
                 "type": "object",
                 "required": [
+                  "window",
                   "kind"
                 ],
                 "properties": {
@@ -14558,7 +16211,7 @@
                   "kind": {
                     "type": "string",
                     "enum": [
-                      "sessions"
+                      "task_window"
                     ]
                   },
                   "project_id": {
@@ -14566,6 +16219,33 @@
                       "string",
                       "null"
                     ]
+                  },
+                  "window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "pinned_window",
+                  "kind"
+                ],
+                "properties": {
+                  "include_archived": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "sidebar_overview"
+                    ]
+                  },
+                  "pinned_window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
                   }
                 }
               },
@@ -14608,33 +16288,8 @@
               {
                 "type": "object",
                 "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "include_archived": {
-                    "type": [
-                      "boolean",
-                      "null"
-                    ]
-                  },
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "threads"
-                    ]
-                  },
-                  "project_id": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  }
-                }
-              },
-              {
-                "type": "object",
-                "required": [
                   "parent_thread_id",
+                  "window",
                   "kind"
                 ],
                 "properties": {
@@ -14647,11 +16302,14 @@
                   "kind": {
                     "type": "string",
                     "enum": [
-                      "child_threads"
+                      "child_thread_window"
                     ]
                   },
                   "parent_thread_id": {
                     "type": "string"
+                  },
+                  "window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
                   }
                 }
               },
@@ -14706,13 +16364,14 @@
               {
                 "type": "object",
                 "required": [
+                  "window",
                   "kind"
                 ],
                 "properties": {
                   "kind": {
                     "type": "string",
                     "enum": [
-                      "background_processes"
+                      "background_process_window"
                     ]
                   },
                   "thread_id": {
@@ -14720,44 +16379,33 @@
                       "string",
                       "null"
                     ]
-                  }
-                }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "include_archived": {
-                    "type": [
-                      "boolean",
-                      "null"
-                    ]
                   },
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "sidebar"
-                    ]
+                  "window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
                   }
                 }
               },
               {
                 "type": "object",
                 "required": [
-                  "project_id",
+                  "window",
                   "kind"
                 ],
                 "properties": {
                   "kind": {
                     "type": "string",
                     "enum": [
-                      "managed_worktrees"
+                      "managed_worktree_window"
                     ]
                   },
                   "project_id": {
-                    "type": "string"
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
                   }
                 }
               }
@@ -14796,6 +16444,7 @@
               {
                 "type": "object",
                 "required": [
+                  "window",
                   "kind"
                 ],
                 "properties": {
@@ -14804,6 +16453,9 @@
                     "enum": [
                       "backups"
                     ]
+                  },
+                  "window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
                   }
                 }
               },
@@ -15786,39 +17438,106 @@
           }
         }
       },
-      "ProjectWorkspaceSidebar": {
+      "ProjectWorkspaceTaskThreadSummary": {
         "type": "object",
         "required": [
-          "threads",
-          "project_thread_orders"
+          "thread_id",
+          "thread_preview",
+          "status",
+          "archived",
+          "created_at",
+          "updated_at",
+          "linked_at"
         ],
         "properties": {
-          "project_thread_orders": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "propertyNames": {
-              "type": "string"
-            }
-          },
-          "projectless_thread_order": {
+          "agent_nickname": {
             "type": [
-              "array",
+              "string",
               "null"
-            ],
-            "items": {
-              "type": "string"
-            }
+            ]
           },
-          "threads": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ProjectWorkspaceThread"
-            }
+          "agent_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "agent_role": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "cwd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "forked_from_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "linked_at": {
+            "type": "string"
+          },
+          "parent_thread_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "service_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "session_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/ProjectWorkspaceThreadStatus"
+          },
+          "thread_id": {
+            "type": "string"
+          },
+          "thread_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "thread_preview": {
+            "type": "string"
+          },
+          "thread_source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -17840,21 +19559,18 @@
                       {
                         "type": "object",
                         "required": [
-                          "items",
+                          "window",
                           "kind"
                         ],
                         "properties": {
-                          "items": {
-                            "type": "array",
-                            "items": {
-                              "$ref": "#/components/schemas/AutomationDefinition"
-                            }
-                          },
                           "kind": {
                             "type": "string",
                             "enum": [
                               "definitions"
                             ]
+                          },
+                          "window": {
+                            "$ref": "#/components/schemas/CollectionWindow_AutomationDefinition"
                           }
                         }
                       },
@@ -17885,21 +19601,18 @@
                       {
                         "type": "object",
                         "required": [
-                          "items",
+                          "window",
                           "kind"
                         ],
                         "properties": {
-                          "items": {
-                            "type": "array",
-                            "items": {
-                              "$ref": "#/components/schemas/AutomationLease"
-                            }
-                          },
                           "kind": {
                             "type": "string",
                             "enum": [
                               "leases"
                             ]
+                          },
+                          "window": {
+                            "$ref": "#/components/schemas/CollectionWindow_AutomationLease"
                           }
                         }
                       },
@@ -17930,38 +19643,29 @@
                       {
                         "type": "object",
                         "required": [
-                          "items",
+                          "window",
                           "kind"
                         ],
                         "properties": {
-                          "items": {
-                            "type": "array",
-                            "items": {
-                              "$ref": "#/components/schemas/AutomationRun"
-                            }
-                          },
                           "kind": {
                             "type": "string",
                             "enum": [
                               "runs"
                             ]
+                          },
+                          "window": {
+                            "$ref": "#/components/schemas/CollectionWindow_AutomationRun"
                           }
                         }
                       },
                       {
                         "type": "object",
                         "required": [
-                          "items",
+                          "window",
                           "unread_counts",
                           "kind"
                         ],
                         "properties": {
-                          "items": {
-                            "type": "array",
-                            "items": {
-                              "$ref": "#/components/schemas/AutomationInboxItem"
-                            }
-                          },
                           "kind": {
                             "type": "string",
                             "enum": [
@@ -17970,69 +19674,63 @@
                           },
                           "unread_counts": {
                             "$ref": "#/components/schemas/AutomationRunUnreadCounts"
+                          },
+                          "window": {
+                            "$ref": "#/components/schemas/CollectionWindow_AutomationInboxItem"
                           }
                         }
                       },
                       {
                         "type": "object",
                         "required": [
-                          "items",
+                          "window",
                           "kind"
                         ],
                         "properties": {
-                          "items": {
-                            "type": "array",
-                            "items": {
-                              "$ref": "#/components/schemas/ScheduledPageOccurrence"
-                            }
-                          },
                           "kind": {
                             "type": "string",
                             "enum": [
                               "occurrences"
                             ]
+                          },
+                          "window": {
+                            "$ref": "#/components/schemas/CollectionWindow_ScheduledPageOccurrence"
                           }
                         }
                       },
                       {
                         "type": "object",
                         "required": [
-                          "items",
+                          "window",
                           "kind"
                         ],
                         "properties": {
-                          "items": {
-                            "type": "array",
-                            "items": {
-                              "$ref": "#/components/schemas/ReminderLease"
-                            }
-                          },
                           "kind": {
                             "type": "string",
                             "enum": [
                               "reminder_leases"
                             ]
+                          },
+                          "window": {
+                            "$ref": "#/components/schemas/CollectionWindow_ReminderLease"
                           }
                         }
                       },
                       {
                         "type": "object",
                         "required": [
-                          "items",
+                          "window",
                           "kind"
                         ],
                         "properties": {
-                          "items": {
-                            "type": "array",
-                            "items": {
-                              "$ref": "#/components/schemas/ReminderSnooze"
-                            }
-                          },
                           "kind": {
                             "type": "string",
                             "enum": [
                               "reminder_snoozes"
                             ]
+                          },
+                          "window": {
+                            "$ref": "#/components/schemas/CollectionWindow_ReminderSnooze"
                           }
                         }
                       }
@@ -18108,13 +19806,12 @@
                         ],
                         "properties": {
                           "databases": {
-                            "type": "array",
-                            "items": {}
+                            "$ref": "#/components/schemas/CollectionWindow_Value"
                           },
                           "kind": {
                             "type": "string",
                             "enum": [
-                              "catalog"
+                              "catalog_window"
                             ]
                           }
                         }
@@ -18138,6 +19835,24 @@
                       {
                         "type": "object",
                         "required": [
+                          "data_sources",
+                          "kind"
+                        ],
+                        "properties": {
+                          "data_sources": {
+                            "$ref": "#/components/schemas/CollectionWindow_Value"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "data_source_window"
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
                           "value",
                           "kind"
                         ],
@@ -18149,6 +19864,60 @@
                             ]
                           },
                           "value": {}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "properties",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "property_window"
+                            ]
+                          },
+                          "properties": {
+                            "$ref": "#/components/schemas/CollectionWindow_Value"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "options",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "option_window"
+                            ]
+                          },
+                          "options": {
+                            "$ref": "#/components/schemas/CollectionWindow_Value"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "views",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "view_descriptor_window"
+                            ]
+                          },
+                          "views": {
+                            "$ref": "#/components/schemas/CollectionWindow_Value"
+                          }
                         }
                       },
                       {
@@ -18177,52 +19946,66 @@
                           "kind": {
                             "type": "string",
                             "enum": [
-                              "query"
-                            ]
-                          },
-                          "value": {}
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "required": [
-                          "value",
-                          "kind"
-                        ],
-                        "properties": {
-                          "kind": {
-                            "type": "string",
-                            "enum": [
-                              "data_source_query"
-                            ]
-                          },
-                          "value": {}
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "required": [
-                          "value",
-                          "has_more",
-                          "kind"
-                        ],
-                        "properties": {
-                          "has_more": {
-                            "type": "boolean"
-                          },
-                          "kind": {
-                            "type": "string",
-                            "enum": [
                               "agent_query"
                             ]
                           },
-                          "next_cursor": {
-                            "type": [
-                              "string",
-                              "null"
+                          "value": {
+                            "$ref": "#/components/schemas/DatabaseViewWindow"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "view_window"
                             ]
                           },
-                          "value": {}
+                          "value": {
+                            "$ref": "#/components/schemas/DatabaseViewWindow"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "rows_by_id"
+                            ]
+                          },
+                          "value": {
+                            "$ref": "#/components/schemas/DatabaseRowsById"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "row_detail"
+                            ]
+                          },
+                          "value": {
+                            "$ref": "#/components/schemas/DatabaseRowDetail"
+                          }
                         }
                       }
                     ]
@@ -19143,48 +20926,17 @@
                         "type": "object",
                         "required": [
                           "projects",
-                          "sessions",
                           "kind"
                         ],
                         "properties": {
                           "kind": {
                             "type": "string",
                             "enum": [
-                              "startup"
+                              "project_window"
                             ]
                           },
                           "projects": {
-                            "type": "array",
-                            "items": {
-                              "$ref": "#/components/schemas/ProjectWorkspaceProject"
-                            }
-                          },
-                          "sessions": {
-                            "type": "array",
-                            "items": {
-                              "$ref": "#/components/schemas/ProjectWorkspaceSessionSummary"
-                            }
-                          }
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "required": [
-                          "projects",
-                          "kind"
-                        ],
-                        "properties": {
-                          "kind": {
-                            "type": "string",
-                            "enum": [
-                              "projects"
-                            ]
-                          },
-                          "projects": {
-                            "type": "array",
-                            "items": {
-                              "$ref": "#/components/schemas/ProjectWorkspaceProject"
-                            }
+                            "$ref": "#/components/schemas/CollectionWindow_ProjectWorkspaceProject"
                           }
                         }
                       },
@@ -19233,21 +20985,36 @@
                       {
                         "type": "object",
                         "required": [
-                          "sessions",
+                          "tasks",
                           "kind"
                         ],
                         "properties": {
                           "kind": {
                             "type": "string",
                             "enum": [
-                              "sessions"
+                              "task_window"
                             ]
                           },
-                          "sessions": {
-                            "type": "array",
-                            "items": {
-                              "$ref": "#/components/schemas/ProjectWorkspaceSessionSummary"
-                            }
+                          "tasks": {
+                            "$ref": "#/components/schemas/CollectionWindow_ProjectWorkspaceTaskSummary"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "pinned_tasks",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "sidebar_overview"
+                            ]
+                          },
+                          "pinned_tasks": {
+                            "$ref": "#/components/schemas/CollectionWindow_ProjectWorkspaceTaskSummary"
                           }
                         }
                       },
@@ -19297,35 +21064,11 @@
                           "kind": {
                             "type": "string",
                             "enum": [
-                              "threads"
+                              "child_thread_window"
                             ]
                           },
                           "threads": {
-                            "type": "array",
-                            "items": {
-                              "$ref": "#/components/schemas/ProjectWorkspaceThread"
-                            }
-                          }
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "required": [
-                          "threads",
-                          "kind"
-                        ],
-                        "properties": {
-                          "kind": {
-                            "type": "string",
-                            "enum": [
-                              "child_threads"
-                            ]
-                          },
-                          "threads": {
-                            "type": "array",
-                            "items": {
-                              "$ref": "#/components/schemas/ProjectWorkspaceThread"
-                            }
+                            "$ref": "#/components/schemas/CollectionWindow_ProjectWorkspaceThreadSummary"
                           }
                         }
                       },
@@ -19375,53 +21118,29 @@
                           "kind": {
                             "type": "string",
                             "enum": [
-                              "background_processes"
+                              "background_process_window"
                             ]
                           },
                           "processes": {
-                            "type": "array",
-                            "items": {
-                              "$ref": "#/components/schemas/ProjectWorkspaceBackgroundProcess"
-                            }
+                            "$ref": "#/components/schemas/CollectionWindow_ProjectWorkspaceBackgroundProcess"
                           }
                         }
                       },
                       {
                         "type": "object",
                         "required": [
-                          "sidebar",
+                          "worktrees",
                           "kind"
                         ],
                         "properties": {
                           "kind": {
                             "type": "string",
                             "enum": [
-                              "sidebar"
+                              "managed_worktree_window"
                             ]
                           },
-                          "sidebar": {
-                            "$ref": "#/components/schemas/ProjectWorkspaceSidebar"
-                          }
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "required": [
-                          "roots",
-                          "kind"
-                        ],
-                        "properties": {
-                          "kind": {
-                            "type": "string",
-                            "enum": [
-                              "managed_worktrees"
-                            ]
-                          },
-                          "roots": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
+                          "worktrees": {
+                            "$ref": "#/components/schemas/CollectionWindow_ProjectWorkspaceManagedWorktreeSummary"
                           }
                         }
                       }
@@ -19524,15 +21243,12 @@
                       {
                         "type": "object",
                         "required": [
-                          "items",
+                          "backups",
                           "kind"
                         ],
                         "properties": {
-                          "items": {
-                            "type": "array",
-                            "items": {
-                              "$ref": "#/components/schemas/BackupRecord"
-                            }
+                          "backups": {
+                            "$ref": "#/components/schemas/CollectionWindow_BackupRecord"
                           },
                           "kind": {
                             "type": "string",
@@ -19695,167 +21411,6 @@
           }
         },
         "additionalProperties": false
-      },
-      "ScheduledPageOccurrence": {
-        "type": "object",
-        "required": [
-          "occurrence_id",
-          "page_id",
-          "status",
-          "status_name",
-          "archived",
-          "title",
-          "rich_title",
-          "description",
-          "tags",
-          "occurrence_start_ms",
-          "occurrence_end_ms",
-          "is_all_day",
-          "reminders",
-          "metadata_revision",
-          "created_at",
-          "updated_at",
-          "order",
-          "is_recurring",
-          "this_and_future_equivalent_to_all"
-        ],
-        "properties": {
-          "archived": {
-            "type": "boolean"
-          },
-          "assignee": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "created_at": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "due_date": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "estimate": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "is_all_day": {
-            "type": "boolean"
-          },
-          "is_recurring": {
-            "type": "boolean"
-          },
-          "metadata_revision": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "occurrence_end_ms": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "occurrence_id": {
-            "type": "string"
-          },
-          "occurrence_start_ms": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "order": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "page_id": {
-            "type": "string"
-          },
-          "priority": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "recurrence": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/PageRecurrenceConfig"
-              }
-            ]
-          },
-          "reminders": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/PageReminderConfig"
-            }
-          },
-          "rich_title": {},
-          "run_in_base_branch": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "run_in_environment_path": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "run_in_local_path": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "run_in_target": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "run_in_worktree_path": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "schedule_timezone": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "type": "string"
-          },
-          "status_name": {
-            "type": "string"
-          },
-          "tags": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "this_and_future_equivalent_to_all": {
-            "type": "boolean"
-          },
-          "title": {
-            "type": "string"
-          },
-          "updated_at": {
-            "type": "string"
-          }
-        }
       },
       "SchemaOwner": {
         "type": "string",

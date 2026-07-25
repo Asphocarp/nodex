@@ -1,10 +1,11 @@
 import { describe, expect, test } from "vitest";
 import { plainTextToPortableRichText } from "../../shared/block-documents";
-import type {
-  DatabaseApplyResultV2,
-  DatabaseViewQueryResultV2,
-  DataSourcePageRowV2,
-  DataSourcePropertyRecordV2,
+import {
+  DATABASE_MODULE_V2_CONTRACT_VERSION,
+  type DatabaseApplyResultV2,
+  type DatabaseViewQueryResultV2,
+  type DataSourcePageRowV2,
+  type DataSourcePropertyRecordV2,
 } from "../../shared/database-module-v2";
 import {
   parseDatabaseId,
@@ -231,7 +232,7 @@ describe("selected Database View Page mutations", () => {
     const result: DatabaseApplyResultV2 = {
       ok: true,
       value: {
-        version: 2,
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         operationId: "operation-1",
         projectId: "project-1",
         libraryId,

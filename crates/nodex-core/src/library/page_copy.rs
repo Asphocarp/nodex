@@ -1654,7 +1654,8 @@ mod tests {
     };
     use nodex_core_contracts::{
         AdapterKind, BoundModuleContext, CoreErrorCode, LIBRARY_CONTRACT_VERSION, LibraryId,
-        ModuleApplyRequest, ModuleReadRequest, ProfileId, ProjectId, StoreEpoch,
+        ModuleApplyRequest, ModuleReadRequest, OWNED_DOCUMENT_CONTRACT_VERSION, ProfileId,
+        ProjectId, StoreEpoch,
     };
     use tempfile::{TempDir, tempdir};
 
@@ -4029,7 +4030,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "operation:create-canvas".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: OwnedDocumentIntent::ApplyOwnerCommand {
@@ -4047,7 +4048,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "operation:edit-canvas".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: OwnedDocumentIntent::ApplyCanvasMutation {

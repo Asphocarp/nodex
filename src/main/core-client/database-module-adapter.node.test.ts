@@ -29,23 +29,68 @@ const identity = {
   storeEpoch: "epoch:test",
 } as const;
 
-const emptyCatalogSnapshot = () => ({
-  contract_version: 1 as const,
+const databaseRecord = () => ({
+  databaseId: "database:test",
+  libraryId: identity.libraryId,
+  name: "Tasks",
+  lifecycle: "active",
+  defaultViewId: null,
+  accessRevision: 1,
+  metadataRevision: 1,
+  createdAt: "2026-07-25T00:00:00.000Z",
+  updatedAt: "2026-07-25T00:00:00.000Z",
+});
+
+const databaseSnapshot = () => ({
+  contract_version: 3 as const,
   store_epoch: identity.storeEpoch,
   event_head: 17,
-  value: { kind: "catalog" as const, databases: [] },
+  value: {
+    kind: "database" as const,
+    value: { database: databaseRecord() },
+  },
+});
+
+const emptyDataSourceWindowSnapshot = () => ({
+  contract_version: 3 as const,
+  store_epoch: identity.storeEpoch,
+  event_head: 17,
+  value: {
+    kind: "data_source_window" as const,
+    data_sources: {
+      items: [],
+      next_cursor: null,
+      authority: { projection_revision: 17 },
+    },
+  },
+});
+
+const emptyViewDescriptorWindowSnapshot = () => ({
+  contract_version: 3 as const,
+  store_epoch: identity.storeEpoch,
+  event_head: 17,
+  value: {
+    kind: "view_descriptor_window" as const,
+    views: {
+      items: [],
+      next_cursor: null,
+      authority: { projection_revision: 17 },
+    },
+  },
 });
 
 describe("Core Database Module Adapter", () => {
   test("maps the Project-bound read and validates the shared v2 snapshot", async () => {
     const client = new FakeCoreClient();
-    client.enqueueDatabaseRead(emptyCatalogSnapshot());
+    client.enqueueDatabaseRead(databaseSnapshot());
+    client.enqueueDatabaseRead(emptyDataSourceWindowSnapshot());
+    client.enqueueDatabaseRead(emptyViewDescriptorWindowSnapshot());
     const adapter = createCoreDatabaseModuleAdapter({ client, ...identity });
 
     await expect(adapter.read({
       version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId: identity.projectId,
-      read: { target: { kind: "project_default" }, mode: "catalog" },
+      read: { target: { kind: "project_default" }, mode: "database" },
     })).resolves.toEqual({
       ok: true,
       value: {
@@ -54,34 +99,125 @@ describe("Core Database Module Adapter", () => {
         libraryId: identity.libraryId,
         storeEpoch: identity.storeEpoch,
         changeLogSeq: 17,
-        value: { kind: "catalog", databases: [] },
+        value: {
+          kind: "database",
+          value: {
+            database: databaseRecord(),
+            dataSources: [],
+            views: [],
+          },
+        },
       },
     });
     expect(client.databaseReads).toEqual([{
       target: { kind: "project_default" },
-      mode: "catalog",
-      filter: undefined,
+      mode: "database",
+      filter: null,
       sort: null,
+    }, {
+      target: { kind: "database", database_id: "database:test" },
+      mode: "data_source_window",
+      filter: null,
+      sort: null,
+      page_ids: null,
+      window: { after: null, first: 200 },
+    }, {
+      target: { kind: "database", database_id: "database:test" },
+      mode: "view_descriptor_window",
+      filter: null,
+      sort: null,
+      page_ids: null,
+      window: { after: null, first: 200 },
     }]);
   });
 
-  test("preserves filter JSON while translating only typed target fields", async () => {
+  test("assembles legacy Property options only from bounded Core windows", async () => {
     const client = new FakeCoreClient();
-    client.enqueueDatabaseRead(emptyCatalogSnapshot());
-    const adapter = createCoreDatabaseModuleAdapter({ client, ...identity });
-    const filter = {
-      kind: "clause" as const,
-      propertyId: "p_status",
-      operator: "equals" as const,
-      value: "done",
+    const base = {
+      contract_version: 3 as const,
+      store_epoch: identity.storeEpoch,
+      event_head: 19,
     };
-    const sort = [{
-      field: { kind: "property" as const, propertyId: "p_status" },
-      direction: "asc" as const,
-      nulls: "last" as const,
-    }];
+    client.enqueueDatabaseRead({
+      ...base,
+      value: {
+        kind: "data_source" as const,
+        value: {
+          dataSource: {
+            dataSourceId: "source:test",
+            libraryId: identity.libraryId,
+            homeDatabaseId: "database:test",
+            name: "Tasks",
+            schemaKey: "nodex.database",
+            schemaRevision: 2,
+            lifecycle: "active",
+            rankKey: "a",
+            createdAt: "2026-07-25T00:00:00.000Z",
+            updatedAt: "2026-07-25T00:00:00.000Z",
+          },
+        },
+      },
+    });
+    client.enqueueDatabaseRead({
+      ...base,
+      value: {
+        kind: "property_window" as const,
+        properties: {
+          items: [{
+            propertyId: "status",
+            dataSourceId: "source:test",
+            name: "Status",
+            valueType: "select",
+            config: { options: [] },
+            optionCount: 1,
+            rankKey: "a",
+            lifecycle: "active",
+            revision: 2,
+            createdAt: "2026-07-25T00:00:00.000Z",
+            updatedAt: "2026-07-25T00:00:00.000Z",
+          }],
+          next_cursor: "property:next",
+          authority: { projection_revision: 19 },
+        },
+      },
+    });
+    client.enqueueDatabaseRead({
+      ...base,
+      value: {
+        kind: "property_window" as const,
+        properties: {
+          items: [{
+            propertyId: "p_abcdefgh",
+            dataSourceId: "source:test",
+            name: "Notes",
+            valueType: "text",
+            config: {},
+            optionCount: 0,
+            rankKey: "b",
+            lifecycle: "active",
+            revision: 1,
+            createdAt: "2026-07-25T00:00:00.000Z",
+            updatedAt: "2026-07-25T00:00:00.000Z",
+          }],
+          next_cursor: null,
+          authority: { projection_revision: 19 },
+        },
+      },
+    });
+    client.enqueueDatabaseRead({
+      ...base,
+      value: {
+        kind: "option_window" as const,
+        options: {
+          items: [{ id: "build", name: "Build", color: "green" }],
+          next_cursor: null,
+          authority: { projection_revision: 19 },
+        },
+      },
+    });
+    const adapter = createCoreDatabaseModuleAdapter({ client, ...identity });
 
-    await adapter.read({
+    const result = await adapter.read({
       version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId: identity.projectId,
       read: {
@@ -89,33 +225,33 @@ describe("Core Database Module Adapter", () => {
           kind: "data_source",
           dataSourceId: parseDataSourceId("source:test"),
         },
-        mode: "query",
-        filter,
-        sort,
+        mode: "data_source",
       },
     });
-
-    expect(client.databaseReads).toEqual([{
-      target: { kind: "data_source", data_source_id: "source:test" },
-      mode: "query",
-      filter,
-      sort,
-    }]);
-  });
-
-  test("maps exact Page row targets without adding query state", async () => {
-    const client = new FakeCoreClient();
-    client.enqueueDatabaseRead(emptyCatalogSnapshot());
-    const adapter = createCoreDatabaseModuleAdapter({ client, ...identity });
-
-    await adapter.readPage("page:test");
-
-    expect(client.databaseReads).toEqual([{
-      target: { kind: "page", page_id: "page:test" },
-      mode: "query",
-      filter: undefined,
-      sort: null,
-    }]);
+    if (!result.ok) throw new Error(result.error.message);
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "data_source",
+          value: {
+            properties: [
+              {
+                propertyId: "status",
+                config: { options: [{ id: "build" }] },
+              },
+              { propertyId: "p_abcdefgh", config: {} },
+            ],
+          },
+        },
+      },
+    });
+    expect(client.databaseReads.map((read) => read.mode)).toEqual([
+      "data_source",
+      "property_window",
+      "property_window",
+      "option_window",
+    ]);
   });
 
   test("maps ordered mutation semantics and validates the atomic Core receipt", async () => {
@@ -471,8 +607,11 @@ describe("Core Database Module Adapter", () => {
 
   test("selects one cached Core client for each Project", async () => {
     const client = new FakeCoreClient();
-    client.enqueueDatabaseRead(emptyCatalogSnapshot());
-    client.enqueueDatabaseRead(emptyCatalogSnapshot());
+    for (let index = 0; index < 2; index += 1) {
+      client.enqueueDatabaseRead(databaseSnapshot());
+      client.enqueueDatabaseRead(emptyDataSourceWindowSnapshot());
+      client.enqueueDatabaseRead(emptyViewDescriptorWindowSnapshot());
+    }
     const requestedProjects: string[] = [];
     const runtime = {
       backend: "rust",
@@ -494,7 +633,10 @@ describe("Core Database Module Adapter", () => {
     const request = {
       version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId: identity.projectId,
-      read: { target: { kind: "project_default" as const }, mode: "catalog" as const },
+      read: {
+        target: { kind: "project_default" as const },
+        mode: "database" as const,
+      },
     };
 
     await expect(bridge.read(request)).resolves.toMatchObject({ ok: true });
@@ -504,7 +646,7 @@ describe("Core Database Module Adapter", () => {
 
   test("maps Database Core events into resource-scoped renderer invalidations", () => {
     expect(mapCoreDatabaseEvent({
-      transport_version: 3,
+      transport_version: 4,
       event: {
         event_version: 2,
         sequence: 42,
@@ -541,7 +683,7 @@ describe("Core Database Module Adapter", () => {
 
   test("maps Library Database events without a compatibility Project", () => {
     expect(mapCoreLibraryDatabaseEvent({
-      transport_version: 3,
+      transport_version: 4,
       event: {
         event_version: 2,
         sequence: 53,

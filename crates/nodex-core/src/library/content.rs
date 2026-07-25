@@ -68,6 +68,7 @@ struct ProjectSearchCoordinates {
 
 struct ProjectSearchCandidate {
     page_id: String,
+    title: String,
     excerpt: String,
     rank: f64,
 }
@@ -75,6 +76,7 @@ struct ProjectSearchCandidate {
 struct AuthorizedProjectSearchCandidate {
     project_id: String,
     page_id: String,
+    title: String,
     status: LibraryPageWorkflowStatus,
     excerpt: String,
     rank: f64,
@@ -205,7 +207,7 @@ pub(super) fn search(
     let source_kinds = normalize_source_kinds(source_kinds)?;
     let block_types = normalize_block_types(block_types)?;
     let subject = search_subject(query, include_archived, &source_kinds, &block_types)?;
-    let offset = cursor_offset(
+    let after = search_cursor_coordinate(
         connection,
         requested_cursor.as_deref(),
         library_id,
@@ -264,28 +266,48 @@ pub(super) fn search(
         ));
         parameters.extend(block_types.iter().cloned().map(SqlValue::Text));
     }
-    parameters.push(SqlValue::Integer(
-        i64::try_from(limit + 1).map_err(|_| invalid("Library search limit is invalid"))?,
-    ));
-    parameters.push(SqlValue::Integer(
-        i64::try_from(offset).map_err(|_| invalid("Library search cursor is out of range"))?,
-    ));
+    parameters.extend([
+        SqlValue::Integer(i64::from(after.is_some())),
+        after
+            .as_ref()
+            .map_or(SqlValue::Real(0.0), |value| SqlValue::Real(value.0)),
+        after.as_ref().map_or_else(
+            || SqlValue::Text(String::new()),
+            |value| SqlValue::Text(value.1.clone()),
+        ),
+        after.as_ref().map_or_else(
+            || SqlValue::Text(String::new()),
+            |value| SqlValue::Text(value.2.clone()),
+        ),
+        SqlValue::Integer(after.as_ref().map_or(0, |value| value.3)),
+        SqlValue::Integer(
+            i64::try_from(limit + 1).map_err(|_| invalid("Library search limit is invalid"))?,
+        ),
+    ]);
 
     let sql = format!(
-        "SELECT unit.project_id, unit.owner_block_id, unit.document_id, unit.block_id, \
-           source.type, unit.document_generation, unit.projected_seq, unit.source_kind, \
-           unit.field_key, snippet(block_search_units_fts, 0, char(2), char(3), '…', 32), \
-           bm25(block_search_units_fts) AS rank \
-         FROM block_search_units_fts \
-         JOIN block_search_units unit ON unit.rowid = block_search_units_fts.rowid \
-         JOIN documents document ON document.id = unit.document_id \
-           AND document.project_id = unit.project_id \
-         JOIN blocks source ON source.id = unit.block_id \
-           AND source.project_id = unit.project_id \
-         JOIN blocks owner ON owner.id = unit.owner_block_id \
-           AND owner.project_id = unit.project_id \
-         JOIN pages owner_page ON owner_page.block_id = owner.id \
-         WHERE {} ORDER BY rank, unit.owner_block_id, unit.block_id LIMIT ? OFFSET ?",
+        "WITH ranked AS (\
+           SELECT unit.project_id, unit.owner_block_id, unit.document_id, unit.block_id, \
+             source.type AS block_type, unit.document_generation, unit.projected_seq, \
+             unit.source_kind, unit.field_key, \
+             snippet(block_search_units_fts, 0, char(2), char(3), '…', 32) AS excerpt, \
+             bm25(block_search_units_fts) AS rank, unit.rowid AS search_rowid \
+           FROM block_search_units_fts \
+           JOIN block_search_units unit ON unit.rowid = block_search_units_fts.rowid \
+           JOIN documents document ON document.id = unit.document_id \
+             AND document.project_id = unit.project_id \
+           JOIN blocks source ON source.id = unit.block_id \
+             AND source.project_id = unit.project_id \
+           JOIN blocks owner ON owner.id = unit.owner_block_id \
+             AND owner.project_id = unit.project_id \
+           JOIN pages owner_page ON owner_page.block_id = owner.id \
+           WHERE {}\
+         ) \
+         SELECT project_id, owner_block_id, document_id, block_id, block_type, \
+           document_generation, projected_seq, source_kind, field_key, excerpt, rank, search_rowid \
+         FROM ranked \
+         WHERE ? = 0 OR (rank, owner_block_id, block_id, search_rowid) > (?, ?, ?, ?) \
+         ORDER BY rank, owner_block_id, block_id, search_rowid LIMIT ?",
         conditions.join(" AND ")
     );
     let raw = connection
@@ -303,26 +325,47 @@ pub(super) fn search(
                 row.get::<_, String>(8)?,
                 row.get::<_, String>(9)?,
                 row.get::<_, f64>(10)?,
+                row.get::<_, i64>(11)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut items = raw
+    let mut results = raw
         .into_iter()
-        .map(search_hit)
+        .map(|row| -> Result<_, StoreError> {
+            let coordinate = (row.10, row.1.clone(), row.3.clone(), row.11);
+            Ok((search_hit(row)?, coordinate))
+        })
         .collect::<Result<Vec<_>, _>>()?;
-    let has_more = items.len() > limit;
-    items.truncate(limit);
+    let has_more = results.len() > limit;
+    results.truncate(limit);
     let next_cursor = if has_more {
+        let (_, (rank, owner_page_id, block_id, row_id)) = results
+            .last()
+            .ok_or_else(|| corrupt("Library search continuation has no row"))?;
         Some(cursor::mint(
             connection,
             library_id,
             &subject,
-            offset + items.len(),
+            cursor::KeysetCoordinate {
+                values: vec![
+                    cursor::KeysetValue::Real {
+                        value: rank.to_string(),
+                    },
+                    cursor::KeysetValue::Text {
+                        value: owner_page_id.clone(),
+                    },
+                    cursor::KeysetValue::Text {
+                        value: block_id.clone(),
+                    },
+                ],
+                stable_id: row_id.to_string(),
+            },
             event_head,
         )?)
     } else {
         None
     };
+    let items = results.into_iter().map(|(item, _)| item).collect();
     Ok(LibraryReadValue::Search {
         items,
         next_cursor,
@@ -366,7 +409,7 @@ pub(super) fn project_page_search(
     }
     let raw = connection
         .prepare(
-            "SELECT unit.owner_block_id, \
+            "SELECT unit.owner_block_id, owner_materialization.title, \
                snippet(block_search_units_fts, 0, char(2), char(3), '…', 32), \
                bm25(block_search_units_fts) AS rank \
              FROM block_search_units_fts \
@@ -378,6 +421,8 @@ pub(super) fn project_page_search(
              JOIN blocks owner ON owner.id = unit.owner_block_id \
                AND owner.project_id = unit.project_id \
              JOIN pages owner_page ON owner_page.block_id = owner.id \
+             JOIN document_materializations owner_materialization \
+               ON owner_materialization.document_id = owner_page.document_id \
              WHERE block_search_units_fts MATCH ?1 \
                AND unit.document_id IS NOT NULL \
                AND document.readiness = 'ready' \
@@ -401,8 +446,9 @@ pub(super) fn project_page_search(
             |row| {
                 Ok(ProjectSearchCandidate {
                     page_id: row.get(0)?,
-                    excerpt: normalize_excerpt(&row.get::<_, String>(1)?),
-                    rank: row.get(2)?,
+                    title: row.get(1)?,
+                    excerpt: normalize_excerpt(&row.get::<_, String>(2)?),
+                    rank: row.get(3)?,
                 })
             },
         )?
@@ -439,6 +485,7 @@ pub(super) fn project_page_search(
         authorized.push(AuthorizedProjectSearchCandidate {
             project_id: scope.project_id.clone(),
             page_id: candidate.page_id,
+            title: candidate.title,
             status,
             excerpt: candidate.excerpt,
             rank: candidate.rank,
@@ -457,6 +504,7 @@ pub(super) fn project_page_search(
         .map(|(index, candidate)| LibraryProjectPageSearchHit {
             project_id: candidate.project_id,
             page_id: candidate.page_id,
+            title: candidate.title,
             status: candidate.status,
             score: (1_000_000_i64 - i64::try_from(index).unwrap_or(999_999)).max(1),
             excerpt: candidate.excerpt,
@@ -634,6 +682,7 @@ fn search_hit(
         String,
         String,
         f64,
+        i64,
     ),
 ) -> Result<LibrarySearchHit, StoreError> {
     let source_kind = match row.7.as_str() {
@@ -778,25 +827,48 @@ fn search_subject(
     Ok(vec!["search".to_owned(), fingerprint])
 }
 
-fn cursor_offset(
+fn search_cursor_coordinate(
     connection: &Connection,
     requested_cursor: Option<&str>,
     library_id: &str,
     subject: &[String],
     event_head: i64,
-) -> Result<usize, StoreError> {
+) -> Result<Option<(f64, String, String, i64)>, StoreError> {
     let Some(requested_cursor) = requested_cursor else {
-        return Ok(0);
+        return Ok(None);
     };
-    let decoded = cursor::decode(connection, requested_cursor, library_id, subject)?;
-    if decoded.change_log_seq != event_head {
-        return Err(StoreError::new(
-            StoreErrorCode::RevisionConflict,
-            "Library content changed while search results were being paged",
-            false,
-        ));
-    }
-    Ok(decoded.offset)
+    let decoded = cursor::decode(
+        connection,
+        requested_cursor,
+        library_id,
+        subject,
+        event_head,
+    )?;
+    let [
+        cursor::KeysetValue::Real { value: rank },
+        cursor::KeysetValue::Text {
+            value: owner_page_id,
+        },
+        cursor::KeysetValue::Text { value: block_id },
+    ] = decoded.values.as_slice()
+    else {
+        return Err(invalid("Library search cursor coordinate is invalid"));
+    };
+    let rank = rank
+        .parse::<f64>()
+        .ok()
+        .filter(|value| value.is_finite())
+        .ok_or_else(|| invalid("Library search cursor rank is invalid"))?;
+    let row_id = decoded
+        .stable_id
+        .parse::<i64>()
+        .map_err(|_| invalid("Library search cursor identity is invalid"))?;
+    Ok(Some((
+        rank,
+        owner_page_id.clone(),
+        block_id.clone(),
+        row_id,
+    )))
 }
 
 fn search_limit(limit: Option<u32>) -> Result<usize, StoreError> {

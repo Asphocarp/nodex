@@ -4,14 +4,20 @@ use nodex_core_contracts::BoundModuleContext;
 use nodex_core_contracts::automation::{
     AutomationIntent, ReminderLease, ReminderLeaseStatus, ReminderSnooze,
 };
+use nodex_core_contracts::collection::{
+    CollectionWindow, CollectionWindowAuthority, CollectionWindowRequest,
+};
 use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 
+use crate::infrastructure::collection_window::{WindowCandidate, assemble, normalize_request};
+use crate::infrastructure::cursor::{
+    self, CollectionCursorSubject, CursorDirection, KeysetCoordinate, KeysetValue,
+};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 const CATCH_UP_WINDOW_MS: i64 = 7 * 24 * 60 * 60 * 1_000;
 const LOOK_AHEAD_WINDOW_MS: i64 = 24 * 60 * 60 * 1_000;
-const MAX_READ_LIMIT: u32 = 1_000;
 const MAX_CLAIM_LIMIT: u32 = 100;
 const MIN_LEASE_DURATION_MS: u64 = 1_000;
 const MAX_LEASE_DURATION_MS: u64 = 24 * 60 * 60 * 1_000;
@@ -54,54 +60,164 @@ impl ReminderCandidate {
     }
 }
 
-pub(super) fn read_leases(
+pub(super) fn read_lease_window(
     connection: &Connection,
+    library_id: &str,
+    event_head: i64,
     project_id: Option<&str>,
     include_settled: bool,
-    limit: u32,
-) -> Result<Vec<ReminderLease>, StoreError> {
-    validate_read_limit(limit)?;
+    request: &CollectionWindowRequest,
+) -> Result<CollectionWindow<ReminderLease>, StoreError> {
+    let normalized = normalize_request(request)?;
+    let fingerprint =
+        cursor::query_fingerprint(&("reminder_leases_v1", project_id, include_settled))?;
+    let subject = CollectionCursorSubject {
+        kind: "reminder_leases",
+        library_id,
+        query_fingerprint: &fingerprint,
+        projection_revision: event_head,
+    };
+    let after = normalized
+        .after
+        .map(|encoded| cursor::decode(connection, encoded, subject))
+        .transpose()?
+        .map(|(direction, coordinate)| {
+            if direction != CursorDirection::Forward || coordinate.values.len() != 2 {
+                return Err(invalid("Reminder lease cursor is incompatible"));
+            }
+            let [
+                KeysetValue::Integer { value: due_at_ms },
+                KeysetValue::Integer { value: attempt },
+            ] = coordinate.values.as_slice()
+            else {
+                return Err(invalid("Reminder lease cursor coordinate is invalid"));
+            };
+            Ok((*due_at_ms, *attempt, coordinate.stable_id))
+        })
+        .transpose()?;
     let mut statement = connection.prepare(
         "SELECT lease_id, project_id, receipt_project_id, page_id, occurrence_start_ms, \
            reminder_offset_minutes, due_at_ms, title, snooze_id, attempt, status, \
            claimed_at_ms, expires_at_ms, settled_at_ms, retry_at_ms, reason_code \
          FROM core_reminder_leases \
          WHERE (?1 IS NULL OR project_id = ?1) AND (?2 OR status = 'claimed') \
-         ORDER BY due_at_ms DESC, attempt DESC, lease_id DESC LIMIT ?3",
+           AND (?3 IS NULL OR due_at_ms < ?3 \
+             OR (due_at_ms = ?3 AND attempt < ?4) \
+             OR (due_at_ms = ?3 AND attempt = ?4 AND lease_id < ?5)) \
+         ORDER BY due_at_ms DESC, attempt DESC, lease_id DESC LIMIT ?6",
     )?;
-    statement
-        .query_map(params![project_id, include_settled, limit], lease_from_row)?
+    let rows = statement
+        .query_map(
+            params![
+                project_id,
+                include_settled,
+                after.as_ref().map(|value| value.0),
+                after.as_ref().map(|value| value.1),
+                after.as_ref().map(|value| value.2.as_str()),
+                i64::try_from(normalized.first + 1)
+                    .map_err(|_| invalid("Reminder lease window size is invalid"))?,
+            ],
+            lease_from_row,
+        )?
         .collect::<rusqlite::Result<Vec<_>>>()?
         .into_iter()
         .map(validate_lease)
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+    let candidates = rows.into_iter().map(|item| WindowCandidate {
+        coordinate: KeysetCoordinate {
+            values: vec![
+                KeysetValue::Integer {
+                    value: item.due_at_ms,
+                },
+                KeysetValue::Integer {
+                    value: i64::from(item.attempt),
+                },
+            ],
+            stable_id: item.lease_id.clone(),
+        },
+        item,
+    });
+    assemble(
+        candidates,
+        normalized.first,
+        CollectionWindowAuthority {
+            projection_revision: event_head,
+        },
+        |coordinate| {
+            cursor::mint(
+                connection,
+                subject,
+                CursorDirection::Forward,
+                coordinate.clone(),
+            )
+        },
+    )
 }
 
-pub(super) fn read_snoozes(
+pub(super) fn read_snooze_window(
     connection: &Connection,
+    library_id: &str,
+    event_head: i64,
     project_id: Option<&str>,
     include_consumed: bool,
-    limit: u32,
-) -> Result<Vec<ReminderSnooze>, StoreError> {
-    validate_read_limit(limit)?;
+    request: &CollectionWindowRequest,
+) -> Result<CollectionWindow<ReminderSnooze>, StoreError> {
+    let normalized = normalize_request(request)?;
+    let fingerprint =
+        cursor::query_fingerprint(&("reminder_snoozes_v1", project_id, include_consumed))?;
+    let subject = CollectionCursorSubject {
+        kind: "reminder_snoozes",
+        library_id,
+        query_fingerprint: &fingerprint,
+        projection_revision: event_head,
+    };
+    let after = normalized
+        .after
+        .map(|encoded| cursor::decode(connection, encoded, subject))
+        .transpose()?
+        .map(|(direction, coordinate)| {
+            if direction != CursorDirection::Forward || coordinate.values.len() != 1 {
+                return Err(invalid("Reminder snooze cursor is incompatible"));
+            }
+            let [KeysetValue::Text { value: due_at }] = coordinate.values.as_slice() else {
+                return Err(invalid("Reminder snooze cursor coordinate is invalid"));
+            };
+            let snooze_id = coordinate
+                .stable_id
+                .parse::<i64>()
+                .map_err(|_| invalid("Reminder snooze cursor identity is invalid"))?;
+            Ok((due_at.clone(), snooze_id))
+        })
+        .transpose()?;
     let mut statement = connection.prepare(
         "SELECT id, project_id, page_id, occurrence_start, due_at, created_at, consumed_at \
          FROM reminder_snoozes \
          WHERE (?1 IS NULL OR project_id = ?1) AND (?2 OR consumed_at IS NULL) \
-         ORDER BY due_at DESC, id DESC LIMIT ?3",
+           AND (?3 IS NULL OR due_at < ?3 OR (due_at = ?3 AND id < ?4)) \
+         ORDER BY due_at DESC, id DESC LIMIT ?5",
     )?;
-    statement
-        .query_map(params![project_id, include_consumed, limit], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, Option<String>>(6)?,
-            ))
-        })?
+    let rows = statement
+        .query_map(
+            params![
+                project_id,
+                include_consumed,
+                after.as_ref().map(|value| value.0.as_str()),
+                after.as_ref().map(|value| value.1),
+                i64::try_from(normalized.first + 1)
+                    .map_err(|_| invalid("Reminder snooze window size is invalid"))?,
+            ],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                ))
+            },
+        )?
         .collect::<rusqlite::Result<Vec<_>>>()?
         .into_iter()
         .map(
@@ -117,7 +233,32 @@ pub(super) fn read_snoozes(
                 })
             },
         )
-        .collect()
+        .collect::<Result<Vec<_>, StoreError>>()?;
+    let candidates = rows.into_iter().map(|item| WindowCandidate {
+        coordinate: KeysetCoordinate {
+            values: vec![KeysetValue::Text {
+                value: timestamp_to_iso(item.due_at_ms)
+                    .expect("validated reminder snooze timestamp"),
+            }],
+            stable_id: item.snooze_id.to_string(),
+        },
+        item,
+    });
+    assemble(
+        candidates,
+        normalized.first,
+        CollectionWindowAuthority {
+            projection_revision: event_head,
+        },
+        |coordinate| {
+            cursor::mint(
+                connection,
+                subject,
+                CursorDirection::Forward,
+                coordinate.clone(),
+            )
+        },
+    )
 }
 
 pub(super) fn apply(
@@ -846,13 +987,6 @@ fn normalize_reason_code(value: &str) -> Result<String, StoreError> {
         return Err(invalid("Reminder failure reason code is invalid"));
     }
     Ok(value.to_owned())
-}
-
-fn validate_read_limit(limit: u32) -> Result<(), StoreError> {
-    if (1..=MAX_READ_LIMIT).contains(&limit) {
-        return Ok(());
-    }
-    Err(invalid("Reminder read limit is invalid"))
 }
 
 fn invalid(message: &str) -> StoreError {

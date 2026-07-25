@@ -35,7 +35,12 @@ describe("RemovedProjectsDialog", () => {
       invoke: async (channel: string, ...args: unknown[]) => {
         if (channel === "projects:list") {
           listCalls.push(args);
-          return projects;
+          return {
+            items: projects,
+            nextCursor: null,
+            hasMore: false,
+            projectionRevision: 1,
+          };
         }
         if (channel === "projects:set-lifecycle") {
           const project = projects.find((candidate) => candidate.id === args[0]);
@@ -69,7 +74,13 @@ describe("RemovedProjectsDialog", () => {
     );
     expect(await view.findByText("Removed Alpha")).toBeTruthy();
     expect(view.getByText("/repo/removed-alpha")).toBeTruthy();
-    expect(listCalls).toEqual([[{ includeArchived: true }]]);
+    expect(listCalls).toEqual([[
+      {
+        includeArchived: true,
+        after: null,
+        first: 100,
+      },
+    ]]);
 
     fireEvent.click(view.getByRole("button", { name: "Restore" }));
     await waitFor(() => {

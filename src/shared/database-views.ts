@@ -5,7 +5,13 @@ import type {
   DatabaseViewSort,
   DatabaseViewConfig,
 } from "./database-kernel";
-import type { DatabasePageSummary, Estimate, Priority } from "./types";
+import type { DatabaseViewQueryResultV2 } from "./database-module-v2";
+import type {
+  BoardSummary,
+  DatabasePageSummary,
+  Estimate,
+  Priority,
+} from "./types";
 
 export interface ReadDatabaseViewReferenceInput {
   /**
@@ -28,11 +34,13 @@ export type DatabaseViewJsonValue =
   | readonly DatabaseViewJsonValue[]
   | { readonly [key: string]: DatabaseViewJsonValue };
 
-export interface DatabaseViewDefinition {
+export interface DatabaseViewDefinition<
+  ProjectScope extends string | null = string,
+> {
   readonly id: string;
   readonly databaseBlockId: string;
   /** Requesting Project scope; Database/View identity itself is Library-owned. */
-  readonly projectId: string;
+  readonly projectId: ProjectScope;
   readonly name: string;
   readonly kind: DatabaseViewKind;
   readonly config: Readonly<Record<string, DatabaseViewJsonValue>>;
@@ -55,6 +63,43 @@ export interface DatabaseViewReadModel {
   readonly view: DatabaseViewDefinition;
   readonly rows: readonly DatabaseViewPageRow[];
 }
+
+export interface DatabaseViewWindowInput {
+  readonly databaseViewId?: string;
+  readonly databaseId?: string;
+  readonly after?: string;
+  readonly first?: number;
+}
+
+/**
+ * A bounded Database View projection. `nextCursor` is the only indication that
+ * another window is available; callers must not infer completion from row
+ * count.
+ */
+export interface DatabaseViewWindowSnapshot<
+  ProjectScope extends string | null = string,
+> {
+  readonly projectId: ProjectScope;
+  readonly libraryId: string;
+  readonly databaseId: string;
+  readonly dataSourceId: string;
+  readonly viewId: string;
+  readonly storeEpoch: string;
+  readonly changeLogSeq: number;
+  readonly projectionRevision: number;
+  readonly nextCursor: string | null;
+  readonly rows: readonly DatabaseViewPageRow[];
+  readonly board: BoardSummary;
+  readonly view: DatabaseViewDefinition<ProjectScope>;
+  /**
+   * Bounded compatibility evidence for existing Database View renderers. It
+   * contains only rows from this window and never contains Page bodies.
+   */
+  readonly query: DatabaseViewQueryResultV2;
+}
+
+export type LibraryDatabaseViewWindowSnapshot =
+  DatabaseViewWindowSnapshot<null>;
 
 type LegacyFilterClause =
   | {

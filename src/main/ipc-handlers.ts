@@ -257,12 +257,6 @@ const rendererDiagnosticsLogger = getLogger({
   subsystem: "renderer",
   component: "diagnostics",
 });
-function boardCardCount(board: {
-  columns: Array<{ cards: unknown[] }>;
-}): number {
-  return board.columns.reduce((sum, column) => sum + column.cards.length, 0);
-}
-
 function requireNonBlankStringArray(value: unknown, label: string): string[] {
   if (!Array.isArray(value) || value.some((item) => (
     typeof item !== "string" || item.trim().length === 0
@@ -592,8 +586,8 @@ interface RegisterIpcHandlersOptions {
     | "apply"
     | "readLibrary"
     | "applyLibrary"
-    | "getBoardSummary"
-    | "getDatabaseRowsDetails"
+    | "getDatabaseViewWindow"
+    | "getLibraryDatabaseViewWindow"
     | "getDatabaseRowPage"
     | "resolveDatabaseViewReference"
   >;
@@ -1533,8 +1527,8 @@ export function registerIpcHandlers(
   });
 
   // Projects
-  registerHandle("projects:list", async (_, options) =>
-    await projectWorkspace.listProjects(options),
+  registerHandle("projects:list", async (_, input) =>
+    await projectWorkspace.listProjectWindow(input),
   );
 
   registerHandle("projects:get", async (_, projectId: string) =>
@@ -1591,74 +1585,23 @@ export function registerIpcHandlers(
 
   // Project sessions
   registerHandle(
-    "project-sessions:list",
-    async (_, projectId: string | null, options) => {
+    "workspace:tasks:list",
+    async (_, projectId: string | null, input) => {
       const startedAt = getDevRuntimeMetricStart();
-      const sessions = await projectWorkspace.listProjectSessions(
+      const window = await projectWorkspace.listProjectSessionSummaryWindow(
         projectId,
-        options,
+        input,
       );
-      const approxPayloadBytes = approximateJsonPayloadBytes(sessions);
-      logDevRuntimeMetric("ipc.project_sessions_list", {
+      logDevRuntimeMetric("ipc.workspace_tasks_list", {
         projectId,
-        includeArchived: options?.includeArchived === true,
-        sessionCount: sessions.length,
-        linkedThreadCount: sessions.filter((session) => session.thread !== null)
-          .length,
-        approxPayloadBytes,
+        includeArchived: input?.includeArchived === true,
+        requestedFirst: input?.first ?? 50,
+        itemCount: window.items.length,
+        hasMore: window.hasMore,
+        approxPayloadBytes: approximateJsonPayloadBytes(window),
         durationMs: getDevRuntimeMetricDurationMs(startedAt),
       });
-      recordDevRuntimeMetricCounter(
-        "ipc.project_sessions_list.burst_window",
-        {
-          projectId,
-          includeArchived: options?.includeArchived === true,
-          approxPayloadBytes,
-        },
-        {
-          groupBy: ["projectId", "includeArchived"],
-          windowMs: 1_000,
-          burstThreshold: 5,
-          burstMetric: "ipc.project_sessions_list.burst",
-        },
-      );
-      return sessions;
-    },
-  );
-
-  registerHandle(
-    "project-sessions:list-summaries",
-    async (_, projectId: string | null, options) => {
-      const startedAt = getDevRuntimeMetricStart();
-      const sessions = await projectWorkspace.listProjectSessionSummaries(
-        projectId,
-        options,
-      );
-      const approxPayloadBytes = approximateJsonPayloadBytes(sessions);
-      logDevRuntimeMetric("ipc.project_sessions_list_summaries", {
-        projectId,
-        includeArchived: options?.includeArchived === true,
-        sessionCount: sessions.length,
-        linkedThreadCount: sessions.filter((session) => session.thread !== null)
-          .length,
-        approxPayloadBytes,
-        durationMs: getDevRuntimeMetricDurationMs(startedAt),
-      });
-      recordDevRuntimeMetricCounter(
-        "ipc.project_sessions_list_summaries.burst_window",
-        {
-          projectId,
-          includeArchived: options?.includeArchived === true,
-          approxPayloadBytes,
-        },
-        {
-          groupBy: ["projectId", "includeArchived"],
-          windowMs: 1_000,
-          burstThreshold: 10,
-          burstMetric: "ipc.project_sessions_list_summaries.burst",
-        },
-      );
-      return sessions;
+      return window;
     },
   );
 
@@ -1791,35 +1734,34 @@ export function registerIpcHandlers(
     await projectWorkspace.detachProjectSessionThread(sessionId)
   );
 
-  // Board
-  registerHandle("board:summary:get", async (_, projectId: string) => {
+  registerHandle("database:view-window:get", async (_, projectId, input) => {
     const startedAt = performance.now();
-    const board = await databaseModule.getBoardSummary(projectId);
-    ipcPayloadLogger.info("board summary payload served", {
-      channel: "board:summary:get",
+    const window = await databaseModule.getDatabaseViewWindow(projectId, input);
+    ipcPayloadLogger.info("Database View window payload served", {
+      channel: "database:view-window:get",
       projectId,
-      cardCount: boardCardCount(board.board),
-      approxPayloadBytes: approximateJsonPayloadBytes(board),
+      rowCount: window.rows.length,
+      hasContinuation: window.nextCursor !== null,
+      approxPayloadBytes: approximateJsonPayloadBytes(window),
       durationMs: Math.round(performance.now() - startedAt),
     });
-    return board;
+    return window;
+  });
+
+  registerHandle("library-database:view-window:get", async (_, input) => {
+    const startedAt = performance.now();
+    const window = await databaseModule.getLibraryDatabaseViewWindow(input);
+    ipcPayloadLogger.info("Library Database View window payload served", {
+      channel: "library-database:view-window:get",
+      rowCount: window.rows.length,
+      hasContinuation: window.nextCursor !== null,
+      approxPayloadBytes: approximateJsonPayloadBytes(window),
+      durationMs: Math.round(performance.now() - startedAt),
+    });
+    return window;
   });
 
   // Database Pages
-  registerHandle("database-rows:details:get", async (_, projectId, input) => {
-    const startedAt = performance.now();
-    const pages = await databaseModule.getDatabaseRowsDetails(projectId, input);
-    ipcPayloadLogger.info("database row details payload served", {
-      channel: "database-rows:details:get",
-      projectId,
-      requestedPageCount: input.pageIds.length,
-      pageCount: pages.length,
-      approxPayloadBytes: approximateJsonPayloadBytes(pages),
-      durationMs: Math.round(performance.now() - startedAt),
-    });
-    return pages;
-  });
-
   registerHandle("pages:search", async (_, input) => {
     const startedAt = performance.now();
     const results = await libraryModule.searchPages(input);
@@ -1851,10 +1793,20 @@ export function registerIpcHandlers(
       windowStart: Date,
       windowEnd: Date,
       searchQuery?: string,
+      after?: string | null,
     ) =>
       automationModule
-        .listPageOccurrences(projectId, windowStart, windowEnd, searchQuery)
-        .then((occurrences) => ({ occurrences })),
+        .listPageOccurrences(
+          projectId,
+          windowStart,
+          windowEnd,
+          searchQuery,
+          after,
+        )
+        .then((window) => ({
+          occurrences: [...window.items],
+          nextCursor: window.nextCursor,
+        })),
   );
 
   registerHandle(

@@ -13,6 +13,9 @@ use nodex_core_contracts::administration::{
     StoreAdministrationIntent, StoreAdministrationRead, StoreAdministrationReadValue,
     StoreAdministrationReceipt, StoreIntegrity, StoreReadiness,
 };
+use nodex_core_contracts::collection::{
+    CollectionWindow, CollectionWindowAuthority, CollectionWindowRequest,
+};
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CommittedCoreModuleEvent, CommittedModuleValue, CoreError,
     CoreErrorCode, CoreErrorRecovery, ModuleApplyRequest, ModuleMutationReceipt, ModuleReadRequest,
@@ -22,6 +25,10 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
+use crate::infrastructure::collection_window::{WindowCandidate, assemble, normalize_request};
+use crate::infrastructure::cursor::{
+    self, CollectionCursorSubject, CursorDirection, KeysetCoordinate, KeysetValue,
+};
 use crate::infrastructure::event_log::{
     NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
 };
@@ -38,6 +45,7 @@ use crate::infrastructure::writer::{StoreMaintenance, StoreReaders, StoreWriter}
 const MODULE_NAME: &str = "store_administration";
 const MAX_OPERATION_ID_BYTES: usize = 512;
 const MAX_LABEL_CHARS: usize = 512;
+const MAX_BACKUPS: usize = 200;
 const DEFAULT_BLOCK_RETENTION_COUNT: usize = 10_000;
 
 type StoreReplacementHook = Arc<dyn Fn(&str) -> Result<(), StoreError> + Send + Sync>;
@@ -52,6 +60,70 @@ pub struct StoreAdministrationApplyOutcome {
 struct ActiveOperation {
     operation_id: String,
     phase: String,
+}
+
+fn backup_window(
+    connection: &Connection,
+    library_id: &str,
+    event_head: i64,
+    items: Vec<BackupRecord>,
+    request: &CollectionWindowRequest,
+) -> Result<CollectionWindow<BackupRecord>, StoreError> {
+    let normalized = normalize_request(request)?;
+    let fingerprint = cursor::query_fingerprint(&"store_administration_backups_v1")?;
+    let subject = CollectionCursorSubject {
+        kind: "store_administration_backups",
+        library_id,
+        query_fingerprint: &fingerprint,
+        projection_revision: event_head,
+    };
+    let after = normalized
+        .after
+        .map(|encoded| cursor::decode(connection, encoded, subject))
+        .transpose()?
+        .map(|(direction, coordinate)| {
+            if direction != CursorDirection::Forward || coordinate.values.len() != 1 {
+                return Err(invalid_store("Backup cursor is incompatible"));
+            }
+            let [KeysetValue::Text { value: created_at }] = coordinate.values.as_slice() else {
+                return Err(invalid_store("Backup cursor coordinate is invalid"));
+            };
+            Ok((created_at.clone(), coordinate.stable_id))
+        })
+        .transpose()?;
+    let candidates = items
+        .into_iter()
+        .filter(|item| {
+            after.as_ref().is_none_or(|(created_at, backup_id)| {
+                item.created_at < *created_at
+                    || (item.created_at == *created_at && item.backup_id < *backup_id)
+            })
+        })
+        .take(normalized.first + 1)
+        .map(|item| WindowCandidate {
+            coordinate: KeysetCoordinate {
+                values: vec![KeysetValue::Text {
+                    value: item.created_at.clone(),
+                }],
+                stable_id: item.backup_id.clone(),
+            },
+            item,
+        });
+    assemble(
+        candidates,
+        normalized.first,
+        CollectionWindowAuthority {
+            projection_revision: event_head,
+        },
+        |coordinate| {
+            cursor::mint(
+                connection,
+                subject,
+                CursorDirection::Forward,
+                coordinate.clone(),
+            )
+        },
+    )
 }
 
 #[derive(Clone, Debug)]
@@ -121,7 +193,7 @@ impl StoreAdministrationModule {
                 "Store Administration Module has no managed Profile home",
             ));
         };
-        let operation_guard = if matches!(request.read, StoreAdministrationRead::Backups) {
+        let operation_guard = if matches!(request.read, StoreAdministrationRead::Backups { .. }) {
             Some(
                 self.operation_lock
                     .lock()
@@ -171,11 +243,19 @@ impl StoreAdministrationModule {
                             integrity: state.integrity,
                         }
                     }
-                    StoreAdministrationRead::Backups => {
+                    StoreAdministrationRead::Backups { window } => {
                         let deleted = logically_deleted_backup_ids(&transaction)?;
                         let mut items = backup::list_backups(&profile_home)?;
                         items.retain(|item| !deleted.contains(&item.backup_id));
-                        StoreAdministrationReadValue::Backups { items }
+                        StoreAdministrationReadValue::Backups {
+                            backups: backup_window(
+                                &transaction,
+                                &library_id,
+                                event_head,
+                                items,
+                                &window,
+                            )?,
+                        }
                     }
                     StoreAdministrationRead::MaintenanceStatus => {
                         let state = runtime.lock().map_err(|_| {
@@ -336,6 +416,14 @@ impl StoreAdministrationModule {
                         committed,
                         event: None,
                     });
+                }
+                let backup_count = backup::list_backups(&profile_home)?.len();
+                if backup_count >= MAX_BACKUPS {
+                    return Err(StoreError::new(
+                        StoreErrorCode::ResourceExhausted,
+                        "Backup collection exceeds its fixed bound; delete an older Backup first",
+                        false,
+                    ));
                 }
                 let record = backup::create_backup(
                     connection,

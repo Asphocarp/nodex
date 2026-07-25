@@ -5,7 +5,7 @@ import type {
 } from "./database-identities";
 import type { DatabaseViewKind } from "./database-kernel";
 
-export const LIBRARY_MODULE_CONTRACT_VERSION = 1 as const;
+export const LIBRARY_MODULE_CONTRACT_VERSION = 2 as const;
 export const DEFAULT_LIBRARY_READ_LIMIT = 20 as const;
 export const MAX_LIBRARY_READ_LIMIT = 100 as const;
 export const MAX_LIBRARY_CURSOR_LENGTH = 2_048 as const;

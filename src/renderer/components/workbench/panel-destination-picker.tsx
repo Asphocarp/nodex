@@ -24,7 +24,11 @@ import {
 } from "@/lib/query-fresh-picker";
 import { normalizeSearchText } from "@/lib/search-text";
 import type { BoardSummary, Project } from "@/lib/types";
-import { useBoardsForProjects } from "@/lib/use-all-boards";
+import { useBoardsForProjects } from "@/lib/use-project-board-windows";
+import {
+  mergeDestinationSearchResults,
+  useProjectPageDestinationSearch,
+} from "@/lib/use-project-page-destination-search";
 import { readDatabaseModule } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -58,6 +62,7 @@ export interface PanelDestinationPickerSurfaceProps extends PanelDestinationPick
   loading: boolean;
   loadError?: string | null;
   initialQuery?: string;
+  enableRemotePageSearch?: boolean;
 }
 
 const PANEL_DESTINATION_LOAD_DELAY_MS = 400;
@@ -299,7 +304,11 @@ export function PanelDestinationPicker({
     boards,
     loading,
     error,
-  } = useBoardsForProjects(projects);
+  } = useBoardsForProjects(
+    currentProjectId
+      ? projects.filter((project) => project.id === currentProjectId)
+      : [],
+  );
   const databaseDescriptors = useProjectDatabaseDescriptors(
     projects,
     scope !== "page-only",
@@ -318,6 +327,7 @@ export function PanelDestinationPicker({
       ariaLabel={ariaLabel}
       placeholder={placeholder}
       currentProjectId={currentProjectId}
+      enableRemotePageSearch
     />
   );
 }
@@ -329,6 +339,7 @@ export function PanelDestinationPickerSurface({
   loading,
   loadError = null,
   initialQuery = "",
+  enableRemotePageSearch = false,
   scope = "all",
   ariaLabel = "Open panel tab",
   placeholder = "Open Database or Page…",
@@ -378,21 +389,32 @@ export function PanelDestinationPickerSurface({
     () => searchIndex.search(deferredQuery),
     [deferredQuery, searchIndex],
   );
+  const remoteSearchResult = useProjectPageDestinationSearch({
+    projects,
+    query: deferredQuery,
+    enabled: enableRemotePageSearch && scope !== "db-only",
+  });
+  const resolvedSearchResult = useMemo(
+    () => mergeDestinationSearchResults(searchResult, remoteSearchResult),
+    [remoteSearchResult, searchResult],
+  );
   const sections = useMemo(
     () => buildPanelDestinationSections({
       projects,
       boardMap,
       databaseDescriptorMap,
       query: deferredQuery,
-      searchResult,
+      searchResult: resolvedSearchResult,
       scope,
       currentProjectId,
     }),
-    [boardMap, currentProjectId, databaseDescriptorMap, deferredQuery, projects, scope, searchResult],
+    [boardMap, currentProjectId, databaseDescriptorMap, deferredQuery, projects, resolvedSearchResult, scope],
   );
   const rows = useMemo(() => flattenPanelDestinationRows(sections), [sections]);
   const buildRowsForQuery = useCallback((nextQuery: string): readonly PanelDestinationRow[] => {
-    const nextSearchResult = searchIndex.search(nextQuery);
+    const nextSearchResult = normalizeSearchText(nextQuery) === resolvedSearchResult.normalizedQuery
+      ? resolvedSearchResult
+      : searchIndex.search(nextQuery);
     const nextSections = buildPanelDestinationSections({
       projects,
       boardMap,
@@ -408,6 +430,7 @@ export function PanelDestinationPickerSurface({
     currentProjectId,
     databaseDescriptorMap,
     projects,
+    resolvedSearchResult,
     scope,
     searchIndex,
   ]);

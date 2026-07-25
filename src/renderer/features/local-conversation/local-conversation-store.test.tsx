@@ -168,7 +168,14 @@ vi.mock("./local-conversation-deps", () => ({
     }
 
     if (channel === "codex:threads:list" && typeof threadId === "string") {
-      return threadListByProject[threadId] ?? [];
+      return {
+        items: threadListByProject[threadId] ?? [],
+        nextCursor: null,
+        authority: {
+          storeEpoch: "test",
+          projectionRevision: 1,
+        },
+      };
     }
 
     if (channel === "codex:thread:start-for-session") {

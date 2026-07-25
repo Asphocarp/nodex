@@ -392,11 +392,19 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     case "codex:pending-worktree:discard-fork-side-panel-transfer":
       return undefined;
     case "projects:list": {
-      const [options] = args as [{ includeArchived?: boolean }?];
-      const query = options?.includeArchived === true ? "?includeArchived=true" : "";
-      const res = await fetch(toApiUrl(`/api/projects${query}`));
+      const [input] = args as [{
+        includeArchived?: boolean;
+        after?: string | null;
+        first?: number;
+      }?];
+      const query = new URLSearchParams();
+      if (input?.includeArchived === true) query.set("includeArchived", "true");
+      if (input?.after) query.set("after", input.after);
+      if (input?.first !== undefined) query.set("first", String(input.first));
+      const suffix = query.size > 0 ? `?${query.toString()}` : "";
+      const res = await fetch(toApiUrl(`/api/projects${suffix}`));
       const data = await res.json();
-      return data.projects;
+      return data;
     }
     case "projects:create": {
       const [input] = args as [
@@ -487,38 +495,28 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       const data = await res.json();
       return data.projects ?? [];
     }
-    case "project-sessions:list": {
-      const [projectId, options] = args as [
-        string,
-        { includeArchived?: boolean }?,
+    case "workspace:tasks:list": {
+      const [projectId, input] = args as [
+        string | null,
+        {
+          includeArchived?: boolean;
+          after?: string | null;
+          first?: number;
+        }?,
       ];
       const params = new URLSearchParams();
-      if (options?.includeArchived === true) {
+      if (projectId !== null) params.set("projectId", projectId);
+      if (input?.includeArchived === true) {
         params.set("includeArchived", "true");
       }
-      const suffix = params.size > 0 ? `?${params.toString()}` : "";
-      const res = await fetch(
-        toApiUrl(`/api/projects/${projectId}/sessions${suffix}`),
-      );
-      const data = await res.json();
-      return data.sessions ?? [];
-    }
-    case "project-sessions:list-summaries": {
-      const [projectId, options] = args as [
-        string,
-        { includeArchived?: boolean }?,
-      ];
-      const params = new URLSearchParams();
-      if (options?.includeArchived === true) {
-        params.set("includeArchived", "true");
+      if (input?.after) params.set("after", input.after);
+      if (input?.first !== undefined) {
+        params.set("first", String(input.first));
       }
-      params.set("summary", "true");
-      const suffix = params.size > 0 ? `?${params.toString()}` : "";
       const res = await fetch(
-        toApiUrl(`/api/projects/${projectId}/sessions${suffix}`),
+        toApiUrl(`/api/workspace/tasks?${params.toString()}`),
       );
-      const data = await res.json();
-      return data.sessions ?? [];
+      return await res.json();
     }
     case "project-sessions:get": {
       const [sessionId] = args as [string];
@@ -761,10 +759,44 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       const data = await res.json();
       return data.success ?? false;
     }
-    case "board:summary:get": {
-      const [projectId] = args as [string];
+    case "database:view-window:get": {
+      const [projectId, input] = args as [
+        string,
+        {
+          readonly databaseViewId?: string;
+          readonly after?: string;
+          readonly first?: number;
+        },
+      ];
+      const viewId = encodeURIComponent(input.databaseViewId ?? "default");
+      const query = new URLSearchParams();
+      if (input.after) query.set("after", input.after);
+      if (input.first !== undefined) query.set("first", String(input.first));
+      const suffix = query.size > 0 ? `?${query.toString()}` : "";
       const res = await fetch(
-        toApiUrl(`/api/projects/${projectId}/board-summary`),
+        toApiUrl(
+          `/api/projects/${encodeURIComponent(projectId)}/database-views/${viewId}/rows${suffix}`,
+        ),
+      );
+      return res.json();
+    }
+    case "library-database:view-window:get": {
+      const [input] = args as [{
+        readonly databaseViewId?: string;
+        readonly databaseId?: string;
+        readonly after?: string;
+        readonly first?: number;
+      }];
+      const query = new URLSearchParams();
+      if (input.after) query.set("after", input.after);
+      if (input.first !== undefined) query.set("first", String(input.first));
+      const suffix = query.size > 0 ? `?${query.toString()}` : "";
+      const res = await fetch(
+        toApiUrl(
+          input.databaseViewId
+            ? `/api/library/database-views/${encodeURIComponent(input.databaseViewId)}/rows${suffix}`
+            : `/api/library/databases/${encodeURIComponent(input.databaseId ?? "")}/default-view/rows${suffix}`,
+        ),
       );
       return res.json();
     }
@@ -1006,21 +1038,6 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       }
       return decodeDatabaseViewReadModelHttp(await res.json());
     }
-    case "database-rows:details:get": {
-      const [projectId, input] = args as [string, { pageIds: string[] }];
-      const res = await fetch(
-        toApiUrl(
-          `/api/projects/${encodeURIComponent(projectId)}/database-rows/details`,
-        ),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(input),
-        },
-      );
-      if (!res.ok) return [];
-      return res.json();
-    }
     case "pages:search": {
       const [input] = args as [
         { projectIds: string[]; query: string; limit?: number },
@@ -1076,11 +1093,12 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       return undefined;
     }
     case "calendar:occurrences": {
-      const [projectId, windowStart, windowEnd, searchQuery] = args as [
+      const [projectId, windowStart, windowEnd, searchQuery, after] = args as [
         string,
         Date,
         Date,
         string?,
+        (string | null)?,
       ];
       const params = new URLSearchParams({
         start: windowStart.toISOString(),
@@ -1088,6 +1106,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       });
       if (searchQuery && searchQuery.trim().length > 0)
         params.set("search", searchQuery);
+      if (after) params.set("after", after);
       const res = await fetch(
         toApiUrl(
           `/api/projects/${projectId}/calendar/occurrences?${params.toString()}`,

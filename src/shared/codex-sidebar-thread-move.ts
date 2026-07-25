@@ -1,7 +1,6 @@
 import { z } from "zod";
 import type {
   CodexSidebarSnapshot,
-  ProjectSessionSummary,
 } from "./types";
 
 export type CodexSidebarProjectKind = "local" | "remote";
@@ -53,7 +52,6 @@ export type CodexSidebarThreadMoveInput = CodexSidebarThreadMoveBase
 
 export interface CodexSidebarThreadMoveScope {
   projectId: string | null;
-  sessions: ProjectSessionSummary[];
 }
 
 export interface CodexSidebarThreadMoveSuccess {

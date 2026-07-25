@@ -28,13 +28,16 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use utoipa::{OpenApi, ToSchema};
 
-pub const TRANSPORT_PROTOCOL_MIN: u32 = 3;
-pub const TRANSPORT_PROTOCOL_MAX: u32 = 3;
+pub const TRANSPORT_PROTOCOL_MIN: u32 = 4;
+pub const TRANSPORT_PROTOCOL_MAX: u32 = 4;
 pub const COMPATIBILITY_MANIFEST_VERSION: u32 = 1;
 pub const STORE_LINEAGE: &str = "nodex-rust-core";
-pub const CURRENT_STORE_VERSION: u32 = 90;
+pub const CURRENT_STORE_VERSION: u32 = 91;
 pub const CURRENT_STORE_SCHEMA_FINGERPRINT: &str =
-    "5ed6a9baa72223aae5fae81c92b335f7df976cd6cc676a61d4416a636de362ce";
+    "c6cc471bbe04b3bcef872a921844561d8caf0e1b9faefaa6c592ca39ad35301d";
+pub const MAX_ORDINARY_JSON_REQUEST_BYTES: usize = 2 * 1024 * 1024;
+pub const MAX_ORDINARY_JSON_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+pub const MAX_EVENT_FRAME_BYTES: usize = (2 * 1024 * 1024) + (256 * 1024);
 /// Maximum decoded UTF-8 size of one JSON string on the Document transport.
 ///
 /// This is also the public Page body input bound: JSON escaping may make the
@@ -42,6 +45,25 @@ pub const CURRENT_STORE_SCHEMA_FINGERPRINT: &str =
 pub const MAX_DOCUMENT_JSON_STRING_BYTES: usize = 8 * 1024 * 1024;
 /// Maximum encoded JSON body accepted by a Document HTTP endpoint.
 pub const MAX_DOCUMENT_JSON_REQUEST_BYTES: usize = 64 * 1024 * 1024;
+pub const MAX_DOCUMENT_RESPONSE_BYTES: usize =
+    MAX_ORDINARY_JSON_RESPONSE_BYTES + MAX_DOCUMENT_JSON_STRING_BYTES + 8;
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct CoreTransportBudgets {
+    pub ordinary_json_request_bytes: u64,
+    pub ordinary_json_response_bytes: u64,
+    pub event_frame_bytes: u64,
+    pub document_json_request_bytes: u64,
+    pub document_response_bytes: u64,
+}
+
+pub const CORE_TRANSPORT_BUDGETS: CoreTransportBudgets = CoreTransportBudgets {
+    ordinary_json_request_bytes: MAX_ORDINARY_JSON_REQUEST_BYTES as u64,
+    ordinary_json_response_bytes: MAX_ORDINARY_JSON_RESPONSE_BYTES as u64,
+    event_frame_bytes: MAX_EVENT_FRAME_BYTES as u64,
+    document_json_request_bytes: MAX_DOCUMENT_JSON_REQUEST_BYTES as u64,
+    document_response_bytes: MAX_DOCUMENT_RESPONSE_BYTES as u64,
+};
 
 pub fn store_format(version: u32) -> Option<StoreFormatIdentity> {
     let schema_fingerprint = match version {
@@ -50,7 +72,8 @@ pub fn store_format(version: u32) -> Option<StoreFormatIdentity> {
         86 => "9642837efeaa6f3701d8ec445c6294ecbe5c7186a41e84c50bd520261a5c3e00",
         87 => "5e069cbccdab8938c2b0676e92eb109ac9e57bcccba7eb40965728140688bf75",
         88 | 89 => "6e0e0883d80699deddbbc2e857212b048c9ddd58639c1260e993ac429ef2424f",
-        90 => CURRENT_STORE_SCHEMA_FINGERPRINT,
+        90 => "5ed6a9baa72223aae5fae81c92b335f7df976cd6cc676a61d4416a636de362ce",
+        91 => CURRENT_STORE_SCHEMA_FINGERPRINT,
         _ => return None,
     };
     Some(StoreFormatIdentity {
@@ -933,6 +956,7 @@ mod api {
         RuntimeDescriptor,
         CoreCompatibilityManifest,
         CoreClientRequirements,
+        CoreTransportBudgets,
         CoreArtifactIdentity,
         CoreStartupEvent,
         CoreStartupEventFrame,
@@ -1057,10 +1081,10 @@ mod tests {
             &manifest,
             &store_format(CURRENT_STORE_VERSION).expect("current Store"),
         )
-        .expect_err("Workspace 1 cannot satisfy Workspace 4");
+        .expect_err("Workspace 1 cannot satisfy Workspace 5");
         assert_eq!(mismatches.len(), 1);
         assert_eq!(mismatches[0].axis, CompatibilityAxis::Module);
-        assert!(mismatches[0].required.contains("ProjectWorkspace=4"));
+        assert!(mismatches[0].required.contains("ProjectWorkspace=5"));
     }
 
     #[test]
@@ -1129,7 +1153,7 @@ mod tests {
     }
 
     #[test]
-    fn transport_three_shutdown_does_not_accept_legacy_handoff_or_extra_fields() {
+    fn transport_four_shutdown_does_not_accept_legacy_handoff_or_extra_fields() {
         assert!(
             serde_json::from_value::<ShutdownRequest>(serde_json::json!({
                 "version_handoff": null

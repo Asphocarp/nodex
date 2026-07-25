@@ -10,7 +10,7 @@ use nodex_core_contracts::library::{
     LibraryReadValue, LibraryResourceTarget, LibraryRouteTarget,
 };
 use nodex_core_contracts::{AdapterKind, BoundModuleContext};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::Value;
 
 use crate::database::read::{page_data_source_projection, page_record};
@@ -842,76 +842,134 @@ fn children(
             database_id.clone(),
         ],
     };
-    let offset = cursor_offset(
+    let after = cursor_coordinate(
         connection,
         requested_cursor.as_deref(),
         library_id,
         &subject,
         event_head,
     )?;
-    let nodes = match &parent {
-        LibraryNavigationParent::Library => root_nodes(connection, library_id)?,
+    let limit = read_limit(limit)?;
+    let (mut ordered, total) = match &parent {
+        LibraryNavigationParent::Library => {
+            root_node_window(connection, library_id, after.as_ref(), limit)?
+        }
         LibraryNavigationParent::Page { page_id } => {
-            page_child_nodes(connection, library_id, page_id)?
+            page_child_node_window(connection, library_id, page_id, after.as_ref(), limit)?
         }
         LibraryNavigationParent::Database { database_id } => {
-            view_nodes(connection, library_id, database_id)?
+            view_node_window(connection, library_id, database_id, after.as_ref(), limit)?
         }
     };
-    let limit = read_limit(limit)?;
-    let mut items = nodes
-        .iter()
-        .skip(offset)
-        .take(limit)
-        .cloned()
+    let has_more = ordered.len() > limit;
+    ordered.truncate(limit);
+    let next_cursor = has_more
+        .then(|| {
+            let last = ordered
+                .last()
+                .ok_or_else(|| corrupt("Library child continuation has no node"))?;
+            cursor::mint(
+                connection,
+                library_id,
+                &subject,
+                cursor::KeysetCoordinate {
+                    values: vec![cursor::KeysetValue::Text {
+                        value: last.sort_key.clone(),
+                    }],
+                    stable_id: navigation_node_id(&last.node).to_owned(),
+                },
+                event_head,
+            )
+        })
+        .transpose()?;
+    let mut items = ordered
+        .into_iter()
+        .map(|ordered| ordered.node)
         .collect::<Vec<_>>();
     if let Some(target) = force_include_target
         && !items.iter().any(|node| matches_target(node, &target))
-        && let Some(forced) = nodes.iter().find(|node| matches_target(node, &target))
+        && let Some(forced) = forced_child_node(connection, library_id, &parent, &target)?
     {
-        items.push(forced.clone());
+        items.push(forced);
     }
-    let next_offset = offset.saturating_add(limit);
-    let has_more = next_offset < nodes.len();
-    let next_cursor = has_more
-        .then(|| cursor::mint(connection, library_id, &subject, next_offset, event_head))
-        .transpose()?;
     Ok(LibraryReadValue::Children {
         parent,
         items,
         next_cursor,
         has_more,
-        total: u64::try_from(nodes.len()).map_err(|_| corrupt("Library child count overflowed"))?,
+        total,
     })
 }
 
-fn root_nodes(
+struct OrderedNavigationNode {
+    node: LibraryNavigationNode,
+    sort_key: String,
+}
+
+fn root_node_window(
     connection: &Connection,
     library_id: &str,
-) -> Result<Vec<LibraryNavigationNode>, StoreError> {
-    let shells = connection
+    after: Option<&cursor::KeysetCoordinate>,
+    limit: usize,
+) -> Result<(Vec<OrderedNavigationNode>, u64), StoreError> {
+    let (after_sort_key, after_id) = keyset_text_coordinate(after)?;
+    let query_limit =
+        i64::try_from(limit.saturating_add(1)).map_err(|_| invalid("Library limit overflowed"))?;
+    let nodes = connection
         .prepare(
-            "SELECT block.id, block.type FROM library_block_placements placement \
+            "SELECT block.type, block.id, placement.rank_key, \
+               materialization.title, page.parent_revision, page.metadata_revision, \
+               document.generation, document.head_seq, page.updated_at, \
+               EXISTS(SELECT 1 FROM document_block_index child \
+                 INNER JOIN blocks child_block ON child_block.id = child.block_id \
+                 WHERE child.document_id = page.document_id \
+                   AND child_block.type IN ('page', 'database') \
+                   AND child_block.lifecycle = 'active'), \
+               container.name, container.default_view_id, container.metadata_revision, \
+               block.location_revision, container.updated_at, \
+               (SELECT COUNT(*) FROM database_views view \
+                 WHERE view.database_block_id = container.block_id \
+                   AND view.lifecycle = 'active') \
+             FROM library_block_placements placement \
              INNER JOIN blocks block ON block.id = placement.block_id \
              LEFT JOIN pages page ON page.block_id = block.id \
+             LEFT JOIN documents document ON document.id = page.document_id \
+             LEFT JOIN document_materializations materialization \
+               ON materialization.document_id = page.document_id \
              LEFT JOIN database_containers container ON container.block_id = block.id \
              WHERE placement.library_id = ?1 AND block.type IN ('page', 'database') \
                AND block.lifecycle = 'active' \
                AND COALESCE(page.lifecycle, container.lifecycle) = 'active' \
-             ORDER BY placement.rank_key, block.id",
+               AND (?2 IS NULL OR placement.rank_key > ?2 \
+                 OR (placement.rank_key = ?2 AND block.id > ?3)) \
+             ORDER BY placement.rank_key, block.id LIMIT ?4",
         )?
-        .query_map([library_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
+        .query_map(
+            params![library_id, after_sort_key, after_id, query_limit],
+            navigation_row,
+        )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    hydrate_shells(connection, shells)
+    let total = connection.query_row(
+        "SELECT COUNT(*) FROM library_block_placements placement \
+         INNER JOIN blocks block ON block.id = placement.block_id \
+         LEFT JOIN pages page ON page.block_id = block.id \
+         LEFT JOIN database_containers container ON container.block_id = block.id \
+         WHERE placement.library_id = ?1 AND block.type IN ('page', 'database') \
+           AND block.lifecycle = 'active' \
+           AND COALESCE(page.lifecycle, container.lifecycle) = 'active'",
+        [library_id],
+        |row| row.get::<_, i64>(0),
+    )?;
+    Ok((nodes, count_to_u64(total)?))
 }
 
-fn page_child_nodes(
+fn page_child_node_window(
     connection: &Connection,
     library_id: &str,
     page_id: &str,
-) -> Result<Vec<LibraryNavigationNode>, StoreError> {
+    after: Option<&cursor::KeysetCoordinate>,
+    limit: usize,
+) -> Result<(Vec<OrderedNavigationNode>, u64), StoreError> {
     let document_id = connection
         .query_row(
             "SELECT document_id FROM pages \
@@ -921,7 +979,10 @@ fn page_child_nodes(
         )
         .optional()?
         .ok_or_else(|| not_found("Library Page is unavailable"))?;
-    let shells = connection
+    let (after_sort_key, after_id) = keyset_text_coordinate(after)?;
+    let query_limit =
+        i64::try_from(limit.saturating_add(1)).map_err(|_| invalid("Library limit overflowed"))?;
+    let nodes = connection
         .prepare(
             "WITH RECURSIVE ordered(block_id, path) AS ( \
                SELECT block_id, printf('%010d', ordinal) || ':' || block_id \
@@ -933,35 +994,56 @@ fn page_child_nodes(
                FROM ordered INNER JOIN document_block_index child \
                  ON child.document_id = ?1 AND child.parent_block_id = ordered.block_id \
              ) \
-             SELECT block.id, block.type FROM ordered \
+             SELECT block.type, block.id, ordered.path, \
+               materialization.title, page.parent_revision, page.metadata_revision, \
+               document.generation, document.head_seq, page.updated_at, \
+               EXISTS(SELECT 1 FROM document_block_index child \
+                 INNER JOIN blocks child_block ON child_block.id = child.block_id \
+                 WHERE child.document_id = page.document_id \
+                   AND child_block.type IN ('page', 'database') \
+                   AND child_block.lifecycle = 'active'), \
+               container.name, container.default_view_id, container.metadata_revision, \
+               block.location_revision, container.updated_at, \
+               (SELECT COUNT(*) FROM database_views view \
+                 WHERE view.database_block_id = container.block_id \
+                   AND view.lifecycle = 'active') \
+             FROM ordered \
              INNER JOIN blocks block ON block.id = ordered.block_id \
              LEFT JOIN pages page ON page.block_id = block.id \
+             LEFT JOIN documents document ON document.id = page.document_id \
+             LEFT JOIN document_materializations materialization \
+               ON materialization.document_id = page.document_id \
              LEFT JOIN database_containers container ON container.block_id = block.id \
              WHERE block.type IN ('page', 'database') AND block.lifecycle = 'active' \
                AND COALESCE(page.lifecycle, container.lifecycle) = 'active' \
-             ORDER BY ordered.path",
+               AND (?2 IS NULL OR ordered.path > ?2 \
+                 OR (ordered.path = ?2 AND block.id > ?3)) \
+             ORDER BY ordered.path, block.id LIMIT ?4",
         )?
-        .query_map([document_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
+        .query_map(
+            params![document_id, after_sort_key, after_id, query_limit],
+            navigation_row,
+        )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    hydrate_shells(connection, shells)
-}
-
-fn hydrate_shells(
-    connection: &Connection,
-    shells: Vec<(String, String)>,
-) -> Result<Vec<LibraryNavigationNode>, StoreError> {
-    shells
-        .into_iter()
-        .map(|(id, kind)| match kind.as_str() {
-            "page" => page_node(connection, &id),
-            "database" => database_node(connection, &id),
-            _ => Err(corrupt(
-                "Library navigation contains an unsupported Block type",
-            )),
-        })
-        .collect()
+    let total = connection.query_row(
+        "WITH RECURSIVE ordered(block_id) AS ( \
+           SELECT block_id FROM document_block_index \
+           WHERE document_id = ?1 AND parent_block_id IS NULL \
+           UNION ALL \
+           SELECT child.block_id FROM ordered \
+           INNER JOIN document_block_index child \
+             ON child.document_id = ?1 AND child.parent_block_id = ordered.block_id \
+         ) \
+         SELECT COUNT(*) FROM ordered \
+         INNER JOIN blocks block ON block.id = ordered.block_id \
+         LEFT JOIN pages page ON page.block_id = block.id \
+         LEFT JOIN database_containers container ON container.block_id = block.id \
+         WHERE block.type IN ('page', 'database') AND block.lifecycle = 'active' \
+           AND COALESCE(page.lifecycle, container.lifecycle) = 'active'",
+        [document_id],
+        |row| row.get::<_, i64>(0),
+    )?;
+    Ok((nodes, count_to_u64(total)?))
 }
 
 fn page_node(connection: &Connection, page_id: &str) -> Result<LibraryNavigationNode, StoreError> {
@@ -1035,11 +1117,13 @@ fn database_node(
         .ok_or_else(|| not_found("Library Database projection is unavailable"))
 }
 
-fn view_nodes(
+fn view_node_window(
     connection: &Connection,
     library_id: &str,
     database_id: &str,
-) -> Result<Vec<LibraryNavigationNode>, StoreError> {
+    after: Option<&cursor::KeysetCoordinate>,
+    limit: usize,
+) -> Result<(Vec<OrderedNavigationNode>, u64), StoreError> {
     let default_view_id = connection
         .query_row(
             "SELECT default_view_id FROM database_containers \
@@ -1049,25 +1133,214 @@ fn view_nodes(
         )
         .optional()?
         .ok_or_else(|| not_found("Library Database is unavailable"))?;
-    connection
+    let (after_sort_key, after_id) = keyset_text_coordinate(after)?;
+    let query_limit =
+        i64::try_from(limit.saturating_add(1)).map_err(|_| invalid("Library limit overflowed"))?;
+    let nodes = connection
         .prepare(
-            "SELECT id, database_block_id, data_source_id, name, kind, revision \
+            "SELECT id, database_block_id, data_source_id, name, kind, revision, rank_key \
              FROM database_views WHERE database_block_id = ?1 AND lifecycle = 'active' \
-             ORDER BY rank_key, id",
+               AND (?2 IS NULL OR rank_key > ?2 OR (rank_key = ?2 AND id > ?3)) \
+             ORDER BY rank_key, id LIMIT ?4",
         )?
-        .query_map([database_id], |row| {
-            let view_id = row.get::<_, String>(0)?;
-            Ok(LibraryNavigationNode::View {
-                is_default: default_view_id.as_ref() == Some(&view_id),
-                view_id,
-                database_id: row.get(1)?,
-                data_source_id: row.get(2)?,
-                title: row.get(3)?,
-                view_kind: row.get(4)?,
-                revision: row.get(5)?,
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()
+        .query_map(
+            params![database_id, after_sort_key, after_id, query_limit],
+            |row| {
+                let view_id = row.get::<_, String>(0)?;
+                Ok(OrderedNavigationNode {
+                    node: LibraryNavigationNode::View {
+                        is_default: default_view_id.as_ref() == Some(&view_id),
+                        view_id,
+                        database_id: row.get(1)?,
+                        data_source_id: row.get(2)?,
+                        title: row.get(3)?,
+                        view_kind: row.get(4)?,
+                        revision: row.get(5)?,
+                    },
+                    sort_key: row.get(6)?,
+                })
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let total = connection.query_row(
+        "SELECT COUNT(*) FROM database_views \
+         WHERE database_block_id = ?1 AND lifecycle = 'active'",
+        [database_id],
+        |row| row.get::<_, i64>(0),
+    )?;
+    Ok((nodes, count_to_u64(total)?))
+}
+
+fn navigation_row(row: &Row<'_>) -> rusqlite::Result<OrderedNavigationNode> {
+    let kind = row.get::<_, String>(0)?;
+    let id = row.get::<_, String>(1)?;
+    let sort_key = row.get::<_, String>(2)?;
+    let node = match kind.as_str() {
+        "page" => LibraryNavigationNode::Page {
+            page_id: id,
+            title: row.get(3)?,
+            parent_revision: row.get(4)?,
+            metadata_revision: row.get(5)?,
+            document_generation: row.get(6)?,
+            document_head_seq: row.get(7)?,
+            updated_at: row.get(8)?,
+            has_children: row.get::<_, i64>(9)? == 1,
+        },
+        "database" => LibraryNavigationNode::Database {
+            database_id: id,
+            title: row.get(10)?,
+            default_view_id: row.get::<_, Option<String>>(11)?.ok_or_else(|| {
+                rusqlite::Error::InvalidColumnType(
+                    11,
+                    "default_view_id".to_owned(),
+                    rusqlite::types::Type::Null,
+                )
+            })?,
+            metadata_revision: row.get(12)?,
+            location_revision: row.get(13)?,
+            updated_at: row.get(14)?,
+            has_multiple_views: row.get::<_, i64>(15)? > 1,
+        },
+        _ => {
+            return Err(rusqlite::Error::InvalidColumnType(
+                0,
+                "block.type".to_owned(),
+                rusqlite::types::Type::Text,
+            ));
+        }
+    };
+    Ok(OrderedNavigationNode { node, sort_key })
+}
+
+fn view_node(
+    connection: &Connection,
+    library_id: &str,
+    database_id: &str,
+    view_id: &str,
+) -> Result<LibraryNavigationNode, StoreError> {
+    connection
+        .query_row(
+            "SELECT view.id, view.database_block_id, view.data_source_id, view.name, \
+               view.kind, view.revision, view.id = container.default_view_id \
+             FROM database_views view \
+             INNER JOIN database_containers container \
+               ON container.block_id = view.database_block_id \
+             WHERE view.id = ?1 AND view.database_block_id = ?2 \
+               AND container.library_id = ?3 AND view.lifecycle = 'active' \
+               AND container.lifecycle = 'active'",
+            params![view_id, database_id, library_id],
+            |row| {
+                Ok(LibraryNavigationNode::View {
+                    view_id: row.get(0)?,
+                    database_id: row.get(1)?,
+                    data_source_id: row.get(2)?,
+                    title: row.get(3)?,
+                    view_kind: row.get(4)?,
+                    revision: row.get(5)?,
+                    is_default: row.get::<_, i64>(6)? == 1,
+                })
+            },
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Library View is unavailable"))
+}
+
+fn forced_child_node(
+    connection: &Connection,
+    library_id: &str,
+    parent: &LibraryNavigationParent,
+    target: &LibraryRouteTarget,
+) -> Result<Option<LibraryNavigationNode>, StoreError> {
+    match (parent, target) {
+        (LibraryNavigationParent::Library, LibraryRouteTarget::Page { page_id }) => {
+            let exists = connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM library_block_placements placement \
+                 INNER JOIN pages page ON page.block_id = placement.block_id \
+                 WHERE placement.library_id = ?1 AND placement.block_id = ?2 \
+                   AND page.lifecycle = 'active')",
+                params![library_id, page_id],
+                |row| row.get::<_, bool>(0),
+            )?;
+            exists.then(|| page_node(connection, page_id)).transpose()
+        }
+        (LibraryNavigationParent::Library, LibraryRouteTarget::Database { database_id }) => {
+            let exists = connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM library_block_placements placement \
+                 INNER JOIN database_containers container \
+                   ON container.block_id = placement.block_id \
+                 WHERE placement.library_id = ?1 AND placement.block_id = ?2 \
+                   AND container.lifecycle = 'active')",
+                params![library_id, database_id],
+                |row| row.get::<_, bool>(0),
+            )?;
+            exists
+                .then(|| database_node(connection, database_id))
+                .transpose()
+        }
+        (
+            LibraryNavigationParent::Page {
+                page_id: parent_page_id,
+            },
+            LibraryRouteTarget::Page { page_id },
+        ) => forced_document_child(connection, library_id, parent_page_id, page_id)?
+            .then(|| page_node(connection, page_id))
+            .transpose(),
+        (
+            LibraryNavigationParent::Page {
+                page_id: parent_page_id,
+            },
+            LibraryRouteTarget::Database { database_id },
+        ) => forced_document_child(connection, library_id, parent_page_id, database_id)?
+            .then(|| database_node(connection, database_id))
+            .transpose(),
+        (
+            LibraryNavigationParent::Database { database_id },
+            LibraryRouteTarget::View { view_id },
+        ) => {
+            let exists = connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM database_views view \
+                 INNER JOIN database_containers container \
+                   ON container.block_id = view.database_block_id \
+                 WHERE view.id = ?1 AND view.database_block_id = ?2 \
+                   AND container.library_id = ?3 AND view.lifecycle = 'active' \
+                   AND container.lifecycle = 'active')",
+                params![view_id, database_id, library_id],
+                |row| row.get::<_, bool>(0),
+            )?;
+            exists
+                .then(|| view_node(connection, library_id, database_id, view_id))
+                .transpose()
+        }
+        _ => Ok(None),
+    }
+}
+
+fn forced_document_child(
+    connection: &Connection,
+    library_id: &str,
+    parent_page_id: &str,
+    target_id: &str,
+) -> Result<bool, StoreError> {
+    connection
+        .query_row(
+            "WITH RECURSIVE ordered(block_id) AS ( \
+               SELECT child.block_id FROM pages page \
+               INNER JOIN document_block_index child \
+                 ON child.document_id = page.document_id \
+               WHERE page.block_id = ?1 AND page.library_id = ?2 \
+                 AND page.lifecycle = 'active' AND child.parent_block_id IS NULL \
+               UNION ALL \
+               SELECT child.block_id FROM ordered \
+               INNER JOIN document_block_index child \
+                 ON child.parent_block_id = ordered.block_id \
+             ) \
+             SELECT EXISTS(SELECT 1 FROM ordered \
+               INNER JOIN blocks block ON block.id = ordered.block_id \
+               WHERE ordered.block_id = ?3 AND block.lifecycle = 'active' \
+                 AND block.type IN ('page', 'database'))",
+            params![parent_page_id, library_id, target_id],
+            |row| row.get(0),
+        )
         .map_err(Into::into)
 }
 
@@ -1092,10 +1365,7 @@ fn path(
                 .optional()?
                 .ok_or_else(|| not_found("Library View is unavailable"))?;
             let mut nodes = database_path(connection, library_id, &database_id)?;
-            let view = view_nodes(connection, library_id, &database_id)?
-                .into_iter()
-                .find(|node| matches!(node, LibraryNavigationNode::View { view_id: id, .. } if id == view_id))
-                .ok_or_else(|| not_found("Library View is unavailable"))?;
+            let view = view_node(connection, library_id, &database_id, view_id)?;
             nodes.push(view);
             Ok(nodes)
         }
@@ -1111,6 +1381,9 @@ fn page_path(
     let mut page_ids = Vec::new();
     let mut seen = HashSet::new();
     loop {
+        if page_ids.len() >= 512 {
+            return Err(corrupt("Library Page hierarchy exceeds 512 Page levels"));
+        }
         if !seen.insert(current.clone()) {
             return Err(corrupt("Library Page hierarchy contains a cycle"));
         }
@@ -1210,186 +1483,184 @@ fn catalog(
         kind_subject,
         query.clone(),
     ];
-    let offset = cursor_offset(
+    let after = cursor_coordinate(
         connection,
         requested_cursor.as_deref(),
         library_id,
         &subject,
         event_head,
     )?;
-    let mut entries = Vec::new();
-    if kinds.contains(&LibraryCatalogKind::Page) {
-        let page_ids = connection
-            .prepare(
-                "SELECT block_id FROM pages WHERE library_id = ?1 AND lifecycle = ?2 \
-                 ORDER BY updated_at DESC, block_id",
-            )?
-            .query_map(params![library_id, lifecycle_value], |row| {
-                row.get::<_, String>(0)
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        for page_id in page_ids {
-            let node = page_node(connection, &page_id)?;
-            let LibraryNavigationNode::Page {
-                title,
-                parent_revision,
-                metadata_revision,
-                updated_at,
-                ..
-            } = node
-            else {
-                unreachable!();
-            };
-            if !query.is_empty() && !title.to_lowercase().contains(&query) {
-                continue;
-            }
-            entries.push(LibraryCatalogEntry {
-                target: LibraryResourceTarget::Page {
-                    page_id: page_id.clone(),
-                },
-                title,
-                kind: LibraryCatalogKind::Page,
-                lifecycle,
-                location_label: page_location_label(connection, &page_id)?,
-                updated_at,
-                location_revision: parent_revision,
-                metadata_revision,
-            });
-        }
-    }
-    if kinds.contains(&LibraryCatalogKind::Database) {
-        let rows = connection
-            .prepare(
-                "SELECT container.block_id, container.name, container.updated_at, \
-                   block.location_revision, container.metadata_revision \
-                 FROM database_containers container \
-                 INNER JOIN blocks block ON block.id = container.block_id \
-                 WHERE container.library_id = ?1 AND container.lifecycle = ?2 \
-                 ORDER BY container.updated_at DESC, container.block_id",
-            )?
-            .query_map(params![library_id, lifecycle_value], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, i64>(3)?,
-                    row.get::<_, i64>(4)?,
-                ))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        for (database_id, title, updated_at, location_revision, metadata_revision) in rows {
-            if !query.is_empty() && !title.to_lowercase().contains(&query) {
-                continue;
-            }
-            entries.push(LibraryCatalogEntry {
-                target: LibraryResourceTarget::Database {
-                    database_id: database_id.clone(),
-                },
-                title,
-                kind: LibraryCatalogKind::Database,
-                lifecycle,
-                location_label: database_location_label(connection, &database_id)?,
-                updated_at,
-                location_revision,
-                metadata_revision,
-            });
-        }
-    }
-    entries.sort_by(|left, right| {
-        right
-            .updated_at
-            .cmp(&left.updated_at)
-            .then_with(|| catalog_id(left).cmp(catalog_id(right)))
-    });
     let limit = read_limit(limit)?;
-    let items = entries.iter().skip(offset).take(limit).cloned().collect();
-    let next_offset = offset.saturating_add(limit);
-    let has_more = next_offset < entries.len();
+    let (after_updated_at, after_id) = keyset_text_coordinate(after.as_ref())?;
+    let include_pages = kinds.contains(&LibraryCatalogKind::Page);
+    let include_databases = kinds.contains(&LibraryCatalogKind::Database);
+    let query_limit =
+        i64::try_from(limit.saturating_add(1)).map_err(|_| invalid("Library limit overflowed"))?;
+    let catalog_cte = "\
+      WITH catalog(id, kind, title, updated_at, location_revision, metadata_revision, location_label) AS ( \
+        SELECT page.block_id, 'page', materialization.title, page.updated_at, \
+          page.parent_revision, page.metadata_revision, \
+          CASE page.parent_kind \
+            WHEN 'library' THEN 'Library' \
+            WHEN 'page' THEN COALESCE(( \
+              SELECT parent_materialization.title FROM pages parent_page \
+              INNER JOIN document_materializations parent_materialization \
+                ON parent_materialization.document_id = parent_page.document_id \
+              WHERE parent_page.block_id = page.parent_id \
+            ), 'Page') \
+            WHEN 'data_source' THEN COALESCE(( \
+              SELECT container.name FROM data_sources source \
+              INNER JOIN database_containers container \
+                ON container.block_id = source.home_database_block_id \
+              WHERE source.id = page.parent_id \
+            ), 'Database') \
+            ELSE 'Library' \
+          END \
+        FROM pages page \
+        INNER JOIN document_materializations materialization \
+          ON materialization.document_id = page.document_id \
+        WHERE ?3 AND page.library_id = ?1 AND page.lifecycle = ?2 \
+        UNION ALL \
+        SELECT container.block_id, 'database', container.name, container.updated_at, \
+          block.location_revision, container.metadata_revision, \
+          COALESCE(( \
+            SELECT host_materialization.title FROM block_documents ownership \
+            INNER JOIN pages host_page ON host_page.block_id = ownership.block_id \
+            INNER JOIN document_materializations host_materialization \
+              ON host_materialization.document_id = host_page.document_id \
+            WHERE ownership.document_id = block.containing_document_id \
+              AND block.location_kind = 'document' LIMIT 1 \
+          ), 'Library') \
+        FROM database_containers container \
+        INNER JOIN blocks block ON block.id = container.block_id \
+        WHERE ?4 AND container.library_id = ?1 AND container.lifecycle = ?2 \
+      ) ";
+    let rows_sql = format!(
+        "{catalog_cte} \
+         SELECT id, kind, title, updated_at, location_revision, metadata_revision, location_label \
+         FROM catalog WHERE (?5 = '' OR instr(lower(title), ?5) > 0) \
+           AND (?6 IS NULL OR updated_at < ?6 \
+             OR (updated_at = ?6 AND id > ?7)) \
+         ORDER BY updated_at DESC, id LIMIT ?8"
+    );
+    let mut entries = connection
+        .prepare(&rows_sql)?
+        .query_map(
+            params![
+                library_id,
+                lifecycle_value,
+                include_pages,
+                include_databases,
+                query,
+                after_updated_at,
+                after_id,
+                query_limit
+            ],
+            |row| {
+                let id = row.get::<_, String>(0)?;
+                let kind = match row.get::<_, String>(1)?.as_str() {
+                    "page" => LibraryCatalogKind::Page,
+                    "database" => LibraryCatalogKind::Database,
+                    _ => unreachable!("catalog CTE emits fixed kinds"),
+                };
+                let target = match kind {
+                    LibraryCatalogKind::Page => LibraryResourceTarget::Page { page_id: id },
+                    LibraryCatalogKind::Database => {
+                        LibraryResourceTarget::Database { database_id: id }
+                    }
+                };
+                Ok(LibraryCatalogEntry {
+                    target,
+                    kind,
+                    lifecycle,
+                    title: row.get(2)?,
+                    updated_at: row.get(3)?,
+                    location_revision: row.get(4)?,
+                    metadata_revision: row.get(5)?,
+                    location_label: row.get(6)?,
+                })
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let has_more = entries.len() > limit;
+    entries.truncate(limit);
     let next_cursor = has_more
-        .then(|| cursor::mint(connection, library_id, &subject, next_offset, event_head))
+        .then(|| {
+            let last = entries
+                .last()
+                .ok_or_else(|| corrupt("Library catalog continuation has no entry"))?;
+            cursor::mint(
+                connection,
+                library_id,
+                &subject,
+                cursor::KeysetCoordinate {
+                    values: vec![cursor::KeysetValue::Text {
+                        value: last.updated_at.clone(),
+                    }],
+                    stable_id: catalog_id(last).to_owned(),
+                },
+                event_head,
+            )
+        })
         .transpose()?;
+    let total_sql = format!(
+        "{catalog_cte} \
+         SELECT COUNT(*) FROM catalog \
+         WHERE (?5 = '' OR instr(lower(title), ?5) > 0)"
+    );
+    let total = connection.query_row(
+        &total_sql,
+        params![
+            library_id,
+            lifecycle_value,
+            include_pages,
+            include_databases,
+            query
+        ],
+        |row| row.get::<_, i64>(0),
+    )?;
     Ok(LibraryReadValue::Catalog {
-        items,
+        items: entries,
         next_cursor,
         has_more,
-        total: u64::try_from(entries.len())
-            .map_err(|_| corrupt("Library catalog count overflowed"))?,
+        total: count_to_u64(total)?,
     })
 }
 
-fn page_location_label(connection: &Connection, page_id: &str) -> Result<String, StoreError> {
-    let parent = connection.query_row(
-        "SELECT parent_kind, parent_id FROM pages WHERE block_id = ?1",
-        [page_id],
-        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-    )?;
-    match parent.0.as_str() {
-        "library" => Ok("Library".to_owned()),
-        "page" => connection
-            .query_row(
-                "SELECT materialization.title FROM pages page \
-                 INNER JOIN document_materializations materialization \
-                   ON materialization.document_id = page.document_id \
-                 WHERE page.block_id = ?1",
-                [parent.1],
-                |row| row.get(0),
-            )
-            .optional()?
-            .map_or_else(|| Ok("Page".to_owned()), Ok),
-        "data_source" => connection
-            .query_row(
-                "SELECT container.name FROM data_sources source \
-                 INNER JOIN database_containers container \
-                   ON container.block_id = source.home_database_block_id \
-                 WHERE source.id = ?1",
-                [parent.1],
-                |row| row.get(0),
-            )
-            .optional()?
-            .map_or_else(|| Ok("Database".to_owned()), Ok),
-        _ => Err(corrupt("Library Page has an invalid parent")),
-    }
-}
-
-fn database_location_label(
-    connection: &Connection,
-    database_id: &str,
-) -> Result<String, StoreError> {
-    let host = connection
-        .query_row(
-            "SELECT materialization.title FROM blocks block \
-             INNER JOIN block_documents ownership \
-               ON ownership.document_id = block.containing_document_id \
-             INNER JOIN pages page ON page.block_id = ownership.block_id \
-             INNER JOIN document_materializations materialization \
-               ON materialization.document_id = page.document_id \
-             WHERE block.id = ?1 AND block.location_kind = 'document'",
-            [database_id],
-            |row| row.get(0),
-        )
-        .optional()?;
-    Ok(host.unwrap_or_else(|| "Library".to_owned()))
-}
-
-fn cursor_offset(
+fn cursor_coordinate(
     connection: &Connection,
     requested_cursor: Option<&str>,
     library_id: &str,
     subject: &[String],
     event_head: i64,
-) -> Result<usize, StoreError> {
+) -> Result<Option<cursor::KeysetCoordinate>, StoreError> {
     let Some(requested_cursor) = requested_cursor else {
-        return Ok(0);
+        return Ok(None);
     };
-    let decoded = cursor::decode(connection, requested_cursor, library_id, subject)?;
-    if decoded.change_log_seq != event_head {
-        return Err(StoreError::new(
-            StoreErrorCode::RevisionConflict,
-            "Library content changed while the list was being paged",
-            false,
-        ));
-    }
-    Ok(decoded.offset)
+    cursor::decode(
+        connection,
+        requested_cursor,
+        library_id,
+        subject,
+        event_head,
+    )
+    .map(Some)
+}
+
+fn keyset_text_coordinate(
+    coordinate: Option<&cursor::KeysetCoordinate>,
+) -> Result<(Option<String>, Option<String>), StoreError> {
+    let Some(coordinate) = coordinate else {
+        return Ok((None, None));
+    };
+    let [cursor::KeysetValue::Text { value: sort_key }] = coordinate.values.as_slice() else {
+        return Err(invalid("Library cursor coordinate is invalid"));
+    };
+    Ok((Some(sort_key.clone()), Some(coordinate.stable_id.clone())))
+}
+
+fn count_to_u64(count: i64) -> Result<u64, StoreError> {
+    u64::try_from(count).map_err(|_| corrupt("Library collection count is invalid"))
 }
 
 fn read_limit(limit: Option<u32>) -> Result<usize, StoreError> {
@@ -1418,6 +1689,14 @@ fn matches_target(node: &LibraryNavigationNode, target: &LibraryRouteTarget) -> 
             LibraryRouteTarget::View { view_id: target },
         ) => view_id == target,
         _ => false,
+    }
+}
+
+fn navigation_node_id(node: &LibraryNavigationNode) -> &str {
+    match node {
+        LibraryNavigationNode::Page { page_id, .. } => page_id,
+        LibraryNavigationNode::Database { database_id, .. } => database_id,
+        LibraryNavigationNode::View { view_id, .. } => view_id,
     }
 }
 

@@ -1,6 +1,9 @@
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, test } from "vitest";
-import type { ProjectSession, ProjectSessionSummary } from "./types";
+import type {
+  ProjectSession,
+  ProjectSessionSummaryWindow,
+} from "./types";
 import { queryKeys } from "./query-keys";
 import {
   getCachedProjectSessionDetail,
@@ -72,8 +75,10 @@ describe("project session query cache", () => {
 
     seedProjectSessionDetail(queryClient, updated);
 
-    const summaries = queryClient.getQueryData<ProjectSessionSummary[]>(queryKeys.projectSessions.summaries("project-1"));
-    const summary = summaries?.[0] ?? null;
+    const window = queryClient.getQueryData<ProjectSessionSummaryWindow>(
+      queryKeys.projectSessions.summaries("project-1"),
+    );
+    const summary = window?.items[0] ?? null;
     expect(summary?.displayTitle).toBe("New title");
     expect(summary?.unread).toBe(false);
     expect(summary?.updatedAt).toBe("2026-01-02T00:00:00.000Z");

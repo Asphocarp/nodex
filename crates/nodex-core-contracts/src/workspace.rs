@@ -1,18 +1,17 @@
-use std::collections::BTreeMap;
-
 use serde::{Deserialize, Deserializer, Serialize};
 use utoipa::ToSchema;
 
+use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 4;
+pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 5;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProjectWorkspaceRead {
-    Startup,
-    Projects {
+    ProjectWindow {
         include_archived: Option<bool>,
+        window: CollectionWindowRequest,
     },
     Project {
         project_id: String,
@@ -20,9 +19,14 @@ pub enum ProjectWorkspaceRead {
     ProjectPermissionMode {
         project_id: String,
     },
-    Sessions {
+    TaskWindow {
         project_id: Option<String>,
         include_archived: Option<bool>,
+        window: CollectionWindowRequest,
+    },
+    SidebarOverview {
+        include_archived: Option<bool>,
+        pinned_window: CollectionWindowRequest,
     },
     Session {
         session_id: String,
@@ -30,13 +34,10 @@ pub enum ProjectWorkspaceRead {
     Thread {
         thread_id: String,
     },
-    Threads {
-        project_id: Option<String>,
-        include_archived: Option<bool>,
-    },
-    ChildThreads {
+    ChildThreadWindow {
         parent_thread_id: String,
         include_archived: Option<bool>,
+        window: CollectionWindowRequest,
     },
     ExecutionContext {
         thread_id: String,
@@ -47,26 +48,21 @@ pub enum ProjectWorkspaceRead {
         root_thread_id: String,
         actor_project_id: String,
     },
-    BackgroundProcesses {
+    BackgroundProcessWindow {
         thread_id: Option<String>,
+        window: CollectionWindowRequest,
     },
-    Sidebar {
-        include_archived: Option<bool>,
-    },
-    ManagedWorktrees {
-        project_id: String,
+    ManagedWorktreeWindow {
+        project_id: Option<String>,
+        window: CollectionWindowRequest,
     },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProjectWorkspaceReadValue {
-    Startup {
-        projects: Vec<ProjectWorkspaceProject>,
-        sessions: Vec<ProjectWorkspaceSessionSummary>,
-    },
-    Projects {
-        projects: Vec<ProjectWorkspaceProject>,
+    ProjectWindow {
+        projects: CollectionWindow<ProjectWorkspaceProject>,
     },
     Project {
         project: ProjectWorkspaceProject,
@@ -74,8 +70,11 @@ pub enum ProjectWorkspaceReadValue {
     ProjectPermissionMode {
         mode: Option<CodexPermissionMode>,
     },
-    Sessions {
-        sessions: Vec<ProjectWorkspaceSessionSummary>,
+    TaskWindow {
+        tasks: CollectionWindow<ProjectWorkspaceTaskSummary>,
+    },
+    SidebarOverview {
+        pinned_tasks: CollectionWindow<ProjectWorkspaceTaskSummary>,
     },
     Session {
         session: ProjectWorkspaceSessionSummary,
@@ -83,11 +82,8 @@ pub enum ProjectWorkspaceReadValue {
     Thread {
         thread: Box<ProjectWorkspaceThread>,
     },
-    Threads {
-        threads: Vec<ProjectWorkspaceThread>,
-    },
-    ChildThreads {
-        threads: Vec<ProjectWorkspaceThread>,
+    ChildThreadWindow {
+        threads: CollectionWindow<ProjectWorkspaceThreadSummary>,
     },
     ExecutionContext {
         context: Box<ProjectWorkspaceExecutionContext>,
@@ -95,22 +91,12 @@ pub enum ProjectWorkspaceReadValue {
     TurnAuthority {
         resolution: ProjectWorkspaceTurnAuthorityResolution,
     },
-    BackgroundProcesses {
-        processes: Vec<ProjectWorkspaceBackgroundProcess>,
+    BackgroundProcessWindow {
+        processes: CollectionWindow<ProjectWorkspaceBackgroundProcess>,
     },
-    Sidebar {
-        sidebar: Box<ProjectWorkspaceSidebar>,
+    ManagedWorktreeWindow {
+        worktrees: CollectionWindow<ProjectWorkspaceManagedWorktreeSummary>,
     },
-    ManagedWorktrees {
-        roots: Vec<String>,
-    },
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-pub struct ProjectWorkspaceSidebar {
-    pub threads: Vec<ProjectWorkspaceThread>,
-    pub project_thread_orders: BTreeMap<String, Vec<String>>,
-    pub projectless_thread_order: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -298,6 +284,17 @@ pub struct ProjectWorkspaceBackgroundProcess {
     pub updated_at_ms: i64,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceManagedWorktreeSummary {
+    pub thread_id: String,
+    pub project_id: String,
+    pub session_id: Option<String>,
+    pub session_title: Option<String>,
+    pub thread_name: Option<String>,
+    pub path: String,
+    pub linked_at: String,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct ProjectWorkspaceThreadPatch {
     #[serde(
@@ -461,6 +458,64 @@ pub struct ProjectWorkspaceSessionSummary {
     pub updated_at: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceTaskSummary {
+    pub session: ProjectWorkspaceSessionSummary,
+    pub thread: Option<ProjectWorkspaceTaskThreadSummary>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceTaskThreadSummary {
+    pub thread_id: String,
+    pub project_id: Option<String>,
+    pub session_id: Option<String>,
+    pub forked_from_id: Option<String>,
+    pub parent_thread_id: Option<String>,
+    pub thread_name: Option<String>,
+    pub thread_source: Option<String>,
+    pub service_name: Option<String>,
+    pub agent_nickname: Option<String>,
+    pub agent_role: Option<String>,
+    pub agent_path: Option<String>,
+    pub thread_preview: String,
+    pub cwd: Option<String>,
+    pub status: ProjectWorkspaceThreadStatus,
+    pub archived: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub linked_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceThreadSummary {
+    pub thread_id: String,
+    pub project_id: Option<String>,
+    pub session_id: Option<String>,
+    pub forked_from_id: Option<String>,
+    pub parent_thread_id: Option<String>,
+    pub thread_name: Option<String>,
+    pub thread_source: Option<String>,
+    pub service_name: Option<String>,
+    pub agent_nickname: Option<String>,
+    pub agent_role: Option<String>,
+    pub agent_path: Option<String>,
+    pub thread_preview: String,
+    pub model_provider: String,
+    pub model_id: Option<String>,
+    pub harness_id: Option<String>,
+    pub reasoning_effort: Option<String>,
+    pub service_tier: Option<String>,
+    pub cwd: Option<String>,
+    pub managed_worktree_path: Option<String>,
+    pub projectless_output_directory: Option<String>,
+    pub projectless_workspace_browser_root: Option<String>,
+    pub status: ProjectWorkspaceThreadStatus,
+    pub archived: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub linked_at: String,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProjectWorkspaceIntent {
@@ -523,6 +578,14 @@ pub enum ProjectWorkspaceIntent {
     },
     DeleteThread {
         thread_id: String,
+    },
+    ObserveAppServerThreadWindow {
+        sweep_id: String,
+        thread_ids: Vec<String>,
+    },
+    ReconcileAppServerThreadSweep {
+        sweep_id: String,
+        limit: Option<u32>,
     },
     SetThreadArchived {
         thread_id: String,

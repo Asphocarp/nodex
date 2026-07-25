@@ -9,6 +9,9 @@ pub mod infrastructure;
 pub mod library;
 pub mod workspace;
 
+#[cfg(test)]
+mod read_budget_gate;
+
 pub struct CoreModules {
     pub library: library::LibraryModule,
     pub database: database::DatabaseModule,

@@ -1,26 +1,26 @@
 import type {
-  BoardSummarySnapshot,
-  Column,
   DatabasePage,
-  DatabaseRowsDetailsInput,
 } from "../../shared/types";
-import type { WorkflowStatus } from "../../shared/workflow-status";
 import type {
   DatabaseViewReadModel,
+  DatabaseViewWindowInput,
+  DatabaseViewWindowSnapshot,
+  LibraryDatabaseViewWindowSnapshot,
   ReadDatabaseViewReferenceInput,
 } from "../../shared/database-views";
+import { evaluateDatabaseViewRows } from "../../shared/database-views";
 import {
   DATABASE_MODULE_V2_CONTRACT_VERSION,
   type DatabaseApplyResultV2,
   type DatabaseApplyV2,
   type DatabaseModuleReadRequestV2,
   type DatabaseModuleReadResultV2,
-  type DatabaseModuleReadSnapshotV2,
-  type DatabaseViewQueryResultV2,
+  type DatabaseReadV2,
   type LibraryDatabaseApplyResultV2,
   type LibraryDatabaseApplyV2,
   type LibraryDatabaseModuleReadRequestV2,
   type LibraryDatabaseModuleReadResultV2,
+  type LibraryDatabaseReadV2,
 } from "../../shared/database-module-v2";
 import {
   DATABASE_CHANGE_EVENT_VERSION,
@@ -29,7 +29,12 @@ import {
 import {
   parseDatabaseId,
   parseDatabaseViewId,
+  parseDataSourceId,
 } from "../../shared/database-identities";
+import {
+  stableStringifyDatabaseJson,
+  type DatabaseJsonValue,
+} from "../../shared/database-kernel";
 import {
   LIBRARY_NAVIGATION_EVENT_VERSION,
   type LibraryNavigationChangedEvent,
@@ -46,11 +51,10 @@ import {
   type CoreLibraryDatabaseModuleAdapter,
 } from "./database-module-adapter";
 import {
-  projectBoardSummary,
-  projectDatabaseColumn,
-  projectDatabasePage,
-  projectDatabaseQueryPages,
-  projectDatabaseViewReference,
+  projectCoreDatabaseRowDetail,
+  projectCoreDatabaseRowSummaries,
+  projectCoreDatabaseViewBoard,
+  projectCoreDatabaseViewQuery,
 } from "./database-page-projection";
 
 export interface DesktopDatabaseModuleBridgeInput {
@@ -73,15 +77,16 @@ export interface DesktopDatabaseModuleBridge {
       accessActor: "app_window" | "http_loopback";
     }>,
   ): Promise<LibraryDatabaseApplyResultV2>;
-  getBoardSummary(projectId: string): Promise<BoardSummarySnapshot>;
-  getDatabaseColumn(
+  getDatabaseViewWindow(
     projectId: string,
-    columnId: WorkflowStatus,
-  ): Promise<Column>;
-  getDatabaseRowsDetails(
-    projectId: string,
-    input: DatabaseRowsDetailsInput,
-  ): Promise<DatabasePage[]>;
+    input: DatabaseViewWindowInput,
+  ): Promise<DatabaseViewWindowSnapshot>;
+  getLibraryDatabaseViewWindow(
+    input: DatabaseViewWindowInput & (
+      | { readonly databaseViewId: string }
+      | { readonly databaseId: string }
+    ),
+  ): Promise<LibraryDatabaseViewWindowSnapshot>;
   getDatabaseRowPage(
     projectId: string,
     pageId: string,
@@ -92,27 +97,130 @@ export interface DesktopDatabaseModuleBridge {
   ): Promise<DatabaseViewReadModel | null>;
 }
 
-type DatabaseQuerySnapshot = Omit<DatabaseModuleReadSnapshotV2, "value"> & {
-  readonly value: {
-    readonly kind: "query";
-    readonly value: DatabaseViewQueryResultV2;
-  };
-};
+type DescriptorReadResult =
+  | DatabaseModuleReadResultV2
+  | LibraryDatabaseModuleReadResultV2;
 
-const requireQuerySnapshot = async (
-  adapter: CoreDatabaseModuleAdapter,
-  request: DatabaseModuleReadRequestV2,
-): Promise<DatabaseQuerySnapshot> => {
-  const result = await adapter.read(request);
-  if (!result.ok) {
+const readBoundedDatabaseViewWindow = async <
+  ProjectScope extends string | null,
+>(input: {
+  readonly projectId: ProjectScope;
+  readonly libraryId: string;
+  readonly windowInput: DatabaseViewWindowInput;
+  readonly readCore: CoreDatabaseModuleAdapter["readCore"];
+  readonly readDescriptor: (
+    read: DatabaseReadV2,
+  ) => Promise<DescriptorReadResult>;
+}): Promise<DatabaseViewWindowSnapshot<ProjectScope>> => {
+  const snapshot = await input.readCore({
+    target: input.windowInput.databaseViewId
+      ? { kind: "view", view_id: input.windowInput.databaseViewId }
+      : input.windowInput.databaseId
+      ? { kind: "database", database_id: input.windowInput.databaseId }
+      : { kind: "project_default" },
+    mode: "view_window",
+    filter: null,
+    sort: null,
+    page_ids: null,
+    window: {
+      after: input.windowInput.after ?? null,
+      first: input.windowInput.first ?? 50,
+    },
+  });
+  if (snapshot.value.kind !== "view_window") {
+    throw new Error("Database Core returned a non-window View snapshot");
+  }
+  const value = snapshot.value.value;
+  const [viewResult, databaseResult, sourceResult] = await Promise.all([
+    input.readDescriptor({
+      target: {
+        kind: "view",
+        viewId: parseDatabaseViewId(value.view_id),
+      },
+      mode: "view",
+    }),
+    input.readDescriptor({
+      target: {
+        kind: "database",
+        databaseId: parseDatabaseId(value.database_id),
+      },
+      mode: "database",
+    }),
+    input.readDescriptor({
+      target: {
+        kind: "data_source",
+        dataSourceId: parseDataSourceId(value.data_source_id),
+      },
+      mode: "data_source",
+    }),
+  ]);
+  if (!viewResult.ok) {
     throw new Error(
-      `Database Core read failed (${result.error.code}): ${result.error.message}`,
+      `Database View descriptor read failed (${viewResult.error.code}): ${viewResult.error.message}`,
     );
   }
-  if (result.value.value.kind === "query") {
-    return result.value as DatabaseQuerySnapshot;
+  if (!databaseResult.ok) {
+    throw new Error(
+      `Database descriptor read failed (${databaseResult.error.code}): ${databaseResult.error.message}`,
+    );
   }
-  throw new Error("Database Core returned a non-query snapshot");
+  if (!sourceResult.ok) {
+    throw new Error(
+      `Data Source descriptor read failed (${sourceResult.error.code}): ${sourceResult.error.message}`,
+    );
+  }
+  if (
+    viewResult.value.value.kind !== "view"
+    || databaseResult.value.value.kind !== "database"
+    || sourceResult.value.value.kind !== "data_source"
+  ) {
+    throw new Error("Database Core returned a non-View descriptor");
+  }
+  const descriptor = viewResult.value.value.value;
+  const databaseDescriptor = databaseResult.value.value.value;
+  const sourceDescriptor = sourceResult.value.value.value;
+  const summaries = projectCoreDatabaseRowSummaries(value.rows.items);
+  const rows = summaries.map((page, index) => ({
+    page,
+    groupKey: value.rows.items[index]?.effective_group_key ?? null,
+    rankKey:
+      value.rows.items[index]?.rank_key
+      ?? "ffffffffffffffffffffffffffffffff",
+  }));
+  const query = projectCoreDatabaseViewQuery(
+    value,
+    input.libraryId,
+    databaseDescriptor,
+    sourceDescriptor,
+    descriptor,
+  );
+  return {
+    projectId: input.projectId,
+    libraryId: input.libraryId,
+    databaseId: value.database_id,
+    dataSourceId: value.data_source_id,
+    viewId: value.view_id,
+    storeEpoch: snapshot.store_epoch,
+    changeLogSeq: snapshot.event_head,
+    projectionRevision: value.rows.authority.projection_revision,
+    nextCursor: value.rows.next_cursor ?? null,
+    rows,
+    board: projectCoreDatabaseViewBoard(value.rows.items),
+    query,
+    view: {
+      id: descriptor.viewId,
+      databaseBlockId: descriptor.databaseId,
+      projectId: input.projectId,
+      name: descriptor.name,
+      kind: descriptor.kind,
+      config: JSON.parse(
+        stableStringifyDatabaseJson(descriptor.config),
+      ) as Readonly<Record<string, DatabaseJsonValue>>,
+      isPrimary: descriptor.isDefault,
+      createdAt: descriptor.createdAt,
+      updatedAt: descriptor.updatedAt,
+    },
+  };
 };
 
 export const createDesktopDatabaseModuleBridge = (
@@ -147,7 +255,7 @@ export const createDesktopDatabaseModuleBridge = (
     return libraryCoreAdapter;
   };
 
-  return {
+  const bridge: DesktopDatabaseModuleBridge = {
     read: async (request) => {
       const runtime = await input.authority;
       return await coreAdapterFor(runtime, request.projectId).read(request);
@@ -164,130 +272,108 @@ export const createDesktopDatabaseModuleBridge = (
       const runtime = await input.authority;
       return await libraryAdapterFor(runtime).apply(request);
     },
-    getBoardSummary: async (projectId) => {
+    getDatabaseViewWindow: async (projectId, windowInput) => {
       const runtime = await input.authority;
-      const snapshot = await requireQuerySnapshot(
-        coreAdapterFor(runtime, projectId),
-        {
+      const adapter = coreAdapterFor(runtime, projectId);
+      return await readBoundedDatabaseViewWindow({
+        projectId,
+        libraryId: runtime.rootClient.handshake.library_id,
+        windowInput,
+        readCore: adapter.readCore,
+        readDescriptor: async (read) => await adapter.read({
           version: DATABASE_MODULE_V2_CONTRACT_VERSION,
           projectId,
-          read: { target: { kind: "project_default" }, mode: "query" },
-        },
-      );
-      const query = snapshot.value.value;
-      return {
-        projectId: snapshot.projectId,
-        libraryId: snapshot.libraryId,
-        databaseId: query.database.databaseId,
-        dataSourceId: query.dataSource.dataSourceId,
-        viewId: query.view.viewId,
-        storeEpoch: snapshot.storeEpoch,
-        changeLogSeq: snapshot.changeLogSeq,
-        board: projectBoardSummary(query),
-      };
+          read,
+        }),
+      });
     },
-    getDatabaseColumn: async (projectId, columnId) => {
+    getLibraryDatabaseViewWindow: async (windowInput) => {
       const runtime = await input.authority;
-      const snapshot = await requireQuerySnapshot(
-        coreAdapterFor(runtime, projectId),
-        {
+      const adapter = libraryAdapterFor(runtime);
+      return await readBoundedDatabaseViewWindow({
+        projectId: null,
+        libraryId: runtime.rootClient.handshake.library_id,
+        windowInput,
+        readCore: adapter.readCore,
+        readDescriptor: async (read) => await adapter.read({
           version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-          projectId,
-          read: { target: { kind: "project_default" }, mode: "query" },
-        },
-      );
-      return projectDatabaseColumn(snapshot.value.value, columnId);
-    },
-    getDatabaseRowsDetails: async (projectId, detailsInput) => {
-      const runtime = await input.authority;
-      const pageIds = Array.from(new Set(
-        detailsInput.pageIds.map((pageId) => pageId.trim()).filter(Boolean),
-      ));
-      if (pageIds.length === 0) return [];
-      const snapshot = await requireQuerySnapshot(
-        coreAdapterFor(runtime, projectId),
-        {
-          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-          projectId,
-          read: { target: { kind: "project_default" }, mode: "query" },
-        },
-      );
-      const pagesById = new Map(
-        projectDatabaseQueryPages(snapshot.value.value).map((page) => [page.id, page]),
-      );
-      return pageIds.flatMap((pageId) => {
-        const page = pagesById.get(pageId);
-        return page ? [page] : [];
+          read: read as LibraryDatabaseReadV2,
+        }),
       });
     },
     getDatabaseRowPage: async (projectId, pageId, status) => {
       const runtime = await input.authority;
-      const result = await coreAdapterFor(runtime, projectId).readPage(pageId);
-      if (!result.ok) {
+      try {
+        const snapshot = await coreAdapterFor(runtime, projectId).readCore({
+          target: { kind: "page", page_id: pageId },
+          mode: "row_detail",
+          filter: null,
+          sort: null,
+          page_ids: null,
+          window: null,
+        });
+        if (snapshot.value.kind !== "row_detail") {
+          throw new Error("Database Core returned a non-detail Page snapshot");
+        }
+        const page = projectCoreDatabaseRowDetail(snapshot.value.value);
+        if (status && page.status !== status) return null;
+        return page;
+      } catch (error) {
         if (
-          result.error.code === "authorization_denied"
-          || result.error.code === "resource_not_found"
+          error instanceof Error
+          && (
+            error.message.includes("authorization")
+            || error.message.includes("not found")
+            || error.message.includes("unavailable")
+          )
         ) {
           return null;
         }
-        throw new Error(
-          `Database Core read failed (${result.error.code}): ${result.error.message}`,
-        );
+        throw error;
       }
-      if (result.value.value.kind !== "data_source_query") {
-        throw new Error("Database Core returned a non-row Page snapshot");
-      }
-      const query = result.value.value.value;
-      const [row] = query.rows;
-      if (!row) return null;
-      if (query.rows.length !== 1 || row.page.pageId !== pageId) {
-        throw new Error("Database Core Page query escaped its requested identity");
-      }
-      const page = projectDatabasePage(row, query.properties);
-      if (status && page.status !== status) return null;
-      return page;
     },
     resolveDatabaseViewReference: async (referenceInput) => {
-      const runtime = await input.authority;
       let viewId;
       try {
         viewId = parseDatabaseViewId(referenceInput.databaseViewId);
       } catch {
         return null;
       }
-      const result = await coreAdapterFor(
-        runtime,
-        referenceInput.requestingProjectId,
-      ).read({
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-        projectId: referenceInput.requestingProjectId,
-        read: { target: { kind: "view", viewId }, mode: "query" },
-      });
-      if (!result.ok) {
+      try {
+        const window = await bridge.getDatabaseViewWindow(
+          referenceInput.requestingProjectId,
+          { databaseViewId: viewId, first: 50 },
+        );
+        const model: DatabaseViewReadModel = {
+          libraryId: window.libraryId,
+          storeEpoch: window.storeEpoch,
+          changeLogSeq: window.changeLogSeq,
+          dataSourceId: window.dataSourceId,
+          view: window.view,
+          rows: window.rows,
+        };
+        const rows = evaluateDatabaseViewRows(model, {
+          ...(referenceInput.hostBlockId
+            ? { hostBlockId: referenceInput.hostBlockId }
+            : {}),
+        });
+        return rows === model.rows ? model : { ...model, rows };
+      } catch (error) {
         if (
-          result.error.code === "authorization_denied"
-          || result.error.code === "resource_not_found"
+          error instanceof Error
+          && (
+            error.message.includes("authorization")
+            || error.message.includes("not found")
+            || error.message.includes("unavailable")
+          )
         ) {
           return null;
         }
-        throw new Error(
-          `Database Core read failed (${result.error.code}): ${result.error.message}`,
-        );
+        throw error;
       }
-      if (result.value.value.kind !== "query") {
-        throw new Error("Database Core returned a non-query View snapshot");
-      }
-      return projectDatabaseViewReference(
-        result.value.value.value,
-        referenceInput,
-        {
-          libraryId: result.value.libraryId,
-          storeEpoch: result.value.storeEpoch,
-          changeLogSeq: result.value.changeLogSeq,
-        },
-      );
     },
   };
+  return bridge;
 };
 
 export const mapCoreDatabaseEvent = (

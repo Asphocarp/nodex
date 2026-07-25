@@ -128,30 +128,30 @@ async function readNativeContext(
     };
   }
 
-  const catalog = request.input.include?.databases
+  const database = request.input.include?.databases
     ? await databaseModule.read({
         version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId: request.projectId,
-        read: { target: { kind: "project_default" }, mode: "catalog" },
+        read: { target: { kind: "project_default" }, mode: "database" },
       })
     : null;
-  if (catalog && !catalog.ok) {
+  if (database && !database.ok) {
     return {
       ok: false,
       error: {
-        code: catalog.error.code === "authorization_denied"
+        code: database.error.code === "authorization_denied"
           ? "authorization_denied"
-          : catalog.error.code === "resource_not_found"
+          : database.error.code === "resource_not_found"
             ? "not_found"
             : "internal_error",
-        message: catalog.error.message,
-        retryable: catalog.error.retryable,
+        message: database.error.message,
+        retryable: database.error.retryable,
         recovery: "none",
-        details: { domainCode: catalog.error.code },
+        details: { domainCode: database.error.code },
       },
     };
   }
-  if (catalog?.ok && catalog.value.value.kind !== "catalog") {
+  if (database?.ok && database.value.value.kind !== "database") {
     return {
       ok: false,
       error: {
@@ -159,27 +159,28 @@ async function readNativeContext(
         message: "Database Core returned an incompatible Agent context snapshot",
         retryable: false,
         recovery: "none",
-        details: { domainCode: "database_catalog_variant_mismatch" },
+        details: { domainCode: "database_descriptor_variant_mismatch" },
       },
     };
   }
 
-  const databaseCatalog = catalog?.ok && catalog.value.value.kind === "catalog"
-    ? catalog.value.value
-    : null;
-  const databases = databaseCatalog
-    ? databaseCatalog.databases.map((descriptor) => ({
-        databaseId: descriptor.database.databaseId,
-        name: descriptor.database.name,
-        isBound: descriptor.database.databaseId === project.databaseId,
-        dataSources: descriptor.dataSources
+  const databaseDescriptor =
+    database?.ok && database.value.value.kind === "database"
+      ? database.value.value.value
+      : null;
+  const databases = databaseDescriptor
+    ? [{
+        databaseId: databaseDescriptor.database.databaseId,
+        name: databaseDescriptor.database.name,
+        isBound: databaseDescriptor.database.databaseId === project.databaseId,
+        dataSources: databaseDescriptor.dataSources
           .filter((source) => source.lifecycle === "active")
           .map((source) => ({
             dataSourceId: source.dataSourceId,
             name: source.name,
             schemaRevision: source.schemaRevision,
           })),
-        views: descriptor.views
+        views: databaseDescriptor.views
           .filter((view) => view.lifecycle === "active")
           .map((view) => ({
             viewId: view.viewId,
@@ -188,7 +189,7 @@ async function readNativeContext(
             kind: view.kind,
             isDefault: view.isDefault,
           })),
-      }))
+      }]
     : undefined;
 
   return {

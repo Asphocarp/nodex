@@ -1,6 +1,10 @@
 import type { QueryClient } from "@tanstack/react-query";
 import type { ProjectSessionsChangeEvent } from "../../shared/ipc-api";
-import type { ProjectSession, ProjectSessionSummary } from "./types";
+import type {
+  ProjectSession,
+  ProjectSessionSummary,
+  ProjectSessionSummaryWindow,
+} from "./types";
 import { projectSessionDetailQueryOptions } from "./query-options";
 import { queryKeys } from "./query-keys";
 
@@ -51,12 +55,26 @@ export function setProjectSessionSummaries(
   for (const summary of summaries) {
     queryClient.setQueryData<ProjectSession | null | undefined>(
       queryKeys.projectSessions.detail(summary.id),
-      (current) => current ? summary : current,
+      (current) => current
+        ? {
+            ...summary,
+            thread: summary.thread
+              ? current.thread?.threadId === summary.thread.threadId
+                ? { ...current.thread, ...summary.thread }
+                : null
+              : null,
+          }
+        : current,
     );
   }
-  queryClient.setQueryData(
+  queryClient.setQueryData<ProjectSessionSummaryWindow>(
     queryKeys.projectSessions.summaries(projectId),
-    sortProjectSessionSummariesForSidebar([...summaries]),
+    {
+      items: sortProjectSessionSummariesForSidebar([...summaries]),
+      nextCursor: null,
+      hasMore: false,
+      projectionRevision: 0,
+    },
   );
 }
 
@@ -68,14 +86,17 @@ export function seedProjectSessionDetail(
 
   queryClient.setQueryData(queryKeys.projectSessions.detail(session.id), session);
   const summary = projectSessionToSummary(session);
-  queryClient.setQueryData<ProjectSessionSummary[] | undefined>(
+  queryClient.setQueryData<ProjectSessionSummaryWindow | undefined>(
     queryKeys.projectSessions.summaries(session.projectId),
     (current) => {
       if (!current) return current;
-      const next = current.some((candidate) => candidate.id === summary.id)
-        ? current.map((candidate) => candidate.id === summary.id ? summary : candidate)
-        : [...current, summary];
-      return sortProjectSessionSummariesForSidebar(next);
+      const next = current.items.some((candidate) => candidate.id === summary.id)
+        ? current.items.map((candidate) => candidate.id === summary.id ? summary : candidate)
+        : [...current.items, summary];
+      return {
+        ...current,
+        items: sortProjectSessionSummariesForSidebar(next),
+      };
     },
   );
 }

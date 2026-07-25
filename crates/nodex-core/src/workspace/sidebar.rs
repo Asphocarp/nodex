@@ -1,10 +1,10 @@
-use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+#[cfg(test)]
+use std::collections::BTreeMap;
+use std::collections::{BTreeSet, HashSet};
 
 use nodex_core_contracts::BoundModuleContext;
 use nodex_core_contracts::workspace::{
-    ProjectWorkspaceSidebar, ProjectWorkspaceThread, ProjectWorkspaceThreadMoveMetadataPatch,
-    ProjectWorkspaceThreadPlacement,
+    ProjectWorkspaceThreadMoveMetadataPatch, ProjectWorkspaceThreadPlacement,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -12,9 +12,10 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::ProjectWorkspaceApplyOutcome;
 use super::session_mutation::{sqlite_now, validate_id};
-use super::thread::{finish_thread_mutation, read_threads};
+use super::thread::finish_thread_mutation;
 
-const MAX_THREAD_ORDER_SIZE: usize = 100_000;
+const MAX_THREAD_ORDER_SIZE: usize = 10_000;
+const SIDEBAR_RANK_GAP: i64 = 1_000_000;
 const MAX_PATH_BYTES: usize = 16 * 1024;
 
 #[derive(Clone)]
@@ -23,32 +24,6 @@ struct ThreadOwner {
     session_id: String,
     session_project_id: Option<String>,
     session_pinned: bool,
-}
-
-pub(super) fn read_sidebar(
-    connection: &Connection,
-    library_id: &str,
-    include_archived: bool,
-) -> Result<ProjectWorkspaceSidebar, StoreError> {
-    let mut threads = read_threads(connection, library_id, None, None, include_archived)?;
-    if !include_archived {
-        let archived_session_threads = connection
-            .prepare(
-                "SELECT link.thread_id
-                 FROM project_session_threads link
-                 JOIN project_sessions session ON session.id = link.session_id
-                 WHERE session.archived = 1",
-            )?
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<rusqlite::Result<HashSet<_>>>()?;
-        threads.retain(|thread| !archived_session_threads.contains(&thread.thread_id));
-    }
-    threads.sort_by(compare_sidebar_threads);
-    Ok(ProjectWorkspaceSidebar {
-        threads,
-        project_thread_orders: read_project_thread_orders(connection, library_id)?,
-        projectless_thread_order: read_projectless_thread_order(connection)?,
-    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -66,8 +41,8 @@ pub(super) fn set_project_thread_order(
     require_project(connection, library_id, project_id)?;
     if ordered_thread_ids.is_none() {
         connection.execute(
-            "DELETE FROM codex_project_thread_orders WHERE project_id = ?1",
-            [project_id],
+            "DELETE FROM workspace_sidebar_lanes WHERE scope_key = ?1",
+            [project_lane_scope(project_id)],
         )?;
         return finish_thread_mutation(
             connection,
@@ -99,9 +74,8 @@ pub(super) fn set_project_thread_order(
         )));
     }
 
-    let existing = read_project_thread_orders(connection, library_id)?
-        .remove(project_id)
-        .unwrap_or_else(|| current.clone());
+    let existing =
+        read_project_thread_order(connection, project_id)?.unwrap_or_else(|| current.clone());
     let complete = append_untracked(existing, &current);
     let next = project_requested_order(&complete, &requested);
     write_project_thread_order(connection, project_id, &next, &sqlite_now(connection)?)?;
@@ -169,15 +143,7 @@ pub(super) fn set_projectless_thread_order(
         })
         .collect::<Vec<_>>();
     let now = sqlite_now(connection)?;
-    connection.execute(
-        "INSERT INTO codex_sidebar_chat_order(
-           singleton, ordered_thread_ids_json, updated_at
-         ) VALUES (1, ?1, ?2)
-         ON CONFLICT(singleton) DO UPDATE SET
-           ordered_thread_ids_json = excluded.ordered_thread_ids_json,
-           updated_at = excluded.updated_at",
-        params![encode_thread_order(&next)?, now],
-    )?;
+    write_lane_order(connection, "projectless", "projectless", None, &next, &now)?;
     finish_thread_mutation(
         connection,
         library_id,
@@ -239,13 +205,7 @@ pub(super) fn move_thread(
             metadata,
         )?;
     }
-    rewrite_project_thread_orders(
-        connection,
-        library_id,
-        thread_id,
-        target_project_id,
-        placement,
-    )?;
+    update_thread_lane_rank(connection, thread_id, target_project_id, placement)?;
 
     let project_ids = [source_project_id, target_project_id]
         .into_iter()
@@ -275,80 +235,145 @@ pub(super) fn move_thread(
     )
 }
 
-fn compare_sidebar_threads(
-    left: &ProjectWorkspaceThread,
-    right: &ProjectWorkspaceThread,
-) -> Ordering {
-    match (left.pinned_order, right.pinned_order) {
-        (Some(left_order), Some(right_order)) => left_order
-            .cmp(&right_order)
-            .then_with(|| left.thread_id.cmp(&right.thread_id)),
-        (Some(_), None) => Ordering::Less,
-        (None, Some(_)) => Ordering::Greater,
-        (None, None) => right
-            .updated_at
-            .cmp(&left.updated_at)
-            .then_with(|| left.thread_id.cmp(&right.thread_id)),
-    }
-}
-
+#[cfg(test)]
 fn read_project_thread_orders(
     connection: &Connection,
     library_id: &str,
 ) -> Result<BTreeMap<String, Vec<String>>, StoreError> {
     let rows = connection
         .prepare(
-            "SELECT ordering.project_id, ordering.ordered_thread_ids_json
-             FROM codex_project_thread_orders ordering
-             JOIN projects project ON project.id = ordering.project_id
+            "SELECT lane.project_id, position.thread_id, thread.project_id,
+                    pinned.thread_id IS NOT NULL
+             FROM workspace_sidebar_lanes lane
+             JOIN projects project ON project.id = lane.project_id
+             LEFT JOIN workspace_sidebar_positions position
+               ON position.scope_key = lane.scope_key
+             LEFT JOIN codex_threads thread ON thread.thread_id = position.thread_id
+             LEFT JOIN codex_pinned_threads pinned ON pinned.thread_id = position.thread_id
              WHERE project.library_id = ?1
-             ORDER BY ordering.project_id",
+               AND lane.lane_kind = 'project'
+               AND lane.order_mode = 'manual'
+             ORDER BY lane.project_id, position.rank_key, position.thread_id",
         )?
         .query_map([library_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(rows
-        .into_iter()
-        .filter_map(|(project_id, raw)| decode_thread_order(&raw).map(|order| (project_id, order)))
-        .collect())
+    let mut result = BTreeMap::<String, Vec<String>>::new();
+    for (project_id, thread_id, owner_project_id, pinned) in rows {
+        let order = result.entry(project_id.clone()).or_default();
+        let Some(thread_id) = thread_id else {
+            continue;
+        };
+        if owner_project_id.as_deref() != Some(project_id.as_str()) || pinned != 0 {
+            return Err(corrupt(
+                "Workspace Project lane contains a Thread outside its lane",
+            ));
+        }
+        order.push(thread_id);
+    }
+    Ok(result)
+}
+
+fn read_project_thread_order(
+    connection: &Connection,
+    project_id: &str,
+) -> Result<Option<Vec<String>>, StoreError> {
+    let lane_exists = connection
+        .query_row(
+            "SELECT 1 FROM workspace_sidebar_lanes
+             WHERE scope_key = ?1
+               AND lane_kind = 'project'
+               AND project_id = ?2
+               AND order_mode = 'manual'",
+            params![project_lane_scope(project_id), project_id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if !lane_exists {
+        return Ok(None);
+    }
+    let rows = connection
+        .prepare(
+            "SELECT position.thread_id, thread.project_id,
+                    pinned.thread_id IS NOT NULL
+             FROM workspace_sidebar_positions position
+             JOIN codex_threads thread ON thread.thread_id = position.thread_id
+             LEFT JOIN codex_pinned_threads pinned ON pinned.thread_id = position.thread_id
+             WHERE position.scope_key = ?1
+             ORDER BY position.rank_key, position.thread_id",
+        )?
+        .query_map([project_lane_scope(project_id)], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut order = Vec::with_capacity(rows.len());
+    for (thread_id, owner_project_id, pinned) in rows {
+        if owner_project_id.as_deref() != Some(project_id) || pinned != 0 {
+            return Err(corrupt(
+                "Workspace Project lane contains a Thread outside its lane",
+            ));
+        }
+        order.push(thread_id);
+    }
+    Ok(Some(order))
 }
 
 fn read_projectless_thread_order(
     connection: &Connection,
 ) -> Result<Option<Vec<String>>, StoreError> {
-    let raw = connection
+    let lane_exists = connection
         .query_row(
-            "SELECT ordered_thread_ids_json FROM codex_sidebar_chat_order WHERE singleton = 1",
+            "SELECT 1 FROM workspace_sidebar_lanes
+             WHERE scope_key = 'projectless'
+               AND lane_kind = 'projectless'
+               AND order_mode = 'manual'",
             [],
-            |row| row.get::<_, String>(0),
+            |_| Ok(()),
         )
-        .optional()?;
-    raw.map(|value| {
-        decode_thread_order(&value).ok_or_else(|| corrupt("Projectless Thread order is invalid"))
-    })
-    .transpose()
-}
-
-fn decode_thread_order(raw: &str) -> Option<Vec<String>> {
-    let values = serde_json::from_str::<Vec<String>>(raw).ok()?;
-    if values.len() > MAX_THREAD_ORDER_SIZE {
-        return None;
+        .optional()?
+        .is_some();
+    if !lane_exists {
+        return Ok(None);
     }
-    let mut seen = HashSet::new();
-    if values.iter().any(|value| {
-        value.is_empty()
-            || value.trim() != value
-            || value.len() > 512
-            || !seen.insert(value.as_str())
-    }) {
-        return None;
+    let rows = connection
+        .prepare(
+            "SELECT position.thread_id, thread.project_id,
+                    pinned.thread_id IS NOT NULL
+             FROM workspace_sidebar_positions position
+             JOIN codex_threads thread ON thread.thread_id = position.thread_id
+             LEFT JOIN codex_pinned_threads pinned ON pinned.thread_id = position.thread_id
+             WHERE position.scope_key = 'projectless'
+             ORDER BY position.rank_key, position.thread_id",
+        )?
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut order = Vec::with_capacity(rows.len());
+    for (thread_id, project_id, pinned) in rows {
+        if project_id.is_some() || pinned != 0 {
+            return Err(corrupt(
+                "Workspace Projectless lane contains a Thread outside its lane",
+            ));
+        }
+        order.push(thread_id);
     }
-    Some(values)
-}
-
-fn encode_thread_order(values: &[String]) -> Result<String, StoreError> {
-    serde_json::to_string(values).map_err(|_| corrupt("Could not encode Thread order"))
+    Ok(Some(order))
 }
 
 fn validate_thread_order(values: &[String], name: &str) -> Result<Vec<String>, StoreError> {
@@ -487,15 +512,59 @@ fn write_project_thread_order(
     order: &[String],
     now: &str,
 ) -> Result<(), StoreError> {
+    write_lane_order(
+        connection,
+        &project_lane_scope(project_id),
+        "project",
+        Some(project_id),
+        order,
+        now,
+    )
+}
+
+fn project_lane_scope(project_id: &str) -> String {
+    format!("project:{project_id}")
+}
+
+fn write_lane_order(
+    connection: &Connection,
+    scope_key: &str,
+    lane_kind: &str,
+    project_id: Option<&str>,
+    order: &[String],
+    now: &str,
+) -> Result<(), StoreError> {
     connection.execute(
-        "INSERT INTO codex_project_thread_orders(
-           project_id, ordered_thread_ids_json, updated_at
-         ) VALUES (?1, ?2, ?3)
-         ON CONFLICT(project_id) DO UPDATE SET
-           ordered_thread_ids_json = excluded.ordered_thread_ids_json,
+        "INSERT INTO workspace_sidebar_lanes(
+           scope_key, lane_kind, project_id, order_mode, revision, updated_at
+         ) VALUES (?1, ?2, ?3, 'manual', 1, ?4)
+         ON CONFLICT(scope_key) DO UPDATE SET
+           order_mode = 'manual',
+           revision = workspace_sidebar_lanes.revision + 1,
            updated_at = excluded.updated_at",
-        params![project_id, encode_thread_order(order)?, now],
+        params![scope_key, lane_kind, project_id, now],
     )?;
+    connection.execute(
+        "DELETE FROM workspace_sidebar_positions WHERE scope_key = ?1",
+        [scope_key],
+    )?;
+    let revision = connection.query_row(
+        "SELECT revision FROM workspace_sidebar_lanes WHERE scope_key = ?1",
+        [scope_key],
+        |row| row.get::<_, i64>(0),
+    )?;
+    let mut insert = connection.prepare(
+        "INSERT INTO workspace_sidebar_positions(
+           scope_key, thread_id, rank_key, revision, updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5)",
+    )?;
+    for (index, thread_id) in order.iter().enumerate() {
+        let rank = i64::try_from(index + 1)
+            .ok()
+            .and_then(|value| value.checked_mul(SIDEBAR_RANK_GAP))
+            .ok_or_else(|| invalid("Workspace Thread order rank overflowed"))?;
+        insert.execute(params![scope_key, thread_id, rank, revision, now])?;
+    }
     Ok(())
 }
 
@@ -646,72 +715,315 @@ fn move_thread_membership(
     Ok(())
 }
 
-fn rewrite_project_thread_orders(
+fn update_thread_lane_rank(
     connection: &Connection,
-    library_id: &str,
     moved_thread_id: &str,
     target_project_id: Option<&str>,
     placement: &ProjectWorkspaceThreadPlacement,
 ) -> Result<(), StoreError> {
-    let current = read_project_thread_orders(connection, library_id)?;
-    let mut changed = BTreeMap::new();
-    for (project_id, order) in &current {
-        let filtered = order
-            .iter()
-            .filter(|thread_id| thread_id.as_str() != moved_thread_id)
-            .cloned()
-            .collect::<Vec<_>>();
-        if filtered.len() != order.len() {
-            changed.insert(project_id.clone(), filtered);
-        }
-    }
-
-    if !matches!(placement, ProjectWorkspaceThreadPlacement::Default)
-        && let Some(target_project_id) = target_project_id
-    {
-        let known = list_project_thread_ids(connection, target_project_id)?
-            .into_iter()
-            .filter(|thread_id| thread_id != moved_thread_id)
-            .collect::<Vec<_>>();
-        let existing = changed
-            .get(target_project_id)
-            .or_else(|| current.get(target_project_id))
-            .cloned()
-            .unwrap_or_default();
-        let complete = append_untracked(existing, &known);
-        let target_order = match placement {
-            ProjectWorkspaceThreadPlacement::Start => {
-                let mut result = vec![moved_thread_id.to_owned()];
-                result.extend(complete);
-                result
-            }
-            ProjectWorkspaceThreadPlacement::End => {
-                let mut result = complete;
-                result.push(moved_thread_id.to_owned());
-                result
-            }
-            ProjectWorkspaceThreadPlacement::Before { thread_id } => {
-                let index = complete
-                    .iter()
-                    .position(|candidate| candidate == thread_id)
-                    .unwrap_or(complete.len());
-                let mut result = complete;
-                result.insert(index, moved_thread_id.to_owned());
-                result
-            }
-            ProjectWorkspaceThreadPlacement::Default => unreachable!("guarded placement"),
-        };
-        changed.insert(target_project_id.to_owned(), target_order);
-    }
-
     let now = sqlite_now(connection)?;
-    for (project_id, order) in changed {
-        if current.get(&project_id) == Some(&order) {
-            continue;
+    let target_scope =
+        target_project_id.map_or_else(|| "projectless".to_owned(), project_lane_scope);
+    let removed_scopes = connection
+        .prepare(
+            "SELECT scope_key
+             FROM workspace_sidebar_positions
+             WHERE thread_id = ?1",
+        )?
+        .query_map([moved_thread_id], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    connection.execute(
+        "DELETE FROM workspace_sidebar_positions WHERE thread_id = ?1",
+        [moved_thread_id],
+    )?;
+
+    if matches!(placement, ProjectWorkspaceThreadPlacement::Default) {
+        let mut changed_scopes = removed_scopes.into_iter().collect::<BTreeSet<_>>();
+        if lane_is_manual(connection, &target_scope)? {
+            changed_scopes.insert(target_scope);
         }
-        write_project_thread_order(connection, &project_id, &order, &now)?;
+        for scope_key in changed_scopes {
+            bump_lane_revision(connection, &scope_key, &now)?;
+        }
+        return Ok(());
+    }
+
+    for scope_key in removed_scopes
+        .iter()
+        .filter(|scope_key| scope_key.as_str() != target_scope)
+    {
+        bump_lane_revision(connection, scope_key, &now)?;
+    }
+
+    if !lane_is_manual(connection, &target_scope)?
+        || lane_has_unpositioned_threads(
+            connection,
+            target_project_id,
+            &target_scope,
+            moved_thread_id,
+        )?
+    {
+        let current =
+            list_lane_thread_ids_in_display_order(connection, target_project_id, &target_scope)?
+                .into_iter()
+                .filter(|thread_id| thread_id != moved_thread_id)
+                .collect::<Vec<_>>();
+        let next = apply_thread_placement(current, moved_thread_id, placement)?;
+        write_lane_order(
+            connection,
+            &target_scope,
+            if target_project_id.is_some() {
+                "project"
+            } else {
+                "projectless"
+            },
+            target_project_id,
+            &next,
+            &now,
+        )?;
+        return Ok(());
+    }
+
+    let rank = rank_for_placement(connection, &target_scope, placement)?;
+    let revision = bump_lane_revision(connection, &target_scope, &now)?;
+    connection.execute(
+        "INSERT INTO workspace_sidebar_positions(
+           scope_key, thread_id, rank_key, revision, updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![target_scope, moved_thread_id, rank, revision, now],
+    )?;
+    Ok(())
+}
+
+fn lane_is_manual(connection: &Connection, scope_key: &str) -> Result<bool, StoreError> {
+    Ok(connection
+        .query_row(
+            "SELECT 1 FROM workspace_sidebar_lanes
+             WHERE scope_key = ?1 AND order_mode = 'manual'",
+            [scope_key],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
+fn lane_has_unpositioned_threads(
+    connection: &Connection,
+    project_id: Option<&str>,
+    scope_key: &str,
+    moved_thread_id: &str,
+) -> Result<bool, StoreError> {
+    let exists = connection.query_row(
+        "SELECT EXISTS(
+           SELECT 1
+           FROM project_sessions session
+           JOIN project_session_threads link ON link.session_id = session.id
+           JOIN codex_threads thread ON thread.thread_id = link.thread_id
+           WHERE session.project_id IS ?1
+             AND thread.thread_id <> ?2
+             AND NOT EXISTS (
+               SELECT 1 FROM workspace_sidebar_positions position
+               WHERE position.scope_key = ?3
+                 AND position.thread_id = thread.thread_id
+             )
+         )",
+        params![project_id, moved_thread_id, scope_key],
+        |row| row.get::<_, i64>(0),
+    )?;
+    Ok(exists != 0)
+}
+
+fn list_lane_thread_ids_in_display_order(
+    connection: &Connection,
+    project_id: Option<&str>,
+    scope_key: &str,
+) -> Result<Vec<String>, StoreError> {
+    connection
+        .prepare(
+            "SELECT thread.thread_id
+             FROM project_sessions session
+             JOIN project_session_threads link ON link.session_id = session.id
+             JOIN codex_threads thread ON thread.thread_id = link.thread_id
+             LEFT JOIN workspace_sidebar_positions position
+               ON position.scope_key = ?2
+               AND position.thread_id = thread.thread_id
+             WHERE session.project_id IS ?1
+             ORDER BY COALESCE(
+               position.rank_key,
+               -COALESCE(thread.updated_at, session.\"order\")
+             ), session.id",
+        )?
+        .query_map(params![project_id, scope_key], |row| {
+            row.get::<_, String>(0)
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(StoreError::from)
+}
+
+fn apply_thread_placement(
+    mut current: Vec<String>,
+    moved_thread_id: &str,
+    placement: &ProjectWorkspaceThreadPlacement,
+) -> Result<Vec<String>, StoreError> {
+    match placement {
+        ProjectWorkspaceThreadPlacement::Start => {
+            current.insert(0, moved_thread_id.to_owned());
+        }
+        ProjectWorkspaceThreadPlacement::End => {
+            current.push(moved_thread_id.to_owned());
+        }
+        ProjectWorkspaceThreadPlacement::Before { thread_id } => {
+            let index = current
+                .iter()
+                .position(|candidate| candidate == thread_id)
+                .ok_or_else(|| conflict("Thread placement anchor is no longer in its lane"))?;
+            current.insert(index, moved_thread_id.to_owned());
+        }
+        ProjectWorkspaceThreadPlacement::Default => {
+            return Err(invalid("Default placement does not define a manual rank"));
+        }
+    }
+    Ok(current)
+}
+
+fn rank_for_placement(
+    connection: &Connection,
+    scope_key: &str,
+    placement: &ProjectWorkspaceThreadPlacement,
+) -> Result<i64, StoreError> {
+    let rank = match placement {
+        ProjectWorkspaceThreadPlacement::Start => {
+            let first = connection.query_row(
+                "SELECT min(rank_key) FROM workspace_sidebar_positions WHERE scope_key = ?1",
+                [scope_key],
+                |row| row.get::<_, Option<i64>>(0),
+            )?;
+            first
+                .unwrap_or(SIDEBAR_RANK_GAP)
+                .checked_sub(SIDEBAR_RANK_GAP)
+        }
+        ProjectWorkspaceThreadPlacement::End => {
+            let last = connection.query_row(
+                "SELECT max(rank_key) FROM workspace_sidebar_positions WHERE scope_key = ?1",
+                [scope_key],
+                |row| row.get::<_, Option<i64>>(0),
+            )?;
+            last.unwrap_or(0).checked_add(SIDEBAR_RANK_GAP)
+        }
+        ProjectWorkspaceThreadPlacement::Before { thread_id } => {
+            let anchor = connection
+                .query_row(
+                    "SELECT rank_key FROM workspace_sidebar_positions
+                     WHERE scope_key = ?1 AND thread_id = ?2",
+                    params![scope_key, thread_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()?
+                .ok_or_else(|| conflict("Thread placement anchor is no longer in its lane"))?;
+            let previous = connection.query_row(
+                "SELECT max(rank_key) FROM workspace_sidebar_positions
+                 WHERE scope_key = ?1 AND rank_key < ?2",
+                params![scope_key, anchor],
+                |row| row.get::<_, Option<i64>>(0),
+            )?;
+            match previous {
+                Some(previous) if anchor - previous > 1 => {
+                    Some(previous + ((anchor - previous) / 2))
+                }
+                Some(_) => None,
+                None => anchor.checked_sub(SIDEBAR_RANK_GAP),
+            }
+        }
+        ProjectWorkspaceThreadPlacement::Default => None,
+    };
+    if let Some(rank) = rank.filter(|rank| *rank >= 0) {
+        return Ok(rank);
+    }
+
+    rebalance_lane(connection, scope_key)?;
+    let retry = match placement {
+        ProjectWorkspaceThreadPlacement::Start => 0,
+        ProjectWorkspaceThreadPlacement::End => connection.query_row(
+            "SELECT COALESCE(max(rank_key), 0) + ?2
+             FROM workspace_sidebar_positions WHERE scope_key = ?1",
+            params![scope_key, SIDEBAR_RANK_GAP],
+            |row| row.get::<_, i64>(0),
+        )?,
+        ProjectWorkspaceThreadPlacement::Before { thread_id } => {
+            let (anchor, previous) = connection.query_row(
+                "SELECT anchor.rank_key, max(previous.rank_key)
+                 FROM workspace_sidebar_positions anchor
+                 LEFT JOIN workspace_sidebar_positions previous
+                   ON previous.scope_key = anchor.scope_key
+                  AND previous.rank_key < anchor.rank_key
+                 WHERE anchor.scope_key = ?1 AND anchor.thread_id = ?2
+                 GROUP BY anchor.rank_key",
+                params![scope_key, thread_id],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?)),
+            )?;
+            previous.map_or(0, |previous| previous + ((anchor - previous) / 2))
+        }
+        ProjectWorkspaceThreadPlacement::Default => {
+            return Err(invalid("Default placement does not define a manual rank"));
+        }
+    };
+    Ok(retry)
+}
+
+fn rebalance_lane(connection: &Connection, scope_key: &str) -> Result<(), StoreError> {
+    let positions = connection
+        .prepare(
+            "SELECT thread_id, revision, updated_at FROM workspace_sidebar_positions
+             WHERE scope_key = ?1 ORDER BY rank_key, thread_id",
+        )?
+        .query_map([scope_key], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    connection.execute(
+        "DELETE FROM workspace_sidebar_positions WHERE scope_key = ?1",
+        [scope_key],
+    )?;
+    let mut insert = connection.prepare(
+        "INSERT INTO workspace_sidebar_positions(
+           scope_key, thread_id, rank_key, revision, updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5)",
+    )?;
+    for (index, (thread_id, revision, updated_at)) in positions.iter().enumerate() {
+        let rank = i64::try_from(index + 1)
+            .ok()
+            .and_then(|value| value.checked_mul(SIDEBAR_RANK_GAP))
+            .ok_or_else(|| invalid("Workspace Thread order rank overflowed"))?;
+        insert.execute(params![scope_key, thread_id, rank, revision, updated_at])?;
     }
     Ok(())
+}
+
+fn bump_lane_revision(
+    connection: &Connection,
+    scope_key: &str,
+    now: &str,
+) -> Result<i64, StoreError> {
+    let updated = connection.execute(
+        "UPDATE workspace_sidebar_lanes
+         SET revision = revision + 1, updated_at = ?2
+         WHERE scope_key = ?1 AND order_mode = 'manual'",
+        params![scope_key, now],
+    )?;
+    if updated == 0 {
+        return Err(conflict("Workspace sidebar lane is no longer manual"));
+    }
+    connection
+        .query_row(
+            "SELECT revision FROM workspace_sidebar_lanes WHERE scope_key = ?1",
+            [scope_key],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(StoreError::from)
 }
 
 fn invalid(message: impl Into<String>) -> StoreError {
@@ -733,15 +1045,15 @@ fn corrupt(message: impl Into<String>) -> StoreError {
 #[cfg(test)]
 mod tests {
     use crate::infrastructure::sqlite::with_immediate_transaction;
-    use nodex_core_contracts::PROJECT_WORKSPACE_CONTRACT_VERSION;
     use nodex_core_contracts::workspace::{
-        ProjectWorkspaceIntent, ProjectWorkspaceRead, ProjectWorkspaceReadValue,
+        ProjectWorkspaceIntent, ProjectWorkspaceThreadLane,
         ProjectWorkspaceThreadMoveMetadataPatch, ProjectWorkspaceThreadPlacement,
     };
 
     use super::super::test_support::{
-        apply, context, create_project, create_session_thread, read, seeded_workspace,
+        apply, create_project, create_session_thread, seeded_workspace,
     };
+    use super::{read_project_thread_orders, read_projectless_thread_order};
 
     #[test]
     fn owns_same_snapshot_sidebar_and_manual_lane_orders() {
@@ -804,16 +1116,18 @@ mod tests {
             },
         );
 
-        let ProjectWorkspaceReadValue::Sidebar { sidebar } = read(
-            &workspace.module,
-            ProjectWorkspaceRead::Sidebar {
-                include_archived: Some(false),
-            },
-        ) else {
-            panic!("Sidebar snapshot");
-        };
+        let (projectless_order, project_orders) = workspace
+            .kernel
+            .writer()
+            .call(|connection| {
+                Ok((
+                    read_projectless_thread_order(connection)?,
+                    read_project_thread_orders(connection, "library-1")?,
+                ))
+            })
+            .expect("manual lane projections");
         assert_eq!(
-            sidebar.projectless_thread_order.as_deref(),
+            projectless_order.as_deref(),
             Some(
                 [
                     "thread:chat-b".to_owned(),
@@ -823,23 +1137,7 @@ mod tests {
                 .as_slice()
             )
         );
-        assert_eq!(
-            sidebar.project_thread_orders["project:default"],
-            ["thread:project"]
-        );
-        assert_eq!(
-            sidebar
-                .threads
-                .iter()
-                .map(|thread| thread.thread_id.as_str())
-                .collect::<Vec<_>>(),
-            [
-                "thread:project",
-                "thread:chat-a",
-                "thread:chat-hidden",
-                "thread:chat-b",
-            ]
-        );
+        assert_eq!(project_orders["project:default"], ["thread:project"]);
     }
 
     #[test]
@@ -853,16 +1151,13 @@ mod tests {
                 ordered_thread_ids: Vec::new(),
             },
         );
-        let ProjectWorkspaceReadValue::Sidebar { sidebar } = read(
-            &workspace.module,
-            ProjectWorkspaceRead::Sidebar {
-                include_archived: None,
-            },
-        ) else {
-            panic!("Sidebar with empty custom order");
-        };
+        let project_orders = workspace
+            .kernel
+            .writer()
+            .call(|connection| read_project_thread_orders(connection, "library-1"))
+            .expect("empty manual order");
         assert_eq!(
-            sidebar.project_thread_orders.get("project:default"),
+            project_orders.get("project:default"),
             Some(&Vec::<String>::new())
         );
 
@@ -873,106 +1168,120 @@ mod tests {
                 project_id: "project:default".to_owned(),
             },
         );
-        let ProjectWorkspaceReadValue::Sidebar { sidebar } = read(
-            &workspace.module,
-            ProjectWorkspaceRead::Sidebar {
-                include_archived: None,
-            },
-        ) else {
-            panic!("Sidebar without custom order");
-        };
-        assert!(
-            !sidebar
-                .project_thread_orders
-                .contains_key("project:default")
-        );
+        let project_orders = workspace
+            .kernel
+            .writer()
+            .call(|connection| read_project_thread_orders(connection, "library-1"))
+            .expect("cleared manual order");
+        assert!(!project_orders.contains_key("project:default"));
     }
 
     #[test]
-    fn archived_project_threads_leave_ordinary_sidebar_and_return_on_restore() {
+    fn moving_inside_a_materialized_lane_only_rewrites_the_moved_rank() {
         let workspace = seeded_workspace();
-        create_session_thread(
-            &workspace.module,
-            "project-thread",
-            "session:project-thread",
-            "thread:project",
-            Some("project:default"),
-            400,
-        );
+        for (index, thread_id) in ["thread:a", "thread:b", "thread:c"].iter().enumerate() {
+            create_session_thread(
+                &workspace.module,
+                &format!("rank-{index}"),
+                &format!("session:{index}"),
+                thread_id,
+                Some("project:default"),
+                300 - i64::try_from(index).expect("small index"),
+            );
+        }
         apply(
             &workspace.module,
-            "pin-project-thread",
-            ProjectWorkspaceIntent::SetThreadPinned {
-                thread_id: "thread:project".to_owned(),
-                pinned: true,
-                placement: None,
-            },
-        );
-        apply(
-            &workspace.module,
-            "archive-project",
-            ProjectWorkspaceIntent::SetProjectLifecycle {
+            "materialize-ranks",
+            ProjectWorkspaceIntent::SetProjectThreadOrder {
                 project_id: "project:default".to_owned(),
-                lifecycle: nodex_core_contracts::workspace::ProjectLifecycle::Archived,
+                ordered_thread_ids: vec![
+                    "thread:a".to_owned(),
+                    "thread:b".to_owned(),
+                    "thread:c".to_owned(),
+                ],
             },
         );
-
-        let ProjectWorkspaceReadValue::Sidebar { sidebar } = read(
-            &workspace.module,
-            ProjectWorkspaceRead::Sidebar {
-                include_archived: Some(false),
-            },
-        ) else {
-            panic!("ordinary Sidebar snapshot");
-        };
-        assert!(
-            sidebar
-                .threads
-                .iter()
-                .all(|thread| thread.thread_id != "thread:project")
-        );
-
-        let ProjectWorkspaceReadValue::Sidebar { sidebar } = read(
-            &workspace.module,
-            ProjectWorkspaceRead::Sidebar {
-                include_archived: Some(true),
-            },
-        ) else {
-            panic!("historical Sidebar snapshot");
-        };
-        assert!(
-            sidebar
-                .threads
-                .iter()
-                .any(|thread| thread.thread_id == "thread:project")
-        );
+        let before = workspace
+            .kernel
+            .writer()
+            .call(|connection| {
+                connection
+                    .prepare(
+                        "SELECT thread_id, rank_key, revision
+                         FROM workspace_sidebar_positions
+                         WHERE scope_key = 'project:project:default'
+                         ORDER BY thread_id",
+                    )?
+                    .query_map([], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                        ))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(crate::infrastructure::sqlite::StoreError::from)
+            })
+            .expect("initial ranks");
 
         apply(
             &workspace.module,
-            "restore-project",
-            ProjectWorkspaceIntent::SetProjectLifecycle {
-                project_id: "project:default".to_owned(),
-                lifecycle: nodex_core_contracts::workspace::ProjectLifecycle::Active,
+            "move-one-rank",
+            ProjectWorkspaceIntent::MoveThread {
+                thread_id: "thread:a".to_owned(),
+                source: ProjectWorkspaceThreadLane::Project {
+                    project_id: "project:default".to_owned(),
+                },
+                target: ProjectWorkspaceThreadLane::Project {
+                    project_id: "project:default".to_owned(),
+                },
+                placement: ProjectWorkspaceThreadPlacement::Before {
+                    thread_id: "thread:c".to_owned(),
+                },
+                metadata: ProjectWorkspaceThreadMoveMetadataPatch::default(),
             },
         );
-        let ProjectWorkspaceReadValue::Sidebar { sidebar } = read(
-            &workspace.module,
-            ProjectWorkspaceRead::Sidebar {
-                include_archived: Some(false),
-            },
-        ) else {
-            panic!("restored Sidebar snapshot");
-        };
-        assert!(
-            sidebar
-                .threads
-                .iter()
-                .any(|thread| thread.thread_id == "thread:project")
+
+        let (after, order) = workspace
+            .kernel
+            .writer()
+            .call(|connection| {
+                let positions = connection
+                    .prepare(
+                        "SELECT thread_id, rank_key, revision
+                         FROM workspace_sidebar_positions
+                         WHERE scope_key = 'project:project:default'
+                         ORDER BY thread_id",
+                    )?
+                    .query_map([], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                        ))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok((
+                    positions,
+                    super::read_project_thread_order(connection, "project:default")?,
+                ))
+            })
+            .expect("updated ranks");
+        assert_eq!(
+            order,
+            Some(vec![
+                "thread:b".to_owned(),
+                "thread:a".to_owned(),
+                "thread:c".to_owned(),
+            ])
         );
+        assert_eq!(after[1], before[1], "thread:b rank must remain stable");
+        assert_eq!(after[2], before[2], "thread:c rank must remain stable");
+        assert_ne!(after[0], before[0], "only the moved rank is rewritten");
     }
 
     #[test]
-    fn rejects_corrupt_projectless_order_but_repairs_corrupt_project_order_on_move() {
+    fn rejects_a_relational_position_that_points_outside_its_lane() {
         let workspace = seeded_workspace();
         create_project(
             &workspace.module,
@@ -993,75 +1302,35 @@ mod tests {
             .call(|connection| {
                 with_immediate_transaction(connection, |transaction| {
                     transaction.execute(
-                        "INSERT INTO codex_project_thread_orders(
-                           project_id, ordered_thread_ids_json, updated_at
-                         ) VALUES ('project:target', '[\"duplicate\",\"duplicate\"]', ?1)",
+                        "INSERT INTO workspace_sidebar_lanes(
+                           scope_key, lane_kind, project_id, order_mode, revision, updated_at
+                         ) VALUES (
+                           'project:project:target', 'project', 'project:target',
+                           'manual', 1, ?1
+                         )",
                         [super::super::test_support::NOW],
                     )?;
                     transaction.execute(
-                        "INSERT INTO codex_sidebar_chat_order(
-                           singleton, ordered_thread_ids_json, updated_at
-                         ) VALUES (1, '[\"duplicate\",\"duplicate\"]', ?1)",
+                        "INSERT INTO workspace_sidebar_positions(
+                           scope_key, thread_id, rank_key, revision, updated_at
+                         ) VALUES (
+                           'project:project:target', 'thread:corrupt', 1000000, 1, ?1
+                         )",
                         [super::super::test_support::NOW],
                     )?;
                     Ok(())
                 })
             })
-            .expect("corrupt manual orders");
+            .expect("cross-lane position");
 
         let sidebar_error = workspace
-            .module
-            .read(
-                &context(),
-                nodex_core_contracts::ModuleReadRequest {
-                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
-                    read: ProjectWorkspaceRead::Sidebar {
-                        include_archived: None,
-                    },
-                },
-            )
-            .expect_err("corrupt Projectless order must fail closed");
-        assert_eq!(
-            sidebar_error.code,
-            nodex_core_contracts::CoreErrorCode::StoreCorrupt
-        );
-
-        workspace
             .kernel
             .writer()
-            .call(|connection| {
-                connection
-                    .execute("DELETE FROM codex_sidebar_chat_order", [])
-                    .map(|_| ())
-                    .map_err(Into::into)
-            })
-            .expect("clear corrupt Projectless order");
-        apply(
-            &workspace.module,
-            "repair-corrupt-target-order",
-            ProjectWorkspaceIntent::MoveThread {
-                thread_id: "thread:corrupt".to_owned(),
-                source: nodex_core_contracts::workspace::ProjectWorkspaceThreadLane::Project {
-                    project_id: "project:default".to_owned(),
-                },
-                target: nodex_core_contracts::workspace::ProjectWorkspaceThreadLane::Project {
-                    project_id: "project:target".to_owned(),
-                },
-                placement: ProjectWorkspaceThreadPlacement::End,
-                metadata: ProjectWorkspaceThreadMoveMetadataPatch::default(),
-            },
-        );
-        let ProjectWorkspaceReadValue::Sidebar { sidebar } = read(
-            &workspace.module,
-            ProjectWorkspaceRead::Sidebar {
-                include_archived: None,
-            },
-        ) else {
-            panic!("repaired Sidebar");
-        };
+            .call(|connection| read_project_thread_orders(connection, "library-1"))
+            .expect_err("cross-lane position must fail closed");
         assert_eq!(
-            sidebar.project_thread_orders["project:target"],
-            ["thread:corrupt"]
+            sidebar_error.code,
+            crate::infrastructure::sqlite::StoreErrorCode::StoreCorrupt
         );
     }
 }

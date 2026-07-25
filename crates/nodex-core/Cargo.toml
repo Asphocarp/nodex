@@ -26,4 +26,5 @@ unicode-segmentation.workspace = true
 yrs.workspace = true
 
 [dev-dependencies]
+nodex-core-protocol.workspace = true
 tempfile = "3.23.0"

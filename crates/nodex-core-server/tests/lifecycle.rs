@@ -6,6 +6,9 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use fs2::FileExt;
+use nodex_core_contracts::{
+    DATABASE_CONTRACT_VERSION, LIBRARY_CONTRACT_VERSION, PROJECT_WORKSPACE_CONTRACT_VERSION,
+};
 use nodex_core_protocol::{
     ClientIdentity, ClientKind, CoreArtifactIdentity, CoreReplacementRequest,
     CoreSelectionDisposition, CoreSelectionPolicy, CoreSelectionReason, CoreSelectionResult,
@@ -304,12 +307,17 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
         ("x-nodex-connection-id", "connection:lifecycle"),
         ("x-nodex-connection-binding", connection_binding.as_str()),
     ];
+    let library_read = serde_json::json!({
+        "contract_version": LIBRARY_CONTRACT_VERSION,
+        "read": { "kind": "metadata" }
+    })
+    .to_string();
     let read = request_with_headers(
         &expected.socket_path,
         &auth,
         "POST",
         "/core/v1/modules/library/read",
-        r#"{"contract_version":1,"read":{"kind":"metadata"}}"#,
+        &library_read,
         &connection_headers,
     );
     assert!(read.starts_with("HTTP/1.1 200"));
@@ -323,7 +331,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     assert!(library_id.starts_with("library-"));
 
     let apply_body = serde_json::json!({
-        "contract_version": 1,
+        "contract_version": LIBRARY_CONTRACT_VERSION,
         "operation_id": "lifecycle-operation-1",
         "store_epoch": expected.store_epoch,
         "intent": {
@@ -360,7 +368,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     const PRIVATE_LOG_SENTINEL: &str = "PRIVATE_TITLE_MUST_NOT_REACH_CORE_LOGS";
     const LOG_OPERATION_ID: &str = "logging-correlation-operation";
     let logged_apply_body = serde_json::json!({
-        "contract_version": 1,
+        "contract_version": LIBRARY_CONTRACT_VERSION,
         "operation_id": LOG_OPERATION_ID,
         "store_epoch": expected.store_epoch,
         "intent": {
@@ -407,7 +415,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     const SOURCE_ID: &str = "018f2000-0000-7000-8000-000000000002";
     const VIEW_ID: &str = "018f2000-0000-7000-8000-000000000003";
     let create_database = serde_json::json!({
-        "contract_version": 1,
+        "contract_version": LIBRARY_CONTRACT_VERSION,
         "operation_id": "lifecycle-database-create",
         "store_epoch": expected.store_epoch,
         "intent": {
@@ -431,7 +439,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     assert_eq!(response_json(&created_database)["status"], "ok");
 
     let grant_database = serde_json::json!({
-        "contract_version": 1,
+        "contract_version": LIBRARY_CONTRACT_VERSION,
         "operation_id": "lifecycle-database-grant",
         "store_epoch": expected.store_epoch,
         "intent": {
@@ -453,12 +461,14 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     assert_eq!(response_json(&granted_database)["status"], "ok");
 
     let database_read = serde_json::json!({
-        "contract_version": 2,
+        "contract_version": DATABASE_CONTRACT_VERSION,
         "read": {
             "target": { "kind": "data_source", "data_source_id": SOURCE_ID },
-            "mode": "data_source",
+            "mode": "property_window",
             "filter": null,
-            "sort": null
+            "sort": null,
+            "window": { "after": null, "first": 200 },
+            "page_ids": null
         }
     })
     .to_string();
@@ -473,14 +483,14 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     let database_read = response_json(&database_read);
     assert_eq!(database_read["status"], "ok");
     assert_eq!(
-        database_read["payload"]["value"]["value"]["properties"]
+        database_read["payload"]["value"]["properties"]["items"]
             .as_array()
             .map(Vec::len),
         Some(8)
     );
 
     let database_apply_body = serde_json::json!({
-        "contract_version": 2,
+        "contract_version": DATABASE_CONTRACT_VERSION,
         "operation_id": "lifecycle-database-property",
         "store_epoch": expected.store_epoch,
         "intent": [{
@@ -1033,7 +1043,7 @@ fn workspace_contract_mismatch_is_replaced_before_a_projectless_session_request(
     assert_eq!(replacement.expected, expected_stale_generation);
     assert_eq!(
         replacement.candidate_manifest.modules[3].versions,
-        VersionRange::exact(4)
+        VersionRange::exact(PROJECT_WORKSPACE_CONTRACT_VERSION)
     );
 
     let selected = selection.descriptor;
@@ -1070,7 +1080,7 @@ fn workspace_contract_mismatch_is_replaced_before_a_projectless_session_request(
         ("x-nodex-connection-binding", binding.as_str()),
     ];
     let apply = serde_json::json!({
-        "contract_version": 4,
+        "contract_version": PROJECT_WORKSPACE_CONTRACT_VERSION,
         "operation_id": "workspace-create-projectless-session",
         "store_epoch": selected.store_epoch,
         "intent": {
@@ -1102,7 +1112,7 @@ fn workspace_contract_mismatch_is_replaced_before_a_projectless_session_request(
         "POST",
         "/core/v1/modules/workspace/read",
         &serde_json::json!({
-            "contract_version": 4,
+            "contract_version": PROJECT_WORKSPACE_CONTRACT_VERSION,
             "read": {
                 "kind": "session",
                 "session_id": "session:projectless-regression"

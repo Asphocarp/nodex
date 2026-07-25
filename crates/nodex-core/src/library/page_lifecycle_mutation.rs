@@ -335,6 +335,8 @@ fn create_page(
             mode: DatabaseReadMode::DataSource,
             filter: None,
             sort: None,
+            window: None,
+            page_ids: None,
         },
     )?;
     let source = read_create_source(connection, library_id, data_source_id)?;

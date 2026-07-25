@@ -11,6 +11,7 @@ import {
   type DataSourceDescriptorV2,
   type DataSourceRecordV2,
 } from "../../shared/database-module-v2";
+import { parseDatabaseId } from "../../shared/database-identities";
 import { applyDatabaseModule, readDatabaseModule } from "./api";
 
 export interface DatabaseManagementAuthority {
@@ -84,31 +85,33 @@ export const readDatabaseManagementAuthority = async (
   preferredDatabaseId?: string | null,
   dependencies: DatabaseManagementRuntimeDependencies = defaultDependencies,
 ): Promise<DatabaseManagementAuthority> => {
-  const snapshot = await readSnapshot(projectId, {
-    target: { kind: "project_default" },
-    mode: "catalog",
-  }, dependencies);
-  if (snapshot.value.kind !== "catalog") {
+  const databaseRead: DatabaseModuleReadRequestV2["read"] = preferredDatabaseId
+    ? {
+      target: {
+        kind: "database",
+        databaseId: parseDatabaseId(preferredDatabaseId),
+      },
+      mode: "database",
+    }
+    : {
+      target: { kind: "project_default" },
+      mode: "database",
+    };
+  const snapshot = await readSnapshot(projectId, databaseRead, dependencies);
+  if (snapshot.value.kind !== "database") {
     throw new DatabaseManagementReadError(
-      "Database Module did not return a catalog",
+      "Database Module did not return the selected Database",
       false,
     );
   }
-  const databases = snapshot.value.databases.filter(
-    (descriptor) => descriptor.database.lifecycle === "active",
-  );
-  const preferred = preferredDatabaseId
-    ? databases.find(
-        (descriptor) => descriptor.database.databaseId === preferredDatabaseId,
-      )
-    : null;
-  const selectedDatabase = preferred ?? databases[0];
-  if (!selectedDatabase) {
+  const selectedDatabase = snapshot.value.value;
+  if (selectedDatabase.database.lifecycle !== "active") {
     throw new DatabaseManagementReadError(
-      "Project has no authorized active Database",
+      "Selected Database is not active",
       false,
     );
   }
+  const databases = [selectedDatabase];
   const selectedDataSource = activeSource(selectedDatabase);
   if (!selectedDataSource) {
     throw new DatabaseManagementReadError(

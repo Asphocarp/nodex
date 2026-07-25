@@ -39,6 +39,7 @@ const MAX_PROJECT_ICON_BYTES: usize = 256;
 const MAX_SOURCE_ROOTS: usize = 128;
 const MAX_SOURCE_ROOT_BYTES: usize = 4_096;
 const MAX_PROJECT_ORDER_SIZE: usize = 100_000;
+const MAX_UNARCHIVED_PROJECTS: usize = 200;
 const INITIAL_RANK_KEY: &str = "7fffffffffffffffffffffffffffffff";
 const DEFAULT_SESSION_TITLE: &str = "Database View";
 
@@ -360,6 +361,31 @@ pub(super) fn apply(
                     &request_hash,
                     thread_id,
                 ),
+                ProjectWorkspaceIntent::ObserveAppServerThreadWindow {
+                    sweep_id,
+                    thread_ids,
+                } => thread::observe_app_server_thread_window(
+                    transaction,
+                    &library_id,
+                    &context,
+                    &store_epoch,
+                    &request.operation_id,
+                    &request_hash,
+                    sweep_id,
+                    thread_ids,
+                ),
+                ProjectWorkspaceIntent::ReconcileAppServerThreadSweep { sweep_id, limit } => {
+                    thread::reconcile_app_server_thread_sweep(
+                        transaction,
+                        &library_id,
+                        &context,
+                        &store_epoch,
+                        &request.operation_id,
+                        &request_hash,
+                        sweep_id,
+                        *limit,
+                    )
+                }
                 ProjectWorkspaceIntent::SetThreadArchived {
                     thread_id,
                     archived,
@@ -606,6 +632,7 @@ fn create_project(
     assets_root: &Path,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
     validate_project_input(project_id, description)?;
+    require_unarchived_project_capacity(connection, library_id)?;
     let sources = normalize_source_roots(source_roots)?;
     let name = normalize_project_name(name, &sources)?;
     let icon = normalize_icon(icon)?;
@@ -847,6 +874,9 @@ fn set_project_lifecycle(
     let next_lifecycle = lifecycle_literal(lifecycle);
     let now = sqlite_now(connection)?;
     if current_lifecycle != next_lifecycle {
+        if current_lifecycle == "archived" && next_lifecycle != "archived" {
+            require_unarchived_project_capacity(connection, library_id)?;
+        }
         let changed = connection.execute(
             "UPDATE projects SET lifecycle = ?1, binding_revision = binding_revision + 1, \
                updated = ?2 WHERE id = ?3 AND library_id = ?4 AND lifecycle = ?5",
@@ -1342,6 +1372,28 @@ fn validate_project_input(project_id: &str, description: &str) -> Result<(), Sto
     validate_description(description)
 }
 
+fn require_unarchived_project_capacity(
+    connection: &Connection,
+    library_id: &str,
+) -> Result<(), StoreError> {
+    let project_count = connection.query_row(
+        "SELECT count(*) FROM projects \
+         WHERE library_id = ?1 AND lifecycle <> 'archived'",
+        [library_id],
+        |row| row.get::<_, i64>(0),
+    )?;
+    if project_count
+        < i64::try_from(MAX_UNARCHIVED_PROJECTS).expect("Project collection bound fits i64")
+    {
+        return Ok(());
+    }
+    Err(StoreError::new(
+        StoreErrorCode::ResourceExhausted,
+        "Available Project collection exceeds its fixed bound; remove a Project first",
+        false,
+    ))
+}
+
 fn validate_description(description: &str) -> Result<(), StoreError> {
     if description.len() > MAX_PROJECT_DESCRIPTION_BYTES {
         return Err(invalid("Project description exceeds its bound"));
@@ -1491,7 +1543,7 @@ mod tests {
     };
     use tempfile::{TempDir, tempdir};
 
-    use crate::infrastructure::sqlite::with_immediate_transaction;
+    use crate::infrastructure::sqlite::{StoreErrorCode, with_immediate_transaction};
     use crate::infrastructure::store::SqliteStoreKernel;
     use crate::workspace::ProjectWorkspaceModule;
 
@@ -1584,6 +1636,44 @@ mod tests {
                 intent,
             },
         )
+    }
+
+    #[test]
+    fn available_project_capacity_is_enforced_at_growth_ingress() {
+        let (_directory, kernel, _module) = seeded_module();
+        kernel
+            .writer()
+            .call(|connection| {
+                let existing = connection.query_row(
+                    "SELECT count(*) FROM projects \
+                     WHERE library_id = 'library-1' AND lifecycle <> 'archived'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                let existing = usize::try_from(existing).expect("Project count fits usize");
+                for index in existing..super::MAX_UNARCHIVED_PROJECTS {
+                    connection.execute(
+                        "INSERT INTO projects(\
+                           id, name, description, icon, created, updated, library_id, lifecycle\
+                         ) VALUES (?1, ?1, '', '', ?2, ?2, 'library-1', 'active')",
+                        rusqlite::params![format!("project:capacity:{index}"), NOW],
+                    )?;
+                }
+
+                let error = super::require_unarchived_project_capacity(connection, "library-1")
+                    .expect_err("full Project collection");
+                assert_eq!(error.code, StoreErrorCode::ResourceExhausted);
+
+                connection.execute(
+                    "UPDATE projects SET lifecycle = 'archived' \
+                     WHERE id = ?1",
+                    [format!("project:capacity:{existing}")],
+                )?;
+                super::require_unarchived_project_capacity(connection, "library-1")
+                    .expect("archived Projects do not consume available capacity");
+                Ok(())
+            })
+            .expect("check Project capacity");
     }
 
     #[test]

@@ -1,6 +1,9 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use nodex_core_contracts::agent::AgentTurnProvenance;
+use nodex_core_contracts::collection::{
+    CollectionWindow, CollectionWindowAuthority, CollectionWindowRequest,
+};
 use nodex_core_contracts::workspace::{
     CodexPermissionMode, ProjectWorkspaceBackgroundProcess,
     ProjectWorkspaceBackgroundProcessSource, ProjectWorkspaceTurnAuthority,
@@ -8,10 +11,15 @@ use nodex_core_contracts::workspace::{
     ProjectWorkspaceTurnAuthoritySource,
 };
 use nodex_core_contracts::{AdapterKind, BoundModuleContext};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::types::Value as SqlValue;
+use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use serde_json::json;
 
 use crate::document::sha256;
+use crate::infrastructure::collection_window::{WindowCandidate, assemble, normalize_request};
+use crate::infrastructure::cursor::{
+    self, CollectionCursorSubject, CursorDirection, KeysetCoordinate, KeysetValue,
+};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::ProjectWorkspaceApplyOutcome;
@@ -175,61 +183,122 @@ pub(crate) fn validate_persisted_turn_authority(
     Ok(row.authority_fingerprint)
 }
 
-pub(super) fn read_background_processes(
+pub(super) fn read_background_process_window(
     connection: &Connection,
     library_id: &str,
+    event_head: i64,
     thread_id: Option<&str>,
-) -> Result<Vec<ProjectWorkspaceBackgroundProcess>, StoreError> {
+    request: &CollectionWindowRequest,
+) -> Result<CollectionWindow<ProjectWorkspaceBackgroundProcess>, StoreError> {
     if let Some(thread_id) = thread_id {
         validate_id("thread_id", thread_id)?;
         require_visible_thread(connection, library_id, thread_id)?;
     }
+    let normalized = normalize_request(request)?;
+    let fingerprint =
+        cursor::query_fingerprint(&("workspace_background_process_window_v1", thread_id))?;
+    let subject = CollectionCursorSubject {
+        kind: "workspace_background_processes",
+        library_id,
+        query_fingerprint: &fingerprint,
+        projection_revision: event_head,
+    };
+    let coordinate = normalized
+        .after
+        .map(|encoded| cursor::decode(connection, encoded, subject))
+        .transpose()?
+        .map(|(direction, coordinate)| {
+            if direction != CursorDirection::Forward || coordinate.values.len() != 1 {
+                return Err(invalid("Background process cursor is incompatible"));
+            }
+            let [KeysetValue::Integer { value: order_key }] = coordinate.values.as_slice() else {
+                return Err(invalid("Background process cursor coordinate is invalid"));
+            };
+            Ok((*order_key, coordinate.stable_id))
+        })
+        .transpose()?;
+    let mut parameters = vec![
+        thread_id.map_or(SqlValue::Null, |value| SqlValue::Text(value.to_owned())),
+        SqlValue::Text(library_id.to_owned()),
+    ];
+    let cursor_predicate = coordinate
+        .map(|(order_key, stable_id)| {
+            parameters.extend([SqlValue::Integer(order_key), SqlValue::Text(stable_id)]);
+            "AND (-process.updated_at_ms > ?3 \
+               OR (-process.updated_at_ms = ?3 AND process.process_record_id > ?4))"
+        })
+        .unwrap_or_default();
+    parameters.push(SqlValue::Integer(
+        i64::try_from(normalized.first + 1)
+            .map_err(|_| invalid("Background process window size is invalid"))?,
+    ));
+    let limit_parameter = parameters.len();
+    let sql = format!(
+        "SELECT process.process_record_id, process.thread_id, process.thread_title, \
+           process.item_id, process.turn_id, process.command, process.cwd, \
+           process.app_server_process_id, process.os_pid, process.terminal_session_id, \
+           process.source, process.started_at_ms, process.updated_at_ms \
+         FROM codex_background_processes process \
+         JOIN codex_threads thread ON thread.thread_id = process.thread_id \
+         LEFT JOIN projects project ON project.id = thread.project_id \
+         WHERE (?1 IS NULL OR process.thread_id = ?1) \
+           AND (thread.project_id IS NULL OR project.library_id = ?2) \
+           {cursor_predicate} \
+         ORDER BY -process.updated_at_ms, process.process_record_id \
+         LIMIT ?{limit_parameter}"
+    );
     let rows = connection
-        .prepare(
-            "SELECT process.process_record_id, process.thread_id, process.thread_title, \
-               process.item_id, process.turn_id, process.command, process.cwd, \
-               process.app_server_process_id, process.os_pid, process.terminal_session_id, \
-               process.source, process.started_at_ms, process.updated_at_ms \
-             FROM codex_background_processes process \
-             JOIN codex_threads thread ON thread.thread_id = process.thread_id \
-             LEFT JOIN projects project ON project.id = thread.project_id \
-             WHERE (?1 IS NULL OR process.thread_id = ?1) \
-               AND (thread.project_id IS NULL OR project.library_id = ?2) \
-             ORDER BY process.updated_at_ms DESC, process.process_record_id ASC \
-             LIMIT ?3",
-        )?
-        .query_map(
-            params![
-                thread_id,
-                library_id,
-                i64::try_from(MAX_BACKGROUND_PROCESSES + 1)
-                    .expect("background process bound fits i64"),
-            ],
-            |row| {
-                Ok(AuthorityBackgroundRow {
-                    id: row.get(0)?,
-                    thread_id: row.get(1)?,
-                    thread_title: row.get(2)?,
-                    item_id: row.get(3)?,
-                    turn_id: row.get(4)?,
-                    command: row.get(5)?,
-                    cwd: row.get(6)?,
-                    process_id: row.get(7)?,
-                    os_pid: row.get(8)?,
-                    terminal_session_id: row.get(9)?,
-                    source: row.get(10)?,
-                    started_at_ms: row.get(11)?,
-                    updated_at_ms: row.get(12)?,
-                })
-            },
-        )?
+        .prepare(&sql)?
+        .query_map(params_from_iter(parameters.iter()), |row| {
+            Ok(AuthorityBackgroundRow {
+                id: row.get(0)?,
+                thread_id: row.get(1)?,
+                thread_title: row.get(2)?,
+                item_id: row.get(3)?,
+                turn_id: row.get(4)?,
+                command: row.get(5)?,
+                cwd: row.get(6)?,
+                process_id: row.get(7)?,
+                os_pid: row.get(8)?,
+                terminal_session_id: row.get(9)?,
+                source: row.get(10)?,
+                started_at_ms: row.get(11)?,
+                updated_at_ms: row.get(12)?,
+            })
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    if rows.len() > MAX_BACKGROUND_PROCESSES {
-        return Err(corrupt(
-            "Background process collection exceeds its Core bound",
-        ));
-    }
-    rows.into_iter().map(background_process_from_row).collect()
+    let candidates = rows
+        .into_iter()
+        .map(|row| {
+            let order_key = row
+                .updated_at_ms
+                .checked_neg()
+                .ok_or_else(|| corrupt("Background process timestamp is invalid"))?;
+            let item = background_process_from_row(row)?;
+            Ok(WindowCandidate {
+                coordinate: KeysetCoordinate {
+                    values: vec![KeysetValue::Integer { value: order_key }],
+                    stable_id: item.id.clone(),
+                },
+                item,
+            })
+        })
+        .collect::<Result<Vec<_>, StoreError>>()?;
+    assemble(
+        candidates,
+        normalized.first,
+        CollectionWindowAuthority {
+            projection_revision: event_head,
+        },
+        |coordinate| {
+            cursor::mint(
+                connection,
+                subject,
+                CursorDirection::Forward,
+                coordinate.clone(),
+            )
+        },
+    )
 }
 
 #[allow(clippy::too_many_arguments)]

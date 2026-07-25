@@ -1,6 +1,7 @@
 import type { BlockPropertyJsonValue } from "./block-property-mutations";
 import { stableStringifyBlockPropertyJson } from "./block-property-mutations";
 import { parseDatabaseModuleReadResultV2 } from "./database-module-v2-transport";
+import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "./database-module-v2";
 import {
   PageLifecycleV2ContractError,
   parsePageLifecycleMutationRequestV2,
@@ -138,7 +139,7 @@ export const parsePageLifecyclePreflightResultV2 = (
   const parsedQuery = parseDatabaseModuleReadResultV2({
     ok: true,
     value: {
-      version: 2,
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId,
       libraryId,
       storeEpoch,

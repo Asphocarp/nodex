@@ -9,7 +9,7 @@ describe("Library Module transport", () => {
   test("binds bounded navigation requests without caller Library identity", () => {
     expect(
       bindLibraryModuleRead({
-        version: 1,
+        version: 2,
         read: {
           mode: "children",
           parent: { kind: "page", pageId: "page-1" },
@@ -17,7 +17,7 @@ describe("Library Module transport", () => {
         },
       }),
     ).toEqual({
-      version: 1,
+      version: 2,
       read: {
         mode: "children",
         parent: { kind: "page", pageId: "page-1" },
@@ -26,7 +26,7 @@ describe("Library Module transport", () => {
     });
     expect(() =>
       bindLibraryModuleRead({
-        version: 1,
+        version: 2,
         libraryId: "forged-library",
         read: { mode: "metadata" },
       }),
@@ -36,7 +36,7 @@ describe("Library Module transport", () => {
   test("rejects unbounded and structurally ambiguous requests", () => {
     expect(() =>
       bindLibraryModuleRead({
-        version: 1,
+        version: 2,
         read: {
           mode: "children",
           parent: { kind: "library" },
@@ -46,7 +46,7 @@ describe("Library Module transport", () => {
     ).toThrow("between 1 and 100");
     expect(() =>
       bindLibraryModuleRead({
-        version: 1,
+        version: 2,
         read: {
           mode: "catalog",
           kinds: ["page", "page"],
@@ -60,7 +60,7 @@ describe("Library Module transport", () => {
       parseLibraryModuleReadResult({
         ok: true,
         value: {
-          version: 1,
+          version: 2,
           profileId: "profile-1",
           libraryId: "library-1",
           storeEpoch: "epoch-1",

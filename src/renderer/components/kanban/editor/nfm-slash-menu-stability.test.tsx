@@ -285,6 +285,7 @@ describe("useNfmMentionGetItems", () => {
       oldPageSearch.resolve([{
         projectId: "project-1",
         pageId: "page-1",
+        title: "Old result",
         status: "build",
         score: 1,
         excerpt: "old async result",
@@ -301,6 +302,7 @@ describe("useNfmMentionGetItems", () => {
       nowPageSearch.resolve([{
         projectId: "project-1",
         pageId: "page-1",
+        title: "Now result",
         status: "build",
         score: 1,
         excerpt: "now async result",

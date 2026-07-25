@@ -42,6 +42,7 @@ import { getDatabaseRowDetail, setDatabaseRowDetail } from "./database-row-detai
 import {
   commitDatabasePageDrag,
   commitDatabasePagesDrag,
+  databaseViewRenderModelToDragSnapshot,
 } from "./database-page-drag-runtime";
 import { commitPageLifecycleIntent } from "./page-lifecycle-runtime";
 import {
@@ -56,6 +57,8 @@ interface UseKanbanOptions {
   onMutation?: () => void;
   enabled?: boolean;
 }
+
+const MAX_CALENDAR_OCCURRENCES = 1_000;
 
 type NewPageOccurrenceAction = Omit<
   PageOccurrenceActionInput,
@@ -136,6 +139,10 @@ export function useKanban(options: UseKanbanOptions) {
 
   const fetchBoard = useCallback(async () => {
     await store.fetchBoard();
+  }, [store]);
+
+  const loadMore = useCallback(async () => {
+    await store.loadMore();
   }, [store]);
 
   const requireWritableSelectedView = useCallback((): boolean => {
@@ -327,6 +334,12 @@ export function useKanban(options: UseKanbanOptions) {
   const movePage = useCallback(
     async (input: MovePageInput): Promise<boolean> => {
       if (!requireWritableSelectedView()) return false;
+      const databaseView = store.getSnapshot().databaseView;
+      if (!databaseView) {
+        store.setError("The Database View is not loaded");
+        return false;
+      }
+      const dragSnapshot = databaseViewRenderModelToDragSnapshot(databaseView);
       const operationId = crypto.randomUUID();
       const outcome = await store.runOptimisticMutation<boolean>({
         kind: "database:position",
@@ -337,6 +350,7 @@ export function useKanban(options: UseKanbanOptions) {
           clientSessionId: sessionId,
           operationId,
           move: input,
+          snapshot: dragSnapshot,
         }),
       });
       if (!outcome.ok) return false;
@@ -353,6 +367,12 @@ export function useKanban(options: UseKanbanOptions) {
   const movePages = useCallback(
     async (input: MovePagesInput): Promise<boolean> => {
       if (!requireWritableSelectedView()) return false;
+      const databaseView = store.getSnapshot().databaseView;
+      if (!databaseView) {
+        store.setError("The Database View is not loaded");
+        return false;
+      }
+      const dragSnapshot = databaseViewRenderModelToDragSnapshot(databaseView);
       const operationId = crypto.randomUUID();
       const outcome = await store.runOptimisticMutation<boolean>({
         kind: "database:position-many",
@@ -363,6 +383,7 @@ export function useKanban(options: UseKanbanOptions) {
           clientSessionId: sessionId,
           operationId,
           move: input,
+          snapshot: dragSnapshot,
         }),
       });
       if (!outcome.ok) return false;
@@ -383,14 +404,39 @@ export function useKanban(options: UseKanbanOptions) {
       searchQuery?: string,
     ): Promise<PageOccurrence[]> => {
       try {
-        const result = (await invoke(
-          "calendar:occurrences",
-          projectId,
-          windowStart,
-          windowEnd,
-          searchQuery,
-        )) as { occurrences: PageOccurrence[] };
-        return result.occurrences.map((occurrence) => ({
+        const occurrences: PageOccurrence[] = [];
+        let after: string | null = null;
+        do {
+          const result = (await invoke(
+            "calendar:occurrences",
+            projectId,
+            windowStart,
+            windowEnd,
+            searchQuery,
+            after,
+          )) as {
+            occurrences: PageOccurrence[];
+            nextCursor: string | null;
+          };
+          occurrences.push(...result.occurrences);
+          if (result.nextCursor === after && after !== null) {
+            throw new Error("Calendar occurrence continuation did not advance");
+          }
+          after = occurrences.length < MAX_CALENDAR_OCCURRENCES
+            ? result.nextCursor ?? null
+            : null;
+          if (
+            occurrences.length >= MAX_CALENDAR_OCCURRENCES
+            && result.nextCursor
+          ) {
+            store.setError(
+              `Calendar is limited to ${MAX_CALENDAR_OCCURRENCES.toLocaleString()} occurrences; narrow the date range or search.`,
+            );
+          }
+        } while (after !== null);
+        return occurrences
+          .slice(0, MAX_CALENDAR_OCCURRENCES)
+          .map((occurrence) => ({
           ...occurrence,
           created: asDate(occurrence.created),
           dueDate: occurrence.dueDate ? asDate(occurrence.dueDate) : undefined,
@@ -398,7 +444,7 @@ export function useKanban(options: UseKanbanOptions) {
           scheduledEnd: asDate(occurrence.scheduledEnd ?? occurrence.occurrenceEnd),
           occurrenceStart: asDate(occurrence.occurrenceStart),
           occurrenceEnd: asDate(occurrence.occurrenceEnd),
-        }));
+          }));
       } catch (err) {
         store.setError(toErrorMessage(err));
         return [];
@@ -521,11 +567,14 @@ export function useKanban(options: UseKanbanOptions) {
     databaseView: snapshot.databaseView,
     pageIndex: snapshot.pageIndex,
     loading: snapshot.loading,
+    loadingMore: snapshot.loadingMore,
+    hasMore: snapshot.hasMore,
     error: snapshot.error,
     pendingMutationCount: snapshot.pendingMutationCount,
     lastMutationError: snapshot.lastMutationError,
     clearLastMutationError,
     refresh: fetchBoard,
+    loadMore,
     createPage,
     getPage,
     updatePage,

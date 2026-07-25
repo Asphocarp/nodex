@@ -24,21 +24,22 @@ use crate::{
     ClientIdentity, ClientKind, CoreSelectionDisposition, CoreSelectionResult,
     DatabaseApplyRequest, DatabaseApplyResponse, DatabaseReadRequest, DatabaseReadResponse,
     HandshakeRequest, HandshakeResponse, HealthResponse, LibraryApplyRequest, LibraryApplyResponse,
-    LibraryReadRequest, LibraryReadResponse, OwnedDocumentApplyRequest, OwnedDocumentApplyResponse,
-    OwnedDocumentReadRequest, OwnedDocumentReadResponse, ProjectWorkspaceApplyRequest,
-    ProjectWorkspaceApplyResponse, ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse,
-    RuntimeDescriptor, RuntimeGenerationIdentity, ShutdownRequest, ShutdownResponse,
-    StoreAdministrationApplyRequest, StoreAdministrationApplyResponse,
-    StoreAdministrationReadRequest, StoreAdministrationReadResponse, TRANSPORT_PROTOCOL_MAX,
-    TRANSPORT_PROTOCOL_MIN, canonical_manifest_digest, core_client_requirements,
-    evaluate_compatibility,
+    LibraryReadRequest, LibraryReadResponse, MAX_DOCUMENT_JSON_REQUEST_BYTES,
+    MAX_DOCUMENT_RESPONSE_BYTES, MAX_ORDINARY_JSON_REQUEST_BYTES, MAX_ORDINARY_JSON_RESPONSE_BYTES,
+    OwnedDocumentApplyRequest, OwnedDocumentApplyResponse, OwnedDocumentReadRequest,
+    OwnedDocumentReadResponse, ProjectWorkspaceApplyRequest, ProjectWorkspaceApplyResponse,
+    ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse, RuntimeDescriptor,
+    RuntimeGenerationIdentity, ShutdownRequest, ShutdownResponse, StoreAdministrationApplyRequest,
+    StoreAdministrationApplyResponse, StoreAdministrationReadRequest,
+    StoreAdministrationReadResponse, TRANSPORT_PROTOCOL_MAX, TRANSPORT_PROTOCOL_MIN,
+    canonical_manifest_digest, core_client_requirements, evaluate_compatibility,
 };
 
 const PRIVATE_MODE: u32 = 0o600;
 const RUNTIME_DIRECTORY_MODE: u32 = 0o700;
 const MAX_DESCRIPTOR_BYTES: u64 = 64 * 1024;
 const MAX_AUTH_BYTES: u64 = 128;
-const MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_HTTP_RESPONSE_HEADER_BYTES: usize = 64 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -59,6 +60,13 @@ pub enum ClientError {
     ProtocolIncompatible(String),
     #[error("Core returned HTTP {status}: {message}")]
     Http { status: u16, message: String },
+    #[error("Core request exceeds {maximum} bytes ({actual} bytes)")]
+    RequestTooLarge { maximum: usize, actual: usize },
+    #[error("Core response exceeds {maximum} bytes (observed at least {observed_at_least} bytes)")]
+    ResponseTooLarge {
+        maximum: usize,
+        observed_at_least: usize,
+    },
     #[error("Core response could not be encoded or decoded: {0}")]
     Json(#[from] serde_json::Error),
     #[error("Core process could not be located: {0}")]
@@ -663,6 +671,23 @@ fn request_bytes<Response: DeserializeOwned>(
     body: &[u8],
     headers: &[(&str, &str)],
 ) -> Result<Response, ClientError> {
+    let document_route = path.starts_with("/core/v1/modules/document/");
+    let maximum_request_bytes = if document_route {
+        MAX_DOCUMENT_JSON_REQUEST_BYTES
+    } else {
+        MAX_ORDINARY_JSON_REQUEST_BYTES
+    };
+    if body.len() > maximum_request_bytes {
+        return Err(ClientError::RequestTooLarge {
+            maximum: maximum_request_bytes,
+            actual: body.len(),
+        });
+    }
+    let maximum_response_bytes = if document_route {
+        MAX_DOCUMENT_RESPONSE_BYTES
+    } else {
+        MAX_ORDINARY_JSON_RESPONSE_BYTES
+    };
     let mut stream = UnixStream::connect(socket)?;
     stream.set_read_timeout(Some(REQUEST_TIMEOUT))?;
     stream.set_write_timeout(Some(REQUEST_TIMEOUT))?;
@@ -682,38 +707,72 @@ fn request_bytes<Response: DeserializeOwned>(
     stream.write_all(b"\r\n")?;
     stream.write_all(body)?;
 
-    let mut response = Vec::new();
-    stream
-        .take(u64::try_from(MAX_RESPONSE_BYTES + 1).unwrap_or(u64::MAX))
-        .read_to_end(&mut response)?;
-    if response.len() > MAX_RESPONSE_BYTES {
-        return Err(ClientError::InvalidRuntime(
-            "Core response exceeds the transport limit".to_owned(),
-        ));
-    }
-    let Some(separator) = find_bytes(&response, b"\r\n\r\n") else {
-        return Err(ClientError::InvalidRuntime(
-            "Core response has no HTTP header boundary".to_owned(),
-        ));
-    };
-    let head = std::str::from_utf8(&response[..separator]).map_err(|_| {
+    let mut reader = BufReader::new(stream);
+    let head = read_http_response_head(&mut reader)?;
+    let head = std::str::from_utf8(&head).map_err(|_| {
         ClientError::InvalidRuntime("Core returned non-UTF-8 HTTP headers".to_owned())
     })?;
+    if response_content_length(head).is_some_and(|length| length > maximum_response_bytes) {
+        return Err(ClientError::ResponseTooLarge {
+            maximum: maximum_response_bytes,
+            observed_at_least: response_content_length(head)
+                .expect("checked Content-Length is present"),
+        });
+    }
     let status = head
         .lines()
         .next()
         .and_then(|line| line.split_whitespace().nth(1))
         .and_then(|status| status.parse::<u16>().ok())
         .ok_or_else(|| ClientError::InvalidRuntime("Core HTTP status is invalid".to_owned()))?;
-    let body = &response[separator + 4..];
+    let mut body = Vec::new();
+    reader
+        .take(u64::try_from(maximum_response_bytes + 1).unwrap_or(u64::MAX))
+        .read_to_end(&mut body)?;
+    if body.len() > maximum_response_bytes {
+        return Err(ClientError::ResponseTooLarge {
+            maximum: maximum_response_bytes,
+            observed_at_least: body.len(),
+        });
+    }
     if !(200..300).contains(&status) {
-        let message = serde_json::from_slice::<serde_json::Value>(body)
+        let message = serde_json::from_slice::<serde_json::Value>(&body)
             .ok()
             .and_then(|value| value.get("message")?.as_str().map(str::to_owned))
-            .unwrap_or_else(|| String::from_utf8_lossy(body).trim().to_owned());
+            .unwrap_or_else(|| String::from_utf8_lossy(&body).trim().to_owned());
         return Err(ClientError::Http { status, message });
     }
-    serde_json::from_slice(body).map_err(ClientError::from)
+    serde_json::from_slice(&body).map_err(ClientError::from)
+}
+
+fn read_http_response_head(reader: &mut impl Read) -> Result<Vec<u8>, ClientError> {
+    let mut head = Vec::new();
+    let mut byte = [0_u8; 1];
+    while head.len() <= MAX_HTTP_RESPONSE_HEADER_BYTES {
+        if reader.read(&mut byte)? == 0 {
+            return Err(ClientError::InvalidRuntime(
+                "Core response has no HTTP header boundary".to_owned(),
+            ));
+        }
+        head.push(byte[0]);
+        if head.ends_with(b"\r\n\r\n") {
+            head.truncate(head.len() - 4);
+            return Ok(head);
+        }
+    }
+    Err(ClientError::InvalidRuntime(
+        "Core response headers exceed the transport limit".to_owned(),
+    ))
+}
+
+fn response_content_length(head: &str) -> Option<usize> {
+    head.lines().skip(1).find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        if !name.trim().eq_ignore_ascii_case("content-length") {
+            return None;
+        }
+        value.trim().parse::<usize>().ok()
+    })
 }
 
 fn valid_header(value: &str) -> bool {
@@ -722,12 +781,6 @@ fn valid_header(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_graphic() && !matches!(byte, b'\r' | b'\n'))
-}
-
-fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack
-        .windows(needle.len())
-        .position(|window| window == needle)
 }
 
 fn random_hex(bytes: usize) -> Result<String, ClientError> {
@@ -765,8 +818,27 @@ mod tests {
     }
 
     #[test]
-    fn byte_search_finds_the_http_boundary() {
-        assert_eq!(find_bytes(b"head\r\n\r\nbody", b"\r\n\r\n"), Some(4));
-        assert_eq!(find_bytes(b"head", b"\r\n\r\n"), None);
+    fn response_head_reader_stops_at_the_http_boundary() {
+        let mut response =
+            std::io::Cursor::new(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}".to_vec());
+        let head = read_http_response_head(&mut response).expect("bounded response head");
+
+        assert_eq!(
+            String::from_utf8(head).expect("UTF-8 head"),
+            "HTTP/1.1 200 OK\r\nContent-Length: 2"
+        );
+        assert_eq!(response.position(), 38);
+    }
+
+    #[test]
+    fn response_content_length_is_case_insensitive_and_bounded_separately() {
+        assert_eq!(
+            response_content_length("HTTP/1.1 200 OK\r\ncontent-LENGTH: 16777216"),
+            Some(MAX_ORDINARY_JSON_RESPONSE_BYTES)
+        );
+        assert_eq!(
+            response_content_length("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked"),
+            None
+        );
     }
 }

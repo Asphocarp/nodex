@@ -2516,7 +2516,10 @@ mod tests {
         LibraryPagePrepareKind, LibraryPageWriteDestination, LibraryRead, LibraryReadValue,
         LibrarySearchSnapshotScope,
     };
-    use nodex_core_contracts::{AdapterKind, LibraryId, ModuleReadRequest, ProfileId, ProjectId};
+    use nodex_core_contracts::{
+        AdapterKind, LibraryId, ModuleReadRequest, OWNED_DOCUMENT_CONTRACT_VERSION, ProfileId,
+        ProjectId,
+    };
     use tempfile::tempdir;
 
     use crate::document::OwnedDocumentModule;
@@ -3877,7 +3880,7 @@ mod tests {
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     operation_id: "native-cli:rename-search-page".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: OwnedDocumentIntent::ApplySemanticMutation {

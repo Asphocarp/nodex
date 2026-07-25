@@ -5,11 +5,11 @@ import {
 } from "./api";
 import type {
   BoardSummary,
-  BoardSummarySnapshot,
   DatabasePage,
   PageInput,
   DatabasePageSummary,
 } from "./types";
+import type { DatabaseViewWindowSnapshot } from "../../shared/database-views";
 import {
   buildPatchPageTransform,
   conflictKeysForPatch,
@@ -19,14 +19,12 @@ import {
 import { toDatabasePageSummary } from "../../shared/page-summary";
 import { applyBoardChangeEventToBoard, upsertCardSummaryInBoard } from "./board-summary-events";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
-import {
-  DATABASE_MODULE_V2_CONTRACT_VERSION,
-  type DatabaseModuleReadRequestV2,
-  type DatabaseModuleReadResultV2,
+import type {
+  DatabaseModuleReadRequestV2,
+  DatabaseModuleReadResultV2,
 } from "../../shared/database-module-v2";
-import { parseDatabaseViewId } from "../../shared/database-identities";
 import {
-  buildDatabaseViewRenderModel,
+  buildDatabaseViewWindowRenderModel,
   type DatabaseViewRenderModel,
 } from "./database-view-render-model";
 import { getActiveProjectionInvalidationRegistry } from "./projection-invalidation-context";
@@ -46,6 +44,8 @@ export interface KanbanStoreSnapshot {
   databaseView: DatabaseViewRenderModel | null;
   pageIndex: ReadonlyMap<string, IndexedPage>;
   loading: boolean;
+  loadingMore: boolean;
+  hasMore: boolean;
   error: string | null;
   pendingMutationCount: number;
   lastMutationError: string | null;
@@ -161,6 +161,8 @@ class KanbanProjectStore {
     databaseView: null,
     pageIndex: new Map(),
     loading: true,
+    loadingMore: false,
+    hasMore: false,
     error: null,
     pendingMutationCount: 0,
     lastMutationError: null,
@@ -168,7 +170,7 @@ class KanbanProjectStore {
 
   private baseBoard: BoardSummary | null = null;
 
-  private baseBoardAuthority: BoardSummarySnapshot | null = null;
+  private baseBoardAuthority: DatabaseViewWindowSnapshot | null = null;
 
   private baseDatabaseView: DatabaseViewRenderModel | null = null;
 
@@ -177,6 +179,8 @@ class KanbanProjectStore {
   private nextOpId = 1;
 
   private inFlightFetch: Promise<void> | null = null;
+
+  private inFlightLoadMore: Promise<void> | null = null;
 
   private unsubscribeBoardChanges: (() => void) | null = null;
 
@@ -229,33 +233,19 @@ class KanbanProjectStore {
 
     this.inFlightFetch = (async () => {
       try {
-        const result = this.databaseViewId
-          ? await this.dependencies.readDatabaseModule(this.projectId, {
-              version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-              projectId: this.projectId,
-              read: {
-                target: {
-                  kind: "view",
-                  viewId: parseDatabaseViewId(this.databaseViewId),
-                },
-                mode: "query",
-              },
-            })
-          : null;
-        if (result && !result.ok) {
-          throw new Error(result.error.message);
-        }
-        const databaseView = result
-          ? buildDatabaseViewRenderModel(result.value)
-          : null;
-        const boardAuthority = databaseView && !databaseView.primaryWriteCompatible
-          ? null
-          : (await this.dependencies.invoke(
-              "board:summary:get",
-              this.projectId,
-            )) as BoardSummarySnapshot;
-        const incomingAuthority = databaseView ?? boardAuthority;
-        const currentAuthority = this.baseDatabaseView ?? this.baseBoardAuthority;
+        const boardAuthority = await this.dependencies.invoke(
+          "database:view-window:get",
+          this.projectId,
+          {
+            ...(this.databaseViewId
+              ? { databaseViewId: this.databaseViewId }
+              : {}),
+            first: 50,
+          },
+        ) as DatabaseViewWindowSnapshot;
+        const databaseView = buildDatabaseViewWindowRenderModel(boardAuthority);
+        const incomingAuthority = boardAuthority;
+        const currentAuthority = this.baseBoardAuthority;
         if (
           incomingAuthority
           && currentAuthority
@@ -270,7 +260,7 @@ class KanbanProjectStore {
         }
         this.baseDatabaseView = databaseView;
         this.baseBoardAuthority = boardAuthority;
-        this.baseBoard = boardAuthority?.board ?? null;
+        this.baseBoard = boardAuthority.board;
         this.lastFetchedAt = this.dependencies.now();
         this.stale = false;
         this.ensureProjectionSubscription();
@@ -299,6 +289,78 @@ class KanbanProjectStore {
     })();
 
     return this.inFlightFetch;
+  };
+
+  loadMore = async (): Promise<void> => {
+    const current = this.baseBoardAuthority;
+    if (!current?.nextCursor || this.inFlightLoadMore) {
+      return this.inFlightLoadMore ?? Promise.resolve();
+    }
+    this.recomputeSnapshot({ loadingMore: true });
+    this.inFlightLoadMore = (async () => {
+      try {
+        const next = await this.dependencies.invoke(
+          "database:view-window:get",
+          this.projectId,
+          {
+            ...(this.databaseViewId
+              ? { databaseViewId: this.databaseViewId }
+              : {}),
+            after: current.nextCursor,
+            first: 50,
+          },
+        ) as DatabaseViewWindowSnapshot;
+        if (
+          next.storeEpoch !== current.storeEpoch
+          || next.viewId !== current.viewId
+          || next.projectionRevision !== current.projectionRevision
+        ) {
+          throw new Error("Database View continuation crossed its authority boundary");
+        }
+        const existingIds = new Set(current.rows.map((row) => row.page.id));
+        const appendedRows = next.rows.filter((row) => !existingIds.has(row.page.id));
+        const appendedQueryRows = next.query.rows.filter(
+          (row) => !existingIds.has(row.page.pageId),
+        );
+        const board = {
+          columns: current.board.columns.map((column) => {
+            const incoming = next.board.columns.find(
+              (candidate) => candidate.id === column.id,
+            );
+            return {
+              ...column,
+              cards: [
+                ...column.cards,
+                ...(incoming?.cards ?? []).filter(
+                  (card) => !existingIds.has(card.id),
+                ),
+              ],
+            };
+          }),
+        };
+        const merged: DatabaseViewWindowSnapshot = {
+          ...next,
+          rows: [...current.rows, ...appendedRows],
+          board,
+          query: {
+            ...next.query,
+            rows: [...current.query.rows, ...appendedQueryRows],
+          },
+        };
+        this.baseBoardAuthority = merged;
+        this.baseBoard = board;
+        this.baseDatabaseView = buildDatabaseViewWindowRenderModel(merged);
+        this.recomputeSnapshot({ loadingMore: false, error: null });
+      } catch (error) {
+        this.recomputeSnapshot({
+          loadingMore: false,
+          error: toError(error).message,
+        });
+      } finally {
+        this.inFlightLoadMore = null;
+      }
+    })();
+    return this.inFlightLoadMore;
   };
 
   ensureFreshBoard = async (options: EnsureFreshBoardOptions = {}): Promise<void> => {
@@ -473,12 +535,21 @@ class KanbanProjectStore {
   }
 
   private recomputeSnapshot(
-    overrides: Partial<Pick<KanbanStoreSnapshot, "loading" | "error" | "lastMutationError">> = {},
+    overrides: Partial<
+      Pick<
+        KanbanStoreSnapshot,
+        "loading" | "loadingMore" | "error" | "lastMutationError"
+      >
+    > = {},
   ): void {
     this.pruneConvergedEntries();
     const board = this.baseBoard ? this.composeBoard(this.baseBoard) : null;
     const hasLoading = Object.prototype.hasOwnProperty.call(overrides, "loading");
     const hasError = Object.prototype.hasOwnProperty.call(overrides, "error");
+    const hasLoadingMore = Object.prototype.hasOwnProperty.call(
+      overrides,
+      "loadingMore",
+    );
     const hasLastMutationError = Object.prototype.hasOwnProperty.call(overrides, "lastMutationError");
     const next: KanbanStoreSnapshot = {
       ...this.snapshot,
@@ -486,7 +557,12 @@ class KanbanProjectStore {
       databaseView: this.baseDatabaseView,
       pageIndex: buildPageIndex(board),
       pendingMutationCount: this.activePendingCount(),
+      hasMore: this.baseBoardAuthority?.nextCursor !== null
+        && this.baseBoardAuthority?.nextCursor !== undefined,
       loading: hasLoading ? (overrides.loading as boolean) : this.snapshot.loading,
+      loadingMore: hasLoadingMore
+        ? (overrides.loadingMore as boolean)
+        : this.snapshot.loadingMore,
       error: hasError ? (overrides.error as string | null) : this.snapshot.error,
       lastMutationError: hasLastMutationError
         ? (overrides.lastMutationError as string | null)
@@ -595,6 +671,8 @@ class KanbanProjectStore {
       && previous.databaseView === next.databaseView
       && previous.pageIndex === next.pageIndex
       && previous.loading === next.loading
+      && previous.loadingMore === next.loadingMore
+      && previous.hasMore === next.hasMore
       && previous.error === next.error
       && previous.pendingMutationCount === next.pendingMutationCount
       && previous.lastMutationError === next.lastMutationError
@@ -679,7 +757,7 @@ class KanbanProjectStore {
 
   private ensureProjectionSubscription(): void {
     if (this.unsubscribeProjectionInvalidation) return;
-    const authority = this.baseDatabaseView ?? this.baseBoardAuthority;
+    const authority = this.baseBoardAuthority;
     const registry = this.dependencies.getProjectionInvalidationRegistry();
     if (!authority || !registry) return;
     this.unsubscribeProjectionInvalidation = registry.register({
@@ -690,18 +768,16 @@ class KanbanProjectStore {
       },
       consumerKey: `kanban:${this.projectId}:${this.databaseViewId ?? "primary"}`,
       getDependencies: () => {
-        const current = this.baseDatabaseView ?? this.baseBoardAuthority;
+        const current = this.baseBoardAuthority;
         return {
           databaseIds: current ? [current.databaseId] : [],
           dataSourceIds: current ? [current.dataSourceId] : [],
-          viewIds: current
-            ? ["databaseViewId" in current ? current.databaseViewId : current.viewId]
-            : [],
+          viewIds: current ? [current.viewId] : [],
           pageIds: [...this.snapshot.pageIndex.keys()],
         };
       },
       getCursor: () => {
-        const current = this.baseDatabaseView ?? this.baseBoardAuthority;
+        const current = this.baseBoardAuthority;
         return current
           ? {
               storeEpoch: current.storeEpoch,

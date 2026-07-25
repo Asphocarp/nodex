@@ -8,6 +8,7 @@ use nodex_core_contracts::administration::{
     BackupTrigger, MaintenanceTask, StoreAdministrationContract, StoreAdministrationIntent,
     StoreAdministrationRead, StoreAdministrationReadValue,
 };
+use nodex_core_contracts::collection::CollectionWindowRequest;
 use nodex_core_contracts::database::{
     DatabaseRead, DatabaseReadMode, DatabaseReadValue, DatabaseTarget,
 };
@@ -426,6 +427,8 @@ fn resolve_search_scope(
                 mode: DatabaseReadMode::Database,
                 filter: None,
                 sort: None,
+                window: None,
+                page_ids: None,
             },
         )
         .map_err(map_client_error)?;
@@ -451,6 +454,8 @@ fn resolve_search_scope(
                 mode: DatabaseReadMode::DataSource,
                 filter: None,
                 sort: None,
+                window: None,
+                page_ids: None,
             },
         )
         .map_err(map_client_error)?;
@@ -677,6 +682,8 @@ fn read_database_name(
             mode: DatabaseReadMode::Database,
             filter: None,
             sort: None,
+            window: None,
+            page_ids: None,
         },
     ))?;
     let DatabaseReadValue::Database { value } = snapshot.value else {
@@ -866,11 +873,36 @@ pub(crate) fn selected_project(
     explicit_project: Option<&str>,
     cwd: &Path,
 ) -> Result<ProjectWorkspaceProject, CliError> {
-    let startup = unwrap_workspace(client.workspace_read(None, ProjectWorkspaceRead::Startup))?;
-    let ProjectWorkspaceReadValue::Startup { projects, .. } = startup.value else {
-        return Err(internal("Core returned the wrong workspace snapshot"));
-    };
+    let projects = read_all_projects(client, false)?;
     resolve_project(client, projects, explicit_project, cwd).map(|resolved| resolved.project)
+}
+
+fn read_all_projects(
+    client: &CoreClient,
+    include_archived: bool,
+) -> Result<Vec<ProjectWorkspaceProject>, CliError> {
+    let mut projects = Vec::new();
+    let mut after = None;
+    loop {
+        let snapshot = unwrap_workspace(client.workspace_read(
+            None,
+            ProjectWorkspaceRead::ProjectWindow {
+                include_archived: Some(include_archived),
+                window: CollectionWindowRequest {
+                    after,
+                    first: Some(200),
+                },
+            },
+        ))?;
+        let ProjectWorkspaceReadValue::ProjectWindow { projects: window } = snapshot.value else {
+            return Err(internal("Core returned the wrong Project window"));
+        };
+        projects.extend(window.items);
+        after = window.next_cursor;
+        if after.is_none() {
+            return Ok(projects);
+        }
+    }
 }
 
 pub(crate) fn resolve_page_selector(
@@ -1115,6 +1147,8 @@ fn database_tree(
             mode: DatabaseReadMode::Database,
             filter: None,
             sort: None,
+            window: None,
+            page_ids: None,
         },
     ))?;
     budget.observe(database.event_head)?;
@@ -1126,43 +1160,47 @@ fn database_tree(
         .and_then(Value::as_str)
         .ok_or_else(|| internal("Core Database tree has no name"))?
         .to_owned();
-    let data_source_id = database
-        .get("dataSources")
-        .and_then(Value::as_array)
-        .and_then(|sources| {
-            sources
-                .iter()
-                .find(|source| source.get("lifecycle").and_then(Value::as_str) == Some("active"))
-        })
-        .and_then(|source| source.get("dataSourceId"))
+    let view_id = database
+        .pointer("/database/defaultViewId")
         .and_then(Value::as_str)
-        .ok_or_else(|| internal("Core Database tree has no active Data Source"))?;
-    let query = unwrap_database(client.database_read(
-        Some(project_id),
-        DatabaseRead {
-            target: DatabaseTarget::DataSource {
-                data_source_id: data_source_id.to_owned(),
+        .ok_or_else(|| internal("Core Database tree has no default View"))?
+        .to_owned();
+    let mut pages = Vec::new();
+    let mut cursor = None;
+    loop {
+        let window = unwrap_database(client.database_read(
+            Some(project_id),
+            DatabaseRead {
+                target: DatabaseTarget::View {
+                    view_id: view_id.clone(),
+                },
+                mode: DatabaseReadMode::ViewWindow,
+                filter: None,
+                sort: None,
+                window: Some(CollectionWindowRequest {
+                    after: cursor,
+                    first: Some(200),
+                }),
+                page_ids: None,
             },
-            mode: DatabaseReadMode::Query,
-            filter: None,
-            sort: None,
-        },
-    ))?;
-    budget.observe(query.event_head)?;
-    let DatabaseReadValue::DataSourceQuery { value } = query.value else {
-        return Err(internal("Core returned the wrong Database tree query"));
-    };
-    let rows = value
-        .get("rows")
-        .and_then(Value::as_array)
-        .ok_or_else(|| internal("Core Database tree has no Page rows"))?;
-    let mut pages = Vec::with_capacity(rows.len());
-    for row in rows {
-        let page_id = row
-            .pointer("/page/pageId")
-            .and_then(Value::as_str)
-            .ok_or_else(|| internal("Core Database row has no Page ID"))?;
-        pages.push(read_page_tree_node(client, project_id, page_id, 0, budget)?);
+        ))?;
+        budget.observe(window.event_head)?;
+        let DatabaseReadValue::ViewWindow { value } = window.value else {
+            return Err(internal("Core returned the wrong Database tree window"));
+        };
+        for row in value.rows.items {
+            pages.push(read_page_tree_node(
+                client,
+                project_id,
+                &row.page_id,
+                0,
+                budget,
+            )?);
+        }
+        let Some(next_cursor) = value.rows.next_cursor else {
+            break;
+        };
+        cursor = Some(next_cursor);
     }
     Ok((name, pages))
 }
@@ -1287,13 +1325,7 @@ fn context(
     home: &Path,
     cwd: &Path,
 ) -> Result<CommandOutput, CliError> {
-    let startup = unwrap_workspace(client.workspace_read(None, ProjectWorkspaceRead::Startup))?;
-    let ProjectWorkspaceReadValue::Startup { projects, .. } = startup.value else {
-        return Err(CliError::new(
-            CliErrorCode::Internal,
-            "Core returned the wrong workspace snapshot",
-        ));
-    };
+    let projects = read_all_projects(client, false)?;
     let resolved = resolve_project(client, projects, explicit_project, cwd)?;
     let health = client.health().map_err(map_client_error)?;
     if explicit_database.is_some() && explicit_page.is_some() {
@@ -1345,14 +1377,29 @@ fn context(
 }
 
 fn backup_list(client: &CoreClient) -> Result<CommandOutput, CliError> {
-    let snapshot =
-        unwrap_administration(client.administration_read(StoreAdministrationRead::Backups))?;
-    let StoreAdministrationReadValue::Backups { items } = snapshot.value else {
-        return Err(CliError::new(
-            CliErrorCode::Internal,
-            "Core returned the wrong backup snapshot",
-        ));
-    };
+    let mut items = Vec::new();
+    let mut after = None;
+    loop {
+        let snapshot = unwrap_administration(client.administration_read(
+            StoreAdministrationRead::Backups {
+                window: CollectionWindowRequest {
+                    after,
+                    first: Some(200),
+                },
+            },
+        ))?;
+        let StoreAdministrationReadValue::Backups { backups } = snapshot.value else {
+            return Err(CliError::new(
+                CliErrorCode::Internal,
+                "Core returned the wrong backup window",
+            ));
+        };
+        items.extend(backups.items);
+        after = backups.next_cursor;
+        if after.is_none() {
+            break;
+        }
+    }
     Ok(CommandOutput::Json(json!({ "backups": items })))
 }
 
@@ -1455,26 +1502,38 @@ fn resolve_project(
                 "source",
             );
         }
-        let worktrees = unwrap_workspace(client.workspace_read(
-            Some(&project.id),
-            ProjectWorkspaceRead::ManagedWorktrees {
-                project_id: project.id.clone(),
-            },
-        ))?;
-        let ProjectWorkspaceReadValue::ManagedWorktrees { roots } = worktrees.value else {
-            return Err(CliError::new(
-                CliErrorCode::Internal,
-                "Core returned the wrong managed-worktree snapshot",
-            ));
-        };
-        for root in roots {
-            add_path_candidate(
-                &mut worktree_candidates,
-                &project,
-                &cwd,
-                &root,
-                "managed_worktree",
-            );
+        let mut after = None;
+        loop {
+            let worktrees = unwrap_workspace(client.workspace_read(
+                Some(&project.id),
+                ProjectWorkspaceRead::ManagedWorktreeWindow {
+                    project_id: Some(project.id.clone()),
+                    window: CollectionWindowRequest {
+                        after,
+                        first: Some(200),
+                    },
+                },
+            ))?;
+            let ProjectWorkspaceReadValue::ManagedWorktreeWindow { worktrees } = worktrees.value
+            else {
+                return Err(CliError::new(
+                    CliErrorCode::Internal,
+                    "Core returned the wrong managed-worktree window",
+                ));
+            };
+            for worktree in worktrees.items {
+                add_path_candidate(
+                    &mut worktree_candidates,
+                    &project,
+                    &cwd,
+                    &worktree.path,
+                    "managed_worktree",
+                );
+            }
+            after = worktrees.next_cursor;
+            if after.is_none() {
+                break;
+            }
         }
     }
     let candidates = if worktree_candidates.is_empty() {

@@ -83,7 +83,6 @@ const startCore = async (nodexHome: string): Promise<CoreLaunchResult> => {
       NODEX_LOG_FILE: "true",
     },
     isPackaged: false,
-    maximumJsonResponseBytes: 16 * 1024 * 1024,
     nodexHome,
     requestTimeoutMs: 60_000,
   });

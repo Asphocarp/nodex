@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { describe, expect, test } from "vitest";
+import {
+  CORE_CLIENT_REQUIREMENTS,
+  type components,
+} from "@nodex/core-protocol";
 
 import { CoreClient, CoreModuleResponseError } from "./core-client";
 import { readCoreRuntimeConnection } from "./runtime-descriptor";
@@ -13,7 +17,6 @@ import type {
   CoreEventSubscription,
   CoreRuntimeDescriptor,
 } from "./types";
-import type { components } from "@nodex/core-protocol";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 
@@ -233,11 +236,16 @@ describe("CoreClient over a Unix socket", () => {
       expect(replay.event_sequence).toBe(committed.event_sequence);
       expect(replay.receipt.duplicate).toBe(true);
 
-      const startup = await client.workspaceRead({ kind: "startup" });
-      expect(startup.value).toMatchObject({
-        kind: "startup",
-        projects: [{ id: "project:default", database_id: expect.any(String) }],
-        sessions: [{ project_id: "project:default" }],
+      const projects = await client.workspaceRead({
+        kind: "project_window",
+        include_archived: false,
+        window: { first: 50 },
+      });
+      expect(projects.value).toMatchObject({
+        kind: "project_window",
+        projects: {
+          items: [{ id: "project:default", database_id: expect.any(String) }],
+        },
       });
       const threadInput = {
         operationId: "node-workspace-thread-1",
@@ -365,17 +373,34 @@ describe("CoreClient over a Unix socket", () => {
       });
       const databaseCatalog = await client.databaseRead({
         target: { kind: "project_default" },
-        mode: "catalog",
+        mode: "catalog_window",
         filter: null,
         sort: null,
+        window: { after: null, first: 10 },
       });
-      if (databaseCatalog.value.kind !== "catalog") {
+      if (databaseCatalog.value.kind !== "catalog_window") {
         throw new Error("Expected native Database catalog");
       }
-      const descriptor = databaseCatalog.value.databases[0] as {
-        readonly dataSources?: readonly [{ readonly dataSourceId?: string }];
+      const descriptor = databaseCatalog.value.databases.items[0] as {
+        readonly database?: { readonly databaseId?: string };
       } | undefined;
-      const dataSourceId = descriptor?.dataSources?.[0]?.dataSourceId;
+      const databaseId = descriptor?.database?.databaseId;
+      if (!databaseId) throw new Error("Default Project has no Database");
+      const dataSources = await client.databaseRead({
+        target: { kind: "database", database_id: databaseId },
+        mode: "data_source_window",
+        filter: null,
+        sort: null,
+        window: { after: null, first: 10 },
+      });
+      if (dataSources.value.kind !== "data_source_window") {
+        throw new Error("Expected native Data Source window");
+      }
+      const dataSourceId = (
+        dataSources.value.data_sources.items[0] as {
+          readonly dataSourceId?: string;
+        } | undefined
+      )?.dataSourceId;
       if (!dataSourceId) throw new Error("Default Project has no Data Source");
       const agentDatabaseQuery = await client.databaseRead({
         target: {
@@ -390,17 +415,18 @@ describe("CoreClient over a Unix socket", () => {
             limit: 1,
           },
         },
-        mode: "query",
+        mode: "agent_query",
         filter: null,
         sort: null,
       });
       expect(agentDatabaseQuery.value).toMatchObject({
         kind: "agent_query",
-        has_more: false,
-        next_cursor: null,
         value: {
-          dataSource: { dataSourceId },
-          rows: [],
+          data_source_id: dataSourceId,
+          rows: {
+            items: [],
+            next_cursor: null,
+          },
         },
       });
       const automationInput = {
@@ -433,10 +459,14 @@ describe("CoreClient over a Unix socket", () => {
       const automations = await client.automationRead({
         kind: "definitions",
         include_deleted: false,
+        window: { after: null, first: 10 },
       });
       expect(automations.value).toMatchObject({
         kind: "definitions",
-        items: [{ automation_id: "node-daily-report" }],
+        window: {
+          items: [{ automation_id: "node-daily-report" }],
+          next_cursor: null,
+        },
       });
       const noDueWork = await client.automationApply({
         operationId: "node-automation-claim-1",
@@ -452,11 +482,11 @@ describe("CoreClient over a Unix socket", () => {
         window_start_ms: Date.now() - 60_000,
         window_end_ms: Date.now() + 60_000,
         search_query: null,
-        limit: 10,
+        window: { after: null, first: 10 },
       });
-      expect(noScheduledOccurrences.value).toEqual({
+      expect(noScheduledOccurrences.value).toMatchObject({
         kind: "occurrences",
-        items: [],
+        window: { items: [], next_cursor: null },
       });
       const noDueReminders = await client.automationApply({
         operationId: "node-reminder-claim-1",
@@ -470,20 +500,20 @@ describe("CoreClient over a Unix socket", () => {
       const reminderLeases = await client.automationRead({
         kind: "reminder_leases",
         include_settled: true,
-        limit: 10,
+        window: { after: null, first: 10 },
       });
-      expect(reminderLeases.value).toEqual({
+      expect(reminderLeases.value).toMatchObject({
         kind: "reminder_leases",
-        items: [],
+        window: { items: [], next_cursor: null },
       });
       const reminderSnoozes = await client.automationRead({
         kind: "reminder_snoozes",
         include_consumed: true,
-        limit: 10,
+        window: { after: null, first: 10 },
       });
-      expect(reminderSnoozes.value).toEqual({
+      expect(reminderSnoozes.value).toMatchObject({
         kind: "reminder_snoozes",
-        items: [],
+        window: { items: [], next_cursor: null },
       });
       const begunRun = await client.automationApply({
         operationId: "node-automation-run-begin-1",
@@ -529,16 +559,22 @@ describe("CoreClient over a Unix socket", () => {
         run_revision: 3,
         status: "PENDING_REVIEW",
       });
-      const runInbox = await client.automationRead({ kind: "inbox", limit: 10 });
+      const runInbox = await client.automationRead({
+        kind: "inbox",
+        window: { after: null, first: 10 },
+      });
       expect(runInbox.value).toMatchObject({
         kind: "inbox",
-        items: [
-          {
-            thread_id: "thread:node-integration",
-            title: "Node daily report",
-            description: "Review the native run.",
-          },
-        ],
+        window: {
+          items: [
+            {
+              thread_id: "thread:node-integration",
+              title: "Node daily report",
+              description: "Review the native run.",
+            },
+          ],
+          next_cursor: null,
+        },
         unread_counts: { total: 1 },
       });
       const readRun = await client.automationApply({
@@ -621,7 +657,7 @@ describe("CoreClient over a Unix socket", () => {
       expect(administrationStatus.value).toEqual({
         kind: "status",
         readiness: "ready",
-        schema_version: 90,
+        schema_version: CORE_CLIENT_REQUIREMENTS.accepted_store_formats[0]?.version,
         schema_owner: "rust",
         integrity: "unknown",
       });
@@ -641,16 +677,22 @@ describe("CoreClient over a Unix socket", () => {
       expect(backupReplay.value.backup_id).toBe(backupCommitted.value.backup_id);
       expect(backupReplay.event_sequence).toBe(backupCommitted.event_sequence);
       expect(backupReplay.receipt.duplicate).toBe(true);
-      const backups = await client.administrationRead({ kind: "backups" });
+      const backups = await client.administrationRead({
+        kind: "backups",
+        window: { after: null, first: 200 },
+      });
       expect(backups.value).toMatchObject({
         kind: "backups",
-        items: [
-          {
-            backup_id: backupCommitted.value.backup_id,
-            label: "Node integration backup",
-            byte_length: expect.any(Number),
-          },
-        ],
+        backups: {
+          items: [
+            {
+              backup_id: backupCommitted.value.backup_id,
+              label: "Node integration backup",
+              byte_length: expect.any(Number),
+            },
+          ],
+          next_cursor: null,
+        },
       });
       const workspaceInput = {
         operationId: "node-workspace-create-1",

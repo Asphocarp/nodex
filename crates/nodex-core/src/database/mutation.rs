@@ -39,7 +39,8 @@ const MAX_BULK_VALUES: usize = 4_096;
 const MAX_ID_LENGTH: usize = 512;
 const MAX_PROPERTY_ID_LENGTH: usize = 128;
 const MAX_NAME_LENGTH: usize = 256;
-const MAX_OPTIONS: usize = 10_000;
+const MAX_VIEW_SORT_RULES: usize = 4;
+const MAX_VIEW_DISPLAY_PROPERTIES: usize = 64;
 
 #[derive(Default)]
 struct MutationEffects {
@@ -511,6 +512,22 @@ fn put_property(
         existing.as_ref().map_or(0, |property| property.revision),
         "Property revision changed",
     )?;
+    if !existing
+        .as_ref()
+        .is_some_and(|property| property.lifecycle == "active")
+    {
+        let active_count = connection.query_row(
+            "SELECT count(*) FROM data_source_properties \
+             WHERE data_source_id = ?1 AND lifecycle = 'active'",
+            [data_source_id],
+            |row| row.get::<_, i64>(0),
+        )?;
+        ensure_collection_capacity(
+            active_count,
+            super::MAX_DATA_SOURCE_PROPERTIES,
+            "Data Source Property collection",
+        )?;
+    }
     let config = property_config_for_put(
         connection,
         data_source_id,
@@ -701,7 +718,7 @@ fn put_option(
         }
         *existing = next;
     } else {
-        if config.options.len() >= MAX_OPTIONS {
+        if config.options.len() >= super::MAX_PROPERTY_OPTIONS {
             return Err(invalid("Property option registry exceeds its bound"));
         }
         config.options.push(next);
@@ -2927,6 +2944,22 @@ fn put_view(
         existing.as_ref().map_or(0, |view| view.revision),
         "Database View revision changed",
     )?;
+    if !existing
+        .as_ref()
+        .is_some_and(|view| view.lifecycle == "active")
+    {
+        let active_count = connection.query_row(
+            "SELECT count(*) FROM database_views \
+             WHERE database_block_id = ?1 AND lifecycle = 'active'",
+            [database_id],
+            |row| row.get::<_, i64>(0),
+        )?;
+        ensure_collection_capacity(
+            active_count,
+            super::MAX_DATABASE_VIEWS,
+            "Database View collection",
+        )?;
+    }
     if existing
         .as_ref()
         .is_some_and(|view| view.database_id != database_id)
@@ -3310,7 +3343,7 @@ fn validate_view_config(
         .get("sort")
         .and_then(Value::as_array)
         .ok_or_else(|| invalid("Database View sort must be an array"))?;
-    if sort.len() > 1_024 {
+    if sort.len() > MAX_VIEW_SORT_RULES {
         return Err(invalid("Database View sort exceeds its bound"));
     }
     for item in sort {
@@ -3336,6 +3369,13 @@ fn validate_view_config(
             .is_some_and(|values| values.iter().all(Value::is_string))
     {
         return Err(invalid("Database View display is invalid"));
+    }
+    if display
+        .get("propertyIds")
+        .and_then(Value::as_array)
+        .is_some_and(|values| values.len() > MAX_VIEW_DISPLAY_PROPERTIES)
+    {
+        return Err(invalid("Database View display exceeds its Property bound"));
     }
     let property_ids = collect_view_property_ids(config)?;
     let known = connection
@@ -3834,6 +3874,17 @@ fn rank_plan_error(error: FractionalRankError, anchor_message: &str) -> StoreErr
     }
 }
 
+fn ensure_collection_capacity(
+    active_count: i64,
+    maximum: usize,
+    label: &str,
+) -> Result<(), StoreError> {
+    if active_count < i64::try_from(maximum).unwrap_or(i64::MAX) {
+        return Ok(());
+    }
+    Err(invalid(format!("{label} exceeds its fixed bound")))
+}
+
 fn active_view_references_property(
     connection: &Connection,
     data_source_id: &str,
@@ -3873,7 +3924,7 @@ fn option_config(property: &PropertyRow) -> Result<OptionConfig, StoreError> {
     }
     let config = serde_json::from_str::<OptionConfig>(&property.config_json)
         .map_err(|_| corrupt("Property option registry is invalid"))?;
-    if config.options.len() > MAX_OPTIONS {
+    if config.options.len() > super::MAX_PROPERTY_OPTIONS {
         return Err(corrupt("Property option registry exceeds its bound"));
     }
     let mut ids = HashSet::new();
@@ -4777,4 +4828,17 @@ fn corrupt(message: impl Into<String>) -> StoreError {
 
 fn internal(message: impl Into<String>) -> StoreError {
     StoreError::new(StoreErrorCode::Internal, message, false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ensure_collection_capacity;
+
+    #[test]
+    fn fixed_schema_collection_allows_the_last_slot_and_rejects_growth() {
+        assert!(ensure_collection_capacity(199, 200, "schema").is_ok());
+        let error = ensure_collection_capacity(200, 200, "schema")
+            .expect_err("the fixed collection bound must reject another identity");
+        assert_eq!(error.code, super::StoreErrorCode::InvalidInput);
+    }
 }

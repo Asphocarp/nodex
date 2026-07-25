@@ -13,7 +13,6 @@ import {
 } from "./kanban-optimistic-ops";
 import type {
   BoardSummary,
-  BoardSummarySnapshot,
   PageCreateInput,
   DatabasePageSummary,
 } from "./types";
@@ -21,10 +20,12 @@ import { createKanbanStoreRegistry } from "./kanban-store";
 import { toDatabasePageSummary } from "../../shared/page-summary";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import type { ProjectionStreamMessage } from "../../shared/projection-stream";
-import type {
-  DatabaseModuleReadResultV2,
-  DatabaseViewRecordV2,
-  DatabaseViewQueryResultV2,
+import type { DatabaseViewWindowSnapshot } from "../../shared/database-views";
+import {
+  DATABASE_MODULE_V2_CONTRACT_VERSION,
+  type DatabaseModuleReadResultV2,
+  type DatabaseViewRecordV2,
+  type DatabaseViewQueryResultV2,
 } from "../../shared/database-module-v2";
 import {
   parseDatabaseId,
@@ -149,7 +150,7 @@ function createDatabaseViewSnapshot(
   return {
     ok: true,
     value: {
-      version: 2,
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId,
       libraryId,
       storeEpoch: "epoch-1",
@@ -198,16 +199,62 @@ function createBoard(title = "Initial title"): BoardSummary {
 function createBoardSnapshot(
   board: BoardSummary = createBoard(),
   changeLogSeq = 1,
-): BoardSummarySnapshot {
+  viewId = "view-primary",
+  primary = true,
+): DatabaseViewWindowSnapshot {
+  const card = board.columns.flatMap((column) => column.cards)[0]
+    ?? createPageSummary();
+  const queryResult = createDatabaseViewSnapshot(
+    viewId,
+    card.title,
+    primary,
+    changeLogSeq,
+  );
+  if (!queryResult.ok || queryResult.value.value.kind !== "query") {
+    throw new Error("Database View test fixture is invalid");
+  }
+  const query = {
+    ...queryResult.value.value.value,
+    rows: queryResult.value.value.value.rows.map((row) => ({
+      ...row,
+      page: {
+        ...row.page,
+        pageId: card.id,
+        title: card.title,
+        richTitle: card.richTitle,
+        preview: card.descriptionPreview,
+        plainText: card.descriptionPreview,
+      },
+    })),
+  };
   return {
     projectId: "project-1",
     libraryId: "library-1",
     databaseId: "database-1",
     dataSourceId: "source-1",
-    viewId: "view-primary",
+    viewId,
     storeEpoch: "epoch-1",
     changeLogSeq,
+    projectionRevision: changeLogSeq,
+    nextCursor: null,
+    rows: [{
+      page: card,
+      groupKey: card.status,
+      rankKey: "a",
+    }],
     board,
+    query,
+    view: {
+      id: viewId,
+      databaseBlockId: "database-1",
+      projectId: "project-1",
+      name: query.view.name,
+      kind: query.view.kind,
+      config: query.view.config as never,
+      isPrimary: primary,
+      createdAt: query.view.createdAt,
+      updatedAt: query.view.updatedAt,
+    },
   };
 }
 
@@ -308,12 +355,20 @@ describe("kanban store", () => {
           readViewId === "view-primary",
         );
       },
-      invoke: async (channel, projectId) => {
-        calls.push(`${channel}:${String(projectId)}:`);
-        if (channel === "board:summary:get") {
-          return createBoardSnapshot(createBoard("Full primary Card summary"));
-        }
-        throw new Error(`Unexpected channel ${channel}`);
+      invoke: async (channel, projectId, rawInput) => {
+        const input = rawInput as { databaseViewId?: string };
+        const viewId = input.databaseViewId ?? "view-primary";
+        calls.push(`${channel}:${String(projectId)}:${viewId}`);
+        return createBoardSnapshot(
+          createBoard(
+            viewId === "view-focused"
+              ? "Focused query row"
+              : "Full primary Card summary",
+          ),
+          1,
+          viewId,
+          viewId === "view-primary",
+        );
       },
       subscribeBoardChanges: () => () => {},
     });
@@ -335,8 +390,10 @@ describe("kanban store", () => {
     expect(focused.getSnapshot().databaseView?.columns[0]?.rows[0]?.title).toBe(
       "Focused query row",
     );
-    expect(focused.getSnapshot().board).toBe(null);
-    expect(calls.filter((call) => call.startsWith("board:summary:get")).length).toBe(1);
+    expect(focused.getSnapshot().board).not.toBe(null);
+    expect(
+      calls.filter((call) => call.startsWith("database:view-window:get")).length,
+    ).toBe(2);
     const callsBeforeFreshEnsure = calls.length;
     await focused.ensureFreshBoard();
     expect(calls.length).toBe(callsBeforeFreshEnsure);
@@ -375,16 +432,17 @@ describe("kanban store", () => {
     const projection = createProjectionHarness();
     let readCount = 0;
     const registry = createKanbanStoreRegistry({
-      readDatabaseModule: async () => {
+      invoke: async () => {
         readCount += 1;
-        return createDatabaseViewSnapshot(
-          "view-focused",
-          readCount === 1 ? "Before Document edit" : "After Document edit",
-          false,
+        return createBoardSnapshot(
+          createBoard(
+            readCount === 1 ? "Before Document edit" : "After Document edit",
+          ),
           readCount === 1 ? 1 : 9,
+          "view-focused",
+          false,
         );
       },
-      invoke: async () => createBoardSnapshot(),
       subscribeBoardChanges: () => () => {},
       getProjectionInvalidationRegistry: projection.getRegistry,
     });
@@ -406,16 +464,20 @@ describe("kanban store", () => {
   });
 
   test("runs one trailing read when a Page invalidation arrives during a fetch", async () => {
-    const firstRead = createDeferred<DatabaseModuleReadResultV2>();
+    const firstRead = createDeferred<DatabaseViewWindowSnapshot>();
     const projection = createProjectionHarness();
     let readCount = 0;
     const registry = createKanbanStoreRegistry({
-      readDatabaseModule: async () => {
+      invoke: async () => {
         readCount += 1;
         if (readCount === 1) return await firstRead.promise;
-        return createDatabaseViewSnapshot("view-focused", "Latest head", false, 10);
+        return createBoardSnapshot(
+          createBoard("Latest head"),
+          10,
+          "view-focused",
+          false,
+        );
       },
-      invoke: async () => createBoardSnapshot(),
       subscribeBoardChanges: () => () => {},
       getProjectionInvalidationRegistry: projection.getRegistry,
     });
@@ -423,9 +485,10 @@ describe("kanban store", () => {
     const unsubscribe = store.subscribe(() => {});
 
     projection.publish(pageChanged(10));
-    firstRead.resolve(createDatabaseViewSnapshot(
+    firstRead.resolve(createBoardSnapshot(
+      createBoard("Stale in-flight head"),
+      1,
       "view-focused",
-      "Stale in-flight head",
       false,
     ));
     await waitForMicrotasks();
@@ -541,9 +604,50 @@ describe("kanban store", () => {
     await store.fetchBoard();
 
     const indexedPage = store.getSnapshot().pageIndex.get("card-1");
-    expect(channelName).toBe("board:summary:get");
+    expect(channelName).toBe("database:view-window:get");
     expect(Object.hasOwn(indexedPage ?? {}, "description")).toBe(false);
     expect(indexedPage?.descriptionPreview).toBe("Initial description");
+  });
+
+  test("appends a real continuation window without duplicating loaded rows", async () => {
+    const first = {
+      ...createBoardSnapshot(createBoard("First")),
+      nextCursor: "cursor-1",
+    };
+    const secondCard = {
+      ...createPageSummary("Second"),
+      id: "card-2",
+      order: 1,
+    };
+    const second = createBoardSnapshot({
+      columns: [
+        { id: "triage", name: "Ideas", cards: [secondCard] },
+        { id: "ship", name: "Ship", cards: [] },
+      ],
+    });
+    const requests: unknown[] = [];
+    const registry = createKanbanStoreRegistry({
+      invoke: async (_channel, _projectId, request) => {
+        requests.push(request);
+        return requests.length === 1 ? first : second;
+      },
+      subscribeBoardChanges: () => () => {},
+    });
+    const store = registry.getStore("project-1");
+
+    await store.fetchBoard();
+    expect(store.getSnapshot().hasMore).toBe(true);
+    await store.loadMore();
+
+    expect(requests).toEqual([
+      { first: 50 },
+      { after: "cursor-1", first: 50 },
+    ]);
+    expect([...store.getSnapshot().pageIndex.keys()]).toEqual([
+      "card-1",
+      "card-2",
+    ]);
+    expect(store.getSnapshot().hasMore).toBe(false);
   });
 
   test("first subscribe with a fresh base board does not refetch", async () => {
@@ -1054,7 +1158,7 @@ describe("kanban store", () => {
 
   test("does not let a late older Board read overwrite a cursor-fenced patch", async () => {
     const board = createBoard();
-    const lateRead = createDeferred<BoardSummarySnapshot>();
+    const lateRead = createDeferred<DatabaseViewWindowSnapshot>();
     const callbacks: { onBoardChange?: (event: BoardChangeEvent) => void } = {};
     const projection = createProjectionHarness();
     let readCount = 0;
@@ -1110,7 +1214,7 @@ describe("kanban store", () => {
   });
 
   test("queues local overlay before first fetch and applies after board load", async () => {
-    const deferredBoard = createDeferred<BoardSummarySnapshot>();
+    const deferredBoard = createDeferred<DatabaseViewWindowSnapshot>();
     const registry = createKanbanStoreRegistry({
       invoke: async () => deferredBoard.promise,
       subscribeBoardChanges: () => () => {},

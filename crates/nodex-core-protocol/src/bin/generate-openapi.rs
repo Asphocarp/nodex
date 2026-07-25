@@ -24,8 +24,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::write(output, bytes)?;
     let requirements =
         serde_json::to_string_pretty(&nodex_core_protocol::core_client_requirements())?;
+    let transport_budgets =
+        serde_json::to_string_pretty(&nodex_core_protocol::CORE_TRANSPORT_BUDGETS)?;
     let source = format!(
-        "import type {{ components }} from \"./generated\";\n\nexport const CORE_CLIENT_REQUIREMENTS = {requirements} as const satisfies components[\"schemas\"][\"CoreClientRequirements\"];\n"
+        "import type {{ components }} from \"./generated\";\n\nexport const CORE_CLIENT_REQUIREMENTS = {requirements} as const satisfies components[\"schemas\"][\"CoreClientRequirements\"];\n\nexport const CORE_TRANSPORT_BUDGETS = {transport_budgets} as const satisfies components[\"schemas\"][\"CoreTransportBudgets\"];\n"
     );
     if let Some(parent) = requirements_output.parent() {
         fs::create_dir_all(parent)?;

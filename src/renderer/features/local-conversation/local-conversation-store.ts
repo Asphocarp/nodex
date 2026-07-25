@@ -106,6 +106,7 @@ import type {
   CodexThreadStartForSessionInput,
   CodexThreadStartForSessionResult,
   CodexThreadSummary,
+  CodexThreadSummaryWindow,
   CodexTurnStartOptions,
 } from "../../lib/types";
 import {
@@ -3841,7 +3842,17 @@ export class CodexAppServerManager {
     projectId: string,
     opts?: { includeArchived?: boolean },
   ): Promise<CodexThreadSummary[]> {
-    const threads = (await invoke("codex:threads:list", projectId, opts)) as CodexThreadSummary[];
+    const threads: CodexThreadSummary[] = [];
+    let after: string | null = null;
+    do {
+      const window: CodexThreadSummaryWindow = await invoke("codex:threads:list", projectId, {
+        ...opts,
+        after,
+        first: 200,
+      });
+      threads.push(...window.items);
+      after = window.nextCursor;
+    } while (after !== null);
     this.hydrateThreadSummaries(projectId, threads);
     return threads;
   }

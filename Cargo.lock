@@ -829,6 +829,7 @@ dependencies = [
  "getrandom",
  "hex",
  "nodex-core-contracts",
+ "nodex-core-protocol",
  "regex",
  "rrule",
  "rusqlite",

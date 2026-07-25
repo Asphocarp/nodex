@@ -4,7 +4,7 @@ import type {
   ProjectArchiveBlocker,
   ProjectLifecycleInput,
   ProjectLifecycleMutationResult,
-  ProjectSession,
+  ProjectSessionSummary,
   TerminalSessionSnapshot,
 } from "../shared/types";
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
@@ -19,8 +19,7 @@ export interface ProjectLifecycleServiceDependencies {
   readonly projectWorkspace: Pick<
     DesktopProjectWorkspacePort,
     | "getProject"
-    | "listProjectSessions"
-    | "listProjectThreads"
+    | "listProjectSessionSummaryWindow"
     | "setProjectLifecycle"
   >;
   readonly coordinator?: ProjectRuntimeLifecycleCoordinator;
@@ -107,7 +106,7 @@ export async function runWithTerminalProjectAdmission<Result>(
 
 interface ProjectOwnershipSnapshot {
   readonly project: Project;
-  readonly sessions: readonly ProjectSession[];
+  readonly sessions: readonly ProjectSessionSummary[];
   readonly sessionIds: ReadonlySet<string>;
   readonly threadIds: readonly string[];
   readonly threadIdSet: ReadonlySet<string>;
@@ -135,18 +134,19 @@ async function readOwnershipSnapshot(
   dependencies: ProjectLifecycleServiceDependencies,
   project: Project,
 ): Promise<ProjectOwnershipSnapshot> {
-  const sessions = await dependencies.projectWorkspace.listProjectSessions(
-    project.id,
-    { includeArchived: true },
-  );
-  const projectThreads = await dependencies.projectWorkspace.listProjectThreads(
-    project.id,
-    { includeArchived: true },
-  );
-  const threadIds = [...new Set([
-    ...projectThreads.map((thread) => thread.threadId),
-    ...sessions.flatMap((session) => session.thread ? [session.thread.threadId] : []),
-  ])];
+  const sessions: ProjectSessionSummary[] = [];
+  let after: string | null = null;
+  do {
+    const window = await dependencies.projectWorkspace.listProjectSessionSummaryWindow(
+      project.id,
+      { includeArchived: true, after, first: 200 },
+    );
+    sessions.push(...window.items);
+    after = window.nextCursor;
+  } while (after !== null);
+  const threadIds = [...new Set(
+    sessions.flatMap((session) => session.thread ? [session.thread.threadId] : []),
+  )];
   return {
     project,
     sessions,

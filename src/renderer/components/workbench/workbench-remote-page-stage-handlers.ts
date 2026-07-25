@@ -4,7 +4,11 @@ import type { PageStageHandlers } from "@/lib/use-page-stage";
 import { createUuidV7 } from "../../../shared/uuid-v7";
 import { isWorkflowStatus } from "../../../shared/workflow-status";
 import { commitPageLifecycleIntent } from "@/lib/page-lifecycle-runtime";
-import { commitDatabasePageDrag } from "@/lib/database-page-drag-runtime";
+import {
+  commitDatabasePageDrag,
+  databaseViewRenderModelToDragSnapshot,
+} from "@/lib/database-page-drag-runtime";
+import { getKanbanProjectStore } from "@/lib/kanban-store";
 import {
   isPageMetadataPatch,
 } from "@/lib/page-detail-metadata-runtime";
@@ -53,10 +57,18 @@ export function makeRemotePageStageHandlers(projectId: string): PageStageHandler
       if (!isWorkflowStatus(fromStatus) || !isWorkflowStatus(toStatus)) {
         throw new Error("Page Stage move requires canonical Page statuses");
       }
+      const databaseView = getKanbanProjectStore(
+        projectId,
+        null,
+      ).getSnapshot().databaseView;
+      if (!databaseView) {
+        throw new Error("The Database View must be loaded before moving a Page");
+      }
       await commitDatabasePageDrag({
         projectId,
         operationId: crypto.randomUUID(),
         move: { pageId: pageId, fromStatus, toStatus },
+        snapshot: databaseViewRenderModelToDragSnapshot(databaseView),
       });
     },
     onCompleteOccurrence: async (pageId: string, occurrenceStart: Date) => {

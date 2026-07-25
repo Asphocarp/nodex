@@ -5,7 +5,9 @@ import type {
   DatabaseApplyV2,
   DatabaseModuleReadResultV2,
 } from "../shared/database-module-v2";
+import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../shared/database-module-v2";
 import {
+  parseDatabaseId,
   parseDataSourceId,
   parseDataSourcePropertyId,
 } from "../shared/database-identities";
@@ -17,7 +19,7 @@ import {
 } from "./database-module-ipc";
 
 const applyRequest = (): DatabaseApplyV2 => ({
-  version: 2,
+  version: DATABASE_MODULE_V2_CONTRACT_VERSION,
   operationId: "database-module-retry-1",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -35,23 +37,40 @@ const applyRequest = (): DatabaseApplyV2 => ({
 });
 
 const readRequest = () => ({
-  version: 2 as const,
+  version: DATABASE_MODULE_V2_CONTRACT_VERSION,
   projectId: "project-1",
   read: {
     target: { kind: "project_default" as const },
-    mode: "catalog" as const,
+    mode: "database" as const,
   },
 });
 
 const readResult = (): DatabaseModuleReadResultV2 => ({
   ok: true,
   value: {
-    version: 2,
+    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     projectId: "project-1",
     libraryId: "library-1",
     storeEpoch: "epoch-1",
     changeLogSeq: 8,
-    value: { kind: "catalog", databases: [] },
+    value: {
+      kind: "database",
+      value: {
+        database: {
+          databaseId: parseDatabaseId("database-1"),
+          libraryId: "library-1",
+          name: "Tasks",
+          lifecycle: "active",
+          defaultViewId: null,
+          accessRevision: 1,
+          metadataRevision: 1,
+          createdAt: "2026-07-16T00:00:00.000Z",
+          updatedAt: "2026-07-16T00:00:00.000Z",
+        },
+        dataSources: [],
+        views: [],
+      },
+    },
   },
 });
 
@@ -63,7 +82,7 @@ describe("Database Module IPC/HTTP transport", () => {
       return {
         ok: true,
         value: {
-          version: 2,
+          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
           operationId: request.operationId,
           projectId: request.projectId,
           libraryId: "library-1",

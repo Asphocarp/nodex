@@ -162,8 +162,12 @@ function makeDependencies(
   return {
     projectWorkspace: {
       getProject: vi.fn(async () => project),
-      listProjectSessions: vi.fn(async () => [makeSession()]),
-      listProjectThreads: vi.fn(async () => [makeThread()]),
+      listProjectSessionSummaryWindow: vi.fn(async () => ({
+        items: [makeSession()],
+        nextCursor: null,
+        hasMore: false,
+        projectionRevision: 1,
+      })),
       setProjectLifecycle,
     },
     coordinator: new ProjectRuntimeLifecycleCoordinator(),
@@ -288,14 +292,35 @@ describe("project lifecycle service", () => {
     expect(dependencies.setProjectLifecycle).toHaveBeenCalledOnce();
   });
 
-  test("includes unlinked Project Threads in archive blocker discovery", async () => {
+  test("continues Project task windows before deciding archive blockers", async () => {
     const dependencies = makeDependencies();
-    dependencies.projectWorkspace.listProjectThreads = vi.fn(async () => [
-      makeThread({ threadId: "thread-unlinked", sessionId: null }),
-    ]);
+    dependencies.projectWorkspace.listProjectSessionSummaryWindow = vi.fn(
+      async (_projectId, input) => {
+        if (input?.after === null) {
+          return {
+            items: [makeSession()],
+            nextCursor: "page-2",
+            hasMore: true,
+            projectionRevision: 1,
+          };
+        }
+        const session = makeSession();
+        if (!session.thread) throw new Error("fixture thread is required");
+        return {
+          items: [{
+            ...session,
+            id: "session-page-2",
+            thread: { ...session.thread, threadId: "thread-page-2" },
+          }],
+          nextCursor: null,
+          hasMore: false,
+          projectionRevision: 1,
+        };
+      },
+    );
     dependencies.listCodexBlockers = (threadIds) =>
-      threadIds.includes("thread-unlinked")
-        ? [{ kind: "active-turn", threadId: "thread-unlinked", label: "Subagent" }]
+      threadIds.includes("thread-page-2")
+        ? [{ kind: "active-turn", threadId: "thread-page-2", label: "Subagent" }]
         : [];
 
     const result = await createProjectLifecycleService(dependencies).setLifecycle(
@@ -305,7 +330,7 @@ describe("project lifecycle service", () => {
 
     expect(result).toMatchObject({
       kind: "blocked",
-      blockers: [{ kind: "active-turn", threadId: "thread-unlinked" }],
+      blockers: [{ kind: "active-turn", threadId: "thread-page-2" }],
     });
     expect(dependencies.setProjectLifecycle).not.toHaveBeenCalled();
   });

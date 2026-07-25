@@ -1,12 +1,14 @@
 import type {
+  DatabaseContainerDescriptorV2,
+  DatabaseViewRecordV2,
   DataSourcePageRowV2,
+  DataSourceDescriptorV2,
   DataSourcePropertyRecordV2,
   DatabaseViewQueryResultV2,
   PageIntrinsicPropertyValueV2,
 } from "../../shared/database-module-v2";
 import type {
   BoardSummary,
-  Column,
   DatabasePage,
   DatabasePageSummary,
   Estimate,
@@ -15,6 +17,11 @@ import type {
   RecurrenceConfig,
   ReminderConfig,
 } from "../../shared/types";
+import type {
+  CoreDatabaseRowDetail,
+  CoreDatabaseRowSummary,
+  CoreDatabaseViewWindow,
+} from "./types";
 import {
   evaluateDatabaseViewRows,
   type DatabaseViewJsonValue,
@@ -26,7 +33,6 @@ import { toDatabasePageSummary } from "../../shared/page-summary";
 import {
   WORKFLOW_STATUS_COLUMNS,
   isWorkflowStatus,
-  type WorkflowStatus,
 } from "../../shared/workflow-status";
 import { assertValidPageInput } from "../../shared/page-input-validation";
 
@@ -262,6 +268,389 @@ const readReminders = (
   );
 };
 
+const requireCoreDatabaseValue = (
+  row: CoreDatabaseRowSummary,
+  propertyId: DatabasePropertyId,
+): unknown => {
+  if (Object.prototype.hasOwnProperty.call(row.database_values, propertyId)) {
+    return row.database_values[propertyId];
+  }
+  return fail(row.page_id, `is missing Database Property ${propertyId}`);
+};
+
+const coreDatabaseValueOr = (
+  row: CoreDatabaseRowSummary,
+  propertyId: Exclude<DatabasePropertyId, "status">,
+  fallback: null | readonly never[],
+): unknown => {
+  if (Object.prototype.hasOwnProperty.call(row.database_values, propertyId)) {
+    return row.database_values[propertyId];
+  }
+  return fallback;
+};
+
+const requireCoreIntrinsicValue = (
+  row: CoreDatabaseRowSummary,
+  key: IntrinsicPropertyKey,
+): unknown => {
+  if (Object.prototype.hasOwnProperty.call(row.intrinsic_properties, key)) {
+    return row.intrinsic_properties[key];
+  }
+  return fail(row.page_id, `is missing intrinsic Property ${key}`);
+};
+
+const coreNullableString = (
+  row: CoreDatabaseRowSummary,
+  label: string,
+  value: unknown,
+): string | undefined => {
+  if (value === null) return undefined;
+  if (typeof value === "string") return value;
+  return fail(row.page_id, `${label} must be a string or null`);
+};
+
+const coreOptionalDate = (
+  row: CoreDatabaseRowSummary,
+  label: string,
+  value: unknown,
+): Date | undefined => {
+  const text = coreNullableString(row, label, value);
+  if (text === undefined) return undefined;
+  const date = new Date(text);
+  if (Number.isFinite(date.getTime())) return date;
+  return fail(row.page_id, `${label} is not a valid date`);
+};
+
+const coreStringArray = (
+  row: CoreDatabaseRowSummary,
+  label: string,
+  value: unknown,
+): string[] => {
+  if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+    return [...value].sort((left, right) => left.localeCompare(right));
+  }
+  return fail(row.page_id, `${label} must be an array of strings`);
+};
+
+const corePriority = (
+  row: CoreDatabaseRowSummary,
+  value: unknown,
+): Priority | undefined => {
+  const candidate = coreNullableString(
+    row,
+    "Database Property priority",
+    value,
+  );
+  if (candidate === undefined) return undefined;
+  if (PRIORITIES.has(candidate as Priority)) return candidate as Priority;
+  return fail(row.page_id, "has an invalid priority");
+};
+
+const coreEstimate = (
+  row: CoreDatabaseRowSummary,
+  value: unknown,
+): Estimate | undefined => {
+  const candidate = coreNullableString(
+    row,
+    "Database Property estimate",
+    value,
+  );
+  if (candidate === undefined) return undefined;
+  if (ESTIMATES.has(candidate as Estimate)) return candidate as Estimate;
+  return fail(row.page_id, "has an invalid estimate");
+};
+
+const coreRunTarget = (
+  row: CoreDatabaseRowSummary,
+  value: unknown,
+): PageRunInTarget => {
+  const candidate = coreNullableString(
+    row,
+    "intrinsic Property run.target",
+    value,
+  );
+  if (candidate && RUN_TARGETS.has(candidate as PageRunInTarget)) {
+    return candidate as PageRunInTarget;
+  }
+  return fail(row.page_id, "has an invalid run target");
+};
+
+const coreRecurrence = (
+  row: CoreDatabaseRowSummary,
+  value: unknown,
+): RecurrenceConfig | undefined => {
+  if (value === null) return undefined;
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return value as RecurrenceConfig;
+  }
+  return fail(
+    row.page_id,
+    "intrinsic Property recurrence.config must be an object or null",
+  );
+};
+
+const coreReminders = (
+  row: CoreDatabaseRowSummary,
+  value: unknown,
+): ReminderConfig[] => {
+  if (
+    Array.isArray(value)
+    && value.every(
+      (item) =>
+        typeof item === "object"
+        && item !== null
+        && typeof item.offsetMinutes === "number",
+    )
+  ) {
+    return value as ReminderConfig[];
+  }
+  return fail(
+    row.page_id,
+    "intrinsic Property reminders.config must be an array of reminders",
+  );
+};
+
+export const projectCoreDatabaseRowSummary = (
+  row: CoreDatabaseRowSummary,
+  order = row.position_order ?? UNPOSITIONED_PAGE_ORDER,
+): DatabasePageSummary => {
+  const statusValue = requireCoreDatabaseValue(row, "status");
+  if (!isWorkflowStatus(statusValue)) {
+    return fail(row.page_id, "has an invalid workflow status");
+  }
+  if (!Array.isArray(row.rich_title)) {
+    return fail(row.page_id, "has an invalid rich title");
+  }
+  const isAllDay = requireCoreIntrinsicValue(row, "schedule.isAllDay");
+  if (typeof isAllDay !== "boolean") {
+    return fail(
+      row.page_id,
+      "intrinsic Property schedule.isAllDay must be a boolean",
+    );
+  }
+  const page: DatabasePageSummary = {
+    id: row.page_id,
+    status: statusValue,
+    archived: row.lifecycle === "archived",
+    title: row.title,
+    richTitle: row.rich_title,
+    descriptionPreview: row.description_preview,
+    descriptionLength: row.description_length,
+    hasDescription: row.has_description,
+    priority: corePriority(row, coreDatabaseValueOr(row, "priority", null)),
+    estimate: coreEstimate(row, coreDatabaseValueOr(row, "estimate", null)),
+    tags: coreStringArray(
+      row,
+      "Database Property tags",
+      coreDatabaseValueOr(row, "tags", []),
+    ),
+    dueDate: coreOptionalDate(
+      row,
+      "Database Property due_date",
+      coreDatabaseValueOr(row, "due_date", null),
+    ),
+    scheduledStart: coreOptionalDate(
+      row,
+      "Database Property scheduled_start",
+      coreDatabaseValueOr(row, "scheduled_start", null),
+    ),
+    scheduledEnd: coreOptionalDate(
+      row,
+      "Database Property scheduled_end",
+      coreDatabaseValueOr(row, "scheduled_end", null),
+    ),
+    isAllDay,
+    recurrence: coreRecurrence(
+      row,
+      requireCoreIntrinsicValue(row, "recurrence.config"),
+    ),
+    reminders: coreReminders(
+      row,
+      requireCoreIntrinsicValue(row, "reminders.config"),
+    ),
+    scheduleTimezone: coreNullableString(
+      row,
+      "intrinsic Property schedule.timezone",
+      requireCoreIntrinsicValue(row, "schedule.timezone"),
+    ),
+    assignee: coreNullableString(
+      row,
+      "Database Property assignee",
+      coreDatabaseValueOr(row, "assignee", null),
+    ),
+    runInTarget: coreRunTarget(
+      row,
+      requireCoreIntrinsicValue(row, "run.target"),
+    ),
+    runInLocalPath: coreNullableString(
+      row,
+      "intrinsic Property run.localPath",
+      requireCoreIntrinsicValue(row, "run.localPath"),
+    ),
+    runInBaseBranch: coreNullableString(
+      row,
+      "intrinsic Property run.baseBranch",
+      requireCoreIntrinsicValue(row, "run.baseBranch"),
+    ),
+    runInWorktreePath: coreNullableString(
+      row,
+      "intrinsic Property run.worktreePath",
+      requireCoreIntrinsicValue(row, "run.worktreePath"),
+    ),
+    runInEnvironmentPath: coreNullableString(
+      row,
+      "intrinsic Property run.environmentPath",
+      requireCoreIntrinsicValue(row, "run.environmentPath"),
+    ),
+    revision: row.metadata_revision,
+    created: new Date(row.created_at),
+    order,
+  };
+  try {
+    assertValidPageInput({
+      priority: page.priority,
+      estimate: page.estimate,
+      tags: page.tags,
+      dueDate: page.dueDate,
+      scheduledStart: page.scheduledStart,
+      scheduledEnd: page.scheduledEnd,
+      isAllDay: page.isAllDay,
+      recurrence: page.recurrence,
+      reminders: page.reminders,
+      scheduleTimezone: page.scheduleTimezone,
+      assignee: page.assignee,
+      runInTarget: page.runInTarget,
+      runInLocalPath: page.runInLocalPath,
+      runInBaseBranch: page.runInBaseBranch,
+      runInWorktreePath: page.runInWorktreePath,
+      runInEnvironmentPath: page.runInEnvironmentPath,
+    }, "update");
+  } catch (error) {
+    return fail(row.page_id, "has invalid relational metadata", {
+      cause: error,
+    });
+  }
+  return page;
+};
+
+export const projectCoreDatabaseRowSummaries = (
+  rows: readonly CoreDatabaseRowSummary[],
+): readonly DatabasePageSummary[] => {
+  const nextOrderByStatus = new Map<string, number>();
+  return rows.map((row) => {
+    const status = row.database_values.status;
+    const order = typeof status === "string"
+      ? nextOrderByStatus.get(status) ?? 0
+      : UNPOSITIONED_PAGE_ORDER;
+    if (typeof status === "string") {
+      nextOrderByStatus.set(status, order + 1);
+    }
+    return projectCoreDatabaseRowSummary(row, order);
+  });
+};
+
+/**
+ * Adapts an already-bounded Core View window for renderer code that still uses
+ * the query-shaped view model. It never performs or permits a full-row query.
+ */
+export const projectCoreDatabaseViewQuery = (
+  window: CoreDatabaseViewWindow,
+  libraryId: string,
+  databaseDescriptor: DatabaseContainerDescriptorV2,
+  sourceDescriptor: DataSourceDescriptorV2,
+  view: DatabaseViewRecordV2,
+): DatabaseViewQueryResultV2 => {
+  const propertiesById = new Map(
+    sourceDescriptor.properties.map((property) => [
+      property.propertyId,
+      property,
+    ] as const),
+  );
+  return {
+    database: databaseDescriptor.database,
+    dataSource: sourceDescriptor.dataSource,
+    view,
+    properties: sourceDescriptor.properties,
+    rows: window.rows.items.map((row) => ({
+      page: {
+        pageId: row.page_id,
+        libraryId,
+        parent: {
+          kind: "data_source",
+          dataSourceId: sourceDescriptor.dataSource.dataSourceId,
+        },
+        lifecycle:
+          row.lifecycle === "archived" || row.lifecycle === "deleted"
+            ? row.lifecycle
+            : "active",
+        parentRevision: row.parent_revision,
+        metadataRevision: row.metadata_revision,
+        documentId: row.document_id,
+        documentGeneration: row.document_generation,
+        documentHeadSeq: row.document_head_seq,
+        title: row.title,
+        richTitle: Array.isArray(row.rich_title) ? row.rich_title : [],
+        preview: row.description_preview,
+        plainText: row.description_preview,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      },
+      membership: {
+        membershipId: row.membership_id,
+        dataSourceId: sourceDescriptor.dataSource.dataSourceId,
+        revision: row.membership_revision,
+        createdAt: row.membership_created_at,
+      },
+      values: Object.fromEntries(
+        Object.entries(row.database_values).map(([propertyId, propertyValue]) => {
+          const property = propertiesById.get(propertyId as never);
+          return [propertyId, {
+            propertyId: propertyId as never,
+            valueType: property?.valueType ?? "text",
+            value: propertyValue as DatabaseViewJsonValue,
+            revision: row.database_value_revisions[propertyId] ?? 0,
+          }];
+        }),
+      ),
+      position: row.rank_key
+        ? {
+            groupKey: row.effective_group_key ?? null,
+            rankKey: row.rank_key,
+            revision: row.position_revision ?? 0,
+          }
+        : null,
+      effectiveGroupKey: row.effective_group_key ?? null,
+      intrinsicProperties: Object.entries(row.intrinsic_properties).map(
+        ([key, propertyValue]) => ({
+          key,
+          valueType: "json",
+          value: propertyValue as DatabaseViewJsonValue,
+          revision: 0,
+        }),
+      ),
+    })),
+  };
+};
+
+export const projectCoreDatabaseViewBoard = (
+  rows: readonly CoreDatabaseRowSummary[],
+): BoardSummary => {
+  const cards = projectCoreDatabaseRowSummaries(rows);
+  return {
+    columns: WORKFLOW_STATUS_COLUMNS.map((column) => ({
+      ...column,
+      cards: cards.filter((card) => card.status === column.id),
+    })),
+  };
+};
+
+export const projectCoreDatabaseRowDetail = (
+  detail: CoreDatabaseRowDetail,
+): DatabasePage => ({
+  ...projectCoreDatabaseRowSummary(detail.summary),
+  description: detail.body_nfm,
+});
+
 export const projectDatabasePage = (
   row: DataSourcePageRowV2,
   properties: readonly DataSourcePropertyRecordV2[],
@@ -403,36 +792,6 @@ export const projectDatabaseQueryPages = (
     }
     return projectDatabasePage(row, query.properties, order);
   });
-};
-
-export const projectDatabaseColumn = (
-  query: DatabaseViewQueryResultV2,
-  columnId: WorkflowStatus,
-): Column => {
-  const column = WORKFLOW_STATUS_COLUMNS.find((candidate) =>
-    candidate.id === columnId
-  );
-  if (!column) {
-    throw new Error(`Unknown workflow column: ${columnId}`);
-  }
-  return {
-    ...column,
-    cards: projectDatabaseQueryPages(query).filter((page) =>
-      page.status === columnId
-    ),
-  };
-};
-
-export const projectBoardSummary = (
-  query: DatabaseViewQueryResultV2,
-): BoardSummary => {
-  const cards = projectDatabaseQueryPages(query).map(toDatabasePageSummary);
-  return {
-    columns: WORKFLOW_STATUS_COLUMNS.map((column) => ({
-      ...column,
-      cards: cards.filter((card) => card.status === column.id),
-    })),
-  };
 };
 
 export const projectDatabasePageSummaries = (

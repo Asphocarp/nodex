@@ -10,7 +10,7 @@ use crate::agent::{
 };
 use crate::{CommittedModuleValue, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const LIBRARY_CONTRACT_VERSION: u32 = 1;
+pub const LIBRARY_CONTRACT_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -1433,6 +1433,7 @@ pub enum LibraryPageWorkflowStatus {
 pub struct LibraryProjectPageSearchHit {
     pub project_id: String,
     pub page_id: String,
+    pub title: String,
     pub status: LibraryPageWorkflowStatus,
     pub score: i64,
     pub excerpt: String,

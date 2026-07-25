@@ -72,7 +72,7 @@ const thread = {
 describe("Core Project Workspace adapter", () => {
   test("maps Workspace events into authority-neutral invalidations", () => {
     expect(mapCoreProjectWorkspaceEvent({
-      transport_version: 3,
+      transport_version: 4,
       event: {
         event_version: 2,
         sequence: 3,
@@ -116,8 +116,12 @@ describe("Core Project Workspace adapter", () => {
       event_head: 3,
       store_epoch: "epoch:test",
       value: {
-        kind: "projects",
-        projects: [project()],
+        kind: "project_window",
+        projects: {
+          items: [project()],
+          next_cursor: null,
+          authority: { projection_revision: 3 },
+        },
       },
     });
     const adapter = createCoreProjectWorkspaceAdapter(client);
@@ -133,8 +137,9 @@ describe("Core Project Workspace adapter", () => {
       }),
     ]);
     expect(client.workspaceReads).toEqual([{
-      kind: "projects",
+      kind: "project_window",
       include_archived: false,
+      window: { after: null, first: 200 },
     }]);
   });
 
@@ -145,47 +150,78 @@ describe("Core Project Workspace adapter", () => {
       event_head: 4,
       store_epoch: "epoch:test",
       value: {
-        kind: "projects",
-        projects: [project({ lifecycle: "archived", binding_revision: 4 })],
+        kind: "project_window",
+        projects: {
+          items: [project({ lifecycle: "archived", binding_revision: 4 })],
+          next_cursor: null,
+          authority: { projection_revision: 4 },
+        },
       },
     });
     const adapter = createCoreProjectWorkspaceAdapter(client);
 
-    await expect(adapter.listProjects({ includeArchived: true })).resolves.toEqual([
-      expect.objectContaining({
+    await expect(adapter.listProjectWindow({
+      includeArchived: true,
+      first: 200,
+    })).resolves.toMatchObject({
+      items: [expect.objectContaining({
         id: "project:one",
         lifecycle: "archived",
         bindingRevision: 4,
-      }),
-    ]);
+      })],
+      nextCursor: null,
+    });
     expect(client.workspaceReads).toEqual([{
-      kind: "projects",
+      kind: "project_window",
       include_archived: true,
+      window: { after: null, first: 200 },
     }]);
   });
 
-  test("lists every Project-owned Thread for lifecycle preflight", async () => {
+  test("maps one bounded task window without per-Thread Core reads", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
-      contract_version: 4,
-      event_head: 5,
+      contract_version: 5,
+      event_head: 17,
       store_epoch: "epoch:test",
       value: {
-        kind: "threads",
-        threads: [thread],
+        kind: "task_window",
+        tasks: {
+          items: [{
+            session: sessionSummary(),
+            thread,
+          }],
+          next_cursor: "nxc1.next.signature",
+          authority: { projection_revision: 17 },
+        },
       },
     });
     const adapter = createCoreProjectWorkspaceAdapter(client);
 
-    await expect(adapter.listProjectThreads("project:one", {
-      includeArchived: true,
-    })).resolves.toEqual([
-      expect.objectContaining({ threadId: "thread:one", projectId: "project:one" }),
-    ]);
+    await expect(adapter.listProjectSessionSummaryWindow("project:one", {
+      first: 25,
+    })).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          id: "session:one",
+          thread: expect.objectContaining({
+            threadId: "thread:one",
+            threadPreview: "Preview",
+          }),
+        }),
+      ],
+      nextCursor: "nxc1.next.signature",
+      hasMore: true,
+      projectionRevision: 17,
+    });
     expect(client.workspaceReads).toEqual([{
-      kind: "threads",
+      kind: "task_window",
       project_id: "project:one",
-      include_archived: true,
+      include_archived: false,
+      window: {
+        after: null,
+        first: 25,
+      },
     }]);
   });
 
@@ -567,19 +603,6 @@ describe("Core Project Workspace adapter", () => {
       store_epoch: "epoch:test",
       value: { kind: "thread", thread: movedThread },
     });
-    client.enqueueWorkspaceRead({
-      contract_version: 4,
-      event_head: 13,
-      store_epoch: "epoch:test",
-      value: {
-        kind: "sidebar",
-        sidebar: {
-          threads: [movedThread],
-          project_thread_orders: { "project:two": ["thread:one"] },
-          projectless_thread_order: null,
-        },
-      },
-    });
     const adapter = createCoreProjectWorkspaceAdapter(client);
 
     await expect(adapter.moveThread({
@@ -600,7 +623,9 @@ describe("Core Project Workspace adapter", () => {
         cwd: "/workspace/two",
       },
       sidebar: {
-        projectThreadOrders: { "project:two": ["thread:one"] },
+        threads: [expect.objectContaining({ threadId: "thread:one" })],
+        projectThreadOrders: {},
+        projectlessThreadOrder: null,
       },
     });
     expect(client.workspaceApplies).toEqual([{
@@ -763,23 +788,7 @@ describe("Core Project Workspace adapter", () => {
         store_epoch: "epoch:test",
       });
     };
-    const enqueueEmptySidebar = (eventHead: number) => {
-      client.enqueueWorkspaceRead({
-        contract_version: 4,
-        event_head: eventHead,
-        store_epoch: "epoch:test",
-        value: {
-          kind: "sidebar",
-          sidebar: {
-            threads: [],
-            project_thread_orders: {},
-            projectless_thread_order: null,
-          },
-        },
-      });
-    };
     enqueueApply("operation:archive-thread", 15);
-    enqueueEmptySidebar(15);
     client.enqueueWorkspaceRead({
       contract_version: 4,
       event_head: 15,
@@ -787,7 +796,6 @@ describe("Core Project Workspace adapter", () => {
       value: { kind: "thread", thread: { ...thread, archived: true } },
     });
     enqueueApply("operation:delete-thread", 16);
-    enqueueEmptySidebar(16);
     const adapter = createCoreProjectWorkspaceAdapter(client);
 
     await expect(
@@ -798,9 +806,7 @@ describe("Core Project Workspace adapter", () => {
       sidebar: { threads: [] },
     });
     expect(client.workspaceReads).toEqual([
-      { kind: "sidebar", include_archived: false },
       { kind: "thread", thread_id: "thread:one" },
-      { kind: "sidebar", include_archived: false },
     ]);
     expect(client.workspaceApplies).toEqual([
       {
@@ -839,7 +845,14 @@ describe("Core Project Workspace adapter", () => {
       contract_version: 4,
       event_head: 14,
       store_epoch: "epoch:test",
-      value: { kind: "background_processes", processes: [process] },
+      value: {
+        kind: "background_process_window",
+        processes: {
+          items: [process],
+          next_cursor: null,
+          authority: { projection_revision: 14 },
+        },
+      },
     });
     client.enqueueWorkspaceApply({
       value: {
@@ -861,17 +874,21 @@ describe("Core Project Workspace adapter", () => {
       event_head: 15,
       store_epoch: "epoch:test",
       value: {
-        kind: "background_processes",
-        processes: [{
-          ...process,
-          command: "pnpm dev --host",
-          process_id: null,
-          os_pid: null,
-          terminal_session_id: "terminal:one",
-          source: "terminal-action",
-          started_at_ms: 300,
-          updated_at_ms: 400,
-        }],
+        kind: "background_process_window",
+        processes: {
+          items: [{
+            ...process,
+            command: "pnpm dev --host",
+            process_id: null,
+            os_pid: null,
+            terminal_session_id: "terminal:one",
+            source: "terminal-action",
+            started_at_ms: 300,
+            updated_at_ms: 400,
+          }],
+          next_cursor: null,
+          authority: { projection_revision: 15 },
+        },
       },
     });
     const adapter = createCoreProjectWorkspaceAdapter(client);
@@ -914,8 +931,16 @@ describe("Core Project Workspace adapter", () => {
       terminalSessionId: "terminal:one",
     });
     expect(client.workspaceReads).toEqual([
-      { kind: "background_processes", thread_id: "thread:one" },
-      { kind: "background_processes", thread_id: "thread:one" },
+      {
+        kind: "background_process_window",
+        thread_id: "thread:one",
+        window: { after: null, first: 200 },
+      },
+      {
+        kind: "background_process_window",
+        thread_id: "thread:one",
+        window: { after: null, first: 200 },
+      },
     ]);
     expect(client.workspaceApplies).toEqual([{
       operationId: expect.any(String),
@@ -941,33 +966,8 @@ describe("Core Project Workspace adapter", () => {
     }]);
   });
 
-  test("reads and mutates all manual sidebar order families", async () => {
+  test("returns local receipts for every manual sidebar order mutation", async () => {
     const client = new FakeCoreClient();
-    const enqueueSidebarRead = (
-      eventHead: number,
-      input: {
-        readonly projectOrder?: readonly string[];
-        readonly projectlessOrder?: readonly string[] | null;
-        readonly pinnedOrder?: number | null;
-      } = {},
-    ) => client.enqueueWorkspaceRead({
-      contract_version: 4,
-      event_head: eventHead,
-      store_epoch: "epoch:test",
-      value: {
-        kind: "sidebar",
-        sidebar: {
-          threads: [{
-            ...thread,
-            pinned_order: input.pinnedOrder ?? null,
-          }],
-          project_thread_orders: input.projectOrder === undefined
-            ? {}
-            : { "project:one": input.projectOrder },
-          projectless_thread_order: input.projectlessOrder ?? null,
-        },
-      },
-    });
     const enqueueApply = (eventSequence: number, operationId: string) =>
       client.enqueueWorkspaceApply({
         value: {
@@ -985,44 +985,38 @@ describe("Core Project Workspace adapter", () => {
         store_epoch: "epoch:test",
       });
 
-    enqueueSidebarRead(20, {
-      projectOrder: ["thread:one"],
-      projectlessOrder: ["thread:projectless"],
-    });
     enqueueApply(21, "operation:set-project-order");
-    enqueueSidebarRead(21, { projectOrder: ["thread:one"] });
     enqueueApply(22, "operation:clear-project-order");
-    enqueueSidebarRead(22);
     enqueueApply(23, "operation:set-projectless-order");
-    enqueueSidebarRead(23, {
-      projectlessOrder: ["thread:projectless-b", "thread:projectless-a"],
-    });
     enqueueApply(24, "operation:pin-before");
-    enqueueSidebarRead(24, { pinnedOrder: 0 });
+    client.enqueueWorkspaceRead({
+      contract_version: 5,
+      event_head: 24,
+      store_epoch: "epoch:test",
+      value: { kind: "thread", thread: { ...thread, pinned_order: 0 } },
+    });
     enqueueApply(25, "operation:pin-at-end");
-    enqueueSidebarRead(25, { pinnedOrder: 0 });
+    client.enqueueWorkspaceRead({
+      contract_version: 5,
+      event_head: 25,
+      store_epoch: "epoch:test",
+      value: { kind: "thread", thread: { ...thread, pinned_order: 0 } },
+    });
     enqueueApply(26, "operation:unpin");
-    enqueueSidebarRead(26);
+    client.enqueueWorkspaceRead({
+      contract_version: 5,
+      event_head: 26,
+      store_epoch: "epoch:test",
+      value: { kind: "thread", thread: { ...thread, pinned_order: null } },
+    });
     enqueueApply(27, "operation:reorder-pinned");
-    enqueueSidebarRead(27, { pinnedOrder: 0 });
     const adapter = createCoreProjectWorkspaceAdapter(client);
 
-    await expect(adapter.readSidebar(true)).resolves.toEqual({
-      threads: [expect.objectContaining({
-        threadId: "thread:one",
-        projectId: "project:one",
-        sessionId: "session:one",
-        statusType: "idle",
-        pinnedOrder: null,
-      })],
-      projectThreadOrders: { "project:one": ["thread:one"] },
-      projectlessThreadOrder: ["thread:projectless"],
-    });
     await expect(adapter.setProjectThreadOrder(
       "project:one",
       ["thread:one"],
     )).resolves.toMatchObject({
-      projectThreadOrders: { "project:one": ["thread:one"] },
+      projectThreadOrders: {},
     });
     await expect(adapter.setProjectThreadOrder(
       "project:one",
@@ -1042,10 +1036,7 @@ describe("Core Project Workspace adapter", () => {
         "thread:projectless-a",
       ],
     })).resolves.toMatchObject({
-      projectlessThreadOrder: [
-        "thread:projectless-b",
-        "thread:projectless-a",
-      ],
+      projectlessThreadOrder: null,
     });
     await expect(adapter.setThreadPinned(
       "thread:one",
@@ -1080,20 +1071,12 @@ describe("Core Project Workspace adapter", () => {
     await expect(adapter.reorderPinnedThreads([
       "thread:one",
     ])).resolves.toMatchObject({
-      threads: [expect.objectContaining({
-        threadId: "thread:one",
-        pinnedOrder: 0,
-      })],
+      threads: [],
     });
     expect(client.workspaceReads).toEqual([
-      { kind: "sidebar", include_archived: true },
-      { kind: "sidebar", include_archived: false },
-      { kind: "sidebar", include_archived: false },
-      { kind: "sidebar", include_archived: false },
-      { kind: "sidebar", include_archived: false },
-      { kind: "sidebar", include_archived: false },
-      { kind: "sidebar", include_archived: false },
-      { kind: "sidebar", include_archived: false },
+      { kind: "thread", thread_id: "thread:one" },
+      { kind: "thread", thread_id: "thread:one" },
+      { kind: "thread", thread_id: "thread:one" },
     ]);
     expect(client.workspaceApplies).toEqual([
       {

@@ -1374,6 +1374,7 @@ export const createCoreLibraryModuleAdapter = (
         if (
           !item.project_id
           || !item.page_id
+          || typeof item.title !== "string"
           || !isWorkflowStatus(item.status)
           || !Number.isSafeInteger(item.score)
           || item.score < 1
@@ -1383,6 +1384,7 @@ export const createCoreLibraryModuleAdapter = (
         return {
           projectId: item.project_id,
           pageId: item.page_id,
+          title: item.title,
           status: item.status,
           score: item.score,
           excerpt: item.excerpt,

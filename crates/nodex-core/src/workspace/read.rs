@@ -6,23 +6,23 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
-use super::thread::{read_permission_mode, read_thread, read_threads};
-use super::{execution, sidebar};
+use super::execution;
+use super::thread::{read_permission_mode, read_thread};
 
 const MAX_ID_LENGTH: usize = 512;
 
-struct ProjectRow {
-    id: String,
-    library_id: String,
-    database_id: Option<String>,
-    lifecycle: String,
-    binding_revision: i64,
-    name: String,
-    description: String,
-    icon: String,
-    pinned_order: Option<i64>,
-    created_at: String,
-    updated_at: String,
+pub(super) struct ProjectRow {
+    pub(super) id: String,
+    pub(super) library_id: String,
+    pub(super) database_id: Option<String>,
+    pub(super) lifecycle: String,
+    pub(super) binding_revision: i64,
+    pub(super) name: String,
+    pub(super) description: String,
+    pub(super) icon: String,
+    pub(super) pinned_order: Option<i64>,
+    pub(super) created_at: String,
+    pub(super) updated_at: String,
 }
 
 struct SessionRow {
@@ -46,18 +46,22 @@ struct SessionRow {
 pub(super) fn read(
     connection: &Connection,
     library_id: &str,
+    event_head: i64,
     request: ProjectWorkspaceRead,
 ) -> Result<ProjectWorkspaceReadValue, StoreError> {
     match request {
-        ProjectWorkspaceRead::Startup => Ok(ProjectWorkspaceReadValue::Startup {
-            projects: read_projects(connection, library_id, false)?,
-            sessions: read_sessions(connection, library_id, None, false, true)?,
+        ProjectWorkspaceRead::ProjectWindow {
+            include_archived,
+            window,
+        } => Ok(ProjectWorkspaceReadValue::ProjectWindow {
+            projects: super::project_window::read_project_window(
+                connection,
+                library_id,
+                event_head,
+                include_archived.unwrap_or(false),
+                &window,
+            )?,
         }),
-        ProjectWorkspaceRead::Projects { include_archived } => {
-            Ok(ProjectWorkspaceReadValue::Projects {
-                projects: read_projects(connection, library_id, include_archived.unwrap_or(false))?,
-            })
-        }
         ProjectWorkspaceRead::Project { project_id } => {
             validate_id("project_id", &project_id)?;
             Ok(ProjectWorkspaceReadValue::Project {
@@ -72,24 +76,32 @@ pub(super) fn read(
                 mode: read_permission_mode(connection, &project_id)?,
             })
         }
-        ProjectWorkspaceRead::Sessions {
+        ProjectWorkspaceRead::TaskWindow {
             project_id,
             include_archived,
-        } => {
-            if let Some(project_id) = project_id.as_deref() {
-                validate_id("project_id", project_id)?;
-                require_project(connection, library_id, project_id)?;
-            }
-            Ok(ProjectWorkspaceReadValue::Sessions {
-                sessions: read_sessions(
-                    connection,
-                    library_id,
-                    project_id.as_deref(),
-                    include_archived.unwrap_or(false),
-                    false,
-                )?,
-            })
-        }
+            window,
+        } => Ok(ProjectWorkspaceReadValue::TaskWindow {
+            tasks: super::task_window::read_task_window(
+                connection,
+                library_id,
+                event_head,
+                project_id.as_deref(),
+                include_archived.unwrap_or(false),
+                &window,
+            )?,
+        }),
+        ProjectWorkspaceRead::SidebarOverview {
+            include_archived,
+            pinned_window,
+        } => Ok(ProjectWorkspaceReadValue::SidebarOverview {
+            pinned_tasks: super::task_window::read_pinned_task_window(
+                connection,
+                library_id,
+                event_head,
+                include_archived.unwrap_or(false),
+                &pinned_window,
+            )?,
+        }),
         ProjectWorkspaceRead::Session { session_id } => {
             validate_id("session_id", &session_id)?;
             let row = read_session(connection, library_id, &session_id)?
@@ -107,28 +119,18 @@ pub(super) fn read(
                 ),
             })
         }
-        ProjectWorkspaceRead::Threads {
-            project_id,
-            include_archived,
-        } => Ok(ProjectWorkspaceReadValue::Threads {
-            threads: read_threads(
-                connection,
-                library_id,
-                project_id.as_deref(),
-                None,
-                include_archived.unwrap_or(false),
-            )?,
-        }),
-        ProjectWorkspaceRead::ChildThreads {
+        ProjectWorkspaceRead::ChildThreadWindow {
             parent_thread_id,
             include_archived,
-        } => Ok(ProjectWorkspaceReadValue::ChildThreads {
-            threads: read_threads(
+            window,
+        } => Ok(ProjectWorkspaceReadValue::ChildThreadWindow {
+            threads: super::child_thread_window::read_child_thread_window(
                 connection,
                 library_id,
-                None,
-                Some(&parent_thread_id),
+                event_head,
+                &parent_thread_id,
                 include_archived.unwrap_or(false),
+                &window,
             )?,
         }),
         ProjectWorkspaceRead::ExecutionContext { thread_id } => {
@@ -173,66 +175,29 @@ pub(super) fn read(
                 &actor_project_id,
             )?,
         }),
-        ProjectWorkspaceRead::BackgroundProcesses { thread_id } => {
-            Ok(ProjectWorkspaceReadValue::BackgroundProcesses {
-                processes: execution::read_background_processes(
+        ProjectWorkspaceRead::BackgroundProcessWindow { thread_id, window } => {
+            Ok(ProjectWorkspaceReadValue::BackgroundProcessWindow {
+                processes: execution::read_background_process_window(
                     connection,
                     library_id,
+                    event_head,
                     thread_id.as_deref(),
+                    &window,
                 )?,
             })
         }
-        ProjectWorkspaceRead::Sidebar { include_archived } => {
-            Ok(ProjectWorkspaceReadValue::Sidebar {
-                sidebar: Box::new(sidebar::read_sidebar(
+        ProjectWorkspaceRead::ManagedWorktreeWindow { project_id, window } => {
+            Ok(ProjectWorkspaceReadValue::ManagedWorktreeWindow {
+                worktrees: super::managed_worktree_window::read_managed_worktree_window(
                     connection,
                     library_id,
-                    include_archived.unwrap_or(false),
-                )?),
+                    event_head,
+                    project_id.as_deref(),
+                    &window,
+                )?,
             })
         }
-        ProjectWorkspaceRead::ManagedWorktrees { project_id } => {
-            validate_id("project_id", &project_id)?;
-            require_project(connection, library_id, &project_id)?;
-            let roots = connection
-                .prepare(
-                    "SELECT DISTINCT managed_worktree_path FROM codex_threads \
-                     WHERE project_id = ?1 AND managed_worktree_path IS NOT NULL \
-                       AND length(trim(managed_worktree_path)) > 0 \
-                     ORDER BY managed_worktree_path",
-                )?
-                .query_map([project_id], |row| row.get::<_, String>(0))?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            Ok(ProjectWorkspaceReadValue::ManagedWorktrees { roots })
-        }
     }
-}
-
-fn read_projects(
-    connection: &Connection,
-    library_id: &str,
-    include_archived: bool,
-) -> Result<Vec<ProjectWorkspaceProject>, StoreError> {
-    let rows = connection
-        .prepare(
-            "SELECT project.id, project.library_id, project.database_block_id, \
-               project.lifecycle, project.binding_revision, project.name, project.description, \
-               project.icon, pinned.\"order\", project.created, project.updated \
-             FROM projects project \
-             LEFT JOIN project_order ordering ON ordering.project_id = project.id \
-             LEFT JOIN pinned_project_order pinned ON pinned.project_id = project.id \
-             WHERE project.library_id = ?1 AND (?2 = 1 OR project.lifecycle <> 'archived') \
-             ORDER BY COALESCE(ordering.\"order\", 9223372036854775807), \
-               project.created, project.id",
-        )?
-        .query_map(
-            params![library_id, i64::from(include_archived)],
-            project_row,
-        )?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    rows.into_iter()
-        .map(|row| project(connection, row))
-        .collect()
 }
 
 pub(super) fn read_project(
@@ -256,7 +221,7 @@ pub(super) fn read_project(
         .transpose()
 }
 
-fn project_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectRow> {
+pub(super) fn project_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectRow> {
     Ok(ProjectRow {
         id: row.get(0)?,
         library_id: row.get(1)?,
@@ -272,7 +237,7 @@ fn project_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectRow> {
     })
 }
 
-fn project(
+pub(super) fn project(
     connection: &Connection,
     row: ProjectRow,
 ) -> Result<ProjectWorkspaceProject, StoreError> {
@@ -313,52 +278,6 @@ fn project(
         created_at: row.created_at,
         updated_at: row.updated_at,
     })
-}
-
-fn read_sessions(
-    connection: &Connection,
-    library_id: &str,
-    project_id: Option<&str>,
-    include_archived: bool,
-    all_projects: bool,
-) -> Result<Vec<ProjectWorkspaceSessionSummary>, StoreError> {
-    let sql = "SELECT session.id, session.project_id, session.no_thread_fallback_title, \
-           session.\"order\", session.pinned, session.pinned_order, session.archived, \
-           session.archived_at, session.unread, session.initial_database_view_id, \
-           thread.thread_id, thread.thread_name, \
-           thread.thread_preview, session.created_at, session.updated_at \
-         FROM project_sessions session \
-         LEFT JOIN project_session_threads link ON link.session_id = session.id \
-         LEFT JOIN codex_threads thread ON thread.thread_id = link.thread_id \
-         WHERE (\
-           (?1 = 1 AND (\
-             session.project_id IS NULL OR EXISTS (\
-               SELECT 1 FROM projects owner \
-               WHERE owner.id = session.project_id \
-                 AND owner.library_id = ?2 AND owner.lifecycle <> 'archived'\
-             )\
-           )) OR \
-           (?1 = 0 AND (\
-             (?3 IS NULL AND session.project_id IS NULL) OR session.project_id = ?3\
-           ))\
-         ) AND (?4 = 1 OR session.archived = 0) \
-         ORDER BY CASE WHEN session.project_id IS NULL THEN 0 ELSE 1 END, session.project_id, \
-           CASE WHEN session.pinned = 1 THEN 0 ELSE 1 END, \
-           CASE WHEN session.pinned = 1 \
-             THEN COALESCE(session.pinned_order, 9223372036854775807) \
-             ELSE session.\"order\" END, session.created_at, session.id";
-    let mut statement = connection.prepare(sql)?;
-    let mut rows = statement.query(params![
-        i64::from(all_projects),
-        library_id,
-        project_id,
-        i64::from(include_archived)
-    ])?;
-    let mut result = Vec::new();
-    while let Some(row) = rows.next()? {
-        result.push(session_summary(session_row(row)?));
-    }
-    Ok(result)
 }
 
 fn read_session(
@@ -478,6 +397,7 @@ fn corrupt(message: &str) -> StoreError {
 
 #[cfg(test)]
 mod tests {
+    use nodex_core_contracts::collection::CollectionWindowRequest;
     use nodex_core_contracts::workspace::{ProjectWorkspaceRead, ProjectWorkspaceReadValue};
     use nodex_core_contracts::{
         AdapterKind, BoundModuleContext, CoreErrorCode, LibraryId, ModuleReadRequest,
@@ -626,13 +546,21 @@ mod tests {
     }
 
     #[test]
-    fn reads_coherent_startup_project_session_thread_and_worktree_snapshots() {
+    fn reads_coherent_project_task_thread_and_worktree_snapshots() {
         let (_directory, _kernel, module) = seeded_module();
-        let ProjectWorkspaceReadValue::Startup { projects, sessions } =
-            read(&module, ProjectWorkspaceRead::Startup)
-        else {
-            panic!("startup snapshot");
+        let ProjectWorkspaceReadValue::ProjectWindow { projects } = read(
+            &module,
+            ProjectWorkspaceRead::ProjectWindow {
+                include_archived: Some(false),
+                window: CollectionWindowRequest {
+                    after: None,
+                    first: Some(50),
+                },
+            },
+        ) else {
+            panic!("Project window");
         };
+        let projects = projects.items;
         assert_eq!(projects.len(), 1);
         assert_eq!(projects[0].id, "project-1");
         assert_eq!(projects[0].database_id, "database-1");
@@ -645,49 +573,66 @@ mod tests {
         assert_eq!(projects[0].sources.len(), 2);
         assert!(projects[0].pinned);
         assert_eq!(projects[0].pinned_order, Some(4));
-        assert_eq!(
-            sessions
-                .iter()
-                .map(|session| session.id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["session-projectless", "session-project"]
-        );
-        assert_eq!(sessions[1].display_title, "Thread preview");
-        assert!(sessions[1].unread);
-        assert_eq!(sessions[1].thread_id.as_deref(), Some("thread-1"));
-
-        let ProjectWorkspaceReadValue::Projects { projects } = read(
+        let ProjectWorkspaceReadValue::TaskWindow { tasks } = read(
             &module,
-            ProjectWorkspaceRead::Projects {
-                include_archived: Some(false),
-            },
-        ) else {
-            panic!("active Projects snapshot");
-        };
-        assert_eq!(
-            projects
-                .iter()
-                .map(|project| project.id.as_str())
-                .collect::<Vec<_>>(),
-            ["project-1"]
-        );
-
-        let ProjectWorkspaceReadValue::Projects { projects } = read(
-            &module,
-            ProjectWorkspaceRead::Projects {
+            ProjectWorkspaceRead::TaskWindow {
+                project_id: Some("project-1".to_owned()),
                 include_archived: Some(true),
+                window: CollectionWindowRequest {
+                    after: None,
+                    first: Some(50),
+                },
             },
         ) else {
-            panic!("all Projects snapshot");
+            panic!("Project task window");
         };
+        assert_eq!(tasks.items.len(), 2);
+        assert!(tasks.items.iter().any(|task| task.session.archived));
+        let linked = tasks
+            .items
+            .iter()
+            .find(|task| task.session.id == "session-project")
+            .expect("linked Project task");
+        assert_eq!(linked.session.display_title, "Thread preview");
+        assert!(linked.session.unread);
         assert_eq!(
-            projects
-                .iter()
-                .map(|project| project.id.as_str())
-                .collect::<Vec<_>>(),
-            ["project-1", "project-2"]
+            linked
+                .thread
+                .as_ref()
+                .map(|thread| thread.thread_id.as_str()),
+            Some("thread-1")
         );
-        assert_eq!(projects[1].binding_revision, 2);
+
+        let ProjectWorkspaceReadValue::TaskWindow { tasks } = read(
+            &module,
+            ProjectWorkspaceRead::TaskWindow {
+                project_id: None,
+                include_archived: None,
+                window: CollectionWindowRequest {
+                    after: None,
+                    first: Some(50),
+                },
+            },
+        ) else {
+            panic!("Projectless task window");
+        };
+        assert_eq!(tasks.items.len(), 1);
+        assert_eq!(tasks.items[0].session.id, "session-projectless");
+
+        let ProjectWorkspaceReadValue::ProjectWindow { projects } = read(
+            &module,
+            ProjectWorkspaceRead::ProjectWindow {
+                include_archived: Some(true),
+                window: CollectionWindowRequest {
+                    after: None,
+                    first: Some(50),
+                },
+            },
+        ) else {
+            panic!("all Project window");
+        };
+        assert_eq!(projects.items.len(), 2);
+        assert_eq!(projects.items[1].binding_revision, 2);
 
         let ProjectWorkspaceReadValue::Project { project } = read(
             &module,
@@ -701,30 +646,6 @@ mod tests {
             project.lifecycle,
             nodex_core_contracts::workspace::ProjectLifecycle::Archived
         );
-
-        let ProjectWorkspaceReadValue::Sessions { sessions } = read(
-            &module,
-            ProjectWorkspaceRead::Sessions {
-                project_id: Some("project-1".to_owned()),
-                include_archived: Some(true),
-            },
-        ) else {
-            panic!("sessions snapshot");
-        };
-        assert_eq!(sessions.len(), 2);
-        assert!(sessions.iter().any(|session| session.archived));
-
-        let ProjectWorkspaceReadValue::Sessions { sessions } = read(
-            &module,
-            ProjectWorkspaceRead::Sessions {
-                project_id: None,
-                include_archived: None,
-            },
-        ) else {
-            panic!("projectless sessions snapshot");
-        };
-        assert_eq!(sessions.len(), 1);
-        assert_eq!(sessions[0].id, "session-projectless");
 
         let ProjectWorkspaceReadValue::Session { session } = read(
             &module,
@@ -748,15 +669,26 @@ mod tests {
         assert_eq!(thread.session_id.as_deref(), Some("session-project"));
         assert_eq!(thread.project_id.as_deref(), Some("project-1"));
 
-        let ProjectWorkspaceReadValue::ManagedWorktrees { roots } = read(
+        let ProjectWorkspaceReadValue::ManagedWorktreeWindow { worktrees } = read(
             &module,
-            ProjectWorkspaceRead::ManagedWorktrees {
-                project_id: "project-1".to_owned(),
+            ProjectWorkspaceRead::ManagedWorktreeWindow {
+                project_id: Some("project-1".to_owned()),
+                window: CollectionWindowRequest {
+                    after: None,
+                    first: Some(50),
+                },
             },
         ) else {
             panic!("managed worktrees snapshot");
         };
-        assert_eq!(roots, vec!["/worktrees/shared", "/worktrees/zeta"]);
+        assert_eq!(
+            worktrees
+                .items
+                .iter()
+                .map(|worktree| worktree.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["/worktrees/shared", "/worktrees/zeta"]
+        );
 
         let foreign_session = module
             .read(
@@ -795,7 +727,13 @@ mod tests {
                 &foreign,
                 ModuleReadRequest {
                     contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
-                    read: ProjectWorkspaceRead::Startup,
+                    read: ProjectWorkspaceRead::ProjectWindow {
+                        include_archived: Some(false),
+                        window: CollectionWindowRequest {
+                            after: None,
+                            first: Some(50),
+                        },
+                    },
                 },
             )
             .expect_err("reject foreign Adapter identity");
