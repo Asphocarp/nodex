@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import {
@@ -28,7 +27,7 @@ describe("local macOS app installer", () => {
     );
 
     expect(parsed.appPath).toBe("/tmp/repository/dist/mac-arm64/Nodex.app");
-    expect(parsed.destination).toBe(join(process.env.HOME!, "Applications/Nodex Dev.app"));
+    expect(parsed.destination).toBe("/Applications/Nodex Dev.app");
     expect(parsed.installCli).toBe(true);
     expect(parsed.targetArch).toBe("arm64");
   });

@@ -27,7 +27,7 @@ export interface LocalMacInstallOptions {
   readonly targetArch: NativeRuntimeArchitecture;
 }
 
-const DEFAULT_DESTINATION = join(homedir(), "Applications", "Nodex Dev.app");
+const DEFAULT_DESTINATION = "/Applications/Nodex Dev.app";
 const DEFAULT_CLI_TARGET = join(homedir(), ".local", "bin", "nodex");
 const PRODUCTION_DESTINATION = "/Applications/Nodex.app";
 

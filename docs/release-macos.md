@@ -449,15 +449,13 @@ separate. The installer infers the standard output for the current architecture:
 
 ```bash
 pnpm run package:mac
-pnpm run install:local:mac -- \
-  --destination "$HOME/Applications/Nodex Dev.app" \
-  --install-cli
+pnpm run install:local:mac -- --install-cli
 ```
 
-The deployer refuses a running Nodex process, verifies the source and staged
-bundle, copies with `ditto`, performs a same-filesystem replacement with a
-rollback app, verifies the installed result, and only then removes the rollback.
-It will not target `/Applications/Nodex.app` unless
+The deployer defaults to `/Applications/Nodex Dev.app`, refuses a running Nodex
+process, verifies the source and staged bundle, copies with `ditto`, performs a
+same-filesystem replacement with a rollback app, verifies the installed result,
+and only then removes the rollback. It will not target `/Applications/Nodex.app` unless
 `--allow-production-destination` is explicit. A nonstandard package can still
 be selected with `--app-path`. `install.sh` is only a temporary deprecated
 forwarding shim for this command.

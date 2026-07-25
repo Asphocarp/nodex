@@ -1150,7 +1150,7 @@ pnpm run package:mac
 pnpm run install:local:mac -- --install-cli
 ```
 
-The local deployer defaults to `~/Applications/Nodex Dev.app`, verifies the
+The local deployer defaults to `/Applications/Nodex Dev.app`, verifies the
 source and same-filesystem staging copy, uses `ditto`, preserves the previous
 destination as a rollback app until the installed copy verifies, and requires
 `--allow-production-destination` before it can target
