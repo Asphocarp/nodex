@@ -91,7 +91,6 @@ fn read_task_window_in_scope(
         },
         library_id,
         query_fingerprint: &fingerprint,
-        projection_revision: event_head,
     };
     let coordinate = normalized
         .after
@@ -402,6 +401,24 @@ mod tests {
                 .as_deref()
                 .is_some_and(|cursor| cursor.starts_with("nxc1."))
         );
+
+        // A workspace write between windows must not invalidate the cursor.
+        create_session_thread(
+            &workspace.module,
+            "chat-live",
+            "session:chat:live",
+            "thread:chat:live",
+            None,
+            9,
+        );
+        let continued = task_window(&workspace, None, first.next_cursor.clone(), 2);
+        assert_eq!(continued.items.len(), 2);
+        assert!(first.items.iter().all(|left| {
+            continued
+                .items
+                .iter()
+                .all(|right| left.session.id != right.session.id)
+        }));
     }
 
     #[test]

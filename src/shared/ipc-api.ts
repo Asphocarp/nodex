@@ -366,10 +366,14 @@ import type {
   WorkspaceFileWriteResult,
 } from "./types";
 import type {
+  DatabaseViewGroupsInput,
+  DatabaseViewGroupsSnapshot,
   DatabaseViewWindowInput,
   DatabaseViewWindowSnapshot,
+  LibraryDatabaseViewGroupsSnapshot,
   LibraryDatabaseViewWindowSnapshot,
 } from "./database-views";
+import type { CoreReadResult } from "./core-read-result";
 import type {
   NativeContextMenuItem,
   NativeContextMenuOptions,
@@ -828,7 +832,11 @@ export interface IpcApi {
   };
   "database:view-window:get": {
     args: [projectId: string, input: DatabaseViewWindowInput];
-    result: DatabaseViewWindowSnapshot;
+    result: CoreReadResult<DatabaseViewWindowSnapshot>;
+  };
+  "database:view-groups:get": {
+    args: [projectId: string, input: DatabaseViewGroupsInput];
+    result: CoreReadResult<DatabaseViewGroupsSnapshot>;
   };
   "library-database:view-window:get": {
     args: [
@@ -837,7 +845,16 @@ export interface IpcApi {
         | { readonly databaseId: string }
       ),
     ];
-    result: LibraryDatabaseViewWindowSnapshot;
+    result: CoreReadResult<LibraryDatabaseViewWindowSnapshot>;
+  };
+  "library-database:view-groups:get": {
+    args: [
+      input: DatabaseViewGroupsInput & (
+        | { readonly databaseViewId: string }
+        | { readonly databaseId: string }
+      ),
+    ];
+    result: CoreReadResult<LibraryDatabaseViewGroupsSnapshot>;
   };
   "pages:search": {
     args: [input: PageSearchInput];

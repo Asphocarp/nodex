@@ -170,7 +170,6 @@ pub(super) fn read_occurrence_window(
         kind: "automation_occurrences",
         library_id,
         query_fingerprint: &fingerprint,
-        projection_revision: event_head,
     };
     let after = normalized
         .after

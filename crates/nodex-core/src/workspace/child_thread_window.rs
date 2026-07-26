@@ -49,7 +49,6 @@ pub(super) fn read_child_thread_window(
         kind: "workspace_child_threads",
         library_id,
         query_fingerprint: &fingerprint,
-        projection_revision: event_head,
     };
     let coordinate = normalized
         .after

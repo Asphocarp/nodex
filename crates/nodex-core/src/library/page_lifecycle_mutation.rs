@@ -337,6 +337,7 @@ fn create_page(
             sort: None,
             window: None,
             page_ids: None,
+            group_scope: None,
         },
     )?;
     let source = read_create_source(connection, library_id, data_source_id)?;

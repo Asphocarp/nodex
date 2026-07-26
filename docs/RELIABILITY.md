@@ -54,7 +54,7 @@
 - Cross-window DnD is intentionally rejected. Kanban Card drags never publish native reference MIME, another renderer cannot satisfy the in-memory editor-source boundary, and cross-window content consistency remains owned by SQLite/Y.Doc synchronization.
 - The Kanban element monitor is one stable subscription per Board instance. Selection, filtering, optimistic Board updates, and drag feedback may rerender the Board without cleaning up that subscription; Effect Events provide its callbacks with current state. A BlockTransfer editor target suppresses any ancestor column placement, so one gesture has exactly one semantic destination and one mutation owner.
 - Canonical Page and Database View references read bounded summaries through Project-authorized IPC/HTTP adapters; the browser boundary validates/revives Page dates and one multiplexed Board stream serves all reference queries for a Project context. Disclosure preference is disposable browser-Profile state keyed by stable shell Block identity and never enters Y.Doc, NFM, history, backup, or undo. Collapsed rows own no provider; only effectively expanded and visible rows mount the target Page's independently prepared Y.Doc, with a small per-mounted-surface activation budget that protects the focused editor. Temporary target unavailability suppresses effective expansion without rewriting the preference. An inherited ancestry path blocks self and indirect cycles. Canonical reference Blocks are childless at the authority validator. Database View filter/sort/include-host rules execute over live membership rows before transport, while positions remain presentation state and visibility/provider activation remain ephemeral.
-- Database View collections use signed keyset continuations bound to the Library, Store epoch, View query fingerprint, and projection revision. Core enforces both a 200-row maximum and a 1 MiB encoded-window budget; a stale continuation fails with a typed conflict. The 16 MiB ordinary-response ceiling is only a transport fault boundary. Window rows contain exact-head title/preview and Database placement/value evidence but no NFM; one Page detail identity read is the only Database path that materializes its body.
+- Database View collections use signed keyset continuations bound to the Library, Store epoch, and View query fingerprint (which covers the View config and any group scope). A continuation stays valid while data mutates: the coordinate remains a well-defined seek point, and loaded windows converge through projection invalidation instead of cursor conflicts. Only an epoch rotation, a query-shape change, or a payload-version change rejects a cursor, and every consumer treats that rejection as disposable read state — it drops the cursor and silently re-reads its span from the first window. Core enforces both a 200-row maximum and a 1 MiB encoded-window budget; grouped Views additionally serve per-group scoped windows and a bounded per-group totals read whose counts derive from the same candidate predicate. The 16 MiB ordinary-response ceiling is only a transport fault boundary. Window rows contain exact-head title/preview and Database placement/value evidence but no NFM; one Page detail identity read is the only Database path that materializes its body.
 - A multi-Page Kanban drag captures the primary Database descriptor and View query under one SQLite read cursor, compiles bounded `set_values` plus `position_pages` intent once, and retries only the exact request after transport uncertainty. The writer removes the selected run before resolving one external anchor and commits every value/rank/revision/receipt row together. A typed stale conflict refreshes the Board and exposes no partial movement; duplicate/lost-response replay produces no second fanout.
 - Database management captures the complete catalog, all active Page summaries (including Library- or Page-parented Pages), each sole active membership, and current View positions under one SQLite cursor. Schema/View/value operations use the Database mutation contract; membership add/remove/transfer compiles to logical `BlockTransfer`. Public Database transports reject `transfer_membership`, preventing placement from bypassing the exclusive-parent transaction.
 
@@ -196,10 +196,15 @@
   growing Module collection must still return a `CollectionWindow` with at
   most 200 items and a 1 MiB encoded semantic budget. Its continuation is an
   opaque HMAC-signed keyset cursor bound to Library, Store epoch, query
-  fingerprint, projection revision, direction, and the last stable coordinate.
-  The cursor never grants authority, and a consumer must restart from the first
-  window after an epoch or revision conflict. OFFSET and full-load-then-slice
-  are not valid implementations of this contract.
+  fingerprint, direction, and the last stable coordinate. The cursor is a
+  coordinate, not a snapshot claim: data mutations never invalidate it, and
+  concurrent writers can never livelock a reader out of finishing its
+  pagination. Only signature/shape failures, a query-fingerprint mismatch, a
+  Store-epoch rotation, or a payload-version change reject a cursor, and the
+  consumer contract for any rejection is to drop the cursor and silently
+  converge from the first window — never to surface it as an error. The cursor
+  never grants authority. OFFSET and full-load-then-slice are not valid
+  implementations of this contract.
 - `pnpm run core:failure-matrix -- --profile <.generated/rust-core-migration/path>`
   is the executable Gate D recovery audit. It refuses nonempty, symlinked, or
   out-of-tree Profiles; verifies the named behavior tests still exist; runs all

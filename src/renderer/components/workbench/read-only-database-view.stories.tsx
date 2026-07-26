@@ -136,6 +136,7 @@ const model: DatabaseViewRenderModel = {
   columns: [
     {
       id: "build",
+      scopeKey: "key:build",
       name: "Build",
       rows: [{
         pageId: "page-1",
@@ -148,7 +149,7 @@ const model: DatabaseViewRenderModel = {
         createdAt: new Date(timestamp),
       }],
     },
-    { id: "ship", name: "Ship", rows: [] },
+    { id: "ship", name: "Ship", scopeKey: "key:ship", rows: [] },
   ],
 };
 
@@ -184,6 +185,7 @@ const withKind = (
   },
   columns: [{
     id: "all",
+    scopeKey: "all",
     name: "Focused work",
     rows: model.columns.flatMap((column) => column.rows),
   }],

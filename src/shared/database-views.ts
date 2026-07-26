@@ -64,12 +64,57 @@ export interface DatabaseViewReadModel {
   readonly rows: readonly DatabaseViewPageRow[];
 }
 
+/**
+ * Restricts a window read to one group of a grouped View so each board column
+ * pages independently. `unassigned` addresses rows whose grouping Property
+ * value is empty (null, empty string, or empty list).
+ */
+export type DatabaseViewGroupScopeInput =
+  | { readonly kind: "key"; readonly key: string }
+  | { readonly kind: "unassigned" };
+
 export interface DatabaseViewWindowInput {
   readonly databaseViewId?: string;
   readonly databaseId?: string;
   readonly after?: string;
   readonly first?: number;
+  readonly groupScope?: DatabaseViewGroupScopeInput;
 }
+
+export interface DatabaseViewGroupsInput {
+  readonly databaseViewId?: string;
+  readonly databaseId?: string;
+}
+
+export interface DatabaseViewGroupSummarySnapshot {
+  /** `null` counts the unassigned group (empty grouping value). */
+  readonly groupKey: string | null;
+  readonly totalRows: number;
+}
+
+/**
+ * Bounded per-group totals observed from data. `grouped: false` means the
+ * View has no grouping Property and only `totalRows` is meaningful;
+ * `truncated` reports that grouping cardinality exceeded the fixed bound.
+ */
+export interface DatabaseViewGroupsSnapshot<
+  ProjectScope extends string | null = string,
+> {
+  readonly projectId: ProjectScope;
+  readonly libraryId: string;
+  readonly databaseId: string;
+  readonly dataSourceId: string;
+  readonly viewId: string;
+  readonly storeEpoch: string;
+  readonly changeLogSeq: number;
+  readonly grouped: boolean;
+  readonly totalRows: number;
+  readonly truncated: boolean;
+  readonly groups: readonly DatabaseViewGroupSummarySnapshot[];
+}
+
+export type LibraryDatabaseViewGroupsSnapshot =
+  DatabaseViewGroupsSnapshot<null>;
 
 /**
  * A bounded Database View projection. `nextCursor` is the only indication that

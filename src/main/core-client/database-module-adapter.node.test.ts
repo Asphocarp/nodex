@@ -42,7 +42,7 @@ const databaseRecord = () => ({
 });
 
 const databaseSnapshot = () => ({
-  contract_version: 3 as const,
+  contract_version: 4 as const,
   store_epoch: identity.storeEpoch,
   event_head: 17,
   value: {
@@ -52,7 +52,7 @@ const databaseSnapshot = () => ({
 });
 
 const emptyDataSourceWindowSnapshot = () => ({
-  contract_version: 3 as const,
+  contract_version: 4 as const,
   store_epoch: identity.storeEpoch,
   event_head: 17,
   value: {
@@ -66,7 +66,7 @@ const emptyDataSourceWindowSnapshot = () => ({
 });
 
 const emptyViewDescriptorWindowSnapshot = () => ({
-  contract_version: 3 as const,
+  contract_version: 4 as const,
   store_epoch: identity.storeEpoch,
   event_head: 17,
   value: {
@@ -134,7 +134,7 @@ describe("Core Database Module Adapter", () => {
   test("assembles legacy Property options only from bounded Core windows", async () => {
     const client = new FakeCoreClient();
     const base = {
-      contract_version: 3 as const,
+      contract_version: 4 as const,
       store_epoch: identity.storeEpoch,
       event_head: 19,
     };
@@ -642,6 +642,100 @@ describe("Core Database Module Adapter", () => {
     await expect(bridge.read(request)).resolves.toMatchObject({ ok: true });
     await expect(bridge.read(request)).resolves.toMatchObject({ ok: true });
     expect(requestedProjects).toEqual([identity.projectId]);
+  });
+
+  test("maps bounded group totals from the view_groups read", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueDatabaseRead({
+      contract_version: 4 as const,
+      store_epoch: identity.storeEpoch,
+      event_head: 21,
+      value: {
+        kind: "view_groups" as const,
+        value: {
+          database_id: "database:test",
+          data_source_id: "source:test",
+          view_id: "view:test",
+          grouped: true,
+          total_rows: 7,
+          truncated: false,
+          groups: [
+            { group_key: "triage", total_rows: 4 },
+            { group_key: null, total_rows: 3 },
+          ],
+        },
+      },
+    });
+    const runtime = {
+      backend: "rust",
+      rootClient: {
+        handshake: createFakeCoreHandshake({
+          libraryId: identity.libraryId,
+          profileId: "profile:test",
+          storeEpoch: identity.storeEpoch,
+        }),
+      },
+      clientForProject: () => client,
+    } as unknown as RustDataAuthorityRuntime;
+    const bridge = createDesktopDatabaseModuleBridge({
+      authority: Promise.resolve(runtime),
+    });
+
+    const groups = await bridge.getDatabaseViewGroups(identity.projectId, {
+      databaseViewId: "view:test",
+    });
+
+    expect(client.databaseReads[0]).toMatchObject({
+      mode: "view_groups",
+      target: { kind: "view", view_id: "view:test" },
+    });
+    expect(groups).toMatchObject({
+      projectId: identity.projectId,
+      libraryId: identity.libraryId,
+      viewId: "view:test",
+      grouped: true,
+      totalRows: 7,
+      truncated: false,
+      groups: [
+        { groupKey: "triage", totalRows: 4 },
+        { groupKey: null, totalRows: 3 },
+      ],
+    });
+  });
+
+  test("passes a window group scope through to the Core read", async () => {
+    const client = new FakeCoreClient();
+    // A wrong-kind response makes the helper throw after the Core read has
+    // been issued, which is all this passthrough assertion needs.
+    client.enqueueDatabaseRead(databaseSnapshot());
+    const runtime = {
+      backend: "rust",
+      rootClient: {
+        handshake: createFakeCoreHandshake({
+          libraryId: identity.libraryId,
+          profileId: "profile:test",
+          storeEpoch: identity.storeEpoch,
+        }),
+      },
+      clientForProject: () => client,
+    } as unknown as RustDataAuthorityRuntime;
+    const bridge = createDesktopDatabaseModuleBridge({
+      authority: Promise.resolve(runtime),
+    });
+
+    await expect(
+      bridge.getDatabaseViewWindow(identity.projectId, {
+        databaseViewId: "view:test",
+        first: 25,
+        groupScope: { kind: "key", key: "triage" },
+      }),
+    ).rejects.toThrow("non-window");
+
+    expect(client.databaseReads[0]).toMatchObject({
+      mode: "view_window",
+      window: { first: 25 },
+      group_scope: { kind: "key", key: "triage" },
+    });
   });
 
   test("maps Database Core events into resource-scoped renderer invalidations", () => {

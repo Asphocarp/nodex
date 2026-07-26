@@ -55,6 +55,9 @@ fn database_policy(mode: DatabaseReadMode) -> ReadBudgetPolicy {
         | DatabaseReadMode::AgentQuery
         | DatabaseReadMode::ViewWindow => ReadBudgetPolicy::CollectionWindow,
         DatabaseReadMode::RowsById => ReadBudgetPolicy::BoundedBatch,
+        // Group summaries are capped at MAX_VIEW_GROUP_SUMMARIES with an
+        // explicit truncation flag, so the response cardinality is finite.
+        DatabaseReadMode::ViewGroups => ReadBudgetPolicy::FixedDomain,
         DatabaseReadMode::Database
         | DatabaseReadMode::DataSource
         | DatabaseReadMode::View

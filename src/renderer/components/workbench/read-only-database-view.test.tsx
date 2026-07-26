@@ -131,6 +131,7 @@ const model: DatabaseViewRenderModel = {
   },
   columns: [{
     id: "build",
+    scopeKey: "key:build",
     name: "In Progress",
     rows: [{
       pageId: "page-focused",

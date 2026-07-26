@@ -121,6 +121,7 @@ export function ListView({
     hasMore,
     error,
     loadMore,
+    totalRows,
   } = useKanban({ projectId, databaseViewId });
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const retainedScroll = useRetainedScrollPosition<HTMLDivElement>(scrollStateKey ?? null, {
@@ -289,8 +290,9 @@ export function ListView({
     );
   }
 
-  // Error state
-  if (error) {
+  // A full-view error is only warranted when the first window never loaded;
+  // with content on screen, refresh/continuation failures stay non-destructive.
+  if (error && !board) {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-sm text-(--destructive)">
@@ -468,21 +470,25 @@ export function ListView({
             })}
           </tbody>
         </table>
-      </div>
-      {hasMore ? (
-        <div className="flex justify-center border-t border-(--table-border) py-2">
+        {/* In-flow continuation row: scrolls with the rows it extends. */}
+        {hasMore ? (
           <button
             type="button"
-            className="rounded-md px-3 py-1.5 text-xs font-medium text-(--foreground-secondary) hover:bg-(--surface-hover) disabled:opacity-50"
+            className="flex w-full items-center gap-2 px-2 py-2 text-xs font-medium text-(--foreground-secondary) hover:bg-(--surface-hover) disabled:opacity-50"
             disabled={loadingMore}
             onClick={() => {
               void loadMore();
             }}
           >
-            {loadingMore ? "Loading…" : "Show more"}
+            <span>{loadingMore ? "Loading…" : "Show more"}</span>
+            {totalRows !== null ? (
+              <span className="font-normal text-(--foreground-tertiary)">
+                {sortedCards.length} of {totalRows}
+              </span>
+            ) : null}
           </button>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </>
   );
 }

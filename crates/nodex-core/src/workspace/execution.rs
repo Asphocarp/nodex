@@ -201,7 +201,6 @@ pub(super) fn read_background_process_window(
         kind: "workspace_background_processes",
         library_id,
         query_fingerprint: &fingerprint,
-        projection_revision: event_head,
     };
     let coordinate = normalized
         .after

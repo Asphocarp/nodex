@@ -7,7 +7,11 @@ import type {
   DatabaseViewWindowSnapshot,
   LibraryDatabaseViewWindowSnapshot,
 } from "../../../shared/database-views";
-import { invoke } from "../../lib/api";
+import {
+  CoreApiError,
+  readDatabaseViewWindow,
+  readLibraryDatabaseViewWindow,
+} from "../../lib/api";
 import {
   invalidateExactQuery,
   projectionCursorForSnapshots,
@@ -35,13 +39,13 @@ const readDatabaseWindowForContext = async (
   after: string | null,
 ): Promise<DatabaseViewWindowSnapshot | LibraryDatabaseViewWindowSnapshot> => {
   if (accessProjectId) {
-    return await invoke("database:view-window:get", accessProjectId, {
+    return await readDatabaseViewWindow(accessProjectId, {
       ...target,
       after: after ?? undefined,
       first: 100,
     });
   }
-  return await invoke("library-database:view-window:get", {
+  return await readLibraryDatabaseViewWindow({
     ...target,
     after: after ?? undefined,
     first: 100,
@@ -95,6 +99,19 @@ export function LibraryDatabaseRoute({
     },
     getNextPageParam: (window) => window.nextCursor ?? undefined,
   });
+
+  // A rejected continuation is disposable read state: drop the cached pages
+  // and converge from the first window instead of surfacing an error.
+  const queryError = query.error;
+  useEffect(() => {
+    if (
+      queryError instanceof CoreApiError
+      && queryError.isCursorRejection({ requestHadCursor: true })
+    ) {
+      void queryClient.resetQueries({ queryKey });
+    }
+  }, [queryClient, queryError, queryKey]);
+
   const windows = query.data?.pages;
   const firstWindow = windows?.[0];
   const value = useMemo(() => {

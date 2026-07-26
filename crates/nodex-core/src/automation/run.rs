@@ -69,7 +69,6 @@ pub(super) fn read_runs_window(
         kind: "automation_runs",
         library_id,
         query_fingerprint: &fingerprint,
-        projection_revision: event_head,
     };
     let after = normalized
         .after
@@ -160,7 +159,6 @@ pub(super) fn read_inbox_window(
         kind: "automation_inbox",
         library_id,
         query_fingerprint: &fingerprint,
-        projection_revision: event_head,
     };
     let after = normalized
         .after

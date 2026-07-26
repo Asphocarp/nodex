@@ -15,6 +15,7 @@ import type {
   DataSourcePropertyRecordV2,
 } from "../../../shared/database-module-v2";
 import type { OpenPageStageOptions } from "@/components/kanban/open-page-stage";
+import type { ColumnPaginationState } from "@/lib/kanban-store";
 import { NodexIconButton } from "@/components/ui/button";
 import { matchesSearchTokens, tokenizeSearchQuery } from "@/lib/page-search";
 import {
@@ -36,6 +37,8 @@ import { cn } from "@/lib/utils";
 
 interface DurableDatabaseViewProps {
   readonly model: DatabaseViewRenderModel;
+  readonly groupPagination?: ReadonlyMap<string, ColumnPaginationState>;
+  readonly onLoadMoreGroup?: (scopeKey: string) => Promise<void> | void;
   readonly searchQuery: string;
   readonly openPageStage: (
     projectId: string,
@@ -363,6 +366,8 @@ const calendarSections = (
 
 export function DatabaseViewSurface({
   model,
+  groupPagination,
+  onLoadMoreGroup,
   searchQuery,
   openPageStage,
   onCommitted,
@@ -392,6 +397,29 @@ export function DatabaseViewSurface({
     [model, searchTokens],
   );
   const allRows = columns.flatMap((column) => column.rows);
+  const continuableScopes = [...(groupPagination?.values() ?? [])]
+    .filter((state) => state.hasMore);
+  const anyContinuationLoading = continuableScopes
+    .some((state) => state.loadingMore);
+  const loadMoreEverywhere = () => {
+    for (const state of continuableScopes) {
+      void onLoadMoreGroup?.(state.scopeKey);
+    }
+  };
+  const groupShowMore = (scopeKey: string) => {
+    const state = groupPagination?.get(scopeKey);
+    if (!state?.hasMore || !onLoadMoreGroup) return null;
+    return (
+      <button
+        type="button"
+        disabled={state.loadingMore}
+        onClick={() => void onLoadMoreGroup(scopeKey)}
+        className="mt-1 w-full rounded-md px-2 py-1 text-left text-xs text-token-text-secondary hover:bg-token-foreground/5 disabled:opacity-50"
+      >
+        {state.loadingMore ? "Loading…" : "Show more"}
+      </button>
+    );
+  };
 
   const commit = async (
     operations: Parameters<typeof commitDatabaseViewOperations>[0]["operations"],
@@ -453,12 +481,16 @@ export function DatabaseViewSurface({
             <section key={column.id} className="w-64 shrink-0">
               <div className="mb-1.5 flex h-7 items-center gap-2 px-1 text-xs text-token-text-secondary">
                 <span className="min-w-0 flex-1 truncate font-medium text-token-text-primary">{column.name}</span>
-                <span>{column.rows.length}</span>
+                <span>
+                  {groupPagination?.get(column.scopeKey)?.totalRows
+                    ?? column.rows.length}
+                </span>
               </div>
               <div className="flex flex-col gap-1">
                 {column.rows.map((row) => (
                   <DurablePageSurface key={row.pageId} compact {...pageProps(row)} />
                 ))}
+                {groupShowMore(column.scopeKey)}
               </div>
             </section>
           ))}
@@ -480,6 +512,16 @@ export function DatabaseViewSurface({
                 </div>
               </section>
             ))}
+            {continuableScopes.length > 0 && onLoadMoreGroup ? (
+              <button
+                type="button"
+                disabled={anyContinuationLoading}
+                onClick={loadMoreEverywhere}
+                className="w-full rounded-md px-2 py-1.5 text-left text-xs text-token-text-secondary hover:bg-token-foreground/5 disabled:opacity-50"
+              >
+                {anyContinuationLoading ? "Loading…" : "Show more"}
+              </button>
+            ) : null}
           </div>
         </div>
       ) : model.query.view.kind === "canvas" ? (
@@ -494,6 +536,16 @@ export function DatabaseViewSurface({
               <DurablePageSurface key={row.pageId} compact {...pageProps(row)} />
             ))}
           </div>
+          {continuableScopes.length > 0 && onLoadMoreGroup ? (
+            <button
+              type="button"
+              disabled={anyContinuationLoading}
+              onClick={loadMoreEverywhere}
+              className="mt-2 w-full rounded-md px-2 py-1.5 text-left text-xs text-token-text-secondary hover:bg-token-foreground/5 disabled:opacity-50"
+            >
+              {anyContinuationLoading ? "Loading…" : "Show more"}
+            </button>
+          ) : null}
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-auto p-3">
@@ -507,6 +559,16 @@ export function DatabaseViewSurface({
               {allRows.map((row) => (
                 <DurablePageSurface key={row.pageId} compact={false} {...pageProps(row)} />
               ))}
+              {continuableScopes.length > 0 && onLoadMoreGroup ? (
+                <button
+                  type="button"
+                  disabled={anyContinuationLoading}
+                  onClick={loadMoreEverywhere}
+                  className="w-full rounded-md px-2 py-1.5 text-left text-xs text-token-text-secondary hover:bg-token-foreground/5 disabled:opacity-50"
+                >
+                  {anyContinuationLoading ? "Loading…" : "Show more"}
+                </button>
+              ) : null}
             </div>
           </div>
         </div>

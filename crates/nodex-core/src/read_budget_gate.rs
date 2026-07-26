@@ -9,9 +9,8 @@ use nodex_core_contracts::database::{
 use nodex_core_contracts::library::{LibraryIntent, LibraryWriteParent};
 use nodex_core_contracts::workspace::{ProjectWorkspaceRead, ProjectWorkspaceReadValue};
 use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, CoreErrorCode, DATABASE_CONTRACT_VERSION, LibraryId,
-    ModuleApplyRequest, ModuleReadRequest, PROJECT_WORKSPACE_CONTRACT_VERSION, ProfileId,
-    ProjectId, StoreEpoch,
+    AdapterKind, BoundModuleContext, DATABASE_CONTRACT_VERSION, LibraryId, ModuleApplyRequest,
+    ModuleReadRequest, PROJECT_WORKSPACE_CONTRACT_VERSION, ProfileId, ProjectId, StoreEpoch,
 };
 use nodex_core_protocol::MAX_ORDINARY_JSON_RESPONSE_BYTES;
 use rusqlite::{Connection, params};
@@ -567,6 +566,7 @@ fn read_budget_gate_large_fixture() {
                         first: Some(200),
                     }),
                     page_ids: None,
+                    group_scope: None,
                 },
             },
         )
@@ -611,6 +611,7 @@ fn read_budget_gate_large_fixture() {
                         first: Some(200),
                     }),
                     page_ids: None,
+                    group_scope: None,
                 },
             },
         )
@@ -646,6 +647,7 @@ fn read_budget_gate_large_fixture() {
                         "page:scale:00000".to_owned(),
                         "page:scale:19999".to_owned(),
                     ]),
+                    group_scope: None,
                 },
             },
         )
@@ -678,6 +680,7 @@ fn read_budget_gate_large_fixture() {
                     sort: None,
                     window: None,
                     page_ids: None,
+                    group_scope: None,
                 },
             },
         )
@@ -711,7 +714,7 @@ fn read_budget_gate_large_fixture() {
             .len()
             < MAX_COLLECTION_WINDOW_JSON_BYTES
     );
-    let stale = database
+    let continued = database
         .read(
             &context(),
             ModuleReadRequest {
@@ -728,11 +731,174 @@ fn read_budget_gate_large_fixture() {
                         first: Some(200),
                     }),
                     page_ids: None,
+                    group_scope: None,
                 },
             },
         )
-        .expect_err("old cursor must become stale after a sorting mutation");
-    assert_eq!(stale.code, CoreErrorCode::RevisionConflict);
+        .expect("cursor keeps working after a sorting mutation");
+    let nodex_core_contracts::database::DatabaseReadValue::ViewWindow {
+        value: continued_window,
+    } = continued.value
+    else {
+        panic!("Database returned the wrong post-mutation continuation");
+    };
+    assert!(
+        continued_window
+            .rows
+            .items
+            .iter()
+            .all(|row| !first_database_ids.contains(&row.page_id))
+    );
+
+    // Regression fence: pagination must keep progressing while unrelated
+    // writes land between windows. The former global change-log fence made
+    // this loop fail on its first continuation.
+    let mut interleaved_cursor = continued_window.rows.next_cursor.clone();
+    let mut seen_interleaved_ids = HashSet::new();
+    for round in 0..3 {
+        let Some(cursor) = interleaved_cursor.take() else {
+            break;
+        };
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO change_log( \
+                       project_id, store_epoch, kind, block_ids_json, document_ids_json, \
+                       database_block_ids_json, payload_json, projection_impact_json, \
+                       committed_at \
+                     ) VALUES (?1, ?2, 'unrelated_write', '[]', '[]', '[]', '{}', \
+                       '{\"kind\":\"none\"}', ?3)",
+                    params![PROJECT_ID, "epoch:read-budget-gate", NOW],
+                )?;
+                Ok(())
+            })
+            .expect("interleave an unrelated write");
+        let window = database
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::View {
+                            view_id: VIEW_ID.to_owned(),
+                        },
+                        mode: DatabaseReadMode::ViewWindow,
+                        filter: None,
+                        sort: None,
+                        window: Some(CollectionWindowRequest {
+                            after: Some(cursor),
+                            first: Some(200),
+                        }),
+                        page_ids: None,
+                        group_scope: None,
+                    },
+                },
+            )
+            .unwrap_or_else(|error| {
+                panic!("interleaved continuation {round} must succeed: {error:?}")
+            });
+        let nodex_core_contracts::database::DatabaseReadValue::ViewWindow { value: window } =
+            window.value
+        else {
+            panic!("Database returned the wrong interleaved continuation");
+        };
+        for row in &window.rows.items {
+            assert!(
+                seen_interleaved_ids.insert(row.page_id.clone()),
+                "interleaved pagination repeated a row"
+            );
+        }
+        interleaved_cursor = window.rows.next_cursor.clone();
+    }
+
+    // Group totals stay bounded on the large fixture and agree with the
+    // group-scoped window predicate.
+    let groups = database
+        .read(
+            &context(),
+            ModuleReadRequest {
+                contract_version: DATABASE_CONTRACT_VERSION,
+                read: DatabaseRead {
+                    target: DatabaseTarget::View {
+                        view_id: VIEW_ID.to_owned(),
+                    },
+                    mode: DatabaseReadMode::ViewGroups,
+                    filter: None,
+                    sort: None,
+                    window: None,
+                    page_ids: None,
+                    group_scope: None,
+                },
+            },
+        )
+        .expect("read Database view groups");
+    let nodex_core_contracts::database::DatabaseReadValue::ViewGroups { value: groups } =
+        groups.value
+    else {
+        panic!("Database returned the wrong groups value");
+    };
+    assert!(groups.grouped);
+    assert!(!groups.truncated);
+    assert_eq!(groups.total_rows, DATABASE_ROW_COUNT as i64);
+    assert_eq!(
+        groups
+            .groups
+            .iter()
+            .map(|group| group.total_rows)
+            .sum::<i64>(),
+        DATABASE_ROW_COUNT as i64,
+    );
+    assert!(
+        serde_json::to_vec(&groups)
+            .expect("serialize view groups")
+            .len()
+            < MAX_COLLECTION_WINDOW_JSON_BYTES
+    );
+    let scoped = database
+        .read(
+            &context(),
+            ModuleReadRequest {
+                contract_version: DATABASE_CONTRACT_VERSION,
+                read: DatabaseRead {
+                    target: DatabaseTarget::View {
+                        view_id: VIEW_ID.to_owned(),
+                    },
+                    mode: DatabaseReadMode::ViewWindow,
+                    filter: None,
+                    sort: None,
+                    window: Some(CollectionWindowRequest {
+                        after: None,
+                        first: Some(200),
+                    }),
+                    page_ids: None,
+                    group_scope: Some(nodex_core_contracts::database::DatabaseGroupScope::Key {
+                        key: "build".to_owned(),
+                    }),
+                },
+            },
+        )
+        .expect("read group-scoped Database window");
+    let nodex_core_contracts::database::DatabaseReadValue::ViewWindow { value: scoped } =
+        scoped.value
+    else {
+        panic!("Database returned the wrong scoped window");
+    };
+    assert_eq!(scoped.rows.items.len(), 200);
+    assert!(
+        scoped
+            .rows
+            .items
+            .iter()
+            .all(|row| row.effective_group_key.as_deref() == Some("build"))
+    );
+    assert!(
+        serde_json::to_vec(&scoped)
+            .expect("serialize scoped window")
+            .len()
+            < MAX_COLLECTION_WINDOW_JSON_BYTES
+    );
+    println!("database view groups: grouped, {} rows", groups.total_rows);
 
     let (thread_bytes, database_legacy_bytes) = kernel
         .writer()

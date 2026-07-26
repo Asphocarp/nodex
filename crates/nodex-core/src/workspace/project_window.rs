@@ -27,7 +27,6 @@ pub(super) fn read_project_window(
         kind: "workspace_projects",
         library_id,
         query_fingerprint: &fingerprint,
-        projection_revision: event_head,
     };
     let coordinate = normalized
         .after

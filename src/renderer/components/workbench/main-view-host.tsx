@@ -9,12 +9,15 @@ import type { CalendarViewState } from "@/lib/calendar-view-state";
 import type { Project } from "@/lib/types";
 import type { WorkbenchView } from "@/lib/use-workbench-state";
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
+import type { ColumnPaginationState } from "@/lib/kanban-store";
 import { DatabaseViewSurface } from "./read-only-database-view";
 
 interface MainViewHostProps {
   projectId: string;
   databaseViewId: string;
   databaseView: DatabaseViewRenderModel | null;
+  databaseViewPagination?: ReadonlyMap<string, ColumnPaginationState>;
+  onLoadMoreDatabaseViewGroup?: (scopeKey: string) => Promise<void> | void;
   refreshDatabaseView?: () => void | Promise<void>;
   projects: Project[];
   view: WorkbenchView;
@@ -51,6 +54,8 @@ export function MainViewHost({
   projectId,
   databaseViewId,
   databaseView,
+  databaseViewPagination,
+  onLoadMoreDatabaseViewGroup,
   refreshDatabaseView,
   projects,
   view,
@@ -73,6 +78,8 @@ export function MainViewHost({
     return (
       <DatabaseViewSurface
         model={databaseView}
+        groupPagination={databaseViewPagination}
+        onLoadMoreGroup={onLoadMoreDatabaseViewGroup}
         searchQuery={searchQuery}
         openPageStage={openPageStage}
         onCommitted={refreshDatabaseView}

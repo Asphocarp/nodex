@@ -1274,9 +1274,20 @@ mod tests {
                 },
             )
             .expect("advance Library event head");
-        let stale = search(authorization, Some(search_cursor))
-            .expect_err("stale Agent search cursor must fail");
-        assert_eq!(stale.code, CoreErrorCode::RevisionConflict);
+        let continued = search(authorization, Some(search_cursor))
+            .expect("Agent search cursor survives concurrent Library writes");
+        let LibraryReadValue::AgentSearch {
+            items: continued_items,
+            ..
+        } = continued.value
+        else {
+            panic!("continued Agent search page");
+        };
+        assert!(matches!(
+            &continued_items[0],
+            LibraryAgentSearchResult::Page { id, .. }
+                if id == "page:agent-target-child"
+        ));
     }
 
     #[test]
@@ -1809,7 +1820,7 @@ mod tests {
     }
 
     #[test]
-    fn persistent_navigation_separates_roots_rows_paths_and_stale_cursors() {
+    fn persistent_navigation_separates_roots_rows_paths_and_continues_cursors() {
         const ROOT_PAGE: &str = "page:root";
         const ROW_PAGE: &str = "page:row";
         const ROOT_DOCUMENT: &str = "document:root";
@@ -2601,7 +2612,12 @@ mod tests {
                 Ok(())
             })
             .expect("advance Library sequence");
-        let error = module
+        let LibraryReadValue::Children {
+            items,
+            next_cursor,
+            has_more,
+            ..
+        } = module
             .read(
                 &persistent_context,
                 ModuleReadRequest {
@@ -2614,8 +2630,14 @@ mod tests {
                     },
                 },
             )
-            .expect_err("stale cursor");
-        assert_eq!(error.code, CoreErrorCode::RevisionConflict);
+            .expect("continuation survives unrelated writes")
+            .value
+        else {
+            panic!("paged roots continuation");
+        };
+        assert_eq!(items.len(), 1);
+        assert_eq!(next_cursor, None);
+        assert!(!has_more);
     }
 
     #[test]

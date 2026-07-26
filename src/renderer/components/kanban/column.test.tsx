@@ -115,4 +115,59 @@ describe("Column", () => {
 
     expect(lastMode).toBe("durable");
   });
+
+  test("pages its own group window and reports the true group total", async () => {
+    const loadMoreCalls: string[] = [];
+    const { getByRole, getByText } = render(createElement(Column, {
+      projectId: "default",
+      projectName: "Default",
+      column: {
+        id: "build",
+        name: "Build",
+        cards: [
+          {
+            id: "card-1",
+            status: "build",
+            archived: false,
+            title: "Task",
+            richTitle: plainTextToPortableRichText("Task"),
+            descriptionPreview: "",
+            descriptionLength: 0,
+            hasDescription: false,
+            tags: [],
+            created: new Date("2026-03-17T00:00:00.000Z"),
+            order: 0,
+          },
+        ],
+      },
+      pagination: {
+        scopeKey: "key:build",
+        loadedRows: 1,
+        totalRows: 26,
+        hasMore: true,
+        loadingMore: false,
+        error: null,
+      },
+      onLoadMore: (scopeKey) => {
+        loadMoreCalls.push(scopeKey);
+      },
+      layout: {
+        width: 320,
+        collapsed: false,
+      },
+      onAddCard: async () => {},
+      onEditCard: () => {},
+      onUpdatePageProperty: async () => {},
+      onCollapsedChange: () => {},
+      onWidthChange: () => {},
+    }));
+
+    // The count badge shows the group's true total, not the loaded window.
+    expect(getByText("26")).toBeTruthy();
+
+    const showMore = getByRole("button", { name: "Show 25 more" });
+    fireEvent.click(showMore);
+
+    expect(loadMoreCalls).toEqual(["key:build"]);
+  });
 });

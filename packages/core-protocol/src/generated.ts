@@ -1248,6 +1248,19 @@ export interface components {
         };
         /** @enum {string} */
         readonly DatabaseEventKind: "database_changed";
+        /**
+         * @description Restricts a `ViewWindow` read to a single group of a grouped View, so each
+         *     board column can page independently. `Unassigned` addresses rows whose
+         *     grouping Property value is empty (NULL, empty string, or empty list).
+         */
+        readonly DatabaseGroupScope: {
+            readonly key: string;
+            /** @enum {string} */
+            readonly kind: "key";
+        } | {
+            /** @enum {string} */
+            readonly kind: "unassigned";
+        };
         readonly DatabasePagePosition: {
             /** Format: int64 */
             readonly expected_position_revision: number;
@@ -1262,7 +1275,7 @@ export interface components {
             readonly value: unknown;
         };
         /** @enum {string} */
-        readonly DatabaseReadMode: "catalog_window" | "database" | "data_source_window" | "data_source" | "property_window" | "option_window" | "view_descriptor_window" | "view" | "agent_query" | "view_window" | "rows_by_id" | "row_detail";
+        readonly DatabaseReadMode: "catalog_window" | "database" | "data_source_window" | "data_source" | "property_window" | "option_window" | "view_descriptor_window" | "view" | "agent_query" | "view_window" | "view_groups" | "rows_by_id" | "row_detail";
         readonly DatabaseReadRequest: components["schemas"]["ModuleReadRequest_DatabaseRead"];
         readonly DatabaseReadResponse: components["schemas"]["ResponseEnvelope_ModuleReadSnapshot_DatabaseReadValue"];
         readonly DatabaseRowDetail: {
@@ -1359,6 +1372,28 @@ export interface components {
             readonly data_source_id: string;
             /** @enum {string} */
             readonly kind: "data_source";
+        };
+        /**
+         * @description Bounded per-group totals for a View, observed from data. At most
+         *     `MAX_VIEW_GROUP_SUMMARIES` groups are returned; `truncated` reports when the
+         *     grouping cardinality exceeded that bound. `grouped: false` means the View
+         *     has no grouping Property and only `total_rows` is meaningful.
+         */
+        readonly DatabaseViewGroups: {
+            readonly data_source_id: string;
+            readonly database_id: string;
+            readonly grouped: boolean;
+            readonly groups: readonly components["schemas"]["DatabaseViewGroupSummary"][];
+            /** Format: int64 */
+            readonly total_rows: number;
+            readonly truncated: boolean;
+            readonly view_id: string;
+        };
+        readonly DatabaseViewGroupSummary: {
+            /** @description `None` counts the unassigned group (empty grouping value). */
+            readonly group_key?: string | null;
+            /** Format: int64 */
+            readonly total_rows: number;
         };
         readonly DatabaseViewWindow: {
             readonly data_source_id: string;
@@ -3743,6 +3778,7 @@ export interface components {
             readonly contract_version: number;
             readonly read: {
                 readonly filter?: unknown;
+                readonly group_scope?: null | components["schemas"]["DatabaseGroupScope"];
                 readonly mode: components["schemas"]["DatabaseReadMode"];
                 readonly page_ids?: readonly string[] | null;
                 readonly sort?: readonly unknown[] | null;
@@ -4803,6 +4839,10 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "view_window";
                     readonly value: components["schemas"]["DatabaseViewWindow"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "view_groups";
+                    readonly value: components["schemas"]["DatabaseViewGroups"];
                 } | {
                     /** @enum {string} */
                     readonly kind: "rows_by_id";

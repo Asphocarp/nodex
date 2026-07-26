@@ -13,7 +13,6 @@ pub(crate) fn mint(
     library_id: &str,
     subject: &[String],
     coordinate: KeysetCoordinate,
-    change_log_seq: i64,
 ) -> Result<String, StoreError> {
     let fingerprint = fingerprint(subject)?;
     signed_cursor::mint(
@@ -22,7 +21,6 @@ pub(crate) fn mint(
             kind: CURSOR_KIND,
             library_id,
             query_fingerprint: &fingerprint,
-            projection_revision: change_log_seq,
         },
         CursorDirection::Forward,
         coordinate,
@@ -34,7 +32,6 @@ pub(crate) fn decode(
     encoded: &str,
     library_id: &str,
     subject: &[String],
-    change_log_seq: i64,
 ) -> Result<KeysetCoordinate, StoreError> {
     let fingerprint = fingerprint(subject)?;
     let (direction, coordinate) = signed_cursor::decode(
@@ -44,7 +41,6 @@ pub(crate) fn decode(
             kind: CURSOR_KIND,
             library_id,
             query_fingerprint: &fingerprint,
-            projection_revision: change_log_seq,
         },
     )?;
     if direction != CursorDirection::Forward {

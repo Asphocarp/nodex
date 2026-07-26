@@ -8,7 +8,7 @@ use nodex_core_contracts::collection::MAX_COLLECTION_CURSOR_BYTES;
 use super::sqlite::{StoreError, StoreErrorCode};
 
 const PREFIX: &str = "nxc1";
-const PAYLOAD_VERSION: u32 = 1;
+const PAYLOAD_VERSION: u32 = 2;
 const HMAC_BLOCK_BYTES: usize = 64;
 const MAX_CURSOR_KIND_BYTES: usize = 128;
 const MAX_IDENTITY_BYTES: usize = 512;
@@ -37,12 +37,15 @@ pub struct KeysetCoordinate {
     pub stable_id: String,
 }
 
+/// Cursor identity: a continuation stays valid while the query shape and the
+/// Store epoch stay the same. Data mutations never invalidate a keyset cursor;
+/// the coordinate remains a well-defined seek point in the collection's total
+/// order and loaded windows converge through projection invalidation.
 #[derive(Clone, Copy, Debug)]
 pub struct CollectionCursorSubject<'a> {
     pub kind: &'a str,
     pub library_id: &'a str,
     pub query_fingerprint: &'a str,
-    pub projection_revision: i64,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -53,7 +56,6 @@ struct CursorPayload {
     library_id: String,
     store_epoch: String,
     query_fingerprint: String,
-    projection_revision: i64,
     direction: CursorDirection,
     coordinate: KeysetCoordinate,
 }
@@ -78,7 +80,6 @@ pub fn mint(
         library_id: subject.library_id.to_owned(),
         store_epoch: store_epoch(connection)?,
         query_fingerprint: subject.query_fingerprint.to_owned(),
-        projection_revision: subject.projection_revision,
         direction,
         coordinate,
     };
@@ -124,13 +125,6 @@ pub fn decode(
         return Err(StoreError::new(
             StoreErrorCode::StaleStoreEpoch,
             "Collection cursor belongs to another Store epoch",
-            false,
-        ));
-    }
-    if payload.projection_revision != subject.projection_revision {
-        return Err(StoreError::new(
-            StoreErrorCode::RevisionConflict,
-            "Collection changed while its windows were being read",
             false,
         ));
     }
@@ -184,7 +178,6 @@ pub(crate) fn store_epoch(connection: &Connection) -> Result<String, StoreError>
 fn validate_subject(subject: CollectionCursorSubject<'_>) -> Result<(), StoreError> {
     if !bounded_identity(subject.kind, MAX_CURSOR_KIND_BYTES)
         || !bounded_identity(subject.library_id, MAX_IDENTITY_BYTES)
-        || subject.projection_revision < 0
         || subject.query_fingerprint.len() != SHA256_HEX_BYTES
         || !subject
             .query_fingerprint
@@ -285,12 +278,11 @@ mod tests {
         connection
     }
 
-    fn subject<'a>(fingerprint: &'a str, revision: i64) -> CollectionCursorSubject<'a> {
+    fn subject(fingerprint: &str) -> CollectionCursorSubject<'_> {
         CollectionCursorSubject {
             kind: "workspace_tasks",
             library_id: "library-1",
             query_fingerprint: fingerprint,
-            projection_revision: revision,
         }
     }
 
@@ -311,12 +303,12 @@ mod tests {
 
         let cursor = mint(
             &connection,
-            subject(&fingerprint, 9),
+            subject(&fingerprint),
             CursorDirection::Forward,
             coordinate.clone(),
         )
         .expect("signed cursor");
-        let decoded = decode(&connection, &cursor, subject(&fingerprint, 9)).expect("valid cursor");
+        let decoded = decode(&connection, &cursor, subject(&fingerprint)).expect("valid cursor");
 
         assert_eq!(decoded, (CursorDirection::Forward, coordinate));
         assert!(cursor.len() <= MAX_COLLECTION_CURSOR_BYTES);
@@ -329,7 +321,7 @@ mod tests {
         let fingerprint = query_fingerprint(&("project-1", "active")).expect("fingerprint");
         let cursor = mint(
             &connection,
-            subject(&fingerprint, 9),
+            subject(&fingerprint),
             CursorDirection::Forward,
             KeysetCoordinate {
                 values: vec![KeysetValue::Integer { value: 42 }],
@@ -343,7 +335,7 @@ mod tests {
         let tampered = String::from_utf8(tampered).expect("ASCII cursor");
 
         assert_eq!(
-            decode(&connection, &tampered, subject(&fingerprint, 9))
+            decode(&connection, &tampered, subject(&fingerprint))
                 .expect_err("tampering must fail")
                 .code,
             StoreErrorCode::InvalidInput
@@ -354,7 +346,7 @@ mod tests {
                 &connection,
                 &mint(
                     &connection,
-                    subject(&fingerprint, 9),
+                    subject(&fingerprint),
                     CursorDirection::Forward,
                     KeysetCoordinate {
                         values: Vec::new(),
@@ -362,7 +354,7 @@ mod tests {
                     },
                 )
                 .expect("signed cursor"),
-                subject(&other, 9),
+                subject(&other),
             )
             .expect_err("query mismatch must fail")
             .code,
@@ -371,26 +363,35 @@ mod tests {
     }
 
     #[test]
-    fn cursor_fences_store_epoch_and_projection_revision() {
+    fn cursor_survives_data_mutations_and_fences_store_epoch() {
         let connection = connection();
         let fingerprint = query_fingerprint(&("project-1", "active")).expect("fingerprint");
+        let coordinate = KeysetCoordinate {
+            values: Vec::new(),
+            stable_id: "thread-7".to_owned(),
+        };
         let cursor = mint(
             &connection,
-            subject(&fingerprint, 9),
+            subject(&fingerprint),
             CursorDirection::Forward,
-            KeysetCoordinate {
-                values: Vec::new(),
-                stable_id: "thread-7".to_owned(),
-            },
+            coordinate.clone(),
         )
         .expect("signed cursor");
 
+        // A keyset cursor is a coordinate, not a snapshot claim: arbitrary data
+        // mutations between windows must not invalidate it.
+        connection
+            .execute_batch(
+                "CREATE TABLE change_log(seq INTEGER PRIMARY KEY AUTOINCREMENT);\
+                 INSERT INTO change_log DEFAULT VALUES;\
+                 INSERT INTO change_log DEFAULT VALUES;",
+            )
+            .expect("unrelated writes");
         assert_eq!(
-            decode(&connection, &cursor, subject(&fingerprint, 10))
-                .expect_err("revision mismatch must fail")
-                .code,
-            StoreErrorCode::RevisionConflict
+            decode(&connection, &cursor, subject(&fingerprint)).expect("cursor stays valid"),
+            (CursorDirection::Forward, coordinate)
         );
+
         connection
             .execute(
                 "UPDATE block_store_metadata SET store_epoch = 'epoch-2' WHERE id = 1",
@@ -398,7 +399,7 @@ mod tests {
             )
             .expect("rotate Store epoch");
         assert_eq!(
-            decode(&connection, &cursor, subject(&fingerprint, 9))
+            decode(&connection, &cursor, subject(&fingerprint))
                 .expect_err("Store epoch mismatch must fail")
                 .code,
             StoreErrorCode::StaleStoreEpoch

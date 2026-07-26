@@ -16,7 +16,12 @@ import type {
   PageCreateInput,
   DatabasePageSummary,
 } from "./types";
-import { createKanbanStoreRegistry } from "./kanban-store";
+import { CoreApiError } from "./api";
+import {
+  createKanbanStoreRegistry,
+  type KanbanStoreDependencies,
+} from "./kanban-store";
+import type { DatabaseViewGroupsSnapshot } from "../../shared/database-views";
 import { toDatabasePageSummary } from "../../shared/page-summary";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import type { ProjectionStreamMessage } from "../../shared/projection-stream";
@@ -258,6 +263,38 @@ function createBoardSnapshot(
   };
 }
 
+function createGroupsSnapshot(
+  overrides: Partial<DatabaseViewGroupsSnapshot> = {},
+): DatabaseViewGroupsSnapshot {
+  return {
+    projectId: "project-1",
+    libraryId: "library-1",
+    databaseId: "database-1",
+    dataSourceId: "source-1",
+    viewId: "view-primary",
+    storeEpoch: "epoch-1",
+    changeLogSeq: 1,
+    grouped: false,
+    totalRows: 1,
+    truncated: false,
+    groups: [],
+    ...overrides,
+  };
+}
+
+/**
+ * Test registry with an ungrouped groups read by default, which keeps the
+ * store on the single flat window path most tests exercise.
+ */
+function createTestRegistry(
+  dependencies: Partial<KanbanStoreDependencies> = {},
+) {
+  return createKanbanStoreRegistry({
+    readViewGroups: async () => createGroupsSnapshot(),
+    ...dependencies,
+  });
+}
+
 function createProjectionHarness() {
   const listeners = new Set<(message: ProjectionStreamMessage) => void>();
   let latestMessage: ProjectionStreamMessage | null = null;
@@ -344,21 +381,10 @@ function createDeferred<T>() {
 describe("kanban store", () => {
   test("isolates durable View stores and never reads primary Board data for a secondary View", async () => {
     const calls: string[] = [];
-    const registry = createKanbanStoreRegistry({
-      readDatabaseModule: async (projectId, request) => {
-        const target = request.read.target;
-        const readViewId = target.kind === "view" ? target.viewId : "";
-        calls.push(`database-module:read:${projectId}:${readViewId}`);
-        return createDatabaseViewSnapshot(
-          readViewId,
-          readViewId === "view-focused" ? "Focused query row" : "Primary query row",
-          readViewId === "view-primary",
-        );
-      },
-      invoke: async (channel, projectId, rawInput) => {
-        const input = rawInput as { databaseViewId?: string };
+    const registry = createTestRegistry({
+      readViewWindow: async (projectId, input) => {
         const viewId = input.databaseViewId ?? "view-primary";
-        calls.push(`${channel}:${String(projectId)}:${viewId}`);
+        calls.push(`database:view-window:get:${projectId}:${viewId}`);
         return createBoardSnapshot(
           createBoard(
             viewId === "view-focused"
@@ -404,8 +430,8 @@ describe("kanban store", () => {
     const projection = createProjectionHarness();
     let fetchCount = 0;
     const makeRegistry = () =>
-      createKanbanStoreRegistry({
-        invoke: async () => {
+      createTestRegistry({
+        readViewWindow: async () => {
           fetchCount += 1;
           return createBoardSnapshot(createBoard(), fetchCount <= 2 ? 1 : 8);
         },
@@ -431,8 +457,8 @@ describe("kanban store", () => {
   test("refreshes a durable Database View from a matching Page Document event", async () => {
     const projection = createProjectionHarness();
     let readCount = 0;
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => {
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
         readCount += 1;
         return createBoardSnapshot(
           createBoard(
@@ -467,8 +493,8 @@ describe("kanban store", () => {
     const firstRead = createDeferred<DatabaseViewWindowSnapshot>();
     const projection = createProjectionHarness();
     let readCount = 0;
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => {
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
         readCount += 1;
         if (readCount === 1) return await firstRead.promise;
         return createBoardSnapshot(
@@ -506,8 +532,8 @@ describe("kanban store", () => {
     let subscribeCalls = 0;
     let unsubscribeCalls = 0;
 
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => createBoardSnapshot(board),
+    const registry = createTestRegistry({
+      readViewWindow: async () => createBoardSnapshot(board),
       subscribeBoardChanges: () => {
         subscribeCalls += 1;
         return () => {
@@ -532,15 +558,21 @@ describe("kanban store", () => {
 
   test("dedupes in-flight board fetches", async () => {
     const board = createBoard();
-    const gate: { release?: () => void } = {};
-    let invokeCalls = 0;
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let groupsReads = 0;
+    let windowReads = 0;
 
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => {
-        invokeCalls += 1;
-        await new Promise<void>((resolve) => {
-          gate.release = () => resolve();
-        });
+    const registry = createTestRegistry({
+      readViewGroups: async () => {
+        groupsReads += 1;
+        await released;
+        return createGroupsSnapshot();
+      },
+      readViewWindow: async () => {
+        windowReads += 1;
         return createBoardSnapshot(board);
       },
       subscribeBoardChanges: () => () => {},
@@ -550,26 +582,28 @@ describe("kanban store", () => {
     const firstFetch = store.fetchBoard();
     const secondFetch = store.fetchBoard();
 
-    expect(invokeCalls).toBe(1);
+    expect(groupsReads).toBe(1);
 
-    gate.release?.();
+    release();
     await Promise.all([firstFetch, secondFetch]);
-    expect(invokeCalls).toBe(1);
+    expect(groupsReads).toBe(1);
+    expect(windowReads).toBe(1);
   });
 
   test("refreshBoard fetches again after an in-flight fetch settles", async () => {
     const initialBoard = createBoard("Initial");
     const refreshedBoard = createBoard("Refreshed");
-    const gate: { release?: () => void } = {};
-    let invokeCalls = 0;
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let windowReads = 0;
 
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => {
-        invokeCalls += 1;
-        if (invokeCalls === 1) {
-          await new Promise<void>((resolve) => {
-            gate.release = () => resolve();
-          });
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
+        windowReads += 1;
+        if (windowReads === 1) {
+          await released;
           return createBoardSnapshot(initialBoard);
         }
         return createBoardSnapshot(refreshedBoard, 2);
@@ -581,20 +615,20 @@ describe("kanban store", () => {
     const firstFetch = store.fetchBoard();
     const refreshPromise = store.refreshBoard();
 
-    gate.release?.();
+    release();
     await Promise.all([firstFetch, refreshPromise]);
 
-    expect(invokeCalls).toBe(2);
+    expect(windowReads).toBe(2);
     expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Refreshed");
   });
 
-  test("fetchBoard uses the summary channel and keeps full descriptions out of snapshots", async () => {
+  test("fetchBoard reads the bounded window and keeps full descriptions out of snapshots", async () => {
     const board = createBoard();
-    let channelName = "";
+    let windowReads = 0;
 
-    const registry = createKanbanStoreRegistry({
-      invoke: async (channel) => {
-        channelName = channel;
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
+        windowReads += 1;
         return createBoardSnapshot(board);
       },
       subscribeBoardChanges: () => () => {},
@@ -604,7 +638,7 @@ describe("kanban store", () => {
     await store.fetchBoard();
 
     const indexedPage = store.getSnapshot().pageIndex.get("card-1");
-    expect(channelName).toBe("database:view-window:get");
+    expect(windowReads).toBe(1);
     expect(Object.hasOwn(indexedPage ?? {}, "description")).toBe(false);
     expect(indexedPage?.descriptionPreview).toBe("Initial description");
   });
@@ -626,8 +660,8 @@ describe("kanban store", () => {
       ],
     });
     const requests: unknown[] = [];
-    const registry = createKanbanStoreRegistry({
-      invoke: async (_channel, _projectId, request) => {
+    const registry = createTestRegistry({
+      readViewWindow: async (_projectId, request) => {
         requests.push(request);
         return requests.length === 1 ? first : second;
       },
@@ -650,13 +684,230 @@ describe("kanban store", () => {
     expect(store.getSnapshot().hasMore).toBe(false);
   });
 
+  test("a rejected continuation converges silently from the first window", async () => {
+    const first = {
+      ...createBoardSnapshot(createBoard("First")),
+      nextCursor: "cursor-1",
+    };
+    const recovered = createBoardSnapshot(createBoard("Recovered"), 2);
+    const requests: unknown[] = [];
+    const registry = createTestRegistry({
+      readViewWindow: async (_projectId, request) => {
+        requests.push(request);
+        if (requests.length === 2) {
+          throw new CoreApiError({
+            code: "stale_store_epoch",
+            message: "Collection cursor belongs to another Store epoch",
+            retryable: false,
+          });
+        }
+        return requests.length === 1 ? first : recovered;
+      },
+      subscribeBoardChanges: () => () => {},
+    });
+    const store = registry.getStore("project-1");
+
+    await store.fetchBoard();
+    expect(store.getSnapshot().hasMore).toBe(true);
+    await store.loadMore();
+
+    expect(requests).toEqual([
+      { first: 50 },
+      { after: "cursor-1", first: 50 },
+      { first: 50 },
+    ]);
+    expect(store.getSnapshot().error).toBe(null);
+    expect(store.getSnapshot().loadingMore).toBe(false);
+    expect(store.getSnapshot().hasMore).toBe(false);
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Recovered");
+  });
+
+  test("grouped boards page each column independently with scoped continuations", async () => {
+    const triageCards = [0, 1].map((index) => ({
+      ...createPageSummary(`Triage ${index}`),
+      id: `triage-${index}`,
+      order: index,
+    }));
+    const shipCard = {
+      ...createPageSummary("Ship 0"),
+      id: "ship-0",
+      status: "ship" as const,
+      order: 0,
+    };
+    const windowFor = (
+      cards: readonly DatabasePageSummary[],
+      columnId: string,
+      nextCursor: string | null,
+    ): DatabaseViewWindowSnapshot => ({
+      ...createBoardSnapshot({
+        columns: [
+          { id: "triage", name: "Ideas", cards: columnId === "triage" ? [...cards] : [] },
+          { id: "ship", name: "Ship", cards: columnId === "ship" ? [...cards] : [] },
+        ],
+      }),
+      nextCursor,
+      rows: cards.map((card, index) => ({
+        page: card,
+        groupKey: columnId,
+        rankKey: String(index),
+      })),
+    });
+    const requests: Array<{ groupScope?: unknown; after?: string; first?: number }> = [];
+    const registry = createTestRegistry({
+      readViewGroups: async () => createGroupsSnapshot({
+        grouped: true,
+        totalRows: 4,
+        groups: [
+          { groupKey: "ship", totalRows: 1 },
+          { groupKey: "triage", totalRows: 3 },
+        ],
+      }),
+      readViewWindow: async (_projectId, request) => {
+        requests.push(request);
+        const key = request.groupScope?.kind === "key"
+          ? request.groupScope.key
+          : "unassigned";
+        if (key === "ship") return windowFor([shipCard], "ship", null);
+        if (request.after === "triage-cursor") {
+          return windowFor(
+            [{ ...createPageSummary("Triage 2"), id: "triage-2", order: 2 }],
+            "triage",
+            null,
+          );
+        }
+        return windowFor(triageCards, "triage", "triage-cursor");
+      },
+      subscribeBoardChanges: () => () => {},
+    });
+    const store = registry.getStore("project-1");
+
+    await store.fetchBoard();
+
+    expect(store.getSnapshot().totalRows).toBe(4);
+    const triagePagination = store.getSnapshot().groupPagination.get("key:triage");
+    expect(triagePagination).toMatchObject({
+      loadedRows: 2,
+      totalRows: 3,
+      hasMore: true,
+      loadingMore: false,
+    });
+    expect(store.getSnapshot().groupPagination.get("key:ship")).toMatchObject({
+      loadedRows: 1,
+      totalRows: 1,
+      hasMore: false,
+    });
+
+    await store.loadMoreGroup("key:triage");
+
+    expect(requests.filter((request) => request.after).length).toBe(1);
+    expect(requests.find((request) => request.after)).toMatchObject({
+      after: "triage-cursor",
+      groupScope: { kind: "key", key: "triage" },
+    });
+    expect([...store.getSnapshot().pageIndex.keys()].sort()).toEqual([
+      "ship-0",
+      "triage-0",
+      "triage-1",
+      "triage-2",
+    ]);
+    expect(
+      store.getSnapshot().groupPagination.get("key:triage")?.hasMore,
+    ).toBe(false);
+  });
+
+  test("a refresh re-reads the loaded span instead of resetting to one window", async () => {
+    const cards = (count: number) => Array.from({ length: count }, (_, index) => ({
+      ...createPageSummary(`Card ${index}`),
+      id: `card-${index}`,
+      order: index,
+    }));
+    const windowOf = (
+      loaded: DatabasePageSummary[],
+      nextCursor: string | null,
+      changeLogSeq = 1,
+    ): DatabaseViewWindowSnapshot => ({
+      ...createBoardSnapshot(
+        {
+          columns: [
+            { id: "triage", name: "Ideas", cards: loaded },
+            { id: "ship", name: "Ship", cards: [] },
+          ],
+        },
+        changeLogSeq,
+      ),
+      nextCursor,
+      rows: loaded.map((card, index) => ({
+        page: card,
+        groupKey: "triage",
+        rankKey: String(index).padStart(4, "0"),
+      })),
+    });
+    const requests: Array<{ after?: string; first?: number }> = [];
+    const all = cards(80);
+    const registry = createTestRegistry({
+      readViewWindow: async (_projectId, request) => {
+        requests.push(request);
+        if (request.after === "cursor-50") {
+          return windowOf(all.slice(50, 80), null);
+        }
+        const first = request.first ?? 50;
+        return windowOf(
+          all.slice(0, Math.min(first, all.length)),
+          first < 80 ? "cursor-50" : null,
+          requests.length,
+        );
+      },
+      subscribeBoardChanges: () => () => {},
+    });
+    const store = registry.getStore("project-1");
+
+    await store.fetchBoard();
+    await store.loadMore();
+    expect(store.getSnapshot().pageIndex.size).toBe(80);
+
+    await store.refreshBoard();
+
+    expect(requests.at(-1)).toMatchObject({ first: 80 });
+    expect(store.getSnapshot().pageIndex.size).toBe(80);
+  });
+
+  test("a transport failure keeps the board and reports an inline group error", async () => {
+    const first = {
+      ...createBoardSnapshot(createBoard("First")),
+      nextCursor: "cursor-1",
+    };
+    let windowReads = 0;
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
+        windowReads += 1;
+        if (windowReads === 2) {
+          throw new Error("Core is unavailable");
+        }
+        return first;
+      },
+      subscribeBoardChanges: () => () => {},
+    });
+    const store = registry.getStore("project-1");
+
+    await store.fetchBoard();
+    await store.loadMore();
+
+    expect(windowReads).toBe(2);
+    expect(store.getSnapshot().error).toBe(null);
+    expect(store.getSnapshot().board).not.toBe(null);
+    const pagination = store.getSnapshot().groupPagination.get("all");
+    expect(pagination?.error).toBe("Core is unavailable");
+    // The continuation is retained so the user can retry the same group.
+    expect(pagination?.hasMore).toBe(true);
+  });
+
   test("first subscribe with a fresh base board does not refetch", async () => {
     const board = createBoard();
     let invokeCalls = 0;
     let currentTime = 1_000;
 
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => {
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
         invokeCalls += 1;
         return createBoardSnapshot(board);
       },
@@ -681,8 +932,8 @@ describe("kanban store", () => {
     let invokeCalls = 0;
     let currentTime = 1_000;
 
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => {
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
         const board = boards[invokeCalls] ?? boards[boards.length - 1]!;
         invokeCalls += 1;
         return createBoardSnapshot(board, invokeCalls);
@@ -709,8 +960,8 @@ describe("kanban store", () => {
     const boards = [createBoard("Initial"), createBoard("Forced")];
     let invokeCalls = 0;
 
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => {
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
         const board = boards[invokeCalls] ?? boards[boards.length - 1]!;
         invokeCalls += 1;
         return createBoardSnapshot(board, invokeCalls);
@@ -731,8 +982,8 @@ describe("kanban store", () => {
     const callbacks: { onBoardChange?: (event: BoardChangeEvent) => void } = {};
     let boardFetchCount = 0;
 
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => {
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
         boardFetchCount += 1;
         return createBoardSnapshot();
       },
@@ -765,8 +1016,8 @@ describe("kanban store", () => {
 
   test("applies local optimistic overlays to board and card index", async () => {
     const board = createBoard();
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => createBoardSnapshot(board),
+    const registry = createTestRegistry({
+      readViewWindow: async () => createBoardSnapshot(board),
       subscribeBoardChanges: () => () => {},
     });
 
@@ -793,8 +1044,8 @@ describe("kanban store", () => {
   });
 
   test("merges full remote card updates as summaries without storing the body", async () => {
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => createBoardSnapshot(),
+    const registry = createTestRegistry({
+      readViewWindow: async () => createBoardSnapshot(),
       subscribeBoardChanges: () => () => {},
     });
 
@@ -835,8 +1086,8 @@ describe("kanban store", () => {
   });
 
   test("merges remote card summary acknowledgements without a full body", async () => {
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => createBoardSnapshot(),
+    const registry = createTestRegistry({
+      readViewWindow: async () => createBoardSnapshot(),
       subscribeBoardChanges: () => () => {},
     });
 
@@ -867,8 +1118,8 @@ describe("kanban store", () => {
 
   test("local draft overlays do not bump card revision", async () => {
     const board = createBoard();
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => createBoardSnapshot(board),
+    const registry = createTestRegistry({
+      readViewWindow: async () => createBoardSnapshot(board),
       subscribeBoardChanges: () => () => {},
     });
 
@@ -885,8 +1136,8 @@ describe("kanban store", () => {
   test("remote optimistic updates bump card revision", async () => {
     const board = createBoard();
     const deferred = createDeferred<{ ok: true }>();
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => createBoardSnapshot(cloneBoard(board)),
+    const registry = createTestRegistry({
+      readViewWindow: async () => createBoardSnapshot(cloneBoard(board)),
       subscribeBoardChanges: () => () => {},
     });
 
@@ -908,8 +1159,8 @@ describe("kanban store", () => {
 
   test("ignores no-op local overlays", async () => {
     const board = createBoard();
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => createBoardSnapshot(board),
+    const registry = createTestRegistry({
+      readViewWindow: async () => createBoardSnapshot(board),
       subscribeBoardChanges: () => () => {},
     });
 
@@ -933,8 +1184,8 @@ describe("kanban store", () => {
     const deferredB = createDeferred<{ ok: true }>();
     const deferredC = createDeferred<{ ok: true }>();
 
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => createBoardSnapshot(cloneBoard(serverBoard)),
+    const registry = createTestRegistry({
+      readViewWindow: async () => createBoardSnapshot(cloneBoard(serverBoard)),
       subscribeBoardChanges: () => () => {},
     });
     const store = registry.getStore("default");
@@ -997,8 +1248,8 @@ describe("kanban store", () => {
     const updateRemoteDeferred = createDeferred<{ ok: true }>();
     const moveRemoteDeferred = createDeferred<{ ok: true }>();
 
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => createBoardSnapshot(cloneBoard(serverBoard)),
+    const registry = createTestRegistry({
+      readViewWindow: async () => createBoardSnapshot(cloneBoard(serverBoard)),
       subscribeBoardChanges: () => () => {},
     });
     const store = registry.getStore("default");
@@ -1073,8 +1324,8 @@ describe("kanban store", () => {
 
   test("failed delete rolls back automatically", async () => {
     const board = createBoard();
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => createBoardSnapshot(cloneBoard(board)),
+    const registry = createTestRegistry({
+      readViewWindow: async () => createBoardSnapshot(cloneBoard(board)),
       subscribeBoardChanges: () => () => {},
     });
     const store = registry.getStore("default");
@@ -1101,8 +1352,8 @@ describe("kanban store", () => {
     const callbacks: { onBoardChange?: (event: BoardChangeEvent) => void } = {};
     let boardFetchCount = 0;
 
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => {
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
         boardFetchCount += 1;
         return createBoardSnapshot(board, boardFetchCount);
       },
@@ -1162,8 +1413,8 @@ describe("kanban store", () => {
     const callbacks: { onBoardChange?: (event: BoardChangeEvent) => void } = {};
     const projection = createProjectionHarness();
     let readCount = 0;
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => {
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
         readCount += 1;
         if (readCount === 1) return createBoardSnapshot(cloneBoard(board), 1);
         return await lateRead.promise;
@@ -1199,8 +1450,8 @@ describe("kanban store", () => {
   });
 
   test("keeps per-project store instance across unsubscribe/resubscribe", async () => {
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => createBoardSnapshot(),
+    const registry = createTestRegistry({
+      readViewWindow: async () => createBoardSnapshot(),
       subscribeBoardChanges: () => () => {},
     });
 
@@ -1215,8 +1466,8 @@ describe("kanban store", () => {
 
   test("queues local overlay before first fetch and applies after board load", async () => {
     const deferredBoard = createDeferred<DatabaseViewWindowSnapshot>();
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => deferredBoard.promise,
+    const registry = createTestRegistry({
+      readViewWindow: async () => deferredBoard.promise,
       subscribeBoardChanges: () => () => {},
     });
 
@@ -1238,8 +1489,8 @@ describe("kanban store", () => {
 
   test("auto-collects local overlay after server converges", async () => {
     let serverBoard = createBoard();
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => createBoardSnapshot(cloneBoard(serverBoard)),
+    const registry = createTestRegistry({
+      readViewWindow: async () => createBoardSnapshot(cloneBoard(serverBoard)),
       subscribeBoardChanges: () => () => {},
     });
     const store = registry.getStore("default");
@@ -1267,8 +1518,8 @@ describe("kanban store", () => {
     };
     const optimisticCard = createOptimisticCard(createInput);
 
-    const registry = createKanbanStoreRegistry({
-      invoke: async () => createBoardSnapshot(cloneBoard(serverBoard)),
+    const registry = createTestRegistry({
+      readViewWindow: async () => createBoardSnapshot(cloneBoard(serverBoard)),
       subscribeBoardChanges: () => () => {},
     });
     const store = registry.getStore("default");

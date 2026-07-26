@@ -132,7 +132,7 @@ All notable changes to this project will be documented in this file.
 - Removed snapshot-based Kanban/editor body drops and whole-Page conflict overwrite recovery; Block movement now requires the stable-ID Document mutation boundary.
 
 ### Fixed
-- Fixed large Profiles failing to open once sidebar, Thread, or Database JSON crossed a client-only 512 KiB ceiling: Core transport budgets now agree, growing read models load through compact resumable windows, and Page bodies stay on explicit detail/Document paths.
+- Fixed large Profiles failing to open once sidebar, Thread, or Database JSON crossed a client-only 512 KiB ceiling: Core transport budgets now agree, growing read models load through compact resumable windows, and Page bodies stay on explicit detail/Document paths. Board columns load and page independently with true per-column totals and an in-column `Show more`, and paging keeps working while edits or background sync change the data instead of failing with a collection-changed error.
 - Fixed local macOS source deployment silently reinstalling an older same-version app from `dist`; the install command now creates a fresh source-bound package and verifies its sealed Electron/Core/Agent provenance through the installed copy.
 - Fixed startup failures from older timestamp encodings by migrating every stored text timestamp to canonical millisecond UTC before strict reads, and stopped signed-out, API-key, and Bedrock accounts from issuing ChatGPT-only rate-limit requests.
 - Fixed the Workbench opening to a blank window when repeated Session descriptor refreshes republished the same selected Route header until React hit its nested-update limit.

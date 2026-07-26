@@ -342,6 +342,7 @@ fn resolve_page_destination(
                     sort: None,
                     window: None,
                     page_ids: None,
+                    group_scope: None,
                 },
             )
             .map_err(map_client_error)?;
@@ -369,6 +370,7 @@ fn resolve_page_destination(
                 sort: None,
                 window: None,
                 page_ids: None,
+                group_scope: None,
             },
         ))?;
         let DatabaseReadValue::DataSource { value } = source.value else {
@@ -406,6 +408,7 @@ fn primary_data_source(
             sort: None,
             window: None,
             page_ids: None,
+            group_scope: None,
         },
     ))?;
     let DatabaseReadValue::Database { .. } = snapshot.value else {
@@ -432,6 +435,7 @@ fn active_data_source_id(
             sort: None,
             window: Some(Default::default()),
             page_ids: None,
+            group_scope: None,
         },
     ))?;
     let DatabaseReadValue::DataSourceWindow { data_sources } = snapshot.value else {

@@ -386,6 +386,41 @@ vi.mock("@/lib/api", () => ({
     invokeCalls.push([channel, ...args]);
     return mockInvokeImpl?.(channel, ...args) ?? null;
   },
+  readDatabaseViewWindow: async (projectId: string, input: unknown) => {
+    invokeCalls.push(["database:view-window:get", projectId, input]);
+    return mockInvokeImpl?.("database:view-window:get", projectId, input) ?? null;
+  },
+  readDatabaseViewGroups: async (projectId: string, input: unknown) => {
+    invokeCalls.push(["database:view-groups:get", projectId, input]);
+    // Ungrouped default keeps stores on the single flat-window path unless a
+    // test opts into per-group windows through mockInvokeImpl.
+    const mocked = await mockInvokeImpl?.(
+      "database:view-groups:get",
+      projectId,
+      input,
+    );
+    return mocked ?? {
+      projectId,
+      libraryId: "library:test",
+      databaseId: `database:${projectId}:primary`,
+      dataSourceId: `database:${projectId}:primary:data-source:initial`,
+      viewId: `database-view:${projectId}:primary-kanban`,
+      storeEpoch: "epoch:test",
+      changeLogSeq: 1,
+      grouped: false,
+      totalRows: 0,
+      truncated: false,
+      groups: [],
+    };
+  },
+  readLibraryDatabaseViewWindow: async (input: unknown) => {
+    invokeCalls.push(["library-database:view-window:get", input]);
+    return mockInvokeImpl?.("library-database:view-window:get", input) ?? null;
+  },
+  readLibraryDatabaseViewGroups: async (input: unknown) => {
+    invokeCalls.push(["library-database:view-groups:get", input]);
+    return mockInvokeImpl?.("library-database:view-groups:get", input) ?? null;
+  },
   readPageDetail: async (projectId: string, pageId: string) => {
     invokeCalls.push(["pages:detail:get", projectId, pageId]);
     return mockInvokeImpl?.("pages:detail:get", projectId, pageId) ?? null;

@@ -333,6 +333,49 @@ function toStoryReviewDiffResult(snapshot: StoryGitReviewSnapshot) {
   };
 }
 
+const databaseWindowQuerySuffix = (input: {
+  readonly after?: string;
+  readonly first?: number;
+  readonly groupScope?:
+    | { readonly kind: "key"; readonly key: string }
+    | { readonly kind: "unassigned" };
+}): string => {
+  const query = new URLSearchParams();
+  if (input.after) query.set("after", input.after);
+  if (input.first !== undefined) query.set("first", String(input.first));
+  if (input.groupScope?.kind === "key") query.set("groupKey", input.groupScope.key);
+  if (input.groupScope?.kind === "unassigned") query.set("unassigned", "1");
+  return query.size > 0 ? `?${query.toString()}` : "";
+};
+
+/**
+ * Rehydrates the HTTP contract (2xx snapshot, non-2xx typed error body) into
+ * the same `CoreReadResult` envelope the Electron IPC channels return.
+ */
+const fetchCoreReadEnvelope = async (url: string): Promise<unknown> => {
+  const res = await fetch(url);
+  const body: unknown = await res.json().catch(() => null);
+  if (res.ok) return { ok: true, value: body };
+  const detail = (body as { error?: unknown } | null)?.error;
+  if (
+    detail
+    && typeof detail === "object"
+    && typeof (detail as { code?: unknown }).code === "string"
+  ) {
+    return { ok: false, error: detail };
+  }
+  return {
+    ok: false,
+    error: {
+      code: res.status === 400 ? "invalid_input" : "core_unavailable",
+      message: typeof detail === "string"
+        ? detail
+        : `Core read failed with HTTP ${res.status}`,
+      retryable: res.status >= 500,
+    },
+  };
+};
+
 async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
   switch (channel) {
     case "codex:personality:get":
@@ -766,19 +809,30 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
           readonly databaseViewId?: string;
           readonly after?: string;
           readonly first?: number;
+          readonly groupScope?:
+            | { readonly kind: "key"; readonly key: string }
+            | { readonly kind: "unassigned" };
         },
       ];
       const viewId = encodeURIComponent(input.databaseViewId ?? "default");
-      const query = new URLSearchParams();
-      if (input.after) query.set("after", input.after);
-      if (input.first !== undefined) query.set("first", String(input.first));
-      const suffix = query.size > 0 ? `?${query.toString()}` : "";
-      const res = await fetch(
+      const suffix = databaseWindowQuerySuffix(input);
+      return fetchCoreReadEnvelope(
         toApiUrl(
           `/api/projects/${encodeURIComponent(projectId)}/database-views/${viewId}/rows${suffix}`,
         ),
       );
-      return res.json();
+    }
+    case "database:view-groups:get": {
+      const [projectId, input] = args as [
+        string,
+        { readonly databaseViewId?: string },
+      ];
+      const viewId = encodeURIComponent(input.databaseViewId ?? "default");
+      return fetchCoreReadEnvelope(
+        toApiUrl(
+          `/api/projects/${encodeURIComponent(projectId)}/database-views/${viewId}/groups`,
+        ),
+      );
     }
     case "library-database:view-window:get": {
       const [input] = args as [{
@@ -786,19 +840,31 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         readonly databaseId?: string;
         readonly after?: string;
         readonly first?: number;
+        readonly groupScope?:
+          | { readonly kind: "key"; readonly key: string }
+          | { readonly kind: "unassigned" };
       }];
-      const query = new URLSearchParams();
-      if (input.after) query.set("after", input.after);
-      if (input.first !== undefined) query.set("first", String(input.first));
-      const suffix = query.size > 0 ? `?${query.toString()}` : "";
-      const res = await fetch(
+      const suffix = databaseWindowQuerySuffix(input);
+      return fetchCoreReadEnvelope(
         toApiUrl(
           input.databaseViewId
             ? `/api/library/database-views/${encodeURIComponent(input.databaseViewId)}/rows${suffix}`
             : `/api/library/databases/${encodeURIComponent(input.databaseId ?? "")}/default-view/rows${suffix}`,
         ),
       );
-      return res.json();
+    }
+    case "library-database:view-groups:get": {
+      const [input] = args as [{
+        readonly databaseViewId?: string;
+        readonly databaseId?: string;
+      }];
+      return fetchCoreReadEnvelope(
+        toApiUrl(
+          input.databaseViewId
+            ? `/api/library/database-views/${encodeURIComponent(input.databaseViewId)}/groups`
+            : `/api/library/databases/${encodeURIComponent(input.databaseId ?? "")}/default-view/groups`,
+        ),
+      );
     }
     case "block-properties:mutate": {
       const [projectId, request] = args as [string, unknown];

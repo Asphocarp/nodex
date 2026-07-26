@@ -157,7 +157,6 @@ fn read_definition_window(
         kind: "automation_definitions",
         library_id,
         query_fingerprint: &fingerprint,
-        projection_revision: event_head,
     };
     let after = normalized
         .after
@@ -335,7 +334,6 @@ fn read_lease_window(
         kind: "automation_leases",
         library_id,
         query_fingerprint: &fingerprint,
-        projection_revision: event_head,
     };
     let after = normalized
         .after

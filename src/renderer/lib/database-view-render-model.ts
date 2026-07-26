@@ -67,9 +67,21 @@ export interface DatabaseViewRenderRow {
   readonly createdAt: Date;
 }
 
+/**
+ * Stable key of one independently paged group window: `key:<group>` for a
+ * concrete group, `unassigned` for rows with an empty grouping value, and
+ * `all` for ungrouped Views that page as a single flat window.
+ */
+export const UNGROUPED_SCOPE_KEY = "all";
+
+export const groupScopeKeyForColumn = (groupKey: string | null): string =>
+  groupKey === null ? "unassigned" : `key:${groupKey}`;
+
 export interface DatabaseViewRenderColumn {
   readonly id: string;
   readonly name: string;
+  /** Pagination scope of this column's group window in the kanban store. */
+  readonly scopeKey: string;
   readonly rows: readonly DatabaseViewRenderRow[];
 }
 
@@ -214,6 +226,7 @@ const buildColumns = (
       return [{
         id: DEFAULT_WORKFLOW_STATUS,
         name: query.view.name,
+        scopeKey: UNGROUPED_SCOPE_KEY,
         rows: rows.map(({ renderRow }) => renderRow),
       }];
     }
@@ -226,6 +239,7 @@ const buildColumns = (
       return [{
         id: DEFAULT_WORKFLOW_STATUS,
         name: query.view.name,
+        scopeKey: UNGROUPED_SCOPE_KEY,
         rows: rows.map(({ renderRow }) => renderRow),
       }];
     }
@@ -268,6 +282,7 @@ const buildColumns = (
     return groupKeys.map((groupKey) => ({
       id: groupKey ?? `empty:${groupProperty.propertyId}`,
       name: groupName(groupKey),
+      scopeKey: groupScopeKeyForColumn(groupKey),
       rows: rows.flatMap(({ row, renderRow }) =>
         row.effectiveGroupKey === groupKey ? [renderRow] : []),
     }));
@@ -275,6 +290,7 @@ const buildColumns = (
 
   return WORKFLOW_STATUS_COLUMNS.map((column) => ({
     ...column,
+    scopeKey: groupScopeKeyForColumn(column.id),
     rows: rows.flatMap(({ row, renderRow }) =>
       row.effectiveGroupKey === column.id ? [renderRow] : []),
   }));

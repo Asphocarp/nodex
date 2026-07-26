@@ -132,6 +132,8 @@ import type { DesktopProjectWorkspacePort } from "./core-client/project-workspac
 import type { DesktopDocumentSyncPort } from "./core-client/desktop-document-sync-bridge";
 import type { DesktopLibraryModuleBridge } from "./core-client/desktop-library-module-bridge";
 import type { DesktopDatabaseModuleBridge } from "./core-client/desktop-database-module-bridge";
+import { CoreModuleResponseError } from "./core-client/core-client";
+import type { CoreReadResult } from "../shared/core-read-result";
 import type { DesktopAutomationModulePort } from "./core-client/desktop-automation-module-bridge";
 import type { DesktopStoreAdministrationPort } from "./core-client/desktop-store-administration-bridge";
 import type { DesktopNotificationManager } from "./desktop-notification-manager";
@@ -292,6 +294,41 @@ function registerHandle<Channel extends keyof IpcApi>(
       throw error;
     }
   });
+}
+
+type CoreReadChannelValue<Channel extends keyof IpcApi> =
+  IpcApi[Channel]["result"] extends CoreReadResult<infer Value> ? Value : never;
+
+/**
+ * Registers a Core-backed read channel behind the `CoreReadResult` envelope:
+ * typed Core errors travel as data instead of being flattened into IPC error
+ * strings, so the renderer can classify cursor rejections and retryable
+ * failures without matching message text. Non-Core failures still throw.
+ */
+function registerCoreReadHandle<Channel extends keyof IpcApi>(
+  channel: Channel,
+  read: (
+    event: IpcMainInvokeEvent,
+    ...args: IpcApi[Channel]["args"]
+  ) => Promise<CoreReadChannelValue<Channel>>,
+): void {
+  registerHandle(channel, (async (event, ...args) => {
+    try {
+      return { ok: true, value: await read(event, ...args) };
+    } catch (error) {
+      if (error instanceof CoreModuleResponseError) {
+        return {
+          ok: false,
+          error: {
+            code: error.coreError.code,
+            message: error.coreError.message,
+            retryable: error.coreError.retryable,
+          },
+        };
+      }
+      throw error;
+    }
+  }) as TypedIpcHandler<Channel>);
 }
 
 function requireTrustedWorkspaceFileSender(event: IpcMainInvokeEvent): void {
@@ -587,7 +624,9 @@ interface RegisterIpcHandlersOptions {
     | "readLibrary"
     | "applyLibrary"
     | "getDatabaseViewWindow"
+    | "getDatabaseViewGroups"
     | "getLibraryDatabaseViewWindow"
+    | "getLibraryDatabaseViewGroups"
     | "getDatabaseRowPage"
     | "resolveDatabaseViewReference"
   >;
@@ -1734,7 +1773,7 @@ export function registerIpcHandlers(
     await projectWorkspace.detachProjectSessionThread(sessionId)
   );
 
-  registerHandle("database:view-window:get", async (_, projectId, input) => {
+  registerCoreReadHandle("database:view-window:get", async (_, projectId, input) => {
     const startedAt = performance.now();
     const window = await databaseModule.getDatabaseViewWindow(projectId, input);
     ipcPayloadLogger.info("Database View window payload served", {
@@ -1748,7 +1787,10 @@ export function registerIpcHandlers(
     return window;
   });
 
-  registerHandle("library-database:view-window:get", async (_, input) => {
+  registerCoreReadHandle("database:view-groups:get", async (_, projectId, input) =>
+    await databaseModule.getDatabaseViewGroups(projectId, input));
+
+  registerCoreReadHandle("library-database:view-window:get", async (_, input) => {
     const startedAt = performance.now();
     const window = await databaseModule.getLibraryDatabaseViewWindow(input);
     ipcPayloadLogger.info("Library Database View window payload served", {
@@ -1760,6 +1802,9 @@ export function registerIpcHandlers(
     });
     return window;
   });
+
+  registerCoreReadHandle("library-database:view-groups:get", async (_, input) =>
+    await databaseModule.getLibraryDatabaseViewGroups(input));
 
   // Database Pages
   registerHandle("pages:search", async (_, input) => {

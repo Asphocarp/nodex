@@ -4608,6 +4608,43 @@
           "database_changed"
         ]
       },
+      "DatabaseGroupScope": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "key",
+              "kind"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "key"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "unassigned"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Restricts a `ViewWindow` read to a single group of a grouped View, so each\nboard column can page independently. `Unassigned` addresses rows whose\ngrouping Property value is empty (NULL, empty string, or empty list)."
+      },
       "DatabasePagePosition": {
         "type": "object",
         "required": [
@@ -4663,6 +4700,7 @@
           "view",
           "agent_query",
           "view_window",
+          "view_groups",
           "rows_by_id",
           "row_detail"
         ]
@@ -5047,6 +5085,65 @@
             }
           }
         ]
+      },
+      "DatabaseViewGroupSummary": {
+        "type": "object",
+        "required": [
+          "total_rows"
+        ],
+        "properties": {
+          "group_key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`None` counts the unassigned group (empty grouping value)."
+          },
+          "total_rows": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "DatabaseViewGroups": {
+        "type": "object",
+        "description": "Bounded per-group totals for a View, observed from data. At most\n`MAX_VIEW_GROUP_SUMMARIES` groups are returned; `truncated` reports when the\ngrouping cardinality exceeded that bound. `grouped: false` means the View\nhas no grouping Property and only `total_rows` is meaningful.",
+        "required": [
+          "database_id",
+          "data_source_id",
+          "view_id",
+          "grouped",
+          "total_rows",
+          "truncated",
+          "groups"
+        ],
+        "properties": {
+          "data_source_id": {
+            "type": "string"
+          },
+          "database_id": {
+            "type": "string"
+          },
+          "grouped": {
+            "type": "boolean"
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseViewGroupSummary"
+            }
+          },
+          "total_rows": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "view_id": {
+            "type": "string"
+          }
+        }
       },
       "DatabaseViewWindow": {
         "type": "object",
@@ -15134,6 +15231,16 @@
             ],
             "properties": {
               "filter": {},
+              "group_scope": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DatabaseGroupScope"
+                  }
+                ]
+              },
               "mode": {
                 "$ref": "#/components/schemas/DatabaseReadMode"
               },
@@ -19982,6 +20089,24 @@
                           },
                           "value": {
                             "$ref": "#/components/schemas/DatabaseViewWindow"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "view_groups"
+                            ]
+                          },
+                          "value": {
+                            "$ref": "#/components/schemas/DatabaseViewGroups"
                           }
                         }
                       },

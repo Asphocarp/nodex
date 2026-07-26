@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use nodex_core_contracts::collection::{CollectionWindowAuthority, CollectionWindowRequest};
 use nodex_core_contracts::database::{
-    DatabaseRowDetail, DatabaseRowSummary, DatabaseRowsById, DatabaseViewWindow,
+    DatabaseGroupScope, DatabaseRowDetail, DatabaseRowSummary, DatabaseRowsById,
+    DatabaseViewGroupSummary, DatabaseViewGroups, DatabaseViewWindow, MAX_VIEW_GROUP_SUMMARIES,
 };
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter};
@@ -146,22 +147,26 @@ pub(super) fn view_window(
     event_head: i64,
     view_id: &str,
     request: &CollectionWindowRequest,
+    group_scope: Option<&DatabaseGroupScope>,
 ) -> Result<DatabaseViewWindow, StoreError> {
     let view = resolve_view(connection, library_id, view_id)?;
     let normalized = normalize_request(request)?;
     let fingerprint = cursor::query_fingerprint(&(
-        "database_view_window_v1",
+        "database_view_window_v2",
         &view.view_id,
         &view.data_source_id,
         &view.config,
+        group_scope,
     ))?;
     let subject = CollectionCursorSubject {
         kind: "database_view_rows",
         library_id,
         query_fingerprint: &fingerprint,
-        projection_revision: event_head,
     };
-    let (sort_components, mut parameters) = sort_components(&view.config)?;
+    let mut parameters = Vec::new();
+    let effective_group = effective_group_expression(&view.config, &mut parameters)?;
+    let sort_components =
+        sort_components(&view.config, effective_group.as_deref(), &mut parameters)?;
     let cursor_coordinate = normalized
         .after
         .map(|encoded| cursor::decode(connection, encoded, subject))
@@ -179,11 +184,17 @@ pub(super) fn view_window(
         })
         .transpose()?;
 
+    let scope_predicate = group_scope
+        .map(|scope| group_scope_predicate(scope, effective_group.as_deref(), &mut parameters))
+        .transpose()?
+        .map(|predicate| format!("AND ({predicate}) "))
+        .unwrap_or_default();
     let position_view = bind(&mut parameters, SqlValue::Text(view.view_id.clone()));
     let source = bind(&mut parameters, SqlValue::Text(view.data_source_id.clone()));
     let filter = compile_filter(&view.config.filter, &mut parameters, 1, &mut 0)?;
     let (database_values_projection, property_revisions_projection) =
         compact_value_projections(&view.config, &mut parameters)?;
+    let effective_group_select = effective_group.as_deref().unwrap_or("NULL");
     let sort_projection = sort_components
         .iter()
         .enumerate()
@@ -224,8 +235,8 @@ pub(super) fn view_window(
              model.metadata_revision, model.location_revision, model.document_id, \
              model.document_generation, model.document_projected_seq, membership.id, \
              membership.revision, membership.created_at, model.created_at, model.updated_at, \
-             position.group_key, position.rank_key, position.revision, \
-             NULL AS position_order, {sort_projection} \
+             {effective_group_select} AS effective_group_key, position.rank_key, \
+             position.revision, NULL AS position_order, {sort_projection} \
            FROM data_source_page_memberships membership \
            JOIN page_read_model model \
              ON model.page_block_id = membership.page_block_id \
@@ -245,20 +256,16 @@ pub(super) fn view_window(
            WHERE membership.data_source_id = {source} \
              AND membership.removed_at IS NULL \
              AND model.lifecycle = 'active' \
+             {scope_predicate}\
              AND ({filter})\
          ) \
          SELECT * FROM candidate_rows {cursor_predicate} \
          ORDER BY {order} LIMIT {limit}"
     );
-    let group_property_id = view
-        .config
-        .group
-        .as_ref()
-        .map(|group| group.property_id.as_str());
     let rows = connection
         .prepare(&sql)?
         .query_map(params_from_iter(parameters.iter()), |row| {
-            summary_from_row(row, group_property_id, sort_components.len())
+            summary_from_row(row, sort_components.len())
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let candidates = rows.into_iter().map(|row| WindowCandidate {
@@ -288,6 +295,99 @@ pub(super) fn view_window(
         data_source_id: view.data_source_id,
         view_id: view.view_id,
         rows,
+    })
+}
+
+/// Bounded per-group totals for a View, derived from the same candidate row
+/// set (memberships, lifecycle, exact-head joins, View filter) and the same
+/// effective-group expression as `view_window`, so counts always agree with
+/// what group-scoped windows can reach.
+pub(super) fn view_groups(
+    connection: &Connection,
+    library_id: &str,
+    view_id: &str,
+) -> Result<DatabaseViewGroups, StoreError> {
+    let view = resolve_view(connection, library_id, view_id)?;
+    let mut parameters = Vec::new();
+    let effective_group = effective_group_expression(&view.config, &mut parameters)?;
+    let group_select = effective_group.as_deref().unwrap_or("NULL");
+    let position_view = bind(&mut parameters, SqlValue::Text(view.view_id.clone()));
+    let source = bind(&mut parameters, SqlValue::Text(view.data_source_id.clone()));
+    let filter = compile_filter(&view.config.filter, &mut parameters, 1, &mut 0)?;
+    let candidate_cte = format!(
+        "WITH candidate_rows AS (\
+           SELECT {group_select} AS group_key \
+           FROM data_source_page_memberships membership \
+           JOIN page_read_model model \
+             ON model.page_block_id = membership.page_block_id \
+             AND model.membership_id = membership.id \
+           JOIN documents document \
+             ON document.id = model.document_id \
+             AND document.generation = model.document_generation \
+             AND document.head_seq = model.document_projected_seq \
+           JOIN document_materializations materialization \
+             ON materialization.document_id = document.id \
+             AND materialization.generation = document.generation \
+             AND materialization.projected_seq = document.head_seq \
+             AND materialization.schema_version = document.schema_version \
+           LEFT JOIN database_view_page_positions position \
+             ON position.view_id = {position_view} \
+             AND position.page_block_id = membership.page_block_id \
+           WHERE membership.data_source_id = {source} \
+             AND membership.removed_at IS NULL \
+             AND model.lifecycle = 'active' \
+             AND ({filter})\
+         )"
+    );
+    let total_rows = connection.query_row(
+        &format!("{candidate_cte} SELECT count(*) FROM candidate_rows"),
+        params_from_iter(parameters.iter()),
+        |row| row.get::<_, i64>(0),
+    )?;
+    if effective_group.is_none() {
+        return Ok(DatabaseViewGroups {
+            database_id: view.database_id,
+            data_source_id: view.data_source_id,
+            view_id: view.view_id,
+            grouped: false,
+            total_rows,
+            truncated: false,
+            groups: Vec::new(),
+        });
+    }
+    let limit = bind(
+        &mut parameters,
+        SqlValue::Integer(
+            i64::try_from(MAX_VIEW_GROUP_SUMMARIES + 1)
+                .map_err(|_| invalid("Database View group bound is invalid"))?,
+        ),
+    );
+    let sql = format!(
+        "{candidate_cte} \
+         SELECT group_key, count(*) FROM candidate_rows \
+         GROUP BY group_key \
+         ORDER BY CASE WHEN group_key IS NULL THEN 1 ELSE 0 END, group_key \
+         LIMIT {limit}"
+    );
+    let mut groups = connection
+        .prepare(&sql)?
+        .query_map(params_from_iter(parameters.iter()), |row| {
+            Ok(DatabaseViewGroupSummary {
+                group_key: row.get(0)?,
+                total_rows: row.get(1)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let truncated = groups.len() > MAX_VIEW_GROUP_SUMMARIES;
+    groups.truncate(MAX_VIEW_GROUP_SUMMARIES);
+    Ok(DatabaseViewGroups {
+        database_id: view.database_id,
+        data_source_id: view.data_source_id,
+        view_id: view.view_id,
+        grouped: true,
+        total_rows,
+        truncated,
+        groups,
     })
 }
 
@@ -414,12 +514,9 @@ fn summary_by_id(
     view: &ResolvedView,
     page_id: &str,
 ) -> Result<Option<DatabaseRowSummary>, StoreError> {
-    let group_property_id = view
-        .config
-        .group
-        .as_ref()
-        .map(|group| group.property_id.as_str());
     let mut parameters = Vec::new();
+    let effective_group = effective_group_expression(&view.config, &mut parameters)?;
+    let effective_group_select = effective_group.as_deref().unwrap_or("NULL");
     let view_parameter = bind(&mut parameters, SqlValue::Text(view.view_id.clone()));
     let source_parameter = bind(&mut parameters, SqlValue::Text(view.data_source_id.clone()));
     let page_parameter = bind(&mut parameters, SqlValue::Text(page_id.to_owned()));
@@ -433,7 +530,8 @@ fn summary_by_id(
                model.metadata_revision, model.location_revision, model.document_id, \
                model.document_generation, model.document_projected_seq, membership.id, \
                membership.revision, membership.created_at, model.created_at, model.updated_at, \
-               position.group_key, position.rank_key, position.revision, \
+               {effective_group_select} AS effective_group_key, position.rank_key, \
+               position.revision, \
                (SELECT count(*) FROM database_view_page_positions peer \
                 WHERE peer.view_id = position.view_id \
                   AND peer.group_key IS position.group_key \
@@ -462,17 +560,13 @@ fn summary_by_id(
     );
     connection
         .query_row(&sql, params_from_iter(parameters.iter()), |row| {
-            summary_from_row(row, group_property_id, 0).map(|row| row.summary)
+            summary_from_row(row, 0).map(|row| row.summary)
         })
         .optional()
         .map_err(StoreError::from)
 }
 
-fn summary_from_row(
-    row: &Row<'_>,
-    group_property_id: Option<&str>,
-    sort_component_count: usize,
-) -> rusqlite::Result<SummaryRow> {
+fn summary_from_row(row: &Row<'_>, sort_component_count: usize) -> rusqlite::Result<SummaryRow> {
     let page_id = row.get::<_, String>(0)?;
     let database_values = parse_json_map(row.get::<_, String>(7)?, "Database values")?;
     let intrinsic_properties = parse_json_map(row.get::<_, String>(8)?, "intrinsic properties")?;
@@ -487,9 +581,6 @@ fn summary_from_row(
             Ok((property_id.clone(), revision))
         })
         .collect::<rusqlite::Result<BTreeMap<_, _>>>()?;
-    let effective_group_key = group_property_id
-        .and_then(|property_id| database_values.get(property_id))
-        .and_then(group_key_for_value);
     let coordinate_values = (0..sort_component_count)
         .map(|index| row.get::<_, SqlValue>(SUMMARY_COLUMN_COUNT + index))
         .map(|value| value.and_then(keyset_value_from_sql))
@@ -516,7 +607,7 @@ fn summary_from_row(
             membership_created_at: row.get(17)?,
             created_at: row.get(18)?,
             updated_at: row.get(19)?,
-            effective_group_key,
+            effective_group_key: row.get(20)?,
             rank_key: row.get(21)?,
             position_revision: row.get(22)?,
             position_order: row.get(23)?,
@@ -575,48 +666,88 @@ fn compact_value_projections(
     Ok((values, revisions))
 }
 
-fn sort_components(config: &ViewConfig) -> Result<(Vec<SortComponent>, Vec<SqlValue>), StoreError> {
-    let mut parameters = Vec::new();
-    if config.sort.is_empty() {
-        return Ok((
-            vec![
-                SortComponent {
-                    expression: "CASE WHEN position.rank_key IS NULL THEN 1 ELSE 0 END".to_owned(),
-                    direction: SortDirection::Asc,
-                },
-                SortComponent {
-                    expression: "position.group_key".to_owned(),
-                    direction: SortDirection::Asc,
-                },
-                SortComponent {
-                    expression: "position.rank_key".to_owned(),
-                    direction: SortDirection::Asc,
-                },
-            ],
-            parameters,
-        ));
+/// SQL expression for a row's effective group key, the single source of truth
+/// consumed by the summary projection, the sort order, group scoping, and
+/// group totals. An explicit board position group wins; otherwise the grouping
+/// Property value is normalized so NULL, empty strings, and empty lists all
+/// mean "unassigned" (SQL NULL), while numbers, booleans, and composite values
+/// group by their canonical JSON text.
+fn effective_group_expression(
+    config: &ViewConfig,
+    parameters: &mut Vec<SqlValue>,
+) -> Result<Option<String>, StoreError> {
+    let Some(group) = &config.group else {
+        return Ok(None);
+    };
+    validate_property_id(&group.property_id)?;
+    let path = bind(parameters, SqlValue::Text(json_path(&group.property_id)));
+    let raw = format!("json_extract(model.database_values_json, {path})");
+    let raw_type = format!("json_type(model.database_values_json, {path})");
+    Ok(Some(format!(
+        "COALESCE(NULLIF(position.group_key, ''), \
+         CASE {raw_type} \
+           WHEN 'true' THEN 'true' \
+           WHEN 'false' THEN 'false' \
+           WHEN 'text' THEN NULLIF({raw}, '') \
+           WHEN 'array' THEN \
+             CASE WHEN json_array_length({raw}) = 0 THEN NULL ELSE {raw} END \
+           WHEN 'null' THEN NULL \
+           ELSE CAST({raw} AS TEXT) \
+         END)"
+    )))
+}
+
+fn group_scope_predicate(
+    scope: &DatabaseGroupScope,
+    effective_group: Option<&str>,
+    parameters: &mut Vec<SqlValue>,
+) -> Result<String, StoreError> {
+    let Some(expression) = effective_group else {
+        return Err(invalid("Database View has no grouping to scope"));
+    };
+    match scope {
+        DatabaseGroupScope::Unassigned => Ok(format!("{expression} IS NULL")),
+        DatabaseGroupScope::Key { key } => {
+            validate_identity(key, "Database View group key")?;
+            let parameter = bind(parameters, SqlValue::Text(key.clone()));
+            Ok(format!("{expression} IS {parameter}"))
+        }
     }
+}
+
+/// One effective-group-major total order shared by flat and group-scoped
+/// windows: rows cluster by effective group (unassigned last), then manual
+/// rank (positioned rows first) or the configured sort rules, then the stable
+/// Page identity appended by the caller.
+fn sort_components(
+    config: &ViewConfig,
+    effective_group: Option<&str>,
+    parameters: &mut Vec<SqlValue>,
+) -> Result<Vec<SortComponent>, StoreError> {
     if config.sort.len() > MAX_SORT_RULES {
         return Err(invalid("Database View has too many sort rules"));
     }
     let mut components = Vec::new();
-    if let Some(group) = &config.group {
-        validate_property_id(&group.property_id)?;
-        let path = bind(
-            &mut parameters,
-            SqlValue::Text(json_path(&group.property_id)),
-        );
-        let expression = format!(
-            "COALESCE(position.group_key, json_extract(model.database_values_json, {path}))"
-        );
+    if let Some(expression) = effective_group {
         components.push(SortComponent {
             expression: format!("CASE WHEN {expression} IS NULL THEN 1 ELSE 0 END"),
             direction: SortDirection::Asc,
         });
         components.push(SortComponent {
-            expression,
+            expression: expression.to_owned(),
             direction: SortDirection::Asc,
         });
+    }
+    if config.sort.is_empty() {
+        components.push(SortComponent {
+            expression: "CASE WHEN position.rank_key IS NULL THEN 1 ELSE 0 END".to_owned(),
+            direction: SortDirection::Asc,
+        });
+        components.push(SortComponent {
+            expression: "position.rank_key".to_owned(),
+            direction: SortDirection::Asc,
+        });
+        return Ok(components);
     }
     for rule in &config.sort {
         let expression = match &rule.field {
@@ -625,7 +756,7 @@ fn sort_components(config: &ViewConfig) -> Result<(Vec<SortComponent>, Vec<SqlVa
             ViewSortField::Created => "model.created_at".to_owned(),
             ViewSortField::Property { property_id } => {
                 validate_property_id(property_id)?;
-                let path = bind(&mut parameters, SqlValue::Text(json_path(property_id)));
+                let path = bind(parameters, SqlValue::Text(json_path(property_id)));
                 format!("json_extract(model.database_values_json, {path})")
             }
         };
@@ -646,7 +777,7 @@ fn sort_components(config: &ViewConfig) -> Result<(Vec<SortComponent>, Vec<SqlVa
             direction: rule.direction,
         });
     }
-    Ok((components, parameters))
+    Ok(components)
 }
 
 fn compile_filter(
@@ -894,17 +1025,6 @@ fn parse_json_value(value: String, label: &str) -> rusqlite::Result<Value> {
             .into(),
         )
     })
-}
-
-fn group_key_for_value(value: &Value) -> Option<String> {
-    if value.is_null() || value.as_str() == Some("") || value.as_array().is_some_and(Vec::is_empty)
-    {
-        return None;
-    }
-    value
-        .as_str()
-        .map(str::to_owned)
-        .or_else(|| Some(value.to_string()))
 }
 
 fn invalid(message: &str) -> StoreError {

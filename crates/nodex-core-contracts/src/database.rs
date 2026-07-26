@@ -8,7 +8,7 @@ use crate::agent::AgentExecutionAuthorization;
 use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const DATABASE_CONTRACT_VERSION: u32 = 3;
+pub const DATABASE_CONTRACT_VERSION: u32 = 4;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -53,8 +53,19 @@ pub enum DatabaseReadMode {
     View,
     AgentQuery,
     ViewWindow,
+    ViewGroups,
     RowsById,
     RowDetail,
+}
+
+/// Restricts a `ViewWindow` read to a single group of a grouped View, so each
+/// board column can page independently. `Unassigned` addresses rows whose
+/// grouping Property value is empty (NULL, empty string, or empty list).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DatabaseGroupScope {
+    Key { key: String },
+    Unassigned,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
@@ -65,6 +76,7 @@ pub struct DatabaseRead {
     pub sort: Option<Vec<Value>>,
     pub window: Option<CollectionWindowRequest>,
     pub page_ids: Option<Vec<String>>,
+    pub group_scope: Option<DatabaseGroupScope>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -107,6 +119,9 @@ pub enum DatabaseReadValue {
     ViewWindow {
         value: DatabaseViewWindow,
     },
+    ViewGroups {
+        value: DatabaseViewGroups,
+    },
     RowsById {
         value: DatabaseRowsById,
     },
@@ -122,6 +137,30 @@ pub struct DatabaseViewWindow {
     pub view_id: String,
     pub rows: CollectionWindow<DatabaseRowSummary>,
 }
+
+/// Bounded per-group totals for a View, observed from data. At most
+/// `MAX_VIEW_GROUP_SUMMARIES` groups are returned; `truncated` reports when the
+/// grouping cardinality exceeded that bound. `grouped: false` means the View
+/// has no grouping Property and only `total_rows` is meaningful.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseViewGroups {
+    pub database_id: String,
+    pub data_source_id: String,
+    pub view_id: String,
+    pub grouped: bool,
+    pub total_rows: i64,
+    pub truncated: bool,
+    pub groups: Vec<DatabaseViewGroupSummary>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseViewGroupSummary {
+    /// `None` counts the unassigned group (empty grouping value).
+    pub group_key: Option<String>,
+    pub total_rows: i64,
+}
+
+pub const MAX_VIEW_GROUP_SUMMARIES: usize = 200;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct DatabaseRowsById {

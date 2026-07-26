@@ -11,6 +11,7 @@ import {
   type KanbanColumnLayout,
 } from "../../lib/kanban-column-layout";
 import { StatusChip, StatusIcon, columnStyles as sharedColumnStyles } from "../../lib/status-chip";
+import type { ColumnPaginationState } from "../../lib/kanban-store";
 import type { DatabasePageSummary, PageCreatePlacement, BoardSummaryColumn, PageInput } from "../../lib/types";
 import { cn } from "../../lib/utils";
 import type { KanbanCardDragData } from "./pragmatic-drag-data";
@@ -25,6 +26,8 @@ interface ColumnProps {
   projectId: string;
   projectName: string;
   column: ColumnType;
+  pagination?: ColumnPaginationState;
+  onLoadMore?: (scopeKey: string) => Promise<void> | void;
   displayPrefs?: DbViewDisplayPrefs;
   dragInstanceId?: symbol;
   buildDragData?: (card: CardType, columnId: string) => KanbanCardDragData;
@@ -77,6 +80,8 @@ export const Column = memo(function Column({
   projectId,
   projectName,
   column,
+  pagination,
+  onLoadMore,
   displayPrefs,
   dragInstanceId,
   buildDragData,
@@ -107,6 +112,15 @@ export const Column = memo(function Column({
   const [showCreator, setShowCreator] = useState(false);
   const columnRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  // The header badge reports the group's true total; loaded cards are a window.
+  const cardCount = pagination?.totalRows ?? column.cards.length;
+  const remainingRows = pagination?.totalRows !== null
+    && pagination !== undefined
+    ? Math.max(pagination.totalRows - pagination.loadedRows, 0)
+    : null;
+  const showMoreLabel = remainingRows !== null && remainingRows > 0
+    ? `Show ${Math.min(remainingRows, 50)} more`
+    : "Show more";
   const isAutoCollapsed = column.cards.length === 0 && !showCreator;
   const isUserCollapsed = layout.collapsed && !showCreator;
   const isCollapsed = isAutoCollapsed || isUserCollapsed;
@@ -212,7 +226,7 @@ export const Column = memo(function Column({
                     background: "color-mix(in srgb, var(--column-accent) 14%, transparent)",
                   }}
                 >
-                  {column.cards.length}
+                  {cardCount}
                 </span>
                 <div
                   className="mt-2"
@@ -263,12 +277,12 @@ export const Column = memo(function Column({
                 <StatusChip statusId={column.id} label={column.name} />
               </button>
 
-              {/* Card count */}
+              {/* Card count (true group total, not just the loaded window) */}
               <span
                 className="ml-1 flex h-5 items-center rounded-xs px-1.5 text-sm"
                 style={{ color: styles.accentColor }}
               >
-                {column.cards.length}
+                {cardCount}
               </span>
               {dropBlockedMessage ? (
                 <span className="ml-2 rounded-sm bg-(--background) px-1.5 py-0.5 text-[10px]/none font-medium text-(--foreground-secondary)">
@@ -376,6 +390,28 @@ export const Column = memo(function Column({
                   </div>
                 ) : null}
               </div>
+
+              {/* Per-column continuation: scrolls with the cards it extends */}
+              {pagination?.error ? (
+                <button
+                  type="button"
+                  onClick={() => void onLoadMore?.(pagination.scopeKey)}
+                  className="mt-2 flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-xs text-(--destructive) hover:bg-(--surface-hover)"
+                  title={pagination.error}
+                >
+                  <span className="truncate">Couldn’t load more</span>
+                  <span className="font-medium">Retry</span>
+                </button>
+              ) : pagination?.hasMore ? (
+                <button
+                  type="button"
+                  disabled={pagination.loadingMore}
+                  onClick={() => void onLoadMore?.(pagination.scopeKey)}
+                  className="mt-2 flex w-full items-center rounded-md px-2.5 py-1.5 text-xs font-medium text-(--foreground-secondary) hover:bg-(--surface-hover) disabled:opacity-50"
+                >
+                  {pagination.loadingMore ? "Loading…" : showMoreLabel}
+                </button>
+              ) : null}
 
               {/* New task button */}
               {!showCreator && (

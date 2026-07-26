@@ -115,6 +115,11 @@ pub(crate) fn read_at_event_head(
             "Database reads require a Project or trusted Library scope",
         ));
     }
+    if request.group_scope.is_some() && request.mode != DatabaseReadMode::ViewWindow {
+        return Err(invalid(
+            "Database group scope requires the view_window mode",
+        ));
+    }
     let primary_database_id = project_id
         .map(|project_id| project_primary_database(connection, library_id, project_id))
         .transpose()?
@@ -142,6 +147,7 @@ pub(crate) fn read_at_event_head(
                         .window
                         .as_ref()
                         .unwrap_or(&CollectionWindowRequest::default()),
+                    request.group_scope.as_ref(),
                 )?,
             })
         }
@@ -230,6 +236,7 @@ pub(crate) fn read_at_event_head(
                         .window
                         .as_ref()
                         .unwrap_or(&CollectionWindowRequest::default()),
+                    request.group_scope.as_ref(),
                 )?,
             })
         }
@@ -364,6 +371,7 @@ pub(crate) fn read_at_event_head(
                         .window
                         .as_ref()
                         .unwrap_or(&CollectionWindowRequest::default()),
+                    request.group_scope.as_ref(),
                 )?,
             })
         }
@@ -431,6 +439,7 @@ pub(crate) fn read_at_event_head(
                         after: query.cursor.clone(),
                         first: query.limit,
                     },
+                    None,
                 )?,
             })
         }
@@ -455,7 +464,48 @@ pub(crate) fn read_at_event_head(
                         after: query.cursor.clone(),
                         first: query.limit,
                     },
+                    None,
                 )?,
+            })
+        }
+        (DatabaseTarget::ProjectDefault, DatabaseReadMode::ViewGroups) => {
+            let database_id =
+                primary_database_id.ok_or_else(|| not_found("Project has no primary Database"))?;
+            let project_id = project_id
+                .ok_or_else(|| invalid("Library Database reads require a concrete target"))?;
+            authorize_required(
+                connection,
+                Some(project_id),
+                Some(&database_id),
+                &database_id,
+            )?;
+            let view_id = default_view_for_database(connection, &database_id)?;
+            Ok(DatabaseReadValue::ViewGroups {
+                value: super::window::view_groups(connection, library_id, &view_id)?,
+            })
+        }
+        (DatabaseTarget::Database { database_id }, DatabaseReadMode::ViewGroups) => {
+            authorize_required(
+                connection,
+                project_id,
+                primary_database_id.as_deref(),
+                database_id,
+            )?;
+            let view_id = default_view_for_database(connection, database_id)?;
+            Ok(DatabaseReadValue::ViewGroups {
+                value: super::window::view_groups(connection, library_id, &view_id)?,
+            })
+        }
+        (DatabaseTarget::View { view_id }, DatabaseReadMode::ViewGroups) => {
+            let database_id = database_for_view(connection, library_id, view_id)?;
+            authorize_required(
+                connection,
+                project_id,
+                primary_database_id.as_deref(),
+                &database_id,
+            )?;
+            Ok(DatabaseReadValue::ViewGroups {
+                value: super::window::view_groups(connection, library_id, view_id)?,
             })
         }
         _ => Err(invalid("Database target and read mode are incompatible")),
@@ -477,7 +527,6 @@ fn catalog_window(
         kind: "database_catalog",
         library_id,
         query_fingerprint: &fingerprint,
-        projection_revision: event_head,
     };
     let after = normalized
         .after
@@ -544,7 +593,6 @@ fn data_source_window(
         kind: "database_data_sources",
         library_id,
         query_fingerprint: &fingerprint,
-        projection_revision: event_head,
     };
     let RankCursor {
         bucket: after_bucket,
@@ -613,7 +661,6 @@ fn view_descriptor_window(
         kind: "database_views",
         library_id,
         query_fingerprint: &fingerprint,
-        projection_revision: event_head,
     };
     let RankCursor {
         bucket: after_bucket,
@@ -682,7 +729,6 @@ fn property_window(
         kind: "database_properties",
         library_id,
         query_fingerprint: &fingerprint,
-        projection_revision: event_head,
     };
     let RankCursor {
         bucket: after_bucket,
@@ -769,7 +815,6 @@ fn option_window(
         kind: "database_property_options",
         library_id,
         query_fingerprint: &fingerprint,
-        projection_revision: event_head,
     };
     let after = normalized
         .after

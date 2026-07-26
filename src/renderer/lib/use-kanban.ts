@@ -145,6 +145,10 @@ export function useKanban(options: UseKanbanOptions) {
     await store.loadMore();
   }, [store]);
 
+  const loadMoreGroup = useCallback(async (scopeKey: string) => {
+    await store.loadMoreGroup(scopeKey);
+  }, [store]);
+
   const requireWritableSelectedView = useCallback((): boolean => {
     if (!databaseViewId) return true;
     const databaseView = store.getSnapshot().databaseView;
@@ -572,9 +576,12 @@ export function useKanban(options: UseKanbanOptions) {
     error: snapshot.error,
     pendingMutationCount: snapshot.pendingMutationCount,
     lastMutationError: snapshot.lastMutationError,
+    groupPagination: snapshot.groupPagination,
+    totalRows: snapshot.totalRows,
     clearLastMutationError,
     refresh: fetchBoard,
     loadMore,
+    loadMoreGroup,
     createPage,
     getPage,
     updatePage,

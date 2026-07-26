@@ -75,7 +75,6 @@ fn backup_window(
         kind: "store_administration_backups",
         library_id,
         query_fingerprint: &fingerprint,
-        projection_revision: event_head,
     };
     let after = normalized
         .after

@@ -1,6 +1,7 @@
 import {
-  invoke,
-  readDatabaseModule,
+  CoreApiError,
+  readDatabaseViewGroups,
+  readDatabaseViewWindow,
   subscribeBoardChanges,
 } from "./api";
 import type {
@@ -9,7 +10,13 @@ import type {
   PageInput,
   DatabasePageSummary,
 } from "./types";
-import type { DatabaseViewWindowSnapshot } from "../../shared/database-views";
+import type {
+  DatabaseViewGroupScopeInput,
+  DatabaseViewGroupsInput,
+  DatabaseViewGroupsSnapshot,
+  DatabaseViewWindowInput,
+  DatabaseViewWindowSnapshot,
+} from "../../shared/database-views";
 import {
   buildPatchPageTransform,
   conflictKeysForPatch,
@@ -19,12 +26,10 @@ import {
 import { toDatabasePageSummary } from "../../shared/page-summary";
 import { applyBoardChangeEventToBoard, upsertCardSummaryInBoard } from "./board-summary-events";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
-import type {
-  DatabaseModuleReadRequestV2,
-  DatabaseModuleReadResultV2,
-} from "../../shared/database-module-v2";
 import {
+  UNGROUPED_SCOPE_KEY,
   buildDatabaseViewWindowRenderModel,
+  groupScopeKeyForColumn,
   type DatabaseViewRenderModel,
 } from "./database-view-render-model";
 import { getActiveProjectionInvalidationRegistry } from "./projection-invalidation-context";
@@ -32,11 +37,30 @@ import type { ProjectionInvalidationRegistry } from "./projection-invalidation-r
 
 const MUTATION_COOLDOWN_MS = 500;
 const DEFAULT_BOARD_FRESHNESS_MS = 30_000;
+const GROUP_WINDOW_FIRST = 50;
+const GROUP_WINDOW_MAX_FIRST = 200;
 
 export interface IndexedPage extends DatabasePageSummary {
   columnId: string;
   columnName: string;
   boardIndex: number;
+}
+
+/**
+ * Stable key of one independently paged group window; see the definitions in
+ * `database-view-render-model.ts`, which every render column also carries.
+ */
+export type GroupWindowScopeKey = string;
+
+export { UNGROUPED_SCOPE_KEY, groupScopeKeyForColumn };
+
+export interface ColumnPaginationState {
+  readonly scopeKey: GroupWindowScopeKey;
+  readonly loadedRows: number;
+  readonly totalRows: number | null;
+  readonly hasMore: boolean;
+  readonly loadingMore: boolean;
+  readonly error: string | null;
 }
 
 export interface KanbanStoreSnapshot {
@@ -49,6 +73,8 @@ export interface KanbanStoreSnapshot {
   error: string | null;
   pendingMutationCount: number;
   lastMutationError: string | null;
+  groupPagination: ReadonlyMap<GroupWindowScopeKey, ColumnPaginationState>;
+  totalRows: number | null;
 }
 
 export interface OptimisticMutationResult<T> {
@@ -61,17 +87,20 @@ export interface OptimisticMutationResult<T> {
 
 type StoreListener = () => void;
 
-type InvokeFn = (channel: string, ...args: unknown[]) => Promise<unknown>;
-type ReadDatabaseModuleFn = (
+type ReadViewWindowFn = (
   projectId: string,
-  request: DatabaseModuleReadRequestV2,
-) => Promise<DatabaseModuleReadResultV2>;
+  input: DatabaseViewWindowInput,
+) => Promise<DatabaseViewWindowSnapshot>;
+type ReadViewGroupsFn = (
+  projectId: string,
+  input: DatabaseViewGroupsInput,
+) => Promise<DatabaseViewGroupsSnapshot>;
 type SubscribeBoardChangesFn = (projectId: string, callback: (event: BoardChangeEvent) => void) => () => void;
 type NowFn = () => number;
 
 export interface KanbanStoreDependencies {
-  invoke: InvokeFn;
-  readDatabaseModule: ReadDatabaseModuleFn;
+  readViewWindow: ReadViewWindowFn;
+  readViewGroups: ReadViewGroupsFn;
   subscribeBoardChanges: SubscribeBoardChangesFn;
   getProjectionInvalidationRegistry: () => ProjectionInvalidationRegistry | null;
   now: NowFn;
@@ -116,8 +145,8 @@ interface OptimisticEntry {
 }
 
 const defaultDependencies: KanbanStoreDependencies = {
-  invoke,
-  readDatabaseModule,
+  readViewWindow: readDatabaseViewWindow,
+  readViewGroups: readDatabaseViewGroups,
   subscribeBoardChanges,
   getProjectionInvalidationRegistry: getActiveProjectionInvalidationRegistry,
   now: () => Date.now(),
@@ -153,6 +182,132 @@ function toError(value: unknown): Error {
   return new Error("Unknown error");
 }
 
+interface GroupWindowScope {
+  readonly scopeKey: GroupWindowScopeKey;
+  readonly scope: DatabaseViewGroupScopeInput | null;
+}
+
+interface GroupWindowState {
+  readonly scope: DatabaseViewGroupScopeInput | null;
+  readonly snapshot: DatabaseViewWindowSnapshot;
+  readonly loadingMore: boolean;
+  readonly inlineError: string | null;
+}
+
+const scopesFromGroups = (
+  groups: DatabaseViewGroupsSnapshot,
+): GroupWindowScope[] => {
+  if (!groups.grouped) {
+    return [{ scopeKey: UNGROUPED_SCOPE_KEY, scope: null }];
+  }
+  return groups.groups.map((group) => group.groupKey === null
+    ? { scopeKey: "unassigned", scope: { kind: "unassigned" } }
+    : {
+        scopeKey: groupScopeKeyForColumn(group.groupKey),
+        scope: { kind: "key", key: group.groupKey },
+      });
+};
+
+const mergeBoards = (boards: readonly BoardSummary[]): BoardSummary => {
+  const first = boards[0];
+  if (!first) return { columns: [] };
+  const seenCards = new Set<string>();
+  return {
+    columns: first.columns.map((column) => ({
+      ...column,
+      cards: boards.flatMap((board) =>
+        (board.columns.find((candidate) => candidate.id === column.id)?.cards ?? [])
+          .filter((card) => {
+            if (seenCards.has(card.id)) return false;
+            seenCards.add(card.id);
+            return true;
+          })),
+    })),
+  };
+};
+
+/**
+ * Composes the loaded group windows into one snapshot for the existing render
+ * pipeline (board summary, render model, optimistic transforms). Continuation
+ * state stays per group; the merged snapshot never exposes a global cursor.
+ * The invalidation cursor is the oldest window's, so no event is skipped.
+ */
+const mergeGroupWindows = (
+  windows: readonly DatabaseViewWindowSnapshot[],
+): DatabaseViewWindowSnapshot | null => {
+  const first = windows[0];
+  if (!first) return null;
+  const seenRows = new Set<string>();
+  const rows = windows.flatMap((window) =>
+    window.rows.filter((row) => {
+      if (seenRows.has(row.page.id)) return false;
+      seenRows.add(row.page.id);
+      return true;
+    }));
+  const seenQueryRows = new Set<string>();
+  const queryRows = windows.flatMap((window) =>
+    window.query.rows.filter((row) => {
+      if (seenQueryRows.has(row.page.pageId)) return false;
+      seenQueryRows.add(row.page.pageId);
+      return true;
+    }));
+  return {
+    ...first,
+    changeLogSeq: Math.min(...windows.map((window) => window.changeLogSeq)),
+    projectionRevision: Math.min(
+      ...windows.map((window) => window.projectionRevision),
+    ),
+    nextCursor: null,
+    rows,
+    board: mergeBoards(windows.map((window) => window.board)),
+    query: { ...first.query, rows: queryRows },
+  };
+};
+
+const groupPaginationEquals = (
+  left: ReadonlyMap<GroupWindowScopeKey, ColumnPaginationState>,
+  right: ReadonlyMap<GroupWindowScopeKey, ColumnPaginationState>,
+): boolean => {
+  if (left === right) return true;
+  if (left.size !== right.size) return false;
+  for (const [scopeKey, state] of left) {
+    const other = right.get(scopeKey);
+    if (
+      !other
+      || other.loadedRows !== state.loadedRows
+      || other.totalRows !== state.totalRows
+      || other.hasMore !== state.hasMore
+      || other.loadingMore !== state.loadingMore
+      || other.error !== state.error
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const appendWindow = (
+  current: DatabaseViewWindowSnapshot,
+  next: DatabaseViewWindowSnapshot,
+): DatabaseViewWindowSnapshot => {
+  const existingIds = new Set(current.rows.map((row) => row.page.id));
+  return {
+    ...next,
+    rows: [
+      ...current.rows,
+      ...next.rows.filter((row) => !existingIds.has(row.page.id)),
+    ],
+    board: mergeBoards([current.board, next.board]),
+    query: {
+      ...next.query,
+      rows: [
+        ...current.query.rows,
+        ...next.query.rows.filter((row) => !existingIds.has(row.page.pageId)),
+      ],
+    },
+  };
+};
+
 class KanbanProjectStore {
   private readonly listeners = new Set<StoreListener>();
 
@@ -166,6 +321,8 @@ class KanbanProjectStore {
     error: null,
     pendingMutationCount: 0,
     lastMutationError: null,
+    groupPagination: new Map(),
+    totalRows: null,
   };
 
   private baseBoard: BoardSummary | null = null;
@@ -174,13 +331,15 @@ class KanbanProjectStore {
 
   private baseDatabaseView: DatabaseViewRenderModel | null = null;
 
+  private groupWindows = new Map<GroupWindowScopeKey, GroupWindowState>();
+
+  private groupsSnapshot: DatabaseViewGroupsSnapshot | null = null;
+
   private optimisticEntries: OptimisticEntry[] = [];
 
   private nextOpId = 1;
 
   private inFlightFetch: Promise<void> | null = null;
-
-  private inFlightLoadMore: Promise<void> | null = null;
 
   private unsubscribeBoardChanges: (() => void) | null = null;
 
@@ -217,6 +376,51 @@ class KanbanProjectStore {
     };
   };
 
+  private windowInputBase(): DatabaseViewWindowInput {
+    return this.databaseViewId
+      ? { databaseViewId: this.databaseViewId }
+      : {};
+  }
+
+  private groupsInput(): DatabaseViewGroupsInput {
+    return this.databaseViewId
+      ? { databaseViewId: this.databaseViewId }
+      : {};
+  }
+
+  /** Span-preserving first-window size: a refresh re-reads what was loaded. */
+  private firstForScope(scopeKey: GroupWindowScopeKey): number {
+    const loaded = this.groupWindows.get(scopeKey)?.snapshot.rows.length ?? 0;
+    return Math.min(
+      Math.max(GROUP_WINDOW_FIRST, loaded),
+      GROUP_WINDOW_MAX_FIRST,
+    );
+  }
+
+  private async readScopedWindow(
+    scope: GroupWindowScope,
+    first: number,
+    after?: string,
+  ): Promise<DatabaseViewWindowSnapshot> {
+    return await this.dependencies.readViewWindow(this.projectId, {
+      ...this.windowInputBase(),
+      ...(scope.scope ? { groupScope: scope.scope } : {}),
+      ...(after ? { after } : {}),
+      first,
+    });
+  }
+
+  private rebuildFromGroups(): void {
+    const merged = mergeGroupWindows(
+      [...this.groupWindows.values()].map((group) => group.snapshot),
+    );
+    this.baseBoardAuthority = merged;
+    this.baseBoard = merged?.board ?? null;
+    this.baseDatabaseView = merged
+      ? buildDatabaseViewWindowRenderModel(merged)
+      : null;
+  }
+
   fetchBoard = async (): Promise<void> => {
     if (this.inFlightFetch) return this.inFlightFetch;
 
@@ -233,34 +437,51 @@ class KanbanProjectStore {
 
     this.inFlightFetch = (async () => {
       try {
-        const boardAuthority = await this.dependencies.invoke(
-          "database:view-window:get",
+        const groups = await this.dependencies.readViewGroups(
           this.projectId,
-          {
-            ...(this.databaseViewId
-              ? { databaseViewId: this.databaseViewId }
-              : {}),
-            first: 50,
-          },
-        ) as DatabaseViewWindowSnapshot;
-        const databaseView = buildDatabaseViewWindowRenderModel(boardAuthority);
-        const incomingAuthority = boardAuthority;
+          this.groupsInput(),
+        );
+        const scopes = scopesFromGroups(groups);
+        // An empty grouped View still needs one window for its descriptor.
+        const fetchScopes: GroupWindowScope[] = scopes.length > 0
+          ? scopes
+          : [{ scopeKey: UNGROUPED_SCOPE_KEY, scope: null }];
+        const windows = await Promise.all(fetchScopes.map(async (scope) => ({
+          scope,
+          snapshot: await this.readScopedWindow(
+            scope,
+            this.firstForScope(scope.scopeKey),
+          ),
+        })));
         const currentAuthority = this.baseBoardAuthority;
+        const incomingSeq = Math.min(
+          ...windows.map((window) => window.snapshot.changeLogSeq),
+        );
         if (
-          incomingAuthority
-          && currentAuthority
-          && incomingAuthority.storeEpoch === currentAuthority.storeEpoch
-          && incomingAuthority.changeLogSeq < currentAuthority.changeLogSeq
+          currentAuthority
+          && windows[0]
+          && windows[0].snapshot.storeEpoch === currentAuthority.storeEpoch
+          && incomingSeq < currentAuthority.changeLogSeq
         ) {
+          // Every fetched window predates what is already on screen; keep the
+          // newer state and only refresh bookkeeping.
           this.lastFetchedAt = this.dependencies.now();
           this.stale = false;
           this.ensureProjectionSubscription();
           this.recomputeSnapshot({ loading: false, error: null });
           return;
         }
-        this.baseDatabaseView = databaseView;
-        this.baseBoardAuthority = boardAuthority;
-        this.baseBoard = boardAuthority.board;
+        this.groupsSnapshot = groups;
+        this.groupWindows = new Map(windows.map(({ scope, snapshot }) => [
+          scope.scopeKey,
+          {
+            scope: scope.scope,
+            snapshot,
+            loadingMore: false,
+            inlineError: null,
+          },
+        ]));
+        this.rebuildFromGroups();
         this.lastFetchedAt = this.dependencies.now();
         this.stale = false;
         this.ensureProjectionSubscription();
@@ -274,6 +495,8 @@ class KanbanProjectStore {
           this.baseDatabaseView = null;
           this.baseBoard = null;
           this.baseBoardAuthority = null;
+          this.groupWindows = new Map();
+          this.groupsSnapshot = null;
         }
         this.recomputeSnapshot({
           loading: false,
@@ -291,76 +514,107 @@ class KanbanProjectStore {
     return this.inFlightFetch;
   };
 
-  loadMore = async (): Promise<void> => {
-    const current = this.baseBoardAuthority;
-    if (!current?.nextCursor || this.inFlightLoadMore) {
-      return this.inFlightLoadMore ?? Promise.resolve();
+  /**
+   * Silently converges one group from its first window, preserving the loaded
+   * span. This is the consumer half of the cursor contract: a rejected
+   * continuation is disposable read state, never a user-facing failure.
+   */
+  private refetchGroup = async (
+    scopeKey: GroupWindowScopeKey,
+  ): Promise<void> => {
+    const group = this.groupWindows.get(scopeKey);
+    if (!group) return;
+    try {
+      const snapshot = await this.readScopedWindow(
+        { scopeKey, scope: group.scope },
+        this.firstForScope(scopeKey),
+      );
+      const current = this.groupWindows.get(scopeKey);
+      if (!current) return;
+      this.groupWindows = new Map(this.groupWindows).set(scopeKey, {
+        ...current,
+        snapshot,
+        inlineError: null,
+      });
+      this.rebuildFromGroups();
+      this.recomputeSnapshot();
+    } catch (error) {
+      this.setGroupState(scopeKey, { inlineError: toError(error).message });
     }
-    this.recomputeSnapshot({ loadingMore: true });
-    this.inFlightLoadMore = (async () => {
-      try {
-        const next = await this.dependencies.invoke(
-          "database:view-window:get",
-          this.projectId,
-          {
-            ...(this.databaseViewId
-              ? { databaseViewId: this.databaseViewId }
-              : {}),
-            after: current.nextCursor,
-            first: 50,
-          },
-        ) as DatabaseViewWindowSnapshot;
-        if (
-          next.storeEpoch !== current.storeEpoch
-          || next.viewId !== current.viewId
-          || next.projectionRevision !== current.projectionRevision
-        ) {
-          throw new Error("Database View continuation crossed its authority boundary");
-        }
-        const existingIds = new Set(current.rows.map((row) => row.page.id));
-        const appendedRows = next.rows.filter((row) => !existingIds.has(row.page.id));
-        const appendedQueryRows = next.query.rows.filter(
-          (row) => !existingIds.has(row.page.pageId),
-        );
-        const board = {
-          columns: current.board.columns.map((column) => {
-            const incoming = next.board.columns.find(
-              (candidate) => candidate.id === column.id,
-            );
-            return {
-              ...column,
-              cards: [
-                ...column.cards,
-                ...(incoming?.cards ?? []).filter(
-                  (card) => !existingIds.has(card.id),
-                ),
-              ],
-            };
-          }),
-        };
-        const merged: DatabaseViewWindowSnapshot = {
-          ...next,
-          rows: [...current.rows, ...appendedRows],
-          board,
-          query: {
-            ...next.query,
-            rows: [...current.query.rows, ...appendedQueryRows],
-          },
-        };
-        this.baseBoardAuthority = merged;
-        this.baseBoard = board;
-        this.baseDatabaseView = buildDatabaseViewWindowRenderModel(merged);
-        this.recomputeSnapshot({ loadingMore: false, error: null });
-      } catch (error) {
-        this.recomputeSnapshot({
-          loadingMore: false,
-          error: toError(error).message,
-        });
-      } finally {
-        this.inFlightLoadMore = null;
+  };
+
+  private setGroupState(
+    scopeKey: GroupWindowScopeKey,
+    patch: Partial<Pick<GroupWindowState, "loadingMore" | "inlineError">>,
+  ): void {
+    const current = this.groupWindows.get(scopeKey);
+    if (!current) return;
+    this.groupWindows = new Map(this.groupWindows).set(scopeKey, {
+      ...current,
+      ...patch,
+    });
+    this.recomputeSnapshot();
+  }
+
+  loadMoreGroup = async (scopeKey: GroupWindowScopeKey): Promise<void> => {
+    const group = this.groupWindows.get(scopeKey);
+    const after = group?.snapshot.nextCursor;
+    if (!group || !after || group.loadingMore || this.inFlightFetch) return;
+    this.setGroupState(scopeKey, { loadingMore: true, inlineError: null });
+    try {
+      const next = await this.readScopedWindow(
+        { scopeKey, scope: group.scope },
+        GROUP_WINDOW_FIRST,
+        after,
+      );
+      const current = this.groupWindows.get(scopeKey);
+      if (!current || current.snapshot.nextCursor !== after) return;
+      if (
+        next.storeEpoch !== current.snapshot.storeEpoch
+        || next.viewId !== current.snapshot.viewId
+      ) {
+        // The continuation crossed a Store/View identity boundary; converge
+        // the whole board from its first windows instead of merging.
+        this.stale = true;
+        await this.fetchBoard().catch(() => {});
+        return;
       }
-    })();
-    return this.inFlightLoadMore;
+      this.groupWindows = new Map(this.groupWindows).set(scopeKey, {
+        ...current,
+        snapshot: appendWindow(current.snapshot, next),
+        inlineError: null,
+      });
+      this.rebuildFromGroups();
+      this.recomputeSnapshot({ error: null });
+    } catch (error) {
+      if (error instanceof CoreApiError
+        && error.isCursorRejection({ requestHadCursor: true })) {
+        const current = this.groupWindows.get(scopeKey);
+        if (current) {
+          this.groupWindows = new Map(this.groupWindows).set(scopeKey, {
+            ...current,
+            snapshot: { ...current.snapshot, nextCursor: null },
+          });
+        }
+        await this.refetchGroup(scopeKey);
+        return;
+      }
+      this.setGroupState(scopeKey, { inlineError: toError(error).message });
+    } finally {
+      this.setGroupState(scopeKey, { loadingMore: false });
+    }
+  };
+
+  /** Advances every group that still has a continuation (flat list views). */
+  loadMoreAll = async (): Promise<void> => {
+    const pending = [...this.groupWindows.entries()]
+      .filter(([, group]) => group.snapshot.nextCursor !== null)
+      .map(([scopeKey]) => this.loadMoreGroup(scopeKey));
+    await Promise.all(pending);
+  };
+
+  loadMore = async (): Promise<void> => {
+    await this.loadMoreAll();
   };
 
   ensureFreshBoard = async (options: EnsureFreshBoardOptions = {}): Promise<void> => {
@@ -534,6 +788,31 @@ class KanbanProjectStore {
     return this.optimisticEntries.filter((entry) => entry.pending && !entry.superseded).length;
   }
 
+  private buildGroupPagination(): ReadonlyMap<
+    GroupWindowScopeKey,
+    ColumnPaginationState
+  > {
+    const totals = new Map<GroupWindowScopeKey, number>();
+    for (const group of this.groupsSnapshot?.groups ?? []) {
+      totals.set(groupScopeKeyForColumn(group.groupKey), group.totalRows);
+    }
+    if (this.groupsSnapshot && !this.groupsSnapshot.grouped) {
+      totals.set(UNGROUPED_SCOPE_KEY, this.groupsSnapshot.totalRows);
+    }
+    const pagination = new Map<GroupWindowScopeKey, ColumnPaginationState>();
+    for (const [scopeKey, group] of this.groupWindows) {
+      pagination.set(scopeKey, {
+        scopeKey,
+        loadedRows: group.snapshot.rows.length,
+        totalRows: totals.get(scopeKey) ?? null,
+        hasMore: group.snapshot.nextCursor !== null,
+        loadingMore: group.loadingMore,
+        error: group.inlineError,
+      });
+    }
+    return pagination;
+  }
+
   private recomputeSnapshot(
     overrides: Partial<
       Pick<
@@ -551,18 +830,24 @@ class KanbanProjectStore {
       "loadingMore",
     );
     const hasLastMutationError = Object.prototype.hasOwnProperty.call(overrides, "lastMutationError");
+    const groupPagination = this.buildGroupPagination();
+    const anyLoadingMore = [...groupPagination.values()]
+      .some((state) => state.loadingMore);
+    const anyHasMore = [...groupPagination.values()]
+      .some((state) => state.hasMore);
     const next: KanbanStoreSnapshot = {
       ...this.snapshot,
       board,
       databaseView: this.baseDatabaseView,
       pageIndex: buildPageIndex(board),
       pendingMutationCount: this.activePendingCount(),
-      hasMore: this.baseBoardAuthority?.nextCursor !== null
-        && this.baseBoardAuthority?.nextCursor !== undefined,
+      hasMore: anyHasMore,
+      groupPagination,
+      totalRows: this.groupsSnapshot?.totalRows ?? null,
       loading: hasLoading ? (overrides.loading as boolean) : this.snapshot.loading,
       loadingMore: hasLoadingMore
         ? (overrides.loadingMore as boolean)
-        : this.snapshot.loadingMore,
+        : anyLoadingMore,
       error: hasError ? (overrides.error as string | null) : this.snapshot.error,
       lastMutationError: hasLastMutationError
         ? (overrides.lastMutationError as string | null)
@@ -676,6 +961,8 @@ class KanbanProjectStore {
       && previous.error === next.error
       && previous.pendingMutationCount === next.pendingMutationCount
       && previous.lastMutationError === next.lastMutationError
+      && previous.totalRows === next.totalRows
+      && groupPaginationEquals(previous.groupPagination, next.groupPagination)
     ) {
       return;
     }

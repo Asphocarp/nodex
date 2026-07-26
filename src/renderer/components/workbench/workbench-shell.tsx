@@ -14132,6 +14132,8 @@ function DbViewSessionTab({
           projectId={projectId}
           databaseViewId={selectedDatabaseViewId}
           databaseView={databaseView}
+          databaseViewPagination={selectedDatabaseView.groupPagination}
+          onLoadMoreDatabaseViewGroup={selectedDatabaseView.loadMoreGroup}
           refreshDatabaseView={selectedDatabaseView.refresh}
           projects={projects}
           view={renderedView}

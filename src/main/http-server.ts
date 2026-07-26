@@ -132,6 +132,7 @@ import type { DesktopLibraryModuleBridge } from "./core-client/desktop-library-m
 import type { DesktopAutomationModulePort } from "./core-client/desktop-automation-module-bridge";
 import type { DesktopStoreAdministrationPort } from "./core-client/desktop-store-administration-bridge";
 import { CoreModuleResponseError } from "./core-client/core-client";
+import type { DatabaseViewGroupScopeInput } from "../shared/database-views";
 import { productFeatureGates } from "./product-feature-gates";
 
 /** SSE keep-alive ping interval (ms) */
@@ -208,7 +209,9 @@ export interface HttpContentModuleDependencies {
   databaseProjections: Pick<
     DesktopDatabaseModuleBridge,
     | "getDatabaseViewWindow"
+    | "getDatabaseViewGroups"
     | "getLibraryDatabaseViewWindow"
+    | "getLibraryDatabaseViewGroups"
     | "getDatabaseRowPage"
   >;
   pageSearch: Pick<DesktopLibraryModuleBridge, "searchPages">;
@@ -1227,68 +1230,167 @@ app.delete("/api/project-sessions/:sessionId/thread", async (c) => {
   return c.json({ success });
 });
 
-app.get("/api/projects/:projectId/database-views/:viewId/rows", async (c) => {
-  const startedAt = Date.now();
+const coreReadErrorStatus = (code: string): 400 | 403 | 404 | 409 | 500 => {
+  if (code === "invalid_input") return 400;
+  if (code === "unauthorized") return 403;
+  if (code === "not_found") return 404;
+  if (code === "revision_conflict" || code === "stale_store_epoch") return 409;
+  return 500;
+};
+
+/**
+ * Maps a Core module error onto an HTTP status with a typed body the browser
+ * transport can rehydrate into a `CoreReadResult` envelope. Non-Core errors
+ * keep propagating to the generic 500 handler.
+ */
+const coreReadErrorResponse = (c: Context, error: unknown): Response => {
+  if (error instanceof CoreModuleResponseError) {
+    return c.json(
+      {
+        error: {
+          code: error.coreError.code,
+          message: error.coreError.message,
+          retryable: error.coreError.retryable,
+        },
+      },
+      coreReadErrorStatus(error.coreError.code),
+    );
+  }
+  throw error;
+};
+
+const parseDatabaseWindowQuery = (
+  c: Context,
+):
+  | { readonly ok: true; readonly window: {
+      readonly after?: string;
+      readonly first?: number;
+      readonly groupScope?: DatabaseViewGroupScopeInput;
+    }; }
+  | { readonly ok: false; readonly message: string } => {
   const rawFirst = c.req.query("first");
   const first = rawFirst === undefined ? undefined : Number(rawFirst);
   if (
     first !== undefined
     && (!Number.isSafeInteger(first) || first < 1 || first > 200)
   ) {
-    return c.json({ error: "first must be an integer between 1 and 200" }, 400);
+    return { ok: false, message: "first must be an integer between 1 and 200" };
   }
-  const rawViewId = c.req.param("viewId");
-  const window = await httpServerDependencies.contentModules.databaseProjections
-    .getDatabaseViewWindow(c.req.param("projectId"), {
-      ...(rawViewId === "default" ? {} : { databaseViewId: rawViewId }),
-      ...(c.req.query("after") ? { after: c.req.query("after") } : {}),
+  const groupKey = c.req.query("groupKey");
+  const unassigned = c.req.query("unassigned");
+  if (groupKey !== undefined && unassigned !== undefined) {
+    return {
+      ok: false,
+      message: "groupKey and unassigned are mutually exclusive",
+    };
+  }
+  const groupScope: DatabaseViewGroupScopeInput | undefined =
+    groupKey !== undefined
+      ? { kind: "key", key: groupKey }
+      : unassigned !== undefined
+        ? { kind: "unassigned" }
+        : undefined;
+  const after = c.req.query("after");
+  return {
+    ok: true,
+    window: {
+      ...(after ? { after } : {}),
       ...(first === undefined ? {} : { first }),
+      ...(groupScope ? { groupScope } : {}),
+    },
+  };
+};
+
+app.get("/api/projects/:projectId/database-views/:viewId/rows", async (c) => {
+  const startedAt = Date.now();
+  const query = parseDatabaseWindowQuery(c);
+  if (!query.ok) return c.json({ error: query.message }, 400);
+  const rawViewId = c.req.param("viewId");
+  try {
+    const window = await httpServerDependencies.contentModules
+      .databaseProjections.getDatabaseViewWindow(c.req.param("projectId"), {
+        ...(rawViewId === "default" ? {} : { databaseViewId: rawViewId }),
+        ...query.window,
+      });
+    logger.info("Database View window payload served", {
+      channel: "GET /api/projects/:projectId/database-views/:viewId/rows",
+      projectId: c.req.param("projectId"),
+      rowCount: window.rows.length,
+      hasContinuation: window.nextCursor !== null,
+      approxPayloadBytes: approximatePayloadBytes(window),
+      durationMs: Date.now() - startedAt,
     });
-  logger.info("Database View window payload served", {
-    channel: "GET /api/projects/:projectId/database-views/:viewId/rows",
-    projectId: c.req.param("projectId"),
-    rowCount: window.rows.length,
-    hasContinuation: window.nextCursor !== null,
-    approxPayloadBytes: approximatePayloadBytes(window),
-    durationMs: Date.now() - startedAt,
-  });
-  return c.json(window);
+    return c.json(window);
+  } catch (error) {
+    return coreReadErrorResponse(c, error);
+  }
+});
+
+app.get("/api/projects/:projectId/database-views/:viewId/groups", async (c) => {
+  const rawViewId = c.req.param("viewId");
+  try {
+    const groups = await httpServerDependencies.contentModules
+      .databaseProjections.getDatabaseViewGroups(c.req.param("projectId"), {
+        ...(rawViewId === "default" ? {} : { databaseViewId: rawViewId }),
+      });
+    return c.json(groups);
+  } catch (error) {
+    return coreReadErrorResponse(c, error);
+  }
 });
 
 app.get("/api/library/database-views/:viewId/rows", async (c) => {
-  const rawFirst = c.req.query("first");
-  const first = rawFirst === undefined ? undefined : Number(rawFirst);
-  if (
-    first !== undefined
-    && (!Number.isSafeInteger(first) || first < 1 || first > 200)
-  ) {
-    return c.json({ error: "first must be an integer between 1 and 200" }, 400);
+  const query = parseDatabaseWindowQuery(c);
+  if (!query.ok) return c.json({ error: query.message }, 400);
+  try {
+    const window = await httpServerDependencies.contentModules
+      .databaseProjections.getLibraryDatabaseViewWindow({
+        databaseViewId: c.req.param("viewId"),
+        ...query.window,
+      });
+    return c.json(window);
+  } catch (error) {
+    return coreReadErrorResponse(c, error);
   }
-  const window = await httpServerDependencies.contentModules.databaseProjections
-    .getLibraryDatabaseViewWindow({
-      databaseViewId: c.req.param("viewId"),
-      ...(c.req.query("after") ? { after: c.req.query("after") } : {}),
-      ...(first === undefined ? {} : { first }),
-    });
-  return c.json(window);
+});
+
+app.get("/api/library/database-views/:viewId/groups", async (c) => {
+  try {
+    const groups = await httpServerDependencies.contentModules
+      .databaseProjections.getLibraryDatabaseViewGroups({
+        databaseViewId: c.req.param("viewId"),
+      });
+    return c.json(groups);
+  } catch (error) {
+    return coreReadErrorResponse(c, error);
+  }
 });
 
 app.get("/api/library/databases/:databaseId/default-view/rows", async (c) => {
-  const rawFirst = c.req.query("first");
-  const first = rawFirst === undefined ? undefined : Number(rawFirst);
-  if (
-    first !== undefined
-    && (!Number.isSafeInteger(first) || first < 1 || first > 200)
-  ) {
-    return c.json({ error: "first must be an integer between 1 and 200" }, 400);
+  const query = parseDatabaseWindowQuery(c);
+  if (!query.ok) return c.json({ error: query.message }, 400);
+  try {
+    const window = await httpServerDependencies.contentModules
+      .databaseProjections.getLibraryDatabaseViewWindow({
+        databaseId: c.req.param("databaseId"),
+        ...query.window,
+      });
+    return c.json(window);
+  } catch (error) {
+    return coreReadErrorResponse(c, error);
   }
-  const window = await httpServerDependencies.contentModules.databaseProjections
-    .getLibraryDatabaseViewWindow({
-      databaseId: c.req.param("databaseId"),
-      ...(c.req.query("after") ? { after: c.req.query("after") } : {}),
-      ...(first === undefined ? {} : { first }),
-    });
-  return c.json(window);
+});
+
+app.get("/api/library/databases/:databaseId/default-view/groups", async (c) => {
+  try {
+    const groups = await httpServerDependencies.contentModules
+      .databaseProjections.getLibraryDatabaseViewGroups({
+        databaseId: c.req.param("databaseId"),
+      });
+    return c.json(groups);
+  } catch (error) {
+    return coreReadErrorResponse(c, error);
+  }
 });
 
 // === Asset routes ===

@@ -429,6 +429,7 @@ fn resolve_search_scope(
                 sort: None,
                 window: None,
                 page_ids: None,
+                group_scope: None,
             },
         )
         .map_err(map_client_error)?;
@@ -456,6 +457,7 @@ fn resolve_search_scope(
                 sort: None,
                 window: None,
                 page_ids: None,
+                group_scope: None,
             },
         )
         .map_err(map_client_error)?;
@@ -684,6 +686,7 @@ fn read_database_name(
             sort: None,
             window: None,
             page_ids: None,
+            group_scope: None,
         },
     ))?;
     let DatabaseReadValue::Database { value } = snapshot.value else {
@@ -1149,6 +1152,7 @@ fn database_tree(
             sort: None,
             window: None,
             page_ids: None,
+            group_scope: None,
         },
     ))?;
     budget.observe(database.event_head)?;
@@ -1182,6 +1186,7 @@ fn database_tree(
                     first: Some(200),
                 }),
                 page_ids: None,
+                group_scope: None,
             },
         ))?;
         budget.observe(window.event_head)?;

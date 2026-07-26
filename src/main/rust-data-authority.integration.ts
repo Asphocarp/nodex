@@ -1048,6 +1048,45 @@ describe("Electron native data authority", () => {
           ]),
         },
       });
+      const scopedWindow = await desktopDatabase.getDatabaseViewWindow(
+        projectId,
+        { first: 200, groupScope: { kind: "key", key: "ship" } },
+      );
+      expect(scopedWindow.rows.length).toBeGreaterThan(0);
+      expect(
+        scopedWindow.rows.every((row) => row.groupKey === "ship"),
+      ).toBe(true);
+      const nativeGroups = await desktopDatabase.getDatabaseViewGroups(
+        projectId,
+        {},
+      );
+      expect(nativeGroups.grouped).toBe(true);
+      expect(nativeGroups.totalRows).toBeGreaterThan(0);
+      expect(
+        nativeGroups.groups.find((group) => group.groupKey === "ship")
+          ?.totalRows,
+      ).toBe(scopedWindow.rows.length);
+      const groupsHttpResponse = await getHttpServerOptions(51_284).fetch(
+        new Request(
+          `http://127.0.0.1:51284/api/projects/${projectId}/database-views/default/groups`,
+        ),
+      );
+      expect(groupsHttpResponse.status).toBe(200);
+      await expect(groupsHttpResponse.json()).resolves.toMatchObject({
+        projectId,
+        grouped: true,
+        totalRows: nativeGroups.totalRows,
+      });
+      // A malformed continuation is a typed 400 with a stable code, not a 500.
+      const rejectedCursorResponse = await getHttpServerOptions(51_284).fetch(
+        new Request(
+          `http://127.0.0.1:51284/api/projects/${projectId}/database-views/default/rows?after=nxc1.bogus.bogus`,
+        ),
+      );
+      expect(rejectedCursorResponse.status).toBe(400);
+      await expect(rejectedCursorResponse.json()).resolves.toMatchObject({
+        error: expect.objectContaining({ code: "invalid_input" }),
+      });
       await expect(desktopDatabase.getDatabaseRowPage(
         projectId,
         copiedDataSourcePageId,

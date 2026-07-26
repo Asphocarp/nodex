@@ -56,7 +56,6 @@ pub(super) fn read(
             children(
                 connection,
                 library_id,
-                event_head,
                 parent,
                 requested_cursor,
                 limit,
@@ -89,7 +88,6 @@ pub(super) fn read(
         } => catalog(
             connection,
             library_id,
-            event_head,
             query,
             kinds,
             lifecycle,
@@ -205,7 +203,6 @@ pub(super) fn read(
             connection,
             context,
             library_id,
-            event_head,
             &authorization,
             &query,
             target,
@@ -257,7 +254,6 @@ pub(super) fn read(
         } => super::content::search(
             connection,
             library_id,
-            event_head,
             &query,
             include_archived,
             source_kinds,
@@ -825,7 +821,6 @@ pub(super) fn event_head(connection: &Connection) -> Result<i64, StoreError> {
 fn children(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
     parent: LibraryNavigationParent,
     requested_cursor: Option<String>,
     limit: Option<u32>,
@@ -847,7 +842,6 @@ fn children(
         requested_cursor.as_deref(),
         library_id,
         &subject,
-        event_head,
     )?;
     let limit = read_limit(limit)?;
     let (mut ordered, total) = match &parent {
@@ -878,7 +872,6 @@ fn children(
                     }],
                     stable_id: navigation_node_id(&last.node).to_owned(),
                 },
-                event_head,
             )
         })
         .transpose()?;
@@ -1451,7 +1444,6 @@ fn database_path(
 fn catalog(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
     query: Option<String>,
     kinds: Option<Vec<LibraryCatalogKind>>,
     lifecycle: Option<LibraryLifecycle>,
@@ -1488,7 +1480,6 @@ fn catalog(
         requested_cursor.as_deref(),
         library_id,
         &subject,
-        event_head,
     )?;
     let limit = read_limit(limit)?;
     let (after_updated_at, after_id) = keyset_text_coordinate(after.as_ref())?;
@@ -1599,7 +1590,6 @@ fn catalog(
                     }],
                     stable_id: catalog_id(last).to_owned(),
                 },
-                event_head,
             )
         })
         .transpose()?;
@@ -1632,19 +1622,11 @@ fn cursor_coordinate(
     requested_cursor: Option<&str>,
     library_id: &str,
     subject: &[String],
-    event_head: i64,
 ) -> Result<Option<cursor::KeysetCoordinate>, StoreError> {
     let Some(requested_cursor) = requested_cursor else {
         return Ok(None);
     };
-    cursor::decode(
-        connection,
-        requested_cursor,
-        library_id,
-        subject,
-        event_head,
-    )
-    .map(Some)
+    cursor::decode(connection, requested_cursor, library_id, subject).map(Some)
 }
 
 fn keyset_text_coordinate(

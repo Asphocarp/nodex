@@ -3,6 +3,19 @@ import {
   resolveRendererTransport,
 } from "./renderer-transport";
 import type { IpcApi } from "../../shared/ipc-api";
+import {
+  isCursorRejectionCode,
+  type CoreReadError,
+  type CoreReadResult,
+} from "../../shared/core-read-result";
+import type {
+  DatabaseViewGroupsInput,
+  DatabaseViewGroupsSnapshot,
+  DatabaseViewWindowInput,
+  DatabaseViewWindowSnapshot,
+  LibraryDatabaseViewGroupsSnapshot,
+  LibraryDatabaseViewWindowSnapshot,
+} from "../../shared/database-views";
 import type { DocumentSyncAdapter } from "./nodex-y-provider";
 import type { CanvasSceneSyncAdapter } from "./canvas-scene-provider";
 import type {
@@ -296,6 +309,84 @@ export function listPageHistory(
   request: ListPageHistoryRequest,
 ): Promise<PageHistoryCommandResult> {
   return resolveRendererTransport().listPageHistory(request);
+}
+
+/**
+ * Typed failure of a Core-backed read channel. `code` is the Core error code
+ * (`revision_conflict`, `invalid_input`, …); consumers classify with it and
+ * with `isCursorRejection`, never by matching message text.
+ */
+export class CoreApiError extends Error {
+  constructor(readonly detail: CoreReadError) {
+    super(detail.message);
+    this.name = "CoreApiError";
+  }
+
+  get code(): string {
+    return this.detail.code;
+  }
+
+  get retryable(): boolean {
+    return this.detail.retryable;
+  }
+
+  isCursorRejection(options: { readonly requestHadCursor: boolean }): boolean {
+    return isCursorRejectionCode(this.detail.code, options);
+  }
+}
+
+type CoreReadChannel = {
+  [Channel in keyof IpcApi]: IpcApi[Channel]["result"] extends CoreReadResult<unknown>
+    ? Channel
+    : never;
+}[keyof IpcApi];
+
+type CoreReadChannelValue<Channel extends CoreReadChannel> =
+  IpcApi[Channel]["result"] extends CoreReadResult<infer Value> ? Value : never;
+
+/** Invokes a Core-backed read channel and unwraps its typed error envelope. */
+export async function invokeCoreRead<Channel extends CoreReadChannel>(
+  channel: Channel,
+  ...args: IpcApi[Channel]["args"]
+): Promise<CoreReadChannelValue<Channel>> {
+  const result = (await invoke(
+    channel,
+    ...args,
+  )) as CoreReadResult<CoreReadChannelValue<Channel>>;
+  if (result.ok) return result.value;
+  throw new CoreApiError(result.error);
+}
+
+export function readDatabaseViewWindow(
+  projectId: string,
+  input: DatabaseViewWindowInput,
+): Promise<DatabaseViewWindowSnapshot> {
+  return invokeCoreRead("database:view-window:get", projectId, input);
+}
+
+export function readDatabaseViewGroups(
+  projectId: string,
+  input: DatabaseViewGroupsInput,
+): Promise<DatabaseViewGroupsSnapshot> {
+  return invokeCoreRead("database:view-groups:get", projectId, input);
+}
+
+export function readLibraryDatabaseViewWindow(
+  input: DatabaseViewWindowInput & (
+    | { readonly databaseViewId: string }
+    | { readonly databaseId: string }
+  ),
+): Promise<LibraryDatabaseViewWindowSnapshot> {
+  return invokeCoreRead("library-database:view-window:get", input);
+}
+
+export function readLibraryDatabaseViewGroups(
+  input: DatabaseViewGroupsInput & (
+    | { readonly databaseViewId: string }
+    | { readonly databaseId: string }
+  ),
+): Promise<LibraryDatabaseViewGroupsSnapshot> {
+  return invokeCoreRead("library-database:view-groups:get", input);
 }
 
 export function readDatabaseModule(

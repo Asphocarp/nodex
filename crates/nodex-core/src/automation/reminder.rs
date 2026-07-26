@@ -75,7 +75,6 @@ pub(super) fn read_lease_window(
         kind: "reminder_leases",
         library_id,
         query_fingerprint: &fingerprint,
-        projection_revision: event_head,
     };
     let after = normalized
         .after
@@ -169,7 +168,6 @@ pub(super) fn read_snooze_window(
         kind: "reminder_snoozes",
         library_id,
         query_fingerprint: &fingerprint,
-        projection_revision: event_head,
     };
     let after = normalized
         .after

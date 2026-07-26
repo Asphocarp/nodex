@@ -2,9 +2,12 @@ import type {
   DatabasePage,
 } from "../../shared/types";
 import type {
+  DatabaseViewGroupsInput,
+  DatabaseViewGroupsSnapshot,
   DatabaseViewReadModel,
   DatabaseViewWindowInput,
   DatabaseViewWindowSnapshot,
+  LibraryDatabaseViewGroupsSnapshot,
   LibraryDatabaseViewWindowSnapshot,
   ReadDatabaseViewReferenceInput,
 } from "../../shared/database-views";
@@ -81,12 +84,22 @@ export interface DesktopDatabaseModuleBridge {
     projectId: string,
     input: DatabaseViewWindowInput,
   ): Promise<DatabaseViewWindowSnapshot>;
+  getDatabaseViewGroups(
+    projectId: string,
+    input: DatabaseViewGroupsInput,
+  ): Promise<DatabaseViewGroupsSnapshot>;
   getLibraryDatabaseViewWindow(
     input: DatabaseViewWindowInput & (
       | { readonly databaseViewId: string }
       | { readonly databaseId: string }
     ),
   ): Promise<LibraryDatabaseViewWindowSnapshot>;
+  getLibraryDatabaseViewGroups(
+    input: DatabaseViewGroupsInput & (
+      | { readonly databaseViewId: string }
+      | { readonly databaseId: string }
+    ),
+  ): Promise<LibraryDatabaseViewGroupsSnapshot>;
   getDatabaseRowPage(
     projectId: string,
     pageId: string,
@@ -126,6 +139,9 @@ const readBoundedDatabaseViewWindow = async <
       after: input.windowInput.after ?? null,
       first: input.windowInput.first ?? 50,
     },
+    ...(input.windowInput.groupScope
+      ? { group_scope: input.windowInput.groupScope }
+      : {}),
   });
   if (snapshot.value.kind !== "view_window") {
     throw new Error("Database Core returned a non-window View snapshot");
@@ -223,6 +239,48 @@ const readBoundedDatabaseViewWindow = async <
   };
 };
 
+const readBoundedDatabaseViewGroups = async <
+  ProjectScope extends string | null,
+>(input: {
+  readonly projectId: ProjectScope;
+  readonly libraryId: string;
+  readonly groupsInput: DatabaseViewGroupsInput;
+  readonly readCore: CoreDatabaseModuleAdapter["readCore"];
+}): Promise<DatabaseViewGroupsSnapshot<ProjectScope>> => {
+  const snapshot = await input.readCore({
+    target: input.groupsInput.databaseViewId
+      ? { kind: "view", view_id: input.groupsInput.databaseViewId }
+      : input.groupsInput.databaseId
+      ? { kind: "database", database_id: input.groupsInput.databaseId }
+      : { kind: "project_default" },
+    mode: "view_groups",
+    filter: null,
+    sort: null,
+    page_ids: null,
+    window: null,
+  });
+  if (snapshot.value.kind !== "view_groups") {
+    throw new Error("Database Core returned a non-groups View snapshot");
+  }
+  const value = snapshot.value.value;
+  return {
+    projectId: input.projectId,
+    libraryId: input.libraryId,
+    databaseId: value.database_id,
+    dataSourceId: value.data_source_id,
+    viewId: value.view_id,
+    storeEpoch: snapshot.store_epoch,
+    changeLogSeq: snapshot.event_head,
+    grouped: value.grouped,
+    totalRows: value.total_rows,
+    truncated: value.truncated,
+    groups: value.groups.map((group) => ({
+      groupKey: group.group_key ?? null,
+      totalRows: group.total_rows,
+    })),
+  };
+};
+
 export const createDesktopDatabaseModuleBridge = (
   input: DesktopDatabaseModuleBridgeInput,
 ): DesktopDatabaseModuleBridge => {
@@ -287,6 +345,16 @@ export const createDesktopDatabaseModuleBridge = (
         }),
       });
     },
+    getDatabaseViewGroups: async (projectId, groupsInput) => {
+      const runtime = await input.authority;
+      const adapter = coreAdapterFor(runtime, projectId);
+      return await readBoundedDatabaseViewGroups({
+        projectId,
+        libraryId: runtime.rootClient.handshake.library_id,
+        groupsInput,
+        readCore: adapter.readCore,
+      });
+    },
     getLibraryDatabaseViewWindow: async (windowInput) => {
       const runtime = await input.authority;
       const adapter = libraryAdapterFor(runtime);
@@ -299,6 +367,16 @@ export const createDesktopDatabaseModuleBridge = (
           version: DATABASE_MODULE_V2_CONTRACT_VERSION,
           read: read as LibraryDatabaseReadV2,
         }),
+      });
+    },
+    getLibraryDatabaseViewGroups: async (groupsInput) => {
+      const runtime = await input.authority;
+      const adapter = libraryAdapterFor(runtime);
+      return await readBoundedDatabaseViewGroups({
+        projectId: null,
+        libraryId: runtime.rootClient.handshake.library_id,
+        groupsInput,
+        readCore: adapter.readCore,
       });
     },
     getDatabaseRowPage: async (projectId, pageId, status) => {

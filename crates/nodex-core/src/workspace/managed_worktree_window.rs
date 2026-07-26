@@ -39,7 +39,6 @@ pub(super) fn read_managed_worktree_window(
         kind: "workspace_managed_worktrees",
         library_id,
         query_fingerprint: &fingerprint,
-        projection_revision: event_head,
     };
     let after = normalized
         .after

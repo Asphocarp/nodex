@@ -270,7 +270,7 @@ mod tests {
                 },
                 ModuleContractVersion {
                     module: ModuleName::Database,
-                    contract_version: 3,
+                    contract_version: 4,
                 },
                 ModuleContractVersion {
                     module: ModuleName::OwnedDocument,

@@ -88,7 +88,6 @@ pub(super) fn read(
     connection: &Connection,
     context: &BoundModuleContext,
     library_id: &str,
-    event_head: i64,
     authorization: &AgentExecutionAuthorization,
     query: &str,
     target: LibraryAgentSearchTarget,
@@ -110,13 +109,7 @@ pub(super) fn read(
         include_archived,
         &authorization.provenance.authority.actor_project_id,
     )?;
-    let after = search_cursor_identity(
-        connection,
-        requested_cursor,
-        library_id,
-        &subject,
-        event_head,
-    )?;
+    let after = search_cursor_identity(connection, requested_cursor, library_id, &subject)?;
     let limit = search_limit(limit)?;
     if terms.is_empty() || block_types.as_ref().is_some_and(Vec::is_empty) {
         agent_authorization::authorized_page_ids(
@@ -188,7 +181,6 @@ pub(super) fn read(
                 values: Vec::new(),
                 stable_id: stable_id.to_owned(),
             },
-            event_head,
         )?)
     } else {
         None
@@ -1018,18 +1010,11 @@ fn search_cursor_identity(
     requested_cursor: Option<&str>,
     library_id: &str,
     subject: &[String],
-    event_head: i64,
 ) -> Result<Option<String>, StoreError> {
     let Some(requested_cursor) = requested_cursor else {
         return Ok(None);
     };
-    let decoded = cursor::decode(
-        connection,
-        requested_cursor,
-        library_id,
-        subject,
-        event_head,
-    )?;
+    let decoded = cursor::decode(connection, requested_cursor, library_id, subject)?;
     if !decoded.values.is_empty() {
         return Err(invalid("Agent search cursor coordinate is invalid"));
     }

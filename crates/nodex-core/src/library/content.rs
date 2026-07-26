@@ -193,7 +193,6 @@ pub(super) fn page_content(
 pub(super) fn search(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
     query: &str,
     include_archived: bool,
     source_kinds: Option<Vec<LibrarySearchSourceKind>>,
@@ -212,7 +211,6 @@ pub(super) fn search(
         requested_cursor.as_deref(),
         library_id,
         &subject,
-        event_head,
     )?;
     let limit = search_limit(limit)?;
     let Some(match_query) = build_fts_match_query(query)? else {
@@ -360,7 +358,6 @@ pub(super) fn search(
                 ],
                 stable_id: row_id.to_string(),
             },
-            event_head,
         )?)
     } else {
         None
@@ -832,18 +829,11 @@ fn search_cursor_coordinate(
     requested_cursor: Option<&str>,
     library_id: &str,
     subject: &[String],
-    event_head: i64,
 ) -> Result<Option<(f64, String, String, i64)>, StoreError> {
     let Some(requested_cursor) = requested_cursor else {
         return Ok(None);
     };
-    let decoded = cursor::decode(
-        connection,
-        requested_cursor,
-        library_id,
-        subject,
-        event_head,
-    )?;
+    let decoded = cursor::decode(connection, requested_cursor, library_id, subject)?;
     let [
         cursor::KeysetValue::Real { value: rank },
         cursor::KeysetValue::Text {

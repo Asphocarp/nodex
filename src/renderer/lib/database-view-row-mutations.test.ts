@@ -155,6 +155,7 @@ const model = (): DatabaseViewRenderModel => {
     query: { database, dataSource, view, properties, rows },
     columns: [{
       id: "all",
+      scopeKey: "all",
       name: "All",
       rows: rows.map((row) => ({
         pageId: row.page.pageId,

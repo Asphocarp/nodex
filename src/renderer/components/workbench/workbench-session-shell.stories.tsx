@@ -970,7 +970,8 @@ function installStoryApi(
           const viewId = `database-view:${projectId}:primary-kanban`;
           const databaseId = `database:${projectId}:primary`;
           const dataSourceId = `${databaseId}:data-source:initial`;
-          return {
+          // Core-backed read channels return a CoreReadResult envelope.
+          return { ok: true, value: {
             projectId,
             libraryId: "library:test",
             databaseId,
@@ -1047,7 +1048,30 @@ function installStoryApi(
               properties: [],
               rows: [],
             },
-          };
+          } };
+        }
+        if (channel === "database:view-groups:get") {
+          const projectId = String(args[0] ?? "nodex");
+          const databaseId = `database:${projectId}:primary`;
+          return { ok: true, value: {
+            projectId,
+            libraryId: "library:test",
+            databaseId,
+            dataSourceId: `${databaseId}:data-source:initial`,
+            viewId: `database-view:${projectId}:primary-kanban`,
+            storeEpoch: "epoch:story",
+            changeLogSeq: 1,
+            grouped: true,
+            totalRows: STORY_BOARD.columns.reduce(
+              (total, column) => total + column.cards.length,
+              0,
+            ),
+            truncated: false,
+            groups: STORY_BOARD.columns.map((column) => ({
+              groupKey: column.id,
+              totalRows: column.cards.length,
+            })),
+          } };
         }
         if (channel === "library-module:read") {
           const read = (args[0] as LibraryModuleReadRequest).read;

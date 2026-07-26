@@ -10,6 +10,10 @@ import {
   type CardSelectionState,
 } from "./card-selection";
 import { KanbanBoardScrollContainer } from "./view-scroll-containers";
+import {
+  groupScopeKeyForColumn,
+  UNGROUPED_SCOPE_KEY,
+} from "@/lib/kanban-store";
 import { buildPageDeepLink } from "@/lib/page-deeplink";
 import {
   getKanbanColumnLayout,
@@ -125,8 +129,6 @@ export function KanbanBoard({
     board,
     databaseView,
     loading,
-    loadingMore,
-    hasMore,
     error,
     createPage,
     updatePage,
@@ -134,7 +136,8 @@ export function KanbanBoard({
     movePage,
     movePages,
     refresh,
-    loadMore,
+    groupPagination,
+    loadMoreGroup,
   } =
     useKanban({
       projectId,
@@ -731,8 +734,9 @@ export function KanbanBoard({
     );
   }
 
-  // Error state
-  if (error) {
+  // A full-view error is only warranted when the first window never loaded;
+  // with content on screen, refresh/continuation failures stay non-destructive.
+  if (error && !board) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
         <div className="text-sm text-(--destructive)">
@@ -757,6 +761,9 @@ export function KanbanBoard({
               projectName={currentProjectName}
               key={column.id}
               column={column}
+              pagination={groupPagination.get(groupScopeKeyForColumn(column.id))
+                ?? groupPagination.get(UNGROUPED_SCOPE_KEY)}
+              onLoadMore={loadMoreGroup}
               displayPrefs={viewPrefs.display}
               dragInstanceId={dragInstanceId}
               buildDragData={buildDragData}
@@ -800,20 +807,6 @@ export function KanbanBoard({
           ))}
         </div>
       </KanbanBoardScrollContainer>
-      {hasMore ? (
-        <div className="flex justify-center border-t border-(--border-subtle) px-4 py-2">
-          <button
-            type="button"
-            className="rounded-md px-3 py-1.5 text-xs font-medium text-(--foreground-secondary) hover:bg-(--surface-hover) disabled:opacity-50"
-            disabled={loadingMore}
-            onClick={() => {
-              void loadMore();
-            }}
-          >
-            {loadingMore ? "Loading…" : "Show more"}
-          </button>
-        </div>
-      ) : null}
     </div>
   );
 }

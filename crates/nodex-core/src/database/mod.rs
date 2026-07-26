@@ -246,7 +246,7 @@ mod tests {
     use nodex_core_contracts::agent::{AgentExecutionAuthorization, AgentTurnProvenance};
     use nodex_core_contracts::collection::CollectionWindowRequest;
     use nodex_core_contracts::database::{
-        DatabaseAgentQuery, DatabaseIntent, DatabaseReadMode, DatabaseTarget,
+        DatabaseAgentQuery, DatabaseGroupScope, DatabaseIntent, DatabaseReadMode, DatabaseTarget,
         DatabaseTransferTarget,
     };
     use nodex_core_contracts::library::{
@@ -559,6 +559,7 @@ mod tests {
                             first: Some(1),
                         }),
                         page_ids: None,
+                        group_scope: None,
                     },
                 },
             )
@@ -600,6 +601,7 @@ mod tests {
                             first: Some(1),
                         }),
                         page_ids: None,
+                        group_scope: None,
                     },
                 },
             )
@@ -630,6 +632,7 @@ mod tests {
                         sort: None,
                         window: None,
                         page_ids: Some(vec!["page:database-row-2".to_owned()]),
+                        group_scope: None,
                     },
                 },
             )
@@ -654,6 +657,7 @@ mod tests {
                         sort: None,
                         window: None,
                         page_ids: None,
+                        group_scope: None,
                     },
                 },
             )
@@ -683,6 +687,7 @@ mod tests {
                         sort: None,
                         window: None,
                         page_ids: None,
+                        group_scope: None,
                     },
                 },
             )
@@ -718,6 +723,7 @@ mod tests {
                         sort: None,
                         window: None,
                         page_ids: None,
+                        group_scope: None,
                     },
                 },
             )
@@ -749,7 +755,7 @@ mod tests {
             transfer.event.expect("transfer event").projection_impact,
             ProjectionImpact::All
         ));
-        let stale_cursor = module
+        let continued_after_change = module
             .read(
                 &context(),
                 ModuleReadRequest {
@@ -768,11 +774,16 @@ mod tests {
                         sort: None,
                         window: None,
                         page_ids: None,
+                        group_scope: None,
                     },
                 },
             )
-            .expect_err("Agent Database cursor is stale after a commit");
-        assert_eq!(stale_cursor.code, CoreErrorCode::RevisionConflict);
+            .expect("Agent Database cursor survives a concurrent commit");
+        let DatabaseReadValue::AgentQuery { value } = continued_after_change.value else {
+            panic!("continued Agent Database query snapshot");
+        };
+        assert!(value.rows.items.is_empty());
+        assert!(value.rows.next_cursor.is_none());
 
         let catalog = module
             .read(
@@ -786,6 +797,7 @@ mod tests {
                         sort: None,
                         window: Some(Default::default()),
                         page_ids: None,
+                        group_scope: None,
                     },
                 },
             )
@@ -809,6 +821,7 @@ mod tests {
                         sort: None,
                         window: Some(Default::default()),
                         page_ids: None,
+                        group_scope: None,
                     },
                 },
             )
@@ -831,6 +844,7 @@ mod tests {
                         sort: None,
                         window: Some(Default::default()),
                         page_ids: None,
+                        group_scope: None,
                     },
                 },
             )
@@ -854,6 +868,7 @@ mod tests {
                         sort: None,
                         window: None,
                         page_ids: None,
+                        group_scope: None,
                     },
                 },
             )
@@ -900,6 +915,7 @@ mod tests {
                         sort: None,
                         window: None,
                         page_ids: None,
+                        group_scope: None,
                     },
                 },
             )
@@ -1096,6 +1112,7 @@ mod tests {
                         sort: None,
                         window: None,
                         page_ids: None,
+                        group_scope: None,
                     },
                 },
             )
@@ -1118,6 +1135,7 @@ mod tests {
                         sort: None,
                         window: Some(Default::default()),
                         page_ids: None,
+                        group_scope: None,
                     },
                 },
             )
@@ -1161,6 +1179,7 @@ mod tests {
                             first: Some(1),
                         }),
                         page_ids: None,
+                        group_scope: None,
                     },
                 },
             )
@@ -1184,6 +1203,7 @@ mod tests {
                         sort: None,
                         window: Some(Default::default()),
                         page_ids: None,
+                        group_scope: None,
                     },
                 },
             )
@@ -1304,6 +1324,7 @@ mod tests {
                         sort: None,
                         window: Some(Default::default()),
                         page_ids: None,
+                        group_scope: None,
                     },
                 },
             )
@@ -1369,6 +1390,7 @@ mod tests {
                         sort: None,
                         window: None,
                         page_ids: None,
+                        group_scope: None,
                     },
                 },
             )
@@ -1411,6 +1433,7 @@ mod tests {
                         sort: None,
                         window: Some(Default::default()),
                         page_ids: None,
+                        group_scope: None,
                     },
                 },
             )
@@ -1455,6 +1478,7 @@ mod tests {
                         sort: None,
                         window: Some(Default::default()),
                         page_ids: None,
+                        group_scope: None,
                     },
                 },
             )
@@ -1497,6 +1521,7 @@ mod tests {
                         sort: None,
                         window: None,
                         page_ids: None,
+                        group_scope: None,
                     },
                 },
             )
@@ -1522,6 +1547,7 @@ mod tests {
                         sort: None,
                         window: None,
                         page_ids: None,
+                        group_scope: None,
                     },
                 },
             )
@@ -1573,5 +1599,470 @@ mod tests {
             })
             .expect("count Database events");
         assert_eq!(database_events, 8);
+    }
+
+    struct GroupRowSpec {
+        page_id: &'static str,
+        title: &'static str,
+        value_json: Option<&'static str>,
+        position: Option<(&'static str, &'static str)>,
+    }
+
+    fn seed_grouped_fixture(kernel: &SqliteStoreKernel, rows: Vec<GroupRowSpec>) -> DatabaseModule {
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO profiles(id, created_at, updated_at) VALUES ('profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                         VALUES ('library-1', 'profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated) \
+                         VALUES ('project-1', 'library-1', 'Grouped windows', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
+                         VALUES (1, 'epoch-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed identity");
+        let library = LibraryModule::new("profile-1", "library-1", kernel);
+        library
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "operation:grouped-fixture-database".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreateDatabase {
+                        database_id: DATABASE_ID.to_owned(),
+                        data_source_id: SOURCE_ID.to_owned(),
+                        view_id: VIEW_ID.to_owned(),
+                        name: "Grouped work".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("create Database");
+        for row in &rows {
+            library
+                .apply(
+                    &context(),
+                    ModuleApplyRequest {
+                        contract_version: LIBRARY_CONTRACT_VERSION,
+                        operation_id: format!("operation:grouped-fixture-{}", row.page_id),
+                        store_epoch: StoreEpoch("epoch-1".to_owned()),
+                        intent: LibraryIntent::CreatePage {
+                            page_id: row.page_id.to_owned(),
+                            document_id: format!("document:{}", row.page_id),
+                            title: row.title.to_owned(),
+                            parent: LibraryWriteParent::Library { before: None },
+                        },
+                    },
+                )
+                .expect("create Page");
+        }
+        kernel
+            .writer()
+            .call(move |connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "UPDATE projects SET database_block_id = ?1 WHERE id = 'project-1'",
+                        [DATABASE_ID],
+                    )?;
+                    for row in &rows {
+                        let membership_id = format!("membership:{}", row.page_id);
+                        transaction.execute(
+                            "DELETE FROM library_block_placements WHERE block_id = ?1",
+                            [row.page_id],
+                        )?;
+                        transaction.execute(
+                            "DELETE FROM top_level_block_placements WHERE block_id = ?1",
+                            [row.page_id],
+                        )?;
+                        transaction.execute(
+                            "UPDATE blocks SET location_kind = 'database', \
+                               containing_document_id = NULL, containing_database_id = ?1 \
+                             WHERE id = ?2",
+                            params![DATABASE_ID, row.page_id],
+                        )?;
+                        transaction.execute(
+                            "UPDATE pages SET parent_kind = 'data_source', parent_id = ?1 \
+                             WHERE block_id = ?2",
+                            params![SOURCE_ID, row.page_id],
+                        )?;
+                        transaction.execute(
+                            "INSERT INTO data_source_page_memberships(\
+                               id, data_source_id, page_block_id, revision, created_at, removed_at\
+                             ) VALUES (?1, ?2, ?3, 1, ?4, NULL)",
+                            params![membership_id, SOURCE_ID, row.page_id, NOW],
+                        )?;
+                        if let Some(value_json) = row.value_json {
+                            transaction.execute(
+                                "INSERT INTO data_source_property_values(\
+                                   data_source_id, membership_id, property_id, value_type, \
+                                   value_json, revision, updated_at\
+                                 ) VALUES (?1, ?2, 'status', 'select', ?3, 1, ?4)",
+                                params![SOURCE_ID, membership_id, value_json, NOW],
+                            )?;
+                        }
+                        if let Some((group_key, rank_key)) = row.position {
+                            transaction.execute(
+                                "INSERT INTO database_view_page_positions(\
+                                   view_id, page_block_id, group_key, rank_key, revision, \
+                                   created_at, updated_at\
+                                 ) VALUES (?1, ?2, ?3, ?4, 1, ?5, ?5)",
+                                params![VIEW_ID, row.page_id, group_key, rank_key, NOW],
+                            )?;
+                        }
+                        let values_json = row
+                            .value_json
+                            .map(|value| format!("{{\"status\":{value}}}"))
+                            .unwrap_or_else(|| "{}".to_owned());
+                        transaction.execute(
+                            "UPDATE page_read_model SET location_kind = 'database', \
+                               containing_document_id = NULL, containing_database_id = ?1, \
+                               top_level_rank_key = NULL, membership_id = ?2, \
+                               database_block_id = ?1, database_values_json = ?3 \
+                             WHERE page_block_id = ?4",
+                            params![DATABASE_ID, membership_id, values_json, row.page_id],
+                        )?;
+                    }
+                    Ok(())
+                })
+            })
+            .expect("place Database rows");
+        DatabaseModule::new("profile-1", "library-1", kernel)
+    }
+
+    fn read_view_window(
+        module: &DatabaseModule,
+        first: u32,
+        after: Option<String>,
+        group_scope: Option<DatabaseGroupScope>,
+    ) -> Result<nodex_core_contracts::database::DatabaseViewWindow, CoreError> {
+        let snapshot = module.read(
+            &context(),
+            ModuleReadRequest {
+                contract_version: DATABASE_CONTRACT_VERSION,
+                read: DatabaseRead {
+                    target: DatabaseTarget::View {
+                        view_id: VIEW_ID.to_owned(),
+                    },
+                    mode: DatabaseReadMode::ViewWindow,
+                    filter: None,
+                    sort: None,
+                    window: Some(CollectionWindowRequest {
+                        after,
+                        first: Some(first),
+                    }),
+                    page_ids: None,
+                    group_scope,
+                },
+            },
+        )?;
+        let DatabaseReadValue::ViewWindow { value } = snapshot.value else {
+            panic!("view window read");
+        };
+        Ok(value)
+    }
+
+    #[test]
+    fn group_scoped_windows_partition_the_view_and_agree_with_group_totals() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let module = seed_grouped_fixture(
+            &kernel,
+            vec![
+                GroupRowSpec {
+                    page_id: "page:row-a",
+                    title: "Positioned triage",
+                    value_json: Some("\"triage\""),
+                    position: Some(("triage", "a")),
+                },
+                GroupRowSpec {
+                    page_id: "page:row-b",
+                    title: "Valued but unpositioned",
+                    value_json: Some("\"done\""),
+                    position: None,
+                },
+                GroupRowSpec {
+                    page_id: "page:row-c",
+                    title: "Empty string value",
+                    value_json: Some("\"\""),
+                    position: None,
+                },
+                GroupRowSpec {
+                    page_id: "page:row-d",
+                    title: "Positioned without value",
+                    value_json: None,
+                    position: Some(("triage", "b")),
+                },
+                GroupRowSpec {
+                    page_id: "page:row-e",
+                    title: "Null value",
+                    value_json: Some("null"),
+                    position: None,
+                },
+                GroupRowSpec {
+                    page_id: "page:row-f",
+                    title: "No value row",
+                    value_json: None,
+                    position: None,
+                },
+                GroupRowSpec {
+                    page_id: "page:row-g",
+                    title: "List value",
+                    value_json: Some("[\"x\"]"),
+                    position: None,
+                },
+                GroupRowSpec {
+                    page_id: "page:row-h",
+                    title: "Empty list value",
+                    value_json: Some("[]"),
+                    position: None,
+                },
+            ],
+        );
+
+        let flat = read_view_window(&module, 200, None, None).expect("flat window");
+        assert_eq!(flat.rows.items.len(), 8);
+        let flat_ids = flat
+            .rows
+            .items
+            .iter()
+            .map(|row| row.page_id.clone())
+            .collect::<std::collections::BTreeSet<_>>();
+
+        let groups_snapshot = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::View {
+                            view_id: VIEW_ID.to_owned(),
+                        },
+                        mode: DatabaseReadMode::ViewGroups,
+                        filter: None,
+                        sort: None,
+                        window: None,
+                        page_ids: None,
+                        group_scope: None,
+                    },
+                },
+            )
+            .expect("view groups read");
+        let DatabaseReadValue::ViewGroups { value: groups } = groups_snapshot.value else {
+            panic!("view groups value");
+        };
+        assert!(groups.grouped);
+        assert!(!groups.truncated);
+        assert_eq!(groups.total_rows, 8);
+        assert_eq!(
+            groups
+                .groups
+                .iter()
+                .map(|group| (group.group_key.clone(), group.total_rows))
+                .collect::<Vec<_>>(),
+            vec![
+                (Some("[\"x\"]".to_owned()), 1),
+                (Some("done".to_owned()), 1),
+                (Some("triage".to_owned()), 2),
+                (None, 4),
+            ],
+        );
+
+        // Every row lands in exactly one scope, and scoped traversal covers the
+        // flat window without duplicates.
+        let mut scoped_ids = std::collections::BTreeSet::new();
+        let mut scopes = groups
+            .groups
+            .iter()
+            .filter_map(|group| group.group_key.clone())
+            .map(|key| DatabaseGroupScope::Key { key })
+            .collect::<Vec<_>>();
+        scopes.push(DatabaseGroupScope::Unassigned);
+        for scope in &scopes {
+            let mut cursor = None;
+            loop {
+                let window = read_view_window(&module, 1, cursor.take(), Some(scope.clone()))
+                    .expect("scoped window");
+                for row in &window.rows.items {
+                    assert!(
+                        scoped_ids.insert(row.page_id.clone()),
+                        "row {} appeared in two scopes",
+                        row.page_id
+                    );
+                }
+                match window.rows.next_cursor {
+                    Some(next) => cursor = Some(next),
+                    None => break,
+                }
+            }
+        }
+        assert_eq!(scoped_ids, flat_ids);
+
+        // Scoped ordering: positioned rows first by rank, then unpositioned.
+        let triage = read_view_window(
+            &module,
+            200,
+            None,
+            Some(DatabaseGroupScope::Key {
+                key: "triage".to_owned(),
+            }),
+        )
+        .expect("triage window");
+        assert_eq!(
+            triage
+                .rows
+                .items
+                .iter()
+                .map(|row| row.page_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["page:row-a", "page:row-d"],
+        );
+        assert!(
+            triage
+                .rows
+                .items
+                .iter()
+                .all(|row| row.effective_group_key.as_deref() == Some("triage"))
+        );
+
+        // A cursor minted for one scope is a different query for another scope.
+        let triage_first = read_view_window(
+            &module,
+            1,
+            None,
+            Some(DatabaseGroupScope::Key {
+                key: "triage".to_owned(),
+            }),
+        )
+        .expect("triage first window");
+        let triage_cursor = triage_first.rows.next_cursor.expect("triage continuation");
+        let cross_scope = read_view_window(
+            &module,
+            1,
+            Some(triage_cursor),
+            Some(DatabaseGroupScope::Key {
+                key: "done".to_owned(),
+            }),
+        )
+        .expect_err("cross-scope cursor must be rejected");
+        assert_eq!(cross_scope.code, CoreErrorCode::InvalidInput);
+
+        // Group scope is only meaningful for view_window reads.
+        let wrong_mode = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::View {
+                            view_id: VIEW_ID.to_owned(),
+                        },
+                        mode: DatabaseReadMode::ViewGroups,
+                        filter: None,
+                        sort: None,
+                        window: None,
+                        page_ids: None,
+                        group_scope: Some(DatabaseGroupScope::Unassigned),
+                    },
+                },
+            )
+            .expect_err("group scope outside view_window must be rejected");
+        assert_eq!(wrong_mode.code, CoreErrorCode::InvalidInput);
+    }
+
+    #[test]
+    fn ungrouped_views_reject_group_scopes_and_report_flat_totals() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let module = seed_grouped_fixture(
+            &kernel,
+            vec![GroupRowSpec {
+                page_id: "page:row-a",
+                title: "Only row",
+                value_json: Some("\"triage\""),
+                position: Some(("triage", "a")),
+            }],
+        );
+        const FLAT_VIEW_ID: &str = "018f1000-0000-7000-8000-00000000000f";
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO database_views(\
+                       id, database_block_id, data_source_id, name, kind, config_json, revision, \
+                       rank_key, lifecycle, created_at, updated_at\
+                     ) SELECT ?1, database_block_id, data_source_id, 'Flat', 'list', \
+                       json_set(config_json, '$.group', json('null')), 1, 'z', 'active', \
+                       created_at, updated_at \
+                     FROM database_views WHERE id = ?2",
+                    params![FLAT_VIEW_ID, VIEW_ID],
+                )?;
+                Ok(())
+            })
+            .expect("create ungrouped View");
+
+        let scoped = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::View {
+                            view_id: FLAT_VIEW_ID.to_owned(),
+                        },
+                        mode: DatabaseReadMode::ViewWindow,
+                        filter: None,
+                        sort: None,
+                        window: Some(Default::default()),
+                        page_ids: None,
+                        group_scope: Some(DatabaseGroupScope::Unassigned),
+                    },
+                },
+            )
+            .expect_err("ungrouped View must reject group scopes");
+        assert_eq!(scoped.code, CoreErrorCode::InvalidInput);
+
+        let groups_snapshot = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::View {
+                            view_id: FLAT_VIEW_ID.to_owned(),
+                        },
+                        mode: DatabaseReadMode::ViewGroups,
+                        filter: None,
+                        sort: None,
+                        window: None,
+                        page_ids: None,
+                        group_scope: None,
+                    },
+                },
+            )
+            .expect("ungrouped view groups read");
+        let DatabaseReadValue::ViewGroups { value: groups } = groups_snapshot.value else {
+            panic!("ungrouped view groups value");
+        };
+        assert!(!groups.grouped);
+        assert_eq!(groups.total_rows, 1);
+        assert!(groups.groups.is_empty());
     }
 }

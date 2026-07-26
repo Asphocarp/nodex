@@ -1,5 +1,5 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
-import { invoke } from "./api";
+import { invoke, readDatabaseViewWindow } from "./api";
 import { queryKeys } from "./query-keys";
 import type {
   CodexAutomationRunsInboxResponse,
@@ -27,7 +27,6 @@ import type {
   WorkspaceFileRequest,
   WorkspaceFileTextReadInput,
 } from "./types";
-import type { DatabaseViewWindowSnapshot } from "../../shared/database-views";
 import type { GitBranchState } from "../../shared/ipc-api";
 import type { CommandKeymapState } from "../../shared/command-keybindings";
 import type { ProtocolMcpResourceReadParams } from "../../shared/types";
@@ -54,12 +53,7 @@ export function projectsListQueryOptions(options: ProjectListOptions = {}) {
 export function boardByProjectQueryOptions(projectId: string) {
   return queryOptions({
     queryKey: queryKeys.boards.byProject(projectId),
-    queryFn: () =>
-      invoke(
-        "database:view-window:get",
-        projectId,
-        { first: 50 },
-      ) as Promise<DatabaseViewWindowSnapshot>,
+    queryFn: () => readDatabaseViewWindow(projectId, { first: 50 }),
   });
 }
 
