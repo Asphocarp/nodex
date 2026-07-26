@@ -9,6 +9,7 @@ import {
 import path from "node:path";
 
 import { signAsync } from "@electron/osx-sign";
+import { writePackagedBuildProvenance } from "./package-provenance.mjs";
 
 const nativeManifestRelativePath = "Contents/Resources/bin/rust-core-runtime.json";
 const agentManifestRelativePath = "Contents/Resources/agent-runtime.json";
@@ -140,6 +141,7 @@ export const sign = async (options) => {
 
   refreshSignedNativeRuntimeManifest(options.app);
   refreshSignedAgentRuntimeMetadata(options.app);
+  writePackagedBuildProvenance(options.app);
 
   await signWithRetry({
     ...options,

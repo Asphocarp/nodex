@@ -444,18 +444,27 @@ xcrun stapler validate "dist/mac-arm64/Nodex.app"
 
 Repeat the same flow for `pnpm run package:mac:x64` if Intel packaging is being validated locally.
 
-For a local unsigned developer deployment, keep packaging and installation
-separate. The installer infers the standard output for the current architecture:
+For a local unsigned developer deployment, use the source-bound installer:
 
 ```bash
-pnpm run package:mac
 pnpm run install:local:mac -- --install-cli
 ```
+
+The default path builds Electron and the native runtime, verifies the complete
+prepared source inventory, and asks electron-builder for its update-capable DMG
+target in a new unique `.generated/local-install/` directory. The deployer
+installs the resulting app bundle directly and discards the temporary DMG; using
+the DMG target ensures electron-builder also emits the supported
+`app-update.yml` without requiring the ZIP target's separately downloaded 7zip
+toolset. It never reuses a persistent `dist/` app. The package's sealed
+provenance binds that exact source generation to `app.asar`, updater metadata,
+and the final post-signing native and Agent manifests.
 
 The deployer defaults to `/Applications/Nodex Dev.app`, refuses a running Nodex
 process, verifies the source and staged bundle, copies with `ditto`, performs a
 same-filesystem replacement with a rollback app, verifies the installed result,
-and only then removes the rollback. It will not target `/Applications/Nodex.app` unless
-`--allow-production-destination` is explicit. A nonstandard package can still
-be selected with `--app-path`. `install.sh` is only a temporary deprecated
-forwarding shim for this command.
+and only then removes the rollback. It will not target `/Applications/Nodex.app`
+unless `--allow-production-destination` is explicit. `--app-path` explicitly
+selects an external package and skips the fresh build, but intrinsic provenance
+and native-runtime verification remain mandatory. `install.sh` is only a
+temporary deprecated forwarding shim for this command.

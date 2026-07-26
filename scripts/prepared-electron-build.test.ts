@@ -38,12 +38,16 @@ const makeFixture = (): {
     "src/value.ts",
     "third_party/blocknote/packages/value.ts",
     "crates/example/Cargo.toml",
+    "crates/example/src/lib.rs",
+    ".node-version",
     "Cargo.lock",
     "Cargo.toml",
+    "electron-builder.yml",
     "electron.vite.config.ts",
     "package.json",
     "pnpm-lock.yaml",
     "pnpm-workspace.yaml",
+    "rust-toolchain.toml",
     "tsconfig.json",
     "tsconfig.node.json",
     "tsconfig.web.json",
@@ -56,6 +60,11 @@ const makeFixture = (): {
     fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
     fs.writeFileSync(absolutePath, `${relativePath}\n`, "utf8");
   }
+  fs.writeFileSync(
+    path.join(repositoryRoot, "package.json"),
+    `${JSON.stringify({ name: "nodex", version: "1.2.3" })}\n`,
+    "utf8",
+  );
   return {
     repositoryRoot,
     manifestPath: path.join(repositoryRoot, ".generated/prepared.json"),
@@ -71,11 +80,26 @@ afterEach(() => {
 describe("prepared Electron build", () => {
   test("reuses only the exact recorded inputs and output closure", () => {
     const fixture = makeFixture();
-    recordPreparedElectronBuild(fixture);
+    const recorded = recordPreparedElectronBuild(fixture);
 
-    expect(() => verifyPreparedElectronBuild(fixture)).not.toThrow();
+    expect(verifyPreparedElectronBuild(fixture).generationId).toBe(recorded.generationId);
 
     fs.appendFileSync(path.join(fixture.repositoryRoot, "src/value.ts"), "changed\n");
+    expect(() => verifyPreparedElectronBuild(fixture)).toThrow("inputs are stale");
+  });
+
+  test("treats Rust and packaging sources as part of the build closure", () => {
+    const fixture = makeFixture();
+    recordPreparedElectronBuild(fixture);
+
+    fs.appendFileSync(
+      path.join(fixture.repositoryRoot, "crates/example/src/lib.rs"),
+      "pub fn changed() {}\n",
+    );
+    expect(() => verifyPreparedElectronBuild(fixture)).toThrow("inputs are stale");
+
+    recordPreparedElectronBuild(fixture);
+    fs.appendFileSync(path.join(fixture.repositoryRoot, "electron-builder.yml"), "changed: true\n");
     expect(() => verifyPreparedElectronBuild(fixture)).toThrow("inputs are stale");
   });
 

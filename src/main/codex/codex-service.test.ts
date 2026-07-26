@@ -4305,6 +4305,38 @@ function initializeGitRepository(repoPath: string): void {
 }
 
 describe("codex-service rate limit polling", () => {
+  test.each([
+    ["signed out", null],
+    ["API key", { type: "apiKey" }],
+    ["Amazon Bedrock", { type: "amazonBedrock", credentialSource: "awsManaged" }],
+  ])("does not request ChatGPT rate limits for a %s account", async (_, account) => {
+    const service = createService({ rateLimitsPollIntervalMs: 20 });
+    const client = Reflect.get(service as object, "client") as {
+      emit: (event: string, payload: unknown) => boolean;
+      start: () => Promise<void>;
+      request: (method: string, params?: unknown) => Promise<unknown>;
+    };
+    const requests: string[] = [];
+
+    client.start = async () => undefined;
+    client.request = async (method: string) => {
+      requests.push(method);
+      if (method === "account/read") {
+        return { account, requiresOpenaiAuth: account === null };
+      }
+      throw new Error(`Unexpected method ${method}`);
+    };
+
+    client.emit("connection", { status: "connected", retries: 0 });
+    const snapshot = await service.readAccountSnapshot();
+    await new Promise((resolve) => setTimeout(resolve, 45));
+    await service.shutdown();
+
+    expect(requests).toEqual(["account/read"]);
+    expect(snapshot.rateLimits).toBeNull();
+    expect(snapshot.rateLimitResetCredits).toBeNull();
+  });
+
   test("polls rate limits every interval without rereading account", async () => {
     const service = createService({ rateLimitsPollIntervalMs: 20 });
     const client = Reflect.get(service as object, "client") as {

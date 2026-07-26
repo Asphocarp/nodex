@@ -26,6 +26,8 @@ asarUnpack:
 - "**/*.node"
 npmRebuild: true
 extraResources:
+- from: .generated/prepared-electron-build.json
+  to: prepared-electron-build.json
 - from: resources/icon.png
   to: icon.png
 - from: resources/nodex-notification.aiff

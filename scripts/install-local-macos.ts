@@ -14,32 +14,51 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { verifyPackagedBuildProvenance } from "./package-provenance.mjs";
 import type { NativeRuntimeArchitecture } from "./native-runtime-manifest";
 import { verifyPackagedNativeRuntime } from "./verify-native-runtime";
 import { installCliCommand } from "../src/main/cli-command-installer";
 
 export interface LocalMacInstallOptions {
   readonly allowProductionDestination: boolean;
-  readonly appPath: string;
   readonly cliTargetPath: string;
   readonly destination: string;
   readonly installCli: boolean;
+  readonly source:
+    | {
+      readonly kind: "fresh";
+      readonly repositoryRoot: string;
+    }
+    | {
+      readonly appPath: string;
+      readonly kind: "artifact";
+    };
   readonly targetArch: NativeRuntimeArchitecture;
+}
+
+export interface LocalMacBuildInstallOptions {
+  readonly allowProductionDestination: boolean;
+  readonly appPath: string;
+  readonly cliTargetPath: string;
+  readonly destination: string;
+  readonly expectedPreparedManifestPath?: string;
+  readonly installCli: boolean;
+  readonly targetArch: NativeRuntimeArchitecture;
+}
+
+export interface FreshLocalMacPackagePlan {
+  readonly appPath: string;
+  readonly commands: readonly {
+    readonly arguments: readonly string[];
+    readonly command: string;
+  }[];
+  readonly outputRoot: string;
+  readonly preparedManifestPath: string;
 }
 
 const DEFAULT_DESTINATION = "/Applications/Nodex Dev.app";
 const DEFAULT_CLI_TARGET = join(homedir(), ".local", "bin", "nodex");
 const PRODUCTION_DESTINATION = "/Applications/Nodex.app";
-
-const defaultPackagedAppPath = (
-  workingDirectory: string,
-  targetArch: NativeRuntimeArchitecture,
-): string => join(
-  workingDirectory,
-  "dist",
-  targetArch === "arm64" ? "mac-arm64" : "mac",
-  "Nodex.app",
-);
 
 const readRequiredValue = (
   arguments_: readonly string[],
@@ -68,6 +87,9 @@ export function parseLocalMacInstallOptions(
 
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
+    if (argument === "--") {
+      continue;
+    }
     if (argument === "--app-path") {
       appPath = readRequiredValue(arguments_, index, argument);
       index += 1;
@@ -107,15 +129,14 @@ export function parseLocalMacInstallOptions(
   if (!targetArch) {
     throw new Error("Could not infer the current Mac architecture; pass --target-arch.");
   }
-  const resolvedAppPath = appPath
-    ? resolve(appPath)
-    : defaultPackagedAppPath(workingDirectory, targetArch);
   return {
     allowProductionDestination,
-    appPath: resolvedAppPath,
     cliTargetPath: resolve(cliTargetPath),
     destination: resolve(destination),
     installCli,
+    source: appPath
+      ? { appPath: resolve(appPath), kind: "artifact" }
+      : { kind: "fresh", repositoryRoot: resolve(workingDirectory) },
     targetArch,
   };
 }
@@ -136,7 +157,7 @@ const assertAppBundle = (appPath: string, label: string): void => {
   }
 };
 
-export function assertLocalInstallDestination(options: LocalMacInstallOptions): void {
+export function assertLocalInstallDestination(options: LocalMacBuildInstallOptions): void {
   if (!isAbsolute(options.destination) || !options.destination.endsWith(".app")) {
     throw new Error("The local install destination must be an absolute .app path.");
   }
@@ -185,7 +206,12 @@ const syncDirectory = (directory: string): void => {
 const verify = async (
   appPath: string,
   targetArch: NativeRuntimeArchitecture,
-): Promise<void> => {
+  expectedPreparedManifestPath?: string,
+): Promise<string> => {
+  const provenance = verifyPackagedBuildProvenance(appPath, {
+    expectedArch: targetArch,
+    expectedPreparedManifestPath,
+  });
   await verifyPackagedNativeRuntime({
     appPath,
     launchApp: false,
@@ -194,16 +220,23 @@ const verify = async (
     verifyNotarization: false,
     verifySignatures: false,
   });
+  return provenance.provenanceId;
 };
 
-export async function installLocalMacBuild(options: LocalMacInstallOptions): Promise<void> {
+export async function installLocalMacBuild(
+  options: LocalMacBuildInstallOptions,
+): Promise<void> {
   if (process.platform !== "darwin") {
     throw new Error("Local Nodex app deployment is supported only on macOS.");
   }
   assertAppBundle(options.appPath, "The source app");
   assertLocalInstallDestination(options);
   assertNodexIsNotRunning();
-  await verify(options.appPath, options.targetArch);
+  const sourceProvenanceId = await verify(
+    options.appPath,
+    options.targetArch,
+    options.expectedPreparedManifestPath,
+  );
 
   const destinationParent = dirname(options.destination);
   mkdirSync(destinationParent, { recursive: true, mode: 0o755 });
@@ -235,7 +268,14 @@ export async function installLocalMacBuild(options: LocalMacInstallOptions): Pro
     execFileSync("/usr/bin/ditto", [options.appPath, stagingPath], {
       stdio: "inherit",
     });
-    await verify(stagingPath, options.targetArch);
+    const stagingProvenanceId = await verify(
+      stagingPath,
+      options.targetArch,
+      options.expectedPreparedManifestPath,
+    );
+    if (stagingProvenanceId !== sourceProvenanceId) {
+      throw new Error("The staged app does not match the selected build generation.");
+    }
     if (existsSync(options.destination)) {
       renameSync(options.destination, rollbackPath);
       previousMoved = true;
@@ -243,7 +283,14 @@ export async function installLocalMacBuild(options: LocalMacInstallOptions): Pro
     try {
       renameSync(stagingPath, options.destination);
       syncDirectory(destinationParent);
-      await verify(options.destination, options.targetArch);
+      const installedProvenanceId = await verify(
+        options.destination,
+        options.targetArch,
+        options.expectedPreparedManifestPath,
+      );
+      if (installedProvenanceId !== sourceProvenanceId) {
+        throw new Error("The installed app does not match the selected build generation.");
+      }
       installed = true;
     } catch (error) {
       if (existsSync(options.destination)) {
@@ -286,9 +333,107 @@ export async function installLocalMacBuild(options: LocalMacInstallOptions): Pro
   process.stdout.write(`Installed local Nodex build: ${options.destination}\n`);
 }
 
+export function createFreshLocalMacPackagePlan(
+  repositoryRoot: string,
+  targetArch: NativeRuntimeArchitecture,
+  operationId: string = randomUUID(),
+): FreshLocalMacPackagePlan {
+  const root = resolve(repositoryRoot);
+  const outputRoot = join(root, ".generated", "local-install", operationId);
+  const architectureDirectory = targetArch === "arm64" ? "mac-arm64" : "mac";
+  return {
+    appPath: join(outputRoot, architectureDirectory, "Nodex.app"),
+    commands: [
+      {
+        command: "pnpm",
+        arguments: ["run", "build"],
+      },
+      {
+        command: "pnpm",
+        arguments: ["run", `stage:native-runtime:mac:${targetArch}`],
+      },
+      {
+        command: "pnpm",
+        arguments: ["exec", "tsx", "scripts/prepared-electron-build.ts", "verify"],
+      },
+      {
+        command: "pnpm",
+        arguments: [
+          "exec",
+          "electron-builder",
+          "--mac",
+          "dmg",
+          `--${targetArch}`,
+          "--publish",
+          "never",
+          `--config.directories.output=${outputRoot}`,
+        ],
+      },
+      {
+        command: "pnpm",
+        arguments: ["exec", "tsx", "scripts/prepared-electron-build.ts", "verify"],
+      },
+    ],
+    outputRoot,
+    preparedManifestPath: join(root, ".generated", "prepared-electron-build.json"),
+  };
+}
+
+const installFreshLocalMacBuild = async (
+  options: LocalMacInstallOptions,
+): Promise<void> => {
+  if (options.source.kind !== "fresh") {
+    throw new Error("Fresh local packaging requires a repository source.");
+  }
+  const plan = createFreshLocalMacPackagePlan(
+    options.source.repositoryRoot,
+    options.targetArch,
+  );
+  mkdirSync(dirname(plan.outputRoot), { recursive: true, mode: 0o700 });
+  if (existsSync(plan.outputRoot)) {
+    throw new Error(`Fresh local package output already exists: ${plan.outputRoot}`);
+  }
+  try {
+    for (const command of plan.commands) {
+      execFileSync(command.command, command.arguments, {
+        cwd: options.source.repositoryRoot,
+        stdio: "inherit",
+      });
+    }
+    await installLocalMacBuild({
+      allowProductionDestination: options.allowProductionDestination,
+      appPath: plan.appPath,
+      cliTargetPath: options.cliTargetPath,
+      destination: options.destination,
+      expectedPreparedManifestPath: plan.preparedManifestPath,
+      installCli: options.installCli,
+      targetArch: options.targetArch,
+    });
+  } finally {
+    if (existsSync(plan.outputRoot)) {
+      rmSync(plan.outputRoot, { recursive: true, force: true });
+    }
+  }
+};
+
+export async function installLocalMac(options: LocalMacInstallOptions): Promise<void> {
+  if (options.source.kind === "fresh") {
+    await installFreshLocalMacBuild(options);
+    return;
+  }
+  await installLocalMacBuild({
+    allowProductionDestination: options.allowProductionDestination,
+    appPath: options.source.appPath,
+    cliTargetPath: options.cliTargetPath,
+    destination: options.destination,
+    installCli: options.installCli,
+    targetArch: options.targetArch,
+  });
+}
+
 const main = async (): Promise<void> => {
   const options = parseLocalMacInstallOptions(process.argv.slice(2));
-  await installLocalMacBuild(options);
+  await installLocalMac(options);
 };
 
 if (

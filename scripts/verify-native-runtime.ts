@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   readNativeRuntimeManifest,
+  sha256File,
   type NativeRuntimeArchitecture,
 } from "./native-runtime-manifest";
 
@@ -425,6 +426,13 @@ export async function verifyPackagedNativeRuntime(options: VerificationOptions):
   const binaryPaths = manifest.binaries.map((binary) => {
     const binaryPath = join(contentsPath, ...binary.bundlePath.split("/"));
     assertRegularExecutable(binaryPath);
+    const metadata = statSync(binaryPath);
+    if (
+      metadata.size !== binary.sourceSize
+      || sha256File(binaryPath) !== binary.sourceSha256
+    ) {
+      throw new Error(`Native runtime manifest identity mismatch for ${binary.name}`);
+    }
     assertMachO(binaryPath, options.targetArch, manifest.minimumMacOS);
     return binaryPath;
   });

@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -16,42 +16,41 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const MANIFEST_SCHEMA_VERSION = 1;
+const MANIFEST_SCHEMA_VERSION = 2;
 const scriptPath = fileURLToPath(import.meta.url);
 const repositoryRoot = path.resolve(path.dirname(scriptPath), "..");
 const defaultManifestPath = path.join(
   repositoryRoot,
   ".generated/prepared-electron-build.json",
 );
-const IGNORED_INPUT_DIRECTORY_NAMES = new Set([".turbo", "coverage", "dist", "node_modules"]);
+const IGNORED_INPUT_DIRECTORY_NAMES = new Set([
+  ".generated",
+  ".turbo",
+  "coverage",
+  "dist",
+  "node_modules",
+  "out",
+  "target",
+]);
 
 const REQUIRED_INPUT_PATHS = [
   "config",
+  "crates",
   "packages/codex-app-server-protocol",
   "packages/core-protocol",
-  "resources/THIRD_PARTY_NOTICES.txt",
-  "resources/icon.icon",
-  "resources/icon.png",
-  "resources/legacy-profile-migrator.json",
-  "resources/legacy-profile-migrator.mjs",
-  "resources/legacy-profile-migrator.mjs.LEGAL.txt",
-  "resources/nodex-icon.svg",
-  "resources/nodex-notification.aiff",
-  "resources/third-party/open-interpreter",
-  "scripts/build-legacy-profile-migrator.ts",
-  "scripts/generate-third-party-notices.ts",
-  "scripts/legacy-profile-migrator",
-  "scripts/legacy-profile-migrator-artifacts.ts",
-  "scripts/prepared-electron-build.ts",
-  "scripts/sync-app-icons.ts",
+  "resources",
+  "scripts",
   "src",
   "third_party/blocknote/packages",
+  ".node-version",
   "Cargo.lock",
   "Cargo.toml",
+  "electron-builder.yml",
   "electron.vite.config.ts",
   "package.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
+  "rust-toolchain.toml",
   "tsconfig.json",
   "tsconfig.node.json",
   "tsconfig.web.json",
@@ -79,11 +78,26 @@ interface FileDigest {
   readonly size: number;
 }
 
-interface PreparedElectronBuildManifest {
+interface PreparedBuildSource {
+  readonly baseCommit: string | null;
+  readonly baseTree: string | null;
+  readonly snapshotDigest: string;
+  readonly state: "clean" | "dirty" | "snapshot";
+}
+
+interface PreparedBuildProduct {
+  readonly name: string;
+  readonly version: string;
+}
+
+export interface PreparedElectronBuildManifest {
   readonly buildContext: Record<string, string>;
+  readonly generationId: string;
   readonly inputDigest: string;
   readonly outputs: readonly FileDigest[];
+  readonly product: PreparedBuildProduct;
   readonly schemaVersion: typeof MANIFEST_SCHEMA_VERSION;
+  readonly source: PreparedBuildSource;
 }
 
 export interface PreparedElectronBuildOptions {
@@ -180,6 +194,9 @@ const digestInventory = (
   .update(JSON.stringify({ context, files }))
   .digest("hex");
 
+const sha256Json = (value: unknown): string =>
+  createHash("sha256").update(JSON.stringify(value)).digest("hex");
+
 const inputInventory = (root: string): FileDigest[] => {
   const configuredInputs = REQUIRED_INPUT_PATHS.flatMap((relativePath) => {
     const absolutePath = path.join(root, relativePath);
@@ -188,17 +205,61 @@ const inputInventory = (root: string): FileDigest[] => {
     }
     return collectFiles(root, absolutePath, true);
   });
-  const cargoManifests = collectCargoManifests(root, path.join(root, "crates"))
-    .flatMap((manifestPath) => collectFiles(root, manifestPath));
   const environmentFiles = readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.name === ".env" || entry.name.startsWith(".env."))
     .flatMap((entry) => collectFiles(root, path.join(root, entry.name)));
-  return [...configuredInputs, ...cargoManifests, ...environmentFiles]
+  return [...configuredInputs, ...environmentFiles]
     .sort((left, right) => left.path.localeCompare(right.path));
 };
 
 const currentInputDigest = (root: string): string =>
   digestInventory(inputInventory(root), buildContext());
+
+const readGitValue = (root: string, arguments_: readonly string[]): string | null => {
+  const result = spawnSync("git", arguments_, {
+    cwd: root,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  if (result.status !== 0) return null;
+  const value = result.stdout.trim();
+  return value || null;
+};
+
+const readSource = (root: string, snapshotDigest: string): PreparedBuildSource => {
+  const baseCommit = readGitValue(root, ["rev-parse", "HEAD"]);
+  const baseTree = readGitValue(root, ["rev-parse", "HEAD^{tree}"]);
+  if (!baseCommit || !baseTree) {
+    return {
+      baseCommit: null,
+      baseTree: null,
+      snapshotDigest,
+      state: "snapshot",
+    };
+  }
+  const status = readGitValue(root, ["status", "--porcelain", "--untracked-files=normal"]);
+  return {
+    baseCommit,
+    baseTree,
+    snapshotDigest,
+    state: status === null || status.length > 0 ? "dirty" : "clean",
+  };
+};
+
+const readProduct = (root: string): PreparedBuildProduct => {
+  const value = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as {
+    readonly name?: unknown;
+    readonly version?: unknown;
+  };
+  if (typeof value.name !== "string" || typeof value.version !== "string") {
+    throw new Error("Prepared Electron build package metadata is invalid.");
+  }
+  return { name: value.name, version: value.version };
+};
+
+const generationIdFor = (
+  manifest: Omit<PreparedElectronBuildManifest, "generationId">,
+): string => sha256Json(manifest);
 
 const currentPrerequisiteSourceDigest = (root: string): string => {
   const files = PREREQUISITE_SOURCE_PATHS.flatMap((relativePath) =>
@@ -259,11 +320,17 @@ export function recordPreparedElectronBuild(
   if (beforeOutputs !== afterOutputs) {
     throw new Error("Electron build inputs changed while outputs were being recorded.");
   }
-  const manifest: PreparedElectronBuildManifest = {
+  const manifestWithoutGeneration = {
     buildContext: buildContext(),
     inputDigest: afterOutputs,
     outputs,
+    product: readProduct(root),
     schemaVersion: MANIFEST_SCHEMA_VERSION,
+    source: readSource(root, afterOutputs),
+  } satisfies Omit<PreparedElectronBuildManifest, "generationId">;
+  const manifest: PreparedElectronBuildManifest = {
+    ...manifestWithoutGeneration,
+    generationId: generationIdFor(manifestWithoutGeneration),
   };
   writeManifest(manifestPathFor(options), manifest);
   return manifest;
@@ -276,14 +343,24 @@ const parseManifest = (value: unknown): PreparedElectronBuildManifest => {
   const candidate = value as Partial<PreparedElectronBuildManifest>;
   if (
     candidate.schemaVersion !== MANIFEST_SCHEMA_VERSION
+    || typeof candidate.generationId !== "string"
     || typeof candidate.inputDigest !== "string"
     || !Array.isArray(candidate.outputs)
     || typeof candidate.buildContext !== "object"
     || candidate.buildContext === null
+    || typeof candidate.product !== "object"
+    || candidate.product === null
+    || typeof candidate.source !== "object"
+    || candidate.source === null
   ) {
     throw new Error("Prepared Electron build manifest is invalid.");
   }
-  return candidate as PreparedElectronBuildManifest;
+  const manifest = candidate as PreparedElectronBuildManifest;
+  const { generationId, ...manifestWithoutGeneration } = manifest;
+  if (generationId !== generationIdFor(manifestWithoutGeneration)) {
+    throw new Error("Prepared Electron build generation identity is invalid.");
+  }
+  return manifest;
 };
 
 export function verifyPreparedElectronBuild(

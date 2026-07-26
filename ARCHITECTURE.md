@@ -413,7 +413,20 @@ Rust selector; an old candidate cannot shut down a transport-4 Core. No rejected
 or unverified handoff falls back to process killing or stale-file deletion.
 For packaged macOS builds, artifact identity is computed after nested Developer
 ID signing; the signing boundary rewrites the closed native manifest from those
-final bytes and reseals the outer app before notarization. A packaged Core also
+final bytes, writes one package provenance record that binds the prepared
+source/output generation, `app.asar`, updater configuration, and final
+native/Agent manifests, then reseals the outer app before notarization. The
+prepared generation inventories
+the complete Electron, Rust, resource, packaging-script, and configuration
+input closure; a Git commit is lineage metadata only, while the content digest
+remains authoritative for dirty or archive builds. Local source deployment
+packages an update-capable DMG target into a new unique `.generated` directory
+and verifies the same provenance identity before and after staging, so a
+persistent `dist/` directory can never silently supply an older same-version
+app or omit the updater configuration that electron-builder emits only for
+supported macOS artifact targets. Explicit external
+artifacts are not compared to the current checkout, but their intrinsic
+provenance and runtime closure remain mandatory. A packaged Core also
 derives the frozen legacy-migrator closure from its own enclosing app bundle:
 the Electron executable, script, and digest manifest must be regular files in
 the canonical `Contents` layout. Environment-provided migrator coordinates are
@@ -434,7 +447,7 @@ tests for each deep transaction aggregate and for pre-transaction rejection,
 post-commit Document cache/publication recovery, published legacy imports and
 exact v84 import, online backup,
 restore journaling/runtime reset, and abrupt WAL exit. It also starts from a
-fresh restricted `.generated` Profile and reports the reopened v91 Store's
+fresh restricted `.generated` Profile and reports the reopened v92 Store's
 durable head, integrity result, and foreign-key result. The Electron loopback
 test in the same gate proves that private Core health/lifecycle/Store
 Administration UDS paths remain unreachable over the public HTTP adapter.
@@ -467,14 +480,14 @@ UUIDv7 Threads and repairs any remaining inverted custom-id pair before current
 Store validation.
 Automation now
 owns its accepted definition, lease, run, reminder, and Scheduled Page
-occurrence surface. Store Administration owns v91 readiness, backup listing,
+occurrence surface. Store Administration owns v92 readiness, backup listing,
 online SQLite backup creation, and whole-store restore through the same
 generated `read`/`apply` boundary. A backup uses a deterministic operation-owned
 directory, publishes a v2-compatible manifest last, validates the immutable
 snapshot, fsyncs database, assets, manifest, and directories, then commits its
 receipt/event. A retry after filesystem publication but before the SQLite
 receipt adopts only an exact operation/request-fingerprint match. Restore
-semantically validates the complete v91 Document/Canvas/projection/managed-asset
+semantically validates the complete v92 Document/Canvas/projection/managed-asset
 closure, optionally creates a safety backup inside one maintenance generation,
 installs through the Core-owned journal, rotates `storeEpoch`, resets Document
 cache and realtime state, republishes the runtime descriptor, and clears the
@@ -891,7 +904,7 @@ or the Electron client from reaching the local store.
 
 Block-first migration foundation:
 
-1. Core accepts the exact frozen v26, both v57, v68, v82, and v83 TypeScript inventories as historical import sources, the exact final TypeScript v84 inventory as its direct handoff, and exact Rust-owned v85/v86/v87/v88/v89/v90 stores. For a historical source, Core identifies the complete normalized physical inventory and takes an online database snapshot plus a validated asset-tree backup. The earlier v57 inventory receives a named-column rebuild of its Thread and Automation tables only inside that staging copy. Core then invokes the bundled hash-pinned migrator, reproducibly built from the fixed historical source plus reviewed compatibility overlays that retain legacy Page projection names and workflow-status identities, refresh recovered option registries, materialize explicit cross-Project Page references as same-Library read grants, retain missing targets as inert unresolved-reference diagnostics, and audit old identities on token boundaries in Database authority and committed evidence while leaving opaque historical Session UI state to schema validation only. Core advances the candidate to exact v84, reconstructs authoritative Yjs content through Yrs—including BlockNote `tableHeader` matrices as canonical `headerRows`/`headerCols`—rebuilds only derived projections, validates the complete v84 handoff, and atomically publishes current Rust ownership as v91 under a crash-recovery journal. Rust-owned v85 through v90 stores are validated exactly, backed up, and atomically upgraded before v91 publication. The historical v87 migration widened null tab ownership to Browser, Terminal, and exact-file Files; v88 added required projection impact plus its honest replay floor; v89 canonicalized Codex Thread clocks; v90 removes Project Session panel/tab authority, preserving only one valid initial Database View target as `initial_database_view_id` while intentionally discarding historical window arrangement; and v91 moves sidebar lane order into normalized relation ranks while keeping Thread previews compact. Unfrozen same-version lineages, near-matches, ambiguous owners, and future stores fail closed; a Rust-owned v91 store is validated exactly and never silently repaired.
+1. Core accepts the exact frozen v26, both v57, v68, v82, and v83 TypeScript inventories as historical import sources, the exact final TypeScript v84 inventory as its direct handoff, and exact Rust-owned v85/v86/v87/v88/v89/v90/v91 stores. For a historical source, Core identifies the complete normalized physical inventory and takes an online database snapshot plus a validated asset-tree backup. The earlier v57 inventory receives a named-column rebuild of its Thread and Automation tables only inside that staging copy. Core then invokes the bundled hash-pinned migrator, reproducibly built from the fixed historical source plus reviewed compatibility overlays that retain legacy Page projection names and workflow-status identities, refresh recovered option registries, materialize explicit cross-Project Page references as same-Library read grants, retain missing targets as inert unresolved-reference diagnostics, and audit old identities on token boundaries in Database authority and committed evidence while leaving opaque historical Session UI state to schema validation only. Core advances the candidate to exact v84, reconstructs authoritative Yjs content through Yrs—including BlockNote `tableHeader` matrices as canonical `headerRows`/`headerCols`—rebuilds only derived projections, validates the complete v84 handoff, and atomically publishes current Rust ownership as v92 under a crash-recovery journal. Rust-owned v85 through v91 stores are validated exactly, backed up, and atomically upgraded before v92 publication. The historical v87 migration widened null tab ownership to Browser, Terminal, and exact-file Files; v88 added required projection impact plus its honest replay floor; v89 canonicalized Codex Thread clocks; v90 removes Project Session panel/tab authority, preserving only one valid initial Database View target as `initial_database_view_id` while intentionally discarding historical window arrangement; v91 moves sidebar lane order into normalized relation ranks while keeping Thread previews compact; and v92 canonicalizes every schema-owned `TEXT` `*_at` timestamp to millisecond UTC. Unfrozen same-version lineages, near-matches, ambiguous owners, and future stores fail closed; a Rust-owned v92 store is validated exactly, including the timestamp invariant, and never silently repaired.
 2. A successful Document apply tentatively reconstructs and validates a Y.Doc, derives the changed title/Block identities from before/after state, reconciles the registry/index, and writes the binary update, immutable receipt, exact-blob checksum, state vector, reconstruction fingerprint, and new head under one immediate SQLite transaction. Receipts remain independently of update payload retention; compaction verifies a full snapshot at the current head, advances the physical reconstruction fingerprint, then atomically removes only its covered payload tail. Store epoch, Document generation, update identity, `headSeq`, Yjs state vector, exact-blob integrity, and non-canonical reconstruction fingerprint remain separate concepts.
 3. Production Page Stage prepares the exact owned descriptor before rendering content. Only a ready `yjs`/`block_tree` descriptor enters the Page editor: it mounts one independent Y.Doc surface, completes state-vector sync before resolving `Y.Text("title")` / `Y.XmlFragment("body")`, and binds BlockNote through its collaboration extension without projection-based initialization. Every active BlockNote-backed Document contains at least one registered application Block; a semantically blank Page is one stable-ID empty paragraph whose NFM/plain-text projections remain blank.
 4. A writable Block Document runtime normally belongs to one visible React effect incarnation. A durable PageTab is the explicit exception: its Window Session view/tab-keyed model session retains the Y.Doc/provider, BlockNote editor, and UndoManager while the inactive React body and EditorView are absent. Switching away removes local Awareness and backgrounds a bounded persist without disconnecting the provider; returning mounts a fresh EditorView, reconciles current CRDT state, restores the selection from Yjs-relative positions plus PageTab-local scroll, and reactivates the main NFM editor only when it owned the Page's last focus intent. Local tab close, Window Session view teardown, store-epoch/Document-generation/schema/owner identity replacement, or terminal reload destroys the retained model and provider exactly once; renderer close flushes every ready retained session before acknowledging shutdown. An unpromoted preview disposes on final view teardown, while promotion keeps its stable model identity. This is a deep runtime Module, never hidden DOM or Maitai state. Normal durable ACKs are quiet; sustained pending/offline/error/reset states are the only Page Stage sync chrome.

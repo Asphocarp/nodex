@@ -2510,6 +2510,16 @@ function emptyAccountSnapshot(): CodexAccountSnapshot {
   };
 }
 
+function emptyAccountRateLimitState(): Pick<
+  CodexAccountSnapshot,
+  "rateLimits" | "rateLimitResetCredits"
+> {
+  return {
+    rateLimits: null,
+    rateLimitResetCredits: null,
+  };
+}
+
 function parseRateLimitsSnapshot(value: unknown): CodexRateLimitsSnapshot | null {
   if (typeof value !== "object" || value === null) return null;
   const candidate = value as Record<string, unknown>;
@@ -6844,7 +6854,7 @@ export class CodexService extends EventEmitter {
   private shouldPollRateLimits(): boolean {
     if (this.rateLimitsPollIntervalMs <= 0) return false;
     if (this.lastConnectionStatus !== "connected") return false;
-    if (this.accountSnapshot.account === null) return false;
+    if (this.accountSnapshot.account?.type !== "chatgpt") return false;
     return true;
   }
 
@@ -7281,9 +7291,12 @@ export class CodexService extends EventEmitter {
       refreshToken: false,
     });
 
-    const rateLimitState = await this.readAccountRateLimitState();
+    const account = parseAccountIdentity(accountResult.account ?? null);
+    const rateLimitState = account?.type === "chatgpt"
+      ? await this.readAccountRateLimitState()
+      : emptyAccountRateLimitState();
     this.accountSnapshot = {
-      account: parseAccountIdentity(accountResult.account ?? null),
+      account,
       requiresOpenAiAuth: Boolean(accountResult.requiresOpenaiAuth),
       pendingLogin: this.accountSnapshot.pendingLogin ?? null,
       ...rateLimitState,

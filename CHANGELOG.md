@@ -133,6 +133,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Fixed large Profiles failing to open once sidebar, Thread, or Database JSON crossed a client-only 512 KiB ceiling: Core transport budgets now agree, growing read models load through compact resumable windows, and Page bodies stay on explicit detail/Document paths.
+- Fixed local macOS source deployment silently reinstalling an older same-version app from `dist`; the install command now creates a fresh source-bound package and verifies its sealed Electron/Core/Agent provenance through the installed copy.
+- Fixed startup failures from older timestamp encodings by migrating every stored text timestamp to canonical millisecond UTC before strict reads, and stopped signed-out, API-key, and Bedrock accounts from issuing ChatGPT-only rate-limit requests.
 - Closing an app window now retains its independent tabs and layout as bounded history; the next New Window restores that exact workbench in reverse close order before cloning another open window.
 - Fixed packaged native CLI first launch against legacy Profiles by letting Core discover and verify the app-bundled migrator itself; release verification now exercises an external CLI symlink and a real early-v57 migration with retained backup.
 - Fixed macOS installation/update conflicts so a running installed copy is never replaced and packaged copies outside Applications cannot start the self-updater.

@@ -162,7 +162,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
   - detailed Review panel behavior lives in [Review Right Panel Behavior](./review-right-panel-behavior.md)
 - Create Projects from the sidebar Projects header and remove them from project-row action menus. `Project sidebar options` exposes `Removed projects…` for restore.
 - Default project is seeded on first boot with a UUID canonical ID and a retained `default` legacy alias.
-- In Electron, startup opens into a flat blocking surface with the shared shimmering Nodex mark until the renderer has both native Core readiness and its window bootstrap. Ordinary opening copy stays visually quiet for 1.8 seconds. Only a versioned advisory event emitted by the authoritative Core after it has classified a supported older Store can switch the surface to `Updating local data…`; fresh and current Profiles and incumbent reuse never present migration messaging, and Nodex never fabricates a migration percentage. Fresh Profiles are created as exact Rust-owned v91. Exact frozen TypeScript v26, either frozen v57, v68, v82, and v83 Profiles are backed up and converted in isolation to the frozen exact v84 handoff; direct v84 and Rust-owned v85/v86/v87/v88/v89/v90 Profiles are also accepted. Core validates the complete inventory and content before one-way v91 publication. The v90 step removes shared Project Session view authority and retains at most one valid initial Database View target; v91 normalizes sidebar lane ranks. Unfrozen same-version lineages, drifted, ambiguous, future, or damaged stores fail closed while HTTP, schedulers, and windows remain unavailable. A renderer bootstrap failure leaves the loading state and presents an explicit restartable failure surface.
+- In Electron, startup opens into a flat blocking surface with the shared shimmering Nodex mark until the renderer has both native Core readiness and its window bootstrap. Ordinary opening copy stays visually quiet for 1.8 seconds. Only a versioned advisory event emitted by the authoritative Core after it has classified a supported older Store can switch the surface to `Updating local data…`; fresh and current Profiles and incumbent reuse never present migration messaging, and Nodex never fabricates a migration percentage. Fresh Profiles are created as exact Rust-owned v92. Exact frozen TypeScript v26, either frozen v57, v68, v82, and v83 Profiles are backed up and converted in isolation to the frozen exact v84 handoff; direct v84 and Rust-owned v85/v86/v87/v88/v89/v90/v91 Profiles are also accepted. Core validates the complete inventory and content before one-way v92 publication. The v90 step removes shared Project Session view authority and retains at most one valid initial Database View target; v91 normalizes sidebar lane ranks; v92 canonicalizes every schema-owned `TEXT` timestamp column ending in `_at` to millisecond UTC ISO-8601 before strict protocol reads begin. Unfrozen same-version lineages, drifted, ambiguous, future, or damaged stores fail closed while HTTP, schedulers, and windows remain unavailable. A renderer bootstrap failure leaves the loading state and presents an explicit restartable failure surface.
 - Project ID: opaque UUID generated server-side. Legacy slug IDs resolve through aliases, but responses return canonical UUIDs.
 - Project icon: optional per-project emoji persisted in SQLite; when empty, UI shows a project-colored dot
 - Project sources: ordered source folders persisted separately from the project row. The first source is the primary workspace root for Git, Files, Review, local thread cwd, and managed worktree base repository; all configured sources are writable workspace roots for sandboxing.
@@ -229,7 +229,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 
 #### 4. Native Core Storage
 - One detached Rust Core exclusively owns the Profile's `nodex.db`, WAL, collaborative Documents, projections, receipts, schedules, backups, and migrations. Electron never opens the database.
-- Accepted legacy imports are the exact frozen TypeScript v26, both frozen v57, v68, v82, and v83 physical inventories plus the exact final v84 handoff, which contains no local Thread transcript/FTS projection. Earlier sources receive an immutable database/assets backup and are advanced only in a staging Profile by the bundled hash-pinned migrator; the earlier v57 inventory first receives native named-column Thread and Automation table normalization in that staging copy. The migrator is reproducibly generated from a fixed historical source commit plus deterministic import-only compatibility overlays that preserve pre-cutover Page projection names and workflow-status identities, refresh recovered option registries, give explicit cross-Project Page references same-Library read grants, retain missing targets as inert unresolved-reference diagnostics, and audit old identity residue on token boundaries in Database authority and committed evidence without treating opaque Session UI state as identity authority. Core validates exact v84 plus native Document/projection semantics before journaled v91 publication; fresh Profiles start directly at v91, and exact v85/v86/v87/v88/v89/v90 native stores are backed up before their forward upgrade. The v90 migration drops historical shared tab/panel rows and extracts at most one valid Database View into `initial_database_view_id`; v91 converts legacy sidebar JSON order into normalized lane ranks and compact Thread preview metadata.
+- Accepted legacy imports are the exact frozen TypeScript v26, both frozen v57, v68, v82, and v83 physical inventories plus the exact final v84 handoff, which contains no local Thread transcript/FTS projection. Earlier sources receive an immutable database/assets backup and are advanced only in a staging Profile by the bundled hash-pinned migrator; the earlier v57 inventory first receives native named-column Thread and Automation table normalization in that staging copy. The migrator is reproducibly generated from a fixed historical source commit plus deterministic import-only compatibility overlays that preserve pre-cutover Page projection names and workflow-status identities, refresh recovered option registries, give explicit cross-Project Page references same-Library read grants, retain missing targets as inert unresolved-reference diagnostics, and audit old identity residue on token boundaries in Database authority and committed evidence without treating opaque Session UI state as identity authority. Core validates exact v84 plus native Document/projection semantics before journaled v92 publication; fresh Profiles start directly at v92, and exact v85/v86/v87/v88/v89/v90/v91 native stores are backed up before their forward upgrade. The v90 migration drops historical shared tab/panel rows and extracts at most one valid Database View into `initial_database_view_id`; v91 converts legacy sidebar JSON order into normalized lane ranks and compact Thread preview metadata; v92 rewrites every schema-owned `TEXT` `*_at` value to canonical millisecond UTC and rejects unparseable or later-drifted timestamps.
 - One serialized native writer commits Block/Page/Database/Workspace/Automation semantics and their events atomically, while bounded read snapshots serve desktop, browser, CLI, and Agent adapters.
 - New user/content Blocks, Database Containers, Data Sources, and Views use independently allocated canonical lowercase UUID-v7 identities and are validated only at creation. Existing global IDs remain opaque. Built-in Data Source Properties use reserved stable IDs; custom Properties use `p_` plus eight base64url characters, and custom options use `o_` plus eight base64url characters under their owning Property. Unbound references carry `{dataSourceId, propertyId}` and, for options, `optionId`; display names never define identity. Membership, operation, and mutation identities remain opaque, while explicit timestamps, ranks, and sequences are the only ordering authority.
 
@@ -1139,22 +1139,31 @@ by the installed app's signed ZIP updater. Installers and updaters never
 inspect, copy, or migrate `~/.nodex`; Core performs any recognized Profile
 migration behind its snapshot, staging, validation, and rollback boundary.
 
-Local source builds use an already-packaged app rather than a production
-installer. The deployer infers the current architecture's standard
-electron-builder output:
+Local source deployment is a single fresh-build operation:
 
 ```bash
-pnpm run package:mac
 pnpm run install:local:mac -- --install-cli
 ```
 
-The local deployer defaults to `/Applications/Nodex Dev.app`, verifies the
-source and same-filesystem staging copy, uses `ditto`, preserves the previous
-destination as a rollback app until the installed copy verifies, and requires
-`--allow-production-destination` before it can target
-`/Applications/Nodex.app`. `--app-path` remains available for a nonstandard
-package location. The deprecated `install.sh` only forwards to this command; it
-no longer installs dependencies, builds, runs
+Without `--app-path`, the deployer rebuilds the Electron output and native
+runtime, verifies the prepared source closure, packages into a new unique
+`.generated/local-install/` directory through electron-builder's
+update-capable DMG target, and never reads a persistent `dist/` bundle. The app
+is installed directly while the temporary DMG is discarded; selecting that
+target ensures the package contains electron-builder's supported
+`app-update.yml` without introducing the ZIP target's separately downloaded
+7zip toolset. Every package carries a signed build-provenance record binding the
+prepared source generation, `app.asar`, updater metadata, and final signed native
+and Agent runtime manifests. The same identity is reverified on the source,
+staging, and installed copies.
+
+The deployer defaults to `/Applications/Nodex Dev.app`, uses `ditto`, preserves
+the previous destination as a rollback app until the installed copy verifies,
+and requires `--allow-production-destination` before it can target
+`/Applications/Nodex.app`. `--app-path` is an explicit external-artifact mode:
+it skips rebuilding but still requires a self-consistent package provenance
+and complete native-runtime verification. The deprecated `install.sh` only
+forwards to this command; it no longer installs dependencies, builds, runs
 `pnpm link`, installs skills, or deletes the production app.
 
 To release a new version, use the GitHub Actions `Prepare Release` workflow:

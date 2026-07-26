@@ -2,13 +2,14 @@ import { describe, expect, test } from "vitest";
 
 import {
   assertLocalInstallDestination,
+  createFreshLocalMacPackagePlan,
   parseLocalMacInstallOptions,
-  type LocalMacInstallOptions,
+  type LocalMacBuildInstallOptions,
 } from "./install-local-macos";
 
 const options = (
-  overrides: Partial<LocalMacInstallOptions> = {},
-): LocalMacInstallOptions => ({
+  overrides: Partial<LocalMacBuildInstallOptions> = {},
+): LocalMacBuildInstallOptions => ({
   allowProductionDestination: false,
   appPath: "/tmp/Nodex.app",
   cliTargetPath: "/tmp/bin/nodex",
@@ -19,30 +20,67 @@ const options = (
 });
 
 describe("local macOS app installer", () => {
-  test("infers the standard packaged app and defaults away from production", () => {
+  test("defaults to a fresh repository build and away from production", () => {
     const parsed = parseLocalMacInstallOptions(
-      ["--install-cli"],
+      ["--", "--install-cli"],
       "arm64",
       "/tmp/repository",
     );
 
-    expect(parsed.appPath).toBe("/tmp/repository/dist/mac-arm64/Nodex.app");
+    expect(parsed.source).toEqual({
+      kind: "fresh",
+      repositoryRoot: "/tmp/repository",
+    });
     expect(parsed.destination).toBe("/Applications/Nodex Dev.app");
     expect(parsed.installCli).toBe(true);
     expect(parsed.targetArch).toBe("arm64");
   });
 
-  test("uses the x64 output convention and accepts an explicit source override", () => {
-    expect(parseLocalMacInstallOptions(
-      ["--target-arch", "x64"],
-      "arm64",
-      "/tmp/repository",
-    ).appPath).toBe("/tmp/repository/dist/mac/Nodex.app");
-
+  test("accepts an explicit artifact without treating dist as an implicit source", () => {
     expect(parseLocalMacInstallOptions([
       "--app-path",
       "/tmp/build/Nodex.app",
-    ], "arm64", "/tmp/repository").appPath).toBe("/tmp/build/Nodex.app");
+    ], "arm64", "/tmp/repository").source).toEqual({
+      appPath: "/tmp/build/Nodex.app",
+      kind: "artifact",
+    });
+  });
+
+  test("packages a fresh app in one unique generated directory for the selected architecture", () => {
+    const first = createFreshLocalMacPackagePlan(
+      "/tmp/repository",
+      "x64",
+      "operation-a",
+    );
+    const second = createFreshLocalMacPackagePlan(
+      "/tmp/repository",
+      "x64",
+      "operation-b",
+    );
+
+    expect(first.outputRoot).toBe(
+      "/tmp/repository/.generated/local-install/operation-a",
+    );
+    expect(first.appPath).toBe(
+      "/tmp/repository/.generated/local-install/operation-a/mac/Nodex.app",
+    );
+    expect(second.outputRoot).not.toBe(first.outputRoot);
+    expect(first.commands.map(({ arguments: arguments_ }) => arguments_)).toEqual([
+      ["run", "build"],
+      ["run", "stage:native-runtime:mac:x64"],
+      ["exec", "tsx", "scripts/prepared-electron-build.ts", "verify"],
+      [
+        "exec",
+        "electron-builder",
+        "--mac",
+        "dmg",
+        "--x64",
+        "--publish",
+        "never",
+        "--config.directories.output=/tmp/repository/.generated/local-install/operation-a",
+      ],
+      ["exec", "tsx", "scripts/prepared-electron-build.ts", "verify"],
+    ]);
   });
 
   test("requires an explicit override for the production Applications path", () => {

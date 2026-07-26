@@ -1,7 +1,9 @@
+use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use chrono::{DateTime, NaiveDate, NaiveDateTime, SecondsFormat, Utc};
 use rusqlite::{Connection, MAIN_DB, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -478,6 +480,7 @@ pub fn prepare_profile_store_with_observer(
         create_fresh_store(connection, profile_home, now)?;
         validate_store(connection)?;
         validate_codex_thread_timestamp_invariants(connection)?;
+        validate_canonical_text_timestamp_invariants(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: true,
@@ -500,6 +503,7 @@ pub fn prepare_profile_store_with_observer(
         validate_exact_current_schema(connection)?;
         validate_store(connection)?;
         validate_codex_thread_timestamp_invariants(connection)?;
+        validate_canonical_text_timestamp_invariants(connection)?;
         let validated_yjs_documents: i64 = connection.query_row(
             "SELECT count(*) FROM document_engine_fingerprints",
             [],
@@ -520,7 +524,7 @@ pub fn prepare_profile_store_with_observer(
         });
     }
 
-    if matches!(version, 85..=90) {
+    if matches!(version, 85..=91) {
         return upgrade_owned_store(connection, profile_home, version, observer);
     }
 
@@ -562,6 +566,7 @@ pub fn prepare_profile_store_with_observer(
     validate_store(connection)?;
     validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
     validate_codex_thread_timestamp_invariants(connection)?;
+    validate_canonical_text_timestamp_invariants(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -614,6 +619,7 @@ pub(crate) fn prepare_legacy_import_candidate(
     validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
     validate_exact_current_schema(connection)?;
     validate_codex_thread_timestamp_invariants(connection)?;
+    validate_canonical_text_timestamp_invariants(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -648,6 +654,7 @@ fn upgrade_owned_store(
         88 => validate_exact_v88_schema(connection)?,
         89 => validate_exact_v89_schema(connection)?,
         90 => validate_exact_v90_schema(connection)?,
+        91 => validate_exact_v91_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -682,6 +689,9 @@ fn upgrade_owned_store(
         if source_version < 91 {
             ensure_v91_workspace_sidebar_lanes_schema(transaction)?;
         }
+        if source_version < 92 {
+            ensure_v92_canonical_text_timestamps(transaction)?;
+        }
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
              WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
@@ -700,6 +710,7 @@ fn upgrade_owned_store(
     validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
     validate_exact_current_schema(connection)?;
     validate_codex_thread_timestamp_invariants(connection)?;
+    validate_canonical_text_timestamp_invariants(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -968,6 +979,7 @@ fn publish_current_store(
         repair_v89_codex_thread_timestamps(transaction)?;
         ensure_v90_window_owned_session_views_schema(transaction)?;
         ensure_v91_workspace_sidebar_lanes_schema(transaction)?;
+        ensure_v92_canonical_text_timestamps(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -991,6 +1003,7 @@ fn create_fresh_store(
         repair_v89_codex_thread_timestamps(transaction)?;
         ensure_v90_window_owned_session_views_schema(transaction)?;
         ensure_v91_workspace_sidebar_lanes_schema(transaction)?;
+        ensure_v92_canonical_text_timestamps(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -1175,6 +1188,131 @@ fn ensure_v91_workspace_sidebar_lanes_schema(connection: &Connection) -> Result<
         return Err(corrupt(
             "v91 Workspace sidebar migration produced a foreign-key violation",
         ));
+    }
+    Ok(())
+}
+
+fn canonical_utc_timestamp(value: &str) -> Result<String, StoreError> {
+    if let Ok(timestamp) = DateTime::parse_from_rfc3339(value) {
+        return Ok(timestamp
+            .with_timezone(&Utc)
+            .to_rfc3339_opts(SecondsFormat::Millis, true));
+    }
+    for format in ["%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%dT%H:%M:%S%.f"] {
+        if let Ok(timestamp) = NaiveDateTime::parse_from_str(value, format) {
+            return Ok(timestamp
+                .and_utc()
+                .to_rfc3339_opts(SecondsFormat::Millis, true));
+        }
+    }
+    if let Ok(date) = NaiveDate::parse_from_str(value, "%Y-%m-%d")
+        && let Some(timestamp) = date.and_hms_opt(0, 0, 0)
+    {
+        return Ok(timestamp
+            .and_utc()
+            .to_rfc3339_opts(SecondsFormat::Millis, true));
+    }
+    Err(corrupt("Store contains a non-parseable protocol timestamp"))
+}
+
+fn canonical_text_timestamp_columns(
+    connection: &Connection,
+) -> Result<Vec<(String, String)>, StoreError> {
+    connection
+        .prepare(
+            "SELECT schema.name, column.name
+             FROM sqlite_schema AS schema
+             JOIN pragma_table_info(schema.name) AS column
+             WHERE schema.type = 'table'
+               AND schema.name NOT LIKE 'sqlite_%'
+               AND lower(column.type) = 'text'
+               AND column.name GLOB '*_at'
+             ORDER BY schema.name, column.cid",
+        )?
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(StoreError::from)
+}
+
+fn quote_sql_identifier(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
+}
+
+fn ensure_v92_canonical_text_timestamps(connection: &Connection) -> Result<(), StoreError> {
+    let mut columns_by_table = BTreeMap::<String, Vec<String>>::new();
+    for (table, column) in canonical_text_timestamp_columns(connection)? {
+        columns_by_table.entry(table).or_default().push(column);
+    }
+    for (table, columns) in columns_by_table {
+        let table_identifier = quote_sql_identifier(&table);
+        let triggers = connection
+            .prepare(
+                "SELECT name, sql FROM sqlite_schema
+                 WHERE type = 'trigger' AND tbl_name = ?1 AND sql IS NOT NULL
+                 ORDER BY name",
+            )?
+            .query_map([&table], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for (name, _) in &triggers {
+            connection.execute_batch(&format!("DROP TRIGGER {}", quote_sql_identifier(name)))?;
+        }
+        for column in columns {
+            let column_identifier = quote_sql_identifier(&column);
+            let select = format!(
+                "SELECT DISTINCT {column_identifier} FROM {table_identifier}
+                 WHERE {column_identifier} IS NOT NULL ORDER BY {column_identifier}"
+            );
+            let values = connection
+                .prepare(&select)?
+                .query_map([], |row| row.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let update = format!(
+                "UPDATE {table_identifier} SET {column_identifier} = ?1
+                 WHERE {column_identifier} = ?2"
+            );
+            for value in values {
+                let canonical = canonical_utc_timestamp(&value).map_err(|_| {
+                    corrupt(format!(
+                        "Store contains a non-parseable protocol timestamp in {table}.{column}"
+                    ))
+                })?;
+                if canonical == value {
+                    continue;
+                }
+                connection.execute(&update, params![canonical, value])?;
+            }
+        }
+        for (_, sql) in triggers {
+            connection.execute_batch(&sql)?;
+        }
+    }
+    validate_canonical_text_timestamp_invariants(connection)
+}
+
+fn validate_canonical_text_timestamp_invariants(connection: &Connection) -> Result<(), StoreError> {
+    for (table, column) in canonical_text_timestamp_columns(connection)? {
+        let table_identifier = quote_sql_identifier(&table);
+        let column_identifier = quote_sql_identifier(&column);
+        let query = format!(
+            "SELECT {column_identifier} FROM {table_identifier}
+             WHERE {column_identifier} IS NOT NULL ORDER BY {column_identifier}"
+        );
+        let values = connection
+            .prepare(&query)?
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for value in values {
+            if canonical_utc_timestamp(&value).is_ok_and(|canonical| canonical == value) {
+                continue;
+            }
+            return Err(corrupt(format!(
+                "Store protocol timestamp invariant failed for {table}.{column}"
+            )));
+        }
     }
     Ok(())
 }
@@ -1801,6 +1939,10 @@ fn validate_exact_v90_schema(connection: &Connection) -> Result<(), StoreError> 
     validate_exact_core_schema(connection, true, true, true, true, false, 90)
 }
 
+fn validate_exact_v91_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, 91)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -2258,6 +2400,118 @@ mod tests {
         .expect("seed v90 sidebar store");
     }
 
+    fn seed_owned_v91_store_with_legacy_protocol_timestamps(home: &Path) {
+        let fresh = SqliteStoreKernel::open(home).expect("fresh v92 store");
+        drop(fresh);
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v91 writer");
+        with_immediate_transaction(&mut connection, |transaction| {
+            let legacy = "2026-02-06T20:37:07.873706+00:00";
+            transaction.execute(
+                "UPDATE core_store_metadata SET store_format_version = 91 WHERE id = 1",
+                [],
+            )?;
+            transaction.execute(
+                "INSERT INTO profiles(id, created_at, updated_at)
+                 VALUES ('profile:timestamp', ?1, ?1)",
+                [legacy],
+            )?;
+            transaction.execute(
+                "INSERT INTO libraries(id, profile_id, created_at, updated_at)
+                 VALUES ('library:timestamp', 'profile:timestamp', ?1, ?1)",
+                [legacy],
+            )?;
+            transaction.execute(
+                "INSERT INTO projects(id, name, created, updated, library_id)
+                 VALUES (
+                   'project:timestamp', 'Timestamp', '2026-02-06', '2026-02-06',
+                   'library:timestamp'
+                 )",
+                [],
+            )?;
+            transaction.execute(
+                "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at)
+                 VALUES (1, 'epoch:timestamp', ?1, ?1)",
+                [legacy],
+            )?;
+            transaction.execute(
+                "INSERT INTO blocks(
+                   id, project_id, type, lifecycle, location_kind,
+                   created_at, updated_at
+                 ) VALUES (
+                   'database:timestamp', 'project:timestamp', 'database', 'active', 'space',
+                   ?1, ?1
+                 )",
+                [legacy],
+            )?;
+            transaction.execute(
+                "INSERT INTO database_containers(
+                   block_id, library_id, name, lifecycle, created_at, updated_at
+                 ) VALUES (
+                   'database:timestamp', 'library:timestamp', 'Timestamp DB', 'active', ?1, ?1
+                 )",
+                [legacy],
+            )?;
+            transaction.execute(
+                "INSERT INTO data_sources(
+                   id, library_id, home_database_block_id, name, schema_key,
+                   lifecycle, rank_key, created_at, updated_at
+                 ) VALUES (
+                   'source:timestamp', 'library:timestamp', 'database:timestamp',
+                   'Timestamp Source', 'nodex.database', 'active', 'a', ?1, ?1
+                 )",
+                [legacy],
+            )?;
+            transaction.execute(
+                "INSERT INTO data_source_properties(
+                   data_source_id, id, name, value_type, config_json, rank_key,
+                   lifecycle, created_at, updated_at
+                 ) VALUES (
+                   'source:timestamp', 'title', 'Title', 'text', '{}', 'a', 'active', ?1, ?1
+                 )",
+                [legacy],
+            )?;
+            transaction.execute(
+                "INSERT INTO database_views(
+                   id, database_block_id, data_source_id, name, kind, config_json,
+                   rank_key, lifecycle, created_at, updated_at
+                 ) VALUES (
+                   'view:timestamp', 'database:timestamp', 'source:timestamp', 'List', 'list',
+                   '{}', 'a', 'active', ?1, ?1
+                 )",
+                [legacy],
+            )?;
+            transaction.execute(
+                "UPDATE database_containers SET default_view_id = 'view:timestamp'
+                 WHERE block_id = 'database:timestamp'",
+                [],
+            )?;
+            transaction.execute(
+                "INSERT INTO library_block_placements(
+                   block_id, library_id, rank_key, created_at, updated_at
+                 ) VALUES ('database:timestamp', 'library:timestamp', 'a', ?1, ?1)",
+                [legacy],
+            )?;
+            transaction.execute(
+                "INSERT INTO project_database_bindings(
+                   project_id, library_id, database_block_id, lifecycle, created_at, updated_at
+                 ) VALUES (
+                   'project:timestamp', 'library:timestamp', 'database:timestamp',
+                   'active', ?1, ?1
+                 )",
+                [legacy],
+            )?;
+            transaction.execute(
+                "INSERT INTO top_level_block_placements(
+                   block_id, project_id, rank_key, created_at, updated_at
+                 ) VALUES ('database:timestamp', 'project:timestamp', 'a', ?1, ?1)",
+                [legacy],
+            )?;
+            transaction.pragma_update(None, "user_version", 91)?;
+            Ok(())
+        })
+        .expect("seed v91 timestamp store");
+    }
+
     fn open_error(home: &Path) -> StoreError {
         match SqliteStoreKernel::open(home) {
             Ok(_) => panic!("store open unexpectedly succeeded"),
@@ -2683,6 +2937,105 @@ mod tests {
         let reopened = SqliteStoreKernel::open(&home).expect("reopen migrated v91 store");
         assert_eq!(reopened.preparation().migrated_from_version, None);
         assert!(reopened.preparation().migration_backup_path.is_none());
+    }
+
+    #[test]
+    fn v91_upgrade_canonicalizes_every_text_timestamp_and_preserves_the_source_backup() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v91_store_with_legacy_protocol_timestamps(&home);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v91 timestamp store");
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(91));
+        let backup_path = upgraded
+            .preparation()
+            .migration_backup_path
+            .as_ref()
+            .expect("v91 migration backup");
+        let backup = open_immutable_reader(backup_path).expect("backup opens");
+        assert_eq!(
+            backup
+                .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .expect("backup version"),
+            91
+        );
+        assert_eq!(
+            backup
+                .query_row(
+                    "SELECT created_at FROM database_containers
+                     WHERE block_id = 'database:timestamp'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .expect("legacy backup timestamp"),
+            "2026-02-06T20:37:07.873706+00:00"
+        );
+
+        upgraded
+            .writer()
+            .call(|connection| {
+                validate_canonical_text_timestamp_invariants(connection)?;
+                let timestamps = connection.query_row(
+                    "SELECT container.created_at, source.updated_at, property.created_at,
+                            view.updated_at, block.created_at, profile.created_at
+                     FROM database_containers container
+                     JOIN data_sources source
+                       ON source.home_database_block_id = container.block_id
+                     JOIN data_source_properties property
+                       ON property.data_source_id = source.id
+                     JOIN database_views view
+                       ON view.database_block_id = container.block_id
+                     JOIN blocks block ON block.id = container.block_id
+                     JOIN libraries library ON library.id = container.library_id
+                     JOIN profiles profile ON profile.id = library.profile_id
+                     WHERE container.block_id = 'database:timestamp'",
+                    [],
+                    |row| {
+                        Ok([
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, String>(4)?,
+                            row.get::<_, String>(5)?,
+                        ])
+                    },
+                )?;
+                assert_eq!(
+                    timestamps,
+                    ["2026-02-06T20:37:07.873Z"; 6].map(str::to_owned)
+                );
+                Ok::<_, StoreError>(())
+            })
+            .expect("verify canonical timestamps");
+        drop(upgraded);
+
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen migrated v92 store");
+        assert_eq!(reopened.preparation().migrated_from_version, None);
+        assert!(reopened.preparation().migration_backup_path.is_none());
+    }
+
+    #[test]
+    fn current_store_rejects_noncanonical_text_timestamp_drift() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v91_store_with_legacy_protocol_timestamps(&home);
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v91 timestamp store");
+        drop(upgraded);
+
+        let connection = open_writer(&home.join("nodex.db")).expect("v92 writer");
+        connection
+            .execute(
+                "UPDATE database_containers SET created_at = 'not-a-timestamp'
+                 WHERE block_id = 'database:timestamp'",
+                [],
+            )
+            .expect("inject timestamp drift");
+        drop(connection);
+
+        let error = open_error(&home);
+        assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+        assert!(error.message.contains("database_containers.created_at"));
     }
 
     #[test]
