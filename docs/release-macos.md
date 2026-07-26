@@ -444,7 +444,7 @@ xcrun stapler validate "dist/mac-arm64/Nodex.app"
 
 Repeat the same flow for `pnpm run package:mac:x64` if Intel packaging is being validated locally.
 
-For a local unsigned developer deployment, use the source-bound installer:
+For a local developer deployment, use the source-bound installer:
 
 ```bash
 pnpm run install:local:mac -- --install-cli
@@ -459,6 +459,14 @@ the DMG target ensures electron-builder also emits the supported
 toolset. It never reuses a persistent `dist/` app. The package's sealed
 provenance binds that exact source generation to `app.asar`, updater metadata,
 and the final post-signing native and Agent manifests.
+
+Local deployments sign with the resolved Developer ID identity but disable the
+Apple timestamp service (`NODEX_MAC_SIGN_MODE=local`) and pin notarization off,
+so the deep sign needs no network round trips while Keychain ACLs, TCC grants,
+and launchd registrations keep their stable signing identity. Pass
+`--strict-sign` to sign through the full release pipeline (Apple timestamps)
+when validating release-equivalent behavior; notarization itself still belongs
+to the release workflow above.
 
 The deployer defaults to `/Applications/Nodex Dev.app`, refuses a running Nodex
 process, verifies the source and staged bundle, copies with `ditto`, performs a

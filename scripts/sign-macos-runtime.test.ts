@@ -4,7 +4,10 @@ import os from "node:os";
 import path from "node:path";
 
 import { afterEach, describe, expect, test } from "vitest";
-import { refreshSignedAgentRuntimeMetadata } from "./sign-macos-runtime.mjs";
+import {
+  applyMacSigningMode,
+  refreshSignedAgentRuntimeMetadata,
+} from "./sign-macos-runtime.mjs";
 
 const temporaryRoots: string[] = [];
 
@@ -12,6 +15,44 @@ afterEach(() => {
   for (const root of temporaryRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+describe("applyMacSigningMode", () => {
+  const releaseOptions = {
+    app: "/tmp/Nodex.app",
+    platform: "darwin",
+    optionsForFile: (filePath: string) => ({
+      entitlements: `${filePath}.entitlements`,
+      hardenedRuntime: true,
+    }),
+  };
+
+  test("returns release options untouched when no mode is selected", () => {
+    expect(applyMacSigningMode(releaseOptions, undefined)).toBe(releaseOptions);
+  });
+
+  test("local mode disables timestamping while keeping per-file release options", () => {
+    const local = applyMacSigningMode(releaseOptions, "local");
+    expect(local).not.toBe(releaseOptions);
+    expect(local.optionsForFile("/tmp/Nodex.app/Contents/MacOS/Nodex")).toEqual({
+      entitlements: "/tmp/Nodex.app/Contents/MacOS/Nodex.entitlements",
+      hardenedRuntime: true,
+      timestamp: "none",
+    });
+  });
+
+  test("local mode disables timestamping even without base per-file options", () => {
+    const local = applyMacSigningMode(
+      { app: "/tmp/Nodex.app", platform: "darwin" },
+      "local",
+    );
+    expect(local.optionsForFile?.("/tmp/anything")).toEqual({ timestamp: "none" });
+  });
+
+  test("rejects unknown signing modes instead of silently signing differently", () => {
+    expect(() => applyMacSigningMode(releaseOptions, "adhoc"))
+      .toThrow("Unknown NODEX_MAC_SIGN_MODE: adhoc");
+  });
 });
 
 describe("refreshSignedAgentRuntimeMetadata", () => {

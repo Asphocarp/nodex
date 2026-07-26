@@ -135,17 +135,43 @@ const signWithRetry = async (options) => {
   throw lastError;
 };
 
-export const sign = async (options) => {
-  await signWithRetry(options);
-  if (options.platform !== "darwin") return;
+/**
+ * `NODEX_MAC_SIGN_MODE=local` keeps the resolved Developer ID identity — so
+ * Keychain ACLs, TCC grants, and launchd registrations stay stable across
+ * reinstalls — but disables the Apple timestamp service. One TSA network round
+ * trip per Mach-O is what turns a full deep sign into minutes, and local test
+ * installs are never notarized, so secure timestamps buy nothing there.
+ */
+export const applyMacSigningMode = (
+  options,
+  mode = process.env.NODEX_MAC_SIGN_MODE,
+) => {
+  if (!mode) return options;
+  if (mode !== "local") {
+    throw new Error(`Unknown NODEX_MAC_SIGN_MODE: ${mode}`);
+  }
+  const baseOptionsForFile = options.optionsForFile;
+  return {
+    ...options,
+    optionsForFile: (filePath) => ({
+      ...(baseOptionsForFile ? baseOptionsForFile(filePath) : {}),
+      timestamp: "none",
+    }),
+  };
+};
 
-  refreshSignedNativeRuntimeManifest(options.app);
-  refreshSignedAgentRuntimeMetadata(options.app);
-  writePackagedBuildProvenance(options.app);
+export const sign = async (options) => {
+  const signOptions = applyMacSigningMode(options);
+  await signWithRetry(signOptions);
+  if (signOptions.platform !== "darwin") return;
+
+  refreshSignedNativeRuntimeManifest(signOptions.app);
+  refreshSignedAgentRuntimeMetadata(signOptions.app);
+  writePackagedBuildProvenance(signOptions.app);
 
   await signWithRetry({
-    ...options,
+    ...signOptions,
     binaries: [],
-    ignore: (filePath) => filePath !== options.app,
+    ignore: (filePath) => filePath !== signOptions.app,
   });
 };

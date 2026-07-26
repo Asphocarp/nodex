@@ -34,6 +34,15 @@ describe("local macOS app installer", () => {
     expect(parsed.destination).toBe("/Applications/Nodex Dev.app");
     expect(parsed.installCli).toBe(true);
     expect(parsed.targetArch).toBe("arm64");
+    expect(parsed.strictSign).toBe(false);
+  });
+
+  test("accepts an explicit strict-sign override for release-equivalent signing", () => {
+    expect(parseLocalMacInstallOptions(
+      ["--strict-sign"],
+      "arm64",
+      "/tmp/repository",
+    ).strictSign).toBe(true);
   });
 
   test("accepts an explicit artifact without treating dist as an implicit source", () => {
@@ -77,10 +86,36 @@ describe("local macOS app installer", () => {
         "--x64",
         "--publish",
         "never",
+        "--config.mac.notarize=false",
         "--config.directories.output=/tmp/repository/.generated/local-install/operation-a",
       ],
       ["exec", "tsx", "scripts/prepared-electron-build.ts", "verify"],
     ]);
+  });
+
+  test("signs local packages in fast local mode unless strict signing is requested", () => {
+    const fast = createFreshLocalMacPackagePlan("/tmp/repository", "arm64", "operation-a");
+    const strict = createFreshLocalMacPackagePlan(
+      "/tmp/repository",
+      "arm64",
+      "operation-b",
+      true,
+    );
+
+    const electronBuilderCommand = (plan: typeof fast) =>
+      plan.commands.find(({ arguments: arguments_ }) =>
+        arguments_.includes("electron-builder"));
+    expect(electronBuilderCommand(fast)?.environment).toEqual({
+      NODEX_MAC_SIGN_MODE: "local",
+    });
+    expect(electronBuilderCommand(strict)?.environment).toBeUndefined();
+    for (const plan of [fast, strict]) {
+      for (const command of plan.commands) {
+        if (command !== electronBuilderCommand(plan)) {
+          expect(command.environment).toBeUndefined();
+        }
+      }
+    }
   });
 
   test("requires an explicit override for the production Applications path", () => {

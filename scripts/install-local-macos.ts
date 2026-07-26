@@ -33,6 +33,8 @@ export interface LocalMacInstallOptions {
       readonly appPath: string;
       readonly kind: "artifact";
     };
+  /** Sign with the full release pipeline (Apple timestamps) instead of the fast local mode. */
+  readonly strictSign: boolean;
   readonly targetArch: NativeRuntimeArchitecture;
 }
 
@@ -51,6 +53,7 @@ export interface FreshLocalMacPackagePlan {
   readonly commands: readonly {
     readonly arguments: readonly string[];
     readonly command: string;
+    readonly environment?: Readonly<Record<string, string>>;
   }[];
   readonly outputRoot: string;
   readonly preparedManifestPath: string;
@@ -84,6 +87,7 @@ export function parseLocalMacInstallOptions(
     architecture === "arm64" ? "arm64" : architecture === "x64" ? "x64" : null;
   let installCli = false;
   let allowProductionDestination = false;
+  let strictSign = false;
 
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
@@ -123,6 +127,10 @@ export function parseLocalMacInstallOptions(
       allowProductionDestination = true;
       continue;
     }
+    if (argument === "--strict-sign") {
+      strictSign = true;
+      continue;
+    }
     throw new Error(`Unknown argument: ${argument ?? "<missing>"}`);
   }
 
@@ -137,6 +145,7 @@ export function parseLocalMacInstallOptions(
     source: appPath
       ? { appPath: resolve(appPath), kind: "artifact" }
       : { kind: "fresh", repositoryRoot: resolve(workingDirectory) },
+    strictSign,
     targetArch,
   };
 }
@@ -337,6 +346,7 @@ export function createFreshLocalMacPackagePlan(
   repositoryRoot: string,
   targetArch: NativeRuntimeArchitecture,
   operationId: string = randomUUID(),
+  strictSign = false,
 ): FreshLocalMacPackagePlan {
   const root = resolve(repositoryRoot);
   const outputRoot = join(root, ".generated", "local-install", operationId);
@@ -358,6 +368,10 @@ export function createFreshLocalMacPackagePlan(
       },
       {
         command: "pnpm",
+        // The DMG target stays: it is what makes electron-builder emit the
+        // app-update.yml that provenance seals and the updater reads. Local
+        // installs still never notarize, even with Apple credentials in the
+        // shell, and by default sign without Apple timestamps.
         arguments: [
           "exec",
           "electron-builder",
@@ -366,8 +380,10 @@ export function createFreshLocalMacPackagePlan(
           `--${targetArch}`,
           "--publish",
           "never",
+          "--config.mac.notarize=false",
           `--config.directories.output=${outputRoot}`,
         ],
+        ...(strictSign ? {} : { environment: { NODEX_MAC_SIGN_MODE: "local" } }),
       },
       {
         command: "pnpm",
@@ -388,6 +404,8 @@ const installFreshLocalMacBuild = async (
   const plan = createFreshLocalMacPackagePlan(
     options.source.repositoryRoot,
     options.targetArch,
+    randomUUID(),
+    options.strictSign,
   );
   mkdirSync(dirname(plan.outputRoot), { recursive: true, mode: 0o700 });
   if (existsSync(plan.outputRoot)) {
@@ -397,6 +415,9 @@ const installFreshLocalMacBuild = async (
     for (const command of plan.commands) {
       execFileSync(command.command, command.arguments, {
         cwd: options.source.repositoryRoot,
+        env: command.environment
+          ? { ...process.env, ...command.environment }
+          : process.env,
         stdio: "inherit",
       });
     }
