@@ -110,6 +110,7 @@ function createMentionProject(): Project {
     id: "project-1",
     libraryId: "library:test",
     databaseId: "database:test:primary",
+    defaultDatabaseViewId: "view:test:primary",
     lifecycle: "active",
     bindingRevision: 1,
     name: "Alpha",

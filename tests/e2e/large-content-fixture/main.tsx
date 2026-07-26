@@ -27,6 +27,7 @@ const project: Project = {
   id: "large-content-performance",
   libraryId: "library:performance",
   databaseId: "database:performance",
+  defaultDatabaseViewId: "view:performance",
   lifecycle: "active",
   bindingRevision: 1,
   name: "Large content performance",
@@ -45,7 +46,7 @@ function buildSession(): ProjectSession {
   return {
     id: "session:large-content-performance",
     projectId: project.id,
-    initialDatabaseViewId: null,
+    databaseStarter: false,
     noThreadFallbackTitle: "Large content performance",
     displayTitle: "Large content performance",
     order: 0,

@@ -186,7 +186,7 @@ describe("WindowSessionState", () => {
       const sessionView = materializeInitialWorkbenchSessionView({
         id: "project-session-1",
         projectId: "project-1",
-        initialDatabaseViewId: "view-1",
+        databaseViewId: "view-1",
       });
       const layout = {
         ...makeLayout("threads", "project-1"),
@@ -342,7 +342,7 @@ describe("WindowSessionState", () => {
       const sessionView = materializeInitialWorkbenchSessionView({
         id: "project-session-1",
         projectId: "project-1",
-        initialDatabaseViewId: "view-1",
+        databaseViewId: "view-1",
       });
       const sourceLayout = {
         ...makeLayout("threads", "project-1"),

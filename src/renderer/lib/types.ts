@@ -57,6 +57,7 @@ export type {
   ProjectSessionPinnedInput,
   ProjectSessionPinnedOrderInput,
   WorkbenchTabProjection,
+  WorkbenchProjectionDbViewTabConfig,
   WorkbenchProjectionTabConfiguration,
   WorkbenchProjectionTabConfig,
   WorkbenchTabCreateInput,

@@ -1820,6 +1820,7 @@ mod tests {
             id: id.to_owned(),
             library_id: "library".to_owned(),
             database_id: format!("database-{id}"),
+            default_database_view_id: Some(format!("view-{id}")),
             lifecycle: ProjectLifecycle::Active,
             binding_revision: 1,
             name: name.to_owned(),

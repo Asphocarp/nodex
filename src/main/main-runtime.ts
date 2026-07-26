@@ -1457,6 +1457,12 @@ function publishCoreModuleEventToNotifiers(
   );
   if (databaseEvent) {
     dbNotifier.notifyDatabaseChanged(databaseEvent);
+    if ((databaseEvent.affectedViewIds ?? []).length > 0) {
+      // The Project catalog read model projects the primary Database default
+      // View, so Database View structure changes must also refresh
+      // projects:list consumers.
+      dbNotifier.notifyProjectsChanged("update", databaseEvent.projectId);
+    }
     return;
   }
   const libraryDatabaseEvent = mapCoreLibraryDatabaseEvent(

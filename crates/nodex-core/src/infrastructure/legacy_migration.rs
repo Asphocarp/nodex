@@ -1359,14 +1359,14 @@ mod tests {
                     )
                     .expect("migrated early-v57 Page");
                 assert_eq!(block_type, "page");
-                let initial_database_view_id: Option<String> = connection
+                let database_starter: i64 = connection
                     .query_row(
-                        "SELECT initial_database_view_id FROM project_sessions WHERE id = ?1",
+                        "SELECT database_starter FROM project_sessions WHERE id = ?1",
                         ["019b7e12-5c00-7000-8000-000000005701"],
                         |row| row.get(0),
                     )
                     .expect("migrated early-v57 Session");
-                assert_eq!(initial_database_view_id, None);
+                assert_eq!(database_starter, 0);
                 let thread: (String, String, String, String, String, String, String) = connection
                     .query_row(
                         "SELECT thread_name, thread_preview, model_provider, cwd, \

@@ -6,6 +6,7 @@ function projectJson(lifecycle: "active" | "archived" = "active") {
     id: "project-1",
     libraryId: "library-1",
     databaseId: "database-1",
+    defaultDatabaseViewId: "view-1",
     lifecycle,
     bindingRevision: 1,
     name: "Alpha",

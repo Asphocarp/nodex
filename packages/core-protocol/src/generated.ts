@@ -795,6 +795,12 @@ export interface components {
                 readonly binding_revision: number;
                 readonly created_at: string;
                 readonly database_id: string;
+                /**
+                 * @description Current default View of the Project's primary Database, resolved from
+                 *     Database authority at read time. `None` only when the Database has no
+                 *     active default View.
+                 */
+                readonly default_database_view_id?: string | null;
                 readonly description: string;
                 readonly icon?: string | null;
                 readonly id: string;
@@ -4282,6 +4288,12 @@ export interface components {
             readonly binding_revision: number;
             readonly created_at: string;
             readonly database_id: string;
+            /**
+             * @description Current default View of the Project's primary Database, resolved from
+             *     Database authority at read time. `None` only when the Database has no
+             *     active default View.
+             */
+            readonly default_database_view_id?: string | null;
             readonly description: string;
             readonly icon?: string | null;
             readonly id: string;
@@ -4301,9 +4313,15 @@ export interface components {
             readonly archived: boolean;
             readonly archived_at?: string | null;
             readonly created_at: string;
+            /**
+             * @description Marks the Project's starter "Database View" Session. A database-starter
+             *     Session's first window materialization presents the Project's primary
+             *     Database default View; the View itself is resolved at read time and is
+             *     never stored on the Session.
+             */
+            readonly database_starter: boolean;
             readonly display_title: string;
             readonly id: string;
-            readonly initial_database_view_id?: string | null;
             readonly no_thread_fallback_title: string;
             /** Format: int64 */
             readonly order: number;

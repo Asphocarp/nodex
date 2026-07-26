@@ -20,7 +20,7 @@ function makeSession(id: string): ProjectSession {
   return {
     id,
     projectId: "project",
-    initialDatabaseViewId: null,
+    databaseStarter: false,
     noThreadFallbackTitle: id,
     displayTitle: id,
     order: 0,

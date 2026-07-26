@@ -662,8 +662,7 @@ fn move_thread_membership(
     )?;
     let moved = connection.execute(
         "UPDATE project_sessions
-         SET project_id = ?1, \"order\" = 0, pinned_order = ?2,
-             initial_database_view_id = NULL, updated_at = ?3
+         SET project_id = ?1, \"order\" = 0, pinned_order = ?2, updated_at = ?3
          WHERE id = ?4 AND project_id IS ?5",
         params![
             target_project_id,

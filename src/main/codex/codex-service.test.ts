@@ -927,7 +927,7 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
           archived: thread.archived,
           archivedAt: null,
           unread: thread.hasUnreadTurn,
-          initialDatabaseViewId: null,
+          databaseStarter: false,
           thread: {
             sessionId: thread.sessionId ?? `session:${thread.threadId}`,
             projectId: thread.projectId,

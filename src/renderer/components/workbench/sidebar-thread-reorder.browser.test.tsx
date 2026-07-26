@@ -19,6 +19,7 @@ const PROJECT: Project = {
   id: "project-beta",
   libraryId: "library:test",
   databaseId: "database:test:primary",
+  defaultDatabaseViewId: "view:test:primary",
   lifecycle: "active",
   bindingRevision: 1,
   name: "Project beta",

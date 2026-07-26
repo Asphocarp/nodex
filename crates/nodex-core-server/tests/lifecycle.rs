@@ -1127,8 +1127,8 @@ fn workspace_contract_mismatch_is_replaced_before_a_projectless_session_request(
         serde_json::Value::Null
     );
     assert_eq!(
-        session["payload"]["value"]["session"]["initial_database_view_id"],
-        serde_json::Value::Null
+        session["payload"]["value"]["session"]["database_starter"],
+        serde_json::Value::Bool(false)
     );
 
     let shutdown = response_json(&request_with_headers(

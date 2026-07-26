@@ -16,6 +16,7 @@ const project: Project = {
   id: "nodex",
   libraryId: "library:test",
   databaseId: "database:test:primary",
+  defaultDatabaseViewId: "view:test:primary",
   lifecycle: "active",
   bindingRevision: 1,
   name: "Nodex",
@@ -32,7 +33,7 @@ const project: Project = {
 const session: ProjectSession = {
   id: "session-files-story",
   projectId: project.id,
-  initialDatabaseViewId: null,
+  databaseStarter: false,
   noThreadFallbackTitle: "Files story",
   displayTitle: "Files story",
   order: 0,

@@ -20,6 +20,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     id: "project-1",
     libraryId: "library-1",
     databaseId: "database-1",
+    defaultDatabaseViewId: "view-1",
     lifecycle: "active",
     bindingRevision: 1,
     name: "Alpha",
@@ -38,7 +39,7 @@ function makeSession(): ProjectSession {
   return {
     id: "session-1",
     projectId: "project-1",
-    initialDatabaseViewId: null,
+    databaseStarter: false,
     noThreadFallbackTitle: "Alpha chat",
     displayTitle: "Alpha chat",
     order: 0,

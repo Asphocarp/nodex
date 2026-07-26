@@ -36,6 +36,7 @@ function makeProject(id: string): Project {
     id,
     libraryId: "library:test",
     databaseId: "database:test:primary",
+    defaultDatabaseViewId: "view:test:primary",
     lifecycle: "active",
     bindingRevision: 1,
     name: id,

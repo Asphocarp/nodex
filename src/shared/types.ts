@@ -433,6 +433,11 @@ export interface Project {
   id: string;
   libraryId: string;
   databaseId: string;
+  /**
+   * Current default View of the Project's primary Database, resolved by Core
+   * at read time. Null only when the Database has no active default View.
+   */
+  defaultDatabaseViewId: string | null;
   lifecycle: ProjectLifecycle;
   bindingRevision: number;
   name: string;
@@ -528,11 +533,11 @@ export type ProjectSessionSingletonTabKind =
 export interface WorkbenchProjectionDbViewTabConfig {
   projectId: string;
   /**
-   * Durable Database View identity. This is optional only at the input type
-   * boundary while persisted pre-Block-first overview configs are normalized;
-   * ProjectSession storage always resolves and returns it.
+   * Durable Database View identity. Required at every boundary: tab creation
+   * resolves it up front (existing tab, else the Project's default View), so a
+   * db_view descriptor can never silently lack its target.
    */
-  databaseViewId?: string;
+  databaseViewId: string;
   /** Window presentation mode. It never participates in tab identity. */
   view: ProjectSessionDbView;
 }
@@ -848,7 +853,12 @@ export interface ProjectSessionThreadSummary {
 export interface ProjectSession {
   id: string;
   projectId: string | null;
-  initialDatabaseViewId: string | null;
+  /**
+   * Marks the Project's starter "Database View" Session. Its first window
+   * materialization presents the Project's primary Database default View,
+   * resolved from the Project read model at materialization time.
+   */
+  databaseStarter: boolean;
   noThreadFallbackTitle: string;
   displayTitle: string;
   order: number;
@@ -865,7 +875,7 @@ export interface ProjectSession {
 export interface ProjectSessionSummary {
   id: string;
   projectId: string | null;
-  initialDatabaseViewId: string | null;
+  databaseStarter: boolean;
   noThreadFallbackTitle: string;
   displayTitle: string;
   order: number;

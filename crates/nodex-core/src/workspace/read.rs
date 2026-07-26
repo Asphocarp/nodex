@@ -23,6 +23,7 @@ pub(super) struct ProjectRow {
     pub(super) pinned_order: Option<i64>,
     pub(super) created_at: String,
     pub(super) updated_at: String,
+    pub(super) default_database_view_id: Option<String>,
 }
 
 struct SessionRow {
@@ -35,7 +36,7 @@ struct SessionRow {
     archived: i64,
     archived_at: Option<String>,
     unread: i64,
-    initial_database_view_id: Option<String>,
+    database_starter: i64,
     thread_id: Option<String>,
     thread_name: Option<String>,
     thread_preview: Option<String>,
@@ -209,9 +210,15 @@ pub(super) fn read_project(
         .query_row(
             "SELECT project.id, project.library_id, project.database_block_id, \
                project.lifecycle, project.binding_revision, project.name, project.description, \
-               project.icon, pinned.\"order\", project.created, project.updated \
+               project.icon, pinned.\"order\", project.created, project.updated, \
+               default_view.id \
              FROM projects project \
              LEFT JOIN pinned_project_order pinned ON pinned.project_id = project.id \
+             LEFT JOIN database_containers container \
+               ON container.block_id = project.database_block_id \
+             LEFT JOIN database_views default_view \
+               ON default_view.id = container.default_view_id \
+              AND default_view.lifecycle = 'active' \
              WHERE project.id = ?1 AND project.library_id = ?2",
             params![project_id, library_id],
             project_row,
@@ -234,6 +241,7 @@ pub(super) fn project_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectRo
         pinned_order: row.get(8)?,
         created_at: row.get(9)?,
         updated_at: row.get(10)?,
+        default_database_view_id: row.get(11)?,
     })
 }
 
@@ -266,6 +274,7 @@ pub(super) fn project(
         id: row.id,
         library_id: row.library_id,
         database_id,
+        default_database_view_id: row.default_database_view_id,
         lifecycle,
         binding_revision: row.binding_revision,
         name: row.name,
@@ -289,7 +298,7 @@ fn read_session(
         .query_row(
             "SELECT session.id, session.project_id, session.no_thread_fallback_title, \
                session.\"order\", session.pinned, session.pinned_order, session.archived, \
-               session.archived_at, session.unread, session.initial_database_view_id, \
+               session.archived_at, session.unread, session.database_starter, \
                thread.thread_id, thread.thread_name, \
                thread.thread_preview, session.created_at, session.updated_at \
              FROM project_sessions session \
@@ -318,7 +327,7 @@ fn session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {
         archived: row.get(6)?,
         archived_at: row.get(7)?,
         unread: row.get(8)?,
-        initial_database_view_id: row.get(9)?,
+        database_starter: row.get(9)?,
         thread_id: row.get(10)?,
         thread_name: row.get(11)?,
         thread_preview: row.get(12)?,
@@ -350,7 +359,7 @@ fn session_summary(row: SessionRow) -> ProjectWorkspaceSessionSummary {
         archived: row.archived == 1,
         archived_at: row.archived_at,
         unread: row.unread == 1,
-        initial_database_view_id: row.initial_database_view_id,
+        database_starter: row.database_starter == 1,
         thread_id: row.thread_id,
         created_at: row.created_at,
         updated_at: row.updated_at,
@@ -479,24 +488,61 @@ mod tests {
                             '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'), \
                            ('project-1', '/workspace/two', '/workspace/two', 1, \
                             '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'); \
+                         INSERT INTO blocks( \
+                           id, project_id, type, lifecycle, location_kind, \
+                           created_at, updated_at \
+                         ) VALUES \
+                           ('database-1', 'project-1', 'database', 'active', 'space', \
+                            '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'), \
+                           ('database-2', 'project-2', 'database', 'active', 'space', \
+                            '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'); \
+                         INSERT INTO database_containers( \
+                           block_id, library_id, name, lifecycle, created_at, updated_at \
+                         ) VALUES \
+                           ('database-1', 'library-1', 'Primary DB', 'active', \
+                            '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'), \
+                           ('database-2', 'library-1', 'Secondary DB', 'active', \
+                            '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'); \
+                         INSERT INTO data_sources( \
+                           id, library_id, home_database_block_id, name, schema_key, \
+                           lifecycle, rank_key, created_at, updated_at \
+                         ) VALUES \
+                           ('source-1', 'library-1', 'database-1', 'Source', 'nodex.database', \
+                            'active', 'a', \
+                            '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'), \
+                           ('source-2', 'library-1', 'database-2', 'Source', 'nodex.database', \
+                            'active', 'a', \
+                            '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'); \
+                         INSERT INTO database_views( \
+                           id, database_block_id, data_source_id, name, kind, config_json, \
+                           rank_key, lifecycle, created_at, updated_at \
+                         ) VALUES \
+                           ('view-1', 'database-1', 'source-1', 'Kanban', 'kanban', '{}', \
+                            'a', 'active', \
+                            '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'), \
+                           ('view-2', 'database-2', 'source-2', 'Kanban', 'kanban', '{}', \
+                            'a', 'deleted', \
+                            '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'); \
+                         UPDATE database_containers SET default_view_id = 'view-1' \
+                           WHERE block_id = 'database-1'; \
                          INSERT INTO project_sessions( \
                            id, project_id, no_thread_fallback_title, \"order\", pinned, \
                            pinned_order, archived, archived_at, unread, \
-                           initial_database_view_id, created_at, updated_at \
+                           database_starter, created_at, updated_at \
                          ) VALUES \
-                           ('session-project', 'project-1', 'Fallback', 2, 1, 0, 0, NULL, 1, NULL, \
+                           ('session-project', 'project-1', 'Fallback', 2, 1, 0, 0, NULL, 1, 0, \
                             '2026-07-19T03:31:00.000Z', '2026-07-19T03:34:00.000Z'), \
                            ('session-archived', 'project-1', 'Archived session', 3, 0, NULL, 1, \
-                            '2026-07-19T03:35:00.000Z', 0, NULL, \
+                            '2026-07-19T03:35:00.000Z', 0, 0, \
                             '2026-07-19T03:32:00.000Z', '2026-07-19T03:35:00.000Z'), \
                            ('session-archived-project', 'project-2', 'Archived project', 0, 0, \
-                            NULL, 0, NULL, 0, NULL, \
+                            NULL, 0, NULL, 0, 0, \
                             '2026-07-19T03:32:00.000Z', '2026-07-19T03:35:00.000Z'), \
                            ('session-foreign', 'project-foreign', 'Foreign session', 0, 0, NULL, \
-                            0, NULL, 0, NULL, \
+                            0, NULL, 0, 0, \
                             '2026-07-19T03:33:00.000Z', '2026-07-19T03:33:00.000Z'), \
                            ('session-projectless', NULL, 'Projectless', 0, 0, NULL, 0, NULL, 0, \
-                            NULL, '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'); \
+                            0, '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'); \
                          INSERT INTO codex_threads( \
                            thread_id, project_id, thread_name, thread_preview, model_provider, \
                            managed_worktree_path, status_type, status_active_flags_json, archived, \
@@ -564,6 +610,10 @@ mod tests {
         assert_eq!(projects.len(), 1);
         assert_eq!(projects[0].id, "project-1");
         assert_eq!(projects[0].database_id, "database-1");
+        assert_eq!(
+            projects[0].default_database_view_id.as_deref(),
+            Some("view-1")
+        );
         assert_eq!(projects[0].binding_revision, 3);
         assert_eq!(projects[0].icon.as_deref(), Some("🚀"));
         assert_eq!(
@@ -633,6 +683,7 @@ mod tests {
         };
         assert_eq!(projects.items.len(), 2);
         assert_eq!(projects.items[1].binding_revision, 2);
+        assert_eq!(projects.items[1].default_database_view_id, None);
 
         let ProjectWorkspaceReadValue::Project { project } = read(
             &module,
@@ -646,6 +697,7 @@ mod tests {
             project.lifecycle,
             nodex_core_contracts::workspace::ProjectLifecycle::Archived
         );
+        assert_eq!(project.default_database_view_id, None);
 
         let ProjectWorkspaceReadValue::Session { session } = read(
             &module,
@@ -656,7 +708,7 @@ mod tests {
             panic!("session snapshot");
         };
         assert_eq!(session.display_title, "Thread preview");
-        assert_eq!(session.initial_database_view_id, None);
+        assert!(!session.database_starter);
 
         let ProjectWorkspaceReadValue::Thread { thread } = read(
             &module,

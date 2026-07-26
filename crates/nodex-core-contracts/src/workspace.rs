@@ -413,6 +413,10 @@ pub struct ProjectWorkspaceProject {
     pub id: String,
     pub library_id: String,
     pub database_id: String,
+    /// Current default View of the Project's primary Database, resolved from
+    /// Database authority at read time. `None` only when the Database has no
+    /// active default View.
+    pub default_database_view_id: Option<String>,
     pub lifecycle: ProjectLifecycle,
     pub binding_revision: i64,
     pub name: String,
@@ -452,7 +456,11 @@ pub struct ProjectWorkspaceSessionSummary {
     pub archived: bool,
     pub archived_at: Option<String>,
     pub unread: bool,
-    pub initial_database_view_id: Option<String>,
+    /// Marks the Project's starter "Database View" Session. A database-starter
+    /// Session's first window materialization presents the Project's primary
+    /// Database default View; the View itself is resolved at read time and is
+    /// never stored on the Session.
+    pub database_starter: bool,
     pub thread_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,

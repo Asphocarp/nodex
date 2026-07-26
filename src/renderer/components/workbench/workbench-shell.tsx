@@ -583,10 +583,14 @@ const ELECTRON_STABLE_WORKTREE_STATUS_TRANSPORT: StableWorktreeStatusDialogTrans
 };
 type SidebarResizePhase = "live" | "end" | "reset";
 type SidebarResizeSurface = "inline" | "floating";
-const PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET = new Set<WorkbenchTabProjection["kind"]>([
+const PREVIEWABLE_PROJECT_SESSION_TAB_KINDS = [
   "browser",
   "files",
-]);
+] as const satisfies readonly WorkbenchTabProjection["kind"][];
+type PreviewableWorkbenchTabKind = (typeof PREVIEWABLE_PROJECT_SESSION_TAB_KINDS)[number];
+const PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET = new Set<WorkbenchTabProjection["kind"]>(
+  PREVIEWABLE_PROJECT_SESSION_TAB_KINDS,
+);
 const PANEL_ACTION_ROW_CLASS = "cursor-interaction flex min-h-10 w-full items-center gap-2 rounded-md bg-token-bg-secondary px-2.5 py-2 text-left hover:bg-token-list-hover-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-token-border-xstrong";
 const PANEL_ACTION_KBD_CLASS = "inline-flex !rounded-md !border-0 !bg-current/10 !font-sans !text-xs !text-current !shadow-none !px-1.5 !py-0.5 !leading-none";
 type PanelNewTabActionKind = WorkbenchPanelActionKind;
@@ -1107,10 +1111,6 @@ function readInitialExpandedProjects(projects: Project[], activeProjectId: strin
   if (activeProjectId) initial.add(activeProjectId);
   if (projects.length === 1 && projects[0]) initial.add(projects[0].id);
   return initial;
-}
-
-function isProjectSessionDbView(value: string): value is ProjectSessionDbView {
-  return DB_VIEW_TABS.some((item) => item.id === value);
 }
 
 interface ShortcutTargetLike {
@@ -2055,13 +2055,20 @@ function resolveProjectBoundSessionId(session: ProjectSession): string | null {
   return session.projectId;
 }
 
-function isPreviewableWorkbenchTabKind(kind: WorkbenchTabProjection["kind"]): boolean {
+function isPreviewableWorkbenchTabKind(
+  kind: WorkbenchTabProjection["kind"],
+): kind is PreviewableWorkbenchTabKind {
   return PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET.has(kind);
 }
 
+/**
+ * db_view is excluded: its descriptor requires a resolved Database View
+ * identity, so creation goes through focusOrCreateProjectDbViewTab or the
+ * destination picker instead of this generic draft path.
+ */
 function makeWorkbenchTabProjectionDraft(
   session: ProjectSession,
-  kind: WorkbenchTabProjection["kind"],
+  kind: Exclude<WorkbenchTabProjection["kind"], "db_view">,
 ): WorkbenchTabProjectionDraft | null {
   const projectId = resolveProjectBoundSessionId(session);
 
@@ -2087,34 +2094,6 @@ function makeWorkbenchTabProjectionDraft(
   }
 
   if (projectId === null) return null;
-
-  if (kind === "db_view") {
-    const existingDbTab = session.tabs.find((tab) =>
-      tab.kind === "db_view"
-      && "databaseViewId" in tab.config
-      && typeof tab.config.databaseViewId === "string"
-    );
-    const existingDatabaseViewId =
-      existingDbTab?.kind === "db_view"
-      && "databaseViewId" in existingDbTab.config
-      ? existingDbTab.config.databaseViewId
-      : undefined;
-    const initialDatabaseViewId = (
-      "initialDatabaseViewId" in session
-      && typeof session.initialDatabaseViewId === "string"
-    )
-      ? session.initialDatabaseViewId
-      : existingDatabaseViewId;
-    return {
-      kind,
-      title: "DB View",
-      config: {
-        projectId,
-        ...(initialDatabaseViewId ? { databaseViewId: initialDatabaseViewId } : {}),
-        view: "kanban",
-      },
-    };
-  }
 
   if (kind === "files") {
     return {
@@ -2523,6 +2502,13 @@ export function WorkbenchShell({
   const materializedSessionViewsRef = useRef<
     Record<string, WorkbenchSessionViewSnapshot>
   >({});
+  const resolveProjectDefaultDatabaseViewId = useCallback(
+    (projectId: string | null): string | null => projectId === null
+      ? null
+      : projects.find((project) => project.id === projectId)
+        ?.defaultDatabaseViewId ?? null,
+    [projects],
+  );
   const resolveSessionView = useCallback((
     session: ProjectSessionDomain | ProjectSessionSummary,
   ): WorkbenchSessionViewSnapshot => {
@@ -2530,10 +2516,13 @@ export function WorkbenchShell({
     if (persisted) return persisted;
     const cached = materializedSessionViewsRef.current[session.id];
     if (cached) return cached;
-    const materialized = materializeWorkbenchViewForProjectSession(session);
+    const materialized = materializeWorkbenchViewForProjectSession(
+      session,
+      resolveProjectDefaultDatabaseViewId(session.projectId),
+    );
     materializedSessionViewsRef.current[session.id] = materialized;
     return materialized;
-  }, [sessionViewsBySessionId]);
+  }, [resolveProjectDefaultDatabaseViewId, sessionViewsBySessionId]);
   const sessionsByProject = useMemo<Record<string, ProjectSession[]>>(() =>
     Object.fromEntries(projects.map((project) => [
       project.id,
@@ -2808,27 +2797,32 @@ export function WorkbenchShell({
     setSessionView(
       activeSession.id,
       materializedSessionViewsRef.current[activeSession.id]
-        ?? materializeWorkbenchViewForProjectSession(activeSession),
+        ?? materializeWorkbenchViewForProjectSession(
+          activeSession,
+          resolveProjectDefaultDatabaseViewId(activeSession.projectId),
+        ),
     );
-  }, [activeSession, sessionViewsBySessionId, setSessionView]);
+  }, [activeSession, resolveProjectDefaultDatabaseViewId, sessionViewsBySessionId, setSessionView]);
   const mutateSessionView = useCallback((
     session: ProjectSession,
     mutation: (view: WorkbenchSessionViewSnapshot) => WorkbenchSessionViewSnapshot,
   ): WorkbenchSessionViewSnapshot => {
     const current = materializedSessionViewsRef.current[session.id]
       ?? sessionViewsBySessionId[session.id]
-      ?? materializeWorkbenchViewForProjectSession(session);
+      ?? materializeWorkbenchViewForProjectSession(
+        session,
+        resolveProjectDefaultDatabaseViewId(session.projectId),
+      );
     const next = mutation(current);
     materializedSessionViewsRef.current[session.id] = next;
     setSessionView(session.id, next);
     return next;
-  }, [sessionViewsBySessionId, setSessionView]);
+  }, [resolveProjectDefaultDatabaseViewId, sessionViewsBySessionId, setSessionView]);
   const createSessionViewTab = useCallback((
     input: WorkbenchTabCreateInput,
   ): WorkbenchTabProjection | null => {
     if (!activeSession || input.sessionId !== activeSession.id) return null;
     const tab = workbenchViewTabFromCreateInput(input);
-    if (!tab) return null;
     const next = mutateSessionView(activeSession, (view) =>
       createWorkbenchSessionViewTab(view, {
         panelId: input.panelId,
@@ -6685,7 +6679,7 @@ export function WorkbenchShell({
   ]);
 
   const createManualTab = useCallback(async (
-    kind: WorkbenchTabProjection["kind"],
+    kind: Exclude<WorkbenchTabProjection["kind"], "db_view">,
     targetPanelId?: PanelId,
     targetLeafId?: string,
   ) => {
@@ -7422,6 +7416,43 @@ export function WorkbenchShell({
     });
   }, [activeSession, projects]);
 
+  const focusOrCreateProjectDbViewTab = useCallback(async (
+    targetPanelId: PanelId,
+    targetLeafId?: string,
+  ): Promise<boolean> => {
+    if (!activeSession || activeSession.projectId === null) return false;
+    const projectId = activeSession.projectId;
+    const existing = findDbViewTabForProject(activeSession, projectId);
+    if (existing) {
+      await setActivePanelTab(existing.panelId, existing.id, {
+        leafId: resolveLeafIdForPanelTab(activeSession, existing.panelId, existing.id),
+        openPanel: true,
+      });
+      return true;
+    }
+    const databaseViewId = resolveProjectDefaultDatabaseViewId(projectId);
+    if (!databaseViewId) {
+      toast.danger("This project's Database has no default View to open.");
+      return false;
+    }
+    createSessionViewTab({
+      sessionId: activeSession.id,
+      panelId: targetPanelId,
+      ...(targetLeafId ? { targetLeafId } : {}),
+      kind: "db_view",
+      title: "DB View",
+      config: { projectId, databaseViewId, view: "kanban" },
+    });
+    await ensureActivePanelOpenWithoutRefresh(targetPanelId);
+    return true;
+  }, [
+    activeSession,
+    createSessionViewTab,
+    ensureActivePanelOpenWithoutRefresh,
+    resolveProjectDefaultDatabaseViewId,
+    setActivePanelTab,
+  ]);
+
   const dispatchPanelAction = useCallback(async (
     kind: PanelNewTabActionKind,
     options: {
@@ -7442,6 +7473,9 @@ export function WorkbenchShell({
       await focusOrCreateSessionTerminalTab();
       return true;
     }
+    if (kind === "db_view") {
+      return await focusOrCreateProjectDbViewTab(panelId, options.leafId);
+    }
     if (!isWorkbenchTabKind(kind)) return false;
     if (isPreviewableWorkbenchTabKind(kind)) {
       await openPreviewTab(kind, panelId, options.leafId);
@@ -7451,6 +7485,7 @@ export function WorkbenchShell({
     return true;
   }, [
     createManualTab,
+    focusOrCreateProjectDbViewTab,
     focusOrCreateSessionTerminalTab,
     openPreviewTab,
     openSideChat,
@@ -9093,7 +9128,7 @@ export function WorkbenchShell({
                   onSelect={() => {
                     void (async () => {
                       await activatePanelGroup(panelId, leafId);
-                      await createManualTab("db_view", panelId, leafId);
+                      await focusOrCreateProjectDbViewTab(panelId, leafId);
                     })();
                   }}
                 >
@@ -13900,16 +13935,13 @@ function DbViewSessionTab({
     patch: Parameters<typeof applyWorkbenchViewTabPatch>[1],
   ) => WorkbenchTabProjection | null;
 }) {
-  const config = "view" in tab.config ? tab.config : { projectId: tab.projectId, view: activeView };
-  const projectId = config.projectId;
-  if (projectId === null) {
-    throw new Error("Database view tabs require a project");
+  if (tab.kind !== "db_view") {
+    throw new Error("Database view tabs require a db_view descriptor");
   }
-  const databaseViewId = "databaseViewId" in config && typeof config.databaseViewId === "string"
-    ? config.databaseViewId.trim()
-    : "";
-  const selectedDatabaseViewId = databaseViewId || `missing-database-view:${tab.id}`;
-  const view = isProjectSessionDbView(config.view) ? config.view : activeView;
+  const config = tab.config;
+  const projectId = config.projectId;
+  const selectedDatabaseViewId = config.databaseViewId;
+  const view = config.view;
   const legacyRulesView = viewSupportsDbViewPrefs(view) ? view : null;
   const legacyDbViewPrefs = legacyRulesView
     ? dbViewPrefsByProject[projectId]?.[legacyRulesView]
@@ -14060,14 +14092,6 @@ function DbViewSessionTab({
   const searchShortcutLabel =
     typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC") ? "⌘F" : "Ctrl+F";
 
-  if (!databaseViewId) {
-    return (
-      <div className="flex h-full items-center justify-center bg-token-main-surface-primary px-6 text-sm text-token-text-secondary">
-        This Database tab has no durable View identity. Reopen it from the View picker.
-      </div>
-    );
-  }
-
   return (
     <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary">
       <DbViewToolbar
@@ -14106,7 +14130,7 @@ function DbViewSessionTab({
       <div className="min-h-0 flex-1 overflow-hidden">
         <MainViewHost
           projectId={projectId}
-          databaseViewId={databaseViewId}
+          databaseViewId={selectedDatabaseViewId}
           databaseView={databaseView}
           refreshDatabaseView={selectedDatabaseView.refresh}
           projects={projects}

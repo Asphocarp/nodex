@@ -2737,6 +2737,13 @@
                 "database_id": {
                   "type": "string"
                 },
+                "default_database_view_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Current default View of the Project's primary Database, resolved from\nDatabase authority at read time. `None` only when the Database has no\nactive default View."
+                },
                 "description": {
                   "type": "string"
                 },
@@ -17309,6 +17316,13 @@
           "database_id": {
             "type": "string"
           },
+          "default_database_view_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Current default View of the Project's primary Database, resolved from\nDatabase authority at read time. `None` only when the Database has no\nactive default View."
+          },
           "description": {
             "type": "string"
           },
@@ -17373,6 +17387,7 @@
           "pinned",
           "archived",
           "unread",
+          "database_starter",
           "created_at",
           "updated_at"
         ],
@@ -17389,17 +17404,15 @@
           "created_at": {
             "type": "string"
           },
+          "database_starter": {
+            "type": "boolean",
+            "description": "Marks the Project's starter \"Database View\" Session. A database-starter\nSession's first window materialization presents the Project's primary\nDatabase default View; the View itself is resolved at read time and is\nnever stored on the Session."
+          },
           "display_title": {
             "type": "string"
           },
           "id": {
             "type": "string"
-          },
-          "initial_database_view_id": {
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "no_thread_fallback_title": {
             "type": "string"

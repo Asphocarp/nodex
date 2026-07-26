@@ -251,7 +251,7 @@ const browserTab: WorkbenchTabProjection & { preview: true } = {
 const activeSession: WindowLocalProjectSession = {
   id: "session-1",
   projectId: "alpha",
-  initialDatabaseViewId: null,
+  databaseStarter: false,
   noThreadFallbackTitle: "Session",
   displayTitle: "Session",
   order: 0,

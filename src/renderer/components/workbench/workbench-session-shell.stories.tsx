@@ -136,6 +136,7 @@ const PROJECTS: Project[] = [
     id: "nodex",
     libraryId: "library:test",
     databaseId: "database:test:primary",
+    defaultDatabaseViewId: "view:test:primary",
     lifecycle: "active",
     bindingRevision: 1,
     name: "Nodex",
@@ -152,6 +153,7 @@ const PROJECTS: Project[] = [
     id: "codex-readable",
     libraryId: "library:test",
     databaseId: "database:test:primary",
+    defaultDatabaseViewId: "view:test:primary",
     lifecycle: "active",
     bindingRevision: 1,
     name: "Codex readable pack",
@@ -376,7 +378,7 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
     return {
       id: "session:database-view",
       projectId: "nodex",
-      initialDatabaseViewId: "database-view:nodex:primary-kanban",
+      databaseStarter: true,
       noThreadFallbackTitle: title,
       displayTitle: title,
       order: 0,
@@ -409,7 +411,11 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
       kind: "db_view",
       title: "DB View",
       order: 0,
-      config: { projectId: "nodex", view: "kanban" },
+      config: {
+        projectId: "nodex",
+        databaseViewId: "database-view:nodex:primary-kanban",
+        view: "kanban",
+      },
     }),
     makeTab({
       id: "tab:card",
@@ -517,7 +523,7 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
   return {
     id: "session:database-view",
     projectId: "nodex",
-    initialDatabaseViewId: "database-view:nodex:primary-kanban",
+    databaseStarter: true,
     noThreadFallbackTitle: title,
     displayTitle: thread?.threadName ?? title,
     order: 0,

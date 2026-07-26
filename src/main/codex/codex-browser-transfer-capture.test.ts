@@ -14,7 +14,7 @@ function makeSession(hasThread = false): ProjectSession {
   return {
     id: "session-source",
     projectId: "project-source",
-    initialDatabaseViewId: null,
+    databaseStarter: false,
     noThreadFallbackTitle: "Source",
     displayTitle: "Source",
     order: 0,

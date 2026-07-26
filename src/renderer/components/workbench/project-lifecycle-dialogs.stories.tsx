@@ -11,6 +11,7 @@ const ACTIVE_PROJECT: Project = {
   id: "project-alpha",
   libraryId: "library-story",
   databaseId: "database-alpha",
+  defaultDatabaseViewId: "view-alpha",
   lifecycle: "active",
   bindingRevision: 2,
   name: "Nodex desktop",

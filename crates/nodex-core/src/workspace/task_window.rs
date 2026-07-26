@@ -139,7 +139,7 @@ fn read_task_window_in_scope(
            SELECT session.id AS session_id, session.project_id, \
              session.no_thread_fallback_title, session.\"order\", session.pinned, \
              session.pinned_order, session.archived, session.archived_at, session.unread, \
-             session.initial_database_view_id, session.created_at, session.updated_at, \
+             session.database_starter, session.created_at, session.updated_at, \
              thread.thread_id, thread.project_id, thread.forked_from_id, \
              thread.parent_thread_id, thread.thread_name, thread.thread_source, \
              thread.service_name, thread.agent_nickname, thread.agent_role, thread.agent_path, \
@@ -281,7 +281,7 @@ fn task_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(ProjectWorkspaceTaskSu
             archived: row.get::<_, i64>(6)? == 1,
             archived_at: row.get(7)?,
             unread: row.get::<_, i64>(8)? == 1,
-            initial_database_view_id: row.get(9)?,
+            database_starter: row.get::<_, i64>(9)? == 1,
             thread_id: row.get(12)?,
             created_at: row.get(10)?,
             updated_at: row.get(11)?,

@@ -33,7 +33,7 @@ export function projectSessionToSummary(session: ProjectSession): ProjectSession
     archived: session.archived,
     archivedAt: session.archivedAt,
     unread: session.unread,
-    initialDatabaseViewId: session.initialDatabaseViewId,
+    databaseStarter: session.databaseStarter,
     thread: session.thread,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,

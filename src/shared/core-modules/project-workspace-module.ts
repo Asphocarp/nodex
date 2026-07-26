@@ -173,7 +173,7 @@ export interface ProjectWorkspaceSessionSummary {
   readonly archived: boolean;
   readonly archivedAt: string | null;
   readonly unread: boolean;
-  readonly initialDatabaseViewId: string | null;
+  readonly databaseStarter: boolean;
   readonly threadId: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;

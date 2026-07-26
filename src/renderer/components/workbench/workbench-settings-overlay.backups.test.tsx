@@ -16,6 +16,7 @@ const PROJECTS = [
     id: "default",
     libraryId: "library:test",
     databaseId: "database:test:primary",
+    defaultDatabaseViewId: "view:test:primary",
     lifecycle: "active" as const,
     bindingRevision: 1,
     name: "Nodex",

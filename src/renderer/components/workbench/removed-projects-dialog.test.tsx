@@ -11,6 +11,7 @@ function makeRemovedProject(): Project {
     id: "project-removed",
     libraryId: "library-test",
     databaseId: "database-removed",
+    defaultDatabaseViewId: "view-removed",
     lifecycle: "archived",
     bindingRevision: 3,
     name: "Removed Alpha",

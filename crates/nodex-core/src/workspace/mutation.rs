@@ -1345,13 +1345,12 @@ fn insert_initial_session(
     connection.execute(
         "INSERT INTO project_sessions(\
            id, project_id, no_thread_fallback_title, \"order\", pinned, pinned_order, archived, \
-           archived_at, unread, initial_database_view_id, created_at, updated_at\
-         ) VALUES (?1, ?2, ?3, 0, 1, 0, 0, NULL, 0, ?4, ?5, ?5)",
+           archived_at, unread, database_starter, created_at, updated_at\
+         ) VALUES (?1, ?2, ?3, 0, 1, 0, 0, NULL, 0, 1, ?4, ?4)",
         params![
             identities.session_id,
             project_id,
             DEFAULT_SESSION_TITLE,
-            identities.view_id,
             now
         ],
     )?;
@@ -1770,7 +1769,7 @@ mod tests {
                              WHERE source.home_database_block_id = project.database_block_id), \
                             (SELECT count(*) FROM project_sessions session \
                              WHERE session.project_id = project.id \
-                               AND session.initial_database_view_id IS NOT NULL), \
+                               AND session.database_starter = 1), \
                             (SELECT count(*) FROM canvas_scenes scene \
                              JOIN documents document ON document.id = scene.document_id \
                              WHERE document.project_id = project.id), \

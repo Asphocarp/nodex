@@ -12,6 +12,7 @@ const ProjectSchema = z.object({
   id: z.string(),
   libraryId: z.string(),
   databaseId: z.string(),
+  defaultDatabaseViewId: z.string().nullable(),
   lifecycle: z.enum(["active", "inactive", "archived"]),
   bindingRevision: z.number(),
   name: z.string(),

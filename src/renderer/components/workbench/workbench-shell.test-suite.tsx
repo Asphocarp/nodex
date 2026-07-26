@@ -32,6 +32,7 @@ import type {
   Project,
   WorkbenchPanelNode,
   WorkbenchTabProjection,
+  WorkbenchProjectionDbViewTabConfig,
   WorkbenchProjectionTabConfiguration,
   WorkbenchTabCreateInput,
   WorkbenchTabUpdateInput,
@@ -1172,6 +1173,7 @@ function makeProject(id = "alpha", name = "Alpha", primarySourceRoot?: string): 
     id,
     libraryId: "library:test",
     databaseId: "database:test:primary",
+    defaultDatabaseViewId: `database-view:${id}:primary-kanban`,
     lifecycle: "active",
     bindingRevision: 1,
     name,
@@ -1409,8 +1411,16 @@ type SessionTabFixtureCommon = Pick<WorkbenchTabProjection, "id" | "title"> &
     | "createdAt"
     | "updatedAt"
   >>;
+type SessionTabFixtureConfiguration =
+  | Exclude<WorkbenchProjectionTabConfiguration, { kind: "db_view" }>
+  | {
+      kind: "db_view";
+      config: Omit<WorkbenchProjectionDbViewTabConfig, "databaseViewId"> & {
+        databaseViewId?: string;
+      };
+    };
 type SessionTabFixture<
-  Configuration extends WorkbenchProjectionTabConfiguration = WorkbenchProjectionTabConfiguration,
+  Configuration extends SessionTabFixtureConfiguration = SessionTabFixtureConfiguration,
 > = Configuration extends { kind: "browser" }
   ? Configuration & SessionTabFixtureCommon & { browserTabId?: string }
   : Configuration & SessionTabFixtureCommon & { browserTabId?: never };
@@ -1423,6 +1433,18 @@ type SessionFixtureOverrides = Omit<Partial<ProjectSession>, "tabs"> & {
   rightFullWidth?: boolean;
   rightLayout?: ProjectSession["panels"]["right"]["layout"];
 };
+
+function fillDbViewFixtureConfig(
+  config: Omit<WorkbenchProjectionDbViewTabConfig, "databaseViewId"> & {
+    databaseViewId?: string;
+  },
+): WorkbenchProjectionDbViewTabConfig {
+  return {
+    ...config,
+    databaseViewId: config.databaseViewId
+      ?? `database-view:${config.projectId}:primary-kanban`,
+  };
+}
 
 function makeSessionTab(overrides: SessionTabInput): WorkbenchTabProjection {
   const base = {
@@ -1445,27 +1467,16 @@ function makeSessionTab(overrides: SessionTabInput): WorkbenchTabProjection {
     | "createdAt"
     | "updatedAt"
   >;
-  const tab: WorkbenchTabProjection = overrides.kind === "browser"
+  const filled = overrides.kind === "db_view"
+    ? { ...overrides, config: fillDbViewFixtureConfig(overrides.config) }
+    : overrides;
+  return filled.kind === "browser"
     ? {
         ...base,
-        ...overrides,
-        browserTabId: overrides.browserTabId ?? `browser:${overrides.id}`,
+        ...filled,
+        browserTabId: filled.browserTabId ?? `browser:${filled.id}`,
       }
-    : { ...base, ...overrides, browserTabId: null };
-  if (
-    tab.kind !== "db_view"
-    || !("projectId" in tab.config)
-    || ("databaseViewId" in tab.config && tab.config.databaseViewId)
-  ) {
-    return tab;
-  }
-  return {
-    ...tab,
-    config: {
-      ...tab.config,
-      databaseViewId: `database-view:${tab.config.projectId}:primary-kanban`,
-    },
-  };
+    : { ...base, ...filled, browserTabId: null };
 }
 
 function updateSessionTab(
@@ -1548,9 +1559,7 @@ function makeSession(overrides: SessionFixtureOverrides = {}): ProjectSession {
   return {
     id: sessionId,
     projectId,
-    initialDatabaseViewId: projectId === null
-      ? null
-      : `database-view:${projectId}:primary-kanban`,
+    databaseStarter: projectId !== null && databaseViewStarter,
     noThreadFallbackTitle,
     displayTitle,
     order: 0,
@@ -2138,7 +2147,7 @@ function renderWorkbench({
         .map((session) => ({
           id: session.id,
           projectId: session.projectId,
-          initialDatabaseViewId: session.initialDatabaseViewId ?? null,
+          databaseStarter: session.databaseStarter,
           noThreadFallbackTitle: session.noThreadFallbackTitle,
           displayTitle: session.displayTitle,
           order: session.order,
@@ -9347,6 +9356,71 @@ describe(`workbench session shell / ${scope}`, () => {
     );
   });
 
+  test("DB View action creates the project default View tab in an ordinary chat session", async () => {
+    const chatSession = makeSession({
+      id: "session:alpha:plain-chat",
+      title: "Plain chat",
+      tabs: [],
+      rightLayout: makePanelLayout([], null),
+    });
+    // Ordinary sessions carry no starter marker; the action must resolve the
+    // Project's default View instead of any per-session state.
+    expect(chatSession.databaseStarter).toBe(false);
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [chatSession] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await pointerActivate(screen.getByRole("button", { name: /DB View/ }));
+    await settleAsyncRender();
+
+    const createCall = invokeCalls.find((call) =>
+      call[0] === "window-session-view:tab-create"
+      && JSON.stringify(call[1]).includes('"kind":"db_view"')
+    );
+    expect(createCall).toBeDefined();
+    expect(JSON.stringify((createCall?.[1] as { config?: unknown } | undefined)?.config)).toBe(
+      JSON.stringify({
+        projectId: "alpha",
+        databaseViewId: "database-view:alpha:primary-kanban",
+        view: "kanban",
+      }),
+    );
+  });
+
+  test("DB View action reports a missing project default View instead of silently doing nothing", async () => {
+    const chatSession = makeSession({
+      id: "session:alpha:no-view-chat",
+      title: "Plain chat",
+      tabs: [],
+      rightLayout: makePanelLayout([], null),
+    });
+    const projectWithoutView: Project = {
+      ...makeProject(),
+      defaultDatabaseViewId: null,
+    };
+    const screen = renderWorkbench({
+      projects: [projectWithoutView],
+      sessionsByProject: { alpha: [chatSession] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await pointerActivate(screen.getByRole("button", { name: /DB View/ }));
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "window-session-view:tab-create"
+      && JSON.stringify(call[1]).includes('"kind":"db_view"')
+    )).toBe(false);
+    expect(
+      __getNodexToastSnapshotForTests().some((toastItem) =>
+        toastItem.kind === "plain"
+        && toastItem.title === "This project's Database has no default View to open."),
+    ).toBe(true);
+  });
+
   test("right panel DB View action opens the picker after the current project DB exists", async () => {
     const screen = renderWorkbench({
       projects: [makeProject(), makeProject("beta", "Beta")],
@@ -9967,11 +10041,15 @@ describe(`workbench session shell / ${scope}`, () => {
 
     invokeCalls = [];
     await executeCommandPaletteCommand(screen, "db", "Open DB View tab");
+    // The session already owns its project DB tab, so the command focuses it
+    // instead of creating a duplicate.
     expect(invokeCalls.some((call) =>
       call[0] === "window-session-view:tab-create"
       && JSON.stringify(call[1]).includes('"kind":"db_view"')
-      && JSON.stringify(call[1]).includes('"panelId":"right"')
-    )).toBe(true);
+    )).toBe(false);
+    expect(
+      screen.getByRole("tab", { name: "DB View", selected: true }) !== null,
+    ).toBe(true);
   });
 
   test("command palette opens keyboard shortcuts settings", async () => {

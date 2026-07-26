@@ -189,7 +189,12 @@ export interface WorkbenchSessionViewPanelPatch {
 export interface WorkbenchSessionMaterializationTarget {
   id: string;
   projectId: string | null;
-  initialDatabaseViewId: string | null;
+  /**
+   * Database View to present in the initial full-width db_view tab, already
+   * resolved by the caller (database-starter Session + the Project's current
+   * default View). Null materializes an empty view.
+   */
+  databaseViewId: string | null;
 }
 
 export interface CloneWorkbenchLayout {
@@ -384,7 +389,7 @@ export function materializeInitialWorkbenchSessionView(
     identityFactory,
     touchedAt: options.touchedAt,
   });
-  if (!session.projectId || !session.initialDatabaseViewId) return empty;
+  if (!session.projectId || !session.databaseViewId) return empty;
 
   const tabId = identityFactory.createId("tab");
   return createWorkbenchSessionViewTab(
@@ -410,7 +415,7 @@ export function materializeInitialWorkbenchSessionView(
         titleSnapshot: "Database",
         config: {
           projectId: session.projectId,
-          databaseViewId: session.initialDatabaseViewId,
+          databaseViewId: session.databaseViewId,
           view: "kanban",
         },
         stateKey: 0,

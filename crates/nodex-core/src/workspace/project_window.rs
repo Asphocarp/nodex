@@ -75,10 +75,16 @@ pub(super) fn read_project_window(
         "SELECT project.id, project.library_id, project.database_block_id, \
            project.lifecycle, project.binding_revision, project.name, project.description, \
            project.icon, pinned.\"order\", project.created, project.updated, \
+           default_view.id, \
            COALESCE(ordering.\"order\", 9223372036854775807) AS order_key \
          FROM projects project \
          LEFT JOIN project_order ordering ON ordering.project_id = project.id \
          LEFT JOIN pinned_project_order pinned ON pinned.project_id = project.id \
+         LEFT JOIN database_containers container \
+           ON container.block_id = project.database_block_id \
+         LEFT JOIN database_views default_view \
+           ON default_view.id = container.default_view_id \
+          AND default_view.lifecycle = 'active' \
          WHERE project.library_id = ?1 AND (?2 = 1 OR project.lifecycle <> 'archived') \
            {cursor_predicate} \
          ORDER BY order_key, project.created, project.id LIMIT ?{limit_parameter}"
@@ -86,7 +92,7 @@ pub(super) fn read_project_window(
     let rows = connection
         .prepare(&sql)?
         .query_map(params_from_iter(parameters.iter()), |row| {
-            Ok((project_row(row)?, row.get::<_, i64>(11)?))
+            Ok((project_row(row)?, row.get::<_, i64>(12)?))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let candidates = rows
@@ -162,6 +168,12 @@ mod tests {
         let first = read_window(None);
         let second = read_window(first.next_cursor.clone());
         assert_eq!(first.items.len(), 3);
+        assert!(
+            first
+                .items
+                .iter()
+                .all(|project| project.default_database_view_id.is_some())
+        );
         assert!(first.next_cursor.is_some());
         assert!(
             first

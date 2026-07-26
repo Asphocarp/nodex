@@ -262,6 +262,7 @@ const project: Project = {
   id: "alpha",
   libraryId: "library:test",
   databaseId: "database:test:primary",
+  defaultDatabaseViewId: "view:test:primary",
   lifecycle: "active",
   bindingRevision: 1,
   name: "Alpha",
@@ -278,7 +279,7 @@ const project: Project = {
 const activeSession: ProjectSession = {
   id: "session-1",
   projectId: project.id,
-  initialDatabaseViewId: null,
+  databaseStarter: false,
   noThreadFallbackTitle: "Session",
   displayTitle: "Session",
   order: 0,

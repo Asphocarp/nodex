@@ -130,17 +130,18 @@ export function workbenchViewFromProjectSessionProjection(
 
 export function materializeWorkbenchViewForProjectSession(
   session: ProjectSession | ProjectSessionSummary,
+  defaultDatabaseViewId: string | null,
 ): WorkbenchSessionViewSnapshot {
   return materializeInitialWorkbenchSessionView({
     id: session.id,
     projectId: session.projectId,
-    initialDatabaseViewId: session.initialDatabaseViewId,
+    databaseViewId: session.databaseStarter ? defaultDatabaseViewId : null,
   });
 }
 
 export function workbenchViewTabFromCreateInput(
   input: WorkbenchTabCreateInput,
-): WorkbenchSessionViewTab | null {
+): WorkbenchSessionViewTab {
   const id = input.clientTabId
     ?? `tab:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`;
   const common = {
@@ -149,17 +150,6 @@ export function workbenchViewTabFromCreateInput(
     stateKey: 0,
     state: null,
   };
-  if (input.kind === "db_view") {
-    if (!input.config.databaseViewId) return null;
-    return {
-      ...common,
-      kind: input.kind,
-      config: {
-        ...input.config,
-        databaseViewId: input.config.databaseViewId,
-      },
-    };
-  }
   if (input.kind === "browser") {
     return {
       ...common,

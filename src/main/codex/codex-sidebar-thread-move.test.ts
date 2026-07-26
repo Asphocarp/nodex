@@ -11,6 +11,7 @@ function makeProject(id: string, roots: string[]): Project {
     id,
     libraryId: "library:test",
     databaseId: `database:${id}:primary`,
+    defaultDatabaseViewId: `view:${id}:primary`,
     lifecycle: "active",
     bindingRevision: 1,
     name: id,

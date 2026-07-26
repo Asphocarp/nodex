@@ -46,7 +46,7 @@ function materializedView(): WorkbenchSessionViewSnapshot {
     {
       id: "session-1",
       projectId: "project-1",
-      initialDatabaseViewId: "view-1",
+      databaseViewId: "view-1",
     },
     {
       identityFactory: identityFactory("initial"),
