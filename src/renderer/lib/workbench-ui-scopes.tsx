@@ -1,6 +1,7 @@
 import {
   useCallback,
   useLayoutEffect,
+  useRef,
   useSyncExternalStore,
   type ReactNode,
 } from "react";
@@ -252,13 +253,19 @@ export function SelectedAppShellHeaderContent() {
 
 function SelectedRouteScopeRegistrar({ selected }: { readonly selected: boolean }) {
   const routeHandle = useScopeHandle(RouteScope);
+  // Header ownership follows the retained Route identity, not each prepared descriptor snapshot.
+  const routeOwnerRef = useRef(routeHandle);
+  if (routeOwnerRef.current.path !== routeHandle.path) {
+    routeOwnerRef.current = routeHandle;
+  }
+  const routeOwner = routeOwnerRef.current;
   const setSelectedRoute = useSetScopedAtom(selectedRouteScopeHandleAtom);
   useLayoutEffect(() => {
     if (!selected) return;
-    setSelectedRoute(routeHandle);
+    setSelectedRoute(routeOwner);
     return () => {
-      setSelectedRoute((current) => current === routeHandle ? null : current);
+      setSelectedRoute((current) => current === routeOwner ? null : current);
     };
-  }, [routeHandle, selected, setSelectedRoute]);
+  }, [routeOwner, selected, setSelectedRoute]);
   return null;
 }

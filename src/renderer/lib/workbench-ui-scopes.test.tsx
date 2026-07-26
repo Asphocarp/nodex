@@ -1,6 +1,6 @@
 import { StrictMode, useLayoutEffect } from "react";
 import { render } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
   AppShellHeaderContentRegistrar,
   ComposerScope,
@@ -183,5 +183,34 @@ describe("Workbench Maitai scopes", () => {
     expect(view.getAllByTestId("thread-stage-title").map((node) => node.textContent)).toEqual(["B"]);
     view.rerender(tree("a"));
     expect(view.getAllByTestId("thread-stage-title").map((node) => node.textContent)).toEqual(["A"]);
+  });
+
+  test("session descriptor updates do not republish an unchanged route owner", () => {
+    const store = createMaitaiStore();
+    const setAtom = vi.spyOn(store.jotaiStore, "set");
+    const stableHeader = <h1 data-testid="stable-thread-stage-title">A</h1>;
+    const tree = (revision: number) => (
+      <MaitaiProvider store={store}>
+        <SelectedAppShellHeaderContent />
+        <WorkbenchSessionScopePath
+          thread={descriptor("session:a", `thread-revision-${revision}`)}
+          route={{ routeKey: "/thread", kind: "thread" }}
+          selected
+        >
+          <AppShellHeaderContentRegistrar content={stableHeader} />
+        </WorkbenchSessionScopePath>
+      </MaitaiProvider>
+    );
+
+    const view = render(tree(0));
+    setAtom.mockClear();
+    view.rerender(tree(1));
+
+    const routeOwnerWrites = setAtom.mock.calls.filter(([atom]) =>
+      (atom as { readonly debugLabel?: string }).debugLabel
+        ?.endsWith("/selected-route-scope-handle"),
+    );
+    expect(routeOwnerWrites).toHaveLength(0);
+    expect(view.getByTestId("stable-thread-stage-title").textContent).toBe("A");
   });
 });
