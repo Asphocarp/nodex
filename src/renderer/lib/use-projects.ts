@@ -1,4 +1,9 @@
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+  type InfiniteData,
+} from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 import type {
   Project,
@@ -8,6 +13,7 @@ import type {
   ProjectPinnedInput,
   ProjectPinnedOrderInput,
   ProjectUpdateInput,
+  ProjectWindow,
 } from "./types";
 import { invoke, subscribeProjectChanges } from "./api";
 import { projectsListQueryOptions } from "./query-options";
@@ -16,6 +22,19 @@ import { queryKeys } from "./query-keys";
 const PROJECTS_LIST_QUERY_KEY = queryKeys.projects.list(false);
 const EMPTY_PROJECTS: Project[] = [];
 
+// Module-scope select functions: TanStack Query re-runs `select` only when the
+// cached data (or the select reference) changes, so the derived array keeps a
+// stable identity across renders. Effects and stores downstream depend on that
+// stability; an inline flatMap here previously fed a render loop.
+const selectProjects = (
+  data: InfiniteData<ProjectWindow, string | null>,
+): Project[] => data.pages.flatMap((window) => window.items);
+
+const selectArchivedProjects = (
+  data: InfiniteData<ProjectWindow, string | null>,
+): Project[] =>
+  selectProjects(data).filter((project) => project.lifecycle === "archived");
+
 function getErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Unknown error";
 }
@@ -23,9 +42,11 @@ function getErrorMessage(err: unknown): string {
 export function useProjects() {
   const queryClient = useQueryClient();
   const [actionError, setActionError] = useState<string | null>(null);
-  const projectsQuery = useInfiniteQuery(projectsListQueryOptions());
-  const projects = projectsQuery.data?.pages.flatMap((window) => window.items)
-    ?? EMPTY_PROJECTS;
+  const projectsQuery = useInfiniteQuery({
+    ...projectsListQueryOptions(),
+    select: selectProjects,
+  });
+  const projects = projectsQuery.data ?? EMPTY_PROJECTS;
 
   const refreshProjects = useCallback(async () => {
     setActionError(null);
@@ -237,6 +258,7 @@ export function useRemovedProjects(open: boolean) {
   const queryClient = useQueryClient();
   const projectsQuery = useInfiniteQuery({
     ...projectsListQueryOptions({ includeArchived: true }),
+    select: selectArchivedProjects,
     enabled: open,
   });
 
@@ -258,12 +280,7 @@ export function useRemovedProjects(open: boolean) {
   });
 
   return {
-    projects: (
-      projectsQuery.data?.pages.flatMap((window) => window.items)
-      ?? EMPTY_PROJECTS
-    ).filter(
-      (project) => project.lifecycle === "archived",
-    ),
+    projects: projectsQuery.data ?? EMPTY_PROJECTS,
     hasMoreProjects: projectsQuery.hasNextPage,
     loadingMoreProjects: projectsQuery.isFetchingNextPage,
     loadMoreProjects: async () => {

@@ -55,6 +55,8 @@ import {
   scopedAtom,
   useScopedAtom,
 } from "./maitai";
+import { replaceEqualDeep } from "./structural-sharing";
+import { WORKBENCH_PERSIST_DEBOUNCE_MS } from "./timing";
 import type { WorkbenchSessionViewSnapshot } from "../../shared/workbench-session-view";
 
 export type WorkbenchView = "kanban" | "list" | "toggle-list" | "canvas" | "calendar";
@@ -151,7 +153,7 @@ interface DockPrefs {
   tree: DockTreeNode;
 }
 
-interface WorkbenchState {
+export interface WorkbenchState {
   dbProjectId: string | null;
   threadsProjectId: string | null;
   viewsByProject: Record<string, WorkbenchView>;
@@ -637,6 +639,114 @@ export function resolveActiveProjectAfterCatalogChange(
   return previousAdjacent ?? projects[0]?.id ?? null;
 }
 
+/**
+ * Reconciles window-local workbench state with the current Project catalog.
+ * Identity-idempotent: when the catalog implies no semantic change the exact
+ * `prev` reference is returned (via structural sharing), so the reconcile
+ * effect can never feed a render loop through the state atom.
+ */
+export function reconcileWorkbenchStateWithProjects(
+  prev: WorkbenchState,
+  projects: Project[],
+  selectFirstWhenEmpty: boolean,
+): WorkbenchState {
+  const projectIds = buildProjectIdSet(projects);
+  const projectOrder = reconcileProjectOrder(prev.projectOrder, projects);
+  const dbProjectId = resolveActiveProjectAfterCatalogChange(
+    prev.dbProjectId,
+    prev.projectOrder,
+    projects,
+    selectFirstWhenEmpty,
+  );
+  const threadsProjectId = resolveActiveProjectAfterCatalogChange(
+    prev.threadsProjectId,
+    prev.projectOrder,
+    projects,
+    selectFirstWhenEmpty,
+  );
+
+  const viewsByProject = pruneProjectRecord(prev.viewsByProject, projectIds);
+  const searchByProject = pruneProjectRecord(prev.searchByProject, projectIds);
+  const dbViewPrefsByProject = pruneProjectRecord(prev.dbViewPrefsByProject, projectIds);
+
+  projects.forEach((project) => {
+    if (viewsByProject[project.id]) return;
+    viewsByProject[project.id] = "kanban";
+  });
+
+  const recentPageSessions = pruneRecentSessions(prev.recentPageSessions, projectIds);
+
+  const activeRecentSessionId =
+    prev.activeRecentSessionId &&
+    recentPageSessions.some((session) => session.id === prev.activeRecentSessionId)
+      ? prev.activeRecentSessionId
+      : null;
+
+  const sidebarStageExpandedByProject = pruneProjectRecord(prev.sidebarStageExpandedByProject, projectIds);
+  const sidebarSectionExpandedByProject = pruneProjectRecord(prev.sidebarSectionExpandedByProject, projectIds);
+  const sidebarSectionShowAllByProject = pruneProjectRecord(prev.sidebarSectionShowAllByProject, projectIds);
+  const slidingWindowPaneCount = clampSlidingWindowPaneCount(prev.slidingWindowPaneCount);
+
+  projects.forEach((project) => {
+    const projectId = project.id;
+    sidebarStageExpandedByProject[projectId] = ensureSidebarStageState(
+      sidebarStageExpandedByProject[projectId],
+    );
+    sidebarSectionExpandedByProject[projectId] = normalizeSidebarSectionStateByProject({
+      [projectId]: sidebarSectionExpandedByProject[projectId],
+    })[projectId] ?? {};
+    sidebarSectionShowAllByProject[projectId] = normalizeSidebarSectionStateByProject({
+      [projectId]: sidebarSectionShowAllByProject[projectId],
+    })[projectId] ?? {};
+  });
+
+  const pagesTabs = makePagesStageTabs(recentPageSessions);
+  const hasActivePagesTab =
+    (prev.activePagesTabId === HISTORY_TAB_ID && pagesTabs.length > 0) ||
+    pagesTabs.some((tab) => tab.id === prev.activePagesTabId);
+  const activePagesTabId = hasActivePagesTab
+    ? prev.activePagesTabId
+    : pagesTabs[0]?.id ?? "";
+
+  const threadsTabs = ensureThreadsTabs(prev.threadsTabs);
+  const activeThreadsTabId = threadsTabs.some((tab) => tab.id === prev.activeThreadsTabId)
+    ? prev.activeThreadsTabId
+    : threadsTabs[0]?.id ?? "";
+
+  const filesTabs = ensureFilesTabs(prev.filesTabs);
+  const activeFilesTabId = filesTabs.some((tab) => tab.id === prev.activeFilesTabId)
+    ? prev.activeFilesTabId
+    : filesTabs[0]?.id ?? "diff";
+
+  const stagePanelWidths = normalizeStagePanelWidths(prev.stagePanelWidths);
+  const focusedStage = prev.focusedStage;
+  const stageNavDirection = isStageDirection(prev.stageNavDirection) ? prev.stageNavDirection : "right";
+
+  return replaceEqualDeep(prev, {
+    ...prev,
+    projectOrder,
+    dbProjectId,
+    threadsProjectId,
+    viewsByProject,
+    searchByProject,
+    dbViewPrefsByProject,
+    recentPageSessions,
+    activeRecentSessionId,
+    focusedStage,
+    stageNavDirection,
+    sidebarStageExpandedByProject,
+    sidebarSectionExpandedByProject,
+    sidebarSectionShowAllByProject,
+    activePagesTabId,
+    threadsTabs,
+    activeThreadsTabId,
+    filesTabs,
+    activeFilesTabId,
+    stagePanelWidths,
+    slidingWindowPaneCount,
+  });
+}
+
 function ensureSidebarStageState(
   value: Partial<Record<SidebarGroupId, boolean>> | undefined,
 ): Partial<Record<SidebarGroupId, boolean>> {
@@ -985,159 +1095,68 @@ export function useWorkbenchState(
 
   useEffect(() => {
     if (options.projectsReady === false) return;
-
-    setState((prev) => {
-      const projectIds = buildProjectIdSet(projects);
-      const projectOrder = reconcileProjectOrder(prev.projectOrder, projects);
-      const dbProjectId = resolveActiveProjectAfterCatalogChange(
-        prev.dbProjectId,
-        prev.projectOrder,
-        projects,
-        !hasReconciledProjectsRef.current,
-      );
-      const threadsProjectId = resolveActiveProjectAfterCatalogChange(
-        prev.threadsProjectId,
-        prev.projectOrder,
-        projects,
-        !hasReconciledProjectsRef.current,
-      );
-
-      const viewsByProject = pruneProjectRecord(prev.viewsByProject, projectIds);
-      const searchByProject = pruneProjectRecord(prev.searchByProject, projectIds);
-      const dbViewPrefsByProject = pruneProjectRecord(prev.dbViewPrefsByProject, projectIds);
-
-      Object.keys(viewsByProject).forEach((projectId) => {
-        if (projectIds.has(projectId)) return;
-        delete viewsByProject[projectId];
-      });
-
-      Object.keys(searchByProject).forEach((projectId) => {
-        if (projectIds.has(projectId)) return;
-        delete searchByProject[projectId];
-      });
-      Object.keys(dbViewPrefsByProject).forEach((projectId) => {
-        if (projectIds.has(projectId)) return;
-        delete dbViewPrefsByProject[projectId];
-      });
-
-      projects.forEach((project) => {
-        if (viewsByProject[project.id]) return;
-        viewsByProject[project.id] = "kanban";
-      });
-
-      const recentPageSessions = pruneRecentSessions(prev.recentPageSessions, projectIds);
-
-      const activeRecentSessionId =
-        prev.activeRecentSessionId &&
-        recentPageSessions.some((session) => session.id === prev.activeRecentSessionId)
-          ? prev.activeRecentSessionId
-          : null;
-
-      const sidebarStageExpandedByProject = pruneProjectRecord(prev.sidebarStageExpandedByProject, projectIds);
-      const sidebarSectionExpandedByProject = pruneProjectRecord(prev.sidebarSectionExpandedByProject, projectIds);
-      const sidebarSectionShowAllByProject = pruneProjectRecord(prev.sidebarSectionShowAllByProject, projectIds);
-      const slidingWindowPaneCount = clampSlidingWindowPaneCount(prev.slidingWindowPaneCount);
-
-      Object.keys(sidebarStageExpandedByProject).forEach((projectId) => {
-        if (!projectIds.has(projectId)) delete sidebarStageExpandedByProject[projectId];
-      });
-      Object.keys(sidebarSectionExpandedByProject).forEach((projectId) => {
-        if (!projectIds.has(projectId)) delete sidebarSectionExpandedByProject[projectId];
-      });
-      Object.keys(sidebarSectionShowAllByProject).forEach((projectId) => {
-        if (!projectIds.has(projectId)) delete sidebarSectionShowAllByProject[projectId];
-      });
-
-      projects.forEach((project) => {
-        const projectId = project.id;
-        sidebarStageExpandedByProject[projectId] = ensureSidebarStageState(
-          sidebarStageExpandedByProject[projectId],
-        );
-        sidebarSectionExpandedByProject[projectId] = normalizeSidebarSectionStateByProject({
-          [projectId]: sidebarSectionExpandedByProject[projectId],
-        })[projectId] ?? {};
-        sidebarSectionShowAllByProject[projectId] = normalizeSidebarSectionStateByProject({
-          [projectId]: sidebarSectionShowAllByProject[projectId],
-        })[projectId] ?? {};
-      });
-
-      const pagesTabs = makePagesStageTabs(recentPageSessions);
-      const hasActivePagesTab =
-        (prev.activePagesTabId === HISTORY_TAB_ID && pagesTabs.length > 0) ||
-        pagesTabs.some((tab) => tab.id === prev.activePagesTabId);
-      const activePagesTabId = hasActivePagesTab
-        ? prev.activePagesTabId
-        : pagesTabs[0]?.id ?? "";
-
-      const threadsTabs = ensureThreadsTabs(prev.threadsTabs);
-      const activeThreadsTabId = threadsTabs.some((tab) => tab.id === prev.activeThreadsTabId)
-        ? prev.activeThreadsTabId
-        : threadsTabs[0]?.id ?? "";
-
-      const filesTabs = ensureFilesTabs(prev.filesTabs);
-      const activeFilesTabId = filesTabs.some((tab) => tab.id === prev.activeFilesTabId)
-        ? prev.activeFilesTabId
-        : filesTabs[0]?.id ?? "diff";
-
-      const stagePanelWidths = normalizeStagePanelWidths(prev.stagePanelWidths);
-      const focusedStage = prev.focusedStage;
-      const stageNavDirection = isStageDirection(prev.stageNavDirection) ? prev.stageNavDirection : "right";
-
-      return {
-        ...prev,
-        projectOrder,
-        dbProjectId,
-        threadsProjectId,
-        viewsByProject,
-        searchByProject,
-        dbViewPrefsByProject,
-        recentPageSessions,
-        activeRecentSessionId,
-        focusedStage,
-        stageNavDirection,
-        sidebarStageExpandedByProject,
-        sidebarSectionExpandedByProject,
-        sidebarSectionShowAllByProject,
-        activePagesTabId,
-        threadsTabs,
-        activeThreadsTabId,
-        filesTabs,
-        activeFilesTabId,
-        stagePanelWidths,
-        slidingWindowPaneCount,
-      };
-    });
+    const selectFirstWhenEmpty = !hasReconciledProjectsRef.current;
+    setState((prev) =>
+      reconcileWorkbenchStateWithProjects(prev, projects, selectFirstWhenEmpty));
     hasReconciledProjectsRef.current = true;
   }, [options.projectsReady, projects, setState]);
 
-  useEffect(() => {
+  const pendingPersistStateRef = useRef<WorkbenchState | null>(null);
+  const persistTimerRef = useRef<number | null>(null);
+  const flushPersistedState = useCallback(() => {
+    if (persistTimerRef.current !== null) {
+      window.clearTimeout(persistTimerRef.current);
+      persistTimerRef.current = null;
+    }
+    const pending = pendingPersistStateRef.current;
+    if (!pending) return;
+    pendingPersistStateRef.current = null;
     writeJson(WORKBENCH_STORAGE_KEY, {
-      dbProjectId: state.dbProjectId,
-      threadsProjectId: state.threadsProjectId,
-      viewsByProject: state.viewsByProject,
-      searchByProject: state.searchByProject,
-      projectOrder: state.projectOrder,
-      activeRecentSessionId: state.activeRecentSessionId,
-      focusedStage: state.focusedStage,
-      stageNavDirection: state.stageNavDirection,
-      sidebarStageExpandedByProject: state.sidebarStageExpandedByProject,
-      sidebarSectionExpandedByProject: state.sidebarSectionExpandedByProject,
-      sidebarSectionShowAllByProject: state.sidebarSectionShowAllByProject,
-      activePagesTabId: state.activePagesTabId,
-      threadsTabs: state.threadsTabs,
-      activeThreadsTabId: state.activeThreadsTabId,
-      filesTabs: state.filesTabs,
-      activeFilesTabId: state.activeFilesTabId,
-      stagePanelWidths: state.stagePanelWidths,
-      slidingWindowPaneCount: state.slidingWindowPaneCount,
+      dbProjectId: pending.dbProjectId,
+      threadsProjectId: pending.threadsProjectId,
+      viewsByProject: pending.viewsByProject,
+      searchByProject: pending.searchByProject,
+      projectOrder: pending.projectOrder,
+      activeRecentSessionId: pending.activeRecentSessionId,
+      focusedStage: pending.focusedStage,
+      stageNavDirection: pending.stageNavDirection,
+      sidebarStageExpandedByProject: pending.sidebarStageExpandedByProject,
+      sidebarSectionExpandedByProject: pending.sidebarSectionExpandedByProject,
+      sidebarSectionShowAllByProject: pending.sidebarSectionShowAllByProject,
+      activePagesTabId: pending.activePagesTabId,
+      threadsTabs: pending.threadsTabs,
+      activeThreadsTabId: pending.activeThreadsTabId,
+      filesTabs: pending.filesTabs,
+      activeFilesTabId: pending.activeFilesTabId,
+      stagePanelWidths: pending.stagePanelWidths,
+      slidingWindowPaneCount: pending.slidingWindowPaneCount,
     } satisfies WorkbenchPrefs);
 
-    writeJson(SIDEBAR_STORAGE_KEY, state.sidebar);
-    writeNumberStorage(CODEX_SIDEBAR_WIDTH_STORAGE_KEY, state.sidebar.width);
-    writeJson(DOCK_STORAGE_KEY, state.dock);
-    writeJson(RECENT_STORAGE_KEY, state.recentPageSessions);
-    writeJson(DB_VIEW_PREFS_STORAGE_KEY, state.dbViewPrefsByProject);
-  }, [state]);
+    writeJson(SIDEBAR_STORAGE_KEY, pending.sidebar);
+    writeNumberStorage(CODEX_SIDEBAR_WIDTH_STORAGE_KEY, pending.sidebar.width);
+    writeJson(DOCK_STORAGE_KEY, pending.dock);
+    writeJson(RECENT_STORAGE_KEY, pending.recentPageSessions);
+    writeJson(DB_VIEW_PREFS_STORAGE_KEY, pending.dbViewPrefsByProject);
+  }, []);
+
+  useEffect(() => {
+    pendingPersistStateRef.current = state;
+    if (persistTimerRef.current !== null) {
+      window.clearTimeout(persistTimerRef.current);
+    }
+    persistTimerRef.current = window.setTimeout(
+      flushPersistedState,
+      WORKBENCH_PERSIST_DEBOUNCE_MS,
+    );
+  }, [flushPersistedState, state]);
+
+  useEffect(() => {
+    window.addEventListener("beforeunload", flushPersistedState);
+    return () => {
+      window.removeEventListener("beforeunload", flushPersistedState);
+      flushPersistedState();
+    };
+  }, [flushPersistedState]);
 
   const projectRefs = useMemo(
     () => state.projectOrder.map((projectId) => makeProjectRef(projectId)),

@@ -1,5 +1,5 @@
 import { Archive, Database, FileText, Library, Plus, Search } from "lucide-react";
-import { useDeferredValue, useState, type ReactNode } from "react";
+import { useDeferredValue, useMemo, useState, type ReactNode } from "react";
 
 import type {
   LibraryCatalogEntry,
@@ -224,7 +224,10 @@ export function LibraryHome({
     lifecycle,
     limit: 50,
   });
-  const items = catalog.data?.pages.flatMap((page) => page.items) ?? [];
+  const items = useMemo(
+    () => catalog.data?.pages.flatMap((page) => page.items) ?? [],
+    [catalog.data],
+  );
   return (
       <LibraryHomeView
         query={query}

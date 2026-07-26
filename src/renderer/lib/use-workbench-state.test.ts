@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { act } from "@testing-library/react";
+import { act, waitFor } from "@testing-library/react";
 import { createElement, useEffect, type ReactElement } from "react";
 import {
+  reconcileWorkbenchStateWithProjects,
   useWorkbenchState,
   workbenchStorageKeys,
   workbenchTestHelpers,
@@ -1058,11 +1059,14 @@ describe("use-workbench-state helpers", () => {
     expect(Object.hasOwn(capturedRef.current.sidebar, "topLevelSectionOrder")).toBe(false);
     expect(Object.hasOwn(capturedRef.current.sidebar, "topLevelSections")).toBe(false);
 
-    const rawSidebarPrefs = localStorageRef.getItem(workbenchStorageKeys.sidebar);
-    const sidebarPrefs = JSON.parse(rawSidebarPrefs ?? "{}") as Record<string, unknown>;
-    expect(Object.hasOwn(sidebarPrefs, "pinnedOrganizationMode")).toBe(false);
-    expect(Object.hasOwn(sidebarPrefs, "topLevelSectionOrder")).toBe(false);
-    expect(Object.hasOwn(sidebarPrefs, "topLevelSections")).toBe(false);
+    await waitFor(() => {
+      const rawSidebarPrefs = localStorageRef.getItem(workbenchStorageKeys.sidebar);
+      const sidebarPrefs = JSON.parse(rawSidebarPrefs ?? "{}") as Record<string, unknown>;
+      expect(Object.hasOwn(sidebarPrefs, "width")).toBe(true);
+      expect(Object.hasOwn(sidebarPrefs, "pinnedOrganizationMode")).toBe(false);
+      expect(Object.hasOwn(sidebarPrefs, "topLevelSectionOrder")).toBe(false);
+      expect(Object.hasOwn(sidebarPrefs, "topLevelSections")).toBe(false);
+    });
   });
 
   test("persists sidebar organizer section collapse state in sidebar prefs", async () => {
@@ -1088,13 +1092,48 @@ describe("use-workbench-state helpers", () => {
     });
     await settleAsyncRender();
 
-    const rawSidebarPrefs = localStorageRef.getItem(workbenchStorageKeys.sidebar);
-    const sidebarPrefs = JSON.parse(rawSidebarPrefs ?? "{}") as {
-      collapsibleSections?: { projects?: boolean; chats?: boolean; pinned?: boolean };
-    };
-    expect(sidebarPrefs.collapsibleSections?.projects).toBe(true);
-    expect(sidebarPrefs.collapsibleSections?.chats).toBe(true);
-    expect(sidebarPrefs.collapsibleSections?.pinned).toBe(false);
+    await waitFor(() => {
+      const rawSidebarPrefs = localStorageRef.getItem(workbenchStorageKeys.sidebar);
+      const sidebarPrefs = JSON.parse(rawSidebarPrefs ?? "{}") as {
+        collapsibleSections?: { projects?: boolean; chats?: boolean; pinned?: boolean };
+      };
+      expect(sidebarPrefs.collapsibleSections?.projects).toBe(true);
+      expect(sidebarPrefs.collapsibleSections?.chats).toBe(true);
+      expect(sidebarPrefs.collapsibleSections?.pinned).toBe(false);
+    });
+  });
+
+  test("reconcile keeps the previous state identity when the catalog implies no change", () => {
+    resetStorage();
+    const projects = [makeProject("alpha", "Alpha"), makeProject("beta", "Beta")];
+    const first = reconcileWorkbenchStateWithProjects(
+      workbenchTestHelpers.loadInitialState(),
+      projects,
+      true,
+    );
+    const second = reconcileWorkbenchStateWithProjects(first, projects, false);
+    expect(second).toBe(first);
+
+    const clonedCatalog = projects.map((project) => ({ ...project }));
+    expect(reconcileWorkbenchStateWithProjects(first, clonedCatalog, false)).toBe(first);
+  });
+
+  test("reconcile shares unchanged slices when the catalog changes", () => {
+    resetStorage();
+    const first = reconcileWorkbenchStateWithProjects(
+      workbenchTestHelpers.loadInitialState(),
+      [makeProject("alpha", "Alpha")],
+      true,
+    );
+    const next = reconcileWorkbenchStateWithProjects(
+      first,
+      [makeProject("alpha", "Alpha"), makeProject("beta", "Beta")],
+      false,
+    );
+    expect(next).not.toBe(first);
+    expect(next.projectOrder).toEqual(["alpha", "beta"]);
+    expect(next.threadsTabs).toBe(first.threadsTabs);
+    expect(next.recentPageSessions).toBe(first.recentPageSessions);
   });
 
   resetStorage();
