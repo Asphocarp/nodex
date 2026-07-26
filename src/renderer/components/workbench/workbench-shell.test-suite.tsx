@@ -5276,8 +5276,10 @@ describe(`workbench session shell / ${scope}`, () => {
     });
 
     expect(screen.setDbProjectCalls.includes("beta")).toBe(false);
-    expect(textContent(document.body).includes("Add source folder")).toBe(true);
-    expect(textContent(document.body).includes("Edit sources")).toBe(true);
+    expect(textContent(document.body).includes("Edit project")).toBe(true);
+    expect(textContent(document.body).includes("Archive chats")).toBe(true);
+    expect(textContent(document.body).includes("Add source folder")).toBe(false);
+    expect(textContent(document.body).includes("Edit sources")).toBe(false);
   });
 
   test("pinned project groups render above normal projects and are excluded from Projects", async () => {

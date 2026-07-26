@@ -757,7 +757,7 @@ export interface IpcApi {
     args: [input: ProjectPinnedOrderInput];
     result: void;
   };
-  "projects:pick-source-root": { args: []; result: string | null };
+  "projects:pick-source-roots": { args: []; result: string[] };
   "workspace:pick-directory": {
     args: [input?: WorkspacePickDirectoryInput];
     result: string | null;

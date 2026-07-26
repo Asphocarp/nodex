@@ -3987,6 +3987,48 @@ export function WorkbenchShell({
     refreshSidebarThreadSnapshot,
   ]);
 
+  const archiveSidebarThreadItemQuiet = useCallback(async (
+    item: CodexSidebarThreadItem,
+  ): Promise<boolean> => {
+    if (item.disabled || item.kind === "pending-worktree") return false;
+    if (!beginSidebarArchive(item.key)) return false;
+
+    try {
+      const session = item.sessionId
+        ? knownSessions.find((candidate) => candidate.id === item.sessionId) ?? null
+        : knownSessions.find((candidate) => candidate.thread?.threadId === item.threadId) ?? null;
+      if (session) return await archiveSession(session, { showToast: false });
+
+      await invoke("codex:thread:archive", item.threadId);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      finishSidebarArchive(item.key);
+    }
+  }, [archiveSession, beginSidebarArchive, finishSidebarArchive, knownSessions]);
+
+  const markSidebarThreadItemRead = useCallback(async (item: CodexSidebarThreadItem) => {
+    const session = item.sessionId
+      ? knownSessions.find((candidate) => candidate.id === item.sessionId) ?? null
+      : knownSessions.find((candidate) => candidate.thread?.threadId === item.threadId) ?? null;
+    if (session?.thread?.threadId) {
+      await workbenchCodexControl.markConversationAsRead(session.thread.threadId);
+      mergeSessionInState({ ...session, unread: false });
+      return;
+    }
+    if (session) {
+      const updated = await invoke(
+        "project-sessions:mark-unread",
+        session.id,
+        { unread: false },
+      ) as ProjectSessionDomain | null;
+      if (updated) mergeSessionInState(updated);
+      return;
+    }
+    await workbenchCodexControl.markConversationAsRead(item.threadId);
+  }, [knownSessions, mergeSessionInState, workbenchCodexControl]);
+
   const toggleSessionUnread = useCallback(async (session: ProjectSession) => {
     const hasUnreadTurn = !session.unread;
     try {
@@ -10148,6 +10190,9 @@ export function WorkbenchShell({
               onSessionTitleDoubleClick={handleSessionTitleDoubleClick}
               onPendingWorktreeTitleDoubleClick={handlePendingWorktreeTitleDoubleClick}
               onArchiveSidebarThread={archiveSidebarThreadItem}
+              onArchiveThreadItem={archiveSidebarThreadItemQuiet}
+              onMarkThreadItemRead={markSidebarThreadItemRead}
+              onThreadsChanged={refreshSidebarThreadSnapshot}
               onToggleSessionPinned={toggleSessionPin}
               onToggleSidebarThreadPinned={toggleSidebarThreadPinned}
               onStartNewChatInProject={(projectId) => {
@@ -10259,6 +10304,9 @@ export function WorkbenchShell({
                   onSessionTitleDoubleClick={handleSessionTitleDoubleClick}
                   onPendingWorktreeTitleDoubleClick={handlePendingWorktreeTitleDoubleClick}
                   onArchiveSidebarThread={archiveSidebarThreadItem}
+                  onArchiveThreadItem={archiveSidebarThreadItemQuiet}
+                  onMarkThreadItemRead={markSidebarThreadItemRead}
+                  onThreadsChanged={refreshSidebarThreadSnapshot}
                   onToggleSessionPinned={toggleSessionPin}
                   onToggleSidebarThreadPinned={toggleSidebarThreadPinned}
                   onStartNewChatInProject={(projectId) => {
@@ -11039,6 +11087,9 @@ function SidebarThreadOrganizerSections({
   onSessionTitleDoubleClick,
   onPendingWorktreeTitleDoubleClick,
   onArchiveSidebarThread,
+  onArchiveThreadItem,
+  onMarkThreadItemRead,
+  onThreadsChanged,
   onToggleSessionPinned,
   onToggleSidebarThreadPinned,
   onStartNewChatInProject,
@@ -11095,6 +11146,9 @@ function SidebarThreadOrganizerSections({
     event: ReactMouseEvent<HTMLElement>,
   ) => void;
   onArchiveSidebarThread?: (item: CodexSidebarThreadItem) => void | Promise<void>;
+  onArchiveThreadItem?: (item: CodexSidebarThreadItem) => Promise<boolean>;
+  onMarkThreadItemRead?: (item: CodexSidebarThreadItem) => Promise<void>;
+  onThreadsChanged?: () => Promise<unknown> | void;
   onToggleSessionPinned?: (session: ProjectSession) => void | Promise<void>;
   onToggleSidebarThreadPinned?: (item: CodexSidebarThreadItem) => void | Promise<void>;
   onStartNewChatInProject: (projectId: string | null) => void | Promise<void>;
@@ -11644,6 +11698,9 @@ function SidebarThreadOrganizerSections({
             }, groupDndController) => {
               const expanded = expandedProjectIds.has(project.id);
               const threadListExpanded = expandedProjectThreadListIds.has(project.id);
+              const projectThreadItems = Array.from(new Set([...pinnedThreadKeys, ...threadKeys]))
+                .map((threadKey) => sidebarThreadItemsByKey.get(threadKey))
+                .filter((item): item is CodexSidebarThreadItem => item != null);
               return (
                 <CodexProjectRow
                   key={project.id}
@@ -11652,6 +11709,7 @@ function SidebarThreadOrganizerSections({
                   expanded={expanded}
                   groupDndController={groupDndController}
                   allowProjectReorder
+                  threadItems={projectThreadItems}
                   onActivate={() => onToggleProjectExpanded(project.id)}
                   onSelectProject={() => onSelectProject(project.id)}
                   onStartNewChat={() => void onStartNewChatInProject(project.id)}
@@ -11661,6 +11719,9 @@ function SidebarThreadOrganizerSections({
                   onCreateStableWorktree={onCreateStableWorktree}
                   stableWorktreeWorkspaceRootOptions={stableWorktreeWorkspaceRootOptions}
                   stableWorktreeWorkspaceRootLabels={stableWorktreeWorkspaceRootLabels}
+                  onArchiveThreadItem={onArchiveThreadItem}
+                  onMarkThreadItemRead={onMarkThreadItemRead}
+                  onThreadsChanged={onThreadsChanged}
                 >
                   <SidebarProjectThreadRowsContent
                     project={project}
@@ -11891,6 +11952,9 @@ function ProjectSessionSidebar({
   onSessionTitleDoubleClick,
   onPendingWorktreeTitleDoubleClick,
   onArchiveSidebarThread,
+  onArchiveThreadItem,
+  onMarkThreadItemRead,
+  onThreadsChanged,
   onToggleSessionPinned,
   onToggleSidebarThreadPinned,
   onStartNewChatInProject,
@@ -11972,6 +12036,9 @@ function ProjectSessionSidebar({
     event: ReactMouseEvent<HTMLElement>,
   ) => void;
   onArchiveSidebarThread?: (item: CodexSidebarThreadItem) => void | Promise<void>;
+  onArchiveThreadItem?: (item: CodexSidebarThreadItem) => Promise<boolean>;
+  onMarkThreadItemRead?: (item: CodexSidebarThreadItem) => Promise<void>;
+  onThreadsChanged?: () => Promise<unknown> | void;
   onToggleSessionPinned?: (session: ProjectSession) => void | Promise<void>;
   onToggleSidebarThreadPinned?: (item: CodexSidebarThreadItem) => void | Promise<void>;
   onStartNewChatInProject: (projectId: string | null) => void | Promise<void>;
@@ -12322,6 +12389,9 @@ function ProjectSessionSidebar({
                   onSessionTitleDoubleClick={onSessionTitleDoubleClick}
                   onPendingWorktreeTitleDoubleClick={onPendingWorktreeTitleDoubleClick}
                   onArchiveSidebarThread={onArchiveSidebarThread}
+                  onArchiveThreadItem={onArchiveThreadItem}
+                  onMarkThreadItemRead={onMarkThreadItemRead}
+                  onThreadsChanged={onThreadsChanged}
                   onToggleSessionPinned={onToggleSessionPinned}
                   onToggleSidebarThreadPinned={onToggleSidebarThreadPinned}
                   onStartNewChatInProject={onStartNewChatInProject}

@@ -2317,6 +2317,9 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     case "workspace:pick-directory": {
       return null;
     }
+    case "projects:pick-source-roots": {
+      return [];
+    }
     case "worktrees:delete": {
       return false;
     }

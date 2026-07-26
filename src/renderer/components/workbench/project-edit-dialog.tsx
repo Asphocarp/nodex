@@ -1,0 +1,392 @@
+import {
+  useId,
+  useState,
+  type Dispatch,
+  type DragEvent,
+  type FormEvent,
+  type ReactNode,
+  type SetStateAction,
+} from "react";
+import { motion, useReducedMotion } from "motion/react";
+import {
+  CodexCloseIcon,
+  CodexFolderIcon,
+  CodexFolderPlusIcon,
+} from "@/components/shared/icons";
+import { NodexButton } from "@/components/ui/button";
+import {
+  NodexDialog,
+  NodexDialogContent,
+  NodexDialogTitle,
+} from "@/components/ui/dialog";
+import { toast } from "@/components/ui/toast";
+import { NodexTooltip } from "@/components/ui/tooltip";
+import { invoke } from "@/lib/api";
+import {
+  dedupeSourceRoots,
+  makeSourceRootPrimary,
+  sourceRootDisplayName,
+} from "@/lib/project-sources";
+import type { Project, ProjectLifecycleMutationResult } from "@/lib/types";
+import { cn } from "@/lib/utils";
+import { ProjectRemoveDialog } from "./project-remove-dialog";
+
+const PRIMARY_SOURCE_TOOLTIP = "Agents run in this folder and look inside it for AGENTS.md and skills";
+
+export interface ProjectDialogSubmitInput {
+  name: string;
+  sources: string[];
+}
+
+function collectDroppedFolderPaths(dataTransfer: DataTransfer): string[] {
+  const getPathForFile = window.api?.getPathForFile;
+  const items = Array.from(dataTransfer.items);
+  const paths: string[] = [];
+  Array.from(dataTransfer.files).forEach((file, index) => {
+    const entry = items[index]?.webkitGetAsEntry?.();
+    if (entry != null && !entry.isDirectory) return;
+    const path = getPathForFile?.(file) ?? "";
+    if (path) paths.push(path);
+  });
+  return paths;
+}
+
+function ProjectSourceRow({
+  root,
+  isPrimary,
+  animateReorder,
+  onMakePrimary,
+  onRemove,
+}: {
+  root: string;
+  isPrimary: boolean;
+  animateReorder: boolean;
+  onMakePrimary?: (root: string) => void;
+  onRemove: (root: string) => void;
+}) {
+  const displayName = sourceRootDisplayName(root);
+
+  return (
+    <motion.div
+      layout="position"
+      transition={animateReorder ? { duration: 0.15, ease: "easeOut" } : { duration: 0 }}
+      className="group flex h-12 min-w-0 items-center gap-2 px-3 text-left"
+    >
+      <NodexTooltip tooltipContent={root}>
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <CodexFolderIcon className="icon-sm shrink-0 text-token-description-foreground" />
+          <span className="min-w-0 truncate text-sm text-token-text-primary">
+            {displayName}
+          </span>
+        </div>
+      </NodexTooltip>
+      {isPrimary ? (
+        <NodexTooltip tooltipContent={PRIMARY_SOURCE_TOOLTIP}>
+          <span className="flex h-token-button-composer cursor-default items-center rounded-lg border border-token-border-default bg-transparent px-2.5 py-0 text-sm leading-[18px] font-medium text-token-text-secondary">
+            Primary
+          </span>
+        </NodexTooltip>
+      ) : null}
+      {onMakePrimary ? (
+        <NodexButton
+          variant="secondary"
+          size="composer"
+          type="button"
+          className="text-sm opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
+          aria-label={`Make ${displayName} primary`}
+          onClick={() => onMakePrimary(root)}
+        >
+          Make primary
+        </NodexButton>
+      ) : null}
+      <button
+        type="button"
+        className="flex size-6 shrink-0 cursor-interaction items-center justify-center rounded text-token-text-tertiary hover:bg-token-list-hover-background hover:text-token-foreground focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:outline-none"
+        aria-label={`Remove ${displayName}`}
+        onClick={() => onRemove(root)}
+      >
+        <CodexCloseIcon className="icon-xs" />
+      </button>
+    </motion.div>
+  );
+}
+
+export function ProjectSourcesEditor({
+  sources,
+  setSources,
+}: {
+  sources: string[];
+  setSources: Dispatch<SetStateAction<string[]>>;
+}) {
+  const [draggingOver, setDraggingOver] = useState(false);
+  const [animateReorder, setAnimateReorder] = useState(false);
+  const reducedMotion = useReducedMotion();
+
+  const appendSources = (picked: string[]) => {
+    setDraggingOver(false);
+    if (picked.length === 0) return;
+    setAnimateReorder(false);
+    setSources((previous) => dedupeSourceRoots([...previous, ...picked]));
+  };
+
+  const addFolder = async () => {
+    const picked = (await invoke("projects:pick-source-roots")) as string[];
+    appendSources(picked);
+  };
+
+  const makePrimary = (root: string) => {
+    setAnimateReorder(true);
+    setSources((previous) => makeSourceRootPrimary(previous, root));
+  };
+
+  const removeSource = (root: string) => {
+    setAnimateReorder(false);
+    setSources((previous) => previous.filter((candidate) => candidate !== root));
+  };
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    appendSources(collectDroppedFolderPaths(event.dataTransfer));
+  };
+
+  const empty = sources.length === 0;
+  const primaryRoot = sources[0] ?? null;
+
+  return (
+    <div className="flex w-full flex-col gap-2 pt-3">
+      <span className="text-sm font-medium text-token-text-primary select-none">
+        Source folders
+      </span>
+      <motion.div
+        layoutScroll
+        onDragEnter={(event) => {
+          event.preventDefault();
+          setDraggingOver(true);
+        }}
+        onDragOver={(event) => {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+          setDraggingOver(true);
+        }}
+        onDragLeave={() => setDraggingOver(false)}
+        onDrop={handleDrop}
+        className={cn(
+          "max-h-[min(22.5rem,calc(100dvh-20rem))] divide-y divide-token-border overflow-y-auto rounded-lg border bg-token-input-background",
+          draggingOver ? "border-dashed border-token-focus-border" : "border-token-border",
+        )}
+      >
+        {sources.map((root) => (
+          <ProjectSourceRow
+            key={root}
+            root={root}
+            isPrimary={root === primaryRoot && sources.length > 1}
+            animateReorder={animateReorder && !reducedMotion}
+            onMakePrimary={root === primaryRoot ? undefined : makePrimary}
+            onRemove={removeSource}
+          />
+        ))}
+        <button
+          type="button"
+          className={cn(
+            "flex w-full cursor-interaction items-center text-sm text-token-text-primary hover:bg-token-list-hover-background focus-visible:bg-token-list-hover-background focus-visible:outline-none",
+            empty ? "h-24 flex-col justify-center gap-1 p-3 text-center" : "h-12 gap-2 px-3 text-left",
+          )}
+          aria-label={empty ? "Choose source folders" : undefined}
+          onClick={() => void addFolder()}
+        >
+          <CodexFolderPlusIcon className="icon-sm text-token-description-foreground" />
+          {empty ? "Add folders agents can read and edit" : "Add folder"}
+        </button>
+      </motion.div>
+    </div>
+  );
+}
+
+function ProjectDialogForm({
+  title,
+  submitLabel,
+  saveErrorMessage,
+  initialName,
+  initialSources,
+  requireSources = false,
+  onSubmit,
+  onClose,
+  onRemoveProject,
+}: {
+  title: string;
+  submitLabel: string;
+  saveErrorMessage: string;
+  initialName: string;
+  initialSources: readonly string[];
+  requireSources?: boolean;
+  onSubmit: (input: ProjectDialogSubmitInput) => Promise<void>;
+  onClose: () => void;
+  onRemoveProject?: () => void;
+}) {
+  const nameInputId = useId();
+  const [name, setName] = useState(initialName);
+  const [sources, setSources] = useState<string[]>(() => dedupeSourceRoots(initialSources));
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    try {
+      await onSubmit({ name, sources });
+      onClose();
+    } catch {
+      setSaving(false);
+      toast.danger(saveErrorMessage);
+    }
+  };
+
+  return (
+    <form className="flex min-h-0 flex-col" onSubmit={(event) => void submit(event)}>
+      <NodexDialogTitle>{title}</NodexDialogTitle>
+      <div className="flex w-full flex-col gap-2 pt-3">
+        <label htmlFor={nameInputId} className="sr-only">
+          Name
+        </label>
+        <div className="flex h-10 shrink-0 items-center gap-2 overflow-hidden rounded-xl border border-token-border bg-token-input-background pr-3 pl-0 focus-within:border-token-focus-border">
+          <span
+            aria-hidden="true"
+            className="flex h-full w-10 shrink-0 items-center justify-center border-r border-token-border text-token-description-foreground"
+          >
+            <CodexFolderIcon className="icon-xs" />
+          </span>
+          <input
+            id={nameInputId}
+            autoFocus
+            className="min-w-0 flex-1 bg-transparent text-sm text-token-input-foreground outline-none placeholder:text-token-description-foreground"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Project name"
+            aria-label="Project name"
+          />
+        </div>
+      </div>
+      <ProjectSourcesEditor sources={sources} setSources={setSources} />
+      <div className="mt-auto flex w-full items-center justify-between gap-3 pt-5">
+        <div className="flex items-center gap-3">
+          {onRemoveProject ? (
+            <NodexButton
+              variant="destructive"
+              type="button"
+              disabled={saving}
+              onClick={onRemoveProject}
+            >
+              Remove project
+            </NodexButton>
+          ) : null}
+        </div>
+        <div className="flex items-center justify-end gap-3">
+          <NodexButton variant="ghost" type="button" onClick={onClose}>
+            Cancel
+          </NodexButton>
+          <NodexButton
+            variant="primary"
+            type="submit"
+            disabled={saving || (requireSources && sources.length === 0)}
+          >
+            {submitLabel}
+          </NodexButton>
+        </div>
+      </div>
+    </form>
+  );
+}
+
+function ProjectDialogShell({
+  open,
+  onOpenChange,
+  children,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: ReactNode;
+}) {
+  return (
+    <NodexDialog open={open} onOpenChange={onOpenChange}>
+      <NodexDialogContent className="w-[520px] gap-0 p-5 sm:max-w-[520px] max-h-[calc(100dvh-2rem)]">
+        {children}
+      </NodexDialogContent>
+    </NodexDialog>
+  );
+}
+
+export function ProjectEditDialog({
+  open,
+  project,
+  onOpenChange,
+  onSubmit,
+  onArchiveProject,
+}: {
+  open: boolean;
+  project: Project;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: (input: ProjectDialogSubmitInput) => Promise<void>;
+  onArchiveProject?: (projectId: string) => Promise<ProjectLifecycleMutationResult>;
+}) {
+  const [removeOpen, setRemoveOpen] = useState(false);
+  const initialSources = project.sources
+    .map((source) => source.root)
+    .filter((root) => root.trim().length > 0);
+  const formKey = `${project.id}:${project.name}:${initialSources.join("\0")}`;
+
+  return (
+    <>
+      <ProjectDialogShell open={open} onOpenChange={onOpenChange}>
+        <ProjectDialogForm
+          key={formKey}
+          title="Edit project"
+          submitLabel="Save"
+          saveErrorMessage="Failed to save project"
+          initialName={project.name}
+          initialSources={initialSources}
+          onSubmit={onSubmit}
+          onClose={() => onOpenChange(false)}
+          onRemoveProject={onArchiveProject ? () => setRemoveOpen(true) : undefined}
+        />
+      </ProjectDialogShell>
+      {onArchiveProject ? (
+        <ProjectRemoveDialog
+          open={removeOpen}
+          project={project}
+          onOpenChange={setRemoveOpen}
+          onArchiveProject={async (projectId) => {
+            const result = await onArchiveProject(projectId);
+            if (result.kind === "updated") onOpenChange(false);
+            return result;
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+export function ProjectCreateDialog({
+  open,
+  onOpenChange,
+  onCreate,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreate: (input: ProjectDialogSubmitInput) => Promise<void>;
+}) {
+  return (
+    <ProjectDialogShell open={open} onOpenChange={onOpenChange}>
+      <ProjectDialogForm
+        key={open ? "open" : "closed"}
+        title="Create project"
+        submitLabel="Create project"
+        saveErrorMessage="Failed to create project"
+        initialName=""
+        initialSources={[]}
+        requireSources
+        onSubmit={onCreate}
+        onClose={() => onOpenChange(false)}
+      />
+    </ProjectDialogShell>
+  );
+}

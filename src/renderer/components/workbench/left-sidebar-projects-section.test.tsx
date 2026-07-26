@@ -259,14 +259,14 @@ describe("SidebarProjectsSection", () => {
     expect(queryByText("Alpha")).toBe(null);
   });
 
-  test("moves project folder selection into the project actions menu", async () => {
+  test("edits name and source folders through the Edit project dialog", async () => {
     const updateCalls: unknown[][] = [];
     mockInvokeImpl = async (channel) => {
-      if (channel === "projects:pick-source-root") return "/repo/selected";
+      if (channel === "projects:pick-source-roots") return ["/repo/selected"];
       return null;
     };
 
-    const { getByLabelText, getByText } = renderProjectsSection(
+    const { getByLabelText, getByText, queryByText, findByText } = renderProjectsSection(
       <SidebarProjectsSection
         projects={PROJECTS}
         projectRefs={[
@@ -281,7 +281,7 @@ describe("SidebarProjectsSection", () => {
         onArchiveProject={async () => ({ kind: "not-found" })}
         onUpdateProject={async (projectId, updates) => {
           updateCalls.push([projectId, updates]);
-          return null;
+          return PROJECTS[1] ?? null;
         }}
         projectPickerOpenTick={0}
       />,
@@ -292,19 +292,78 @@ describe("SidebarProjectsSection", () => {
       await Promise.resolve();
     });
 
-    expect(getByText("Open in Finder").textContent).toBe("Open in Finder");
-    expect(getByText("Add source folder").textContent).toBe("Add source folder");
+    expect(getByText("Edit project").textContent).toBe("Edit project");
+    expect(getByText("Archive chats").textContent).toBe("Archive chats");
+    expect(getByText("Remove").textContent).toBe("Remove");
+    expect(queryByText("Add source folder")).toBe(null);
+    expect(queryByText("Edit sources")).toBe(null);
+    expect(queryByText("Rename")).toBe(null);
+    expect(queryByText("Choose icon")).toBe(null);
 
     await act(async () => {
-      fireEvent.click(getByText("Add source folder"));
+      fireEvent.click(getByText("Edit project"));
       await Promise.resolve();
     });
 
-    expect(invokeCalls.some((call) => call[0] === "projects:pick-source-root")).toBe(true);
-    expect(JSON.stringify(updateCalls[0])).toBe(JSON.stringify([
-      "beta",
-      { sources: ["/repo/beta", "/repo/selected"] },
-    ]));
+    await findByText("Source folders");
+    expect(getByText("beta").textContent).toBe("beta");
+    expect(queryByText("Primary")).toBe(null);
+
+    await act(async () => {
+      fireEvent.click(getByText("Add folder"));
+      await Promise.resolve();
+    });
+
+    expect(invokeCalls.some((call) => call[0] === "projects:pick-source-roots")).toBe(true);
+    await findByText("selected");
+    expect(getByText("Primary").textContent).toBe("Primary");
+
+    await act(async () => {
+      fireEvent.click(getByText("Save"));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(JSON.stringify(updateCalls[0])).toBe(JSON.stringify([
+        "beta",
+        { name: "Beta", sources: ["/repo/beta", "/repo/selected"] },
+      ]));
+    });
+  });
+
+  test("hides the reveal action for projects with multiple source folders", async () => {
+    const multiRootBeta: Project = {
+      ...PROJECTS[1]!,
+      sources: [
+        { root: "/repo/beta", order: 0 },
+        { root: "/repo/beta-docs", order: 1 },
+      ],
+    };
+
+    const { getByLabelText, getByText, queryByText } = renderProjectsSection(
+      <SidebarProjectsSection
+        projects={[multiRootBeta]}
+        projectRefs={[
+          { projectId: "beta", colorToken: "var(--accent-blue)", initial: "B" },
+        ]}
+        activeProjectId="beta"
+        expanded
+        onToggleExpanded={() => undefined}
+        onSelectProject={() => undefined}
+        onCreateProject={async () => null}
+        onArchiveProject={async () => ({ kind: "not-found" })}
+        onUpdateProject={async () => null}
+        projectPickerOpenTick={0}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.pointerDown(getByLabelText("Project actions for Beta"), { button: 0, ctrlKey: false });
+      await Promise.resolve();
+    });
+
+    expect(getByText("Edit project").textContent).toBe("Edit project");
+    expect(queryByText(/Reveal in Finder|Open in Explorer|Open in File Manager/)).toBe(null);
   });
 
   test("wraps expanded project sessions in the Codex height and opacity motion disclosure", () => {

@@ -7,19 +7,21 @@ import type {
   ReactNode,
 } from "react";
 import { forwardRef, useEffect, useMemo, useState } from "react";
-import { FolderMinus, FolderOpen, FolderPlus, Pencil, Smile } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS, useCombinedRefs, type Transform } from "@dnd-kit/utilities";
 import {
   BranchStatusIcon,
+  CheckmarkIcon,
   CodexArchiveIcon,
-  CodexFolderIcon,
+  CodexCloseIcon,
+  CodexPinOffIcon,
   CodexProjectFolderIcon,
   CodexProjectFolderOpenIcon,
   CodexProjectActionsIcon,
   CodexSessionPinFilledIcon,
   CodexSessionPinIcon,
+  CodexSettingsGeneralIcon,
   CodexSpinnerIcon,
   ChevronDownIcon,
   WorktreeStatusIcon,
@@ -27,16 +29,7 @@ import {
 import {
   NodexDropdownItem,
   NodexDropdownMenu,
-  NodexDropdownSeparator,
 } from "@/components/ui/dropdown";
-import { NodexButton } from "@/components/ui/button";
-import {
-  NodexDialog,
-  NodexDialogContent,
-  NodexDialogFooter,
-  NodexDialogHeader,
-  NodexDialogTitle,
-} from "@/components/ui/dialog";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { invoke } from "@/lib/api";
 import { CODEX_SIDEBAR_PROJECT_FOLDER_TRANSITION } from "@/lib/codex-panel-motion";
@@ -59,6 +52,11 @@ import {
 } from "./sidebar-thread-reorder";
 import { StableWorktreeCreateDialog } from "./stable-worktree-create-dialog";
 import { suggestStableWorktreeProjectName } from "./stable-worktree-production";
+import {
+  ProjectArchiveChatsDialog,
+  runProjectThreadBatches,
+} from "./project-archive-chats-dialog";
+import { ProjectEditDialog } from "./project-edit-dialog";
 import { ProjectRemoveDialog } from "./project-remove-dialog";
 
 type SidebarRowActionEvent =
@@ -267,8 +265,15 @@ export function CodexSidebarSection({
   );
 }
 
+function revealInFileManagerLabel(): string {
+  if (isMacPlatform()) return "Reveal in Finder";
+  const platform = typeof navigator === "undefined" ? "" : navigator.platform.toUpperCase();
+  return platform.includes("WIN") ? "Open in Explorer" : "Open in File Manager";
+}
+
 export function CodexProjectActionsMenu({
   project,
+  threadItems = [],
   onUpdateProject,
   onArchiveProject,
   onSetProjectPinned,
@@ -276,8 +281,12 @@ export function CodexProjectActionsMenu({
   canCreateStableWorktree = false,
   stableWorktreeWorkspaceRootOptions = [],
   stableWorktreeWorkspaceRootLabels = {},
+  onArchiveThreadItem,
+  onMarkThreadItemRead,
+  onThreadsChanged,
 }: {
   project: Project;
+  threadItems?: readonly CodexSidebarThreadItem[];
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
   onArchiveProject: (projectId: string) => Promise<ProjectLifecycleMutationResult>;
   onSetProjectPinned?: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
@@ -285,72 +294,42 @@ export function CodexProjectActionsMenu({
   canCreateStableWorktree?: boolean;
   stableWorktreeWorkspaceRootOptions?: readonly string[];
   stableWorktreeWorkspaceRootLabels?: Readonly<Record<string, string | undefined>>;
+  onArchiveThreadItem?: (item: CodexSidebarThreadItem) => Promise<boolean>;
+  onMarkThreadItemRead?: (item: CodexSidebarThreadItem) => Promise<void>;
+  onThreadsChanged?: () => Promise<unknown> | void;
 }) {
   const [open, setOpen] = useState(false);
-  const [renameOpen, setRenameOpen] = useState(false);
-  const [iconOpen, setIconOpen] = useState(false);
-  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [archiveChatsOpen, setArchiveChatsOpen] = useState(false);
   const [createStableWorktreeOpen, setCreateStableWorktreeOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
-  const [draftName, setDraftName] = useState(project.name);
-  const [draftIcon, setDraftIcon] = useState(project.icon ?? "");
-  const [draftSources, setDraftSources] = useState<string[]>(() => normalizeProjectSources(project));
   const primaryWorkspaceRoot = normalizePrimaryWorkspaceRoot(project);
+  const sourceRoots = normalizeProjectSources(project);
   const initialStableWorktreeProjectName = suggestStableWorktreeProjectName({
     base: project.name,
     workspaceRootOptions: stableWorktreeWorkspaceRootOptions,
     workspaceRootLabels: stableWorktreeWorkspaceRootLabels,
   });
-
-  useEffect(() => {
-    if (renameOpen) setDraftName(project.name);
-  }, [project.name, renameOpen]);
-
-  useEffect(() => {
-    if (iconOpen) setDraftIcon(project.icon ?? "");
-  }, [iconOpen, project.icon]);
-
-  useEffect(() => {
-    if (sourcesOpen) setDraftSources(normalizeProjectSources(project));
-  }, [project, sourcesOpen]);
-
-  const pickProjectSourceRoot = async () => {
-    const pickedPath = (await invoke("projects:pick-source-root")) as string | null;
-    if (!pickedPath) return;
-    return pickedPath;
-  };
-
-  const addProjectSource = async () => {
-    const pickedPath = await pickProjectSourceRoot();
-    if (!pickedPath) return;
-    const sources = [...normalizeProjectSources(project), pickedPath];
-    await onUpdateProject(project.id, { sources });
-  };
+  const archiveableItems = threadItems.filter((item) => (
+    !item.archived && !item.disabled && item.kind !== "pending-worktree"
+  ));
+  const unreadItems = threadItems.filter((item) => item.unread && !item.archived);
 
   const openProjectFolder = async () => {
     if (!primaryWorkspaceRoot) return;
     await invoke("shell:open-file-link", { path: primaryWorkspaceRoot }, "fileManager");
   };
 
-  const submitRename = async () => {
-    const nextName = draftName.trim();
-    if (!nextName) return;
-    const updated = await onUpdateProject(project.id, { name: nextName });
-    if (!updated) return;
-    setRenameOpen(false);
-  };
-
-  const submitIcon = async () => {
-    const updated = await onUpdateProject(project.id, { icon: draftIcon.trim() || undefined });
-    if (!updated) return;
-    setIconOpen(false);
-  };
-
-  const submitSources = async () => {
-    const sources = draftSources.map((source) => source.trim()).filter(Boolean);
-    const updated = await onUpdateProject(project.id, { sources });
-    if (!updated) return;
-    setSourcesOpen(false);
+  const markAllThreadsRead = async () => {
+    if (!onMarkThreadItemRead) return;
+    await runProjectThreadBatches(unreadItems, async (item) => {
+      try {
+        await onMarkThreadItemRead(item);
+      } catch {
+        // Leave the item unread; the next refresh reflects the actual state.
+      }
+    });
+    await onThreadsChanged?.();
   };
 
   return (
@@ -366,8 +345,8 @@ export function CodexProjectActionsMenu({
           open={open}
           onOpenChange={setOpen}
           side="bottom"
-          align="end"
-          contentWidth="menu"
+          align="start"
+          contentWidth="xs"
           triggerButton={(
             <button
               type="button"
@@ -379,21 +358,9 @@ export function CodexProjectActionsMenu({
             </button>
           )}
         >
-          <NodexDropdownItem
-            leftSlot={<Pencil className="icon-sm" />}
-            onSelect={() => setRenameOpen(true)}
-          >
-            Rename
-          </NodexDropdownItem>
-          <NodexDropdownItem
-            leftSlot={<Smile className="icon-sm" />}
-            onSelect={() => setIconOpen(true)}
-          >
-            Choose icon
-          </NodexDropdownItem>
           {onSetProjectPinned ? (
             <NodexDropdownItem
-              leftSlot={project.pinned ? <CodexSessionPinFilledIcon className="icon-sm" /> : <CodexSessionPinIcon className="icon-sm" />}
+              leftSlot={project.pinned ? <CodexPinOffIcon className="icon-xs" /> : <CodexSessionPinIcon className="icon-xs" />}
               onSelect={() => {
                 void onSetProjectPinned(project.id, { pinned: !project.pinned });
               }}
@@ -401,21 +368,19 @@ export function CodexProjectActionsMenu({
               {project.pinned ? "Unpin project" : "Pin project"}
             </NodexDropdownItem>
           ) : null}
-          <NodexDropdownSeparator />
-          {primaryWorkspaceRoot ? (
+          {primaryWorkspaceRoot && sourceRoots.length === 1 ? (
             <NodexDropdownItem
-              leftSlot={<FolderOpen className="icon-sm" />}
-              subText={primaryWorkspaceRoot}
+              leftSlot={<CodexProjectFolderOpenIcon className="icon-xs" />}
               onSelect={() => {
                 void openProjectFolder();
               }}
             >
-              Open in Finder
+              {revealInFileManagerLabel()}
             </NodexDropdownItem>
           ) : null}
           {primaryWorkspaceRoot && onCreateStableWorktree && canCreateStableWorktree ? (
             <NodexDropdownItem
-              leftSlot={<WorktreeStatusIcon className="icon-sm" />}
+              leftSlot={<WorktreeStatusIcon className="icon-xs" />}
               onSelect={() => {
                 setOpen(false);
                 setCreateStableWorktreeOpen(true);
@@ -425,123 +390,70 @@ export function CodexProjectActionsMenu({
             </NodexDropdownItem>
           ) : null}
           <NodexDropdownItem
-            leftSlot={<FolderPlus className="icon-sm" />}
+            leftSlot={<CodexSettingsGeneralIcon className="icon-xs" />}
             onSelect={() => {
-              void addProjectSource();
+              setOpen(false);
+              setEditOpen(true);
             }}
           >
-            Add source folder
+            Edit project
           </NodexDropdownItem>
+          {onMarkThreadItemRead && unreadItems.length > 0 ? (
+            <NodexDropdownItem
+              leftSlot={<CheckmarkIcon className="icon-xs" />}
+              onSelect={() => {
+                setOpen(false);
+                void markAllThreadsRead();
+              }}
+            >
+              Mark all as read
+            </NodexDropdownItem>
+          ) : null}
           <NodexDropdownItem
-            leftSlot={<CodexFolderIcon className="icon-sm" />}
-            onSelect={() => setSourcesOpen(true)}
+            leftSlot={<CodexArchiveIcon className="icon-xs" />}
+            disabled={!onArchiveThreadItem || archiveableItems.length === 0}
+            onSelect={() => {
+              setOpen(false);
+              setArchiveChatsOpen(true);
+            }}
           >
-            Edit sources
+            Archive chats
           </NodexDropdownItem>
-          <NodexDropdownSeparator />
           <NodexDropdownItem
-            leftSlot={<FolderMinus className="icon-sm text-(--red-text)" />}
-            className="text-(--red-text)"
+            leftSlot={<CodexCloseIcon className="icon-xs" />}
             onSelect={() => {
               setOpen(false);
               setRemoveOpen(true);
             }}
           >
-            Remove project
+            Remove
           </NodexDropdownItem>
         </NodexDropdownMenu>
       </div>
 
-      <NodexDialog open={renameOpen} onOpenChange={setRenameOpen}>
-        <NodexDialogContent className="max-w-sm">
-          <NodexDialogHeader>
-            <NodexDialogTitle>Rename project</NodexDialogTitle>
-          </NodexDialogHeader>
-          <input
-            autoFocus
-            value={draftName}
-            onChange={(event) => setDraftName(event.target.value)}
-            className="h-9 rounded-lg border border-token-border bg-token-main-surface-secondary px-3 text-sm outline-none focus:border-token-focus"
-          />
-          <NodexDialogFooter>
-            <NodexButton variant="outline" onClick={() => setRenameOpen(false)}>Cancel</NodexButton>
-            <NodexButton onClick={() => void submitRename()}>Save</NodexButton>
-          </NodexDialogFooter>
-        </NodexDialogContent>
-      </NodexDialog>
-
-      <NodexDialog open={iconOpen} onOpenChange={setIconOpen}>
-        <NodexDialogContent className="max-w-sm">
-          <NodexDialogHeader>
-            <NodexDialogTitle>Choose icon</NodexDialogTitle>
-          </NodexDialogHeader>
-          <input
-            autoFocus
-            value={draftIcon}
-            onChange={(event) => setDraftIcon(event.target.value)}
-            placeholder="Emoji or short label"
-            className="h-9 rounded-lg border border-token-border bg-token-main-surface-secondary px-3 text-sm outline-none focus:border-token-focus"
-          />
-          <NodexDialogFooter>
-            <NodexButton variant="outline" onClick={() => setIconOpen(false)}>Cancel</NodexButton>
-            <NodexButton onClick={() => void submitIcon()}>Save</NodexButton>
-          </NodexDialogFooter>
-        </NodexDialogContent>
-      </NodexDialog>
-
-      <NodexDialog open={sourcesOpen} onOpenChange={setSourcesOpen}>
-        <NodexDialogContent className="max-w-lg">
-          <NodexDialogHeader>
-            <NodexDialogTitle>Edit sources</NodexDialogTitle>
-          </NodexDialogHeader>
-          <div className="grid gap-2">
-            {draftSources.length === 0 ? (
-              <div className="rounded-lg border border-token-border bg-token-main-surface-secondary p-3 text-sm text-token-description-foreground">
-                No source folders.
-              </div>
-            ) : (
-              draftSources.map((source, index) => (
-                <div key={`${source}:${index}`} className="flex items-center gap-2">
-                  <input
-                    value={source}
-                    onChange={(event) => {
-                      const next = [...draftSources];
-                      next[index] = event.target.value;
-                      setDraftSources(next);
-                    }}
-                    className="h-8 min-w-0 flex-1 rounded-lg border border-token-border bg-token-main-surface-secondary px-2 text-sm outline-none focus:border-token-focus"
-                  />
-                  <NodexButton
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setDraftSources(draftSources.filter((_, candidateIndex) => candidateIndex !== index))}
-                  >
-                    Remove
-                  </NodexButton>
-                </div>
-              ))
-            )}
-            <NodexButton
-              variant="outline"
-              size="sm"
-              className="justify-self-start"
-              onClick={async () => {
-                const picked = await pickProjectSourceRoot();
-                if (!picked) return;
-                setDraftSources([...draftSources, picked]);
-              }}
-            >
-              <FolderPlus className="size-4" />
-              Add folder
-            </NodexButton>
-          </div>
-          <NodexDialogFooter>
-            <NodexButton variant="outline" onClick={() => setSourcesOpen(false)}>Cancel</NodexButton>
-            <NodexButton onClick={() => void submitSources()}>Save</NodexButton>
-          </NodexDialogFooter>
-        </NodexDialogContent>
-      </NodexDialog>
-
+      <ProjectEditDialog
+        open={editOpen}
+        project={project}
+        onOpenChange={setEditOpen}
+        onSubmit={async ({ name, sources }) => {
+          const updated = await onUpdateProject(project.id, {
+            name: name.trim() || project.name,
+            sources,
+          });
+          if (!updated) throw new Error(`Project ${project.id} not found`);
+        }}
+        onArchiveProject={onArchiveProject}
+      />
+      {onArchiveThreadItem ? (
+        <ProjectArchiveChatsDialog
+          open={archiveChatsOpen}
+          projectName={project.name}
+          items={archiveableItems}
+          onOpenChange={setArchiveChatsOpen}
+          onArchiveItem={onArchiveThreadItem}
+          onArchived={onThreadsChanged}
+        />
+      ) : null}
       <StableWorktreeCreateDialog
         open={createStableWorktreeOpen}
         initialProjectName={initialStableWorktreeProjectName}
@@ -568,6 +480,7 @@ export function CodexProjectRow({
   animateChildren = true,
   groupDndController,
   allowProjectReorder = false,
+  threadItems,
   onActivate,
   onSelectProject,
   onStartNewChat,
@@ -577,6 +490,9 @@ export function CodexProjectRow({
   onCreateStableWorktree,
   stableWorktreeWorkspaceRootOptions,
   stableWorktreeWorkspaceRootLabels,
+  onArchiveThreadItem,
+  onMarkThreadItemRead,
+  onThreadsChanged,
   children,
 }: {
   project: Project;
@@ -585,6 +501,7 @@ export function CodexProjectRow({
   animateChildren?: boolean;
   groupDndController?: SidebarGroupDndController;
   allowProjectReorder?: boolean;
+  threadItems?: readonly CodexSidebarThreadItem[];
   onActivate: () => void;
   onSelectProject?: () => void;
   onStartNewChat?: () => void;
@@ -594,6 +511,9 @@ export function CodexProjectRow({
   onCreateStableWorktree?: (project: Project, projectName: string) => Promise<void>;
   stableWorktreeWorkspaceRootOptions?: readonly string[];
   stableWorktreeWorkspaceRootLabels?: Readonly<Record<string, string | undefined>>;
+  onArchiveThreadItem?: (item: CodexSidebarThreadItem) => Promise<boolean>;
+  onMarkThreadItemRead?: (item: CodexSidebarThreadItem) => Promise<void>;
+  onThreadsChanged?: () => Promise<unknown> | void;
   children?: ReactNode;
 }) {
   const sortableEnabled = allowProjectReorder && Boolean(groupDndController);
@@ -778,6 +698,7 @@ export function CodexProjectRow({
         <div className="flex gap-1">
           <CodexProjectActionsMenu
             project={project}
+            threadItems={threadItems}
             onUpdateProject={onUpdateProject}
             onArchiveProject={onArchiveProject}
             onSetProjectPinned={onSetProjectPinned}
@@ -785,6 +706,9 @@ export function CodexProjectRow({
             canCreateStableWorktree={canCreateStableWorktree}
             stableWorktreeWorkspaceRootOptions={stableWorktreeWorkspaceRootOptions}
             stableWorktreeWorkspaceRootLabels={stableWorktreeWorkspaceRootLabels}
+            onArchiveThreadItem={onArchiveThreadItem}
+            onMarkThreadItemRead={onMarkThreadItemRead}
+            onThreadsChanged={onThreadsChanged}
           />
           {onStartNewChat ? (
             <SidebarProjectNewChatButton

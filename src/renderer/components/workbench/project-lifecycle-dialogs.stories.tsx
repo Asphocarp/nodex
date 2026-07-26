@@ -1,9 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fireEvent, getByRole, waitFor } from "@testing-library/dom";
 import type { ReactNode } from "react";
-import type { Project } from "@/lib/types";
+import type { CodexSidebarThreadItem, Project } from "@/lib/types";
 import { NodexDialog } from "@/components/ui/dialog";
+import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { CodexProjectActionsMenu } from "./codex-sidebar";
+import { ProjectArchiveChatsDialog } from "./project-archive-chats-dialog";
+import { ProjectEditDialog } from "./project-edit-dialog";
 import { ProjectRemoveDialog } from "./project-remove-dialog";
 import { RemovedProjectsDialogView } from "./removed-projects-dialog";
 
@@ -38,11 +41,44 @@ const REMOVED_PROJECTS: Project[] = [
   },
 ];
 
+const MULTI_ROOT_PROJECT: Project = {
+  ...ACTIVE_PROJECT,
+  sources: [
+    { root: "/Users/asc/repo/nodex2", order: 0 },
+    { root: "/Users/asc/repo/devtools-codex", order: 1 },
+    { root: "/Users/asc/Documents/design-notes", order: 2 },
+  ],
+};
+
+const ARCHIVEABLE_THREADS: CodexSidebarThreadItem[] = [0, 1, 2].map((index) => ({
+  key: `local:thread-${index}`,
+  kind: "local",
+  hostId: "local",
+  threadId: `thread-${index}`,
+  sessionId: null,
+  projectId: ACTIVE_PROJECT.id,
+  title: `Chat ${index + 1}`,
+  preview: "",
+  cwd: null,
+  updatedAt: 0,
+  createdAt: 0,
+  pinned: false,
+  pinnedOrder: null,
+  unread: index === 0,
+  archived: false,
+  statusType: "idle",
+  statusActiveFlags: [],
+  projectless: false,
+  disabled: false,
+}));
+
 function Surface({ children }: { children: ReactNode }) {
   return (
-    <div className="h-screen w-screen bg-token-main-surface-primary p-10 text-token-foreground">
-      {children}
-    </div>
+    <NodexTooltipProvider>
+      <div className="h-screen w-screen bg-token-main-surface-primary p-10 text-token-foreground">
+        {children}
+      </div>
+    </NodexTooltipProvider>
   );
 }
 
@@ -60,16 +96,76 @@ export const ProjectMenu: Story = {
       <div className="group/folder-row flex w-72 justify-end rounded-lg bg-token-list-hover-background p-2">
         <CodexProjectActionsMenu
           project={ACTIVE_PROJECT}
+          threadItems={ARCHIVEABLE_THREADS}
           onUpdateProject={async () => ACTIVE_PROJECT}
           onArchiveProject={async () => ({ kind: "not-found" })}
+          onSetProjectPinned={async () => ACTIVE_PROJECT}
+          onArchiveThreadItem={async () => true}
+          onMarkThreadItemRead={async () => undefined}
         />
       </div>
     </Surface>
   ),
   play: async ({ canvasElement }) => {
     fireEvent.click(getByRole(canvasElement, "button", { name: "Project actions for Nodex desktop" }));
-    await waitFor(() => getByRole(document.body, "menuitem", { name: "Remove project" }));
+    await waitFor(() => getByRole(document.body, "menuitem", { name: "Remove" }));
   },
+};
+
+export const EditProject: Story = {
+  render: () => (
+    <Surface>
+      <ProjectEditDialog
+        open
+        project={MULTI_ROOT_PROJECT}
+        onOpenChange={() => undefined}
+        onSubmit={async () => undefined}
+        onArchiveProject={async () => ({ kind: "not-found" })}
+      />
+    </Surface>
+  ),
+};
+
+export const EditProjectSingleSource: Story = {
+  render: () => (
+    <Surface>
+      <ProjectEditDialog
+        open
+        project={ACTIVE_PROJECT}
+        onOpenChange={() => undefined}
+        onSubmit={async () => undefined}
+        onArchiveProject={async () => ({ kind: "not-found" })}
+      />
+    </Surface>
+  ),
+};
+
+export const EditProjectEmpty: Story = {
+  render: () => (
+    <Surface>
+      <ProjectEditDialog
+        open
+        project={{ ...ACTIVE_PROJECT, sources: [], primaryWorkspaceRoot: null }}
+        onOpenChange={() => undefined}
+        onSubmit={async () => undefined}
+        onArchiveProject={async () => ({ kind: "not-found" })}
+      />
+    </Surface>
+  ),
+};
+
+export const ArchiveChatsConfirm: Story = {
+  render: () => (
+    <Surface>
+      <ProjectArchiveChatsDialog
+        open
+        projectName={ACTIVE_PROJECT.name}
+        items={ARCHIVEABLE_THREADS}
+        onOpenChange={() => undefined}
+        onArchiveItem={async () => true}
+      />
+    </Surface>
+  ),
 };
 
 export const RemoveConfirmation: Story = {

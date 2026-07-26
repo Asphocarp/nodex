@@ -377,6 +377,18 @@ async function showDirectoryPicker(
   return result.filePaths[0] ?? null;
 }
 
+async function showDirectoriesPicker(
+  event: IpcMainInvokeEvent,
+  options: OpenDialogOptions,
+): Promise<string[]> {
+  const window = BrowserWindow.fromWebContents(event.sender);
+  const result = window
+    ? await dialog.showOpenDialog(window, options)
+    : await dialog.showOpenDialog(options);
+  if (result.canceled) return [];
+  return result.filePaths;
+}
+
 function sendIpcEvent<Channel extends keyof IpcEvents>(
   sender: Electron.WebContents,
   channel: Channel,
@@ -1594,10 +1606,10 @@ export function registerIpcHandlers(
     await projectWorkspace.setPinnedProjectOrder(input),
   );
 
-  registerHandle("projects:pick-source-root", async (event) => {
-    return showDirectoryPicker(event, {
-      title: "Choose source folder",
-      properties: ["openDirectory", "createDirectory"],
+  registerHandle("projects:pick-source-roots", async (event) => {
+    return showDirectoriesPicker(event, {
+      title: "Select Project Root",
+      properties: ["openDirectory", "createDirectory", "multiSelections"],
     });
   });
 

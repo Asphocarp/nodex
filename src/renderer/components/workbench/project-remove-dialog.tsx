@@ -95,7 +95,7 @@ export function ProjectRemoveDialog({
   return (
     <NodexDialog open={open} onOpenChange={setOpen}>
       <NodexDialogContent
-        className="max-w-[430px] gap-5"
+        className="w-[420px] gap-5 sm:max-w-[420px]"
         showCloseButton={false}
         onEscapeKeyDown={(event) => {
           if (pending) event.preventDefault();
@@ -110,10 +110,10 @@ export function ProjectRemoveDialog({
         <form className="contents" onSubmit={(event) => void submit(event)}>
           <NodexDialogHeader className="gap-2 text-left">
             <NodexDialogTitle className="text-base">
-              Remove “{project.name}”?
+              Remove {project.name}?
             </NodexDialogTitle>
             <NodexDialogDescription>
-              This removes the project and its chats from the sidebar. Files on disk and Library content won’t be deleted. You can restore it later.
+              This removes the project from the app. Files on your computer and existing chats won&rsquo;t be deleted.
             </NodexDialogDescription>
           </NodexDialogHeader>
 
@@ -136,7 +136,7 @@ export function ProjectRemoveDialog({
           <NodexDialogFooter>
             <NodexButton
               type="button"
-              variant="secondary"
+              variant="ghost"
               disabled={pending}
               onClick={() => setOpen(false)}
             >

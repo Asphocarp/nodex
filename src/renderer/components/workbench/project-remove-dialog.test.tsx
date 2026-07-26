@@ -38,8 +38,8 @@ describe("ProjectRemoveDialog", () => {
       />,
     );
 
-    expect(view.getByRole("heading", { name: "Remove “Alpha”?" })).toBeTruthy();
-    expect(view.getByText(/Files on disk and Library content won’t be deleted/)).toBeTruthy();
+    expect(view.getByRole("heading", { name: "Remove Alpha?" })).toBeTruthy();
+    expect(view.getByText(/Files on your computer and existing chats won’t be deleted/)).toBeTruthy();
 
     fireEvent.click(view.getByRole("button", { name: "Remove project" }));
     await waitFor(() => {
