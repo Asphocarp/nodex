@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
-import { NodexButton } from "@/components/ui/button";
 import {
   NodexDialog,
+  NodexDialogAction,
+  NodexDialogBody,
   NodexDialogContent,
   NodexDialogDescription,
   NodexDialogFooter,
+  NodexDialogForm,
   NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
@@ -66,18 +68,17 @@ export function StableWorktreeCreateDialog({
       }}
     >
       <NodexDialogContent
-        className="max-w-[420px] gap-0 rounded-2xl p-5"
+        size="compact"
         showCloseButton={false}
       >
-        <form
-          className="flex flex-col gap-0"
+        <NodexDialogForm
           onSubmit={(event) => {
             event.preventDefault();
             void createWorktree();
           }}
         >
-          <NodexDialogHeader className="gap-1 pb-4 text-left">
-            <NodexDialogTitle className="text-base">
+          <NodexDialogHeader>
+            <NodexDialogTitle>
               Create worktree and save as a project
             </NodexDialogTitle>
             <NodexDialogDescription>
@@ -85,7 +86,7 @@ export function StableWorktreeCreateDialog({
             </NodexDialogDescription>
           </NodexDialogHeader>
 
-          <div className="flex flex-col gap-2 pb-5">
+          <NodexDialogBody className="gap-2">
             <input
               aria-label="Project name"
               autoFocus
@@ -96,30 +97,28 @@ export function StableWorktreeCreateDialog({
               onInput={(event) => setProjectName(event.currentTarget.value)}
             />
             {errorMessage ? (
-              <p role="alert" className="text-sm text-token-error-foreground">
+              <p role="alert" className="text-sm text-token-charts-red">
                 {errorMessage}
               </p>
             ) : null}
-          </div>
+          </NodexDialogBody>
 
           <NodexDialogFooter>
-            <NodexButton
-              type="button"
-              variant="outline"
+            <NodexDialogAction
               disabled={creating}
               onClick={() => onOpenChange(false)}
             >
               Cancel
-            </NodexButton>
-            <NodexButton
+            </NodexDialogAction>
+            <NodexDialogAction
               type="submit"
-              variant="primary"
+              tone="primary"
               disabled={createDisabled}
             >
               Create
-            </NodexButton>
+            </NodexDialogAction>
           </NodexDialogFooter>
-        </form>
+        </NodexDialogForm>
       </NodexDialogContent>
     </NodexDialog>
   );

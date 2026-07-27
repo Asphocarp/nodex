@@ -721,7 +721,7 @@ export function DatabaseManagementDialog({
   return (
     <NodexDialog open={open} onOpenChange={onOpenChange}>
       <NodexDialogContent
-        className="h-[min(680px,calc(100vh-2rem))] max-h-[calc(100vh-2rem)] w-[min(900px,calc(100vw-2rem))] max-w-none gap-0 overflow-hidden p-0 sm:max-w-none"
+        className="h-[min(680px,calc(100vh-2rem))] max-h-[calc(100vh-2rem)] w-[min(900px,calc(100vw-2rem))] max-w-none sm:max-w-none"
         closeButtonAriaLabel="Close Database manager"
       >
         <NodexDialogTitle className="sr-only">Manage Databases</NodexDialogTitle>

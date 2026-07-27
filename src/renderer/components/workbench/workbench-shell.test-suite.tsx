@@ -64,6 +64,7 @@ import type {
 import { render, settleAsyncRender, textContent } from "../../test/dom";
 import { TestQueryProvider } from "../../test/query";
 import { RendererStateProvider } from "../../app-providers";
+import { NodexModalHost } from "@/lib/modal-registry";
 import { COMPOSER_ENTER_BEHAVIOR_STORAGE_KEY } from "@/lib/composer-enter-behavior";
 import { THREAD_QUEUE_FOLLOW_UPS_STORAGE_KEY } from "@/lib/thread-composer-follow-up-mode";
 import { AppShellHeaderContentRegistrar } from "@/lib/workbench-ui-scopes";
@@ -3244,6 +3245,7 @@ function renderWorkbench({
     <TestQueryProvider>
       <RendererStateProvider>
         <WorkbenchShellTestHarness />
+        <NodexModalHost />
       </RendererStateProvider>
     </TestQueryProvider>,
   );
@@ -5770,7 +5772,7 @@ describe(`workbench session shell / ${scope}`, () => {
     }));
     await settleAsyncRender();
 
-    expect(screen.getByRole("menuitem", { name: "Remove project" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Remove" })).toBeTruthy();
   });
 
   test("restores full-width right-panel geometry after returning from settings", async () => {

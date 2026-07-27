@@ -108,13 +108,18 @@ import { toast } from "@/components/ui/toast";
 import { LazyVirtualizedTextViewer } from "@/components/ui/lazy-virtualized-text-viewer";
 import {
   NodexDialog,
+  NodexDialogAction,
+  NodexDialogBody,
   NodexDialogContent,
   NodexDialogDescription,
   NodexDialogFooter,
+  NodexDialogFrame,
   NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
 import { useApplyLibraryOperation } from "@/lib/use-library-navigation";
+import { appScope, useScopeHandle } from "@/lib/maitai";
+import { openModal } from "@/lib/modal-registry";
 import {
   buildLibraryMoveOperation,
   buildLibraryProjectGrantOperation,
@@ -283,7 +288,6 @@ import {
   isCodexSidebarThreadContainerId,
   type CodexSidebarChatsThreadOrderInput,
   type CodexSidebarThreadMoveInput,
-  type CodexSidebarThreadMoveBlocked,
   type CodexSidebarThreadMovePlacement,
 } from "../../../shared/codex-sidebar-thread-move";
 import type { CodexPendingWorktreeEntry } from "../../../shared/codex-pending-worktree";
@@ -2440,6 +2444,7 @@ export function WorkbenchShell({
   commandKeymapState,
 }: WorkbenchShellProps) {
   const queryClient = useQueryClient();
+  const appHandle = useScopeHandle(appScope);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(dbProjectId);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(initialActiveProjectSessionId);
   const [expandedProjectIds, setExpandedProjectIds] = useState(() =>
@@ -2563,12 +2568,6 @@ export function WorkbenchShell({
       ? "Unable to load project sessions"
       : null;
   const [contextMenuSessionId, setContextMenuSessionId] = useState<string | null>(null);
-  const [renameSession, setRenameSession] = useState<ProjectSession | null>(null);
-  const [blockedSidebarThreadMove, setBlockedSidebarThreadMove] =
-    useState<CodexSidebarThreadMoveBlocked | null>(null);
-  const [renamingSession, setRenamingSession] = useState(false);
-  const [renamePendingWorktree, setRenamePendingWorktree] =
-    useState<CodexSidebarThreadItem | null>(null);
   const [previewTabsByPanel, setPreviewTabsByPanel] = useState<Record<string, ProjectSessionPreviewTab>>({});
   const [pageStageTabTitleStore] = useState(createPageStageTabTitleStore);
   const [sideChatTabsBySession, setSideChatTabsBySession] = useState<Record<string, SideChatPanelTab[]>>({});
@@ -2694,7 +2693,6 @@ export function WorkbenchShell({
   const [pendingWorktreeClientThreadId, setPendingWorktreeClientThreadId] = useState<string | null>(null);
   const [pendingWorktrees, setPendingWorktrees] = useState<CodexPendingWorktreeEntry[]>([]);
   const [pendingStableWorktrees, setPendingStableWorktrees] = useState<StableWorktreeEntry[]>([]);
-  const [stableWorktreeStatusId, setStableWorktreeStatusId] = useState<string | null>(null);
   const [reopenStableWorktreeAfterSettingsId, setReopenStableWorktreeAfterSettingsId] =
     useState<string | null>(null);
   const [reopenPendingWorktreeAfterSettingsClientThreadId, setReopenPendingWorktreeAfterSettingsClientThreadId] =
@@ -2728,20 +2726,6 @@ export function WorkbenchShell({
   useEffect(() => subscribeCodexPendingWorktreeWarnings((event) => {
     toast.danger(event.message);
   }), []);
-  const createStableWorktree = useCallback(async (
-    project: Project,
-    projectName: string,
-  ) => {
-    const sourceWorkspaceRoot = project.primaryWorkspaceRoot?.trim();
-    if (!sourceWorkspaceRoot) {
-      throw new Error("This project has no source workspace root.");
-    }
-    const result = await invoke("codex:pending-worktree:create", buildStableWorktreeCreateInput({
-      sourceWorkspaceRoot,
-      label: projectName,
-    }));
-    setStableWorktreeStatusId(result.pendingWorktreeId);
-  }, []);
   const [settingsPath, setSettingsPath] = useState<string | null>(null);
   const [localEnvironmentSettingsInitial, setLocalEnvironmentSettingsInitial] = useState<{
     projectId: string | null;
@@ -3321,6 +3305,54 @@ export function WorkbenchShell({
     setSettingsPath(buildSettingsPath("local-environments"));
   }, [closePendingWorktreeRoute]);
 
+  const openStableWorktreeStatus = useCallback((pendingWorktreeId: string) => {
+    openModal(appHandle, StableWorktreeStatusDialog, {
+      pendingWorktreeId,
+      agentMode: workbenchCodexControl.permissionMode,
+      transport: ELECTRON_STABLE_WORKTREE_STATUS_TRANSPORT,
+      onEditEnvironment: (entry) => {
+        const sourceProject = projects.find((project) =>
+          project.primaryWorkspaceRoot === entry.sourceWorkspaceRoot
+          || project.sources.some((source) => source.root === entry.sourceWorkspaceRoot)
+        ) ?? null;
+        openLocalEnvironmentsSettings({
+          projectId: sourceProject?.id ?? null,
+          configPath: entry.localEnvironmentConfigPath ?? null,
+          reopenStableWorktreeId: entry.id,
+        });
+      },
+      onOpenPendingWorktree: (clientThreadId) => {
+        setSettingsPath(null);
+        setLocalEnvironmentSettingsInitial(null);
+        setAutomationsPath(null);
+        setPendingWorktreeClientThreadId(clientThreadId);
+      },
+      onActionError: (error) => {
+        toast.danger(error instanceof Error ? error.message : "Worktree action failed");
+      },
+    });
+  }, [
+    appHandle,
+    openLocalEnvironmentsSettings,
+    projects,
+    workbenchCodexControl.permissionMode,
+  ]);
+
+  const createStableWorktree = useCallback(async (
+    project: Project,
+    projectName: string,
+  ) => {
+    const sourceWorkspaceRoot = project.primaryWorkspaceRoot?.trim();
+    if (!sourceWorkspaceRoot) {
+      throw new Error("This project has no source workspace root.");
+    }
+    const result = await invoke("codex:pending-worktree:create", buildStableWorktreeCreateInput({
+      sourceWorkspaceRoot,
+      label: projectName,
+    }));
+    openStableWorktreeStatus(result.pendingWorktreeId);
+  }, [openStableWorktreeStatus]);
+
   const openHooksSettings = useCallback((target: CodexHooksSettingsTarget) => {
     closePendingWorktreeRoute();
     setAutomationsPath(null);
@@ -3340,7 +3372,7 @@ export function WorkbenchShell({
       reopenStableWorktreeAfterSettingsId
       && pendingStableWorktrees.some((entry) => entry.id === reopenStableWorktreeAfterSettingsId)
     ) {
-      setStableWorktreeStatusId(reopenStableWorktreeAfterSettingsId);
+      openStableWorktreeStatus(reopenStableWorktreeAfterSettingsId);
       return;
     }
     if (
@@ -3353,6 +3385,7 @@ export function WorkbenchShell({
       setPendingWorktreeClientThreadId(reopenPendingWorktreeAfterSettingsClientThreadId);
     }
   }, [
+    openStableWorktreeStatus,
     pendingStableWorktrees,
     pendingWorktrees,
     reopenPendingWorktreeAfterSettingsClientThreadId,
@@ -3492,7 +3525,9 @@ export function WorkbenchShell({
     };
     const result = await invoke("codex:sidebar:thread:move", moveInput);
     if (result.status === "blocked") {
-      setBlockedSidebarThreadMove(result);
+      openModal(appHandle, SidebarThreadMoveBlockedDialog, {
+        blocked: result,
+      });
       return;
     }
     if (result.status === "unchanged") return;
@@ -3510,7 +3545,7 @@ export function WorkbenchShell({
     startTransition(() => {
       applySidebarThreadSnapshot(result.snapshot);
     });
-  }, [applySidebarThreadSnapshot, queryClient]);
+  }, [appHandle, applySidebarThreadSnapshot, queryClient]);
 
   const mergeSessionInState = useCallback((session: ProjectSessionDomain) => {
     seedProjectSessionDetail(queryClient, session);
@@ -3838,8 +3873,21 @@ export function WorkbenchShell({
   }, [knownSessions, mergeSessionInState, refreshProjectSessions, selectSession]);
 
   const openRenameSessionDialog = useCallback((session: ProjectSession) => {
-    setRenameSession(session);
-  }, []);
+    openModal(appHandle, RenameChatDialog, {
+      initialValue: session.displayTitle,
+      onSave: (title) => {
+        void invoke("project-sessions:rename", session.id, { title })
+          .then(async (updated) => {
+            if (!updated) throw new Error("Session was not found");
+            mergeSessionInState(updated);
+            await refreshProjectSessions(updated.projectId);
+          })
+          .catch(() => {
+            toast.danger("Failed to rename chat");
+          });
+      },
+    });
+  }, [appHandle, mergeSessionInState, refreshProjectSessions]);
 
   const handleSessionTitleDoubleClick = useCallback((
     session: ProjectSession,
@@ -3862,8 +3910,22 @@ export function WorkbenchShell({
     event: ReactMouseEvent<HTMLElement>,
   ) => {
     if (event.defaultPrevented || item.kind !== "pending-worktree") return;
-    setRenamePendingWorktree(item);
-  }, []);
+    openModal(appHandle, RenameChatDialog, {
+      initialValue: item.title,
+      requireNonEmpty: true,
+      onSave: (label) => {
+        if (!item.pendingWorktreeId) return;
+        void invoke(
+          "codex:pending-worktree:rename",
+          item.hostId,
+          item.pendingWorktreeId,
+          label,
+        ).catch(() => {
+          toast.danger("Failed to rename task");
+        });
+      },
+    });
+  }, [appHandle]);
 
   const archiveSession = useCallback(async (
     session: ProjectSession,
@@ -4205,23 +4267,6 @@ export function WorkbenchShell({
       setContextMenuSessionId(null);
     }
   }, [handleSessionContextMenuAction, projects, resolveSessionHasGitRepository]);
-
-  const submitRenameSession = useCallback(async (title: string) => {
-    if (!renameSession) return;
-
-    setRenamingSession(true);
-    try {
-      const updated = await invoke("project-sessions:rename", renameSession.id, { title }) as ProjectSession | null;
-      if (!updated) throw new Error("Session was not found");
-      mergeSessionInState(updated);
-      await refreshProjectSessions(updated.projectId);
-      setRenameSession(null);
-    } catch {
-      toast.danger("Failed to rename chat");
-    } finally {
-      setRenamingSession(false);
-    }
-  }, [mergeSessionInState, refreshProjectSessions, renameSession]);
 
   useEffect(() => {
     if (!threadRenameRequest) return;
@@ -9411,34 +9456,6 @@ export function WorkbenchShell({
       [session.id]: buildCancelledPendingWorktreeComposerIntent(entry, Date.now()),
     }));
   }, [ensureBlankSessionForProject, projects]);
-  const stableWorktreeStatusDialog = stableWorktreeStatusId ? (
-    <StableWorktreeStatusDialog
-      pendingWorktreeId={stableWorktreeStatusId}
-      agentMode={workbenchCodexControl.permissionMode}
-      transport={ELECTRON_STABLE_WORKTREE_STATUS_TRANSPORT}
-      onClose={() => setStableWorktreeStatusId(null)}
-      onEditEnvironment={(entry) => {
-        const sourceProject = projects.find((project) =>
-          project.primaryWorkspaceRoot === entry.sourceWorkspaceRoot
-          || project.sources.some((source) => source.root === entry.sourceWorkspaceRoot)
-        ) ?? null;
-        openLocalEnvironmentsSettings({
-          projectId: sourceProject?.id ?? null,
-          configPath: entry.localEnvironmentConfigPath ?? null,
-          reopenStableWorktreeId: entry.id,
-        });
-      }}
-      onOpenPendingWorktree={(clientThreadId) => {
-        setSettingsPath(null);
-        setLocalEnvironmentSettingsInitial(null);
-        setAutomationsPath(null);
-        setPendingWorktreeClientThreadId(clientThreadId);
-      }}
-      onActionError={(error) => {
-        toast.danger(error instanceof Error ? error.message : "Worktree action failed");
-      }}
-    />
-  ) : null;
   const pendingWorktreeRouteShell = pendingWorktreeClientThreadId ? (
     <PendingWorktreeRoute
       clientThreadId={pendingWorktreeClientThreadId}
@@ -9488,45 +9505,6 @@ export function WorkbenchShell({
       : 0,
   );
 
-  const renameSessionDialog = (
-    <RenameChatDialog
-      open={Boolean(renameSession)}
-      initialValue={renameSession?.displayTitle ?? ""}
-      busy={renamingSession}
-      onOpenChange={(open) => {
-        if (open) return;
-        setRenameSession(null);
-      }}
-      onSave={(title) => {
-        void submitRenameSession(title);
-      }}
-    />
-  );
-  const renamePendingWorktreeDialog = (
-    <RenameChatDialog
-      open={Boolean(renamePendingWorktree)}
-      initialValue={renamePendingWorktree?.title ?? ""}
-      busy={false}
-      requireNonEmpty
-      onOpenChange={(open) => {
-        if (!open) setRenamePendingWorktree(null);
-      }}
-      onSave={(label) => {
-        const item = renamePendingWorktree;
-        if (!item?.pendingWorktreeId) return;
-        void invoke(
-          "codex:pending-worktree:rename",
-          item.hostId,
-          item.pendingWorktreeId,
-          label,
-        ).then(() => {
-          setRenamePendingWorktree(null);
-        }).catch(() => {
-          toast.danger("Failed to rename task");
-        });
-      }}
-    />
-  );
   const commandPaletteProjectId = activeProject?.id ?? activeProjectId;
   const commandPanelCapabilities = resolveActivePanelCapabilities("right");
   const commandPaletteCommandContext: Omit<CommandPaletteShellCommandContext, "isMac" | "showMockCommands"> = {
@@ -10039,13 +10017,6 @@ export function WorkbenchShell({
       <NodexTooltipProvider>
         <ContentSearchProvider openRequest={contentSearchOpenRequest}>
           <ContentSearchSurface />
-          {renameSessionDialog}
-          {renamePendingWorktreeDialog}
-          {stableWorktreeStatusDialog}
-          <SidebarThreadMoveBlockedDialog
-            blocked={blockedSidebarThreadMove}
-            onClose={() => setBlockedSidebarThreadMove(null)}
-          />
           {commandPalette}
           <WorkbenchProcessManagerDialog
             open={processManagerOpen}
@@ -10201,7 +10172,7 @@ export function WorkbenchShell({
                 setLibraryRoute(null);
                 void startNewChatInProject(projectId);
               }}
-              onOpenStableWorktree={setStableWorktreeStatusId}
+              onOpenStableWorktree={openStableWorktreeStatus}
               onCreateStableWorktree={createStableWorktree}
               onOpenCommandPalette={openSidebarCommandPalette}
               onShowUnavailableProduct={showSidebarUnavailableProduct}
@@ -10315,7 +10286,7 @@ export function WorkbenchShell({
                     setLibraryRoute(null);
                     void startNewChatInProject(projectId);
                   }}
-                  onOpenStableWorktree={setStableWorktreeStatusId}
+                  onOpenStableWorktree={openStableWorktreeStatus}
                   onCreateStableWorktree={createStableWorktree}
                   onOpenCommandPalette={openSidebarCommandPalette}
                   onShowUnavailableProduct={showSidebarUnavailableProduct}
@@ -12425,45 +12396,50 @@ function ProjectSessionSidebar({
                     if (!open) setPendingLibraryGrantDrop(null);
                   }}
                 >
-                  <NodexDialogContent className="max-w-md">
-                    <NodexDialogHeader>
-                      <NodexDialogTitle>Give Project access?</NodexDialogTitle>
-                      <NodexDialogDescription>
-                        {pendingLibraryGrantProject?.name ?? "This Project"} will receive recursive access to {pendingLibraryGrantDrop?.resource.title ?? "this Library item"}. Ownership and Database bindings will not change.
-                      </NodexDialogDescription>
-                    </NodexDialogHeader>
-                    <fieldset className="grid gap-2 text-sm text-token-text-primary">
-                      <legend className="mb-1">Access</legend>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="radio"
-                          name="library-drop-access"
-                          checked={libraryGrantAccess === "read"}
-                          onChange={() => setLibraryGrantAccess("read")}
-                        />
-                        Read
-                      </label>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="radio"
-                          name="library-drop-access"
-                          checked={libraryGrantAccess === "read_write"}
-                          onChange={() => setLibraryGrantAccess("read_write")}
-                        />
-                        Read &amp; write
-                      </label>
-                    </fieldset>
-                    <NodexDialogFooter>
-                      <NodexButton variant="ghost" onClick={() => setPendingLibraryGrantDrop(null)}>
-                        Cancel
-                      </NodexButton>
-                      <NodexButton
-                        disabled={!pendingLibraryGrantProject || libraryMutation.isPending}
-                        onClick={() => void confirmLibraryGrantDrop()}
-                      >
-                        Grant access
-                      </NodexButton>
-                    </NodexDialogFooter>
+                  <NodexDialogContent size="compact">
+                    <NodexDialogFrame>
+                      <NodexDialogHeader>
+                        <NodexDialogTitle>Give Project access?</NodexDialogTitle>
+                        <NodexDialogDescription>
+                          {pendingLibraryGrantProject?.name ?? "This Project"} will receive recursive access to {pendingLibraryGrantDrop?.resource.title ?? "this Library item"}. Ownership and Database bindings will not change.
+                        </NodexDialogDescription>
+                      </NodexDialogHeader>
+                      <NodexDialogBody>
+                        <fieldset className="grid gap-2 text-sm text-token-text-primary">
+                          <legend className="mb-1">Access</legend>
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="library-drop-access"
+                              checked={libraryGrantAccess === "read"}
+                              onChange={() => setLibraryGrantAccess("read")}
+                            />
+                            Read
+                          </label>
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="library-drop-access"
+                              checked={libraryGrantAccess === "read_write"}
+                              onChange={() => setLibraryGrantAccess("read_write")}
+                            />
+                            Read &amp; write
+                          </label>
+                        </fieldset>
+                      </NodexDialogBody>
+                      <NodexDialogFooter>
+                        <NodexDialogAction onClick={() => setPendingLibraryGrantDrop(null)}>
+                          Cancel
+                        </NodexDialogAction>
+                        <NodexDialogAction
+                          tone="primary"
+                          disabled={!pendingLibraryGrantProject || libraryMutation.isPending}
+                          onClick={() => void confirmLibraryGrantDrop()}
+                        >
+                          Grant access
+                        </NodexDialogAction>
+                      </NodexDialogFooter>
+                    </NodexDialogFrame>
                   </NodexDialogContent>
                 </NodexDialog>
               ) : null}

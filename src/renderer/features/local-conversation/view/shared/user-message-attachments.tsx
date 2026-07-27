@@ -200,7 +200,7 @@ export function ImagePreviewDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         aria-label="Image preview"
-        className="max-w-[min(90vw,calc(var(--thread-content-max-width)+16rem))] gap-0 overflow-hidden rounded-xl p-2"
+        className="w-[min(90vw,calc(var(--thread-content-max-width)+16rem))] max-w-none rounded-xl p-2"
         showCloseButton
         closeButtonAriaLabel="Close image preview"
       >

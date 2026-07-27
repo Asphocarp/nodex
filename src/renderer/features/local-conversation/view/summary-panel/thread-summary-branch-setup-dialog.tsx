@@ -1,11 +1,13 @@
 import { GitBranchPlus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { NodexButton } from "@/components/ui/button";
 import {
   NodexDialog,
+  NodexDialogAction,
+  NodexDialogBody,
   NodexDialogContent,
   NodexDialogDescription,
   NodexDialogFooter,
+  NodexDialogForm,
   NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
@@ -114,19 +116,19 @@ export function ThreadSummaryBranchSetupDialog({
 
   return (
     <NodexDialog open={open} onOpenChange={handleOpenChange}>
-      <NodexDialogContent className="max-w-[420px] rounded-2xl" showCloseButton={!busy}>
-        <form className="flex flex-col gap-4" onSubmit={(event) => void handleSubmit(event)}>
-          <NodexDialogHeader className="gap-2 text-left">
+      <NodexDialogContent size="compact" showCloseButton={!busy}>
+        <NodexDialogForm onSubmit={(event) => void handleSubmit(event)}>
+          <NodexDialogHeader>
             <div className="flex size-8 items-center justify-center rounded-lg bg-token-surface-secondary text-token-foreground">
               <GitBranchPlus className="icon-sm" aria-hidden="true" />
             </div>
-            <NodexDialogTitle className="text-base">Work here</NodexDialogTitle>
+            <NodexDialogTitle>Work here</NodexDialogTitle>
             <NodexDialogDescription>
               Create a branch to commit changes, push, and create a PR from this checkout.
             </NodexDialogDescription>
           </NodexDialogHeader>
 
-          <div className="flex flex-col gap-2">
+          <NodexDialogBody className="gap-2">
             <div className="flex items-center justify-between gap-4">
               <span className="text-sm font-medium text-token-foreground">Branch name</span>
             </div>
@@ -139,26 +141,24 @@ export function ThreadSummaryBranchSetupDialog({
               onChange={(event) => setBranchName(event.currentTarget.value)}
             />
             {validationMessage ? (
-              <p className="text-xs text-token-error-foreground">{validationMessage}</p>
+              <p className="text-xs text-token-charts-red">{validationMessage}</p>
             ) : inlineError ? (
-              <p className="text-xs text-token-error-foreground">{inlineError}</p>
+              <p className="text-xs text-token-charts-red">{inlineError}</p>
             ) : null}
-          </div>
+          </NodexDialogBody>
 
-          <NodexDialogFooter className="gap-2 sm:justify-end">
-            <NodexButton
-              type="button"
-              variant="secondary"
+          <NodexDialogFooter>
+            <NodexDialogAction
               disabled={busy}
               onClick={() => handleOpenChange(false)}
             >
               Close
-            </NodexButton>
-            <NodexButton type="submit" disabled={!canSubmit}>
+            </NodexDialogAction>
+            <NodexDialogAction tone="primary" type="submit" disabled={!canSubmit}>
               {busy ? "Creating…" : "Create"}
-            </NodexButton>
+            </NodexDialogAction>
           </NodexDialogFooter>
-        </form>
+        </NodexDialogForm>
       </NodexDialogContent>
     </NodexDialog>
   );

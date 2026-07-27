@@ -9,12 +9,14 @@ import {
   CodexGoalTrashIcon,
   SpinnerIcon,
 } from "@/components/shared/icons";
-import { NodexButton } from "@/components/ui/button";
 import {
   NodexDialog,
+  NodexDialogAction,
+  NodexDialogBody,
   NodexDialogContent,
   NodexDialogDescription,
   NodexDialogFooter,
+  NodexDialogForm,
   NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
@@ -181,10 +183,10 @@ function ThreadGoalEditDialog({
 
   return (
     <NodexDialog open={open} onOpenChange={onOpenChange}>
-      <NodexDialogContent className="max-w-[32rem] gap-4 rounded-2xl p-5">
-        <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-          <NodexDialogHeader className="gap-1 text-left">
-            <NodexDialogTitle className="flex items-center gap-2 text-base">
+      <NodexDialogContent>
+        <NodexDialogForm onSubmit={handleSubmit}>
+          <NodexDialogHeader>
+            <NodexDialogTitle className="flex items-center gap-2">
               <CodexGoalTargetIcon className="icon-2xs text-token-input-placeholder-foreground/80" />
               <span>{getThreadGoalMessage("composer.threadGoal.editDialog.title")}</span>
             </NodexDialogTitle>
@@ -192,37 +194,37 @@ function ThreadGoalEditDialog({
               {getThreadGoalMessage("composer.threadGoal.editDialog.ariaLabel")}
             </NodexDialogDescription>
           </NodexDialogHeader>
-          <textarea
-            rows={3}
-            className="min-h-[240px] w-full resize-none rounded-2xl border border-token-border bg-token-input-background px-3 py-2 text-token-input-foreground shadow-sm outline-none focus:ring-1 focus:ring-token-focus"
-            autoFocus
-            aria-label={getThreadGoalMessage("composer.threadGoal.editDialog.ariaLabel")}
-            value={objective}
-            disabled={pending}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                event.preventDefault();
-                event.currentTarget.form?.requestSubmit();
-              }
-            }}
-            onInput={(event) => {
-              setObjective(event.currentTarget.value);
-            }}
-          />
+          <NodexDialogBody>
+            <textarea
+              rows={3}
+              className="min-h-[240px] w-full resize-none rounded-2xl border border-token-border bg-token-input-background px-3 py-2 text-token-input-foreground shadow-sm outline-none focus:ring-1 focus:ring-token-focus"
+              autoFocus
+              aria-label={getThreadGoalMessage("composer.threadGoal.editDialog.ariaLabel")}
+              value={objective}
+              disabled={pending}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
+              onInput={(event) => {
+                setObjective(event.currentTarget.value);
+              }}
+            />
+          </NodexDialogBody>
           <NodexDialogFooter>
-            <NodexButton
-              type="button"
-              variant="secondary"
+            <NodexDialogAction
               disabled={pending}
               onClick={() => onOpenChange(false)}
             >
               {getThreadGoalMessage("composer.threadGoal.editDialog.cancel")}
-            </NodexButton>
-            <NodexButton type="submit" disabled={!canSave}>
+            </NodexDialogAction>
+            <NodexDialogAction tone="primary" type="submit" disabled={!canSave}>
               {getThreadGoalMessage("composer.threadGoal.editDialog.save")}
-            </NodexButton>
+            </NodexDialogAction>
           </NodexDialogFooter>
-        </form>
+        </NodexDialogForm>
       </NodexDialogContent>
     </NodexDialog>
   );

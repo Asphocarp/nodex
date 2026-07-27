@@ -1,12 +1,14 @@
 import { Archive, FolderInput, MoreHorizontal, RotateCcw, Share2, SquareArrowOutUpRight } from "lucide-react";
 import { useState, type ReactElement } from "react";
 
-import { NodexButton } from "@/components/ui/button";
 import {
   NodexDialog,
+  NodexDialogAction,
+  NodexDialogBody,
   NodexDialogContent,
   NodexDialogDescription,
   NodexDialogFooter,
+  NodexDialogFrame,
   NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
@@ -213,37 +215,44 @@ export function LibraryResourceActions({
       </NodexDropdownMenu>
 
       <NodexDialog open={dialog === "move"} onOpenChange={(open) => !open && setDialog(null)}>
-        <NodexDialogContent className="max-w-md">
-          <NodexDialogHeader>
-            <NodexDialogTitle>Move {title}</NodexDialogTitle>
-            <NodexDialogDescription>
-              Choose its owning location. IDs, Documents, and Database bindings are preserved.
-            </NodexDialogDescription>
-          </NodexDialogHeader>
-          <label className="grid gap-1.5 text-sm text-token-text-primary">
-            Destination
-            <select
-              value={destination}
-              className="h-9 rounded-lg bg-token-bg-secondary px-3 outline-none focus:ring-2 focus:ring-token-border"
-              onChange={(event) => setDestination(event.target.value)}
-            >
-              <option value="library">Library root</option>
-              {(pages.data?.items ?? []).map((page) => page.target.kind === "page" ? (
-                <option key={page.target.pageId} value={`page:${page.target.pageId}`}>
-                  {page.title || "Untitled"} — {page.locationLabel}
-                </option>
-              ) : null)}
-            </select>
-          </label>
-          <NodexDialogFooter>
-            <NodexButton variant="ghost" onClick={() => setDialog(null)}>Cancel</NodexButton>
-            <NodexButton
-              disabled={mutation.isPending || selectedDestinationIsSelf || destinationPath.isPending}
-              onClick={() => void applyMove()}
-            >
-              Move
-            </NodexButton>
-          </NodexDialogFooter>
+        <NodexDialogContent size="compact">
+          <NodexDialogFrame>
+            <NodexDialogHeader>
+              <NodexDialogTitle>Move {title}</NodexDialogTitle>
+              <NodexDialogDescription>
+                Choose its owning location. IDs, Documents, and Database bindings are preserved.
+              </NodexDialogDescription>
+            </NodexDialogHeader>
+            <NodexDialogBody>
+              <label className="grid gap-1.5 text-sm text-token-text-primary">
+                Destination
+                <select
+                  value={destination}
+                  className="h-9 rounded-lg bg-token-bg-secondary px-3 outline-none focus:ring-2 focus:ring-token-border"
+                  onChange={(event) => setDestination(event.target.value)}
+                >
+                  <option value="library">Library root</option>
+                  {(pages.data?.items ?? []).map((page) => page.target.kind === "page" ? (
+                    <option key={page.target.pageId} value={`page:${page.target.pageId}`}>
+                      {page.title || "Untitled"} — {page.locationLabel}
+                    </option>
+                  ) : null)}
+                </select>
+              </label>
+            </NodexDialogBody>
+            <NodexDialogFooter>
+              <NodexDialogAction onClick={() => setDialog(null)}>
+                Cancel
+              </NodexDialogAction>
+              <NodexDialogAction
+                tone="primary"
+                disabled={mutation.isPending || selectedDestinationIsSelf || destinationPath.isPending}
+                onClick={() => void applyMove()}
+              >
+                Move
+              </NodexDialogAction>
+            </NodexDialogFooter>
+          </NodexDialogFrame>
         </NodexDialogContent>
       </NodexDialog>
 
@@ -251,80 +260,89 @@ export function LibraryResourceActions({
         open={dialog === "grant" || dialog === "open_project"}
         onOpenChange={(open) => !open && setDialog(null)}
       >
-        <NodexDialogContent className="max-w-md">
-          <NodexDialogHeader>
-            <NodexDialogTitle>
-              {dialog === "open_project" ? "Open in Project" : "Give Project access"}
-            </NodexDialogTitle>
-            <NodexDialogDescription>
-              The grant applies recursively to {title}. Ownership and the Project&apos;s primary Database do not change.
-            </NodexDialogDescription>
-          </NodexDialogHeader>
-          <div className="grid gap-3">
-            <label className="grid gap-1.5 text-sm text-token-text-primary">
-              Project
-              <select
-                value={projectId}
-                className="h-9 rounded-lg bg-token-bg-secondary px-3 outline-none focus:ring-2 focus:ring-token-border"
-                onChange={(event) => setProjectId(event.target.value)}
+        <NodexDialogContent size="compact">
+          <NodexDialogFrame>
+            <NodexDialogHeader>
+              <NodexDialogTitle>
+                {dialog === "open_project" ? "Open in Project" : "Give Project access"}
+              </NodexDialogTitle>
+              <NodexDialogDescription>
+                The grant applies recursively to {title}. Ownership and the Project&apos;s primary Database do not change.
+              </NodexDialogDescription>
+            </NodexDialogHeader>
+            <NodexDialogBody className="gap-3">
+              <label className="grid gap-1.5 text-sm text-token-text-primary">
+                Project
+                <select
+                  value={projectId}
+                  className="h-9 rounded-lg bg-token-bg-secondary px-3 outline-none focus:ring-2 focus:ring-token-border"
+                  onChange={(event) => setProjectId(event.target.value)}
+                >
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>{project.name}</option>
+                  ))}
+                </select>
+              </label>
+              <fieldset className="grid gap-1.5 text-sm text-token-text-primary">
+                <legend className="mb-1">Access</legend>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="library-project-access"
+                    checked={access === "read"}
+                    onChange={() => setAccess("read")}
+                  />
+                  Read
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="library-project-access"
+                    checked={access === "read_write"}
+                    onChange={() => setAccess("read_write")}
+                  />
+                  Read &amp; write
+                </label>
+              </fieldset>
+            </NodexDialogBody>
+            <NodexDialogFooter>
+              <NodexDialogAction onClick={() => setDialog(null)}>
+                Cancel
+              </NodexDialogAction>
+              <NodexDialogAction
+                tone="primary"
+                disabled={!projectId || mutation.isPending}
+                onClick={() => void applyGrant(dialog === "open_project")}
               >
-                {projects.map((project) => (
-                  <option key={project.id} value={project.id}>{project.name}</option>
-                ))}
-              </select>
-            </label>
-            <fieldset className="grid gap-1.5 text-sm text-token-text-primary">
-              <legend className="mb-1">Access</legend>
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="library-project-access"
-                  checked={access === "read"}
-                  onChange={() => setAccess("read")}
-                />
-                Read
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="library-project-access"
-                  checked={access === "read_write"}
-                  onChange={() => setAccess("read_write")}
-                />
-                Read &amp; write
-              </label>
-            </fieldset>
-          </div>
-          <NodexDialogFooter>
-            <NodexButton variant="ghost" onClick={() => setDialog(null)}>Cancel</NodexButton>
-            <NodexButton
-              disabled={!projectId || mutation.isPending}
-              onClick={() => void applyGrant(dialog === "open_project")}
-            >
-              {dialog === "open_project" ? "Grant and open" : "Grant access"}
-            </NodexButton>
-          </NodexDialogFooter>
+                {dialog === "open_project" ? "Grant and open" : "Grant access"}
+              </NodexDialogAction>
+            </NodexDialogFooter>
+          </NodexDialogFrame>
         </NodexDialogContent>
       </NodexDialog>
 
       <NodexDialog open={dialog === "archive"} onOpenChange={(open) => !open && setDialog(null)}>
-        <NodexDialogContent className="max-w-md">
-          <NodexDialogHeader>
-            <NodexDialogTitle>Archive this {target.kind}?</NodexDialogTitle>
-            <NodexDialogDescription>
-              {title} will leave the active Library and remain available under Archived.
-            </NodexDialogDescription>
-          </NodexDialogHeader>
-          <NodexDialogFooter>
-            <NodexButton variant="ghost" onClick={() => setDialog(null)}>Cancel</NodexButton>
-            <NodexButton
-              variant="destructive"
-              disabled={mutation.isPending}
-              onClick={() => void applyLifecycle()}
-            >
-              Archive
-            </NodexButton>
-          </NodexDialogFooter>
+        <NodexDialogContent size="compact">
+          <NodexDialogFrame>
+            <NodexDialogHeader>
+              <NodexDialogTitle>Archive this {target.kind}?</NodexDialogTitle>
+              <NodexDialogDescription>
+                {title} will leave the active Library and remain available under Archived.
+              </NodexDialogDescription>
+            </NodexDialogHeader>
+            <NodexDialogFooter>
+              <NodexDialogAction onClick={() => setDialog(null)}>
+                Cancel
+              </NodexDialogAction>
+              <NodexDialogAction
+                tone="danger"
+                disabled={mutation.isPending}
+                onClick={() => void applyLifecycle()}
+              >
+                Archive
+              </NodexDialogAction>
+            </NodexDialogFooter>
+          </NodexDialogFrame>
         </NodexDialogContent>
       </NodexDialog>
     </>

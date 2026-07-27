@@ -4,14 +4,16 @@ import type {
   ProjectArchiveBlocker,
   ProjectLifecycleMutationResult,
 } from "@/lib/types";
-import { NodexButton } from "@/components/ui/button";
 import {
   NodexDialog,
+  NodexDialogAction,
+  NodexDialogBody,
   NodexDialogContent,
-  NodexDialogDescription,
   NodexDialogFooter,
+  NodexDialogForm,
   NodexDialogHeader,
   NodexDialogTitle,
+  NodexDialogDescription,
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 
@@ -95,8 +97,7 @@ export function ProjectRemoveDialog({
   return (
     <NodexDialog open={open} onOpenChange={setOpen}>
       <NodexDialogContent
-        className="w-[420px] gap-5 sm:max-w-[420px]"
-        showCloseButton={false}
+        size="compact"
         onEscapeKeyDown={(event) => {
           if (pending) event.preventDefault();
         }}
@@ -107,46 +108,49 @@ export function ProjectRemoveDialog({
           if (pending) event.preventDefault();
         }}
       >
-        <form className="contents" onSubmit={(event) => void submit(event)}>
-          <NodexDialogHeader className="gap-2 text-left">
-            <NodexDialogTitle className="text-base">
-              Remove {project.name}?
-            </NodexDialogTitle>
+        <NodexDialogForm onSubmit={(event) => void submit(event)}>
+          <NodexDialogHeader>
+            <NodexDialogTitle>Remove {project.name}?</NodexDialogTitle>
             <NodexDialogDescription>
-              This removes the project from the app. Files on your computer and existing chats won&rsquo;t be deleted.
+              This removes the project from the app. Files on your computer and existing chats won’t be deleted.
             </NodexDialogDescription>
           </NodexDialogHeader>
 
           {blockers.length > 0 ? (
-            <div
-              role="alert"
-              className="rounded-lg bg-token-error-background/10 px-3 py-2 text-sm text-token-error-foreground"
-            >
-              {describeProjectArchiveBlockers(blockers)}
-              <ul className="sr-only">
-                {blockers.map((blocker, index) => (
-                  <li key={`${blocker.kind}:${index}`}>
-                    {blockerAccessibleLabel(blocker)}
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <NodexDialogBody>
+              <div
+                role="alert"
+                className="rounded-lg bg-token-charts-red/10 px-3 py-2 text-sm text-token-charts-red"
+              >
+                {describeProjectArchiveBlockers(blockers)}
+                <ul className="sr-only">
+                  {blockers.map((blocker, index) => (
+                    <li key={`${blocker.kind}:${index}`}>
+                      {blockerAccessibleLabel(blocker)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </NodexDialogBody>
           ) : null}
 
           <NodexDialogFooter>
-            <NodexButton
+            <NodexDialogAction
               type="button"
-              variant="ghost"
               disabled={pending}
               onClick={() => setOpen(false)}
             >
               Cancel
-            </NodexButton>
-            <NodexButton type="submit" variant="destructive" disabled={pending}>
+            </NodexDialogAction>
+            <NodexDialogAction
+              tone="danger"
+              type="submit"
+              disabled={pending}
+            >
               {pending ? "Removing…" : "Remove project"}
-            </NodexButton>
+            </NodexDialogAction>
           </NodexDialogFooter>
-        </form>
+        </NodexDialogForm>
       </NodexDialogContent>
     </NodexDialog>
   );

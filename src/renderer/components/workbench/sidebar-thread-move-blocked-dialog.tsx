@@ -1,9 +1,10 @@
-import { NodexButton } from "@/components/ui/button";
 import {
   NodexDialog,
+  NodexDialogAction,
   NodexDialogContent,
   NodexDialogDescription,
   NodexDialogFooter,
+  NodexDialogFrame,
   NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
@@ -22,34 +23,36 @@ export function SidebarThreadMoveBlockedDialog({
   blocked,
   onClose,
 }: {
-  blocked: CodexSidebarThreadMoveBlocked | null;
+  blocked: CodexSidebarThreadMoveBlocked;
   onClose: () => void;
 }) {
-  const missingProjectSources = blocked?.missingProjectSources ?? [];
+  const missingProjectSources = blocked.missingProjectSources;
   const pathList = formatMissingProjectSourceList(missingProjectSources);
   const folderLabel = missingProjectSources.length === 1 ? "folder" : "folders";
 
   return (
     <NodexDialog
-      open={blocked !== null}
+      open
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
     >
-      <NodexDialogContent className="max-w-[420px] rounded-2xl" showCloseButton={false}>
-        <NodexDialogHeader className="gap-2 text-left">
-          <NodexDialogTitle className="text-base">
-            This task can&apos;t be moved to {blocked?.targetProjectName ?? "this project"}
-          </NodexDialogTitle>
-          <NodexDialogDescription>
-            The project doesn&apos;t have access to the {pathList} {folderLabel}.
-          </NodexDialogDescription>
-        </NodexDialogHeader>
-        <NodexDialogFooter className="sm:justify-end">
-          <NodexButton type="button" onClick={onClose}>
-            OK
-          </NodexButton>
-        </NodexDialogFooter>
+      <NodexDialogContent size="compact" showCloseButton={false}>
+        <NodexDialogFrame>
+          <NodexDialogHeader>
+            <NodexDialogTitle>
+              This task can&apos;t be moved to {blocked.targetProjectName}
+            </NodexDialogTitle>
+            <NodexDialogDescription>
+              The project doesn&apos;t have access to the {pathList} {folderLabel}.
+            </NodexDialogDescription>
+          </NodexDialogHeader>
+          <NodexDialogFooter>
+            <NodexDialogAction tone="primary" onClick={onClose}>
+              OK
+            </NodexDialogAction>
+          </NodexDialogFooter>
+        </NodexDialogFrame>
       </NodexDialogContent>
     </NodexDialog>
   );

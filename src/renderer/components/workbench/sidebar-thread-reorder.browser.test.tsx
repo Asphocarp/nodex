@@ -1,8 +1,9 @@
-import { act, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, test, vi } from "vitest";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import type { CodexSidebarThreadItem, Project } from "@/lib/types";
+import { renderWithMaitai as render } from "../../test/dom";
 import {
   CodexProjectRow,
   CodexSidebarThreadRow,

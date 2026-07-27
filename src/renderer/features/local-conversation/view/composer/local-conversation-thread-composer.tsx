@@ -65,12 +65,14 @@ import {
 } from "@/components/shared/icons";
 import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
 import { toast } from "@/components/ui/toast";
-import { NodexButton } from "@/components/ui/button";
 import {
   NodexDialog,
+  NodexDialogAction,
+  NodexDialogBody,
   NodexDialogContent,
   NodexDialogDescription,
   NodexDialogFooter,
+  NodexDialogForm,
   NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
@@ -735,41 +737,40 @@ function ThreadGoalReplacementConfirmationDialog({
       }}
     >
       <NodexDialogContent
-        className="max-w-[28rem] gap-4 rounded-2xl p-5"
+        size="compact"
         showCloseButton={false}
       >
-        <form
-          className="flex flex-col gap-4"
+        <NodexDialogForm
           onSubmit={(event) => {
             event.preventDefault();
             onConfirm();
           }}
         >
-          <NodexDialogHeader className="gap-1 text-left">
-            <NodexDialogTitle className="text-base">
+          <NodexDialogHeader>
+            <NodexDialogTitle>
               {getThreadGoalMessage("composer.threadGoal.replaceConfirmation.title")}
             </NodexDialogTitle>
             <NodexDialogDescription>
               {getThreadGoalMessage("composer.threadGoal.replaceConfirmation.subtitle")}
             </NodexDialogDescription>
           </NodexDialogHeader>
-          <div className="line-clamp-4 rounded-lg bg-token-bg-secondary px-3 py-2 text-sm text-token-foreground">
-            {confirmation.draft.objective}
-          </div>
+          <NodexDialogBody>
+            <div className="line-clamp-4 rounded-lg bg-token-bg-secondary px-3 py-2 text-sm text-token-foreground">
+              {confirmation.draft.objective}
+            </div>
+          </NodexDialogBody>
           <NodexDialogFooter>
-            <NodexButton
-              type="button"
-              variant="secondary"
+            <NodexDialogAction
               disabled={pending}
               onClick={onCancel}
             >
               {getThreadGoalMessage("composer.threadGoal.replaceConfirmation.cancel")}
-            </NodexButton>
-            <NodexButton type="submit" disabled={pending}>
+            </NodexDialogAction>
+            <NodexDialogAction tone="primary" type="submit" disabled={pending}>
               {getThreadGoalMessage("composer.threadGoal.replaceConfirmation.confirm")}
-            </NodexButton>
+            </NodexDialogAction>
           </NodexDialogFooter>
-        </form>
+        </NodexDialogForm>
       </NodexDialogContent>
     </NodexDialog>
   );

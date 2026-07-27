@@ -7,9 +7,12 @@ import { cn } from "@/lib/utils";
 import { NodexButton } from "../ui/button";
 import {
   NodexDialog,
+  NodexDialogAction,
+  NodexDialogBody,
   NodexDialogContent,
   NodexDialogDescription,
   NodexDialogFooter,
+  NodexDialogFrame,
   NodexDialogHeader,
   NodexDialogTitle,
 } from "../ui/dialog";
@@ -333,29 +336,33 @@ export function KeyboardShortcutsSettingsPage() {
 
       <NodexDialog open={resetAllOpen} onOpenChange={setResetAllOpen}>
         <NodexDialogContent>
-          <NodexDialogHeader>
-            <NodexDialogTitle>Reset all keyboard shortcuts?</NodexDialogTitle>
-            <NodexDialogDescription>
-              This will discard all custom shortcuts and restore the default keyboard shortcuts.
-            </NodexDialogDescription>
-          </NodexDialogHeader>
-          {resetAllError ? (
-            <div className="rounded-lg border border-token-error-foreground/30 bg-token-error-background/10 px-3 py-2 text-sm text-token-error-foreground">
-              {resetAllError}
-            </div>
-          ) : null}
-          <NodexDialogFooter>
-            <NodexButton variant="outline" onClick={() => setResetAllOpen(false)}>
-              Cancel
-            </NodexButton>
-            <NodexButton
-              variant="destructive"
-              disabled={resetAllMutation.isPending}
-              onClick={() => resetAllMutation.mutate()}
-            >
-              Reset all
-            </NodexButton>
-          </NodexDialogFooter>
+          <NodexDialogFrame>
+            <NodexDialogHeader>
+              <NodexDialogTitle>Reset all keyboard shortcuts?</NodexDialogTitle>
+              <NodexDialogDescription>
+                This will discard all custom shortcuts and restore the default keyboard shortcuts.
+              </NodexDialogDescription>
+            </NodexDialogHeader>
+            {resetAllError ? (
+              <NodexDialogBody>
+                <div className="rounded-lg bg-token-charts-red/10 px-3 py-2 text-sm text-token-charts-red">
+                  {resetAllError}
+                </div>
+              </NodexDialogBody>
+            ) : null}
+            <NodexDialogFooter>
+              <NodexDialogAction onClick={() => setResetAllOpen(false)}>
+                Cancel
+              </NodexDialogAction>
+              <NodexDialogAction
+                tone="danger"
+                disabled={resetAllMutation.isPending}
+                onClick={() => resetAllMutation.mutate()}
+              >
+                Reset all
+              </NodexDialogAction>
+            </NodexDialogFooter>
+          </NodexDialogFrame>
         </NodexDialogContent>
       </NodexDialog>
     </SettingsPageSurface>

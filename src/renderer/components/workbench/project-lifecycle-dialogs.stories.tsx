@@ -116,23 +116,45 @@ export const EditProject: Story = {
   render: () => (
     <Surface>
       <ProjectEditDialog
-        open
         project={MULTI_ROOT_PROJECT}
-        onOpenChange={() => undefined}
+        onClose={() => undefined}
         onSubmit={async () => undefined}
         onArchiveProject={async () => ({ kind: "not-found" })}
       />
     </Surface>
   ),
+  parameters: {
+    docs: {
+      description: {
+        story: "Reference-parity edit surface with multiple source folders and all footer actions.",
+      },
+    },
+  },
+};
+
+export const EditProjectRemoveConfirmation: Story = {
+  render: () => (
+    <Surface>
+      <ProjectEditDialog
+        project={MULTI_ROOT_PROJECT}
+        onClose={() => undefined}
+        onSubmit={async () => undefined}
+        onArchiveProject={async () => ({ kind: "not-found" })}
+      />
+    </Surface>
+  ),
+  play: async () => {
+    fireEvent.click(getByRole(document.body, "button", { name: "Remove project" }));
+    await waitFor(() => getByRole(document.body, "heading", { name: "Remove Nodex desktop?" }));
+  },
 };
 
 export const EditProjectSingleSource: Story = {
   render: () => (
     <Surface>
       <ProjectEditDialog
-        open
         project={ACTIVE_PROJECT}
-        onOpenChange={() => undefined}
+        onClose={() => undefined}
         onSubmit={async () => undefined}
         onArchiveProject={async () => ({ kind: "not-found" })}
       />
@@ -144,9 +166,8 @@ export const EditProjectEmpty: Story = {
   render: () => (
     <Surface>
       <ProjectEditDialog
-        open
         project={{ ...ACTIVE_PROJECT, sources: [], primaryWorkspaceRoot: null }}
-        onOpenChange={() => undefined}
+        onClose={() => undefined}
         onSubmit={async () => undefined}
         onArchiveProject={async () => ({ kind: "not-found" })}
       />

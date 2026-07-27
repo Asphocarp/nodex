@@ -5,11 +5,13 @@ import {
   useState,
 } from "react";
 import { SpinnerIcon } from "@/components/shared/icons";
-import { NodexButton } from "@/components/ui/button";
 import {
   NodexDialog,
+  NodexDialogAction,
+  NodexDialogBody,
   NodexDialogContent,
   NodexDialogDescription,
+  NodexDialogFrame,
   NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
@@ -94,29 +96,27 @@ export function StableWorktreeStatusDialogView({
   const busy = isWorktreeBusy(entry);
   const failed = entry.phase === "failed";
   const actions = busy ? (
-    <NodexButton variant="secondary" size="sm" onClick={onCancel}>
+    <NodexDialogAction onClick={onCancel}>
       Cancel
-    </NodexButton>
+    </NodexDialogAction>
   ) : failed ? (
     <>
-      <NodexButton variant="secondary" size="sm" onClick={onEditEnvironment}>
+      <NodexDialogAction onClick={onEditEnvironment}>
         Edit environment
-      </NodexButton>
+      </NodexDialogAction>
       {canAutoFix(entry) ? (
-        <NodexButton
-          variant="secondary"
-          size="sm"
+        <NodexDialogAction
           aria-busy={autoFixing}
           disabled={autoFixing}
           onClick={onAutoFix}
         >
           {autoFixing ? <SpinnerIcon className="icon-xs" /> : null}
           Auto-fix
-        </NodexButton>
+        </NodexDialogAction>
       ) : null}
-      <NodexButton variant="primary" size="sm" onClick={onRetry}>
+      <NodexDialogAction tone="primary" onClick={onRetry}>
         Retry
-      </NodexButton>
+      </NodexDialogAction>
     </>
   ) : null;
 
@@ -128,18 +128,22 @@ export function StableWorktreeStatusDialogView({
       }}
     >
       <NodexDialogContent
-        className="gap-5 rounded-2xl p-5 sm:max-w-3xl"
+        size="large"
         showCloseButton={false}
       >
-        <NodexDialogHeader className="gap-1 text-left">
-          <NodexDialogTitle className="truncate text-base">
-            {entry.label}
-          </NodexDialogTitle>
-          <NodexDialogDescription>
-            Creating a persistent project worktree
-          </NodexDialogDescription>
-        </NodexDialogHeader>
-        <WorktreeInitActivityList activities={activities} actions={actions} />
+        <NodexDialogFrame>
+          <NodexDialogHeader>
+            <NodexDialogTitle className="truncate">
+              {entry.label}
+            </NodexDialogTitle>
+            <NodexDialogDescription>
+              Creating a persistent project worktree
+            </NodexDialogDescription>
+          </NodexDialogHeader>
+          <NodexDialogBody>
+            <WorktreeInitActivityList activities={activities} actions={actions} />
+          </NodexDialogBody>
+        </NodexDialogFrame>
       </NodexDialogContent>
     </NodexDialog>
   );

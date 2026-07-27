@@ -3,12 +3,14 @@ import {
   LocalStatusIcon,
   WorktreeStatusIcon,
 } from "@/components/shared/icons";
-import { NodexButton } from "@/components/ui/button";
 import {
   NodexDialog as Dialog,
+  NodexDialogAction as DialogAction,
+  NodexDialogBody as DialogBody,
   NodexDialogContent as DialogContent,
   NodexDialogDescription as DialogDescription,
   NodexDialogFooter as DialogFooter,
+  NodexDialogFrame as DialogFrame,
   NodexDialogHeader as DialogHeader,
   NodexDialogTitle as DialogTitle,
 } from "@/components/ui/dialog";
@@ -66,50 +68,48 @@ export function LocalConversationForkFromTurnDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-w-[420px] gap-4 rounded-2xl p-5"
+        size="compact"
         showCloseButton={false}
       >
-        <DialogHeader className="text-left">
-          <div className="flex items-start gap-3">
-            <BranchStatusIcon className="icon-sm shrink-0 text-token-foreground" />
-            <div className="flex min-w-0 flex-col gap-1">
-              <DialogTitle className="text-base">Continue from this message?</DialogTitle>
-              <DialogDescription>
-                This keeps your current files and worktree unchanged. If later turns changed files,
-                the new task may not match what is on disk.
-              </DialogDescription>
+        <DialogFrame>
+          <DialogHeader>
+            <div className="flex items-start gap-3">
+              <BranchStatusIcon className="icon-sm shrink-0 text-token-foreground" />
+              <div className="flex min-w-0 flex-col gap-1">
+                <DialogTitle>Continue from this message?</DialogTitle>
+                <DialogDescription>
+                  This keeps your current files and worktree unchanged. If later turns changed files,
+                  the new task may not match what is on disk.
+                </DialogDescription>
+              </div>
             </div>
-          </div>
-        </DialogHeader>
+          </DialogHeader>
 
-        <div className="flex flex-col gap-1">
-          <ForkChoice
-            icon={isWorktreeThread ? "worktree" : "local"}
-            title={isWorktreeThread ? "Continue in same worktree" : "Continue in new task"}
-            description={isWorktreeThread
-              ? "Continue from this message in the same worktree"
-              : "Continue from this message in a new local task"}
-            onClick={onForkIntoLocal}
-          />
-          {showWorktreeOption ? (
+          <DialogBody className="gap-1">
             <ForkChoice
-              icon="worktree"
-              title="Continue in new worktree"
-              description="Continue from this message in a new worktree"
-              onClick={onForkIntoWorktree}
+              icon={isWorktreeThread ? "worktree" : "local"}
+              title={isWorktreeThread ? "Continue in same worktree" : "Continue in new task"}
+              description={isWorktreeThread
+                ? "Continue from this message in the same worktree"
+                : "Continue from this message in a new local task"}
+              onClick={onForkIntoLocal}
             />
-          ) : null}
-        </div>
+            {showWorktreeOption ? (
+              <ForkChoice
+                icon="worktree"
+                title="Continue in new worktree"
+                description="Continue from this message in a new worktree"
+                onClick={onForkIntoWorktree}
+              />
+            ) : null}
+          </DialogBody>
 
-        <DialogFooter>
-          <NodexButton
-            type="button"
-            variant="secondary"
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </NodexButton>
-        </DialogFooter>
+          <DialogFooter>
+            <DialogAction onClick={() => onOpenChange(false)}>
+              Cancel
+            </DialogAction>
+          </DialogFooter>
+        </DialogFrame>
       </DialogContent>
     </Dialog>
   );

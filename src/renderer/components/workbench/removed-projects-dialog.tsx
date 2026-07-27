@@ -5,8 +5,10 @@ import type { Project } from "@/lib/types";
 import { NodexButton } from "@/components/ui/button";
 import {
   NodexDialog,
+  NodexDialogBody,
   NodexDialogContent,
   NodexDialogDescription,
+  NodexDialogFrame,
   NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
@@ -125,63 +127,67 @@ export function RemovedProjectsDialogView({
   onRestore: (project: Project) => void;
 }) {
   return (
-    <NodexDialogContent className="max-h-[min(620px,calc(100vh-3rem))] max-w-[520px] gap-4 overflow-hidden">
-      <NodexDialogHeader className="gap-1 text-left">
-        <NodexDialogTitle className="text-base">Removed projects</NodexDialogTitle>
-        <NodexDialogDescription>
-          Restore projects to return them and their chats to the sidebar.
-        </NodexDialogDescription>
-      </NodexDialogHeader>
+    <NodexDialogContent className="max-h-[min(620px,calc(100vh-3rem))]">
+      <NodexDialogFrame className="max-h-[min(620px,calc(100vh-3rem))] min-h-0">
+        <NodexDialogHeader>
+          <NodexDialogTitle>Removed projects</NodexDialogTitle>
+          <NodexDialogDescription>
+            Restore projects to return them and their chats to the sidebar.
+          </NodexDialogDescription>
+        </NodexDialogHeader>
 
-      <div className="min-h-28 overflow-y-auto pr-1">
-        {loading ? (
-          <div className="flex min-h-28 items-center justify-center text-token-description-foreground">
-            <LoaderCircle className="size-4 animate-spin" aria-label="Loading removed projects" />
+        <NodexDialogBody className="min-h-0">
+          <div className="min-h-28 overflow-y-auto pr-1">
+            {loading ? (
+              <div className="flex min-h-28 items-center justify-center text-token-description-foreground">
+                <LoaderCircle className="size-4 animate-spin" aria-label="Loading removed projects" />
+              </div>
+            ) : error ? (
+              <div className="flex min-h-28 flex-col items-center justify-center gap-3 text-center">
+                <p className="text-sm text-token-description-foreground">Could not load removed projects.</p>
+                <NodexButton size="sm" variant="secondary" onClick={onRetry}>
+                  Retry
+                </NodexButton>
+              </div>
+            ) : projects.length === 0 ? (
+              <p className="flex min-h-28 items-center justify-center text-sm text-token-description-foreground">
+                No removed projects
+              </p>
+            ) : (
+              <ul className="divide-y divide-token-border/70">
+                {projects.map((project) => {
+                  const restoring = restoringProjectIds.has(project.id);
+                  return (
+                    <li key={project.id} className="flex min-w-0 items-center justify-between gap-4 py-3 first:pt-1 last:pb-1">
+                      <ProjectIdentity project={project} />
+                      <NodexButton
+                        size="sm"
+                        variant="secondary"
+                        disabled={restoring}
+                        onClick={() => onRestore(project)}
+                      >
+                        {restoring ? "Restoring…" : "Restore"}
+                      </NodexButton>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {!loading && !error && hasMoreProjects ? (
+              <div className="flex justify-center pt-3">
+                <NodexButton
+                  size="sm"
+                  variant="ghost"
+                  disabled={loadingMoreProjects}
+                  onClick={onLoadMoreProjects}
+                >
+                  {loadingMoreProjects ? "Loading…" : "Show more"}
+                </NodexButton>
+              </div>
+            ) : null}
           </div>
-        ) : error ? (
-          <div className="flex min-h-28 flex-col items-center justify-center gap-3 text-center">
-            <p className="text-sm text-token-description-foreground">Could not load removed projects.</p>
-            <NodexButton size="sm" variant="secondary" onClick={onRetry}>
-              Retry
-            </NodexButton>
-          </div>
-        ) : projects.length === 0 ? (
-          <p className="flex min-h-28 items-center justify-center text-sm text-token-description-foreground">
-            No removed projects
-          </p>
-        ) : (
-          <ul className="divide-y divide-token-border/70">
-            {projects.map((project) => {
-              const restoring = restoringProjectIds.has(project.id);
-              return (
-                <li key={project.id} className="flex min-w-0 items-center justify-between gap-4 py-3 first:pt-1 last:pb-1">
-                  <ProjectIdentity project={project} />
-                  <NodexButton
-                    size="sm"
-                    variant="secondary"
-                    disabled={restoring}
-                    onClick={() => onRestore(project)}
-                  >
-                    {restoring ? "Restoring…" : "Restore"}
-                  </NodexButton>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        {!loading && !error && hasMoreProjects ? (
-          <div className="flex justify-center pt-3">
-            <NodexButton
-              size="sm"
-              variant="ghost"
-              disabled={loadingMoreProjects}
-              onClick={onLoadMoreProjects}
-            >
-              {loadingMoreProjects ? "Loading…" : "Show more"}
-            </NodexButton>
-          </div>
-        ) : null}
-      </div>
+        </NodexDialogBody>
+      </NodexDialogFrame>
     </NodexDialogContent>
   );
 }

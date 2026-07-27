@@ -5,7 +5,6 @@ import {
   NodexDialog,
   NodexDialogContent,
   NodexDialogDescription,
-  NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -306,11 +305,11 @@ export function ThreadSummaryGitActionDialog({
       if (!nextOpen && busy) return;
       onOpenChange(nextOpen);
     }}>
-      <NodexDialogContent className="max-w-[420px] gap-0 overflow-hidden p-0" showCloseButton={false}>
-        <NodexDialogHeader className="sr-only">
-          <NodexDialogTitle>Commit or push</NodexDialogTitle>
-          <NodexDialogDescription>{statusMessage}</NodexDialogDescription>
-        </NodexDialogHeader>
+      <NodexDialogContent size="compact" showCloseButton={false}>
+        <NodexDialogTitle className="sr-only">Commit or push</NodexDialogTitle>
+        <NodexDialogDescription className="sr-only">
+          {statusMessage}
+        </NodexDialogDescription>
         <div className="flex h-9 items-center justify-between gap-3 px-3 text-sm text-token-description-foreground">
           <span className="flex min-w-0 items-center gap-2">
             <GitBranch className="icon-xs shrink-0" />

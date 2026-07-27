@@ -165,6 +165,19 @@ Dropdowns are **frosted glass** with a subtle shadow — they float above conten
 
 Use one shared dropdown chrome system across selector-style surfaces. Radix `Select`, `DropdownMenu`, and selector `Popover` content should share the same surface, row, divider, and motion treatment by default. Triggers can stay context-specific: toolbar pills, dialog fields, and inline chip controls do not need identical trigger chrome as long as their poppers resolve to the same floating menu language.
 
+## Dialogs
+
+All modal dialogs use the shared Nodex dialog surface by default. `NodexDialogContent` owns the overlay, centered placement, frosted background, hairline ring, shadow, radius, overflow, and close control. Do not introduce provenance- or feature-named chrome variants.
+
+Compose ordinary dialogs from the shared anatomy:
+
+- `NodexDialogFrame` or `NodexDialogForm` owns the outer padding and typography context.
+- `NodexDialogHeader`, `NodexDialogBody`, and `NodexDialogFooter` establish the vertical rhythm.
+- `NodexDialogAction` provides the ghost, primary, and danger footer actions.
+- Choose a semantic `size` on `NodexDialogContent`; avoid recreating widths with one-off surface classes.
+
+Complex dialogs may keep a purpose-built internal layout while inheriting the default surface. Use `unstyledContent` only when the dialog content is itself a complete surface, such as a full-screen media viewer or a position-sensitive command palette. Keep this exception explicit at the call site.
+
 ### Menu dividers
 
 Use a **1px line** inside padded wrapper — not a full-width `<hr>`:

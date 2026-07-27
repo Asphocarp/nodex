@@ -1,39 +1,32 @@
-import { useEffect, useRef, useState } from "react";
-import { NodexButton } from "@/components/ui/button";
+import { useRef, useState } from "react";
 import {
   NodexDialog,
+  NodexDialogAction,
+  NodexDialogBody,
   NodexDialogContent,
   NodexDialogDescription,
   NodexDialogFooter,
+  NodexDialogForm,
   NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
 
-interface RenameChatDialogProps {
-  open: boolean;
+export interface RenameChatDialogProps {
   initialValue: string;
-  busy: boolean;
   requireNonEmpty?: boolean;
-  onOpenChange: (open: boolean) => void;
+  onClose: () => void;
   onSave: (title: string) => void;
 }
 
-export function RenameChatDialog({
-  open,
+function RenameChatDialogContent({
   initialValue,
-  busy,
   requireNonEmpty = false,
-  onOpenChange,
+  onClose,
   onSave,
 }: RenameChatDialogProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [title, setTitle] = useState(initialValue);
-  const saveDisabled = busy || (requireNonEmpty && title.trim().length === 0);
-
-  useEffect(() => {
-    if (!open) return;
-    setTitle(initialValue);
-  }, [initialValue, open]);
+  const saveDisabled = requireNonEmpty && title.trim().length === 0;
 
   const focusAndSelectInput = () => {
     const input = inputRef.current;
@@ -46,52 +39,64 @@ export function RenameChatDialog({
   };
 
   return (
-    <NodexDialog open={open} onOpenChange={onOpenChange}>
+    <NodexDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
       <NodexDialogContent
-        className="max-w-sm gap-5 rounded-2xl p-5"
+        size="narrow"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           window.requestAnimationFrame(focusAndSelectInput);
         }}
       >
-        <form
-          className="flex flex-col gap-4"
+        <NodexDialogForm
           onSubmit={(event) => {
             event.preventDefault();
             if (saveDisabled) return;
             onSave(title);
+            onClose();
           }}
         >
-          <NodexDialogHeader className="gap-1">
-            <NodexDialogTitle className="text-base">Rename chat</NodexDialogTitle>
+          <NodexDialogHeader>
+            <NodexDialogTitle>Rename chat</NodexDialogTitle>
             <NodexDialogDescription>Keep it short and recognizable</NodexDialogDescription>
           </NodexDialogHeader>
-          <input
-            ref={inputRef}
-            aria-label="Chat title"
-            placeholder="Add a title…"
-            className="w-full rounded-xl border border-token-border bg-token-main-surface-primary px-3 py-2 text-base text-token-input-foreground shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-token-focus"
-            value={title}
-            onChange={(event) => updateTitleFromInput(event.currentTarget.value)}
-            onInput={(event) => updateTitleFromInput(event.currentTarget.value)}
-            onFocus={(event) => event.currentTarget.select()}
-          />
+          <NodexDialogBody>
+            <input
+              ref={inputRef}
+              aria-label="Chat title"
+              placeholder="Add a title…"
+              className="w-full rounded-xl border border-token-border bg-token-main-surface-primary px-3 py-2 text-base text-token-input-foreground shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-token-focus"
+              value={title}
+              onChange={(event) => updateTitleFromInput(event.currentTarget.value)}
+              onInput={(event) => updateTitleFromInput(event.currentTarget.value)}
+              onFocus={(event) => event.currentTarget.select()}
+            />
+          </NodexDialogBody>
           <NodexDialogFooter>
-            <NodexButton
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={busy}
-              onClick={() => onOpenChange(false)}
+            <NodexDialogAction
+              onClick={onClose}
             >
               Cancel
-            </NodexButton>
-            <NodexButton type="submit" size="sm" disabled={saveDisabled}>
+            </NodexDialogAction>
+            <NodexDialogAction tone="primary" type="submit" disabled={saveDisabled}>
               Save
-            </NodexButton>
+            </NodexDialogAction>
           </NodexDialogFooter>
-        </form>
+        </NodexDialogForm>
       </NodexDialogContent>
     </NodexDialog>
+  );
+}
+
+export function RenameChatDialog(props: RenameChatDialogProps) {
+  return (
+    <RenameChatDialogContent
+      key={`${props.initialValue}:${String(props.requireNonEmpty ?? false)}`}
+      {...props}
+    />
   );
 }

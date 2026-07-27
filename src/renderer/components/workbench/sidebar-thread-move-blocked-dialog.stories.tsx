@@ -10,15 +10,17 @@ function BlockedMoveDialogStory() {
       <NodexButton type="button" onClick={() => setOpen(true)}>
         Show blocked move
       </NodexButton>
-      <SidebarThreadMoveBlockedDialog
-        blocked={open ? {
-          status: "blocked",
-          reason: "missing-project-sources",
-          missingProjectSources: ["/Users/example/alpha", "/Users/example/shared"],
-          targetProjectName: "Platform",
-        } : null}
-        onClose={() => setOpen(false)}
-      />
+      {open ? (
+        <SidebarThreadMoveBlockedDialog
+          blocked={{
+            status: "blocked",
+            reason: "missing-project-sources",
+            missingProjectSources: ["/Users/example/alpha", "/Users/example/shared"],
+            targetProjectName: "Platform",
+          }}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -27,7 +29,12 @@ const meta = {
   title: "Workbench/Sidebar/Thread move blocked",
   component: SidebarThreadMoveBlockedDialog,
   args: {
-    blocked: null,
+    blocked: {
+      status: "blocked",
+      reason: "missing-project-sources",
+      missingProjectSources: ["/Users/example/alpha", "/Users/example/shared"],
+      targetProjectName: "Platform",
+    },
     onClose: () => undefined,
   },
   render: () => <BlockedMoveDialogStory />,

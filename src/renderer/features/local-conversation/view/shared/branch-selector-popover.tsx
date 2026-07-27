@@ -5,12 +5,14 @@ import {
   PlusIcon,
   SpinnerIcon,
 } from "@/components/shared/icons";
-import { NodexButton } from "@/components/ui/button";
 import {
   NodexDialog,
+  NodexDialogAction,
+  NodexDialogBody,
   NodexDialogContent,
   NodexDialogDescription,
   NodexDialogFooter,
+  NodexDialogForm,
   NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
@@ -283,15 +285,15 @@ export function BranchSelectorPopover({
         setCreateDialogOpen(nextOpen);
         if (!nextOpen) setCreateBranchName("");
       }}>
-        <NodexDialogContent className="max-w-md rounded-2xl" showCloseButton={false}>
-          <form className="flex flex-col gap-4" onSubmit={(event) => void handleCreateSubmit(event)}>
-            <NodexDialogHeader className="gap-1 text-left">
-              <NodexDialogTitle className="text-base">Create and checkout branch</NodexDialogTitle>
+        <NodexDialogContent size="compact" showCloseButton={false}>
+          <NodexDialogForm onSubmit={(event) => void handleCreateSubmit(event)}>
+            <NodexDialogHeader>
+              <NodexDialogTitle>Create and checkout branch</NodexDialogTitle>
               <NodexDialogDescription>
                 Create a new branch from the current checkout and switch to it.
               </NodexDialogDescription>
             </NodexDialogHeader>
-            <div className="flex flex-col gap-2">
+            <NodexDialogBody className="gap-2">
               <Input
                 autoFocus
                 aria-label="Branch name"
@@ -300,24 +302,20 @@ export function BranchSelectorPopover({
                 onChange={(event) => setCreateBranchName(event.currentTarget.value)}
               />
               {createBranchValidation === "trailing-slash" ? (
-                <p className="text-xs text-token-error-foreground">Branch name cannot end with “/”.</p>
+                <p className="text-xs text-token-charts-red">Branch name cannot end with “/”.</p>
               ) : createBranchValidation === "exists" ? (
-                <p className="text-xs text-token-error-foreground">Branch already exists.</p>
+                <p className="text-xs text-token-charts-red">Branch already exists.</p>
               ) : null}
-            </div>
-            <NodexDialogFooter className="gap-2 sm:justify-end">
-              <NodexButton
-                type="button"
-                variant="secondary"
-                onClick={() => setCreateDialogOpen(false)}
-              >
+            </NodexDialogBody>
+            <NodexDialogFooter>
+              <NodexDialogAction onClick={() => setCreateDialogOpen(false)}>
                 Close
-              </NodexButton>
-              <NodexButton type="submit" disabled={!createBranchCanSubmit}>
+              </NodexDialogAction>
+              <NodexDialogAction tone="primary" type="submit" disabled={!createBranchCanSubmit}>
                 Create and checkout
-              </NodexButton>
+              </NodexDialogAction>
             </NodexDialogFooter>
-          </form>
+          </NodexDialogForm>
         </NodexDialogContent>
       </NodexDialog>
     </>

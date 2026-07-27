@@ -13,12 +13,14 @@ import {
   CodexShortcutResetIcon,
   ReviewRefreshIcon,
 } from "@/components/shared/icons";
-import { NodexButton } from "@/components/ui/button";
 import {
   NodexDialog,
+  NodexDialogAction,
+  NodexDialogBody,
   NodexDialogContent,
   NodexDialogDescription,
   NodexDialogFooter,
+  NodexDialogFrame,
   NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
@@ -428,26 +430,32 @@ export function TurnDiffPatchFailureDialog({
     <NodexDialog open onOpenChange={(open) => {
       if (!open) onClose();
     }}>
-      <NodexDialogContent className="max-w-xl rounded-2xl" showCloseButton={false}>
-        <NodexDialogHeader>
-          <NodexDialogTitle>{title}</NodexDialogTitle>
-          <NodexDialogDescription>{description}</NodexDialogDescription>
-        </NodexDialogHeader>
-        {result ? (
-          <div className="flex max-h-[50vh] flex-col gap-3 overflow-y-auto text-sm">
-            {result.errorMessage ? (
-              <div className="rounded-lg border border-token-border bg-token-main-surface-primary p-3 text-token-description-foreground">
-                Git apply error: {result.errorMessage}
+      <NodexDialogContent size="wide" showCloseButton={false}>
+        <NodexDialogFrame>
+          <NodexDialogHeader>
+            <NodexDialogTitle>{title}</NodexDialogTitle>
+            <NodexDialogDescription>{description}</NodexDialogDescription>
+          </NodexDialogHeader>
+          {result ? (
+            <NodexDialogBody>
+              <div className="flex max-h-[50vh] flex-col gap-3 overflow-y-auto text-sm">
+                {result.errorMessage ? (
+                  <div className="rounded-lg border border-token-border bg-token-main-surface-primary p-3 text-token-description-foreground">
+                    Git apply error: {result.errorMessage}
+                  </div>
+                ) : null}
+                <PatchPathGroup title={`Applied cleanly (${appliedCount})`} paths={result.appliedPaths} />
+                <PatchPathGroup title={`Skipped (${skippedCount})`} paths={result.skippedPaths} />
+                <PatchPathGroup title={`Conflicts (${conflictedCount})`} paths={result.conflictedPaths} />
               </div>
-            ) : null}
-            <PatchPathGroup title={`Applied cleanly (${appliedCount})`} paths={result.appliedPaths} />
-            <PatchPathGroup title={`Skipped (${skippedCount})`} paths={result.skippedPaths} />
-            <PatchPathGroup title={`Conflicts (${conflictedCount})`} paths={result.conflictedPaths} />
-          </div>
-        ) : null}
-        <NodexDialogFooter>
-          <NodexButton variant="outline" onClick={onClose}>Close</NodexButton>
-        </NodexDialogFooter>
+            </NodexDialogBody>
+          ) : null}
+          <NodexDialogFooter>
+            <NodexDialogAction tone="primary" onClick={onClose}>
+              Close
+            </NodexDialogAction>
+          </NodexDialogFooter>
+        </NodexDialogFrame>
       </NodexDialogContent>
     </NodexDialog>
   );

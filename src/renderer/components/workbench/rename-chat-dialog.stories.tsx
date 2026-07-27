@@ -17,16 +17,13 @@ function RenameChatDialogStory() {
           {lastSavedTitle ? `Saved raw value: ${lastSavedTitle}` : "No saved value"}
         </span>
       </div>
-      <RenameChatDialog
-        open={open}
-        initialValue="Investigate sidebar rename parity"
-        busy={false}
-        onOpenChange={setOpen}
-        onSave={(title) => {
-          setLastSavedTitle(title);
-          setOpen(false);
-        }}
-      />
+      {open ? (
+        <RenameChatDialog
+          initialValue="Investigate sidebar rename parity"
+          onClose={() => setOpen(false)}
+          onSave={setLastSavedTitle}
+        />
+      ) : null}
     </div>
   );
 }

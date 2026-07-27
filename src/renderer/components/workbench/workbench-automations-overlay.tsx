@@ -34,9 +34,11 @@ import {
 } from "@/components/ui/dropdown";
 import {
   NodexDialog,
+  NodexDialogAction,
   NodexDialogContent,
   NodexDialogDescription,
   NodexDialogFooter,
+  NodexDialogFrame,
   NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
@@ -1287,33 +1289,27 @@ function AutomationArchiveRunsDialog({
       open={count > 0}
       onOpenChange={onOpenChange}
     >
-      <NodexDialogContent className="max-w-[420px] rounded-2xl" showCloseButton={false}>
-        <NodexDialogHeader className="gap-2 text-left">
-          <NodexDialogTitle className="text-base">
-            {count === 1 ? "Archive 1 run?" : `Archive ${count} runs?`}
-          </NodexDialogTitle>
-          <NodexDialogDescription>
-            {count === 1
-              ? "This will archive the chat. You can find it later in your archived chats."
-              : "This will archive their chats. You can find them later in your archived chats."}
-          </NodexDialogDescription>
-        </NodexDialogHeader>
-        <NodexDialogFooter className="gap-2 sm:justify-end">
-          <NodexButton
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </NodexButton>
-          <NodexButton
-            type="button"
-            variant="destructive"
-            onClick={() => void onConfirm()}
-          >
-            {count === 1 ? "Archive" : "Archive all"}
-          </NodexButton>
-        </NodexDialogFooter>
+      <NodexDialogContent size="compact" showCloseButton={false}>
+        <NodexDialogFrame>
+          <NodexDialogHeader>
+            <NodexDialogTitle>
+              {count === 1 ? "Archive 1 run?" : `Archive ${count} runs?`}
+            </NodexDialogTitle>
+            <NodexDialogDescription>
+              {count === 1
+                ? "This will archive the chat. You can find it later in your archived chats."
+                : "This will archive their chats. You can find them later in your archived chats."}
+            </NodexDialogDescription>
+          </NodexDialogHeader>
+          <NodexDialogFooter>
+            <NodexDialogAction onClick={() => onOpenChange(false)}>
+              Cancel
+            </NodexDialogAction>
+            <NodexDialogAction tone="danger" onClick={() => void onConfirm()}>
+              {count === 1 ? "Archive" : "Archive all"}
+            </NodexDialogAction>
+          </NodexDialogFooter>
+        </NodexDialogFrame>
       </NodexDialogContent>
     </NodexDialog>
   );
@@ -4048,36 +4044,35 @@ export function WorkbenchAutomationsRouteShell({
           if (!open) closeDeleteDialog();
         }}
       >
-        <NodexDialogContent className="max-w-[420px] rounded-2xl" showCloseButton={false}>
-          <NodexDialogHeader className="gap-2 text-left">
-            <NodexDialogTitle className="text-base">
-              Delete <strong>{deleteDialogAutomation?.name || "New scheduled task"}</strong>?
-            </NodexDialogTitle>
-            <NodexDialogDescription>
-              This will permanently delete the scheduled task and stop future runs.
-            </NodexDialogDescription>
-          </NodexDialogHeader>
-          <NodexDialogFooter className="gap-2 sm:justify-end">
-            <NodexButton
-              type="button"
-              variant="outline"
-              disabled={mutatingAutomationId !== null}
-              onClick={closeDeleteDialog}
-            >
-              Cancel
-            </NodexButton>
-            <NodexButton
-              type="button"
-              variant="destructive"
-              disabled={mutatingAutomationId !== null}
-              onClick={() => void confirmDeleteDialog()}
-            >
-              {deleteDialogAutomation && mutatingAutomationId === deleteDialogAutomation.id ? (
-                <CodexAutomationLoadingIcon className="icon-xs" />
-              ) : null}
-              Delete scheduled task
-            </NodexButton>
-          </NodexDialogFooter>
+        <NodexDialogContent size="compact" showCloseButton={false}>
+          <NodexDialogFrame>
+            <NodexDialogHeader>
+              <NodexDialogTitle>
+                Delete <strong>{deleteDialogAutomation?.name || "New scheduled task"}</strong>?
+              </NodexDialogTitle>
+              <NodexDialogDescription>
+                This will permanently delete the scheduled task and stop future runs.
+              </NodexDialogDescription>
+            </NodexDialogHeader>
+            <NodexDialogFooter>
+              <NodexDialogAction
+                disabled={mutatingAutomationId !== null}
+                onClick={closeDeleteDialog}
+              >
+                Cancel
+              </NodexDialogAction>
+              <NodexDialogAction
+                tone="danger"
+                disabled={mutatingAutomationId !== null}
+                onClick={() => void confirmDeleteDialog()}
+              >
+                {deleteDialogAutomation && mutatingAutomationId === deleteDialogAutomation.id ? (
+                  <CodexAutomationLoadingIcon className="icon-xs" />
+                ) : null}
+                Delete scheduled task
+              </NodexDialogAction>
+            </NodexDialogFooter>
+          </NodexDialogFrame>
         </NodexDialogContent>
       </NodexDialog>
       <NodexDialog
@@ -4086,31 +4081,25 @@ export function WorkbenchAutomationsRouteShell({
           if (!open) closeDispageDraftDialog();
         }}
       >
-        <NodexDialogContent className="max-w-[420px] rounded-2xl" showCloseButton={false}>
-          <NodexDialogHeader className="gap-2 text-left">
-            <NodexDialogTitle className="text-base">
-              Discard scheduled task draft?
-            </NodexDialogTitle>
-            <NodexDialogDescription>
-              Your changes to this scheduled task will be lost
-            </NodexDialogDescription>
-          </NodexDialogHeader>
-          <NodexDialogFooter className="gap-2 sm:justify-end">
-            <NodexButton
-              type="button"
-              variant="secondary"
-              onClick={closeDispageDraftDialog}
-            >
-              Keep editing
-            </NodexButton>
-            <NodexButton
-              type="button"
-              variant="destructive"
-              onClick={discardCreateDraft}
-            >
-              Discard
-            </NodexButton>
-          </NodexDialogFooter>
+        <NodexDialogContent size="compact" showCloseButton={false}>
+          <NodexDialogFrame>
+            <NodexDialogHeader>
+              <NodexDialogTitle>
+                Discard scheduled task draft?
+              </NodexDialogTitle>
+              <NodexDialogDescription>
+                Your changes to this scheduled task will be lost
+              </NodexDialogDescription>
+            </NodexDialogHeader>
+            <NodexDialogFooter>
+              <NodexDialogAction onClick={closeDispageDraftDialog}>
+                Keep editing
+              </NodexDialogAction>
+              <NodexDialogAction tone="danger" onClick={discardCreateDraft}>
+                Discard
+              </NodexDialogAction>
+            </NodexDialogFooter>
+          </NodexDialogFrame>
         </NodexDialogContent>
       </NodexDialog>
     </div>

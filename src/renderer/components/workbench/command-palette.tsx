@@ -191,6 +191,7 @@ export function CommandPalette({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        unstyledContent
         showCloseButton={false}
         overlayClassName="bg-transparent"
         onOpenAutoFocus={(event) => event.preventDefault()}

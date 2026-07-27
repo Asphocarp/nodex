@@ -6,7 +6,7 @@ import type {
   PointerEvent,
   ReactNode,
 } from "react";
-import { forwardRef, useEffect, useMemo, useState } from "react";
+import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS, useCombinedRefs, type Transform } from "@dnd-kit/utilities";
@@ -34,6 +34,8 @@ import { NodexTooltip } from "@/components/ui/tooltip";
 import { invoke } from "@/lib/api";
 import { CODEX_SIDEBAR_PROJECT_FOLDER_TRANSITION } from "@/lib/codex-panel-motion";
 import { formatElapsedSince } from "@/lib/elapsed-time";
+import { appScope, useScopeHandle } from "@/lib/maitai";
+import { openModal } from "@/lib/modal-registry";
 import type { CodexSidebarThreadItem, Project, ProjectLifecycleMutationResult, ProjectPinnedInput, ProjectSession, ProjectUpdateInput } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
@@ -93,6 +95,16 @@ export function getCodexSidebarSortableStyle(
 
 export function stopCodexSidebarRowActionPropagation(event: SidebarRowActionEvent) {
   event.stopPropagation();
+}
+
+function stopCodexSidebarRowActionKeyPropagation(event: KeyboardEvent<HTMLElement>) {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.stopPropagation();
+}
+
+// Portals still bubble through their React owner; rows only activate for DOM-owned events.
+function isEventWithinCurrentTarget(event: SidebarRowActionEvent): boolean {
+  return event.target instanceof Node && event.currentTarget.contains(event.target);
 }
 
 function clearCodexSidebarTextSelection(): void {
@@ -298,11 +310,12 @@ export function CodexProjectActionsMenu({
   onMarkThreadItemRead?: (item: CodexSidebarThreadItem) => Promise<void>;
   onThreadsChanged?: () => Promise<unknown> | void;
 }) {
+  const appHandle = useScopeHandle(appScope);
   const [open, setOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
   const [archiveChatsOpen, setArchiveChatsOpen] = useState(false);
   const [createStableWorktreeOpen, setCreateStableWorktreeOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
+  const openEditAfterMenuCloseRef = useRef(false);
   const primaryWorkspaceRoot = normalizePrimaryWorkspaceRoot(project);
   const sourceRoots = normalizeProjectSources(project);
   const initialStableWorktreeProjectName = suggestStableWorktreeProjectName({
@@ -333,31 +346,45 @@ export function CodexProjectActionsMenu({
   };
 
   return (
-    <>
-      <div
-        className={open ? "opacity-100" : "opacity-0 group-hover/folder-row:opacity-100"}
-        onPointerDown={stopCodexSidebarRowActionPropagation}
-        onMouseDown={stopCodexSidebarRowActionPropagation}
-        onKeyDown={stopCodexSidebarRowActionPropagation}
-        onClick={stopCodexSidebarRowActionPropagation}
+    <div
+      className={open ? "opacity-100" : "opacity-0 group-hover/folder-row:opacity-100"}
+      onPointerDown={stopCodexSidebarRowActionPropagation}
+      onKeyDown={stopCodexSidebarRowActionKeyPropagation}
+      onClick={stopCodexSidebarRowActionPropagation}
+    >
+      <NodexDropdownMenu
+        open={open}
+        onOpenChange={setOpen}
+        onCloseAutoFocus={(event) => {
+          if (!openEditAfterMenuCloseRef.current) return;
+          openEditAfterMenuCloseRef.current = false;
+          event.preventDefault();
+          openModal(appHandle, ProjectEditDialog, {
+            project,
+            onSubmit: async ({ name, sources }) => {
+              const updated = await onUpdateProject(project.id, {
+                name: name.trim() || project.name,
+                sources,
+              });
+              if (!updated) throw new Error(`Project ${project.id} not found`);
+            },
+            onArchiveProject,
+          });
+        }}
+        side="bottom"
+        align="start"
+        contentWidth="xs"
+        triggerButton={(
+          <button
+            type="button"
+            className={CODEX_SIDEBAR_PROJECT_ACTIONS_BUTTON_CLASS}
+            aria-label={`Project actions for ${project.name}`}
+            data-app-action-sidebar-project-actions-menu=""
+          >
+            <CodexProjectActionsIcon />
+          </button>
+        )}
       >
-        <NodexDropdownMenu
-          open={open}
-          onOpenChange={setOpen}
-          side="bottom"
-          align="start"
-          contentWidth="xs"
-          triggerButton={(
-            <button
-              type="button"
-              className={CODEX_SIDEBAR_PROJECT_ACTIONS_BUTTON_CLASS}
-              aria-label={`Project actions for ${project.name}`}
-              data-app-action-sidebar-project-actions-menu=""
-            >
-              <CodexProjectActionsIcon />
-            </button>
-          )}
-        >
           {onSetProjectPinned ? (
             <NodexDropdownItem
               leftSlot={project.pinned ? <CodexPinOffIcon className="icon-xs" /> : <CodexSessionPinIcon className="icon-xs" />}
@@ -392,8 +419,7 @@ export function CodexProjectActionsMenu({
           <NodexDropdownItem
             leftSlot={<CodexSettingsGeneralIcon className="icon-xs" />}
             onSelect={() => {
-              setOpen(false);
-              setEditOpen(true);
+              openEditAfterMenuCloseRef.current = true;
             }}
           >
             Edit project
@@ -428,23 +454,8 @@ export function CodexProjectActionsMenu({
           >
             Remove
           </NodexDropdownItem>
-        </NodexDropdownMenu>
-      </div>
-
-      <ProjectEditDialog
-        open={editOpen}
-        project={project}
-        onOpenChange={setEditOpen}
-        onSubmit={async ({ name, sources }) => {
-          const updated = await onUpdateProject(project.id, {
-            name: name.trim() || project.name,
-            sources,
-          });
-          if (!updated) throw new Error(`Project ${project.id} not found`);
-        }}
-        onArchiveProject={onArchiveProject}
-      />
-      {onArchiveThreadItem ? (
+      </NodexDropdownMenu>
+      {archiveChatsOpen && onArchiveThreadItem ? (
         <ProjectArchiveChatsDialog
           open={archiveChatsOpen}
           projectName={project.name}
@@ -454,22 +465,26 @@ export function CodexProjectActionsMenu({
           onArchived={onThreadsChanged}
         />
       ) : null}
-      <StableWorktreeCreateDialog
-        open={createStableWorktreeOpen}
-        initialProjectName={initialStableWorktreeProjectName}
-        onOpenChange={setCreateStableWorktreeOpen}
-        onCreate={async (projectName) => {
-          if (!onCreateStableWorktree) return;
-          await onCreateStableWorktree(project, projectName);
-        }}
-      />
-      <ProjectRemoveDialog
-        open={removeOpen}
-        project={project}
-        onOpenChange={setRemoveOpen}
-        onArchiveProject={onArchiveProject}
-      />
-    </>
+      {createStableWorktreeOpen ? (
+        <StableWorktreeCreateDialog
+          open
+          initialProjectName={initialStableWorktreeProjectName}
+          onOpenChange={setCreateStableWorktreeOpen}
+          onCreate={async (projectName) => {
+            if (!onCreateStableWorktree) return;
+            await onCreateStableWorktree(project, projectName);
+          }}
+        />
+      ) : null}
+      {removeOpen ? (
+        <ProjectRemoveDialog
+          open
+          project={project}
+          onOpenChange={setRemoveOpen}
+          onArchiveProject={onArchiveProject}
+        />
+      ) : null}
+    </div>
   );
 }
 
@@ -613,7 +628,10 @@ export function CodexProjectRow({
       )}
       style={sortableStyle}
       inert={activeProjectDrag ? true : undefined}
-      onPointerDownCapture={sortableEnabled ? clearCodexSidebarTextSelection : undefined}
+      onPointerDownCapture={sortableEnabled ? (event) => {
+        if (!isEventWithinCurrentTarget(event)) return;
+        clearCodexSidebarTextSelection();
+      } : undefined}
       role="listitem"
       aria-label={project.name}
     >
@@ -639,6 +657,7 @@ export function CodexProjectRow({
         aria-expanded={expanded}
         onClick={(event) => {
           if (event.defaultPrevented) return;
+          if (!isEventWithinCurrentTarget(event)) return;
           onActivate();
         }}
         onKeyDown={(event) => handleProjectRowKeyboard(event, onActivate)}

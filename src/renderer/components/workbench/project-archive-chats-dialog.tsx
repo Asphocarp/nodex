@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from "react";
-import { NodexButton } from "@/components/ui/button";
 import {
   NodexDialog,
+  NodexDialogAction,
   NodexDialogContent,
   NodexDialogDescription,
   NodexDialogFooter,
+  NodexDialogForm,
   NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
@@ -83,8 +84,7 @@ export function ProjectArchiveChatsDialog({
   return (
     <NodexDialog open={open} onOpenChange={setOpen}>
       <NodexDialogContent
-        className="w-[420px] gap-5 sm:max-w-[420px]"
-        showCloseButton={false}
+        size="compact"
         onEscapeKeyDown={(event) => {
           if (archiving) event.preventDefault();
         }}
@@ -95,9 +95,9 @@ export function ProjectArchiveChatsDialog({
           if (archiving) event.preventDefault();
         }}
       >
-        <form className="contents" onSubmit={(event) => void submit(event)}>
-          <NodexDialogHeader className="gap-2 text-left">
-            <NodexDialogTitle className="text-base">
+        <NodexDialogForm onSubmit={(event) => void submit(event)}>
+          <NodexDialogHeader>
+            <NodexDialogTitle>
               Archive {chatCountLabel(items.length)}?
             </NodexDialogTitle>
             <NodexDialogDescription>
@@ -105,19 +105,22 @@ export function ProjectArchiveChatsDialog({
             </NodexDialogDescription>
           </NodexDialogHeader>
           <NodexDialogFooter>
-            <NodexButton
+            <NodexDialogAction
               type="button"
-              variant="ghost"
               disabled={archiving}
               onClick={() => setOpen(false)}
             >
               Cancel
-            </NodexButton>
-            <NodexButton type="submit" variant="destructive" disabled={archiving}>
+            </NodexDialogAction>
+            <NodexDialogAction
+              tone="danger"
+              type="submit"
+              disabled={archiving}
+            >
               {archiving ? "Archiving…" : "Archive all"}
-            </NodexButton>
+            </NodexDialogAction>
           </NodexDialogFooter>
-        </form>
+        </NodexDialogForm>
       </NodexDialogContent>
     </NodexDialog>
   );

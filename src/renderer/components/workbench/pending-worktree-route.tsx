@@ -17,6 +17,8 @@ import { UserMessageText } from "@/features/local-conversation/view/shared/user-
 import { THREAD_VISUAL_TOKENS } from "@/features/local-conversation/view/blocks/local-conversation-visual-tokens";
 import { WorktreeInitActivityList } from "@/features/local-conversation/view/shared/tools/worktree-init-activity-list";
 import { invoke, subscribeCodexPendingWorktreesChanged } from "@/lib/api";
+import { appScope, useScopeHandle } from "@/lib/maitai";
+import { openModal } from "@/lib/modal-registry";
 import { AppShellHeaderContentRegistrar } from "@/lib/workbench-ui-scopes";
 import { RenameChatDialog } from "./rename-chat-dialog";
 import type {
@@ -190,7 +192,7 @@ export function PendingWorktreeRouteView({
   onTogglePinned,
   onWorkLocally,
 }: PendingWorktreeRouteViewProps) {
-  const [renameOpen, setRenameOpen] = useState(false);
+  const appHandle = useScopeHandle(appScope);
   const activities = resolvePendingWorktreeActivities(entry, resolution);
   const availableActions = resolvePendingWorktreeRouteActions(entry, resolution);
   const actionButtons = availableActions.canCancel
@@ -279,7 +281,13 @@ export function PendingWorktreeRouteView({
       <PendingWorktreeRouteHeader
         entry={entry}
         external={externalHeader}
-        onRename={() => setRenameOpen(true)}
+        onRename={() => {
+          openModal(appHandle, RenameChatDialog, {
+            initialValue: entry.label,
+            requireNonEmpty: true,
+            onSave: onRename,
+          });
+        }}
         onTogglePinned={onTogglePinned}
       />
       <div className="scrollbar-token min-h-0 flex-1 overflow-y-auto">
@@ -305,17 +313,6 @@ export function PendingWorktreeRouteView({
           Waiting for worktree setup…
         </div>
       </div>
-      <RenameChatDialog
-        open={renameOpen}
-        initialValue={entry.label}
-        busy={false}
-        requireNonEmpty
-        onOpenChange={setRenameOpen}
-        onSave={(label) => {
-          onRename(label);
-          setRenameOpen(false);
-        }}
-      />
     </div>
   );
 }

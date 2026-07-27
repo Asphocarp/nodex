@@ -2,12 +2,13 @@ import { describe, expect, test } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
+import { NodexModalHost } from "@/lib/modal-registry";
 import type {
   CodexPendingWorktreeEntry,
   CodexPendingWorktreeThreadResolution,
   CodexPendingWorktreesChangedEvent,
 } from "../../../shared/codex-pending-worktree";
-import { render as renderDom } from "../../test/dom";
+import { renderWithMaitai } from "../../test/dom";
 import {
   PendingWorktreeRoute,
   type PendingWorktreeRouteTransport,
@@ -16,7 +17,12 @@ import {
 const CLIENT_THREAD_ID = "client-new-thread:11111111-1111-4111-8111-111111111111";
 
 function render(element: ReactElement) {
-  return renderDom(<NodexTooltipProvider>{element}</NodexTooltipProvider>);
+  return renderWithMaitai(
+    <NodexTooltipProvider>
+      {element}
+      <NodexModalHost />
+    </NodexTooltipProvider>,
+  );
 }
 
 function deferred<T>(): {

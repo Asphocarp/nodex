@@ -1,8 +1,39 @@
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { XIcon } from "lucide-react";
+import { CodexCloseIcon } from "@/components/shared/icons";
 import { cn } from "@/lib/utils";
-import { NodexButton } from "./button";
+
+export type NodexDialogSize =
+  | "narrow"
+  | "compact"
+  | "default"
+  | "wide"
+  | "large";
+
+const NODEX_DIALOG_SIZE_CLASS: Record<NodexDialogSize, string> = {
+  narrow: "w-[380px]",
+  compact: "w-[420px]",
+  default: "w-[520px]",
+  wide: "w-[576px]",
+  large: "w-[768px]",
+};
+
+const NODEX_DIALOG_ACTION_STYLES = {
+  danger: [
+    "bg-token-charts-red/10 text-token-charts-red",
+    "enabled:hover:bg-token-charts-red/20 enabled:active:bg-token-charts-red/30",
+  ],
+  ghost: [
+    "text-token-text-tertiary",
+    "enabled:hover:bg-token-list-hover-background enabled:active:bg-token-foreground/15",
+    "data-[state=open]:bg-token-list-hover-background",
+  ],
+  primary: [
+    "bg-token-foreground text-token-dropdown-background",
+    "enabled:hover:bg-token-foreground/80 enabled:active:bg-token-foreground/70",
+    "data-[state=open]:bg-token-foreground/80",
+  ],
+} as const;
 
 export function NodexDialog(
   props: React.ComponentProps<typeof DialogPrimitive.Root>,
@@ -36,9 +67,7 @@ export function NodexDialogOverlay({
     <DialogPrimitive.Overlay
       data-slot="codex-dialog-overlay"
       className={cn(
-        "codex-dialog-overlay fixed inset-0 z-50 bg-black/45",
-        "data-[state=open]:animate-in data-[state=open]:fade-in-0",
-        "data-[state=closed]:animate-out data-[state=closed]:fade-out-0",
+        "codex-dialog-overlay fixed inset-0 z-50 bg-[#00000022]",
         className,
       )}
       {...props}
@@ -52,11 +81,15 @@ export function NodexDialogContent({
   children,
   showCloseButton = true,
   closeButtonAriaLabel = "Close",
+  size = "default",
+  unstyledContent = false,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
   overlayClassName?: string;
   closeButtonAriaLabel?: string;
+  size?: NodexDialogSize;
+  unstyledContent?: boolean;
 }) {
   return (
     <NodexDialogPortal>
@@ -64,30 +97,70 @@ export function NodexDialogContent({
       <DialogPrimitive.Content
         data-slot="codex-dialog-content"
         className={cn(
-          "codex-dialog fixed left-1/2 top-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-3xl",
-          "bg-token-dropdown-background/90 text-token-foreground p-6 shadow-xl-spread ring-[0.5px] ring-token-border backdrop-blur-xl outline-hidden",
-          "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
-          "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
-          "sm:max-w-lg",
+          "codex-dialog fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 outline-none",
+          !unstyledContent && [
+            "max-w-[92vw] rounded-3xl bg-token-dropdown-background/90 text-token-foreground",
+            "shadow-[0px_4px_8px_-2px_#0000001a] ring-[0.5px] ring-token-border backdrop-blur-xl",
+            "overflow-hidden",
+            NODEX_DIALOG_SIZE_CLASS[size],
+          ],
           className,
         )}
         {...props}
       >
         {children}
         {showCloseButton ? (
-          <DialogPrimitive.Close asChild>
-            <NodexButton
-              variant="ghost"
-              size="icon-xs"
-              className="absolute right-4 top-4 text-token-description-foreground hover:text-token-foreground"
-              aria-label={closeButtonAriaLabel}
-            >
-              <XIcon />
-            </NodexButton>
+          <DialogPrimitive.Close
+            className="no-drag absolute top-4 right-4 cursor-interaction rounded p-1 leading-none text-token-foreground/80 hover:bg-token-toolbar-hover-background focus:outline-none focus-visible:ring-1 focus-visible:ring-token-focus-border"
+            aria-label={closeButtonAriaLabel}
+          >
+            <CodexCloseIcon className="icon-xs" />
           </DialogPrimitive.Close>
         ) : null}
       </DialogPrimitive.Content>
     </NodexDialogPortal>
+  );
+}
+
+const NODEX_DIALOG_FRAME_CLASS =
+  "flex flex-col gap-0 px-5 py-5 text-base leading-normal tracking-normal [--text-heading-md:21px] [font-weight:445]";
+
+export function NodexDialogFrame({
+  className,
+  ...props
+}: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="codex-dialog-frame"
+      className={cn(NODEX_DIALOG_FRAME_CLASS, className)}
+      {...props}
+    />
+  );
+}
+
+export function NodexDialogForm({
+  className,
+  ...props
+}: React.ComponentProps<"form">) {
+  return (
+    <form
+      data-slot="codex-dialog-form"
+      className={cn(NODEX_DIALOG_FRAME_CLASS, className)}
+      {...props}
+    />
+  );
+}
+
+export function NodexDialogBody({
+  className,
+  ...props
+}: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="codex-dialog-body"
+      className={cn("flex w-full flex-col pt-3 first:pt-0", className)}
+      {...props}
+    />
   );
 }
 
@@ -96,35 +169,36 @@ export function NodexDialogHeader({
   ...props
 }: React.ComponentProps<"div">) {
   return (
-    <div
-      data-slot="codex-dialog-header"
-      className={cn("flex flex-col gap-2 text-center sm:text-left", className)}
-      {...props}
-    />
+    <NodexDialogBody>
+      <div className="flex flex-col items-start gap-3">
+        <div
+          data-slot="codex-dialog-header"
+          className={cn(
+            "flex min-w-0 flex-1 flex-col gap-1 self-stretch",
+            className,
+          )}
+          {...props}
+        />
+      </div>
+    </NodexDialogBody>
   );
 }
 
 export function NodexDialogFooter({
   className,
-  showCloseButton = false,
-  children,
+  bodyClassName,
   ...props
 }: React.ComponentProps<"div"> & {
-  showCloseButton?: boolean;
+  bodyClassName?: string;
 }) {
   return (
-    <div
-      data-slot="codex-dialog-footer"
-      className={cn("flex flex-col-reverse gap-2 sm:flex-row sm:justify-end", className)}
-      {...props}
-    >
-      {children}
-      {showCloseButton ? (
-        <DialogPrimitive.Close asChild>
-          <NodexButton variant="outline">Close</NodexButton>
-        </DialogPrimitive.Close>
-      ) : null}
-    </div>
+    <NodexDialogBody className={bodyClassName}>
+      <div
+        data-slot="codex-dialog-footer"
+        className={cn("flex w-full items-center justify-end gap-3", className)}
+        {...props}
+      />
+    </NodexDialogBody>
   );
 }
 
@@ -135,7 +209,10 @@ export function NodexDialogTitle({
   return (
     <DialogPrimitive.Title
       data-slot="codex-dialog-title"
-      className={cn("heading-dialog text-token-foreground", className)}
+      className={cn(
+        "heading-dialog min-w-0 font-semibold text-token-foreground",
+        className,
+      )}
       {...props}
     />
   );
@@ -148,7 +225,33 @@ export function NodexDialogDescription({
   return (
     <DialogPrimitive.Description
       data-slot="codex-dialog-description"
-      className={cn("text-sm text-token-description-foreground", className)}
+      className={cn(
+        "text-base leading-normal tracking-normal text-token-description-foreground",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+export function NodexDialogAction({
+  className,
+  tone = "ghost",
+  type = "button",
+  ...props
+}: React.ComponentProps<"button"> & {
+  tone?: keyof typeof NODEX_DIALOG_ACTION_STYLES;
+}) {
+  return (
+    <button
+      data-slot="codex-dialog-action"
+      type={type}
+      className={cn(
+        "no-drag flex cursor-interaction items-center gap-1 whitespace-nowrap rounded-lg border border-transparent px-4 py-1.5 text-base leading-[18px] select-none",
+        "focus:outline-none disabled:cursor-not-allowed disabled:opacity-40",
+        NODEX_DIALOG_ACTION_STYLES[tone],
+        className,
+      )}
       {...props}
     />
   );

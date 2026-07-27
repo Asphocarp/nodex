@@ -28,12 +28,14 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { ChevronRightIcon, StopIcon } from "@/components/shared/icons";
-import { NodexButton } from "@/components/ui/button";
 import {
   NodexDialog,
+  NodexDialogAction,
+  NodexDialogBody,
   NodexDialogContent,
   NodexDialogDescription,
   NodexDialogFooter,
+  NodexDialogForm,
   NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
@@ -922,39 +924,37 @@ function ThreadGoalResumeConfirmationDialog({
         }
       }}
     >
-      <NodexDialogContent
-        className="max-w-[30rem] gap-4 rounded-2xl p-5"
-        showCloseButton={false}
-      >
-        <form className="flex flex-col gap-4" onSubmit={handleResume}>
-          <NodexDialogHeader className="gap-1 text-left">
-            <NodexDialogTitle className="text-base">{title}</NodexDialogTitle>
+      <NodexDialogContent showCloseButton={false}>
+        <NodexDialogForm onSubmit={handleResume}>
+          <NodexDialogHeader>
+            <NodexDialogTitle>{title}</NodexDialogTitle>
             <NodexDialogDescription>
               {getThreadGoalMessage("composer.threadGoal.resumeConfirmation.subtitle")}
             </NodexDialogDescription>
           </NodexDialogHeader>
-          <div className="line-clamp-4 rounded-lg bg-token-bg-secondary px-3 py-2 text-sm text-token-foreground">
-            {goal.objective}
-          </div>
-          <NodexDialogFooter className="gap-2 sm:justify-end">
-            <NodexButton
-              type="button"
-              variant="secondary"
+          <NodexDialogBody>
+            <div className="line-clamp-4 rounded-lg bg-token-bg-secondary px-3 py-2 text-sm text-token-foreground">
+              {goal.objective}
+            </div>
+          </NodexDialogBody>
+          <NodexDialogFooter>
+            <NodexDialogAction
               disabled={isBusy || !actions.onDismissThreadGoalResumeConfirmation}
               onClick={() => {
                 void handleDismiss();
               }}
             >
               {dismissLabel}
-            </NodexButton>
-            <NodexButton
+            </NodexDialogAction>
+            <NodexDialogAction
               type="submit"
+              tone="primary"
               disabled={isBusy || !actions.onSetThreadGoal}
             >
               {getThreadGoalMessage("composer.threadGoal.resumeConfirmation.resume")}
-            </NodexButton>
+            </NodexDialogAction>
           </NodexDialogFooter>
-        </form>
+        </NodexDialogForm>
       </NodexDialogContent>
     </NodexDialog>
   );

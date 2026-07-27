@@ -34,9 +34,8 @@ function renderEditDialog(onSubmit: (input: ProjectDialogSubmitInput) => Promise
   return render(
     <NodexTooltipProvider>
       <ProjectEditDialog
-        open
         project={PROJECT}
-        onOpenChange={() => undefined}
+        onClose={() => undefined}
         onSubmit={onSubmit}
       />
     </NodexTooltipProvider>,
@@ -91,6 +90,37 @@ describe("ProjectEditDialog", () => {
 
     await waitFor(() => {
       expect(submitted[0]?.sources).toEqual(["/repo/beta"]);
+    });
+  });
+
+  test("resets project-scoped confirmation state when retargeted", async () => {
+    const renderDialog = (project: Project) => (
+      <NodexTooltipProvider>
+        <ProjectEditDialog
+          project={project}
+          onClose={() => undefined}
+          onSubmit={async () => undefined}
+          onArchiveProject={async () => ({ kind: "not-found" })}
+        />
+      </NodexTooltipProvider>
+    );
+    const view = render(renderDialog(PROJECT));
+
+    fireEvent.click(view.getByRole("button", { name: "Remove project" }));
+    expect(await view.findByRole("heading", { name: "Remove Beta?" })).toBeTruthy();
+
+    const nextProject: Project = {
+      ...PROJECT,
+      id: "gamma",
+      name: "Gamma",
+    };
+    view.rerender(renderDialog(nextProject));
+
+    await waitFor(() => {
+      expect(view.queryByRole("heading", { name: "Remove Beta?" })).toBe(null);
+      expect(
+        (view.getByRole("textbox", { name: "Project name" }) as HTMLInputElement).value,
+      ).toBe("Gamma");
     });
   });
 });

@@ -449,6 +449,7 @@ function CodexProjectsHarness({
   expanded = true,
   activeProjectId = "nodex",
   openActionsFor,
+  openEditFor,
   openSectionOptions = false,
   projects = SIDEBAR_PARITY_PROJECTS,
   revealProjectDisclosureChevrons = false,
@@ -456,22 +457,34 @@ function CodexProjectsHarness({
   expanded?: boolean;
   activeProjectId?: string;
   openActionsFor?: string;
+  openEditFor?: string;
   openSectionOptions?: boolean;
   projects?: Project[];
   revealProjectDisclosureChevrons?: boolean;
 }) {
   useEffect(() => {
-    if (!openActionsFor) return;
+    const projectName = openEditFor ?? openActionsFor;
+    if (!projectName) return;
+    let editFrameId: number | null = null;
     const frameId = window.requestAnimationFrame(() => {
-      const trigger = document.querySelector<HTMLElement>(`[aria-label='Project actions for ${openActionsFor}']`);
+      const trigger = document.querySelector<HTMLElement>(`[aria-label='Project actions for ${projectName}']`);
       if (!trigger) return;
       const event = typeof PointerEvent === "function"
         ? new PointerEvent("pointerdown", { bubbles: true, button: 0, ctrlKey: false })
         : new MouseEvent("pointerdown", { bubbles: true, button: 0, ctrlKey: false });
       trigger.dispatchEvent(event);
+      if (!openEditFor) return;
+      editFrameId = window.requestAnimationFrame(() => {
+        const editItem = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+          .find((item) => item.textContent?.trim() === "Edit project");
+        editItem?.click();
+      });
     });
-    return () => window.cancelAnimationFrame(frameId);
-  }, [openActionsFor]);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      if (editFrameId !== null) window.cancelAnimationFrame(editFrameId);
+    };
+  }, [openActionsFor, openEditFor]);
 
   useEffect(() => {
     if (!openSectionOptions) return;
@@ -1727,6 +1740,10 @@ export const CodexProjectsCollapsed: Story = {
 
 export const CodexProjectActionsMenuOpen: Story = {
   render: () => <CodexProjectsHarness expanded activeProjectId="nodex" openActionsFor="Nodex" />,
+};
+
+export const CodexProjectEditDialogOpen: Story = {
+  render: () => <CodexProjectsHarness expanded activeProjectId="nodex" openEditFor="Nodex" />,
 };
 
 export const CodexProjectsOptionsMenuOpen: Story = {

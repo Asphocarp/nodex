@@ -441,6 +441,7 @@ export function WorkbenchProcessManagerDialog({
   return (
     <NodexDialog open={open} onOpenChange={onOpenChange}>
       <NodexDialogContent
+        unstyledContent
         aria-describedby={undefined}
         showCloseButton={false}
         overlayClassName="bg-transparent"

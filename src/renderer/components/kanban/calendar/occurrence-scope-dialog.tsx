@@ -1,9 +1,11 @@
-import { NodexButton as Button } from "@/components/ui/button";
 import {
   NodexDialog as Dialog,
+  NodexDialogAction as DialogAction,
+  NodexDialogBody as DialogBody,
   NodexDialogContent as DialogContent,
   NodexDialogDescription as DialogDescription,
   NodexDialogFooter as DialogFooter,
+  NodexDialogFrame as DialogFrame,
   NodexDialogHeader as DialogHeader,
   NodexDialogTitle as DialogTitle,
 } from "@/components/ui/dialog";
@@ -40,48 +42,49 @@ export function OccurrenceScopeDialog({
         if (!nextOpen && !busy) onCancel();
       }}
     >
-      <DialogContent className="max-w-130 gap-3 overflow-x-hidden" showCloseButton={!busy}>
-        <DialogHeader>
-          <DialogTitle>Apply recurring schedule change</DialogTitle>
-          <DialogDescription>
-            Choose how to apply the new time range for
-            {" "}
-            <span className="font-medium wrap-break-word text-(--foreground)">{title || "this recurring page"}</span>
-            .
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent showCloseButton={!busy}>
+        <DialogFrame>
+          <DialogHeader>
+            <DialogTitle>Apply recurring schedule change</DialogTitle>
+            <DialogDescription>
+              Choose how to apply the new time range for
+              {" "}
+              <span className="font-medium wrap-break-word text-(--foreground)">{title || "this recurring page"}</span>
+              .
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="rounded-md border border-(--border) bg-(--card) p-3 text-sm">
-          <p className="text-(--foreground-secondary)">
-            From:
-            {" "}
-            <span className="text-(--foreground)">{fromLabel}</span>
-          </p>
-          <p className="mt-1 text-(--foreground-secondary)">
-            To:
-            {" "}
-            <span className="text-(--foreground)">{toLabel}</span>
-          </p>
-        </div>
+          <DialogBody>
+            <div className="rounded-md border border-(--border) bg-(--card) p-3 text-sm">
+              <p className="text-(--foreground-secondary)">
+                From:
+                {" "}
+                <span className="text-(--foreground)">{fromLabel}</span>
+              </p>
+              <p className="mt-1 text-(--foreground-secondary)">
+                To:
+                {" "}
+                <span className="text-(--foreground)">{toLabel}</span>
+              </p>
+            </div>
+          </DialogBody>
 
-        <DialogFooter className="gap-2 sm:items-start">
-          <Button type="button" variant="outline" onClick={onCancel} disabled={busy}>
-            Cancel
-          </Button>
-          <div className="flex min-w-0 flex-1 flex-wrap justify-end gap-2">
+          <DialogFooter className="flex-wrap">
+            <DialogAction onClick={onCancel} disabled={busy}>
+              Cancel
+            </DialogAction>
             {options.map((option) => (
-              <Button
+              <DialogAction
                 key={option.scope}
-                type="button"
-                variant={option.isPrimary ? "default" : "outline"}
+                tone={option.isPrimary ? "primary" : "ghost"}
                 onClick={() => void onSelect(option.scope)}
                 disabled={busy}
               >
                 {option.label}
-              </Button>
+              </DialogAction>
             ))}
-          </div>
-        </DialogFooter>
+          </DialogFooter>
+        </DialogFrame>
       </DialogContent>
     </Dialog>
   );

@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef } from "react";
 import {
   NodexDropdownItem,
   NodexDropdownMenu,
 } from "@/components/ui/dropdown";
 import { invoke } from "@/lib/api";
+import { appScope, useScopeHandle } from "@/lib/maitai";
+import { openModal } from "@/lib/modal-registry";
 import type { Project, ProjectCreateInput } from "@/lib/types";
 import {
   CodexSidebarActionButton,
@@ -27,15 +29,32 @@ export function SidebarProjectAddMenu({
   onCreateProject: SidebarCreateProjectHandler;
   openSetupTick?: number;
 }) {
-  const [setupOpen, setSetupOpen] = useState(false);
-  const [lastOpenSetupTick, setLastOpenSetupTick] = useState(openSetupTick ?? 0);
+  const appHandle = useScopeHandle(appScope);
+  const lastOpenSetupTickRef = useRef(openSetupTick ?? 0);
   const openSetupAfterMenuCloseRef = useRef(false);
 
+  const openProjectCreateDialog = () => {
+    openModal(appHandle, ProjectCreateDialog, {
+      onCreate: async ({ name, sources }) => {
+        const fallbackName = sources[0] ? basename(sources[0]) : "Untitled project";
+        const project = await onCreateProject({
+          name: name.trim() || fallbackName,
+          sources,
+        });
+        if (!project) throw new Error("Could not create project");
+      },
+    });
+  };
+  const openProjectCreateDialogFromEffect = useEffectEvent(openProjectCreateDialog);
+
   useEffect(() => {
-    if (openSetupTick === undefined || openSetupTick === lastOpenSetupTick) return;
-    setLastOpenSetupTick(openSetupTick);
-    setSetupOpen(true);
-  }, [lastOpenSetupTick, openSetupTick]);
+    if (
+      openSetupTick === undefined
+      || openSetupTick === lastOpenSetupTickRef.current
+    ) return;
+    lastOpenSetupTickRef.current = openSetupTick;
+    openProjectCreateDialogFromEffect();
+  }, [openSetupTick]);
 
   const createFromExistingFolder = async () => {
     const picked = (await invoke("projects:pick-source-roots")) as string[];
@@ -57,7 +76,7 @@ export function SidebarProjectAddMenu({
           if (!openSetupAfterMenuCloseRef.current) return;
           openSetupAfterMenuCloseRef.current = false;
           event.preventDefault();
-          setSetupOpen(true);
+          openProjectCreateDialog();
         }}
         triggerButton={(
           <CodexSidebarActionButton
@@ -85,18 +104,6 @@ export function SidebarProjectAddMenu({
           Use an existing folder
         </NodexDropdownItem>
       </NodexDropdownMenu>
-      <ProjectCreateDialog
-        open={setupOpen}
-        onOpenChange={setSetupOpen}
-        onCreate={async ({ name, sources }) => {
-          const fallbackName = sources[0] ? basename(sources[0]) : "Untitled project";
-          const project = await onCreateProject({
-            name: name.trim() || fallbackName,
-            sources,
-          });
-          if (!project) throw new Error("Could not create project");
-        }}
-      />
     </>
   );
 }

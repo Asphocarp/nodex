@@ -16,8 +16,10 @@ import { CodexHooksIcon } from "@/components/shared/icons";
 import { NodexButton, NodexSwitch } from "@/components/ui/button";
 import {
   NodexDialog,
+  NodexDialogBody,
   NodexDialogContent,
   NodexDialogDescription,
+  NodexDialogFrame,
   NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
@@ -451,63 +453,70 @@ function HooksDetailDialog({
 
   return (
     <NodexDialog open={selection != null && (loading || entry != null)} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <NodexDialogContent className="max-h-[calc(100vh-6rem)] min-h-0 gap-4 sm:max-w-3xl">
-        <NodexDialogHeader>
-          <NodexDialogTitle>
-            <span className="flex min-w-0 items-center gap-2">
-              {TitleIcon ? (
-                <span className="flex shrink-0 items-center justify-center">
-                  <TitleIcon className="icon-sm text-token-text-secondary" />
-                </span>
-              ) : null}
-              <span className="min-w-0">{title}</span>
-            </span>
-          </NodexDialogTitle>
-          {subtitle ? <NodexDialogDescription className="break-all">{subtitle}</NodexDialogDescription> : null}
-        </NodexDialogHeader>
-        <div className="vertical-scroll-fade-mask flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
-          {loading ? <div className="py-10 text-center text-sm text-token-text-secondary">Loading hooks…</div> : null}
-          {loadError ? (
-            <div className="rounded-lg border border-token-border p-3">
-              <div className="text-sm text-token-text-primary">Could not load hooks</div>
-              <div className="mt-1 break-words text-sm text-token-text-secondary">{loadError.message}</div>
-            </div>
-          ) : null}
-          {needsReview ? (
-            <div className="flex gap-2 rounded-lg border border-token-editor-warning-foreground/30 bg-token-editor-warning-background/30 p-3 text-sm text-token-text-primary">
-              <TriangleAlert className="icon-xs shrink-0 text-token-editor-warning-foreground" />
-              Hooks can run outside of the sandbox so we ask you to review any recently installed or modified hooks
-            </div>
-          ) : null}
-          {entry ? <HooksIssues entry={entry} /> : null}
-          {entry && summaries.length > 0 ? (
-            <div className="divide-y-[0.5px] divide-token-border overflow-hidden rounded-lg border border-token-border">
-              {summaries.map((summary) => (
-                <div key={summary.eventName}>
-                  <div className="flex items-center gap-3 p-3">
-                    <CodexHooksIcon className="icon-xs text-token-text-secondary" />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium text-token-text-primary">{HOOK_EVENT_LABELS[summary.eventName]}</div>
-                      <div className="text-sm text-token-text-secondary">{HOOK_EVENT_DESCRIPTIONS[summary.eventName]}</div>
-                    </div>
-                    {summary.needsReview > 0 ? <TriangleAlert className="icon-2xs text-token-editor-warning-foreground" /> : null}
-                  </div>
-                  <div className="border-t border-token-border px-3">
-                    {sortCodexHooksForEvent(entry.hooks, summary.eventName).map((hook, index) => (
-                      <HookRow
-                        key={hook.key}
-                        hook={hook}
-                        index={index}
-                        onToggle={onToggle}
-                        onTrust={onTrust}
-                      />
-                    ))}
-                  </div>
+      <NodexDialogContent
+        size="large"
+        className="max-h-[calc(100vh-6rem)] min-h-0"
+      >
+        <NodexDialogFrame className="max-h-[calc(100vh-6rem)] min-h-0">
+          <NodexDialogHeader>
+            <NodexDialogTitle>
+              <span className="flex min-w-0 items-center gap-2">
+                {TitleIcon ? (
+                  <span className="flex shrink-0 items-center justify-center">
+                    <TitleIcon className="icon-sm text-token-text-secondary" />
+                  </span>
+                ) : null}
+                <span className="min-w-0">{title}</span>
+              </span>
+            </NodexDialogTitle>
+            {subtitle ? <NodexDialogDescription className="break-all">{subtitle}</NodexDialogDescription> : null}
+          </NodexDialogHeader>
+          <NodexDialogBody className="min-h-0">
+            <div className="vertical-scroll-fade-mask flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
+              {loading ? <div className="py-10 text-center text-sm text-token-text-secondary">Loading hooks…</div> : null}
+              {loadError ? (
+                <div className="rounded-lg border border-token-border p-3">
+                  <div className="text-sm text-token-text-primary">Could not load hooks</div>
+                  <div className="mt-1 break-words text-sm text-token-text-secondary">{loadError.message}</div>
                 </div>
-              ))}
+              ) : null}
+              {needsReview ? (
+                <div className="flex gap-2 rounded-lg border border-token-editor-warning-foreground/30 bg-token-editor-warning-background/30 p-3 text-sm text-token-text-primary">
+                  <TriangleAlert className="icon-xs shrink-0 text-token-editor-warning-foreground" />
+                  Hooks can run outside of the sandbox so we ask you to review any recently installed or modified hooks
+                </div>
+              ) : null}
+              {entry ? <HooksIssues entry={entry} /> : null}
+              {entry && summaries.length > 0 ? (
+                <div className="divide-y-[0.5px] divide-token-border overflow-hidden rounded-lg border border-token-border">
+                  {summaries.map((summary) => (
+                    <div key={summary.eventName}>
+                      <div className="flex items-center gap-3 p-3">
+                        <CodexHooksIcon className="icon-xs text-token-text-secondary" />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium text-token-text-primary">{HOOK_EVENT_LABELS[summary.eventName]}</div>
+                          <div className="text-sm text-token-text-secondary">{HOOK_EVENT_DESCRIPTIONS[summary.eventName]}</div>
+                        </div>
+                        {summary.needsReview > 0 ? <TriangleAlert className="icon-2xs text-token-editor-warning-foreground" /> : null}
+                      </div>
+                      <div className="border-t border-token-border px-3">
+                        {sortCodexHooksForEvent(entry.hooks, summary.eventName).map((hook, index) => (
+                          <HookRow
+                            key={hook.key}
+                            hook={hook}
+                            index={index}
+                            onToggle={onToggle}
+                            onTrust={onTrust}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
-          ) : null}
-        </div>
+          </NodexDialogBody>
+        </NodexDialogFrame>
       </NodexDialogContent>
     </NodexDialog>
   );

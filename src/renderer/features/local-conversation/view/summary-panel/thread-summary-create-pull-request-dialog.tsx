@@ -7,7 +7,6 @@ import {
   NodexDialogContent,
   NodexDialogDescription,
   NodexDialogFooter,
-  NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -369,11 +368,11 @@ export function ThreadSummaryCreatePullRequestDialog({
       if (!nextOpen && busy) return;
       onOpenChange(nextOpen);
     }}>
-      <NodexDialogContent className="max-w-[420px] gap-0 overflow-hidden p-0" showCloseButton={false}>
-        <NodexDialogHeader className="sr-only">
-          <NodexDialogTitle>Create PR</NodexDialogTitle>
-          <NodexDialogDescription>{statusMessage}</NodexDialogDescription>
-        </NodexDialogHeader>
+      <NodexDialogContent size="compact" showCloseButton={false}>
+        <NodexDialogTitle className="sr-only">Create PR</NodexDialogTitle>
+        <NodexDialogDescription className="sr-only">
+          {statusMessage}
+        </NodexDialogDescription>
         <div className="flex h-9 items-center justify-between gap-3 px-3 text-sm text-token-description-foreground">
           <span className="flex min-w-0 items-center gap-2">
             <GitBranch className="icon-xs shrink-0" />
@@ -432,7 +431,10 @@ export function ThreadSummaryCreatePullRequestDialog({
         {inlineError ? (
           <p className="px-3 pb-3 text-xs text-token-error-foreground">{inlineError}</p>
         ) : null}
-        <NodexDialogFooter className="border-t border-token-border-default px-3 py-2">
+        <NodexDialogFooter
+          bodyClassName="!pt-0"
+          className="border-t border-token-border-default px-3 py-2"
+        >
           <NodexButton
             type="button"
             variant="secondary"

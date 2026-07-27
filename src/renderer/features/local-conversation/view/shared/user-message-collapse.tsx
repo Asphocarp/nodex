@@ -11,7 +11,9 @@ import {
 } from "@/components/ui/lazy-virtualized-text-viewer";
 import {
   NodexDialog,
+  NodexDialogBody,
   NodexDialogContent,
+  NodexDialogFrame,
   NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
@@ -58,19 +60,23 @@ function LargeUserMessageText({
       <NodexDialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <NodexDialogContent
           aria-describedby={undefined}
-          className="codex-dialog fixed left-1/2 top-1/2 z-50 flex h-[min(80vh,48rem)] w-[min(92vw,64rem)] -translate-x-1/2 -translate-y-1/2 flex-col gap-0 overflow-hidden rounded-3xl border-none bg-token-dropdown-background/95 p-0 text-token-foreground shadow-lg ring-[0.5px] ring-token-border backdrop-blur-xl outline-none"
+          className="flex h-[min(80vh,48rem)] w-[min(92vw,64rem)] max-w-none flex-col gap-0"
         >
-          <NodexDialogHeader className="shrink-0 px-4 py-3 text-left">
-            <NodexDialogTitle className="heading-dialog">Full message</NodexDialogTitle>
-            <div className="text-xs tabular-nums text-token-description-foreground">
-              {text.length.toLocaleString()} characters
-            </div>
-          </NodexDialogHeader>
-          <LazyVirtualizedTextViewer
-            value={text}
-            ariaLabel="Full user message"
-            className="min-h-0 flex-1"
-          />
+          <NodexDialogFrame className="h-full min-h-0 p-0">
+            <NodexDialogHeader className="shrink-0 px-4 py-3">
+              <NodexDialogTitle>Full message</NodexDialogTitle>
+              <div className="text-xs tabular-nums text-token-description-foreground">
+                {text.length.toLocaleString()} characters
+              </div>
+            </NodexDialogHeader>
+            <NodexDialogBody className="min-h-0 flex-1 !pt-0">
+              <LazyVirtualizedTextViewer
+                value={text}
+                ariaLabel="Full user message"
+                className="min-h-0 flex-1"
+              />
+            </NodexDialogBody>
+          </NodexDialogFrame>
         </NodexDialogContent>
       </NodexDialog>
     </div>

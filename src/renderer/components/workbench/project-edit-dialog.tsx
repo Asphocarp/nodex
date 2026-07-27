@@ -16,7 +16,11 @@ import {
 import { NodexButton } from "@/components/ui/button";
 import {
   NodexDialog,
+  NodexDialogAction,
+  NodexDialogBody,
   NodexDialogContent,
+  NodexDialogForm,
+  NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
@@ -153,7 +157,7 @@ export function ProjectSourcesEditor({
   const primaryRoot = sources[0] ?? null;
 
   return (
-    <div className="flex w-full flex-col gap-2 pt-3">
+    <NodexDialogBody className="gap-2">
       <span className="text-sm font-medium text-token-text-primary select-none">
         Source folders
       </span>
@@ -198,11 +202,11 @@ export function ProjectSourcesEditor({
           {empty ? "Add folders agents can read and edit" : "Add folder"}
         </button>
       </motion.div>
-    </div>
+    </NodexDialogBody>
   );
 }
 
-function ProjectDialogForm({
+function ProjectEditorForm({
   title,
   submitLabel,
   saveErrorMessage,
@@ -242,121 +246,137 @@ function ProjectDialogForm({
   };
 
   return (
-    <form className="flex min-h-0 flex-col" onSubmit={(event) => void submit(event)}>
-      <NodexDialogTitle>{title}</NodexDialogTitle>
-      <div className="flex w-full flex-col gap-2 pt-3">
-        <label htmlFor={nameInputId} className="sr-only">
-          Name
-        </label>
-        <div className="flex h-10 shrink-0 items-center gap-2 overflow-hidden rounded-xl border border-token-border bg-token-input-background pr-3 pl-0 focus-within:border-token-focus-border">
-          <span
-            aria-hidden="true"
-            className="flex h-full w-10 shrink-0 items-center justify-center border-r border-token-border text-token-description-foreground"
-          >
-            <CodexFolderIcon className="icon-xs" />
-          </span>
-          <input
-            id={nameInputId}
-            autoFocus
-            className="min-w-0 flex-1 bg-transparent text-sm text-token-input-foreground outline-none placeholder:text-token-description-foreground"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Project name"
-            aria-label="Project name"
-          />
+    <NodexDialogForm onSubmit={(event) => void submit(event)}>
+      <NodexDialogHeader>
+        <NodexDialogTitle>{title}</NodexDialogTitle>
+      </NodexDialogHeader>
+      <NodexDialogBody className="gap-2">
+        <div className="flex flex-col gap-2">
+          <label htmlFor={nameInputId} className="sr-only">
+            Name
+          </label>
+          <div className="flex h-10 shrink-0 items-center gap-2 overflow-hidden rounded-xl border border-token-border bg-token-input-background pr-3 pl-0 focus-within:border-token-focus-border">
+            <span
+              aria-hidden="true"
+              className="flex h-full w-10 shrink-0 items-center justify-center border-r border-token-border text-token-description-foreground"
+            >
+              <CodexFolderIcon className="icon-xs" />
+            </span>
+            <input
+              id={nameInputId}
+              autoFocus
+              className="min-w-0 flex-1 bg-transparent text-sm text-token-input-foreground outline-none placeholder:text-token-description-foreground"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Project name"
+              aria-label="Project name"
+            />
+          </div>
         </div>
-      </div>
+      </NodexDialogBody>
       <ProjectSourcesEditor sources={sources} setSources={setSources} />
-      <div className="mt-auto flex w-full items-center justify-between gap-3 pt-5">
-        <div className="flex items-center gap-3">
-          {onRemoveProject ? (
-            <NodexButton
-              variant="destructive"
+      <NodexDialogBody className="mt-auto !pt-5">
+        <div className="flex w-full items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            {onRemoveProject ? (
+              <NodexDialogAction
+                tone="danger"
+                type="button"
+                disabled={saving}
+                onClick={onRemoveProject}
+              >
+                Remove project
+              </NodexDialogAction>
+            ) : null}
+          </div>
+          <div className="flex w-auto items-center justify-end gap-3">
+            <NodexDialogAction
               type="button"
               disabled={saving}
-              onClick={onRemoveProject}
+              onClick={onClose}
             >
-              Remove project
-            </NodexButton>
-          ) : null}
+              Cancel
+            </NodexDialogAction>
+            <NodexDialogAction
+              tone="primary"
+              type="submit"
+              disabled={saving || (requireSources && sources.length === 0)}
+            >
+              {submitLabel}
+            </NodexDialogAction>
+          </div>
         </div>
-        <div className="flex items-center justify-end gap-3">
-          <NodexButton variant="ghost" type="button" onClick={onClose}>
-            Cancel
-          </NodexButton>
-          <NodexButton
-            variant="primary"
-            type="submit"
-            disabled={saving || (requireSources && sources.length === 0)}
-          >
-            {submitLabel}
-          </NodexButton>
-        </div>
-      </div>
-    </form>
+      </NodexDialogBody>
+    </NodexDialogForm>
   );
 }
 
 function ProjectDialogShell({
-  open,
-  onOpenChange,
+  onClose,
   children,
 }: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+  onClose: () => void;
   children: ReactNode;
 }) {
   return (
-    <NodexDialog open={open} onOpenChange={onOpenChange}>
-      <NodexDialogContent className="w-[520px] gap-0 p-5 sm:max-w-[520px] max-h-[calc(100dvh-2rem)]">
+    <NodexDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <NodexDialogContent
+        className="max-h-[calc(100dvh/var(--codex-window-zoom,1)-2rem)]"
+        aria-describedby={undefined}
+      >
         {children}
       </NodexDialogContent>
     </NodexDialog>
   );
 }
 
-export function ProjectEditDialog({
-  open,
+interface ProjectEditDialogProps {
+  readonly project: Project;
+  readonly onClose: () => void;
+  readonly onSubmit: (input: ProjectDialogSubmitInput) => Promise<void>;
+  readonly onArchiveProject?: (
+    projectId: string,
+  ) => Promise<ProjectLifecycleMutationResult>;
+}
+
+function ProjectEditDialogContent({
   project,
-  onOpenChange,
+  onClose,
   onSubmit,
   onArchiveProject,
-}: {
-  open: boolean;
-  project: Project;
-  onOpenChange: (open: boolean) => void;
-  onSubmit: (input: ProjectDialogSubmitInput) => Promise<void>;
-  onArchiveProject?: (projectId: string) => Promise<ProjectLifecycleMutationResult>;
-}) {
+}: ProjectEditDialogProps) {
   const [removeOpen, setRemoveOpen] = useState(false);
   const initialSources = project.sources
     .map((source) => source.root)
     .filter((root) => root.trim().length > 0);
-  const formKey = `${project.id}:${project.name}:${initialSources.join("\0")}`;
 
   return (
     <>
-      <ProjectDialogShell open={open} onOpenChange={onOpenChange}>
-        <ProjectDialogForm
-          key={formKey}
+      <ProjectDialogShell onClose={onClose}>
+        <ProjectEditorForm
           title="Edit project"
           submitLabel="Save"
           saveErrorMessage="Failed to save project"
           initialName={project.name}
           initialSources={initialSources}
           onSubmit={onSubmit}
-          onClose={() => onOpenChange(false)}
+          onClose={onClose}
           onRemoveProject={onArchiveProject ? () => setRemoveOpen(true) : undefined}
         />
       </ProjectDialogShell>
-      {onArchiveProject ? (
+      {removeOpen && onArchiveProject ? (
         <ProjectRemoveDialog
-          open={removeOpen}
+          open
           project={project}
           onOpenChange={setRemoveOpen}
           onArchiveProject={async (projectId) => {
             const result = await onArchiveProject(projectId);
-            if (result.kind === "updated") onOpenChange(false);
+            if (result.kind === "updated") onClose();
             return result;
           }}
         />
@@ -365,19 +385,30 @@ export function ProjectEditDialog({
   );
 }
 
+export function ProjectEditDialog(props: ProjectEditDialogProps) {
+  const sourceIdentity = props.project.sources
+    .map((source) => source.root)
+    .filter((root) => root.trim().length > 0)
+    .join("\0");
+
+  return (
+    <ProjectEditDialogContent
+      key={`${props.project.id}:${props.project.name}:${sourceIdentity}`}
+      {...props}
+    />
+  );
+}
+
 export function ProjectCreateDialog({
-  open,
-  onOpenChange,
+  onClose,
   onCreate,
 }: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+  onClose: () => void;
   onCreate: (input: ProjectDialogSubmitInput) => Promise<void>;
 }) {
   return (
-    <ProjectDialogShell open={open} onOpenChange={onOpenChange}>
-      <ProjectDialogForm
-        key={open ? "open" : "closed"}
+    <ProjectDialogShell onClose={onClose}>
+      <ProjectEditorForm
         title="Create project"
         submitLabel="Create project"
         saveErrorMessage="Failed to create project"
@@ -385,7 +416,7 @@ export function ProjectCreateDialog({
         initialSources={[]}
         requireSources
         onSubmit={onCreate}
-        onClose={() => onOpenChange(false)}
+        onClose={onClose}
       />
     </ProjectDialogShell>
   );

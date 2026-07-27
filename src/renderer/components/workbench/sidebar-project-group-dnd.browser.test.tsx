@@ -1,9 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { useSortable } from "@dnd-kit/sortable";
 import { useState } from "react";
 import { describe, expect, test, vi } from "vitest";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import type { Project } from "@/lib/types";
+import { renderWithMaitai as render } from "../../test/dom";
 import { CodexProjectRow } from "./codex-sidebar";
 import {
   getSidebarGroupDndId,

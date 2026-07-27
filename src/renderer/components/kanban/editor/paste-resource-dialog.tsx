@@ -3,11 +3,13 @@ import { useRef } from "react";
 import { cn } from "@/lib/utils";
 import { canMaterializePasteResourceItems, type PasteResourceDialogState } from "./paste-resource";
 import {
-  Button,
   Dialog,
+  DialogAction,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
+  DialogFrame,
   DialogHeader,
   DialogTitle,
 } from "./paste-resource-dialog-deps";
@@ -84,108 +86,100 @@ export function PasteResourceDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-w-xl gap-3 border-[color-mix(in_srgb,var(--foreground)_10%,transparent)] bg-[color-mix(in_srgb,var(--background)_94%,transparent)] p-4 shadow-2xl backdrop-blur-xl"
+        size="wide"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           primaryActionRef.current?.focus();
         }}
         onCloseAutoFocus={onCloseAutoFocus}
       >
-        <DialogHeader className="gap-1">
-          <DialogTitle className="text-base font-medium">{title}</DialogTitle>
-          <DialogDescription className="text-sm text-[color-mix(in_srgb,var(--foreground)_58%,transparent)]">
-            {description}
-          </DialogDescription>
-        </DialogHeader>
+        <DialogFrame>
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>{description}</DialogDescription>
+          </DialogHeader>
 
-        <div className="overflow-hidden rounded-xl bg-[color-mix(in_srgb,var(--foreground)_4%,transparent)] shadow-[inset_0_0_0_0.5px_color-mix(in_srgb,var(--foreground)_9%,transparent)]">
-          {(state?.items ?? []).map((item, index) => {
-            const Icon = getItemIcon(item.kind, Boolean(item.path));
-            const textPreview = item.kind === "text" && state?.textPayload
-              ? getTextPreview(state.textPayload)
-              : null;
+          <DialogBody className="gap-3">
+            <div className="overflow-hidden rounded-xl bg-[color-mix(in_srgb,var(--foreground)_4%,transparent)] shadow-[inset_0_0_0_0.5px_color-mix(in_srgb,var(--foreground)_9%,transparent)]">
+              {(state?.items ?? []).map((item, index) => {
+                const Icon = getItemIcon(item.kind, Boolean(item.path));
+                const textPreview = item.kind === "text" && state?.textPayload
+                  ? getTextPreview(state.textPayload)
+                  : null;
 
-            return (
-              <div
-                key={`${item.kind}:${item.name}:${item.path ?? index}`}
-                className={cn(
-                  "flex items-center gap-2.5 px-3 py-2.5",
-                  index > 0 && "border-t border-[color-mix(in_srgb,var(--foreground)_8%,transparent)]",
-                )}
-              >
-                <div className="rounded-lg bg-[color-mix(in_srgb,var(--foreground)_7%,transparent)] p-1.5 text-[color-mix(in_srgb,var(--foreground)_74%,transparent)]">
-                  <Icon className="size-3.5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  {textPreview ? (
-                    <div className="scrollbar-token max-h-120 overflow-y-auto whitespace-pre-wrap break-words pr-1 font-mono text-[13px] leading-5 text-[var(--foreground)]">
-                      {textPreview.preview}
+                return (
+                  <div
+                    key={`${item.kind}:${item.name}:${item.path ?? index}`}
+                    className={cn(
+                      "flex items-center gap-2.5 px-3 py-2.5",
+                      index > 0 && "border-t border-[color-mix(in_srgb,var(--foreground)_8%,transparent)]",
+                    )}
+                  >
+                    <div className="rounded-lg bg-[color-mix(in_srgb,var(--foreground)_7%,transparent)] p-1.5 text-[color-mix(in_srgb,var(--foreground)_74%,transparent)]">
+                      <Icon className="size-3.5" />
                     </div>
-                  ) : (
-                    <div className="truncate text-sm font-medium text-[var(--foreground)]">
-                      {item.name}
+                    <div className="min-w-0 flex-1">
+                      {textPreview ? (
+                        <div className="scrollbar-token max-h-120 overflow-y-auto whitespace-pre-wrap break-words pr-1 font-mono text-[13px] leading-5 text-[var(--foreground)]">
+                          {textPreview.preview}
+                        </div>
+                      ) : (
+                        <div className="truncate text-sm font-medium text-[var(--foreground)]">
+                          {item.name}
+                        </div>
+                      )}
+                      <div className="truncate text-xs text-[color-mix(in_srgb,var(--foreground)_50%,transparent)]">
+                        {textPreview?.summary ?? item.path ?? item.mimeType ?? "Pasted text"}
+                      </div>
                     </div>
-                  )}
-                  <div className="truncate text-xs text-[color-mix(in_srgb,var(--foreground)_50%,transparent)]">
-                    {textPreview?.summary ?? item.path ?? item.mimeType ?? "Pasted text"}
                   </div>
-                </div>
+                );
+              })}
+            </div>
+
+            {error && (
+              <div className="rounded-lg bg-token-charts-red/10 px-3 py-2 text-sm text-token-charts-red">
+                {error}
               </div>
-            );
-          })}
-        </div>
+            )}
+          </DialogBody>
 
-        {error && (
-          <div className="rounded-lg border border-red-500/20 bg-red-500/8 px-3 py-2 text-sm text-red-200">
-            {error}
-          </div>
-        )}
-
-        <DialogFooter className="mt-1 flex-row items-center justify-end gap-2 sm:flex-row">
-          <Button
-            type="button"
-            variant="ghost"
-            className="rounded-full text-[color-mix(in_srgb,var(--foreground)_64%,transparent)]"
-            disabled={pending}
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-          {state?.allowLink && (
-            <Button
-              type="button"
-              variant="outline"
-              ref={!canSaveCopy ? primaryActionRef : undefined}
-              className="rounded-full border-transparent bg-[color-mix(in_srgb,var(--foreground)_6%,transparent)]"
+          <DialogFooter>
+            <DialogAction
               disabled={pending}
-              onClick={() => onChooseMode("link")}
+              onClick={() => onOpenChange(false)}
             >
-              {pending ? "Working..." : "Keep as Link"}
-            </Button>
-          )}
-          {state?.textPayload && (
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-full border-transparent bg-[color-mix(in_srgb,var(--foreground)_6%,transparent)]"
-              disabled={pending}
-              onClick={() => onContinueInline?.()}
-            >
-              {pending ? "Working..." : "Paste Anyway"}
-            </Button>
-          )}
-          {canSaveCopy && (
-            <Button
-              type="button"
-              ref={primaryActionRef}
-              className="rounded-full bg-[var(--foreground)] text-[var(--background)] hover:bg-[color-mix(in_srgb,var(--foreground)_88%,transparent)]"
-              disabled={pending}
-              onClick={() => onChooseMode("materialized")}
-            >
-              {pending ? "Saving..." : "Save a Copy"}
-            </Button>
-          )}
-        </DialogFooter>
+              Cancel
+            </DialogAction>
+            {state?.allowLink && (
+              <DialogAction
+                ref={!canSaveCopy ? primaryActionRef : undefined}
+                disabled={pending}
+                onClick={() => onChooseMode("link")}
+              >
+                {pending ? "Working..." : "Keep as Link"}
+              </DialogAction>
+            )}
+            {state?.textPayload && (
+              <DialogAction
+                disabled={pending}
+                onClick={() => onContinueInline?.()}
+              >
+                {pending ? "Working..." : "Paste Anyway"}
+              </DialogAction>
+            )}
+            {canSaveCopy && (
+              <DialogAction
+                tone="primary"
+                ref={primaryActionRef}
+                disabled={pending}
+                onClick={() => onChooseMode("materialized")}
+              >
+                {pending ? "Saving..." : "Save a Copy"}
+              </DialogAction>
+            )}
+          </DialogFooter>
+        </DialogFrame>
       </DialogContent>
     </Dialog>
   );

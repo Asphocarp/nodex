@@ -2,7 +2,9 @@ import { useId, useRef, useState } from "react";
 import { CodeBracketsIcon } from "@/components/shared/icons";
 import {
   NodexDialog as Dialog,
+  NodexDialogBody as DialogBody,
   NodexDialogContent as DialogContent,
+  NodexDialogFrame as DialogFrame,
   NodexDialogHeader as DialogHeader,
   NodexDialogTitle as DialogTitle,
 } from "../../../../../components/ui/dialog";
@@ -157,21 +159,16 @@ export function ToolCallRawDialog({
         tabIndex={-1}
         showCloseButton={false}
         aria-describedby={undefined}
-        className="codex-dialog fixed left-1/2 top-1/2 z-50 w-[520px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 gap-0 rounded-3xl border-none bg-token-dropdown-background/90 p-0 text-token-foreground shadow-lg ring-[0.5px] ring-token-border backdrop-blur-xl outline-none sm:max-w-[520px]"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           contentRef.current?.focus();
         }}
       >
-        <div className="flex flex-col gap-0 px-5 py-5 text-base leading-normal tracking-normal">
-          <div className="flex w-full flex-col pt-3 first:pt-0">
-            <DialogHeader className="gap-0 text-left">
-              <DialogTitle className="heading-dialog min-w-0 font-semibold">
-                {title}
-              </DialogTitle>
-            </DialogHeader>
-          </div>
-          <div className="flex h-[min(65vh,40rem)] w-full min-h-72 flex-col pt-3 first:pt-0">
+        <DialogFrame>
+          <DialogHeader className="gap-0">
+            <DialogTitle>{title}</DialogTitle>
+          </DialogHeader>
+          <DialogBody className="h-[min(65vh,40rem)] min-h-72">
             {open ? (
               <ToolCallRawContent
                 title={title}
@@ -179,8 +176,8 @@ export function ToolCallRawDialog({
                 getRawValue={getRawValue}
               />
             ) : null}
-          </div>
-        </div>
+          </DialogBody>
+        </DialogFrame>
       </DialogContent>
     </Dialog>
   );

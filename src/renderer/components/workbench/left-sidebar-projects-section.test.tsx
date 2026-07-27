@@ -2,7 +2,8 @@ import { beforeAll, beforeEach, describe, expect, vi, test } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import type { Project } from "../../lib/types";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
-import { render, textContent } from "../../test/dom";
+import { NodexModalHost } from "@/lib/modal-registry";
+import { renderWithMaitai, textContent } from "../../test/dom";
 
 let SidebarProjectsSection: typeof import("./left-sidebar-projects-section")["SidebarProjectsSection"];
 let CodexProjectRow: typeof import("./codex-sidebar")["CodexProjectRow"];
@@ -80,10 +81,11 @@ beforeEach(() => {
   mockInvokeImpl = null;
 });
 
-function renderProjectsSection(element: Parameters<typeof render>[0]) {
-  return render(
+function renderProjectsSection(element: Parameters<typeof renderWithMaitai>[0]) {
+  return renderWithMaitai(
     <NodexTooltipProvider>
       {element}
+      <NodexModalHost />
     </NodexTooltipProvider>,
   );
 }
@@ -155,8 +157,8 @@ describe("SidebarProjectsSection", () => {
     expect(rows[0]?.getAttribute("tabindex")).toBe("0");
   });
 
-  test("opens the add-project submenu from the section action button", async () => {
-    const { getByLabelText, getByText } = renderProjectsSection(
+  test("opens project creation after the add-project submenu closes", async () => {
+    const { getByLabelText, getByRole, getByText, queryByRole } = renderProjectsSection(
       <SidebarProjectsSection
         projects={PROJECTS}
         projectRefs={[
@@ -181,6 +183,14 @@ describe("SidebarProjectsSection", () => {
 
     expect(getByText("Start from scratch").textContent).toBe("Start from scratch");
     expect(getByText("Use an existing folder").textContent).toBe("Use an existing folder");
+
+    await act(async () => {
+      fireEvent.click(getByText("Start from scratch"));
+      await Promise.resolve();
+    });
+
+    expect(queryByRole("menu")).toBe(null);
+    expect(getByRole("heading", { name: "Create project" })).toBeTruthy();
   });
 
   test("opens the project sidebar options menu and sort flyout", async () => {
@@ -266,7 +276,7 @@ describe("SidebarProjectsSection", () => {
       return null;
     };
 
-    const { getByLabelText, getByText, queryByText, findByText } = renderProjectsSection(
+    const { getByLabelText, getByText, queryByRole, queryByText, findByText } = renderProjectsSection(
       <SidebarProjectsSection
         projects={PROJECTS}
         projectRefs={[
@@ -306,6 +316,7 @@ describe("SidebarProjectsSection", () => {
     });
 
     await findByText("Source folders");
+    expect(queryByRole("menu")).toBe(null);
     expect(getByText("beta").textContent).toBe("beta");
     expect(queryByText("Primary")).toBe(null);
 
@@ -329,6 +340,88 @@ describe("SidebarProjectsSection", () => {
         { name: "Beta", sources: ["/repo/beta", "/repo/selected"] },
       ]));
     });
+  });
+
+  test("keeps project disclosure stable when the portaled edit dialog is clicked", async () => {
+    const onActivate = vi.fn();
+    const { getByLabelText, getByRole, getByText, findByText } = renderProjectsSection(
+      <CodexProjectRow
+        project={PROJECTS[1] as Project}
+        active
+        expanded
+        onActivate={onActivate}
+        onUpdateProject={async () => PROJECTS[1] ?? null}
+        onArchiveProject={async () => ({ kind: "not-found" })}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Beta" }));
+    expect(onActivate).toHaveBeenCalledTimes(1);
+    onActivate.mockClear();
+
+    await act(async () => {
+      fireEvent.pointerDown(getByLabelText("Project actions for Beta"), {
+        button: 0,
+        ctrlKey: false,
+      });
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      fireEvent.click(getByText("Edit project"));
+      await Promise.resolve();
+    });
+
+    await findByText("Source folders");
+    const dialogContent = document.body.querySelector(
+      '[data-slot="codex-dialog-content"]',
+    );
+    if (!(dialogContent instanceof HTMLElement)) {
+      throw new Error("Expected Edit project dialog content");
+    }
+
+    await act(async () => {
+      fireEvent.click(dialogContent);
+      await Promise.resolve();
+    });
+
+    expect(onActivate).not.toHaveBeenCalled();
+  });
+
+  test("keeps project disclosure stable inside a row-owned confirmation dialog", async () => {
+    const onActivate = vi.fn();
+    const { container, getByLabelText, getByText, findByRole } = renderProjectsSection(
+      <CodexProjectRow
+        project={PROJECTS[1] as Project}
+        active
+        expanded
+        onActivate={onActivate}
+        onUpdateProject={async () => PROJECTS[1] ?? null}
+        onArchiveProject={async () => ({ kind: "not-found" })}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.pointerDown(getByLabelText("Project actions for Beta"), {
+        button: 0,
+        ctrlKey: false,
+      });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(getByText("Remove"));
+      await Promise.resolve();
+    });
+
+    const heading = await findByRole("heading", { name: "Remove Beta?" });
+    fireEvent.click(heading);
+
+    expect(
+      container
+        .querySelector('[data-app-action-sidebar-project-row]')
+        ?.getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(onActivate).not.toHaveBeenCalled();
   });
 
   test("hides the reveal action for projects with multiple source folders", async () => {

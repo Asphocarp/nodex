@@ -31,6 +31,7 @@ import type { CommandMenuMode, CommandMenuOpenRequest } from "@/lib/command-pale
 import { invoke } from "@/lib/api";
 import { registerAppCloseFlushHandler } from "@/lib/app-close-flush";
 import { pageEditorSessionRegistry } from "@/lib/page-editor-session-registry";
+import { NodexModalHost } from "@/lib/modal-registry";
 import {
   readNavigationHistoryState,
   recordNavigationTransition,
@@ -1332,6 +1333,7 @@ function WorkbenchApp({
       navigateToFilesTab={navigateToFilesTab}
       commandKeymapState={commandKeymapQuery.data}
       />
+      <NodexModalHost />
     </LocalConversationProvider>
   );
 }

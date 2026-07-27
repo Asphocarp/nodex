@@ -397,7 +397,7 @@ export function HistoryPanel({
           height: "min(88vh, 760px)",
         }}
         className={cn(
-          "grid max-w-none grid-cols-1 gap-0 overflow-hidden rounded-xl p-0 sm:max-w-none",
+          "grid max-w-none grid-cols-1 gap-0 sm:max-w-none",
           "md:grid-cols-[minmax(0,1fr)_20rem]",
         )}
       >

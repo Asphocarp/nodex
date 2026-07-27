@@ -118,6 +118,7 @@ read-only bridge only when scoped atom composition needs one.
 | `reference-surface-state.ts` | Renderer-wide activation budget with editing/visibility priority, recency, capacity, and eligibility disposal | Keep focused capacity Module; replacing it with values alone would lose scheduling semantics |
 | `review-diff-comment-attachment-store.ts` | Review-to-Composer attachment command bridge with thread-keyed add/update/remove/clear and submit clear boundary | Keep focused bridge; Composer consumes it through the existing read-only Maitai external atom while all writes stay behind this Interface |
 | Toast, portal-host, date-clock, and gesture stores | UI primitive, mounted host, clock, or current gesture lifetimes | Keep local/deep when their lifecycle is narrower than App/Thread state |
+| Application modal registry | Renderer-window modal descriptors keyed by React component identity | Keep as one ephemeral Maitai App atom plus one root host; explicit close or renderer shutdown removes entries |
 
 ## Remaining Context and reactive-store audit
 
@@ -136,8 +137,14 @@ matches have one of these explicit lifecycles:
 | Toast, portal host, date clock, resize/drag/visibility helpers | UI primitive or current mounted interaction lifetime; keep local/focused |
 | Plain `Map`/`Set` in projection, parsing, search, scheduling, and render-model helpers | Per-call computational data structures, not reactive owners |
 
-Workbench command-palette visibility, menus, dialogs, resize samples, hover,
-selection gestures, and pending drag/drop confirmations remain component-local.
+Workbench command-palette visibility, menus, local confirmation dialogs, resize
+samples, hover, selection gestures, and pending drag/drop confirmations remain
+component-local. Application modals whose lifetime must escape their trigger
+subtree use the renderer-window modal registry instead: the App atom stores only
+component/props descriptors, different components stack, and reopening one
+component replaces its props while preserving its mounted key. One root host
+renders the stack; it is presentation state, not durable data or runtime
+authority.
 Persistent Composer/worktree/summary preferences were removed from the shell and
 now live in `use-workbench-preferences.ts` App atoms with same-window storage
 Adapters. Project Session tabs/layout, including projectless exact-file Files

@@ -7,6 +7,7 @@ import {
   readDevStorySansFontSize,
 } from "../../../src/renderer/lib/dev-story-font-size";
 import { useTheme } from "../../../src/renderer/lib/use-theme";
+import { NodexModalHost } from "../../../src/renderer/lib/modal-registry";
 
 initializeRendererDocument({ storybook: true });
 
@@ -54,6 +55,7 @@ const withNodexFrame: Decorator = (Story, context) => {
       >
         <Story />
       </div>
+      <NodexModalHost />
     </AppProviders>
   );
 };

@@ -12,9 +12,12 @@ import {
 import { NodexButton } from "./button";
 import {
   NodexDialog,
+  NodexDialogAction,
+  NodexDialogBody,
   NodexDialogContent,
   NodexDialogDescription,
   NodexDialogFooter,
+  NodexDialogFrame,
   NodexDialogHeader,
   NodexDialogTitle,
 } from "./dialog";
@@ -357,21 +360,38 @@ function PopoverDemo() {
   );
 }
 
-function DialogDemo() {
+function DialogDemo({
+  danger = false,
+}: {
+  danger?: boolean;
+}) {
   return (
     <StorySurface>
       <NodexDialog open={true}>
-        <NodexDialogContent className="max-w-md">
-          <NodexDialogHeader>
-            <NodexDialogTitle>Discard draft changes?</NodexDialogTitle>
-            <NodexDialogDescription>
-              This locks the shared dialog shell against typography, spacing, and footer button regressions.
-            </NodexDialogDescription>
-          </NodexDialogHeader>
-          <NodexDialogFooter>
-            <NodexButton variant="ghost">Cancel</NodexButton>
-            <NodexButton variant="primary">Discard</NodexButton>
-          </NodexDialogFooter>
+        <NodexDialogContent size="compact">
+          <NodexDialogFrame>
+            <NodexDialogHeader>
+              <NodexDialogTitle>
+                {danger ? "Remove project?" : "Save project changes?"}
+              </NodexDialogTitle>
+              <NodexDialogDescription>
+                {danger
+                  ? "The project will be removed from Nodex. Files on disk will not be deleted."
+                  : "Review the project details before saving your changes."}
+              </NodexDialogDescription>
+            </NodexDialogHeader>
+            <NodexDialogBody>
+              <div className="rounded-lg bg-token-foreground/5 px-3 py-2 text-base text-token-text-secondary">
+                /Users/asc/repo/nodex2
+              </div>
+            </NodexDialogBody>
+            <NodexDialogFooter>
+              <NodexDialogAction>Cancel</NodexDialogAction>
+              <NodexDialogAction tone={danger ? "danger" : "primary"}>
+                {danger ? "Remove project" : "Review project"}
+              </NodexDialogAction>
+            </NodexDialogFooter>
+          </NodexDialogFrame>
         </NodexDialogContent>
       </NodexDialog>
     </StorySurface>
@@ -522,6 +542,10 @@ export const PopoverCompactSurface: Story = {
 
 export const DialogSurface: Story = {
   render: () => <DialogDemo />,
+};
+
+export const DialogDangerSurface: Story = {
+  render: () => <DialogDemo danger />,
 };
 
 export const SettingsPrimitives: Story = {

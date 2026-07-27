@@ -3,9 +3,11 @@ import { Badge } from "@/components/ui/badge";
 import { NodexButton as Button } from "@/components/ui/button";
 import {
   NodexDialog as Dialog,
+  NodexDialogAction as DialogAction,
   NodexDialogContent as DialogContent,
   NodexDialogDescription as DialogDescription,
   NodexDialogFooter as DialogFooter,
+  NodexDialogFrame as DialogFrame,
   NodexDialogHeader as DialogHeader,
   NodexDialogTitle as DialogTitle,
   NodexDialogTrigger as DialogTrigger,
@@ -207,17 +209,21 @@ function DialogPreview() {
           Uses the shared dialog chrome so confirmation flows stay visually consistent.
         </div>
       </div>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Apply spacing preset?</DialogTitle>
-          <DialogDescription>
-            This would update the current Storybook gallery density controls to the balanced preset.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button onClick={() => setOpen(false)}>Apply preset</Button>
-        </DialogFooter>
+      <DialogContent size="compact">
+        <DialogFrame>
+          <DialogHeader>
+            <DialogTitle>Apply spacing preset?</DialogTitle>
+            <DialogDescription>
+              This would update the current Storybook gallery density controls to the balanced preset.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogAction onClick={() => setOpen(false)}>Cancel</DialogAction>
+            <DialogAction tone="primary" onClick={() => setOpen(false)}>
+              Apply preset
+            </DialogAction>
+          </DialogFooter>
+        </DialogFrame>
       </DialogContent>
     </Dialog>
   );
