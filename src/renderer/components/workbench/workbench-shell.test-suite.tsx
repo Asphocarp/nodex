@@ -801,7 +801,7 @@ vi.mock("./workbench-page-stage", () => ({
         {
           type: "button",
           "aria-label": "Close",
-          "data-app-shell-preview-pin-suppressed": "true",
+          "data-tab-preview-pin-exempt": "true",
           onClick: () => (props.onClose as (() => void) | undefined)?.(),
         },
         "Close",
@@ -842,7 +842,7 @@ vi.mock("./workbench-page-stage", () => ({
         {
           type: "button",
           "aria-label": "Delete",
-          "data-app-shell-preview-pin-suppressed": "true",
+          "data-tab-preview-pin-exempt": "true",
           onClick: () => {
             const current = (globalThis as { __mockPageStageDeleteClicks?: number }).__mockPageStageDeleteClicks ?? 0;
             (globalThis as { __mockPageStageDeleteClicks?: number }).__mockPageStageDeleteClicks = current + 1;
@@ -3436,7 +3436,9 @@ async function pointerDownAndSettle(element: HTMLElement): Promise<void> {
 }
 
 function getFilesPreviewInteractionTarget(screen: ReturnType<typeof renderWorkbench>): HTMLElement {
-  return screen.queryByPlaceholderText("Filter files…")
+  return screen.container.querySelector<HTMLElement>("[data-workspace-files-session-id]")
+    ?? screen.container.querySelector<HTMLElement>("[data-source-viewer='true']")
+    ?? screen.queryByPlaceholderText("Filter files…")
     ?? screen.getByText("No file or workspace folder is available.");
 }
 
@@ -9042,6 +9044,62 @@ describe(`workbench session shell / ${scope}`, () => {
     const metadataCall = invokeCalls.find((call) => call[0] === "read-file-metadata");
     expect(JSON.stringify(metadataCall?.[1])).toContain('/Users/asc/.nodex/worktrees/abcd/nodex/reports/summary.txt');
     expect(JSON.stringify(metadataCall?.[1])).not.toContain("workspaceRoot");
+  });
+
+  test("a Files tree interaction replaces the existing preview without persisting it", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeAttachedSession({ rightCollapsed: true })] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const openOutput = getLastThreadStageActions().onOpenSummaryOutputInSidePanel as ((input: {
+      cwd?: string | null;
+      path: string;
+      title: string;
+      workspaceRoot?: string | null;
+    }) => Promise<boolean>) | undefined;
+    expect(typeof openOutput).toBe("function");
+
+    await act(async () => {
+      await openOutput?.({
+        cwd: "/Users/asc/repo/nodex",
+        path: "/Users/asc/repo/nodex/reports/summary.txt",
+        title: "summary.txt",
+        workspaceRoot: "/Users/asc/repo/nodex",
+      });
+    });
+    await settleAsyncRender();
+
+    const firstTab = screen.getByRole("tab", { name: "summary.txt" });
+    const previewChrome = firstTab.closest("[data-app-shell-tab-controller]");
+    const fileTreeSurface = screen.container.querySelector(
+      "aside[data-tab-preview-pin-exempt='true']",
+    );
+    if (!(fileTreeSurface instanceof HTMLElement)) {
+      throw new Error("Expected the Files tree surface");
+    }
+
+    await pointerDownAndSettle(fileTreeSurface);
+    await act(async () => {
+      await openOutput?.({
+        cwd: "/Users/asc/repo/nodex",
+        path: "/Users/asc/repo/nodex/reports/details.json",
+        title: "details.json",
+        workspaceRoot: "/Users/asc/repo/nodex",
+      });
+    });
+    await settleAsyncRender();
+
+    const replacementTab = screen.getByRole("tab", { name: "details.json" });
+    expect(screen.queryByRole("tab", { name: "summary.txt" })).toBe(null);
+    expect(replacementTab.closest("[data-app-shell-tab-controller]")).toBe(previewChrome);
+    expect(replacementTab.querySelector("[data-file-tab-icon='json']")).not.toBe(null);
+    expect(screen.container.querySelectorAll('[data-app-shell-tabpanel-preview="true"]')).toHaveLength(1);
+    expect(invokeCalls.some((call) =>
+      call[0] === "window-session-view:tab-create"
+      && JSON.stringify(call[1]).includes('"kind":"files"')
+    )).toBe(false);
   });
 
   test("uses the matching secondary Project source only as Files tree context", async () => {

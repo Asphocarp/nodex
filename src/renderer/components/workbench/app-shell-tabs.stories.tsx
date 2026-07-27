@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import { History, SquareKanban, X } from "lucide-react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
+import { resolveWorkspaceFileTabIcon } from "@/features/workspace-files";
 import {
   AppShellTabs,
   type AppShellTabItem,
@@ -188,11 +189,74 @@ export const LiveCardTitle: Story = {
 
 export const InsertionPreview: Story = {
   render: () => <AppShellTabsStory showInsertionPreview />,
+  parameters: {
+    docs: {
+      description: {
+        story: "Panel-tab dragging leaves a faint source placeholder and uses a centered accent rail with a hollow endpoint for the insertion boundary.",
+      },
+    },
+  },
 };
 
 export const ResponsiveEqualWidths: Story = {
   render: () => <ResponsiveEqualWidthsStory />,
 };
+
+export const FileTabsAndOverflow: Story = {
+  render: () => <FileTabsAndOverflowStory />,
+};
+
+function FileTabsAndOverflowStory() {
+  const [activeTabId, setActiveTabId] = useState("file:tsx");
+  const fileTabs = [
+    { id: "file:empty", path: "", title: "Open file" },
+    { id: "file:tsx", path: "/workspace/src/renderer/workbench-shell.tsx", title: "workbench-shell.tsx" },
+    { id: "file:ts", path: "/workspace/src/shared/types.ts", title: "types.ts" },
+    { id: "file:css", path: "/workspace/src/styles/globals.css", title: "globals.css" },
+    { id: "file:json", path: "/workspace/package.json", title: "package.json" },
+    { id: "file:md", path: "/workspace/docs/ENGINEERING_LEARNINGS.md", title: "ENGINEERING_LEARNINGS.md" },
+    { id: "file:license", path: "/workspace/LICENSE", title: "LICENSE" },
+  ];
+  const tabs: AppShellTabItem[] = fileTabs.map((tab, index) => ({
+    id: tab.id,
+    title: tab.title,
+    icon: resolveWorkspaceFileTabIcon(tab.path),
+    closable: true,
+    preview: index === fileTabs.length - 1,
+    reorderable: index !== fileTabs.length - 1,
+    splittable: index !== fileTabs.length - 1,
+    renderPanel: () => (
+      <div className="flex h-full items-center justify-center text-sm text-token-description-foreground">
+        {tab.path || "Select a file from the workspace tree"}
+      </div>
+    ),
+  }));
+
+  return (
+    <NodexTooltipProvider>
+      <div className="h-screen bg-token-main-surface-primary text-token-foreground">
+        <div className="h-full w-[36rem] border-r border-token-border">
+          <AppShellTabs
+            tabs={tabs}
+            activeTabId={activeTabId}
+            onSelect={setActiveTabId}
+            onCloseTab={() => undefined}
+            onPinTab={() => undefined}
+            afterTabsInline={(
+              <button
+                type="button"
+                className="mx-1 flex size-7 items-center justify-center rounded-lg text-token-text-secondary hover:bg-token-foreground/5"
+                aria-label="New tab"
+              >
+                +
+              </button>
+            )}
+          />
+        </div>
+      </div>
+    </NodexTooltipProvider>
+  );
+}
 
 function ResponsiveEqualWidthsStory() {
   const [activeTabId, setActiveTabId] = useState("equal:short");
@@ -317,7 +381,7 @@ export const PageStagePreviewTab: Story = {
               <span className="text-sm font-medium">Workbench tab preview polish</span>
               <button
                 type="button"
-                data-app-shell-preview-pin-suppressed="true"
+                data-tab-preview-pin-exempt="true"
                 className="inline-flex size-7 items-center justify-center rounded-md text-token-description-foreground hover:bg-token-main-surface-tertiary hover:text-token-foreground"
                 aria-label="Close"
               >

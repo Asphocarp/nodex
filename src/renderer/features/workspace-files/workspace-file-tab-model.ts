@@ -9,16 +9,13 @@ export interface WorkspaceFileTabCandidate {
 export type WorkspaceFileTabOpenDecision =
   | { readonly kind: "focus-durable"; readonly tabId: string }
   | { readonly kind: "focus-preview"; readonly tabId: string }
-  | { readonly kind: "replace-empty"; readonly tabId: string }
+  | { readonly kind: "create-from-empty"; readonly emptyTabId: string }
   | { readonly kind: "pin-preview"; readonly tabId: string }
   | {
     readonly kind: "create-preview";
     readonly replacingPreviewTabId: string | null;
   }
-  | {
-    readonly kind: "create-durable";
-    readonly replacingPreviewTabId: string | null;
-  };
+  | { readonly kind: "create-durable" };
 
 export function decideWorkspaceFileTabOpen(input: {
   readonly activeDurableTabId: string | null;
@@ -34,7 +31,9 @@ export function decideWorkspaceFileTabOpen(input: {
 
   const activeEmpty = input.durableTabs.find((tab) =>
     tab.id === input.activeDurableTabId && tab.path === null);
-  if (activeEmpty) return { kind: "replace-empty", tabId: activeEmpty.id };
+  if (activeEmpty) {
+    return { kind: "create-from-empty", emptyTabId: activeEmpty.id };
+  }
 
   const matchingPreview = input.previewTab?.hostId === input.hostId
     && input.previewTab.path === input.path
@@ -47,8 +46,10 @@ export function decideWorkspaceFileTabOpen(input: {
     return { kind: "focus-preview", tabId: matchingPreview.id };
   }
 
-  const replacingPreviewTabId = input.previewTab?.id ?? null;
-  return input.mode === "durable"
-    ? { kind: "create-durable", replacingPreviewTabId }
-    : { kind: "create-preview", replacingPreviewTabId };
+  if (input.mode === "durable") return { kind: "create-durable" };
+
+  return {
+    kind: "create-preview",
+    replacingPreviewTabId: input.previewTab?.id ?? null,
+  };
 }

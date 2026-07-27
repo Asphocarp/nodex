@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, vi, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
-import { render, settleAsyncRender } from "../../test/dom";
+import { useState } from "react";
+import { renderWithMaitai, settleAsyncRender } from "../../test/dom";
 import { TestQueryProvider } from "../../test/query";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import type { Project, ProjectSession, WorkspaceFileDirectoryEntry } from "@/lib/types";
@@ -117,16 +118,43 @@ vi.mock("@/lib/api", () => ({
 vi.mock("./workspace-file-tree", () => ({
   WorkspaceFileTree: ({
     paths,
+    expandedPaths,
+    initialScrollTop,
+    selectedPath,
     searchQuery,
     onExpand,
     onOpen,
+    onStateChange,
   }: {
     paths: Array<{ path: string; kind: "directory" | "file" }>;
+    expandedPaths: ReadonlySet<string>;
+    initialScrollTop?: number;
+    selectedPath: string | null;
     searchQuery: string;
     onExpand: (path: string) => void;
     onOpen: (path: string, mode: "preview" | "durable") => void;
+    onStateChange?: (state: {
+      expandedPaths: readonly string[];
+      selectedPath: string | null;
+      scrollTop: number;
+    }) => void;
   }) => (
-    <div role="tree" aria-label="Workspace files">
+    <div
+      role="tree"
+      aria-label="Workspace files"
+      data-initial-scroll-top={initialScrollTop}
+      data-selected-path={selectedPath}
+    >
+      <button
+        type="button"
+        onClick={() => onStateChange?.({
+          expandedPaths: [...expandedPaths],
+          selectedPath,
+          scrollTop: 420,
+        })}
+      >
+        Scroll tree
+      </button>
       {paths
         .filter((item) => !searchQuery || item.path.toLowerCase().includes(searchQuery.toLowerCase()))
         .map((item) => (
@@ -217,7 +245,7 @@ describe("WorkspaceFilesPanel", () => {
 
   test("previews a projectless exact file without requesting a directory tree", async () => {
     const tab = makeFilesTab(WORKTREE_FILE);
-    const view = render(
+    const view = renderWithMaitai(
       <TestQueryProvider>
         <NodexTooltipProvider>
           <WorkspaceFilesPanel
@@ -285,10 +313,66 @@ describe("WorkspaceFilesPanel", () => {
       "fileManager",
     ]));
   });
+
+  test("restores expanded directory queries after the selected Files body remounts", async () => {
+    function RemountHarness() {
+      const [mounted, setMounted] = useState(true);
+      return (
+        <>
+          <button type="button" onClick={() => setMounted((current) => !current)}>
+            Toggle panel
+          </button>
+          {mounted ? (
+            <WorkspaceFilesPanel
+              tab={makeFilesTab()}
+              activeSession={activeSession}
+              project={project}
+              onOpenFileTab={async () => undefined}
+            />
+          ) : null}
+        </>
+      );
+    }
+
+    const view = renderWithMaitai(
+      <TestQueryProvider>
+        <NodexTooltipProvider>
+          <RemountHarness />
+        </NodexTooltipProvider>
+      </TestQueryProvider>,
+    );
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    fireEvent.click(view.getByText("src"));
+    await settleAsyncRender();
+    expect(view.getByText("index.ts")).not.toBeNull();
+    fireEvent.input(view.getByRole("textbox", { name: "Filter files" }), {
+      target: { value: "index" },
+    });
+    fireEvent.click(view.getByRole("button", { name: "Scroll tree" }));
+    await settleAsyncRender();
+
+    fireEvent.click(view.getByRole("button", { name: "Toggle panel" }));
+    await settleAsyncRender();
+    fireEvent.click(view.getByRole("button", { name: "Toggle panel" }));
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(view.getByText("index.ts")).not.toBeNull();
+    expect((view.getByRole("textbox", { name: "Filter files" }) as HTMLInputElement).value)
+      .toBe("index");
+    expect(view.getByRole("tree", { name: "Workspace files" }).getAttribute("data-initial-scroll-top"))
+      .toBe("420");
+    expect(invokeCalls.filter((call) => (
+      call[0] === "workspace-directory-entries"
+      && (call[1] as { directoryPath?: string }).directoryPath === "src"
+    )).length).toBeGreaterThan(0);
+  });
 });
 
 function renderPanel(selectedPath?: string) {
-  return render(
+  return renderWithMaitai(
     <TestQueryProvider>
       <NodexTooltipProvider>
         <WorkspaceFilesPanel

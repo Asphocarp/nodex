@@ -42,6 +42,7 @@ import {
   type PanelTabDropIntent,
   type PanelTabRect,
 } from "./panel-tab-dnd";
+import { PanelTabInsertionIndicator } from "./panel-tab-insertion-indicator";
 
 const PANEL_GROUP_RATIO_ACK_EPSILON = 0.000_001;
 
@@ -701,12 +702,7 @@ function PanelGroupEmptyHeader({
       >
         {afterTabs ? <div className="no-drag sticky right-0 z-10 flex h-full shrink-0 items-center bg-token-main-surface-primary">{afterTabs}</div> : null}
         {tabRowPreview && activeDragId ? (
-          <div
-            aria-hidden="true"
-            data-panel-tab-insertion-marker={`${tabRowPreview.panelId}:${tabRowPreview.leafId}:${tabRowPreview.targetIndex}`}
-            className="pointer-events-none absolute top-1/2 z-30 h-4 w-0 -translate-y-1/2 border-l-2 border-token-foreground/80"
-            style={{ left: tabRowPreview.markerLeft }}
-          />
+          <PanelTabInsertionIndicator intent={tabRowPreview} />
         ) : null}
       </div>
       {afterList ? <div role="presentation" className="no-drag my-auto flex shrink-0 items-center">{afterList}</div> : null}

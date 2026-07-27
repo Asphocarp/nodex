@@ -1,5 +1,5 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import {
   Check,
   Copy,
@@ -41,6 +41,7 @@ import type {
 import { cn } from "@/lib/utils";
 import { classifyContentBudget } from "@/lib/content-budget";
 import { writeTextToClipboard } from "@/lib/clipboard";
+import { useScopedAtom } from "@/lib/maitai";
 import {
   getWorkspaceFileDomTabId,
   getWorkspaceFileName,
@@ -52,7 +53,18 @@ import {
   WORKSPACE_TEXT_LOAD_MAX_BYTES,
   type WorkspaceFilePresentation,
 } from "./workspace-file-model";
-import { WorkspaceFileTree, type WorkspaceFileTreePath } from "./workspace-file-tree";
+import {
+  WorkspaceFileTree,
+  type WorkspaceFileTreePath,
+  type WorkspaceFileTreeState,
+} from "./workspace-file-tree";
+import {
+  normalizeWorkspaceFileNavigationState,
+  selectWorkspaceFileNavigationPath,
+  updateWorkspaceFileNavigationExpansion,
+  workspaceFileNavigationStateFamily,
+  type WorkspaceFileNavigationState,
+} from "./workspace-file-navigation-state";
 import {
   clampWorkspaceTreeWidth,
   WORKSPACE_TREE_DEFAULT_WIDTH,
@@ -87,8 +99,6 @@ export function classifyWorkspaceMarkdownPreview(value: string) {
   });
 }
 
-type DirectoryLoadState = "idle" | "loading" | "loaded" | "error";
-
 interface WorkspaceFilesPanelProps {
   tab: WorkspaceFilesTab;
   activeSession: ProjectSession;
@@ -103,7 +113,7 @@ interface WorkspaceFilesPanelProps {
 }
 
 type EntriesByPath = Record<string, WorkspaceFileDirectoryEntry[]>;
-type LoadStateByPath = Record<string, DirectoryLoadState>;
+const WORKSPACE_NAVIGATION_STATE_WRITE_DELAY_MS = 100;
 
 const EMPTY_PREVIEW_STATE: WorkspaceFilePreviewState = {
   status: "idle",
@@ -371,12 +381,21 @@ export function WorkspaceFilesPanel({
   const hostId = tab.config.hostId ?? "local";
   const selectedPath = tab.config.path ?? null;
   const cwd = tab.config.cwd?.trim() || activeSession.thread?.cwd?.trim() || null;
+  const selectedTreePath = selectedPath && workspaceRoot
+    ? getWorkspaceRelativePath(workspaceRoot, selectedPath)
+    : null;
   const queryClient = useQueryClient();
+  const navigationAtom = workspaceFileNavigationStateFamily({
+    hostId,
+    includeHidden: true,
+    workspaceRoot: workspaceRoot ?? `__file-tab__/${tab.id}`,
+  });
+  const [storedNavigationState, setStoredNavigationState] = useScopedAtom(navigationAtom);
+  const [navigationState, setNavigationState] = useState<WorkspaceFileNavigationState>(() =>
+    selectWorkspaceFileNavigationPath(storedNavigationState, selectedTreePath));
+  const navigationStateRef = useRef(navigationState);
+  const navigationWriteTimeoutRef = useRef<number | null>(null);
   const initialTabStateRef = useRef(normalizeWorkspaceFilesTabState(tab.state));
-  const [entriesByPath, setEntriesByPath] = useState<EntriesByPath>({});
-  const [loadStateByPath, setLoadStateByPath] = useState<LoadStateByPath>({});
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set(workspaceRoot ? [""] : []));
-  const [filterQuery, setFilterQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [searchPaths, setSearchPaths] = useState<WorkspaceFileTreePath[] | null>(null);
   const [searchPending, setSearchPending] = useState(false);
@@ -409,6 +428,74 @@ export function WorkspaceFilesPanel({
     })
     : null;
 
+  const publishNavigationState = useCallback((
+    input: WorkspaceFileNavigationState,
+  ) => {
+    const nextState = normalizeWorkspaceFileNavigationState(input);
+    navigationStateRef.current = nextState;
+    setNavigationState((current) => current === nextState ? current : nextState);
+    if (navigationWriteTimeoutRef.current !== null) {
+      window.clearTimeout(navigationWriteTimeoutRef.current);
+    }
+    navigationWriteTimeoutRef.current = window.setTimeout(() => {
+      navigationWriteTimeoutRef.current = null;
+      setStoredNavigationState(navigationStateRef.current);
+    }, WORKSPACE_NAVIGATION_STATE_WRITE_DELAY_MS);
+  }, [setStoredNavigationState]);
+
+  useEffect(() => {
+    if (navigationWriteTimeoutRef.current !== null) return;
+    navigationStateRef.current = storedNavigationState;
+    setNavigationState((current) =>
+      current === storedNavigationState ? current : storedNavigationState);
+  }, [storedNavigationState]);
+
+  useEffect(() => {
+    const nextState = selectWorkspaceFileNavigationPath(
+      navigationStateRef.current,
+      selectedTreePath,
+    );
+    if (nextState === navigationStateRef.current) return;
+    publishNavigationState(nextState);
+  }, [publishNavigationState, selectedTreePath]);
+
+  useEffect(() => () => {
+    if (navigationWriteTimeoutRef.current !== null) {
+      window.clearTimeout(navigationWriteTimeoutRef.current);
+      navigationWriteTimeoutRef.current = null;
+    }
+    setStoredNavigationState(navigationStateRef.current);
+  }, [setStoredNavigationState]);
+
+  const expandedPaths = useMemo(
+    () => new Set(navigationState.expandedPaths),
+    [navigationState.expandedPaths],
+  );
+  const directoryPaths = useMemo(
+    () => workspaceRoot ? [...expandedPaths].sort() : [],
+    [expandedPaths, workspaceRoot],
+  );
+  const directoryQueries = useQueries({
+    queries: directoryPaths.map((directoryPath) =>
+      workspaceDirectoryQueryOptions({
+        hostId,
+        workspaceRoot: workspaceRoot ?? "",
+        directoryPath,
+        includeHidden: true,
+      })),
+  });
+  const entriesByPath = Object.fromEntries(
+    directoryQueries.flatMap((query, index) => {
+      const directoryPath = directoryPaths[index];
+      if (directoryPath === undefined || !query.data) return [];
+      return [[directoryPath, query.data.entries] as const];
+    }),
+  ) satisfies EntriesByPath;
+  const directoryError = directoryQueries.find((query) => query.error)?.error;
+  const rootDirectoryPending = directoryQueries[
+    directoryPaths.indexOf("")
+  ]?.isPending ?? false;
+
   const persistTabState = useCallback((state: WorkspaceFilesTabState) => {
     persistedTabStateRef.current = state;
     onUpdateTabStateRef.current?.(state);
@@ -426,35 +513,31 @@ export function WorkspaceFilesPanel({
     return () => observer.disconnect();
   }, []);
 
-  const loadDirectory = useCallback(async (directoryPath: string) => {
+  useEffect(() => {
+    if (!directoryError) return;
+    toast.danger(
+      directoryError instanceof Error
+        ? directoryError.message
+        : "Unable to load files",
+    );
+  }, [directoryError]);
+
+  const refreshDirectories = useCallback(() => {
     if (!workspaceRoot) return;
-    setLoadStateByPath((current) => ({ ...current, [directoryPath]: "loading" }));
-    try {
-      const result = await queryClient.fetchQuery(workspaceDirectoryQueryOptions({
-        hostId,
-        workspaceRoot,
-        directoryPath,
-        includeHidden: true,
-      }));
-      startTransition(() => {
-        setEntriesByPath((current) => ({ ...current, [result.directoryPath]: result.entries }));
-        setLoadStateByPath((current) => ({ ...current, [result.directoryPath]: "loaded" }));
+    for (const directoryPath of directoryPaths) {
+      void queryClient.invalidateQueries({
+        queryKey: workspaceDirectoryQueryOptions({
+          hostId,
+          workspaceRoot,
+          directoryPath,
+          includeHidden: true,
+        }).queryKey,
       });
-    } catch (error) {
-      setLoadStateByPath((current) => ({ ...current, [directoryPath]: "error" }));
-      toast.danger(error instanceof Error ? error.message : "Unable to load files");
     }
-  }, [hostId, queryClient, workspaceRoot]);
+  }, [directoryPaths, hostId, queryClient, workspaceRoot]);
 
   useEffect(() => {
-    if (!workspaceRoot) return;
-    setEntriesByPath({});
-    setExpandedPaths(new Set([""]));
-    void loadDirectory("");
-  }, [loadDirectory, workspaceRoot]);
-
-  useEffect(() => {
-    const normalizedQuery = filterQuery.trim();
+    const normalizedQuery = navigationState.searchQuery.trim();
     const generation = searchGenerationRef.current + 1;
     searchGenerationRef.current = generation;
     if (!workspaceRoot || !normalizedQuery) {
@@ -492,7 +575,7 @@ export function WorkspaceFilesPanel({
       });
     }, 150);
     return () => window.clearTimeout(timeout);
-  }, [filterQuery, hostId, queryClient, workspaceRoot]);
+  }, [hostId, navigationState.searchQuery, queryClient, workspaceRoot]);
 
   useEffect(() => {
     if (!selectedPath) {
@@ -749,9 +832,6 @@ export function WorkspaceFilesPanel({
     return [...byPath.values()];
   }, [entriesByPath]);
   const treePaths = searchPaths ?? browsePaths;
-  const selectedTreePath = selectedPath && workspaceRoot
-    ? getWorkspaceRelativePath(workspaceRoot, selectedPath)
-    : null;
 
   const openTreeEntry = useCallback(async (
     path: string,
@@ -767,23 +847,36 @@ export function WorkspaceFilesPanel({
   }, [onOpenFileTab, tab.panelId, workspaceRoot]);
 
   const expandTreeEntry = useCallback((path: string) => {
-    setExpandedPaths((current) => {
-      const next = new Set(current);
-      next.add(path);
-      return next;
-    });
-    if (!entriesByPath[path]) {
-      void loadDirectory(path);
-    }
-  }, [entriesByPath, loadDirectory]);
+    publishNavigationState(updateWorkspaceFileNavigationExpansion(
+      navigationStateRef.current,
+      path,
+      true,
+    ));
+  }, [publishNavigationState]);
 
   const collapseTreeEntry = useCallback((path: string) => {
-    setExpandedPaths((current) => {
-      const next = new Set(current);
-      next.delete(path);
-      return next;
+    publishNavigationState(updateWorkspaceFileNavigationExpansion(
+      navigationStateRef.current,
+      path,
+      false,
+    ));
+  }, [publishNavigationState]);
+
+  const updateTreeState = useCallback((state: WorkspaceFileTreeState) => {
+    publishNavigationState({
+      ...navigationStateRef.current,
+      expandedPaths: state.expandedPaths,
+      selectedPath: state.selectedPath,
+      scrollTop: state.scrollTop,
     });
-  }, []);
+  }, [publishNavigationState]);
+
+  const updateFilterQuery = useCallback((searchQuery: string) => {
+    publishNavigationState({
+      ...navigationStateRef.current,
+      searchQuery,
+    });
+  }, [publishNavigationState]);
 
   const openExternal = useCallback(() => {
     if (!selectedPath) return;
@@ -993,7 +1086,7 @@ export function WorkspaceFilesPanel({
               <button
                 type="button"
                 className="flex aspect-square h-token-button-composer items-center justify-center rounded-lg text-token-text-tertiary hover:bg-token-list-hover-background hover:text-token-text-primary"
-                onClick={() => void loadDirectory("")}
+                onClick={refreshDirectories}
                 disabled={!workspaceRoot}
               >
                 <RefreshCw className="icon-2xs" />
@@ -1080,8 +1173,8 @@ export function WorkspaceFilesPanel({
             <input
               id="workspace-directory-tree-search"
               aria-label="Filter files"
-              value={filterQuery}
-              onInput={(event) => setFilterQuery(event.currentTarget.value)}
+              value={navigationState.searchQuery}
+              onInput={(event) => updateFilterQuery(event.currentTarget.value)}
               placeholder="Filter files…"
               className="min-w-0 flex-1 bg-transparent text-sm text-token-text-primary outline-none placeholder:text-token-description-foreground"
             />
@@ -1094,13 +1187,15 @@ export function WorkspaceFilesPanel({
               expandedPaths={expandedPaths}
               selectedPath={selectedTreePath}
               searchQuery={debouncedSearchQuery}
+              initialScrollTop={navigationState.scrollTop}
               onExpand={expandTreeEntry}
               onCollapse={collapseTreeEntry}
               onOpen={openTreeEntry}
+              onStateChange={updateTreeState}
             />
           ) : (
             <div className="px-2 py-4 text-sm text-token-text-secondary">
-              {loadStateByPath[""] === "loading" || searchPending
+              {rootDirectoryPending || searchPending
                 ? "Loading files..."
                 : "No files found."}
             </div>

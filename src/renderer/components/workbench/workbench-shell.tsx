@@ -28,6 +28,7 @@ import {
   Table2,
 } from "lucide-react";
 import type { AppShellTabItem } from "./app-shell-tabs";
+import { PanelTabPresentationRegistry } from "./panel-tab-presentation-registry";
 import { PanelGroupTree } from "./panel-group-tree";
 import { PanelDestinationPicker } from "./panel-destination-picker";
 import type { PanelDestination, PanelDestinationPickerScope } from "./panel-destination-picker-model";
@@ -74,6 +75,7 @@ import {
   getWorkspaceFileDomTabId,
   getWorkspaceFileName,
   isWorkspacePathInsideRoot,
+  resolveWorkspaceFileTabIcon,
   type WorkspaceFilesTab,
 } from "@/features/workspace-files";
 import { workspaceTextDocumentRegistry } from "@/features/workspace-files/workspace-text-document-controller";
@@ -2201,6 +2203,7 @@ function makePinnedPreviewTabCreateInput(
       return {
         ...base,
         kind: previewTab.kind,
+        clientTabId: previewTab.id,
         config: isProjectSessionFilesPreviewTab(previewTab)
           ? {
               ...previewTab.config,
@@ -2571,6 +2574,10 @@ export function WorkbenchShell({
   const [contextMenuSessionId, setContextMenuSessionId] = useState<string | null>(null);
   const [previewTabsByPanel, setPreviewTabsByPanel] = useState<Record<string, ProjectSessionPreviewTab>>({});
   const [pageStageTabTitleStore] = useState(createPageStageTabTitleStore);
+  const [panelTabPresentationRegistry] = useState(
+    () => new PanelTabPresentationRegistry(),
+  );
+  const panelTabPresentationControllerKeysRef = useRef(new Set<string>());
   const [sideChatTabsBySession, setSideChatTabsBySession] = useState<Record<string, SideChatPanelTab[]>>({});
   const [sideChatActiveTabByPanel, setSideChatActiveTabByPanel] = useState<Record<string, string>>({});
   const [mcpAppTabsBySession, setMcpAppTabsBySession] = useState<Record<string, McpAppPanelTab[]>>({});
@@ -2615,6 +2622,9 @@ export function WorkbenchShell({
     handleStripSmartPrefixFromTitleEnabledChange,
   } = useWorkbenchPreferences();
   const [threadSummaryPanelPopoverOpen, setThreadSummaryPanelPopoverOpen] = useState(false);
+  useEffect(() => () => {
+    panelTabPresentationRegistry.dispose();
+  }, [panelTabPresentationRegistry]);
   const [localSidebarCollapsed, setLocalSidebarCollapsed] = useState(false);
   const [localSidebarWidth, setLocalSidebarWidth] = useState(CODEX_SIDEBAR_WIDTH_DEFAULT_PX);
   const [localSidebarCollapsibleSections, setLocalSidebarCollapsibleSections] = useState(
@@ -6464,14 +6474,6 @@ export function WorkbenchShell({
       path: input.path,
     } as const;
     if (decision.kind === "focus-durable") {
-      if (filesPreviewTab) {
-        const saved = await workspaceTextDocumentRegistry.flush(filesPreviewTab.id);
-        if (!saved) {
-          toast.danger("Resolve the file conflict before opening another file");
-          return false;
-        }
-      }
-      clearPanelPreviewTab(activeSession.id, input.panelId, leafId);
       await setActivePanelTab(input.panelId, decision.tabId, { openPanel: true });
       return true;
     }
@@ -6479,10 +6481,19 @@ export function WorkbenchShell({
       await ensureActivePanelOpenWithoutRefresh(input.panelId);
       return true;
     }
-    if (decision.kind === "replace-empty") {
-      updateSessionViewTab(decision.tabId, {
+    if (decision.kind === "create-from-empty") {
+      const created = createSessionViewTab({
+        sessionId: activeSession.id,
+        panelId: input.panelId,
+        targetLeafId: leafId,
+        kind: "files",
         title: input.title || getWorkspaceFileName(input.path),
         config: fileConfig,
+      });
+      if (!created) return false;
+      await closeTab(decision.emptyTabId, {
+        preferredActiveLeafId: leafId,
+        preferredActiveTabId: created.id,
       });
       await ensureActivePanelOpenWithoutRefresh(input.panelId);
       return true;
@@ -6492,7 +6503,10 @@ export function WorkbenchShell({
       return true;
     }
 
-    if (decision.replacingPreviewTabId) {
+    if (
+      decision.kind === "create-preview"
+      && decision.replacingPreviewTabId
+    ) {
       const saved = await workspaceTextDocumentRegistry.flush(
         decision.replacingPreviewTabId,
       );
@@ -6503,7 +6517,6 @@ export function WorkbenchShell({
     }
 
     if (decision.kind === "create-durable") {
-      clearPanelPreviewTab(activeSession.id, input.panelId, leafId);
       createSessionViewTab({
         sessionId: activeSession.id,
         panelId: input.panelId,
@@ -6531,7 +6544,7 @@ export function WorkbenchShell({
     return true;
   }, [
     activeSession,
-    clearPanelPreviewTab,
+    closeTab,
     createSessionViewTab,
     ensureActivePanelOpenWithoutRefresh,
     pinPreviewTab,
@@ -6539,7 +6552,6 @@ export function WorkbenchShell({
     projects,
     refreshProjectSessions,
     setActivePanelTab,
-    updateSessionViewTab,
   ]);
 
   const openPageTab = useCallback<OpenPageTabHandler>(async (projectId, pageId, titleSnapshot, options) => {
@@ -8290,6 +8302,11 @@ export function WorkbenchShell({
         session,
         projects,
       );
+      const filesIcon = !transientPanelTab && tab.kind === "files"
+        ? resolveWorkspaceFileTabIcon(
+            "path" in tab.config ? tab.config.path : undefined,
+          )
+        : null;
 
       return {
         id: tab.id,
@@ -8315,9 +8332,10 @@ export function WorkbenchShell({
                       ? SubagentGlyphIcon
                     : isProcessOutputPanelTab(tab)
                       ? CodexSidePanelTerminalIcon
-                      : isProjectSessionFilesPreviewTab(tab)
-                        ? getTabIcon(tab.kind)
-                        : getBrowserTabIcon(tab),
+                      : filesIcon
+                        ?? (isProjectSessionFilesPreviewTab(tab)
+                          ? getTabIcon(tab.kind)
+                          : getBrowserTabIcon(tab)),
         closable: isPanelTabClosable(tab),
         preview: transientPanelTab ? undefined : tab.preview,
         reorderable: transientPanelTab ? false : tab.preview === true ? false : true,
@@ -8536,8 +8554,24 @@ export function WorkbenchShell({
 
       for (const leaf of leaves) {
         const renderableTabs = model.renderableTabsByPanelLeaf[panelId][leaf.id] ?? [];
-
-        itemsByLeafId[leaf.id] = renderableTabs.map(makeItem);
+        const items = renderableTabs.map(makeItem);
+        const presentations = panelTabPresentationRegistry.reconcile(
+          makePanelLeafStateKey(session.id, panelId, leaf.id),
+          items.map((item) => ({
+            id: item.id,
+            preview: item.preview === true,
+          })),
+        );
+        const presentationIdByTabId = new Map(
+          presentations.map((presentation) => [
+            presentation.id,
+            presentation.presentationId,
+          ]),
+        );
+        itemsByLeafId[leaf.id] = items.map((item) => ({
+          ...item,
+          presentationId: presentationIdByTabId.get(item.id),
+        }));
         activeTabIdsByLeafId[leaf.id] = model.activeTabIdsByPanelLeaf[panelId][leaf.id] ?? null;
       }
 
@@ -8577,6 +8611,7 @@ export function WorkbenchShell({
     openAttachedThreadSession,
     openAttachedThreadSessionById,
     openTurnDiffFileInSidePanel,
+    panelTabPresentationRegistry,
     pendingReminderOpen,
     projects,
     recreateSideChatPanelTab,
@@ -8620,6 +8655,28 @@ export function WorkbenchShell({
   ]);
 
   panelGroupTabsRef.current = panelGroupTabs;
+
+  useEffect(() => {
+    const nextControllerKeys = new Set<string>();
+    if (activeRenderSession) {
+      for (const panelId of ["right", "bottom"] as const) {
+        for (const leafId of Object.keys(panelGroupTabs[panelId].itemsByLeafId)) {
+          nextControllerKeys.add(
+            makePanelLeafStateKey(activeRenderSession.id, panelId, leafId),
+          );
+        }
+      }
+    }
+    for (const controllerKey of panelTabPresentationControllerKeysRef.current) {
+      if (nextControllerKeys.has(controllerKey)) continue;
+      panelTabPresentationRegistry.releaseController(controllerKey);
+    }
+    panelTabPresentationControllerKeysRef.current = nextControllerKeys;
+  }, [
+    activeRenderSession,
+    panelGroupTabs,
+    panelTabPresentationRegistry,
+  ]);
 
   useEffect(() => {
     if (!activeRenderSession) return;

@@ -93,6 +93,7 @@ lifecycle; it is not task state.
 | Collapse override | Conversation ID plus stable turn search key | Renderer memory; no arbitrary cap | App atom family | Canonical conversation deletion or renderer shutdown |
 | Route-active and transcript-visible flags | Current selected route / full-width body visibility | Renderer memory | Route atom/derived presentation | Route unmount or panel visibility change |
 | Preview tabs, overlays, and route-local panel presentation | Thread/Route identity | Renderer memory unless an existing preference contract applies | Thread/Route atoms | Explicit close or scope eviction |
+| Workspace Files navigator disclosure, selection, search, and scroll | Host + hidden-file policy + canonical workspace root | Renderer memory | Maitai App atom family; directory request data remains Query-owned | Renderer shutdown or explicit root cleanup |
 | Review diff preferences | Renderer application | Renderer memory | App atoms | Renderer shutdown |
 | Review source, tree, selection, expansion, and pending file reveal | Task Route identity | Renderer memory | Route atoms; source data stays in conversation/Query authorities | Successful reveal, explicit source change, or Route eviction |
 | Window-local Project Session panels and tabs | Window Session + Project Session ID | Window Session snapshot; cloned only as a new-window starting point and never live-applied cross-window | Workbench App atom and pure `WorkbenchSessionViewSnapshot` mutations | Explicit panel-tab close, hard Session reconciliation, or bounded closed-window history eviction |
@@ -110,6 +111,7 @@ read-only bridge only when scoped atom composition needs one.
 | `persisted-atom-store.ts` | Ordered renderer/main persistence synchronization plus imperative bootstrap/runtime access | Keep as the shared substrate; React-facing drafts/preferences normally consume it through Maitai persisted atoms |
 | `terminal-session-store.ts` / `use-terminal.ts` | PTY resource, buffer, and one explicit interactive Window Session lease | Keep deep Module; view unmount releases its lease, takeover transfers it, and explicit kill/backend exit destroys the PTY |
 | `browser-sidebar-webview-manager.ts` | Browser runtime identity and visible/hidden host claims scoped by Window Session | Keep deep Module; atoms may hold stable tab/runtime IDs only |
+| `PanelTabPresentationRegistry` | Ephemeral visible-tab identity across preview replacement, promotion, reorder, and cross-leaf moves | Keep as a Workbench-lifetime renderer Module; never persist or use as semantic/drag identity |
 | Block Document/Yjs/editor runtime | Y.Doc, provider, editor, UndoManager, write fences, relocation participants | Keep deep surface Modules per ADR 0008 |
 | `block-disclosure-state.ts` | Stable occurrence disclosure preference | Keep until a persisted atom Adapter exactly preserves ADR 0009 |
 | `kanban-store.ts`, `page-detail-store.ts`, `database-row-detail-store.ts` | Main-backed read models, optimistic journals, invalidation, grant-aware caches | Keep their deep external-store/Query ownership |

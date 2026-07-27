@@ -21,7 +21,7 @@ const preview: WorkspaceFileTabCandidate = {
 };
 
 describe("workspace file tab state machine", () => {
-  test("replaces the active empty tab for the first selection", () => {
+  test("creates a semantic file tab before closing the active empty tab", () => {
     expect(decideWorkspaceFileTabOpen({
       activeDurableTabId: empty.id,
       durableTabs: [empty],
@@ -29,7 +29,7 @@ describe("workspace file tab state machine", () => {
       mode: "preview",
       path: "/repo/a.ts",
       previewTab: null,
-    })).toEqual({ kind: "replace-empty", tabId: empty.id });
+    })).toEqual({ kind: "create-from-empty", emptyTabId: empty.id });
   });
 
   test("creates, replaces, and pins the leaf preview explicitly", () => {
@@ -79,5 +79,27 @@ describe("workspace file tab state machine", () => {
       path: preview.path ?? "",
       previewTab: preview,
     })).toEqual({ kind: "focus-preview", tabId: preview.id });
+  });
+
+  test("keeps an unrelated preview when focusing an existing durable file", () => {
+    expect(decideWorkspaceFileTabOpen({
+      activeDurableTabId: preview.id,
+      durableTabs: [durable],
+      hostId: "local",
+      mode: "preview",
+      path: durable.path ?? "",
+      previewTab: preview,
+    })).toEqual({ kind: "focus-durable", tabId: durable.id });
+  });
+
+  test("does not classify an unrelated preview as replaced for a direct durable open", () => {
+    expect(decideWorkspaceFileTabOpen({
+      activeDurableTabId: durable.id,
+      durableTabs: [durable],
+      hostId: "local",
+      mode: "durable",
+      path: "/repo/c.ts",
+      previewTab: preview,
+    })).toEqual({ kind: "create-durable" });
   });
 });

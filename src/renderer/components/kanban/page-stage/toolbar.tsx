@@ -173,7 +173,7 @@ export function PageStageToolbar({
               type="button"
               aria-label="Page actions"
               title="Page actions"
-              data-app-shell-preview-pin-suppressed="true"
+              data-tab-preview-pin-exempt="true"
               disabled={disabled}
               className={cn(
                 pageStageToolbarButtonChrome,

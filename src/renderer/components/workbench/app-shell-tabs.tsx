@@ -1,6 +1,8 @@
 import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
 import { dropTargetForElements, draggable } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
-import { AnimatePresence, motion } from "motion/react";
+import { preserveOffsetOnSource } from "@atlaskit/pragmatic-drag-and-drop/element/preserve-offset-on-source";
+import { setCustomNativeDragPreview } from "@atlaskit/pragmatic-drag-and-drop/element/set-custom-native-drag-preview";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   useCallback,
   useEffect,
@@ -27,6 +29,8 @@ import {
   isPanelTabDragData,
   type PanelTabDropIntent,
 } from "./panel-tab-dnd";
+import { createPanelTabDragPreviewElement } from "./panel-tab-drag-preview";
+import { PanelTabInsertionIndicator } from "./panel-tab-insertion-indicator";
 import {
   APP_SHELL_TAB_GAP_PX,
   APP_SHELL_TAB_MAX_WIDTH_PX,
@@ -46,7 +50,7 @@ const APP_SHELL_SPLIT_ACTIONS: { side: AppShellTabSplitSide; label: string }[] =
 const APP_SHELL_TAB_ROW_WHEEL_LINE_HEIGHT_PX = 16;
 const APP_SHELL_TAB_ROW_WHEEL_DELTA_LINE = 1;
 const APP_SHELL_TAB_ROW_WHEEL_DELTA_PAGE = 2;
-const APP_SHELL_PREVIEW_PIN_SUPPRESSED_SELECTOR = "[data-app-shell-preview-pin-suppressed='true']";
+const APP_SHELL_PREVIEW_PIN_EXEMPT_ATTRIBUTE = "data-tab-preview-pin-exempt";
 const APP_SHELL_TAB_COLLAPSED_MOTION = {
   "--app-shell-tab-separator-gutter": "0px",
   maxWidth: 0,
@@ -64,6 +68,7 @@ const APP_SHELL_TAB_WIDTH_TRANSITION = {
 
 export interface AppShellTabItem {
   id: string;
+  presentationId?: string;
   domTabId?: string;
   title: string;
   titleSource?: AppShellTabTitleSource;
@@ -118,8 +123,11 @@ function useAppShellTabTitle(tab: AppShellTabItem): string {
   );
 }
 
-function isPreviewPinSuppressedTarget(target: EventTarget | null): boolean {
-  return target instanceof Element && Boolean(target.closest(APP_SHELL_PREVIEW_PIN_SUPPRESSED_SELECTOR));
+function isPreviewPinExemptEvent(event: Event): boolean {
+  return event.composedPath().some((target) =>
+    target instanceof Element
+    && target.hasAttribute(APP_SHELL_PREVIEW_PIN_EXEMPT_ATTRIBUTE)
+  );
 }
 
 export type AppShellTabContextMenuItem =
@@ -215,11 +223,18 @@ export function AppShellTabs({
   className,
 }: AppShellTabsProps) {
   const tabRowRef = useRef<HTMLDivElement | null>(null);
+  const leftEdgeSentinelRef = useRef<HTMLSpanElement | null>(null);
+  const rightEdgeSentinelRef = useRef<HTMLSpanElement | null>(null);
+  const tabNodesRef = useRef(new Map<string, HTMLDivElement>());
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const [lockedTabWidthPx, setLockedTabWidthPx] = useState<number | null>(null);
   const [retainedTabCount, setRetainedTabCount] = useState(tabs.length);
+  const [leftEdgeClipped, setLeftEdgeClipped] = useState(false);
+  const [rightEdgeClipped, setRightEdgeClipped] = useState(false);
+  const reducedMotion = useReducedMotion();
   const { elementRef: afterTabsInlineRef, elementWidthPx: afterTabsInlineWidthPx } = useMeasuredElementWidth();
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? null;
+  const resolvedActiveTabId = activeTab?.id ?? null;
   const activePanelId = activeTab ? makeTabPanelId(controllerId, activeTab.id) : undefined;
   const activeIndex = activeTab ? tabs.findIndex((tab) => tab.id === activeTab.id) : -1;
   const draggingIndex = panelTabDnd?.activeDragId ? tabs.findIndex((tab) => tab.id === panelTabDnd.activeDragId) : -1;
@@ -288,6 +303,70 @@ export function AppShellTabs({
     };
   }, [exitTabCloseMode]);
 
+  useLayoutEffect(() => {
+    const tabRow = tabRowRef.current;
+    const leftSentinel = leftEdgeSentinelRef.current;
+    const rightSentinel = rightEdgeSentinelRef.current;
+    if (!tabRow || !leftSentinel || !rightSentinel) return undefined;
+
+    if (typeof IntersectionObserver === "undefined") {
+      const updateClippedEdges = () => {
+        const maxScrollLeft = Math.max(0, tabRow.scrollWidth - tabRow.clientWidth);
+        setLeftEdgeClipped(tabRow.scrollLeft > 1);
+        setRightEdgeClipped(tabRow.scrollLeft < maxScrollLeft - 1);
+      };
+      updateClippedEdges();
+      tabRow.addEventListener("scroll", updateClippedEdges, { passive: true });
+      window.addEventListener("resize", updateClippedEdges);
+      return () => {
+        tabRow.removeEventListener("scroll", updateClippedEdges);
+        window.removeEventListener("resize", updateClippedEdges);
+      };
+    }
+
+    const trailingInsetPx = Math.max(
+      0,
+      Math.ceil(afterTabsInlineWidthPx + tabScrollEndPaddingPx),
+    );
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.target === leftSentinel) {
+          setLeftEdgeClipped(!entry.isIntersecting);
+        }
+        if (entry.target === rightSentinel) {
+          setRightEdgeClipped(!entry.isIntersecting);
+        }
+      }
+    }, {
+      root: tabRow,
+      rootMargin: `0px -${trailingInsetPx}px 0px 0px`,
+      threshold: 0.99,
+    });
+    observer.observe(leftSentinel);
+    observer.observe(rightSentinel);
+    return () => {
+      observer.disconnect();
+    };
+  }, [afterTabsInlineWidthPx, tabScrollEndPaddingPx, tabs.length]);
+
+  useLayoutEffect(() => {
+    if (!resolvedActiveTabId) return;
+    const tabNode = tabNodesRef.current.get(resolvedActiveTabId);
+    tabNode?.scrollIntoView?.({
+      behavior: reducedMotion ? "auto" : "smooth",
+      block: "nearest",
+      inline: "nearest",
+    });
+  }, [reducedMotion, resolvedActiveTabId]);
+
+  const registerTabNode = useCallback((tabId: string, element: HTMLDivElement | null) => {
+    if (element) {
+      tabNodesRef.current.set(tabId, element);
+      return;
+    }
+    tabNodesRef.current.delete(tabId);
+  }, []);
+
   useEffect(() => {
     if (!panelTabDnd?.activeDragId) return;
     exitTabCloseMode();
@@ -328,7 +407,7 @@ export function AppShellTabs({
 
   const pinPreviewTabFromPanelEvent = (event: SyntheticEvent<HTMLElement>) => {
     if (!activeTab?.preview) return;
-    if (isPreviewPinSuppressedTarget(event.target)) return;
+    if (isPreviewPinExemptEvent(event.nativeEvent)) return;
     pinTab(activeTab.id);
   };
 
@@ -364,7 +443,7 @@ export function AppShellTabs({
           const isActive = tab.id === activeTab?.id;
           return (
             <AppShellTab
-              key={tab.id}
+              key={tab.presentationId ?? tab.id}
               tab={tab}
               controllerId={controllerId}
               panelTabDnd={panelTabDnd}
@@ -381,9 +460,11 @@ export function AppShellTabs({
               onClose={tab.closable ? closeTab : undefined}
               onDirectClose={tab.closable ? closeTabFromDirectInteraction : undefined}
               onCloseModeExit={exitTabCloseMode}
+              onTabNodeChange={registerTabNode}
               onPin={tab.preview ? pinTab : undefined}
               onMove={onMoveTab}
               onSplit={onSplitTab}
+              reducedMotion={Boolean(reducedMotion)}
             />
           );
         })}
@@ -416,25 +497,36 @@ export function AppShellTabs({
           >
             <div
               aria-hidden="true"
-              className="sticky start-0 z-10 h-full w-0 opacity-0 transition-opacity duration-100 after:absolute after:start-0 after:top-0 after:bottom-0 after:w-10 after:bg-linear-to-l after:from-transparent after:to-token-main-surface-primary after:content-[''] after:pointer-events-none"
+              data-app-shell-tab-edge-fade="start"
+              data-clipped={leftEdgeClipped ? "true" : "false"}
+              className={cn(
+                "pointer-events-none sticky start-0 z-20 h-full w-0 transition-opacity duration-100 after:absolute after:start-0 after:inset-y-0 after:w-10 after:bg-linear-to-l after:from-transparent after:to-token-main-surface-primary after:content-['']",
+                leftEdgeClipped ? "opacity-100" : "opacity-0",
+              )}
             />
-            <span aria-hidden="true" />
+            <span
+              ref={leftEdgeSentinelRef}
+              aria-hidden="true"
+              className="h-px w-px shrink-0"
+            />
             {tabList}
+            <span
+              ref={rightEdgeSentinelRef}
+              aria-hidden="true"
+              className="h-px w-px shrink-0"
+            />
             {afterTabsInline ? (
               <div ref={afterTabsInlineRef} className="no-drag sticky right-0 z-10 flex h-full shrink-0 items-center bg-token-main-surface-primary">{afterTabsInline}</div>
             ) : null}
-            {tabRowPreview ? (
-              <div
-                aria-hidden="true"
-                data-panel-tab-insertion-marker={`${tabRowPreview.panelId}:${tabRowPreview.leafId}:${tabRowPreview.targetIndex}`}
-                className="pointer-events-none absolute top-1/2 z-30 h-4 w-0 -translate-y-1/2 border-l-2 border-token-foreground/80"
-                style={{ left: tabRowPreview.markerLeft }}
-              />
-            ) : null}
-            <span aria-hidden="true" />
+            {tabRowPreview ? <PanelTabInsertionIndicator intent={tabRowPreview} /> : null}
             <div
               aria-hidden="true"
-              className="sticky end-0 z-10 h-full w-0 opacity-0 transition-opacity duration-100 after:absolute after:end-0 after:inset-y-0 after:w-10 after:bg-linear-to-r after:from-transparent after:to-token-main-surface-primary after:content-[''] after:pointer-events-none"
+              data-app-shell-tab-edge-fade="end"
+              data-clipped={rightEdgeClipped ? "true" : "false"}
+              className={cn(
+                "pointer-events-none sticky end-0 z-20 h-full w-0 transition-opacity duration-100 after:absolute after:end-0 after:inset-y-0 after:w-10 after:bg-linear-to-r after:from-transparent after:to-token-main-surface-primary after:content-['']",
+                rightEdgeClipped ? "opacity-100" : "opacity-0",
+              )}
               style={{ right: tabScrollEndPaddingPx }}
             />
           </div>
@@ -579,10 +671,8 @@ function getDominantAppShellTabRowWheelDelta({
   deltaX,
   deltaY,
 }: Pick<WheelEvent, "deltaX" | "deltaY">): number {
-  if (deltaX === 0) return deltaY;
-  if (deltaY === 0) return deltaX;
-
-  return Math.abs(deltaX) >= Math.abs(deltaY) ? deltaX : deltaY;
+  if (Math.abs(deltaY) <= Math.abs(deltaX)) return 0;
+  return deltaY;
 }
 
 function blurActiveElementWithin(element: HTMLElement): void {
@@ -610,9 +700,11 @@ function AppShellTab({
   onClose,
   onDirectClose,
   onCloseModeExit,
+  onTabNodeChange,
   onPin,
   onMove,
   onSplit,
+  reducedMotion,
 }: {
   tab: AppShellTabItem;
   controllerId: string;
@@ -630,11 +722,17 @@ function AppShellTab({
   onClose?: (tabId: string) => void;
   onDirectClose?: (tabId: string) => void;
   onCloseModeExit: () => void;
+  onTabNodeChange: (tabId: string, element: HTMLDivElement | null) => void;
   onPin?: (tabId: string) => void;
   onMove?: (tabId: string, targetPanelId: string) => void;
   onSplit?: (tabId: string, side: AppShellTabSplitSide) => void;
+  reducedMotion: boolean;
 }) {
   const tabRef = useRef<HTMLDivElement | null>(null);
+  const setTabRef = useCallback((element: HTMLDivElement | null) => {
+    tabRef.current = element;
+    onTabNodeChange(tab.id, element);
+  }, [onTabNodeChange, tab.id]);
   const resolvedTitle = useAppShellTabTitle(tab);
   const Icon = tab.icon;
   const dataTabId = tab.domTabId ?? tab.id;
@@ -647,27 +745,56 @@ function AppShellTab({
     <span
       ref={titleRef}
       data-app-shell-tab-title={tab.id}
-      className={cn("inline-block min-w-0 whitespace-nowrap", tab.preview && "italic")}
+      className={cn(
+        "block w-full min-w-0 overflow-hidden whitespace-nowrap text-start",
+        tab.preview && "italic",
+      )}
     >
       {resolvedTitle}
     </span>
   );
   const label = (
-    <span className="flex min-w-0 items-center gap-1">
-      {tab.contextLabel ? (
-        <>
-          <span
-            data-app-shell-tab-context-label={tab.id}
-            className="max-w-20 shrink truncate text-xs text-token-description-foreground"
-          >
-            {tab.contextLabel}
-          </span>
-          <span aria-hidden="true" className="shrink-0 text-token-description-foreground">
-            ·
-          </span>
-        </>
+    <span className="relative min-w-0 flex-1 overflow-hidden">
+      <NodexTooltip
+        tooltipContent={tooltipContent}
+        disabled={isDragging}
+        delayOpen
+        side="bottom"
+        align="start"
+        style={{
+          maxWidth:
+            "min(32rem, var(--radix-tooltip-content-available-width), calc(100vw - 16px))",
+        }}
+      >
+        <span className="flex min-w-0 items-center gap-1">
+          {tab.contextLabel ? (
+            <>
+              <span
+                data-app-shell-tab-context-label={tab.id}
+                className="max-w-20 shrink truncate text-xs text-token-description-foreground"
+              >
+                {tab.contextLabel}
+              </span>
+              <span aria-hidden="true" className="shrink-0 text-token-description-foreground">
+                ·
+              </span>
+            </>
+          ) : null}
+          {title}
+        </span>
+      </NodexTooltip>
+      {titleOverflows ? (
+        <span
+          aria-hidden="true"
+          data-app-shell-tab-title-fade={tab.id}
+          className={cn(
+            "pointer-events-none absolute inset-y-0 end-0 z-20 w-7 bg-linear-to-r from-transparent to-[85%]",
+            isActive
+              ? "to-[var(--app-shell-tab-background)]"
+              : "to-token-main-surface-primary group-hover/tab:to-[var(--app-shell-tab-background)]",
+          )}
+        />
       ) : null}
-      {title}
     </span>
   );
 
@@ -682,7 +809,9 @@ function AppShellTab({
     closeCurrentTab();
   };
   const closeOtherTabs = () => {
-    for (const candidate of tabs) {
+    for (let index = tabs.length - 1; index >= 0; index -= 1) {
+      const candidate = tabs[index];
+      if (!candidate) continue;
       if (candidate.id === tab.id) continue;
       if (candidate.closable !== true) continue;
       onClose?.(candidate.id);
@@ -691,7 +820,9 @@ function AppShellTab({
   const closeTabsToRight = () => {
     const tabIndex = tabs.findIndex((candidate) => candidate.id === tab.id);
     if (tabIndex === -1) return;
-    for (const candidate of tabs.slice(tabIndex + 1)) {
+    for (let index = tabs.length - 1; index > tabIndex; index -= 1) {
+      const candidate = tabs[index];
+      if (!candidate) continue;
       if (candidate.closable !== true) continue;
       onClose?.(candidate.id);
     }
@@ -742,6 +873,22 @@ function AppShellTab({
         leafId: dndLeafId,
         tabId: tab.id,
       }),
+      onGenerateDragPreview: ({ location, nativeSetDragImage, source }) => {
+        setCustomNativeDragPreview({
+          nativeSetDragImage,
+          getOffset: preserveOffsetOnSource({
+            element: source.element,
+            input: location.current.input,
+          }),
+          render: ({ container }) => {
+            const preview = createPanelTabDragPreviewElement(source.element);
+            if (!preview) return () => undefined;
+
+            container.append(preview);
+            return () => preview.remove();
+          },
+        });
+      },
       onDragStart: () => {
         onCloseModeExit();
         blurActiveElementWithin(element);
@@ -751,7 +898,7 @@ function AppShellTab({
 
   const chrome = (
     <motion.div
-      ref={tabRef}
+      ref={setTabRef}
       data-app-shell-tab-controller={controllerId}
       data-tab-id={dataTabId}
       data-panel-tab-id={tab.id}
@@ -760,20 +907,25 @@ function AppShellTab({
       className={cn(
         "no-drag relative my-auto flex shrink-0 items-center gap-0.5 overflow-hidden pe-(--app-shell-tab-separator-gutter) contain-content",
         isDraggable && "cursor-grab",
-        isDragging && "z-10 cursor-grabbing opacity-45",
+        isDragging && "pointer-events-none z-10 cursor-grabbing opacity-20",
       )}
-      initial={APP_SHELL_TAB_COLLAPSED_MOTION}
+      initial={reducedMotion || isDragging ? false : APP_SHELL_TAB_COLLAPSED_MOTION}
       animate={APP_SHELL_TAB_EXPANDED_MOTION}
-      exit={APP_SHELL_TAB_COLLAPSED_MOTION}
-      transition={APP_SHELL_TAB_WIDTH_TRANSITION}
+      exit={reducedMotion || isDragging
+        ? {
+            ...APP_SHELL_TAB_EXPANDED_MOTION,
+            transition: { duration: 0 },
+          }
+        : APP_SHELL_TAB_COLLAPSED_MOTION}
+      transition={reducedMotion
+        ? { duration: 0 }
+        : APP_SHELL_TAB_WIDTH_TRANSITION}
       style={{ flexBasis: flexSizing.flexBasis, flexGrow: flexSizing.flexGrow }}
     >
       <div
         data-tab-id={dataTabId}
-        className="group group/tab relative flex h-7 w-full max-w-39 shrink-0 items-center overflow-hidden rounded-md bg-token-main-surface-primary px-2 py-1"
-        role="button"
-        tabIndex={tab.disabled ? -1 : 0}
-        aria-disabled={tab.disabled ? "true" : "false"}
+        data-app-shell-tab-surface="true"
+        className="group group/tab relative flex h-7 w-full max-w-39 shrink-0 items-center overflow-hidden rounded-lg bg-token-main-surface-primary px-2 py-1"
         style={{
           "--app-shell-tab-background": "color-mix(in srgb, var(--color-token-foreground) 5%, var(--color-token-main-surface-primary))",
         } as CSSProperties}
@@ -786,7 +938,7 @@ function AppShellTab({
       >
         <div
           className={cn(
-            "pointer-events-none absolute inset-0 z-0 rounded-md group-hover/tab:bg-[var(--app-shell-tab-background)]",
+            "pointer-events-none absolute inset-0 z-0 rounded-lg group-hover/tab:bg-[var(--app-shell-tab-background)]",
             (isActive || isDragging) && "bg-[var(--app-shell-tab-background)]",
           )}
         />
@@ -800,6 +952,11 @@ function AppShellTab({
           disabled={tab.disabled}
           className={cn(
             "no-drag relative z-10 flex min-w-0 flex-1 items-center gap-2 text-sm",
+            onClose && (
+              isActive
+                ? "pe-3.5"
+                : "group-focus-within/tab:pe-3.5 group-hover/tab:pe-3.5"
+            ),
             isActive ? "text-token-text-primary" : "text-token-text-secondary",
           )}
           onMouseDown={(event) => {
@@ -826,15 +983,7 @@ function AppShellTab({
               <Icon className="icon-xs shrink-0" />
             </span>
           ) : null}
-          <NodexTooltip
-            tooltipContent={tooltipContent}
-            disabled={isDragging}
-            delayOpen
-            side="bottom"
-            align="start"
-          >
-            {label}
-          </NodexTooltip>
+          {label}
         </button>
         {onClose ? (
           <button
@@ -842,7 +991,10 @@ function AppShellTab({
             data-app-shell-tab-close-button="true"
             data-app-shell-tab-no-drag="true"
             aria-label={`Close ${accessibleLabel} tab`}
-            className="no-drag invisible absolute inset-y-0 end-1 z-30 flex cursor-interaction items-center pe-1 text-token-text-tertiary group-has-[:focus-visible]:visible group-hover/tab:visible hover:text-token-text-primary after:absolute after:-inset-1 after:content-[''] before:pointer-events-none before:absolute before:inset-y-0 before:end-1 before:w-[26px] before:bg-linear-to-r before:from-transparent before:to-30% before:content-[''] before:to-token-main-surface-primary group-hover/tab:before:to-[var(--app-shell-tab-background)]"
+            className={cn(
+              "no-drag absolute end-1 top-1/2 z-30 flex size-5 -translate-y-1/2 cursor-interaction items-center justify-center rounded-md text-token-text-tertiary hover:bg-token-foreground/8 hover:text-token-text-primary focus-visible:bg-token-foreground/8 focus-visible:text-token-text-primary",
+              !isActive && "pointer-events-none opacity-0 group-focus-within/tab:pointer-events-auto group-focus-within/tab:opacity-100 group-hover/tab:pointer-events-auto group-hover/tab:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100",
+            )}
             onMouseDown={(event) => {
               event.preventDefault();
               event.stopPropagation();
@@ -856,25 +1008,13 @@ function AppShellTab({
             <CodexTabCloseIcon className="icon-xs relative" />
           </button>
         ) : null}
-        {titleOverflows ? (
-          <div
-            aria-hidden="true"
-            data-app-shell-tab-title-fade={tab.id}
-            className={cn(
-              "pointer-events-none absolute inset-y-0 end-0 z-20 w-2 bg-linear-to-r from-transparent to-100%",
-              isActive
-                ? "to-[var(--app-shell-tab-background)]"
-                : "to-token-main-surface-primary group-hover/tab:to-[var(--app-shell-tab-background)]",
-            )}
-          />
-        ) : null}
       </div>
       <div
         aria-hidden="true"
         data-app-shell-tab-separator={tab.id}
         data-app-shell-tab-separator-index={separatorIndex}
         className={cn(
-          "absolute end-0 h-3 w-px shrink-0 bg-token-border transition-opacity duration-200",
+          "absolute end-0 h-3 w-px shrink-0 bg-token-border transition-opacity duration-150",
           showSeparator ? "opacity-100" : "opacity-0",
         )}
       />
@@ -1083,9 +1223,7 @@ function CodexTabCloseIcon({ className }: { className?: string }) {
       className={className}
     >
       <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M10.7997 2.48486C15.4019 2.48486 19.1335 6.21565 19.1337 10.8179C19.1337 15.4202 15.4021 19.1519 10.7997 19.1519C6.19746 19.1517 2.46667 15.4201 2.46667 10.8179C2.46685 6.21576 6.19757 2.48504 10.7997 2.48486ZM9.00811 7.5181C8.62612 7.13627 8.00684 7.13624 7.62534 7.5181C7.24363 7.89971 7.24366 8.51913 7.62534 8.90088L9.54183 10.8179L7.62534 12.7343C7.24375 13.116 7.24365 13.7354 7.62534 14.1171C8.00709 14.4989 8.62647 14.4989 9.00811 14.1171L10.9251 12.2007L12.8416 14.1171C13.2234 14.4989 13.8427 14.4989 14.2244 14.1171C14.6062 13.7354 14.6062 13.1161 14.2244 12.7343L12.3079 10.8179L14.2244 8.90088L14.3123 8.79221C14.5632 8.41306 14.5212 7.89785 14.2244 7.60088C13.9275 7.30404 13.4123 7.26211 13.0331 7.51303L12.9244 7.60088L11.0079 9.51736L9.09138 7.60088L9.00811 7.5181Z"
+        d="M14.6549 5.57307C14.9283 5.2997 15.3718 5.2997 15.6451 5.57307C15.9185 5.84643 15.9185 6.28993 15.6451 6.5633L11.3903 10.8182L15.6451 15.0731L15.735 15.1834C15.9141 15.4551 15.8842 15.8242 15.6451 16.0633C15.4061 16.3024 15.0369 16.3322 14.7653 16.1531L14.6549 16.0633L10.4 11.8084L6.14515 16.0633C5.87178 16.3367 5.42828 16.3367 5.15492 16.0633C4.88155 15.7899 4.88155 15.3464 5.15492 15.0731L9.4098 10.8182L5.15492 6.5633L5.06507 6.45295C4.88597 6.18128 4.91584 5.81214 5.15492 5.57307C5.39399 5.33399 5.76313 5.30413 6.0348 5.48322L6.14515 5.57307L10.4 9.82795L14.6549 5.57307Z"
         fill="currentColor"
       />
     </svg>

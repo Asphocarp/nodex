@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
 import { act } from "react";
 import { useEffect, type ComponentProps, type ReactNode } from "react";
@@ -9,6 +9,16 @@ import {
   type AppShellTabItem,
 } from "./app-shell-tabs";
 import { render, settleAsyncRender, textContent } from "@/test/dom";
+
+const motionPreference = vi.hoisted(() => ({ reduced: false }));
+
+vi.mock("motion/react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("motion/react")>();
+  return {
+    ...actual,
+    useReducedMotion: () => motionPreference.reduced,
+  };
+});
 
 function makeTabs(): AppShellTabItem[] {
   return [
@@ -49,6 +59,7 @@ function renderAppShellTabs(props: {
   onSelect?: (tabId: string) => void;
   onCloseTab?: (tabId: string) => void;
   onDirectCloseTab?: (tabId: string) => void;
+  onPinTab?: (tabId: string) => void;
   onMoveTab?: ComponentProps<typeof AppShellTabs>["onMoveTab"];
   onSplitTab?: ComponentProps<typeof AppShellTabs>["onSplitTab"];
   panelTabDnd?: ComponentProps<typeof AppShellTabs>["panelTabDnd"];
@@ -68,6 +79,7 @@ function renderAppShellTabs(props: {
         onSelect={props.onSelect ?? (() => undefined)}
         onCloseTab={props.onCloseTab}
         onDirectCloseTab={props.onDirectCloseTab}
+        onPinTab={props.onPinTab}
         onMoveTab={props.onMoveTab}
         onSplitTab={props.onSplitTab}
         panelTabDnd={props.panelTabDnd}
@@ -337,6 +349,71 @@ describe("AppShellTabs", () => {
     expect(view.container.querySelectorAll('[role="tabpanel"]').length).toBe(1);
   });
 
+  test("preserves tab chrome when semantic preview identity changes", () => {
+    const makePreviewTabs = (id: string, title: string): AppShellTabItem[] => [{
+      id,
+      presentationId: "preview-presentation",
+      title,
+      preview: true,
+      closable: true,
+      renderPanel: () => <div>{title} panel</div>,
+    }];
+    const renderTabs = (tabs: AppShellTabItem[]) => (
+      <NodexTooltipProvider>
+        <AppShellTabs
+          tabs={tabs}
+          activeTabId={tabs[0]?.id ?? ""}
+          onSelect={() => undefined}
+          onCloseTab={() => undefined}
+        />
+      </NodexTooltipProvider>
+    );
+    const view = render(renderTabs(makePreviewTabs("preview-a", "A.ts")));
+    const initialChrome = getTabController(view, "preview-a");
+
+    view.rerender(renderTabs(makePreviewTabs("preview-b", "B.ts")));
+
+    const replacementChrome = getTabController(view, "preview-b");
+    expect(replacementChrome).toBe(initialChrome);
+    expect(view.queryByText("A.ts")).toBe(null);
+    expect(view.getByText("B.ts") !== null).toBe(true);
+  });
+
+  test("does not pin a preview from an exempt panel interaction", async () => {
+    const pinned: string[] = [];
+    const view = renderAppShellTabs({
+      activeTabId: "preview-file",
+      onPinTab: (tabId) => pinned.push(tabId),
+      tabs: [{
+        id: "preview-file",
+        title: "one.ts",
+        preview: true,
+        renderPanel: () => (
+          <div data-tab-preview-pin-exempt="true">
+            <button type="button">Open two.ts</button>
+          </div>
+        ),
+      }],
+    });
+
+    await act(async () => {
+      fireEvent.pointerDown(view.getByRole("button", { name: "Open two.ts" }));
+      fireEvent.keyDown(view.getByRole("button", { name: "Open two.ts" }), {
+        key: "Enter",
+      });
+      await Promise.resolve();
+    });
+
+    expect(pinned).toEqual([]);
+
+    await act(async () => {
+      fireEvent.pointerDown(view.getByRole("tabpanel"));
+      await Promise.resolve();
+    });
+
+    expect(pinned).toEqual(["preview-file"]);
+  });
+
   test("removes a focused inactive panel after active tab changes", () => {
     const tabs: AppShellTabItem[] = [
       {
@@ -463,7 +540,7 @@ describe("AppShellTabs", () => {
     const closeIcon = closeButton.querySelector("svg");
     expect(closeButton.tagName).toBe("BUTTON");
     expect(closeIcon?.getAttribute("viewBox")).toBe("0 0 21 21");
-    expect(closeIcon?.querySelector("path")?.getAttribute("d")?.startsWith("M10.7997 2.48486")).toBe(true);
+    expect(closeIcon?.querySelector("path")?.getAttribute("d")?.startsWith("M14.6549 5.57307")).toBe(true);
 
     fireEvent.mouseDown(closeButton, { button: 0 });
     fireEvent.click(closeButton);
@@ -674,17 +751,152 @@ describe("AppShellTabs", () => {
     expect(verticalWheel.defaultPrevented).toBe(true);
 
     const horizontalWheel = dispatchWheel(tabRow, { deltaX: -40 });
-    expect(tabRow.scrollLeft).toBe(80);
-    expect(horizontalWheel.defaultPrevented).toBe(true);
+    expect(tabRow.scrollLeft).toBe(120);
+    expect(horizontalWheel.defaultPrevented).toBe(false);
+
+    const equalAxisWheel = dispatchWheel(tabRow, { deltaX: 40, deltaY: 40 });
+    expect(tabRow.scrollLeft).toBe(120);
+    expect(equalAxisWheel.defaultPrevented).toBe(false);
 
     const lineWheel = dispatchWheel(tabRow, { deltaY: 2, deltaMode: 1 });
-    expect(tabRow.scrollLeft).toBe(112);
+    expect(tabRow.scrollLeft).toBe(152);
     expect(lineWheel.defaultPrevented).toBe(true);
 
     tabRow.scrollLeft = 0;
     const edgeWheel = dispatchWheel(tabRow, { deltaY: -20 });
     expect(tabRow.scrollLeft).toBe(0);
     expect(edgeWheel.defaultPrevented).toBe(false);
+  });
+
+  test("reveals the newly active tab inside the horizontal strip", async () => {
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    const tabs = makeTabs();
+    const renderTabs = (activeTabId: string) => (
+      <NodexTooltipProvider>
+        <AppShellTabs
+          tabs={tabs}
+          activeTabId={activeTabId}
+          onSelect={() => undefined}
+        />
+      </NodexTooltipProvider>
+    );
+
+    try {
+      const view = render(renderTabs("one"));
+      scrollIntoView.mockClear();
+
+      await act(async () => {
+        view.rerender(renderTabs("two"));
+        await Promise.resolve();
+      });
+
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        behavior: "smooth",
+        block: "nearest",
+        inline: "nearest",
+      });
+
+      motionPreference.reduced = true;
+      scrollIntoView.mockClear();
+      await act(async () => {
+        view.rerender(renderTabs("history"));
+        await Promise.resolve();
+      });
+
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        behavior: "auto",
+        block: "nearest",
+        inline: "nearest",
+      });
+    } finally {
+      motionPreference.reduced = false;
+      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+    }
+  });
+
+  test("removes exiting tab chrome immediately when reduced motion is requested", async () => {
+    motionPreference.reduced = true;
+    const tabs = makeTabs();
+    const renderTabs = (visibleTabs: AppShellTabItem[]) => (
+      <NodexTooltipProvider>
+        <AppShellTabs
+          tabs={visibleTabs}
+          activeTabId="one"
+          onSelect={() => undefined}
+        />
+      </NodexTooltipProvider>
+    );
+
+    try {
+      const view = render(renderTabs(tabs));
+
+      await act(async () => {
+        view.rerender(renderTabs(tabs.filter((tab) => tab.id !== "two")));
+        await Promise.resolve();
+      });
+
+      expect(view.container.querySelector('[data-app-shell-tab-controller][data-panel-tab-id="two"]')).toBe(null);
+    } finally {
+      motionPreference.reduced = false;
+    }
+  });
+
+  test("tracks clipped tab-strip edges from intersection sentinels", async () => {
+    const observers: Array<{
+      callback: IntersectionObserverCallback;
+      targets: Element[];
+    }> = [];
+    const OriginalIntersectionObserver = globalThis.IntersectionObserver;
+    class TestIntersectionObserver implements IntersectionObserver {
+      readonly root = null;
+      readonly rootMargin = "0px";
+      readonly thresholds = [0.99];
+      readonly scrollMargin = "0px";
+      private readonly record: {
+        callback: IntersectionObserverCallback;
+        targets: Element[];
+      };
+
+      constructor(callback: IntersectionObserverCallback) {
+        this.record = { callback, targets: [] };
+        observers.push(this.record);
+      }
+
+      disconnect() {}
+      observe(target: Element) {
+        this.record.targets.push(target);
+      }
+      takeRecords(): IntersectionObserverEntry[] {
+        return [];
+      }
+      unobserve() {}
+    }
+    globalThis.IntersectionObserver = TestIntersectionObserver;
+
+    try {
+      const view = renderAppShellTabs({});
+      const observer = observers[0];
+      if (!observer) throw new Error("Expected edge observer");
+      const [startSentinel, endSentinel] = observer.targets;
+      if (!startSentinel || !endSentinel) throw new Error("Expected two edge sentinels");
+
+      await act(async () => {
+        observer.callback([
+          { target: startSentinel, isIntersecting: false } as IntersectionObserverEntry,
+          { target: endSentinel, isIntersecting: true } as IntersectionObserverEntry,
+        ], {} as IntersectionObserver);
+        await Promise.resolve();
+      });
+
+      expect(view.container.querySelector('[data-app-shell-tab-edge-fade="start"]')?.getAttribute("data-clipped")).toBe("true");
+      expect(view.container.querySelector('[data-app-shell-tab-edge-fade="end"]')?.getAttribute("data-clipped")).toBe("false");
+    } finally {
+      globalThis.IntersectionObserver = OriginalIntersectionObserver;
+    }
   });
 
   test("context menu close is available only for closable tabs", async () => {
@@ -796,7 +1008,7 @@ describe("AppShellTabs", () => {
     await settleAsyncRender();
     fireEvent.click(view.getByText("Close tabs to the right"));
 
-    expect(closed.join(",")).toBe("two,three");
+    expect(closed.join(",")).toBe("three,two");
   });
 
   test("places tab ids on the wrapper and leaves native DnD opt-in", () => {

@@ -16,15 +16,25 @@ export interface WorkspaceFileTreePath {
   readonly kind: "directory" | "file";
 }
 
+export interface WorkspaceFileTreeState {
+  readonly expandedPaths: readonly string[];
+  readonly selectedPath: string | null;
+  readonly scrollTop: number;
+}
+
 export interface WorkspaceFileTreeProps {
   readonly paths: readonly WorkspaceFileTreePath[];
   readonly expandedPaths: ReadonlySet<string>;
   readonly selectedPath: string | null;
   readonly searchQuery: string;
+  readonly initialScrollTop?: number;
+  readonly revealSelectedPath?: boolean;
+  readonly revealSelectedPathScrollOffset?: "top" | "center" | "nearest";
   readonly className?: string;
   readonly onExpand: (path: string) => void;
   readonly onCollapse: (path: string) => void;
   readonly onOpen: (path: string, mode: "preview" | "durable") => void;
+  readonly onStateChange?: (state: WorkspaceFileTreeState) => void;
 }
 
 const WORKSPACE_TREE_UNSAFE_CSS = `
@@ -106,13 +116,27 @@ export function WorkspaceFileTree({
   expandedPaths,
   selectedPath,
   searchQuery,
+  initialScrollTop = 0,
+  revealSelectedPath = false,
+  revealSelectedPathScrollOffset = "nearest",
   className,
   onExpand,
   onCollapse,
   onOpen,
+  onStateChange,
 }: WorkspaceFileTreeProps) {
-  const callbacksRef = useRef({ onCollapse, onExpand, onOpen });
-  callbacksRef.current = { onCollapse, onExpand, onOpen };
+  const callbacksRef = useRef({
+    onCollapse,
+    onExpand,
+    onOpen,
+    onStateChange,
+  });
+  callbacksRef.current = {
+    onCollapse,
+    onExpand,
+    onOpen,
+    onStateChange,
+  };
   const treePaths = useMemo(() => toPierreWorkspaceTreePaths(paths), [paths]);
   const initialExpandedPaths = useMemo(
     () => [...expandedPaths]
@@ -124,6 +148,10 @@ export function WorkspaceFileTree({
     () => selectedPath ? [selectedPath] : [],
     [selectedPath],
   );
+  const expandedPathsRef = useRef<readonly string[]>([...expandedPaths]);
+  const selectedPathRef = useRef(selectedPath);
+  const scrollTopRef = useRef(Math.max(0, initialScrollTop));
+  const restoredScrollRef = useRef(false);
   const { model } = useFileTree({
     paths: treePaths,
     initialExpandedPaths,
@@ -142,10 +170,15 @@ export function WorkspaceFileTree({
   }, [initialExpandedPaths, model, treePaths]);
 
   useEffect(() => {
+    expandedPathsRef.current = [...expandedPaths];
+  }, [expandedPaths]);
+
+  useEffect(() => {
     model.setSearch(searchQuery || null);
   }, [model, searchQuery]);
 
   useEffect(() => {
+    selectedPathRef.current = selectedPath;
     const currentSelection = model.getSelectedPaths();
     if (
       currentSelection.length === (selectedPath ? 1 : 0)
@@ -156,6 +189,95 @@ export function WorkspaceFileTree({
     for (const path of currentSelection) model.getItem(path)?.deselect();
     if (selectedPath) model.getItem(selectedPath)?.select();
   }, [model, selectedPath, treePaths]);
+
+  useEffect(() => {
+    const readExpandedPaths = (): readonly string[] => {
+      const knownDirectoryPaths = new Set(
+        treePaths
+          .filter((path) => path.endsWith("/"))
+          .map(fromPierreTreePath),
+      );
+      const next = expandedPathsRef.current.filter((path) =>
+        path === "" || !knownDirectoryPaths.has(path));
+      for (const path of treePaths) {
+        if (!path.endsWith("/")) continue;
+        const item = model.getItem(path);
+        if (!item?.isDirectory()) continue;
+        if (!(item as FileTreeDirectoryHandle).isExpanded()) continue;
+        next.push(fromPierreTreePath(path));
+      }
+      return next;
+    };
+    const emitState = () => {
+      expandedPathsRef.current = readExpandedPaths();
+      const modelSelectedPath = model.getSelectedPaths()[0] ?? null;
+      if (modelSelectedPath || !selectedPathRef.current || model.getItem(selectedPathRef.current)) {
+        selectedPathRef.current = modelSelectedPath;
+      }
+      callbacksRef.current.onStateChange?.({
+        expandedPaths: expandedPathsRef.current,
+        selectedPath: selectedPathRef.current,
+        scrollTop: scrollTopRef.current,
+      });
+    };
+    const unsubscribeModel = model.subscribe(emitState);
+    let cancelled = false;
+    let animationFrame: number | null = null;
+    let scrollElement: HTMLElement | null = null;
+
+    const connectScrollElement = (attempt: number) => {
+      if (cancelled) return;
+      const container = model.getFileTreeContainer();
+      scrollElement = container?.shadowRoot?.querySelector<HTMLElement>(
+        "[data-file-tree-virtualized-scroll='true']",
+      ) ?? null;
+      if (!scrollElement) {
+        if (attempt >= 12) return;
+        animationFrame = window.requestAnimationFrame(() => {
+          connectScrollElement(attempt + 1);
+        });
+        return;
+      }
+
+      if (!restoredScrollRef.current) {
+        restoredScrollRef.current = true;
+        scrollElement.scrollTop = Math.max(0, initialScrollTop);
+        scrollTopRef.current = scrollElement.scrollTop;
+      }
+      scrollElement.addEventListener("scroll", emitScrollState, { passive: true });
+    };
+    const emitScrollState = () => {
+      if (!scrollElement) return;
+      scrollTopRef.current = scrollElement.scrollTop;
+      callbacksRef.current.onStateChange?.({
+        expandedPaths: expandedPathsRef.current,
+        selectedPath: selectedPathRef.current,
+        scrollTop: scrollTopRef.current,
+      });
+    };
+
+    connectScrollElement(0);
+    return () => {
+      cancelled = true;
+      unsubscribeModel();
+      scrollElement?.removeEventListener("scroll", emitScrollState);
+      if (animationFrame !== null) {
+        window.cancelAnimationFrame(animationFrame);
+      }
+    };
+  }, [initialScrollTop, model, treePaths]);
+
+  useEffect(() => {
+    if (!revealSelectedPath || !selectedPath) return;
+    model.scrollToPath(selectedPath, {
+      offset: revealSelectedPathScrollOffset,
+    });
+  }, [
+    model,
+    revealSelectedPath,
+    revealSelectedPathScrollOffset,
+    selectedPath,
+  ]);
 
   const handleClick = (event: ReactMouseEvent<HTMLElement>) => {
     const rawPath = getTreeEventPath(event.nativeEvent);
