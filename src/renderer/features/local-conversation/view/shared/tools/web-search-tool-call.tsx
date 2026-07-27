@@ -4,9 +4,9 @@ import { CodexShimmerText } from "../codex-shimmer-text";
 import { asRecord, getString } from "./tool-call-utils";
 import {
   ToolActivityIcon,
-  resolveWebSearchFavicon,
+  semanticToolIcon,
 } from "./tool-call-icons";
-import { ThreadActivityHeader, ThreadActivityShell } from "./tool-primitives";
+import { ThreadActivityShell, ThreadRichActivityHeader } from "./tool-primitives";
 
 interface WebSearchToolCallProps {
   item: CodexTranscriptEntry;
@@ -41,7 +41,6 @@ export function WebSearchToolCall({ item }: WebSearchToolCallProps) {
   const completed = item.status !== "inProgress";
   const summaryVerb = completed ? "Searched the web" : "Searching the web";
   const summaryDetail = getWebSearchSummaryDetail(item);
-  const favicon = resolveWebSearchFavicon(item);
   const summary = (
     <CodexShimmerText active={!completed} className="text-size-chat min-w-0 truncate">
       <span className="text-token-conversation-summary-leading group-hover:text-token-foreground">
@@ -56,28 +55,15 @@ export function WebSearchToolCall({ item }: WebSearchToolCallProps) {
     </CodexShimmerText>
   );
 
-  if (favicon) {
-    return (
-      <ThreadActivityShell
-        header={(
-          <ThreadActivityHeader>
-            <span className="contents text-token-conversation-body">
-              <ToolActivityIcon descriptor={favicon} showFallbackWhileLoading={false} />
-            </span>
-            <span className="min-w-0 flex-1 truncate text-token-conversation-body [&_.loading-shimmer-pure-text]:align-top [&_*:not(button)]:!text-token-conversation-body">
-              {summary}
-            </span>
-          </ThreadActivityHeader>
-        )}
-      />
-    );
-  }
-
   return (
-    <div className="min-w-0 text-size-chat relative overflow-visible py-0">
-      <div className="group flex min-w-0 items-center gap-2" data-testid="web-search-tool-call">
-        {summary}
-      </div>
-    </div>
+    <ThreadActivityShell
+      header={(
+        <ThreadRichActivityHeader
+          icon={<ToolActivityIcon descriptor={semanticToolIcon("web-search")} />}
+          summary={summary}
+          testId="web-search-tool-call"
+        />
+      )}
+    />
   );
 }

@@ -20,16 +20,17 @@ import { cn } from "../../../../../lib/utils";
 import type { ThreadBlockModel } from "../../../thread-stage-types";
 import {
   CodexAutomaticApprovalReviewIcon,
+  CodexActivityListFilesIcon,
+  CodexActivitySearchIcon,
   CodexBrowserUseIcon,
   CodexCheckCircleIcon,
   CodexComputerUseIcon,
   CodexConnectorFallbackIcon,
   CodexEditFilesIcon,
-  CodexFoldersIcon,
   CodexGlobeIcon,
   CodexHooksIcon,
   CodexPluginCubeIcon,
-  CodexSearchIcon,
+  CodexReadFilesIcon,
   CodexSkillIcon,
   CodexTerminalIcon,
   CodexXCircleIcon,
@@ -49,6 +50,7 @@ export type ToolActivityIconId =
   | "list-files"
   | "node-repl"
   | "plugin"
+  | "read-files"
   | "run-command"
   | "settings"
   | "skill"
@@ -60,12 +62,6 @@ export type ToolActivityIconDescriptor =
       icon: ToolActivityIconId;
     }
   | {
-      kind: "favicon";
-      hostname: string;
-      src: string;
-      fallbackIcon: ToolActivityIconId;
-    }
-  | {
       kind: "logo";
       alt: string;
       logoUrl: string | null;
@@ -73,21 +69,12 @@ export type ToolActivityIconDescriptor =
       fallbackIcon: ToolActivityIconId;
     };
 
-export type ToolActivityFaviconDescriptor = Extract<ToolActivityIconDescriptor, { kind: "favicon" }>;
-
-const ACTIVITY_ICON_CLASS_NAME = "icon-xs shrink-0 text-token-input-placeholder-foreground";
+const ACTIVITY_ICON_CLASS_NAME = "icon-xs shrink-0 text-token-conversation-body";
 const SOURCE_ICON_CLASS_NAME = "icon-xs shrink-0 rounded-2xs bg-token-main-surface-primary object-contain text-token-text-secondary";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value === null) return null;
   return value as Record<string, unknown>;
-}
-
-function getString(record: Record<string, unknown> | null | undefined, key: string): string | null {
-  const value = record?.[key];
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
 }
 
 function pickFirstString(...values: Array<unknown>): string | null {
@@ -119,7 +106,7 @@ function SemanticToolIcon({
     case "connector":
       return <CodexConnectorFallbackIcon aria-hidden className={iconClassName} />;
     case "code-searching":
-      return <CodexSearchIcon aria-hidden className={iconClassName} />;
+      return <CodexActivitySearchIcon aria-hidden className={iconClassName} />;
     case "denied":
       return <CodexXCircleIcon aria-hidden className={iconClassName} />;
     case "edit-files":
@@ -127,11 +114,13 @@ function SemanticToolIcon({
     case "hooks":
       return <CodexHooksIcon aria-hidden className={iconClassName} />;
     case "list-files":
-      return <CodexFoldersIcon aria-hidden className={iconClassName} />;
+      return <CodexActivityListFilesIcon aria-hidden className={iconClassName} />;
     case "node-repl":
       return <CodexTerminalIcon aria-hidden className={iconClassName} />;
     case "plugin":
       return <CodexPluginCubeIcon aria-hidden className={iconClassName} />;
+    case "read-files":
+      return <CodexReadFilesIcon aria-hidden className={iconClassName} />;
     case "settings":
       return <CodexSettingsGeneralIcon className={iconClassName} />;
     case "skill":
@@ -171,46 +160,6 @@ function LogoImageWithFallback({
         setFailed(true);
       }}
     />
-  );
-}
-
-function FaviconImageWithFallback({
-  className,
-  fallback,
-  showFallbackWhileLoading = true,
-  src,
-}: {
-  className: string;
-  fallback: ReactNode;
-  showFallbackWhileLoading?: boolean;
-  src: string;
-}) {
-  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
-  const [failedSrc, setFailedSrc] = useState<string | null>(null);
-  const hasFailed = failedSrc === src;
-  const hasLoaded = loadedSrc === src;
-  const fallbackNode = hasFailed || (showFallbackWhileLoading && !hasLoaded) ? fallback : null;
-
-  return (
-    <span className={cn("relative flex shrink-0 items-center justify-center", className)}>
-      {fallbackNode}
-      {hasFailed ? null : (
-        <img
-          alt=""
-          className={cn("absolute h-full w-full rounded-2xs object-contain", hasLoaded ? "opacity-100" : "opacity-0")}
-          decoding="async"
-          draggable={false}
-          referrerPolicy="no-referrer"
-          src={src}
-          onError={() => {
-            setFailedSrc(src);
-          }}
-          onLoad={() => {
-            setLoadedSrc(src);
-          }}
-        />
-      )}
-    </span>
   );
 }
 
@@ -267,30 +216,14 @@ export function ConnectorLogo({
 export function ToolActivityIcon({
   className,
   descriptor,
-  showFallbackWhileLoading,
 }: {
   className?: string;
   descriptor: ToolActivityIconDescriptor;
-  showFallbackWhileLoading?: boolean;
 }) {
   if (descriptor.kind === "semantic") {
     return (
       <span data-tool-activity-icon={descriptor.icon} className="inline-flex shrink-0">
         <SemanticToolIcon icon={descriptor.icon} className={className} />
-      </span>
-    );
-  }
-
-  if (descriptor.kind === "favicon") {
-    const fallback = <SemanticToolIcon icon={descriptor.fallbackIcon} className={className} />;
-    return (
-      <span data-tool-activity-icon="favicon" data-tool-source-icon={descriptor.hostname} className="inline-flex shrink-0">
-        <FaviconImageWithFallback
-          className={withCodexIconClass("icon-xs shrink-0", className)}
-          src={descriptor.src}
-          fallback={fallback}
-          showFallbackWhileLoading={showFallbackWhileLoading}
-        />
       </span>
     );
   }
@@ -312,120 +245,18 @@ export function semanticToolIcon(icon: ToolActivityIconId): ToolActivityIconDesc
   return { kind: "semantic", icon };
 }
 
-function trimUrlPunctuation(value: string): string {
-  return value.trim().replace(/^[("'`]+|[)"'`,.;!?]+$/gu, "");
-}
-
-function parseHttpUrl(value: string | null | undefined): URL | null {
-  if (!value) return null;
-  try {
-    const candidate = trimUrlPunctuation(value);
-    const url = new URL(/^[a-z][a-z\d+\-.]*:\/\//iu.test(candidate) ? candidate : `https://${candidate}`);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-    return url;
-  } catch {
-    return null;
-  }
-}
-
-export function normalizeFaviconHostname(hostname: string): string {
-  const parts = hostname.split(".");
-  if (parts.length <= 2) return hostname;
-  const penultimate = parts.at(-2);
-  if (parts.at(-1)?.length === 2 && penultimate && penultimate.length <= 3 && parts.length >= 3) {
-    return parts.slice(-3).join(".");
-  }
-  return parts.slice(-2).join(".");
-}
-
-export function buildGoogleFaviconUrl(hostname: string): string {
-  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(normalizeFaviconHostname(hostname))}&sz=32`;
-}
-
-function extractSiteSearchTarget(query: string): URL | null {
-  const siteMatch = /\bsite:([^\s]+)/iu.exec(query);
-  const urlMatch = /\bhttps?:\/\/[^\s"'<>]+/iu.exec(query);
-  return parseHttpUrl(siteMatch ? siteMatch[1] : urlMatch?.[0]);
-}
-
-function extractWebActionUrl(action: unknown): URL | null {
-  const candidate = asRecord(action);
-  if (!candidate) return null;
-  const type = getString(candidate, "type");
-  if (type === "openPage" || type === "findInPage") return parseHttpUrl(getString(candidate, "url"));
-  return null;
-}
-
-function getStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
-}
-
-export function resolveWebFaviconDescriptor(action: unknown, fallbackQuery?: string | null): ToolActivityIconDescriptor | null {
-  const actionUrl = extractWebActionUrl(action);
-  if (actionUrl) {
-    const hostname = normalizeFaviconHostname(actionUrl.hostname);
-    return {
-      kind: "favicon",
-      hostname,
-      src: buildGoogleFaviconUrl(hostname),
-      fallbackIcon: "web-search",
-    };
-  }
-
-  const actionRecord = asRecord(action);
-  const queryCandidates = actionRecord && getString(actionRecord, "type") === "search"
-    ? [
-        getString(actionRecord, "query"),
-        ...getStringArray(actionRecord.queries),
-        fallbackQuery,
-      ]
-    : [fallbackQuery];
-
-  for (const query of queryCandidates) {
-    if (!query) continue;
-    const queryUrl = extractSiteSearchTarget(query);
-    if (!queryUrl) continue;
-    const hostname = normalizeFaviconHostname(queryUrl.hostname);
-    return {
-      kind: "favicon",
-      hostname,
-      src: buildGoogleFaviconUrl(hostname),
-      fallbackIcon: "web-search",
-    };
-  }
-
-  return null;
-}
-
 export function resolveExplorationActionIcon(action: CodexCommandAction): ToolActivityIconId {
   if (action.type === "search") return "code-searching";
   if (action.type === "listFiles") return "list-files";
   if (action.type === "read" && /(^|[/\\])(?:SKILL\.md|skills?)(?:$|[/\\])/iu.test(action.path || action.name || "")) {
     return "skill";
   }
+  if (action.type === "read") return "read-files";
   return "run-command";
 }
 
-function extractAction(item: CodexTranscriptEntry): unknown {
-  const rawItem = asRecord(item.rawItem);
-  if (Object.prototype.hasOwnProperty.call(rawItem ?? {}, "action")) return rawItem?.action;
-  return item.toolCall?.result;
-}
-
-function extractFallbackQuery(item: CodexTranscriptEntry): string | null {
-  const args = asRecord(item.toolCall?.args);
-  return getString(args, "query") ?? getString(asRecord(item.rawItem), "query");
-}
-
-export function resolveWebSearchIcon(item: CodexTranscriptEntry): ToolActivityIconDescriptor {
-  return resolveWebSearchFavicon(item) ?? semanticToolIcon("web-search");
-}
-
-export function resolveWebSearchFavicon(item: CodexTranscriptEntry): ToolActivityFaviconDescriptor | null {
-  const descriptor = resolveWebFaviconDescriptor(extractAction(item), extractFallbackQuery(item));
-  if (descriptor?.kind !== "favicon") return null;
-  return descriptor;
+export function resolveWebSearchIcon(): ToolActivityIconDescriptor {
+  return semanticToolIcon("web-search");
 }
 
 function extractLogoMetadata(value: unknown): { logoUrl: string | null; logoDarkUrl: string | null; nativeIconPath: string | null } {
@@ -519,7 +350,7 @@ function resolveTranscriptEntryIcon(
   block: Extract<ThreadBlockModel, { type: "agentActivityGroup" }>["entries"][number],
   resolvedApps: readonly ProtocolAppInfo[],
 ): ToolActivityIconDescriptor | null {
-  if (block.type === "webSearch") return resolveWebSearchIcon(block.entry);
+  if (block.type === "webSearch") return resolveWebSearchIcon();
   if (block.type === "fileChange") return semanticToolIcon("edit-files");
   if (block.type === "exec") return semanticToolIcon("run-command");
   if (block.type === "automaticApprovalReview") return semanticToolIcon("automatic-review");
@@ -547,7 +378,7 @@ export function resolveAgentActivityGroupIcon(
   }
 
   const priority: Array<(entry: (typeof entries)[number]) => ToolActivityIconDescriptor | null> = [
-    (entry) => (entry.type === "webSearch" ? resolveWebSearchIcon(entry.entry) : null),
+    (entry) => (entry.type === "webSearch" ? resolveWebSearchIcon() : null),
     (entry) => (entry.type === "fileChange" ? semanticToolIcon("edit-files") : null),
     (entry) => (entry.type === "exec" ? semanticToolIcon("run-command") : null),
     (entry) => (entry.type === "automaticApprovalReview" ? semanticToolIcon("automatic-review") : null),
@@ -566,10 +397,7 @@ export function resolveAgentActivityGroupIcon(
 }
 
 export const toolCallIconTestHelpers = {
-  buildGoogleFaviconUrl,
-  normalizeFaviconHostname,
   resolveApprovalIcon,
   resolveExplorationActionIcon,
-  resolveWebFaviconDescriptor,
   selectConnectorLogoUrl,
 };

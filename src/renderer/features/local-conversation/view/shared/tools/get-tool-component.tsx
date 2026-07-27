@@ -14,11 +14,8 @@ export interface ToolComponentProps {
   isTurnCancelled?: boolean;
   isStreamingTurn?: boolean;
   automaticApprovalReviews?: CodexTranscriptEntry[];
-  execSummaryTone?: "default" | "muted";
   hideHeader?: boolean;
   showDiffDetails?: boolean;
-  showExecSummaryIcon?: boolean;
-  showToolSummaryIcon?: boolean;
   onOpenFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSummaryScheduledAutomation?: ThreadStageActions["onOpenSummaryScheduledAutomation"];
   onOpenThread?: ThreadStageActions["onOpenThread"];

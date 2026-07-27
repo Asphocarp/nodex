@@ -104,7 +104,7 @@ describe("WebSearchToolCall", () => {
     const renderedText = textContent(container);
     expect(Boolean(renderedText.includes("Searched the web"))).toBe(true);
     expect(Boolean(renderedText.includes("'decorators' in https://storybook.js.org/docs/writing-stories/decorators"))).toBe(true);
-    expect(Boolean(container.querySelector("[data-tool-activity-icon='favicon']"))).toBe(true);
+    expect(Boolean(container.querySelector("[data-tool-activity-icon='web-search']"))).toBe(true);
   });
 
   test("shimmers the complete Codex summary while the search is running", () => {
@@ -122,7 +122,7 @@ describe("WebSearchToolCall", () => {
     expect(Boolean(textContent(shimmer ?? container).includes("for storybook react vite args"))).toBe(true);
   });
 
-  test("uses the same favicon summary leaf inside collapsed activity bodies", () => {
+  test("uses the semantic globe summary leaf inside activity groups", () => {
     const { container } = render(
       <WebSearchToolCall
         item={buildWebSearchEntry({
@@ -137,11 +137,11 @@ describe("WebSearchToolCall", () => {
     );
 
     expect(Boolean(textContent(container).includes("renderer | github.com"))).toBe(true);
-    expect(Boolean(container.querySelector("[data-tool-activity-icon='favicon']"))).toBe(true);
+    expect(Boolean(container.querySelector("[data-tool-activity-icon='web-search']"))).toBe(true);
     expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(false);
   });
 
-  test("omits an icon when no favicon URL exists", () => {
+  test("keeps the semantic globe when no domain exists", () => {
     const { container } = render(
       <WebSearchToolCall
         item={buildWebSearchEntry({
@@ -167,7 +167,7 @@ describe("WebSearchToolCall", () => {
     );
 
     expect(Boolean(textContent(container).includes("no domain here"))).toBe(true);
-    expect(Boolean(container.querySelector("[data-tool-activity-icon]"))).toBe(false);
+    expect(Boolean(container.querySelector("[data-tool-activity-icon='web-search']"))).toBe(true);
   });
 
   test("renders only the verb when the projected detail is empty", () => {
@@ -186,6 +186,6 @@ describe("WebSearchToolCall", () => {
     );
 
     expect(textContent(container)).toBe("Searched the web");
-    expect(Boolean(container.querySelector("[data-tool-activity-icon]"))).toBe(false);
+    expect(Boolean(container.querySelector("[data-tool-activity-icon='web-search']"))).toBe(true);
   });
 });

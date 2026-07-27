@@ -40,7 +40,6 @@ import { CopyMessageActionButton } from "../thread-message-actions";
 import { CodeBlock, ThreadRichActivityHeader } from "./tool-primitives";
 import {
   basename,
-  Chevron,
   DiffStats,
   FilenameButton,
   resolveOpenPath,
@@ -55,7 +54,6 @@ interface FileChangeToolCallProps {
   isTurnCancelled?: boolean;
   automaticApprovalReviews?: CodexTranscriptEntry[];
   showDiffDetails?: boolean;
-  showToolSummaryIcon?: boolean;
   onOpenFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
 }
 
@@ -402,7 +400,7 @@ function PatchPathLink({
         data-agent-activity-file-link
         role="link"
         tabIndex={0}
-        className="pointer-events-auto inline-block max-w-full cursor-interaction truncate align-bottom text-inherit underline decoration-dotted decoration-hairline underline-offset-2 group-hover/activity-header:!text-token-foreground hover:!text-token-foreground"
+        className="pointer-events-auto inline-block max-w-full cursor-interaction truncate align-bottom text-inherit underline decoration-dotted decoration-[0.5px] underline-offset-2 group-hover/activity-header:!text-token-foreground hover:!text-token-foreground"
         onClick={(event) => {
           event.stopPropagation();
           onOpen(event.metaKey || event.ctrlKey);
@@ -435,7 +433,7 @@ function FileChangeRow({
   diffOptions: ReturnType<typeof getNodexDiffOptions>;
   openerId: string;
   onOpenFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
-  summaryIcon?: ReactNode;
+  summaryIcon: ReactNode;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const { elementHeightPx, elementRef } = useMeasuredElementHeight();
@@ -535,7 +533,7 @@ function FileChangeRow({
         },
       }
     : undefined;
-  const header = summaryIcon !== undefined ? (
+  const header = (
     <ThreadRichActivityHeader
       accessibleLabel={`Toggle diff for ${basename(row.displayPath)}`}
       accessory={accessory}
@@ -545,22 +543,6 @@ function FileChangeRow({
       summary={summary}
       testId="file-change-row-header"
     />
-  ) : (
-    <div
-      data-file-change-row-header=""
-      className={cn(
-        "group/activity-header flex items-center justify-between gap-1 text-ellipsis text-size-chat px-0 py-0",
-        row.canExpand && "cursor-interaction",
-      )}
-      onClick={row.canExpand ? disclosure?.onToggle : undefined}
-    >
-      <div className="text-size-chat flex min-w-0 items-center gap-1 text-token-description-foreground/80">
-        {summary}
-        {accessory}
-        {row.canExpand ? <Chevron expanded={isExpanded} /> : null}
-      </div>
-      <div className="ml-1 flex items-center gap-1 transition-opacity duration-basic" />
-    </div>
   );
   const body = !row.canExpand ? null : row.state === "streaming" ? (
     isExpanded ? <div data-file-change-row-body="">{bodyContent}</div> : null
@@ -582,7 +564,7 @@ function FileChangeRow({
   const rowContent = (
     <div
       className={cn(
-        summaryIcon === undefined ? "flex flex-col overflow-clip" : "overflow-clip",
+        "overflow-clip",
         row.state === "pending" ? "rounded-xl" : "rounded-lg",
       )}
     >
@@ -591,7 +573,7 @@ function FileChangeRow({
     </div>
   );
 
-  return summaryIcon === undefined ? <div className="px-0">{rowContent}</div> : rowContent;
+  return rowContent;
 }
 
 export function FileChangeToolCall({
@@ -601,7 +583,6 @@ export function FileChangeToolCall({
   isTurnCancelled = false,
   automaticApprovalReviews = [],
   showDiffDetails = true,
-  showToolSummaryIcon = true,
   onOpenFileInSidePanel,
 }: FileChangeToolCallProps) {
   const { resolved } = useTheme();
@@ -631,9 +612,7 @@ export function FileChangeToolCall({
   const state = resolveFileChangeStatus(item, isTurnCancelled);
   const visualizationKind = resolveVisualizationActivityKind(item.fileChange?.visualizationActivities ?? []);
   const showVisualization = visualizationKind !== null && state !== "stopped" && state !== "rejected";
-  const summaryIcon = showToolSummaryIcon
-    ? <ToolActivityIcon descriptor={semanticToolIcon("edit-files")} />
-    : undefined;
+  const summaryIcon = <ToolActivityIcon descriptor={semanticToolIcon("edit-files")} />;
 
   if (rows.length === 0 && !showVisualization) return null;
 
@@ -660,11 +639,7 @@ export function FileChangeToolCall({
     </div>
   );
 
-  return summaryIcon === undefined ? (
-    <div className="min-w-0 text-size-chat relative overflow-visible py-0">
-      {content}
-    </div>
-  ) : content;
+  return content;
 }
 
 export const fileChangeToolCallTestHelpers = {

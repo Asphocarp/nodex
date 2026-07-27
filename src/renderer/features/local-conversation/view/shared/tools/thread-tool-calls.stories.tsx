@@ -501,8 +501,22 @@ function ToolCallStory({
 function buildMixedAgentActivityStoryBlock(): ThreadAgentActivityGroupBlockModel {
   const readCommand = {
     ...THREAD_TOOL_CALL_STORY_ITEMS.command,
-    itemId: "collapsed_story_explore",
-    entryId: "collapsed_story_explore",
+    itemId: "collapsed_story_read",
+    entryId: "collapsed_story_read",
+    command: "sed -n '1,180p' ARCHITECTURE.md",
+    commandActions: [
+      {
+        type: "read" as const,
+        command: "sed -n '1,180p' ARCHITECTURE.md",
+        name: "ARCHITECTURE.md",
+        path: "ARCHITECTURE.md",
+      },
+    ],
+  };
+  const searchCommand = {
+    ...THREAD_TOOL_CALL_STORY_ITEMS.command,
+    itemId: "collapsed_story_search",
+    entryId: "collapsed_story_search",
     command: "rg createElement|diffContainerRef|applyFileChangeGutters file-change-tool-call.tsx",
     commandActions: [
       {
@@ -510,6 +524,19 @@ function buildMixedAgentActivityStoryBlock(): ThreadAgentActivityGroupBlockModel
         command: "rg createElement|diffContainerRef|applyFileChangeGutters file-change-tool-call.tsx",
         query: "createElement|diffContainerRef|applyFileChangeGutters",
         path: "file-change-tool-call.tsx",
+      },
+    ],
+  };
+  const listCommand = {
+    ...THREAD_TOOL_CALL_STORY_ITEMS.command,
+    itemId: "collapsed_story_list",
+    entryId: "collapsed_story_list",
+    command: "ls src/renderer/features/local-conversation/view/shared/tools",
+    commandActions: [
+      {
+        type: "listFiles" as const,
+        command: "ls src/renderer/features/local-conversation/view/shared/tools",
+        path: "src/renderer/features/local-conversation/view/shared/tools",
       },
     ],
   };
@@ -538,8 +565,8 @@ function buildMixedAgentActivityStoryBlock(): ThreadAgentActivityGroupBlockModel
       movePath: null,
       unifiedDiff: [
         "@@ -1,1 +1,1 @@",
-        "-with icon",
-        "+without icon",
+        "-hide grouped tool icons",
+        "+preserve semantic tool icons",
       ].join("\n"),
     },
     {
@@ -549,7 +576,7 @@ function buildMixedAgentActivityStoryBlock(): ThreadAgentActivityGroupBlockModel
       unifiedDiff: [
         "@@ -1,1 +1,1 @@",
         "-old assertion",
-        "+new assertion",
+        "+semantic icon assertion",
       ].join("\n"),
     },
     {
@@ -558,8 +585,8 @@ function buildMixedAgentActivityStoryBlock(): ThreadAgentActivityGroupBlockModel
       movePath: null,
       unifiedDiff: [
         "@@ -1,1 +1,1 @@",
-        "-Tool rows always show icons",
-        "+Tool row icons are surface-specific",
+        "-Grouped rows use a separate muted presentation",
+        "+Grouped rows retain their leaf presentation",
       ].join("\n"),
     },
   ];
@@ -570,6 +597,32 @@ function buildMixedAgentActivityStoryBlock(): ThreadAgentActivityGroupBlockModel
     fileChange: buildStoryFileChangePayload(fileChanges),
     toolCall: buildStoryFileChangeToolCall(fileChanges),
   };
+  const webSearchItem: CodexTranscriptEntry = {
+    ...THREAD_TOOL_CALL_STORY_ITEMS.webSearch,
+    itemId: "collapsed_story_web_search",
+    entryId: "collapsed_story_web_search",
+    toolCall: {
+      subtype: "webSearch",
+      toolName: "web_search",
+      args: { query: "current CSS text decoration guidance" },
+      result: { type: "search", query: "current CSS text decoration guidance" },
+    },
+    rawItem: {
+      action: { type: "search", query: "current CSS text decoration guidance" },
+    },
+  };
+  const mcpItem: CodexTranscriptEntry = {
+    ...THREAD_TOOL_CALL_STORY_ITEMS.mcp,
+    itemId: "collapsed_story_mcp",
+    entryId: "collapsed_story_mcp",
+    mcpToolCall: THREAD_TOOL_CALL_STORY_ITEMS.mcp.mcpToolCall
+      ? {
+          ...THREAD_TOOL_CALL_STORY_ITEMS.mcp.mcpToolCall,
+          callId: "collapsed_story_mcp",
+        }
+      : undefined,
+  };
+  const dynamicItem = buildReadThreadDynamicStoryItem();
 
   const entries: ThreadAgentActivityGroupEntryModel[] = [
     {
@@ -580,6 +633,26 @@ function buildMixedAgentActivityStoryBlock(): ThreadAgentActivityGroupBlockModel
       searchableText: "Read ARCHITECTURE.md",
       type: "exec",
       entry: readCommand,
+      status: "completed",
+    },
+    {
+      id: searchCommand.entryId ?? searchCommand.itemId,
+      turnId: "turn_tool_story",
+      createdAt: 1,
+      updatedAt: 1,
+      searchableText: "Searched file-change-tool-call.tsx",
+      type: "exec",
+      entry: searchCommand,
+      status: "completed",
+    },
+    {
+      id: listCommand.entryId ?? listCommand.itemId,
+      turnId: "turn_tool_story",
+      createdAt: 1,
+      updatedAt: 1,
+      searchableText: "Listed tool files",
+      type: "exec",
+      entry: listCommand,
       status: "completed",
     },
     ...commandItems.map((entry) => ({
@@ -602,6 +675,36 @@ function buildMixedAgentActivityStoryBlock(): ThreadAgentActivityGroupBlockModel
       entry: fileChangeItem,
       status: fileChangeItem.status,
     },
+    {
+      id: webSearchItem.entryId ?? webSearchItem.itemId,
+      turnId: webSearchItem.turnId,
+      createdAt: webSearchItem.createdAt,
+      updatedAt: webSearchItem.updatedAt,
+      searchableText: "current CSS text decoration guidance",
+      type: "webSearch",
+      entry: webSearchItem,
+      status: webSearchItem.status,
+    },
+    {
+      id: mcpItem.entryId ?? mcpItem.itemId,
+      turnId: mcpItem.turnId,
+      createdAt: mcpItem.createdAt,
+      updatedAt: mcpItem.updatedAt,
+      searchableText: "Resolved Storybook documentation",
+      type: "mcpToolCall",
+      entry: mcpItem,
+      status: mcpItem.status,
+    },
+    {
+      id: dynamicItem.entryId ?? dynamicItem.itemId,
+      turnId: dynamicItem.turnId,
+      createdAt: dynamicItem.createdAt,
+      updatedAt: dynamicItem.updatedAt,
+      searchableText: "Read task",
+      type: "dynamicToolCall",
+      entry: dynamicItem,
+      status: dynamicItem.status,
+    },
   ];
 
   return {
@@ -609,10 +712,10 @@ function buildMixedAgentActivityStoryBlock(): ThreadAgentActivityGroupBlockModel
     turnId: "turn_tool_story",
     createdAt: 1,
     updatedAt: 2,
-    searchableText: "Edited files, explored search, ran commands",
+    searchableText: "Read, searched, listed, ran commands, edited files, searched the web, resolved docs, and read a task",
     type: "agentActivityGroup",
-    summary: "Edited 3 files, explored 1 search, ran 4 commands",
-    summaryParts: ["Edited 3 files", "explored 1 search", "ran 4 commands"],
+    summary: "Edited 3 files, explored 3 items, ran 4 commands, searched the web, and used 2 tools",
+    summaryParts: ["Edited 3 files", "explored 3 items", "ran 4 commands", "searched the web", "used 2 tools"],
     status: "completed",
     entries,
   };
@@ -2141,7 +2244,7 @@ export const AgentActivityGroupExpanded: Story = {
   render: () => (
     <StorySurface
       title="Collapsed Activity Group Expanded"
-      description="Expanded Codex-style activity groups show direct read, web, and muted command rows without nested subgroup headers."
+      description="Expanded activity groups keep readable conversation-body text and family/source-aware leading icons across read, search, list, command, patch, web, MCP, and dynamic rows."
     >
       <ConversationStorySurface>
         <AutoOpenAgentActivity block={buildMixedAgentActivityStoryBlock()} />

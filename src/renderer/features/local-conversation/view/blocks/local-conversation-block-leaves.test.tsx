@@ -1038,7 +1038,7 @@ describe("ThreadAgentActivityGroupBlock", () => {
     expect(Boolean(content.includes("-1"))).toBe(true);
   });
 
-  test("keeps the group header icon but strips default icons from nested rows", async () => {
+  test("keeps family-specific leading icons on expanded tool rows", async () => {
     const commandEntry = buildCommandEntry("item-command", [], {
       command: "bun test",
       commandActions: [],
@@ -1109,10 +1109,12 @@ describe("ThreadAgentActivityGroupBlock", () => {
     expect(content.includes("Listed files in src")).toBe(true);
     expect(content.includes("Ran bun test")).toBe(true);
     expect(content.includes("Edited")).toBe(true);
-    expect(container.querySelectorAll("[data-tool-activity-icon='edit-files']").length).toBe(1);
-    expect(container.querySelectorAll("[data-tool-activity-icon='run-command']").length).toBe(0);
-    expect(container.querySelectorAll("[data-tool-activity-icon='code-searching']").length).toBe(0);
-    expect(container.querySelectorAll("[data-tool-activity-icon='list-files']").length).toBe(0);
+    const groupBody = container.querySelector("[data-testid='agent-activity-group-body']");
+    expect(groupBody?.querySelectorAll("[data-tool-activity-icon='read-files']").length).toBe(1);
+    expect(groupBody?.querySelectorAll("[data-tool-activity-icon='code-searching']").length).toBe(1);
+    expect(groupBody?.querySelectorAll("[data-tool-activity-icon='list-files']").length).toBe(1);
+    expect(groupBody?.querySelectorAll("[data-tool-activity-icon='run-command']").length).toBe(1);
+    expect(groupBody?.querySelectorAll("[data-tool-activity-icon='edit-files']").length).toBe(1);
   });
 });
 

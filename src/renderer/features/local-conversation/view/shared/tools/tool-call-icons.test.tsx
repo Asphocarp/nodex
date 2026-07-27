@@ -13,7 +13,6 @@ import {
   resolveAgentActivityGroupIcon,
   resolveMcpElicitationIcon,
   resolveMcpSourceIcon,
-  resolveWebSearchFavicon,
   resolveWebSearchIcon,
   semanticToolIcon,
   toolCallIconTestHelpers,
@@ -66,71 +65,30 @@ describe("tool-call icon helpers", () => {
     expect(svg?.getAttribute("aria-hidden")).toBe("true");
   });
 
-  test("builds Google favicons from normalized hostnames", () => {
-    expect(toolCallIconTestHelpers.normalizeFaviconHostname("docs.storybook.js.org")).toBe("js.org");
-    expect(toolCallIconTestHelpers.normalizeFaviconHostname("www.bbc.co.uk")).toBe("bbc.co.uk");
-    expect(toolCallIconTestHelpers.buildGoogleFaviconUrl("www.bbc.co.uk")).toBe("https://www.google.com/s2/favicons?domain=bbc.co.uk&sz=32");
-  });
-
-  test("extracts favicons from open-page actions and site queries", () => {
-    const openPage = toolCallIconTestHelpers.resolveWebFaviconDescriptor({
-      type: "openPage",
-      url: "https://storybook.js.org/docs",
-    });
-    const siteQuery = toolCallIconTestHelpers.resolveWebFaviconDescriptor({
+  test("maps typed exploration actions to semantic activity icons", () => {
+    expect(toolCallIconTestHelpers.resolveExplorationActionIcon({
+      type: "read",
+      command: "sed -n '1,80p' src/app.ts",
+      path: "src/app.ts",
+      name: "app.ts",
+    })).toBe("read-files");
+    expect(toolCallIconTestHelpers.resolveExplorationActionIcon({
       type: "search",
-      query: "site:github.com/openai/codex renderer",
-    });
-
-    expect(openPage?.kind).toBe("favicon");
-    expect(openPage?.kind === "favicon" ? openPage.hostname : "").toBe("js.org");
-    expect(siteQuery?.kind).toBe("favicon");
-    expect(siteQuery?.kind === "favicon" ? siteQuery.hostname : "").toBe("github.com");
-  });
-
-  test("renders Codex-style decorative favicon images", () => {
-    const { container } = render(
-      <ToolActivityIcon
-        descriptor={{
-          kind: "favicon",
-          hostname: "github.com",
-          src: "https://www.google.com/s2/favicons?domain=github.com&sz=32",
-          fallbackIcon: "web-search",
-        }}
-      />,
-    );
-
-    const image = container.querySelector("img");
-    expect(image?.getAttribute("alt")).toBe("");
-    expect(image?.getAttribute("decoding")).toBe("async");
-    expect(image?.getAttribute("draggable")).toBe("false");
-    expect(image?.getAttribute("referrerpolicy")).toBe("no-referrer");
-    expect(Boolean(container.querySelector("svg"))).toBe(true);
-
-    fireEvent.load(image as HTMLImageElement);
-    expect(Boolean(container.querySelector("img"))).toBe(true);
-  });
-
-  test("can suppress the favicon fallback while the image is loading", () => {
-    const { container } = render(
-      <ToolActivityIcon
-        descriptor={{
-          kind: "favicon",
-          hostname: "github.com",
-          src: "https://www.google.com/s2/favicons?domain=github.com&sz=32",
-          fallbackIcon: "web-search",
-        }}
-        showFallbackWhileLoading={false}
-      />,
-    );
-
-    const image = container.querySelector("img");
-    expect(Boolean(image)).toBe(true);
-    expect(Boolean(container.querySelector("svg"))).toBe(false);
-
-    fireEvent.error(image as HTMLImageElement);
-    expect(Boolean(container.querySelector("img"))).toBe(false);
-    expect(Boolean(container.querySelector("svg"))).toBe(true);
+      command: "rg activity src",
+      query: "activity",
+      path: "src",
+    })).toBe("code-searching");
+    expect(toolCallIconTestHelpers.resolveExplorationActionIcon({
+      type: "listFiles",
+      command: "ls src",
+      path: "src",
+    })).toBe("list-files");
+    expect(toolCallIconTestHelpers.resolveExplorationActionIcon({
+      type: "read",
+      command: "sed -n '1,80p' .agents/skills/ui/SKILL.md",
+      path: ".agents/skills/ui/SKILL.md",
+      name: "SKILL.md",
+    })).toBe("skill");
   });
 
   test("uses theme-specific connector logo URLs and falls back on image failure", () => {
@@ -305,8 +263,8 @@ describe("tool-call icon helpers", () => {
       },
     ]);
 
-    expect(descriptor?.kind).toBe("favicon");
-    expect(descriptor?.kind === "favicon" ? descriptor.hostname : "").toBe("js.org");
+    expect(descriptor?.kind).toBe("semantic");
+    expect(descriptor?.kind === "semantic" ? descriptor.icon : "").toBe("web-search");
   });
 
   test("uses the automatic-review semantic icon for grouped review activity", () => {
@@ -331,28 +289,8 @@ describe("tool-call icon helpers", () => {
   });
 
   test("web search row resolver falls back to the semantic globe", () => {
-    const descriptor = resolveWebSearchIcon(buildEntry({
-      semanticKind: "webSearch",
-      toolCall: {
-        subtype: "webSearch",
-        toolName: "web_search",
-        args: { query: "no domain here" },
-      },
-    }));
+    const descriptor = resolveWebSearchIcon();
 
     expect(descriptor.kind === "semantic" ? descriptor.icon : "").toBe("web-search");
-  });
-
-  test("web search favicon resolver returns null instead of the semantic globe", () => {
-    const descriptor = resolveWebSearchFavicon(buildEntry({
-      semanticKind: "webSearch",
-      toolCall: {
-        subtype: "webSearch",
-        toolName: "web_search",
-        args: { query: "no domain here" },
-      },
-    }));
-
-    expect(descriptor).toBe(null);
   });
 });

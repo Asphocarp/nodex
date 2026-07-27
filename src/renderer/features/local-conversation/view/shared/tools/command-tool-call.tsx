@@ -39,8 +39,6 @@ interface CommandToolCallProps {
   threadCwd?: string;
   isStreamingTurn?: boolean;
   automaticApprovalReviews?: CodexTranscriptEntry[];
-  execSummaryTone?: "default" | "muted";
-  showExecSummaryIcon?: boolean;
 }
 
 type CommandViewState = "collapsed" | "expanded";
@@ -385,7 +383,7 @@ function resolveCommandHeaderIcon(actions: CodexCommandAction[], isExploration: 
   if (actions.some((action) => resolveExplorationActionIcon(action) === "skill")) return semanticToolIcon("skill");
   if (actions.some((action) => action.type === "search")) return semanticToolIcon("code-searching");
   if (actions.some((action) => action.type === "listFiles")) return semanticToolIcon("list-files");
-  return semanticToolIcon("run-command");
+  return semanticToolIcon("read-files");
 }
 
 function SummaryText({
@@ -396,7 +394,6 @@ function SummaryText({
   threadCwd,
   isExpanded,
   isInProgress,
-  tone,
 }: {
   command: string;
   summaryLabel: string;
@@ -405,27 +402,23 @@ function SummaryText({
   threadCwd?: string;
   isExpanded: boolean;
   isInProgress: boolean;
-  tone: "default" | "muted";
 }) {
   const metaParts: string[] = [];
   if (elapsedLabel) metaParts.push(`for ${elapsedLabel}`);
   if (shouldShowCwdSubtitle(commandCwd, threadCwd) && commandCwd) metaParts.push(`in ${commandCwd}`);
-  const labelClassName = tone === "muted"
-    ? "text-token-foreground/40 group-hover:text-token-foreground"
-    : "text-token-description-foreground group-hover:text-token-foreground";
   const activeLeadingLabel = resolveActiveCommandSummaryLeadingLabel(summaryLabel, isInProgress);
 
   return (
     <span className="min-w-0 flex-1 text-size-chat truncate text-token-foreground/40 group-hover:text-token-foreground">
       {activeLeadingLabel ? (
-        <span className={cn("font-sans", labelClassName)}>
+        <span className="font-sans text-token-description-foreground group-hover:text-token-foreground">
           <CodexShimmerText>{activeLeadingLabel.leading}</CodexShimmerText>
           {activeLeadingLabel.trailing ? (
             <span>{activeLeadingLabel.trailing}</span>
           ) : null}
         </span>
       ) : (
-        <span className={cn("font-sans", labelClassName)}>
+        <span className="font-sans text-token-description-foreground group-hover:text-token-foreground">
           {summaryLabel}
         </span>
       )}
@@ -466,7 +459,7 @@ function SingleExplorationActionRow({
   automaticApprovalReviews: CodexTranscriptEntry[];
   cwd?: string;
   effectiveStatus: string | undefined;
-  summaryIcon?: ReactNode;
+  summaryIcon: ReactNode;
   threadDetailLevel: string;
 }) {
   const plainLabel = formatSingleExplorationActionLabel(action, effectiveStatus, threadDetailLevel);
@@ -480,7 +473,7 @@ function SingleExplorationActionRow({
         data-agent-activity-file-link
         role="link"
         tabIndex={0}
-        className="pointer-events-auto inline-block max-w-full cursor-interaction truncate align-bottom text-inherit underline decoration-dotted decoration-hairline underline-offset-2 group-hover/activity-header:!text-token-foreground hover:!text-token-foreground"
+        className="pointer-events-auto inline-block max-w-full cursor-interaction truncate align-bottom text-inherit underline decoration-dotted decoration-[0.5px] underline-offset-2 group-hover/activity-header:!text-token-foreground hover:!text-token-foreground"
         onClick={(event) => {
           event.stopPropagation();
           void invoke("shell:open-file-link", { path: readPath }, itemIdForFileOpen(action));
@@ -562,8 +555,6 @@ export function CommandToolCall({
   threadCwd,
   isStreamingTurn = true,
   automaticApprovalReviews = [],
-  execSummaryTone = "default",
-  showExecSummaryIcon = true,
 }: CommandToolCallProps) {
   const { settings } = useCodexThreadSettings();
   const threadDetailLevel = resolveCodexThreadDetailLevel(settings.detailLevel);
@@ -613,9 +604,7 @@ export function CommandToolCall({
         automaticApprovalReviews={automaticApprovalReviews}
         cwd={item.cwd ?? undefined}
         effectiveStatus={explorationStatus}
-        summaryIcon={showExecSummaryIcon
-          ? <ToolActivityIcon descriptor={resolveCommandHeaderIcon([singleExplorationAction], true)} />
-          : undefined}
+        summaryIcon={<ToolActivityIcon descriptor={resolveCommandHeaderIcon([singleExplorationAction], true)} />}
         threadDetailLevel={threadDetailLevel}
       />
     );
@@ -639,9 +628,7 @@ export function CommandToolCall({
     <ThreadRichActivityHeader
       accessory={hasApprovalReviews ? <AutomaticApprovalReviewShield /> : null}
       disclosure={{ expanded: isExpanded, onToggle: handleToggle }}
-      icon={showExecSummaryIcon
-        ? <ToolActivityIcon descriptor={resolveCommandHeaderIcon(commandActions, isExploration)} />
-        : null}
+      icon={<ToolActivityIcon descriptor={resolveCommandHeaderIcon(commandActions, isExploration)} />}
       summary={(
         <SummaryText
           command={command}
@@ -651,7 +638,6 @@ export function CommandToolCall({
           threadCwd={threadCwd}
           isExpanded={isExpanded}
           isInProgress={isInProgress}
-          tone={execSummaryTone}
         />
       )}
       testId="command-tool-summary-toggle"

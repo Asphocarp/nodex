@@ -82,7 +82,6 @@ export interface ThreadLeafBlockProps {
   block: ThreadTranscriptBlockModel;
   isLatestTurn: boolean;
   isStreamingTurn: boolean;
-  nestedInCollapsedActivity?: boolean;
   isSearchMatch?: boolean;
   isActiveSearchMatch?: boolean;
   projectWorkspacePath?: string | null;
@@ -284,10 +283,10 @@ function renderCollapsedActivityEntry({
     || entry.type === "dynamicToolCall"
     || entry.type === "webSearch"
   ) {
-    return <ThreadToolSurfaceBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} nestedInCollapsedActivity />;
+    return <ThreadToolSurfaceBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
   }
   if (entry.type === "hook") {
-    return <ThreadHookBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} nestedInCollapsedActivity />;
+    return <ThreadHookBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
   }
 
   return null;
@@ -506,7 +505,6 @@ export function ThreadToolSurfaceBlock({
   onOpenThread,
   onOpenSummaryScheduledAutomation,
   onOpenMcpAppSidePanel,
-  nestedInCollapsedActivity = false,
 }: ThreadLeafBlockProps) {
   const { settings } = useCodexThreadSettings();
   const item = block.entry;
@@ -526,10 +524,7 @@ export function ThreadToolSurfaceBlock({
       isTurnCancelled={block.isTurnCancelled === true}
       isStreamingTurn={isStreamingTurn}
       automaticApprovalReviews={block.automaticApprovalReviews ?? []}
-      execSummaryTone={nestedInCollapsedActivity ? "muted" : "default"}
       showDiffDetails={threadDetailLevel !== "STEPS_PROSE"}
-      showExecSummaryIcon={!nestedInCollapsedActivity}
-      showToolSummaryIcon={!nestedInCollapsedActivity}
       onOpenFileInSidePanel={onOpenTurnDiffFileInSidePanel}
       onOpenSummaryScheduledAutomation={onOpenSummaryScheduledAutomation}
       onOpenThread={onOpenThread}
