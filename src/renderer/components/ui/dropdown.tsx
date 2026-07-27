@@ -113,7 +113,7 @@ const NodexDropdownSubmenuContent = forwardRef<
       className={cn(
         surface === "bare"
           ? cn(
-              "m-0 flex min-w-[180px] select-none flex-col overflow-y-auto p-0",
+              "m-0 flex min-w-[180px] select-none flex-col overflow-x-hidden overflow-y-auto p-0",
               APP_SHELL_FLOATING_UI_LAYER_CLASS,
             )
           : dropdownContentSurfaceClassName,
@@ -128,7 +128,7 @@ const NodexDropdownSubmenuContent = forwardRef<
 });
 
 const dropdownContentSurfaceClassName = cn(
-  "no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border m-px flex select-none flex-col overflow-y-auto rounded-xl ring-[0.5px] px-1 py-1 shadow-xl-spread backdrop-blur-sm",
+  "no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border m-px flex select-none flex-col overflow-x-hidden overflow-y-auto rounded-xl ring-[0.5px] px-1 py-1 shadow-xl-spread backdrop-blur-sm",
   APP_SHELL_FLOATING_UI_LAYER_CLASS,
   "[transform-origin:var(--radix-dropdown-menu-content-transform-origin)] [will-change:opacity,transform]",
 );
@@ -754,6 +754,7 @@ export function NodexDropdownSection({
 }
 
 export function NodexDropdownFlyoutSubmenuItem({
+  ariaLabel,
   label,
   children,
   leftSlot,
@@ -770,6 +771,7 @@ export function NodexDropdownFlyoutSubmenuItem({
   tooltipAlign,
   onOpenChange,
 }: {
+  ariaLabel?: string;
   label: ReactNode;
   children: ReactNode;
   leftSlot?: ReactNode;
@@ -788,6 +790,7 @@ export function NodexDropdownFlyoutSubmenuItem({
 }) {
   const trigger = (
     <NodexDropdownSubmenuTrigger
+      aria-label={ariaLabel}
       disabled={disabled}
       className={cn(
         "group flex w-full items-center",
@@ -840,6 +843,51 @@ export function NodexDropdownFlyoutSubmenuItem({
   );
 }
 
+export function NodexDropdownSummarySubmenuItem({
+  ariaLabel,
+  label,
+  value,
+  children,
+  className,
+  disabled = false,
+  contentClassName,
+  tooltipText,
+  onOpenChange,
+}: {
+  ariaLabel?: string;
+  label: ReactNode;
+  value: ReactNode;
+  children: ReactNode;
+  className?: string;
+  disabled?: boolean;
+  contentClassName?: string;
+  tooltipText?: ReactNode;
+  onOpenChange?: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Sub>["onOpenChange"];
+}) {
+  return (
+    <NodexDropdownFlyoutSubmenuItem
+      ariaLabel={ariaLabel}
+      label={label}
+      disabled={disabled}
+      className={className}
+      contentClassName={contentClassName}
+      tooltipText={tooltipText}
+      onOpenChange={onOpenChange}
+      triggerContent={(
+        <div className="flex w-full min-w-0 items-center gap-3">
+          <span className="shrink-0">{label}</span>
+          <span className="flex min-w-0 flex-1 justify-end text-token-text-tertiary">
+            <span className="min-w-0 truncate">{value}</span>
+          </span>
+          <ChevronRightIcon className="icon-xs shrink-0 text-token-input-placeholder-foreground" />
+        </div>
+      )}
+    >
+      {children}
+    </NodexDropdownFlyoutSubmenuItem>
+  );
+}
+
 export function NodexDropdownSelectedIcon({ className }: { className?: string } = {}) {
   return (
     <CheckmarkIcon
@@ -870,5 +918,6 @@ export const NodexDropdown = {
   Message: NodexDropdownMessage,
   Title: NodexDropdownTitle,
   FlyoutSubmenuItem: NodexDropdownFlyoutSubmenuItem,
+  SummarySubmenuItem: NodexDropdownSummarySubmenuItem,
   SelectedIcon: NodexDropdownSelectedIcon,
 };

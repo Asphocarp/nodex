@@ -11,6 +11,7 @@ export {
   NodexDropdownSection,
   NodexDropdownSelectedIcon,
   NodexDropdownSeparator,
+  NodexDropdownSummarySubmenuItem,
   NodexDropdownTitle,
 } from "@/components/ui/dropdown";
 export { BranchSelectorPopover } from "../shared/branch-selector-popover";

@@ -6,13 +6,14 @@ import type {
   InterpreterProviderListResponse,
   Model,
 } from "@nodex/codex-app-server-protocol/v2";
-import type {
-  AgentExecutionProfile,
-  AgentModelOption,
-  AgentProviderCatalog,
-  AgentProviderCredentialStatus,
-  AgentProviderOption,
-  AgentWireApi,
+import {
+  formatAgentReasoningEffortLabel,
+  type AgentExecutionProfile,
+  type AgentModelOption,
+  type AgentProviderCatalog,
+  type AgentProviderCredentialStatus,
+  type AgentProviderOption,
+  type AgentWireApi,
 } from "../../shared/agent-runtime";
 
 const SUPPORTED_PROVIDER_IDS = [
@@ -111,6 +112,28 @@ function parseModel(value: unknown, providerId: string, index: number): Model {
         entry === "text" || entry === "image"
       ))
     : [];
+  const serviceTiers = Array.isArray(value.serviceTiers)
+    ? value.serviceTiers.flatMap((entry) => {
+        if (!isRecord(entry)) return [];
+        const tierId = parseOptionalCatalogString(
+          entry.id,
+          `model ${providerId}/${id} service tier id`,
+        );
+        if (!tierId) return [];
+        return [{
+          id: tierId,
+          name: parseCatalogString(
+            entry.name,
+            `model ${providerId}/${id} service tier name`,
+          ),
+          description: typeof entry.description === "string" ? entry.description.trim() : "",
+        }];
+      })
+    : [];
+  const defaultServiceTier = parseOptionalCatalogString(
+    value.defaultServiceTier,
+    `model ${providerId}/${id} default service tier`,
+  );
 
   return {
     id,
@@ -126,8 +149,8 @@ function parseModel(value: unknown, providerId: string, index: number): Model {
     inputModalities,
     supportsPersonality: value.supportsPersonality === true,
     additionalSpeedTiers: [],
-    serviceTiers: [],
-    defaultServiceTier: null,
+    serviceTiers,
+    defaultServiceTier,
     isDefault: value.isDefault === true,
   };
 }
@@ -231,8 +254,14 @@ export async function resolveAgentExecutionProfileFromCatalog(input: {
       `Reasoning effort '${reasoningEffort}' is unavailable for ${requested.providerId}/${requested.modelId}`,
     );
   }
-  if (requested.providerId !== "openai" && requested.serviceTier) {
-    throw new Error(`Service tier is unsupported for agent provider '${requested.providerId}'`);
+  const supportedServiceTiers = model.supportedServiceTiers.map((option) => option.value);
+  if (
+    requested.serviceTier !== null
+    && !supportedServiceTiers.includes(requested.serviceTier)
+  ) {
+    throw new Error(
+      `Service tier '${requested.serviceTier}' is unavailable for ${requested.providerId}/${requested.modelId}`,
+    );
   }
 
   const harnessId = await resolveAgentHarnessId({
@@ -268,9 +297,25 @@ function toModelOption(
     recommendedHarnessId: providerRecommendedHarnessId,
     supportedReasoningEfforts: model.supportedReasoningEfforts.map((option) => ({
       value: option.reasoningEffort,
+      displayName: formatAgentReasoningEffortLabel(option.reasoningEffort),
       description: option.description || null,
     })),
     defaultReasoningEffort: model.defaultReasoningEffort || null,
+    supportedServiceTiers: model.serviceTiers.length > 0
+      ? [
+          {
+            value: null,
+            displayName: "Standard",
+            description: "Default speed, normal usage",
+          },
+          ...model.serviceTiers.map((tier) => ({
+            value: tier.id,
+            displayName: tier.name,
+            description: tier.description || null,
+          })),
+        ]
+      : [],
+    defaultServiceTier: model.defaultServiceTier || null,
     inputCapabilities: model.inputModalities,
     switchPolicy: providerId === "openai" ? "same-thread" : "new-thread",
   };

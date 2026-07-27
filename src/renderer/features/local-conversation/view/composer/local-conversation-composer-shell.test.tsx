@@ -329,7 +329,7 @@ describe("LocalConversationComposerShell", () => {
     expect(lowerStatusRow === null).toBe(true);
     expect(view.queryByLabelText("Add files and more") === null).toBe(true);
     expect(view.queryByLabelText("Permission mode") === null).toBe(true);
-    expect(view.queryByLabelText("Select Codex model and reasoning") === null).toBe(true);
+    expect(view.queryByLabelText("Select model") === null).toBe(true);
     expect(view.queryByLabelText(/Context window/) === null).toBe(true);
     expect(view.queryByLabelText("Send prompt") === null).toBe(true);
     expect(view.queryByLabelText("Stop generating") === null).toBe(true);
@@ -389,7 +389,7 @@ describe("LocalConversationComposerShell", () => {
 
     expect(view.getByLabelText("Add files and more") !== null).toBe(true);
     expect(view.getByLabelText("Permission mode") !== null).toBe(true);
-    expect(view.getByLabelText("Select Codex model and reasoning") !== null).toBe(true);
+    expect(view.getByLabelText("Select model") !== null).toBe(true);
     expect(view.queryByText("Foreground thread wants to run lint before Storybook build.") === null).toBe(true);
   });
 

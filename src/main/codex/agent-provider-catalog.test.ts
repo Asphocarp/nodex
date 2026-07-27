@@ -57,6 +57,54 @@ describe("agent provider catalog", () => {
     expect(catalog.providers[1]?.models[0]?.providerId).toBe("kimi-for-coding");
     expect(catalog.providers[1]?.models[0]?.defaultReasoningEffort).toBe("Thinking");
     expect(catalog.providers[1]?.models[0]?.supportedReasoningEfforts[0]?.value).toBe("Thinking");
+    expect(catalog.providers[1]?.models[0]?.supportedReasoningEfforts[0]?.displayName).toBe("Thinking");
+  });
+
+  test("projects model-advertised service tiers into provider-neutral selector options", async () => {
+    const client: AgentProviderCatalogClient = {
+      async request(method) {
+        if (method === "interpreter/provider/list") {
+          return { data: [{
+            id: "openai",
+            name: "OpenAI",
+            description: "",
+            isCurrent: true,
+            wireApi: "responses",
+            configured: true,
+            isDefault: true,
+          }] };
+        }
+        if (method === "interpreter/model/list") {
+          return { data: [{
+            ...model("gpt-5.5", "xhigh"),
+            serviceTiers: [{
+              id: "fast",
+              name: "Fast",
+              description: "Faster responses, higher usage",
+            }],
+            defaultServiceTier: null,
+          }] };
+        }
+        if (method === "interpreter/harness/list") {
+          return { data: [{ label: "Native", description: "", isRecommended: true }] };
+        }
+        throw new Error(`Unexpected method ${method}`);
+      },
+    };
+
+    const catalog = await discoverAgentProviderCatalog({
+      client,
+      credentialStatusReader: { status: async () => "runtimeManaged" },
+    });
+
+    expect(catalog.providers[0]?.models[0]).toMatchObject({
+      supportedReasoningEfforts: [{ value: "xhigh", displayName: "Extra High" }],
+      supportedServiceTiers: [
+        { value: null, displayName: "Standard" },
+        { value: "fast", displayName: "Fast" },
+      ],
+      defaultServiceTier: null,
+    });
   });
 
   test("resolves the runtime-recommended harness for the exact model", async () => {
@@ -155,8 +203,14 @@ describe("agent provider catalog", () => {
           hidden: false,
           isDefault: true,
           recommendedHarnessId: null,
-          supportedReasoningEfforts: [{ value: "Thinking", description: null }],
+          supportedReasoningEfforts: [{
+            value: "Thinking",
+            displayName: "Thinking",
+            description: null,
+          }],
           defaultReasoningEffort: "Thinking",
+          supportedServiceTiers: [],
+          defaultServiceTier: null,
           inputCapabilities: ["text"],
           switchPolicy: "new-thread",
         }],
@@ -189,6 +243,30 @@ describe("agent provider catalog", () => {
       serviceTier: null,
     });
 
+    const catalogWithPriorityTier: AgentProviderCatalog = {
+      providers: catalog.providers.map((candidate) => ({
+        ...candidate,
+        models: candidate.models.map((modelOption) => ({
+          ...modelOption,
+          supportedServiceTiers: [
+            { value: null, displayName: "Standard", description: null },
+            { value: "priority", displayName: "Priority", description: null },
+          ],
+        })),
+      })),
+    };
+    await expect(resolveAgentExecutionProfileFromCatalog({
+      client,
+      catalog: catalogWithPriorityTier,
+      requested: {
+        providerId: "openrouter",
+        modelId: "moonshotai/kimi-k3",
+        harnessId: null,
+        reasoningEffort: "Thinking",
+        serviceTier: "priority",
+      },
+    })).resolves.toMatchObject({ serviceTier: "priority" });
+
     await expect(resolveAgentExecutionProfileFromCatalog({
       client,
       catalog,
@@ -210,7 +288,7 @@ describe("agent provider catalog", () => {
         reasoningEffort: "Thinking",
         serviceTier: "fast",
       },
-    })).rejects.toThrow("Service tier is unsupported");
+    })).rejects.toThrow("Service tier 'fast' is unavailable");
 
     const provider = catalog.providers[0];
     const catalogWithUnlistedRuntimeDefault: AgentProviderCatalog = {

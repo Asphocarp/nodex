@@ -5,6 +5,7 @@ import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip
 import { CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY } from "@/lib/codex-service-tier-settings";
 import { writeAtom } from "@/lib/persisted-atom-store";
 import { useSetScopedAtom } from "@/lib/maitai";
+import { NodexModalHost } from "@/lib/modal-registry";
 import type {
   CodexCollaborationModeKind,
   CodexModelOption,
@@ -72,8 +73,17 @@ const STORY_AGENT_PROVIDER_CATALOG: AgentProviderCatalog = {
         hidden: false,
         isDefault: true,
         recommendedHarnessId: null,
-        supportedReasoningEfforts: [{ value: "high", description: "Deep reasoning." }],
+        supportedReasoningEfforts: [{
+          value: "high",
+          displayName: "High",
+          description: "Deep reasoning.",
+        }],
         defaultReasoningEffort: "high",
+        supportedServiceTiers: [
+          { value: null, displayName: "Standard", description: "Default speed, normal usage" },
+          { value: "fast", displayName: "Fast", description: "Faster responses, higher usage" },
+        ],
+        defaultServiceTier: null,
         inputCapabilities: ["text", "image"],
         switchPolicy: "same-thread",
       }],
@@ -96,8 +106,14 @@ const STORY_AGENT_PROVIDER_CATALOG: AgentProviderCatalog = {
         hidden: false,
         isDefault: true,
         recommendedHarnessId: "claude-code",
-        supportedReasoningEfforts: [{ value: "high", description: "Extended thinking." }],
+        supportedReasoningEfforts: [{
+          value: "high",
+          displayName: "High",
+          description: "Extended thinking.",
+        }],
         defaultReasoningEffort: "high",
+        supportedServiceTiers: [],
+        defaultServiceTier: null,
         inputCapabilities: ["text", "image"],
         switchPolicy: "new-thread",
       }],
@@ -121,10 +137,12 @@ const STORY_AGENT_PROVIDER_CATALOG: AgentProviderCatalog = {
         isDefault: true,
         recommendedHarnessId: "kimi-code",
         supportedReasoningEfforts: [
-          { value: "Thinking", description: "Reason before responding." },
-          { value: "Instant", description: "Respond directly." },
+          { value: "Thinking", displayName: "Thinking", description: "Reason before responding." },
+          { value: "Instant", displayName: "Instant", description: "Respond directly." },
         ],
         defaultReasoningEffort: "Thinking",
+        supportedServiceTiers: [],
+        defaultServiceTier: null,
         inputCapabilities: ["text"],
         switchPolicy: "new-thread",
       }],
@@ -535,6 +553,7 @@ function ComposerSendButtonStory(args: ComposerSendButtonStoryProps) {
               errorMessage={null}
               onErrorMessage={() => { }}
             />
+            <NodexModalHost />
           </TestComposerScopePath>
         </div>
       </TooltipProvider>
@@ -800,7 +819,7 @@ export const FastModelIndicator: Story = {
   },
 };
 
-export const DefaultIntelligenceSelector: Story = {
+export const DefaultModelSelector: Story = {
   args: {
     isQueueingEnabled: false,
     composerEnterBehavior: "enter",
@@ -836,13 +855,28 @@ export const MultiProviderClaudeSetup: Story = {
   parameters: {
     docs: {
       description: {
-        story: "New-thread provider and model selection with inline Anthropic credential setup. API keys remain component-local until submitted to the main process.",
+        story: "New-task provider, model, effort, and capability-driven speed summaries. Anthropic credential setup opens in the shared modal layer instead of nesting a form inside the model menu.",
       },
     },
   },
 };
 
-export const LimitedIntelligenceSupport: Story = {
+export const MultiProviderLockedProfile: Story = {
+  args: {
+    threadState: "existingThread",
+    multiProviderCatalog: true,
+    initialServiceTier: "standard",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "An existing task keeps its durable provider/model profile visible while the selector explains that changes require a new task.",
+      },
+    },
+  },
+};
+
+export const LimitedModelSupport: Story = {
   args: {
     selectedModel: "gpt-5.5-high-only",
     selectedModelDisplayName: "GPT-5.5 High Only",

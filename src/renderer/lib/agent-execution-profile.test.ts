@@ -28,8 +28,13 @@ const CATALOG: AgentProviderCatalog = {
         hidden: false,
         isDefault: true,
         recommendedHarnessId: null,
-        supportedReasoningEfforts: [{ value: "high", description: null }],
+        supportedReasoningEfforts: [{ value: "high", displayName: "High", description: null }],
         defaultReasoningEffort: "high",
+        supportedServiceTiers: [
+          { value: null, displayName: "Standard", description: null },
+          { value: "fast", displayName: "Fast", description: null },
+        ],
+        defaultServiceTier: null,
         inputCapabilities: ["text", "image"],
         switchPolicy: "same-thread",
       }],
@@ -53,10 +58,15 @@ const CATALOG: AgentProviderCatalog = {
         isDefault: true,
         recommendedHarnessId: "kimi-code",
         supportedReasoningEfforts: [
-          { value: "Thinking", description: null },
-          { value: "Instant", description: null },
+          { value: "Thinking", displayName: "Thinking", description: null },
+          { value: "Instant", displayName: "Instant", description: null },
         ],
         defaultReasoningEffort: "Thinking",
+        supportedServiceTiers: [
+          { value: null, displayName: "Standard", description: null },
+          { value: "priority", displayName: "Priority", description: null },
+        ],
+        defaultServiceTier: null,
         inputCapabilities: ["text"],
         switchPolicy: "new-thread",
       }],
@@ -111,6 +121,39 @@ describe("agent execution profile selection", () => {
 
     const openaiModel = CATALOG.providers[0]?.models[0];
     expect(openaiModel && selectAgentModel(openaiModel, kimi).reasoningEffort).toBe("high");
+  });
+
+  test("preserves model-advertised service tiers without provider-specific branching", () => {
+    const profile = resolveAgentExecutionProfile({
+      catalog: CATALOG,
+      storedProfile: {
+        providerId: "kimi-for-coding",
+        modelId: "kimi-k3",
+        harnessId: "kimi-code",
+        reasoningEffort: "Thinking",
+        serviceTier: "priority",
+      },
+    });
+
+    expect(profile?.serviceTier).toBe("priority");
+    expect(profile && selectAgentProvider(CATALOG, "kimi-for-coding", profile)?.serviceTier)
+      .toBe("priority");
+  });
+
+  test("treats an explicit standard tier as an override for a stored fast tier", () => {
+    const profile = resolveAgentExecutionProfile({
+      catalog: CATALOG,
+      storedProfile: {
+        providerId: "openai",
+        modelId: "gpt-5.5",
+        harnessId: null,
+        reasoningEffort: "high",
+        serviceTier: "fast",
+      },
+      serviceTier: null,
+    });
+
+    expect(profile?.serviceTier).toBeNull();
   });
 
   test("fails closed for malformed persisted values", () => {

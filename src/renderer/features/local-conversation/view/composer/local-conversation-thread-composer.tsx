@@ -25,7 +25,6 @@ import {
 import {
   findAgentModel,
   findAgentProvider,
-  isAgentProviderCredentialReady,
   selectAgentModel,
   selectAgentProvider,
   selectAgentReasoningEffort,
@@ -95,6 +94,7 @@ import {
   NodexDropdownSection,
   NodexDropdownSelectedIcon,
   NodexDropdownSeparator,
+  NodexDropdownSummarySubmenuItem,
   NodexDropdownTitle,
   NodexTooltip,
   PermissionModeDropdown,
@@ -182,8 +182,11 @@ import {
   useScopedAtomValue,
   useScopeHandle,
   useSetScopedAtom,
+  appScope,
 } from "@/lib/maitai";
+import { openModal } from "@/lib/modal-registry";
 import { ComposerScope } from "@/lib/workbench-ui-scopes";
+import { ProviderCredentialDialog } from "./provider-credential-dialog";
 
 interface ThreadComposerProps {
   model: ThreadFooterModel;
@@ -883,25 +886,6 @@ function resolveReasoningEffortForModelChange(input: {
   return null;
 }
 
-function resolvePrimaryModelOptions(
-  visibleModels: ThreadFooterModel["availableModels"],
-  selectedModelId: string,
-) {
-  const selectedModel = visibleModels.find((candidate) => candidate.id === selectedModelId);
-  const remainingModels = visibleModels.filter((candidate) => candidate.id !== selectedModelId);
-  const primaryModels = [
-    ...(selectedModel ? [selectedModel] : []),
-    ...remainingModels,
-  ].slice(0, 2);
-  const primaryModelIds = new Set(primaryModels.map((candidate) => candidate.id));
-  const otherModels = visibleModels.filter((candidate) => !primaryModelIds.has(candidate.id));
-
-  return {
-    primaryModels,
-    otherModels,
-  };
-}
-
 function renderModelMenuLabel(input: {
   modelId: string;
   availableModels: ThreadFooterModel["availableModels"];
@@ -939,7 +923,8 @@ function ModelSelectorMenuItem({
   return (
     <NodexDropdownItem
       key={candidate.id}
-      onSelect={() => {
+      onSelect={(event) => {
+        event.preventDefault();
         const nextReasoningEffort = resolveReasoningEffortForModelChange({
           currentReasoningEffort: model.selectedReasoningEffort,
           nextModelId: candidate.id,
@@ -965,7 +950,7 @@ function ModelSelectorMenuItem({
   );
 }
 
-function LegacyIntelligenceSelectorDropdown({
+function LegacyModelSelectorDropdown({
   model,
   serviceTier,
   onServiceTierChange,
@@ -976,8 +961,18 @@ function LegacyIntelligenceSelectorDropdown({
   onServiceTierChange: (nextTier: CodexServiceTier) => void;
   actions: ThreadStageActions;
 }) {
-  const visibleModels = model.availableModels.filter((candidate) => !candidate.hidden);
-  const { primaryModels, otherModels } = resolvePrimaryModelOptions(visibleModels, model.selectedModel);
+  const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
+  const normalizedQuery = deferredQuery.trim().toLocaleLowerCase();
+  const matchingModels = model.availableModels.filter((candidate) => (
+    !candidate.hidden
+    && (!normalizedQuery || `${candidate.displayName} ${candidate.id}`.toLocaleLowerCase().includes(normalizedQuery))
+  ));
+  const visibleModels = [
+    ...matchingModels.filter((candidate) => candidate.id === model.selectedModel),
+    ...matchingModels.filter((candidate) => candidate.id !== model.selectedModel),
+  ].slice(0, 50);
+  const hiddenMatchCount = matchingModels.length - visibleModels.length;
   const modelLabel = renderModelSelectorLabel({
     selectedModel: model.selectedModel,
     availableModels: model.availableModels,
@@ -991,10 +986,11 @@ function LegacyIntelligenceSelectorDropdown({
       triggerButton={(
         <button
           type="button"
-          aria-label="Select Codex model and reasoning"
+          aria-label="Select model"
+          title={`OpenAI · ${formatCodexModelLabel(model.selectedModel, model.availableModels)} · ${reasoningLabel}`}
           className={`${COMPOSER_FOOTER_GHOST_BUTTON_CLASS_NAME} min-w-0`}
         >
-          <span className="flex max-w-40 min-w-0 items-center gap-1.5">
+          <span className="flex max-w-48 min-w-0 items-center gap-1.5">
             <span className="flex min-w-0 items-center gap-1 tabular-nums">
               <span className="truncate whitespace-nowrap text-token-foreground">{modelLabel}</span>
             </span>
@@ -1005,86 +1001,94 @@ function LegacyIntelligenceSelectorDropdown({
       )}
       side="top"
       align="start"
-      contentWidth="menuNarrow"
+      contentClassName="w-56"
     >
-      <NodexDropdownSection className="flex flex-col overflow-hidden">
-        <NodexDropdownTitle>Intelligence</NodexDropdownTitle>
-        <div className="flex max-h-[250px] flex-col overflow-y-auto">
+      <NodexDropdownSummarySubmenuItem
+        ariaLabel={`Model ${formatCodexModelLabel(model.selectedModel, model.availableModels)}`}
+        label="Model"
+        value={formatCodexModelLabel(model.selectedModel, model.availableModels)}
+        contentClassName="w-[280px]"
+      >
+        <NodexDropdownSection className="flex w-full min-w-0 flex-col overflow-hidden">
+          <NodexDropdownTitle>Model</NodexDropdownTitle>
+          {model.availableModels.filter((candidate) => !candidate.hidden).length > 8 ? (
+            <NodexDropdownSearchInput
+              value={query}
+              placeholder="Filter models…"
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          ) : null}
+          <div className="vertical-scroll-fade-mask flex max-h-[250px] flex-col overflow-y-auto">
+            {visibleModels.length === 0 ? (
+              <NodexDropdownMessage compact centered>No matching models</NodexDropdownMessage>
+            ) : visibleModels.map((candidate) => (
+              <ModelSelectorMenuItem
+                key={candidate.id}
+                candidate={candidate}
+                model={model}
+                serviceTier={serviceTier}
+                showFastIndicator
+                actions={actions}
+              />
+            ))}
+            {hiddenMatchCount > 0 ? (
+              <NodexDropdownMessage compact centered>
+                Refine the search to see {hiddenMatchCount} more models
+              </NodexDropdownMessage>
+            ) : null}
+          </div>
+        </NodexDropdownSection>
+      </NodexDropdownSummarySubmenuItem>
+
+      <NodexDropdownSummarySubmenuItem
+        ariaLabel={`Effort ${reasoningLabel}`}
+        label="Effort"
+        value={reasoningLabel}
+        contentClassName="min-w-[180px]"
+      >
+        <NodexDropdownSection className="flex min-w-[180px] flex-col overflow-hidden">
+          <NodexDropdownTitle>Effort</NodexDropdownTitle>
           {model.reasoningEffortOptions.map((option) => (
             <NodexDropdownItem
               key={option.reasoningEffort}
-              onSelect={() => {
+              onSelect={(event) => {
+                event.preventDefault();
                 actions.onReasoningEffortChange(option.reasoningEffort);
               }}
-              rightSlot={option.reasoningEffort === model.selectedReasoningEffort ? <NodexDropdownSelectedIcon /> : null}
+              rightSlot={
+                option.reasoningEffort === model.selectedReasoningEffort
+                  ? <NodexDropdownSelectedIcon />
+                  : null
+              }
+              tooltipText={option.description || undefined}
               data-intelligence-option={option.reasoningEffort}
-              data-reasoning-selected={option.reasoningEffort === model.selectedReasoningEffort ? "true" : undefined}
+              data-reasoning-selected={
+                option.reasoningEffort === model.selectedReasoningEffort
+                  ? "true"
+                  : undefined
+              }
             >
               {formatCodexReasoningEffortLabel(option.reasoningEffort)}
             </NodexDropdownItem>
           ))}
-        </div>
-      </NodexDropdownSection>
-      <NodexDropdownSeparator />
-      <NodexDropdownFlyoutSubmenuItem
-        label={formatCodexModelLabel(model.selectedModel, model.availableModels)}
-        contentClassName="min-w-[200px]"
-        triggerContent={(
-          <div className="flex w-full items-center gap-1.5">
-            <span className="min-w-0 flex-1 truncate">
-              {renderModelSelectorLabel({
-                selectedModel: model.selectedModel,
-                availableModels: model.availableModels,
-                serviceTier,
-              })}
-            </span>
-            <ChevronRightIcon className="icon-xs shrink-0 text-token-input-placeholder-foreground opacity-75 group-focus:opacity-100 group-hover:opacity-100" />
-          </div>
-        )}
-      >
-        <NodexDropdownSection className="flex min-w-[200px] flex-col overflow-hidden">
-          <NodexDropdownTitle>Change model</NodexDropdownTitle>
-          <div className="vertical-scroll-fade-mask flex max-h-[250px] flex-col overflow-y-auto">
-            {visibleModels.length === 0 ? (
-              <NodexDropdownItem disabled>No Codex models available</NodexDropdownItem>
-            ) : (
-              primaryModels.map((candidate) => (
-                <ModelSelectorMenuItem
-                  key={candidate.id}
-                  candidate={candidate}
-                  model={model}
-                  serviceTier={serviceTier}
-                  showFastIndicator
-                  actions={actions}
-                />
-              ))
-            )}
-            {otherModels.length > 0 ? (
-              <NodexDropdownFlyoutSubmenuItem label="Other models" contentClassName="min-w-[200px]">
-                <NodexDropdownSection className="flex min-w-[200px] flex-col overflow-hidden">
-                  {otherModels.map((candidate) => (
-                    <ModelSelectorMenuItem
-                      key={candidate.id}
-                      candidate={candidate}
-                      model={model}
-                      serviceTier={serviceTier}
-                      showFastIndicator={false}
-                      actions={actions}
-                    />
-                  ))}
-                </NodexDropdownSection>
-              </NodexDropdownFlyoutSubmenuItem>
-            ) : null}
-          </div>
         </NodexDropdownSection>
-      </NodexDropdownFlyoutSubmenuItem>
-      <NodexDropdownFlyoutSubmenuItem label="Speed" contentClassName="min-w-64">
-        <NodexDropdownSection className="flex min-w-64 flex-col overflow-hidden pt-1">
-          <NodexDropdownTitle>Change speed</NodexDropdownTitle>
+      </NodexDropdownSummarySubmenuItem>
+
+      <NodexDropdownSummarySubmenuItem
+        ariaLabel={`Speed ${serviceTier === "fast" ? "Fast" : "Standard"}`}
+        label="Speed"
+        value={serviceTier === "fast" ? "Fast" : "Standard"}
+        contentClassName="w-[233px]"
+      >
+        <NodexDropdownSection className="flex w-full min-w-0 flex-col overflow-hidden">
+          <NodexDropdownTitle>Speed</NodexDropdownTitle>
           {SERVICE_TIER_OPTIONS.map((option) => (
             <NodexDropdownItem
               key={option.label}
-              onSelect={() => onServiceTierChange(option.value)}
+              onSelect={(event) => {
+                event.preventDefault();
+                onServiceTierChange(option.value);
+              }}
               rightSlot={option.value === serviceTier ? <NodexDropdownSelectedIcon /> : null}
               subText={option.description}
               allowWrap
@@ -1093,19 +1097,17 @@ function LegacyIntelligenceSelectorDropdown({
             </NodexDropdownItem>
           ))}
         </NodexDropdownSection>
-      </NodexDropdownFlyoutSubmenuItem>
+      </NodexDropdownSummarySubmenuItem>
     </NodexDropdownMenu>
   );
 }
 
-function formatProviderCredentialStatus(provider: AgentProviderOption): string {
+function formatProviderCredentialIssue(provider: AgentProviderOption): string | null {
   switch (provider.credentialStatus) {
     case "ready":
-      return "API key saved";
     case "inherited":
-      return "Using environment key";
     case "runtimeManaged":
-      return "Managed by Codex sign-in";
+      return null;
     case "missing":
       return "API key required";
     case "unavailable":
@@ -1115,114 +1117,20 @@ function formatProviderCredentialStatus(provider: AgentProviderOption): string {
   }
 }
 
-function ProviderCredentialControl({
-  provider,
-  actions,
-}: {
-  provider: AgentProviderOption;
-  actions: ThreadStageActions;
-}) {
-  const [editing, setEditing] = useState(provider.credentialStatus === "missing");
-  const [apiKey, setApiKey] = useState("");
-  const [pending, setPending] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const canManage = provider.credentialEnvKey !== null
-    && actions.onProviderCredentialSet
-    && actions.onProviderCredentialDelete;
-  const isReady = isAgentProviderCredentialReady(provider);
+function canConfigureProvider(
+  provider: AgentProviderOption,
+  actions: ThreadStageActions,
+): boolean {
+  return provider.credentialEnvKey !== null
+    && actions.onProviderCredentialSet !== undefined
+    && provider.credentialStatus !== "runtimeManaged";
+}
 
-  if (!canManage || provider.credentialStatus === "runtimeManaged") {
-    return (
-      <NodexDropdownMessage compact>{formatProviderCredentialStatus(provider)}</NodexDropdownMessage>
-    );
-  }
-
-  if (!editing) {
-    return (
-      <div className="flex min-w-0 items-center gap-2 px-2 py-1.5 text-xs">
-        <span className="min-w-0 flex-1 truncate text-token-description-foreground">
-          {formatProviderCredentialStatus(provider)}
-        </span>
-        <button
-          type="button"
-          className="shrink-0 cursor-interaction text-token-link-foreground focus:outline-none hover:underline"
-          onClick={() => {
-            setErrorMessage(null);
-            setEditing(true);
-          }}
-        >
-          {isReady ? "Replace" : "Configure"}
-        </button>
-        {provider.credentialStatus === "ready" ? (
-          <button
-            type="button"
-            className="shrink-0 cursor-interaction text-token-description-foreground focus:outline-none hover:text-token-error-foreground"
-            disabled={pending}
-            onClick={() => {
-              setPending(true);
-              setErrorMessage(null);
-              void actions.onProviderCredentialDelete?.(provider.id)
-                .catch((error) => {
-                  setErrorMessage(error instanceof Error ? error.message : String(error));
-                })
-                .finally(() => setPending(false));
-            }}
-          >
-            Remove
-          </button>
-        ) : null}
-      </div>
-    );
-  }
-
-  return (
-    <form
-      className="flex flex-col gap-1.5 px-2 py-2"
-      onSubmit={(event) => {
-        event.preventDefault();
-        const normalized = apiKey.trim();
-        if (!normalized || pending) return;
-        setPending(true);
-        setErrorMessage(null);
-        void actions.onProviderCredentialSet?.(provider.id, normalized)
-          .then(() => {
-            setApiKey("");
-            setEditing(false);
-          })
-          .catch((error) => {
-            setErrorMessage(error instanceof Error ? error.message : String(error));
-          })
-          .finally(() => setPending(false));
-      }}
-    >
-      <div className="flex items-center gap-1.5">
-        <input
-          type="password"
-          aria-label={`${provider.displayName} API key`}
-          autoComplete="off"
-          spellCheck={false}
-          value={apiKey}
-          placeholder={provider.credentialEnvKey ?? "API key"}
-          className="h-7 min-w-0 flex-1 rounded-md border border-token-input-border bg-token-input-background px-2 text-xs text-token-input-foreground outline-none placeholder:text-token-input-placeholder-foreground focus:border-token-input-border-focus"
-          onChange={(event) => setApiKey(event.target.value)}
-          onKeyDown={(event) => event.stopPropagation()}
-        />
-        <button
-          type="submit"
-          disabled={pending || apiKey.trim().length === 0}
-          className="h-7 shrink-0 cursor-interaction rounded-md bg-token-button-primary-background px-2 text-xs text-token-button-primary-foreground focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {pending ? "Saving…" : "Save"}
-        </button>
-      </div>
-      <span className="truncate text-[11px] text-token-description-foreground">
-        Stored by the main process in encrypted OS storage.
-      </span>
-      {errorMessage ? (
-        <span className="text-[11px] text-token-error-foreground">{errorMessage}</span>
-      ) : null}
-    </form>
-  );
+function isProviderSelectable(provider: AgentProviderOption): boolean {
+  return provider.supportedByNodex
+    && provider.models.some((model) => !model.hidden)
+    && provider.credentialStatus !== "unavailable"
+    && provider.credentialStatus !== "unsupported";
 }
 
 function AgentModelMenuItem({
@@ -1242,12 +1150,16 @@ function AgentModelMenuItem({
   return (
     <NodexDropdownItem
       disabled={locked}
-      onSelect={() => {
+      onSelect={(event) => {
+        event.preventDefault();
         actions.onExecutionProfileChange?.(selectAgentModel(candidate, current ?? null));
       }}
       rightSlot={selected ? <NodexDropdownSelectedIcon /> : null}
-      subText={candidate.description ?? undefined}
-      tooltipText={locked ? "Start a new thread to change provider or model" : undefined}
+      tooltipText={
+        locked
+          ? "Start a new task to change provider or model"
+          : candidate.description ?? undefined
+      }
       data-agent-model-selected={selected ? "true" : undefined}
     >
       {candidate.displayName}
@@ -1255,9 +1167,8 @@ function AgentModelMenuItem({
   );
 }
 
-function AgentIntelligenceSelectorDropdown({
+function AgentModelSelectorDropdown({
   model,
-  serviceTier,
   onServiceTierChange,
   actions,
 }: {
@@ -1266,10 +1177,18 @@ function AgentIntelligenceSelectorDropdown({
   onServiceTierChange: (nextTier: CodexServiceTier) => void;
   actions: ThreadStageActions;
 }) {
+  const appHandle = useScopeHandle(appScope);
   const catalog = model.agentProviderCatalog;
   const profile = model.executionProfile;
   const [query, setQuery] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
   const deferredQuery = useDeferredValue(query);
+  const providerId = profile?.providerId;
+
+  useEffect(() => {
+    setQuery("");
+  }, [providerId]);
+
   if (!catalog || !profile) return null;
 
   const provider = findAgentProvider(catalog, profile.providerId);
@@ -1287,79 +1206,159 @@ function AgentIntelligenceSelectorDropdown({
   const visibleModels = orderedModels.slice(0, 50);
   const hiddenMatchCount = matchingModels.length - visibleModels.length;
   const reasoningOptions = selectedModel?.supportedReasoningEfforts ?? [];
+  const selectedReasoning = reasoningOptions.find(
+    (option) => option.value === profile.reasoningEffort,
+  );
+  const speedOptions = selectedModel?.supportedServiceTiers ?? [];
+  const selectedSpeed = speedOptions.find((option) => option.value === profile.serviceTier);
   const modelLabel = selectedModel?.displayName ?? profile.modelId;
-  const reasoningLabel = formatCodexReasoningEffortLabel(profile.reasoningEffort ?? undefined);
+  const reasoningLabel = selectedReasoning?.displayName
+    ?? (profile.reasoningEffort
+      ? formatCodexReasoningEffortLabel(profile.reasoningEffort)
+      : null);
   const locked = model.executionProfileLocked === true;
-  const effectiveServiceTier = profile.providerId === "openai" ? serviceTier : null;
+  const showProviderRow = catalog.providers.length > 1
+    || canConfigureProvider(provider, actions);
+  const manageCurrentProvider = provider.credentialStatus !== "missing"
+    && canConfigureProvider(provider, actions);
+  const lockedTooltip = locked
+    ? "Start a new task to change provider, model, or effort"
+    : undefined;
+
+  const selectProvider = (candidate: AgentProviderOption) => {
+    const next = selectAgentProvider(catalog, candidate.id, profile);
+    if (next) return actions.onExecutionProfileChange?.(next);
+    return undefined;
+  };
+  const openCredentialDialog = (
+    candidate: AgentProviderOption,
+    selectAfterConfigure: boolean,
+  ) => {
+    const onCredentialSet = actions.onProviderCredentialSet;
+    if (!onCredentialSet) return;
+
+    setMenuOpen(false);
+    queueMicrotask(() => {
+      openModal(appHandle, ProviderCredentialDialog, {
+        provider: candidate,
+        onCredentialSet,
+        onCredentialDelete: actions.onProviderCredentialDelete,
+        onConfigured: selectAfterConfigure
+          ? () => selectProvider(candidate)
+          : undefined,
+      });
+    });
+  };
 
   return (
     <NodexDropdownMenu
+      open={menuOpen}
+      onOpenChange={setMenuOpen}
       triggerButton={(
         <button
           type="button"
-          aria-label="Select provider, model, and reasoning"
+          aria-label="Select model"
+          title={[
+            provider.displayName,
+            modelLabel,
+            reasoningLabel,
+          ].filter(Boolean).join(" · ")}
           className={`${COMPOSER_FOOTER_GHOST_BUTTON_CLASS_NAME} min-w-0`}
         >
           <span className="flex max-w-48 min-w-0 items-center gap-1.5">
             <span className="min-w-0 truncate whitespace-nowrap text-token-foreground">
-              {effectiveServiceTier === "fast" ? (
+              {selectedSpeed?.value === "fast" ? (
                 <CodexFastModeIcon className="icon-2xs mr-1 inline text-token-link-foreground" />
               ) : null}
               {modelLabel}
             </span>
-            <span className="_labelSm_z984f_2 shrink-0 text-token-description-foreground">
-              {reasoningLabel}
-            </span>
+            {reasoningLabel ? (
+              <span className="_labelSm_z984f_2 shrink-0 text-token-description-foreground">
+                {reasoningLabel}
+              </span>
+            ) : null}
           </span>
           <ChevronDownIcon className="icon-2xs text-token-input-placeholder-foreground" />
         </button>
       )}
       side="top"
       align="start"
-      contentWidth="menuNarrow"
+      contentClassName="w-56"
     >
-      <NodexDropdownSection className="flex flex-col overflow-hidden">
-        <NodexDropdownTitle>Reasoning</NodexDropdownTitle>
-        {reasoningOptions.length === 0 ? (
-          <NodexDropdownMessage compact>Runtime default</NodexDropdownMessage>
-        ) : reasoningOptions.map((option) => (
-          <NodexDropdownItem
-            key={option.value}
-            disabled={locked}
-            onSelect={() => {
-              const next = selectAgentReasoningEffort(catalog, profile, option.value);
-              if (next) actions.onExecutionProfileChange?.(next);
-            }}
-            rightSlot={option.value === profile.reasoningEffort ? <NodexDropdownSelectedIcon /> : null}
-            subText={option.description ?? undefined}
-            tooltipText={locked ? "Reasoning is fixed for this thread" : undefined}
-            data-intelligence-option={option.value}
-          >
-            {formatCodexReasoningEffortLabel(option.value)}
-          </NodexDropdownItem>
-        ))}
-      </NodexDropdownSection>
-      <NodexDropdownSeparator />
-      <NodexDropdownFlyoutSubmenuItem
-        label={modelLabel}
-        contentClassName="min-w-[280px]"
-        triggerContent={(
-          <div className="flex w-full min-w-0 items-center gap-1.5">
-            <span className="min-w-0 flex-1 truncate">{provider.displayName} · {modelLabel}</span>
-            <ChevronRightIcon className="icon-xs shrink-0 text-token-input-placeholder-foreground" />
-          </div>
-        )}
+      {showProviderRow ? (
+        <NodexDropdownSummarySubmenuItem
+          ariaLabel={`Provider ${provider.displayName}`}
+          label="Provider"
+          value={provider.displayName}
+          disabled={locked}
+          tooltipText={lockedTooltip}
+          contentClassName="min-w-60"
+        >
+          <NodexDropdownSection className="flex min-w-60 flex-col overflow-hidden">
+            <NodexDropdownTitle>Provider</NodexDropdownTitle>
+            {catalog.providers.map((candidate) => {
+              const credentialIssue = formatProviderCredentialIssue(candidate);
+              const needsCredential = candidate.credentialStatus === "missing";
+              const canConfigure = canConfigureProvider(candidate, actions);
+              const disabled = locked
+                || !isProviderSelectable(candidate)
+                || (needsCredential && !canConfigure);
+
+              return (
+                <NodexDropdownItem
+                  key={candidate.id}
+                  disabled={disabled}
+                  onSelect={(event) => {
+                    if (needsCredential) {
+                      openCredentialDialog(candidate, true);
+                      return;
+                    }
+
+                    event.preventDefault();
+                    void selectProvider(candidate);
+                  }}
+                  rightSlot={
+                    candidate.id === provider.id
+                      ? <NodexDropdownSelectedIcon />
+                      : null
+                  }
+                  subText={credentialIssue ?? undefined}
+                  tooltipText={disabled ? credentialIssue ?? lockedTooltip : undefined}
+                >
+                  {candidate.displayName}
+                </NodexDropdownItem>
+              );
+            })}
+            {manageCurrentProvider ? (
+              <>
+                <NodexDropdownSeparator />
+                <NodexDropdownItem
+                  onSelect={() => openCredentialDialog(provider, false)}
+                >
+                  Manage {provider.displayName} credential…
+                </NodexDropdownItem>
+              </>
+            ) : null}
+          </NodexDropdownSection>
+        </NodexDropdownSummarySubmenuItem>
+      ) : null}
+
+      <NodexDropdownSummarySubmenuItem
+        ariaLabel={`Model ${modelLabel}`}
+        label="Model"
+        value={modelLabel}
+        disabled={locked}
+        tooltipText={lockedTooltip}
+        contentClassName="w-[280px]"
       >
-        <NodexDropdownSection className="flex min-w-[280px] flex-col overflow-hidden">
+        <NodexDropdownSection className="flex w-full min-w-0 flex-col overflow-hidden">
           <NodexDropdownTitle>{provider.displayName}</NodexDropdownTitle>
           {provider.models.filter((candidate) => !candidate.hidden).length > 8 ? (
-            <div className="px-1 pb-1">
-              <NodexDropdownSearchInput
-                value={query}
-                placeholder="Filter models…"
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </div>
+            <NodexDropdownSearchInput
+              value={query}
+              placeholder="Filter models…"
+              onChange={(event) => setQuery(event.target.value)}
+            />
           ) : null}
           <div className="vertical-scroll-fade-mask flex max-h-[250px] flex-col overflow-y-auto">
             {visibleModels.length === 0 ? (
@@ -1378,69 +1377,111 @@ function AgentIntelligenceSelectorDropdown({
               </NodexDropdownMessage>
             ) : null}
           </div>
-          <NodexDropdownSeparator />
-          <NodexDropdownFlyoutSubmenuItem
-            label="Change provider"
-            disabled={locked}
-            contentClassName="min-w-60"
-          >
-            <NodexDropdownSection className="flex min-w-60 flex-col overflow-hidden">
-              <NodexDropdownTitle>Provider</NodexDropdownTitle>
-              {catalog.providers.map((candidate) => (
-                <NodexDropdownItem
-                  key={candidate.id}
-                  disabled={!candidate.supportedByNodex || candidate.models.every((item) => item.hidden)}
-                  onSelect={() => {
-                    const next = selectAgentProvider(catalog, candidate.id, profile);
-                    if (next) actions.onExecutionProfileChange?.(next);
-                  }}
-                  rightSlot={candidate.id === provider.id ? <NodexDropdownSelectedIcon /> : null}
-                  subText={formatProviderCredentialStatus(candidate)}
-                >
-                  {candidate.displayName}
-                </NodexDropdownItem>
-              ))}
-            </NodexDropdownSection>
-          </NodexDropdownFlyoutSubmenuItem>
-          <NodexDropdownSeparator />
-          <ProviderCredentialControl provider={provider} actions={actions} />
-          {locked ? (
-            <NodexDropdownMessage compact>Provider and model are fixed for this thread.</NodexDropdownMessage>
-          ) : null}
         </NodexDropdownSection>
-      </NodexDropdownFlyoutSubmenuItem>
-      {profile.providerId === "openai" && !locked ? (
-        <NodexDropdownFlyoutSubmenuItem label="Speed" contentClassName="min-w-64">
-          <NodexDropdownSection className="flex min-w-64 flex-col overflow-hidden pt-1">
-            <NodexDropdownTitle>Change speed</NodexDropdownTitle>
-            {SERVICE_TIER_OPTIONS.map((option) => (
+      </NodexDropdownSummarySubmenuItem>
+
+      {reasoningOptions.length > 0 ? (
+        <NodexDropdownSummarySubmenuItem
+          ariaLabel={`Effort ${reasoningLabel ?? "Provider default"}`}
+          label="Effort"
+          value={reasoningLabel ?? "Provider default"}
+          disabled={locked}
+          tooltipText={lockedTooltip}
+          contentClassName="min-w-[180px]"
+        >
+          <NodexDropdownSection className="flex min-w-[180px] flex-col overflow-hidden">
+            <NodexDropdownTitle>Effort</NodexDropdownTitle>
+            {reasoningOptions.map((option) => (
               <NodexDropdownItem
-                key={option.label}
-                onSelect={() => onServiceTierChange(option.value)}
-                rightSlot={option.value === serviceTier ? <NodexDropdownSelectedIcon /> : null}
-                subText={option.description}
-                allowWrap
+                key={option.value}
+                onSelect={(event) => {
+                  event.preventDefault();
+                  const next = selectAgentReasoningEffort(catalog, profile, option.value);
+                  if (next) actions.onExecutionProfileChange?.(next);
+                }}
+                rightSlot={
+                  option.value === profile.reasoningEffort
+                    ? <NodexDropdownSelectedIcon />
+                    : null
+                }
+                subText={
+                  option.value.toLocaleLowerCase() === "ultra"
+                    ? option.description ?? undefined
+                    : undefined
+                }
+                tooltipText={
+                  option.value.toLocaleLowerCase() === "ultra"
+                    ? undefined
+                    : option.description ?? undefined
+                }
+                data-intelligence-option={option.value}
               >
-                {option.label}
+                {option.displayName}
               </NodexDropdownItem>
             ))}
           </NodexDropdownSection>
-        </NodexDropdownFlyoutSubmenuItem>
+        </NodexDropdownSummarySubmenuItem>
+      ) : null}
+
+      {speedOptions.length > 1 ? (
+        <NodexDropdownSummarySubmenuItem
+          ariaLabel={`Speed ${selectedSpeed?.displayName ?? "Standard"}`}
+          label="Speed"
+          value={selectedSpeed?.displayName ?? "Standard"}
+          disabled={locked}
+          tooltipText={lockedTooltip}
+          contentClassName="w-[233px]"
+        >
+          <NodexDropdownSection className="flex w-full min-w-0 flex-col overflow-hidden">
+            <NodexDropdownTitle>Speed</NodexDropdownTitle>
+            {speedOptions.map((option) => (
+              <NodexDropdownItem
+                key={option.value ?? "standard"}
+                onSelect={(event) => {
+                  event.preventDefault();
+                  void actions.onExecutionProfileChange?.({
+                    ...profile,
+                    serviceTier: option.value,
+                  });
+                  onServiceTierChange(option.value);
+                }}
+                rightSlot={
+                  option.value === profile.serviceTier
+                    ? <NodexDropdownSelectedIcon />
+                    : null
+                }
+                subText={option.description ?? undefined}
+                allowWrap
+              >
+                {option.displayName}
+              </NodexDropdownItem>
+            ))}
+          </NodexDropdownSection>
+        </NodexDropdownSummarySubmenuItem>
+      ) : null}
+
+      {locked ? (
+        <>
+          <NodexDropdownSeparator />
+          <NodexDropdownMessage compact>
+            Start a new task to change these settings.
+          </NodexDropdownMessage>
+        </>
       ) : null}
     </NodexDropdownMenu>
   );
 }
 
-function IntelligenceSelectorDropdown(props: {
+function ModelSelectorDropdown(props: {
   model: ThreadFooterModel;
   serviceTier: CodexServiceTier;
   onServiceTierChange: (nextTier: CodexServiceTier) => void;
   actions: ThreadStageActions;
 }) {
   if (props.model.agentProviderCatalog && props.model.executionProfile && props.actions.onExecutionProfileChange) {
-    return <AgentIntelligenceSelectorDropdown {...props} />;
+    return <AgentModelSelectorDropdown {...props} />;
   }
-  return <LegacyIntelligenceSelectorDropdown {...props} />;
+  return <LegacyModelSelectorDropdown {...props} />;
 }
 
 function replaceReviewCommentAttachments(
@@ -3152,7 +3193,7 @@ function HydratedThreadComposer({
                         account={model.account}
                         showFallbackLabel={false}
                       />
-                      <IntelligenceSelectorDropdown
+                      <ModelSelectorDropdown
                         model={model}
                         serviceTier={serviceTierSettings.serviceTier}
                         onServiceTierChange={(nextTier) => setServiceTier(nextTier, "composer_menu")}

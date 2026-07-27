@@ -91,6 +91,16 @@ function resolveReasoningEffort(
   return efforts[0] ?? null;
 }
 
+function resolveServiceTier(
+  model: AgentModelOption,
+  requested: string | null | undefined,
+): string | null {
+  const tiers = model.supportedServiceTiers.map((option) => option.value);
+  if (requested !== undefined && tiers.includes(requested)) return requested;
+  if (tiers.includes(model.defaultServiceTier)) return model.defaultServiceTier;
+  return tiers[0] ?? null;
+}
+
 export function buildAgentExecutionProfile(input: {
   model: AgentModelOption;
   reasoningEffort?: string | null;
@@ -101,7 +111,7 @@ export function buildAgentExecutionProfile(input: {
     modelId: input.model.modelId,
     harnessId: input.model.recommendedHarnessId,
     reasoningEffort: resolveReasoningEffort(input.model, input.reasoningEffort),
-    serviceTier: input.model.providerId === "openai" ? input.serviceTier ?? null : null,
+    serviceTier: resolveServiceTier(input.model, input.serviceTier),
   };
 }
 
@@ -134,7 +144,9 @@ export function resolveAgentExecutionProfile(input: {
       return buildAgentExecutionProfile({
         model: storedModel,
         reasoningEffort: input.storedProfile.reasoningEffort,
-        serviceTier: input.serviceTier ?? input.storedProfile.serviceTier,
+        serviceTier: input.serviceTier === undefined
+          ? input.storedProfile.serviceTier
+          : input.serviceTier,
       });
     }
   }
@@ -166,7 +178,7 @@ export function selectAgentProvider(
   return buildAgentExecutionProfile({
     model,
     reasoningEffort: current?.providerId === providerId ? current.reasoningEffort : null,
-    serviceTier: current?.serviceTier,
+    serviceTier: current?.providerId === providerId ? current.serviceTier : undefined,
   });
 }
 
@@ -177,7 +189,7 @@ export function selectAgentModel(
   return buildAgentExecutionProfile({
     model,
     reasoningEffort: current?.providerId === model.providerId ? current.reasoningEffort : null,
-    serviceTier: current?.serviceTier,
+    serviceTier: current?.providerId === model.providerId ? current.serviceTier : undefined,
   });
 }
 

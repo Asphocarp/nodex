@@ -11,13 +11,112 @@ import {
   installWindowApi,
 } from "@/test/browser-globals";
 import { clearPersistedAtomStoreForTests } from "@/lib/persisted-atom-store";
+import { NodexModalHost } from "@/lib/modal-registry";
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
+import type { AgentProviderCatalog } from "../../../../../shared/agent-runtime";
 import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
 import { ThreadComposer, __composerAddContextTestUtils } from "./local-conversation-thread-composer";
 import { TestComposerScopePath } from "@/test/maitai-scope-harness";
 
 const CODEX_FAST_MODE_ICON_PATH =
   "M9.80999 17.8302C9.49666 18.1969 9.08999 18.3869 8.58999 18.4002C8.09666 18.4136 7.69666 18.2436 7.38999 17.8902C7.08999 17.5436 7.02666 17.0636 7.19999 16.4502L8.06999 13.2902H3.89999C3.43333 13.2902 3.06999 13.1602 2.80999 12.9002C2.55666 12.6336 2.42999 12.3136 2.42999 11.9402C2.42999 11.5602 2.55666 11.2169 2.80999 10.9102L10.16 2.18022C10.4733 1.81356 10.8767 1.62356 11.37 1.61022C11.87 1.59689 12.27 1.76689 12.57 2.12022C12.8767 2.47356 12.9433 2.95356 12.77 3.56023L11.87 6.78023H16.05C16.51 6.78023 16.87 6.91356 17.13 7.18023C17.3967 7.44023 17.53 7.76023 17.53 8.14023C17.53 8.52023 17.4 8.86023 17.14 9.16023L9.80999 17.8302ZM15.89 8.50023C15.93 8.44689 15.95 8.39356 15.95 8.34023C15.9567 8.28689 15.94 8.24356 15.9 8.21023C15.86 8.17023 15.8033 8.15023 15.73 8.15023H11.1C10.9133 8.15023 10.7533 8.10356 10.62 8.01023C10.4933 7.91689 10.4067 7.79023 10.36 7.63023C10.3133 7.47023 10.3167 7.29023 10.37 7.09023L11.33 3.62022C11.3567 3.52022 11.3467 3.44356 11.3 3.39022C11.2533 3.33022 11.19 3.30356 11.11 3.31022C11.0367 3.31689 10.9733 3.35356 10.92 3.42023L4.04999 11.5702C4.00999 11.6236 3.98666 11.6769 3.97999 11.7302C3.97999 11.7836 3.99999 11.8269 4.03999 11.8602C4.07999 11.8936 4.13999 11.9102 4.21999 11.9102H8.78999C9.00333 11.9102 9.17666 11.9569 9.30999 12.0502C9.44999 12.1436 9.54333 12.2736 9.58999 12.4402C9.63666 12.6002 9.63333 12.7802 9.57999 12.9802L8.63999 16.3902C8.61333 16.4902 8.62333 16.5702 8.66999 16.6302C8.71666 16.6836 8.77666 16.7069 8.84999 16.7002C8.92999 16.6936 8.99666 16.6602 9.04999 16.6002L15.89 8.50023Z";
+
+const TEST_AGENT_PROVIDER_CATALOG: AgentProviderCatalog = {
+  providers: [
+    {
+      id: "openai",
+      displayName: "OpenAI",
+      description: null,
+      wireApi: "responses",
+      credentialStatus: "runtimeManaged",
+      supportedByNodex: true,
+      isDefault: true,
+      credentialEnvKey: null,
+      recommendedHarnessId: null,
+      models: [{
+        providerId: "openai",
+        modelId: "gpt-5.5",
+        displayName: "GPT-5.5",
+        description: "Default Codex coding model.",
+        hidden: false,
+        isDefault: true,
+        recommendedHarnessId: null,
+        supportedReasoningEfforts: [
+          { value: "high", displayName: "High", description: "Deep reasoning." },
+          { value: "xhigh", displayName: "Extra High", description: "Deeper reasoning." },
+        ],
+        defaultReasoningEffort: "high",
+        supportedServiceTiers: [
+          { value: null, displayName: "Standard", description: "Default speed, normal usage" },
+          { value: "fast", displayName: "Fast", description: "Faster responses, higher usage" },
+        ],
+        defaultServiceTier: null,
+        inputCapabilities: ["text", "image"],
+        switchPolicy: "same-thread",
+      }],
+    },
+    {
+      id: "anthropic",
+      displayName: "Anthropic",
+      description: null,
+      wireApi: "messages",
+      credentialStatus: "missing",
+      supportedByNodex: true,
+      isDefault: false,
+      credentialEnvKey: "ANTHROPIC_API_KEY",
+      recommendedHarnessId: "claude-code",
+      models: [{
+        providerId: "anthropic",
+        modelId: "claude-sonnet-4-5",
+        displayName: "Claude Sonnet 4.5",
+        description: "Anthropic coding model.",
+        hidden: false,
+        isDefault: true,
+        recommendedHarnessId: "claude-code",
+        supportedReasoningEfforts: [{
+          value: "high",
+          displayName: "High",
+          description: "Extended thinking.",
+        }],
+        defaultReasoningEffort: "high",
+        supportedServiceTiers: [],
+        defaultServiceTier: null,
+        inputCapabilities: ["text", "image"],
+        switchPolicy: "new-thread",
+      }],
+    },
+    {
+      id: "kimi-for-coding",
+      displayName: "Kimi For Coding",
+      description: null,
+      wireApi: "chat",
+      credentialStatus: "ready",
+      supportedByNodex: true,
+      isDefault: false,
+      credentialEnvKey: "KIMI_API_KEY",
+      recommendedHarnessId: "kimi-code",
+      models: [{
+        providerId: "kimi-for-coding",
+        modelId: "kimi-k3",
+        displayName: "Kimi K3",
+        description: "Kimi coding model.",
+        hidden: false,
+        isDefault: true,
+        recommendedHarnessId: "kimi-code",
+        supportedReasoningEfforts: [{
+          value: "Thinking",
+          displayName: "Thinking",
+          description: "Reason before responding.",
+        }],
+        defaultReasoningEffort: "Thinking",
+        supportedServiceTiers: [],
+        defaultServiceTier: null,
+        inputCapabilities: ["text"],
+        switchPolicy: "new-thread",
+      }],
+    },
+  ],
+};
 
 const storageMap = new Map<string, string>();
 const persistedAtomState = new Map<string, unknown>();
@@ -326,6 +425,7 @@ async function renderComposer(
             errorMessage={null}
             onErrorMessage={() => {}}
           />
+          <NodexModalHost />
         </TestComposerScopePath>
       </AppProviders>,
     );
@@ -913,7 +1013,7 @@ describe("ThreadComposer speed menu", () => {
     resetStorage();
 
     const standardView = await renderComposer();
-    const standardModelTrigger = standardView.getByLabelText("Select Codex model and reasoning");
+    const standardModelTrigger = standardView.getByLabelText("Select model");
     expect(Boolean(standardModelTrigger.querySelector('[data-fast-mode-indicator="true"]'))).toBe(false);
 
     standardView.unmount();
@@ -921,7 +1021,7 @@ describe("ThreadComposer speed menu", () => {
     localStorageRef.setItem("nodex-codex-default-service-tier-v1", "fast");
 
     const fastView = await renderComposer();
-    const fastModelTrigger = fastView.getByLabelText("Select Codex model and reasoning");
+    const fastModelTrigger = fastView.getByLabelText("Select model");
     const fastIndicator = fastModelTrigger.querySelector('[data-fast-mode-indicator="true"]');
     expect(Boolean(fastIndicator)).toBe(true);
 
@@ -942,11 +1042,11 @@ describe("ThreadComposer speed menu", () => {
     expect(fastIconPath.getAttribute("fill")).toBe("currentColor");
   });
 
-  test("writes the shared service tier setting from the Intelligence menu", async () => {
+  test("writes the shared service tier setting from the Speed submenu", async () => {
     resetStorage();
     const view = await renderComposer();
 
-    const modelTrigger = view.getByLabelText("Select Codex model and reasoning");
+    const modelTrigger = view.getByLabelText("Select model");
 
     expect(Boolean(modelTrigger.querySelector('[data-fast-mode-indicator="true"]'))).toBe(false);
 
@@ -956,13 +1056,7 @@ describe("ThreadComposer speed menu", () => {
       await Promise.resolve();
     });
 
-    expect(Boolean(view.container.ownerDocument.body.textContent?.includes("Intelligence"))).toBe(true);
-
-    const speedTrigger = Array.from(view.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'))
-      .find((node) => node.textContent?.includes("Speed"));
-    if (!(speedTrigger instanceof HTMLElement)) {
-      throw new Error("Expected the Intelligence menu to include the Speed submenu trigger.");
-    }
+    const speedTrigger = view.getByLabelText("Speed Standard");
 
     await act(async () => {
       fireEvent.click(speedTrigger);
@@ -2305,7 +2399,214 @@ describe("ThreadComposer speed menu", () => {
     });
   });
 
-  test("Intelligence menu preserves reasoning and model selectors", async () => {
+  test("multi-provider model selector uses compact summary rows and keeps selections open", async () => {
+    resetStorage();
+    const selectedProfiles: Array<NonNullable<ThreadFooterModel["executionProfile"]>> = [];
+    const view = await renderComposer(
+      {
+        agentProviderCatalog: TEST_AGENT_PROVIDER_CATALOG,
+        executionProfile: {
+          providerId: "openai",
+          modelId: "gpt-5.5",
+          harnessId: null,
+          reasoningEffort: "high",
+          serviceTier: null,
+        },
+        executionProfileLocked: false,
+      },
+      {
+        onExecutionProfileChange: (profile) => {
+          selectedProfiles.push(profile);
+        },
+      },
+    );
+
+    const trigger = view.getByLabelText("Select model");
+    await act(async () => {
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
+      await Promise.resolve();
+    });
+
+    const providerSummary = view.getByLabelText("Provider OpenAI");
+    expect(view.getByLabelText("Model GPT-5.5")).toBeTruthy();
+    expect(view.getByLabelText("Effort High")).toBeTruthy();
+    expect(view.getByLabelText("Speed Standard")).toBeTruthy();
+    expect(view.container.ownerDocument.body.textContent?.includes("Deep reasoning.") ?? false).toBe(false);
+
+    await act(async () => {
+      fireEvent.click(providerSummary);
+      await Promise.resolve();
+    });
+    const kimi = within(view.container.ownerDocument.body).getByText("Kimi For Coding");
+    await act(async () => {
+      fireEvent.click(kimi);
+      await Promise.resolve();
+    });
+
+    expect(selectedProfiles[0]).toMatchObject({
+      providerId: "kimi-for-coding",
+      modelId: "kimi-k3",
+      reasoningEffort: "Thinking",
+      serviceTier: null,
+    });
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  test("agent speed selection updates both the execution profile and shared default", async () => {
+    resetStorage();
+    const selectedProfiles: Array<NonNullable<ThreadFooterModel["executionProfile"]>> = [];
+    const view = await renderComposer(
+      {
+        agentProviderCatalog: TEST_AGENT_PROVIDER_CATALOG,
+        executionProfile: {
+          providerId: "openai",
+          modelId: "gpt-5.5",
+          harnessId: null,
+          reasoningEffort: "high",
+          serviceTier: null,
+        },
+        executionProfileLocked: false,
+      },
+      {
+        onExecutionProfileChange: (profile) => {
+          selectedProfiles.push(profile);
+        },
+      },
+    );
+
+    const trigger = view.getByLabelText("Select model");
+    await act(async () => {
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(view.getByLabelText("Speed Standard"));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(within(view.container.ownerDocument.body).getByText("Fast"));
+      await Promise.resolve();
+    });
+
+    expect(selectedProfiles[0]?.serviceTier).toBe("fast");
+    expect(localStorage.getItem("nodex-codex-default-service-tier-v1")).toBe("fast");
+  });
+
+  test("configures a missing provider in the modal layer before selecting it", async () => {
+    resetStorage();
+    const credentialWrites: Array<{ providerId: string; apiKey: string }> = [];
+    const selectedProfiles: Array<NonNullable<ThreadFooterModel["executionProfile"]>> = [];
+    const view = await renderComposer(
+      {
+        agentProviderCatalog: TEST_AGENT_PROVIDER_CATALOG,
+        executionProfile: {
+          providerId: "openai",
+          modelId: "gpt-5.5",
+          harnessId: null,
+          reasoningEffort: "high",
+          serviceTier: null,
+        },
+        executionProfileLocked: false,
+      },
+      {
+        onExecutionProfileChange: (profile) => {
+          selectedProfiles.push(profile);
+        },
+        onProviderCredentialSet: async (providerId, apiKey) => {
+          credentialWrites.push({ providerId, apiKey });
+          return {
+            providerId,
+            status: "ready",
+            runtimeRestartPending: false,
+          };
+        },
+      },
+    );
+
+    const trigger = view.getByLabelText("Select model");
+    await act(async () => {
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(view.getByLabelText("Provider OpenAI"));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(within(view.container.ownerDocument.body).getByText("Anthropic"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const dialog = await view.findByRole("dialog");
+    const apiKeyInput = within(dialog).getByLabelText("API key");
+    await act(async () => {
+      fireEvent.change(apiKeyInput, { target: { value: "sk-ant-test" } });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(credentialWrites).toEqual([{
+        providerId: "anthropic",
+        apiKey: "sk-ant-test",
+      }]);
+      expect(selectedProfiles[0]).toMatchObject({
+        providerId: "anthropic",
+        modelId: "claude-sonnet-4-5",
+        harnessId: "claude-code",
+        reasoningEffort: "high",
+      });
+      expect(view.queryByRole("dialog")).toBe(null);
+    });
+  });
+
+  test("keeps an existing task profile inspectable but immutable", async () => {
+    resetStorage();
+    const selectedProfiles: Array<NonNullable<ThreadFooterModel["executionProfile"]>> = [];
+    const view = await renderComposer(
+      {
+        agentProviderCatalog: TEST_AGENT_PROVIDER_CATALOG,
+        executionProfile: {
+          providerId: "openai",
+          modelId: "gpt-5.5",
+          harnessId: null,
+          reasoningEffort: "high",
+          serviceTier: null,
+        },
+        executionProfileLocked: true,
+      },
+      {
+        onExecutionProfileChange: (profile) => {
+          selectedProfiles.push(profile);
+        },
+      },
+    );
+
+    const trigger = view.getByLabelText("Select model");
+    await act(async () => {
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
+      await Promise.resolve();
+    });
+
+    expect(view.getByText("Start a new task to change these settings.")).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(view.getByLabelText("Model GPT-5.5"));
+      await Promise.resolve();
+    });
+    expect(selectedProfiles).toEqual([]);
+    expect(view.container.ownerDocument.body.textContent?.includes("Default Codex coding model.") ?? false)
+      .toBe(false);
+  });
+
+  test("model selector preserves model and effort submenus", async () => {
     resetStorage();
     const selectedModels: string[] = [];
     const selectedReasoning: string[] = [];
@@ -2315,7 +2616,7 @@ describe("ThreadComposer speed menu", () => {
       },
     });
 
-    const trigger = modelView.getByLabelText("Select Codex model and reasoning");
+    const trigger = modelView.getByLabelText("Select model");
     expect(Boolean(trigger.textContent?.includes("5.3"))).toBe(true);
     expect(Boolean(trigger.textContent?.includes("High"))).toBe(true);
 
@@ -2325,16 +2626,11 @@ describe("ThreadComposer speed menu", () => {
       await Promise.resolve();
     });
 
-    const menuItems = Array.from(modelView.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'));
-    expect(Boolean(modelView.container.ownerDocument.body.textContent?.includes("Intelligence"))).toBe(true);
-    expect(Boolean(modelView.container.ownerDocument.body.querySelector('[data-intelligence-option="high"]'))).toBe(true);
-    expect(Boolean(modelView.container.ownerDocument.body.querySelector('[data-intelligence-option="medium"]'))).toBe(true);
-    expect(Boolean(modelView.container.ownerDocument.body.querySelector('[data-intelligence-option="low"]'))).toBe(false);
+    expect(modelView.getByLabelText("Model GPT-5.3 Codex")).toBeTruthy();
+    expect(modelView.getByLabelText("Effort High")).toBeTruthy();
+    expect(modelView.getByLabelText("Speed Standard")).toBeTruthy();
 
-    const modelTrigger = menuItems.find((node) => node.textContent?.includes("GPT-5.3 Codex"));
-    if (!(modelTrigger instanceof HTMLElement)) {
-      throw new Error("Expected the Intelligence menu to include the Model submenu trigger.");
-    }
+    const modelTrigger = modelView.getByLabelText("Model GPT-5.3 Codex");
 
     await act(async () => {
       fireEvent.click(modelTrigger);
@@ -2344,7 +2640,7 @@ describe("ThreadComposer speed menu", () => {
     const modelItem = Array.from(modelView.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'))
       .find((node) => node.textContent?.includes("GPT-5.5"));
     if (!(modelItem instanceof HTMLElement)) {
-      throw new Error("Expected the Intelligence model flyout to include GPT-5.5.");
+      throw new Error("Expected the Model flyout to include GPT-5.5.");
     }
 
     await act(async () => {
@@ -2360,7 +2656,7 @@ describe("ThreadComposer speed menu", () => {
         selectedReasoning.push(reasoningEffort);
       },
     });
-    const reasoningTrigger = reasoningView.getByLabelText("Select Codex model and reasoning");
+    const reasoningTrigger = reasoningView.getByLabelText("Select model");
 
     await act(async () => {
       fireEvent.pointerDown(reasoningTrigger, { button: 0, ctrlKey: false });
@@ -2368,10 +2664,15 @@ describe("ThreadComposer speed menu", () => {
       await Promise.resolve();
     });
 
+    await act(async () => {
+      fireEvent.click(reasoningView.getByLabelText("Effort High"));
+      await Promise.resolve();
+    });
+
     const nextMenuItems = Array.from(reasoningView.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'));
     const reasoningItem = nextMenuItems.find((node) => node.textContent?.includes("Medium"));
     if (!(reasoningItem instanceof HTMLElement)) {
-      throw new Error("Expected the Intelligence menu to include Medium reasoning.");
+      throw new Error("Expected the Effort submenu to include Medium reasoning.");
     }
 
     await act(async () => {
@@ -2400,7 +2701,7 @@ describe("ThreadComposer speed menu", () => {
       },
     );
 
-    const trigger = view.getByLabelText("Select Codex model and reasoning");
+    const trigger = view.getByLabelText("Select model");
 
     await act(async () => {
       fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
@@ -2411,7 +2712,7 @@ describe("ThreadComposer speed menu", () => {
     const modelTrigger = Array.from(view.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'))
       .find((node) => node.textContent?.includes("GPT-5.3 Codex"));
     if (!(modelTrigger instanceof HTMLElement)) {
-      throw new Error("Expected the Intelligence menu to include the current model row.");
+      throw new Error("Expected the model selector to include the current model row.");
     }
 
     await act(async () => {
@@ -2422,7 +2723,7 @@ describe("ThreadComposer speed menu", () => {
     const modelItem = Array.from(view.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'))
       .find((node) => node.textContent?.includes("GPT-5.5"));
     if (!(modelItem instanceof HTMLElement)) {
-      throw new Error("Expected the Intelligence model flyout to include GPT-5.5.");
+      throw new Error("Expected the Model flyout to include GPT-5.5.");
     }
 
     await act(async () => {
@@ -2434,7 +2735,7 @@ describe("ThreadComposer speed menu", () => {
     expect(selectedReasoning[0]).toBe("high");
   });
 
-  test("model flyout keeps rows concise and moves overflow models behind Other models", async () => {
+  test("model flyout keeps every model in one concise searchable list", async () => {
     resetStorage();
     const view = await renderComposer({
       selectedModel: "gpt-5.5",
@@ -2490,7 +2791,7 @@ describe("ThreadComposer speed menu", () => {
       ],
     });
 
-    const trigger = view.getByLabelText("Select Codex model and reasoning");
+    const trigger = view.getByLabelText("Select model");
 
     await act(async () => {
       fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
@@ -2498,11 +2799,7 @@ describe("ThreadComposer speed menu", () => {
       await Promise.resolve();
     });
 
-    const modelTrigger = Array.from(view.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'))
-      .find((node) => node.textContent?.includes("GPT-5.5"));
-    if (!(modelTrigger instanceof HTMLElement)) {
-      throw new Error("Expected the Intelligence menu to include the current model row.");
-    }
+    const modelTrigger = view.getByLabelText("Model GPT-5.5");
 
     await act(async () => {
       fireEvent.click(modelTrigger);
@@ -2510,8 +2807,9 @@ describe("ThreadComposer speed menu", () => {
     });
 
     const modelMenuText = view.container.ownerDocument.body.textContent ?? "";
-    expect(Boolean(modelMenuText.includes("Change model"))).toBe(true);
-    expect(Boolean(modelMenuText.includes("Other models"))).toBe(true);
+    expect(Boolean(modelMenuText.includes("GPT-5.4-Mini"))).toBe(true);
+    expect(Boolean(modelMenuText.includes("GPT-5.3-Codex-Spark"))).toBe(true);
+    expect(Boolean(modelMenuText.includes("Other models"))).toBe(false);
     expect(Boolean(modelMenuText.includes("Latest Codex model"))).toBe(false);
     expect(Boolean(modelMenuText.includes("Previous stable Codex model"))).toBe(false);
   });

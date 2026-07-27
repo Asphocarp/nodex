@@ -18,6 +18,13 @@ export interface AgentExecutionProfile {
 
 export interface AgentReasoningEffortOption {
   readonly value: string;
+  readonly displayName: string;
+  readonly description: string | null;
+}
+
+export interface AgentServiceTierOption {
+  readonly value: string | null;
+  readonly displayName: string;
   readonly description: string | null;
 }
 
@@ -31,6 +38,8 @@ export interface AgentModelOption {
   readonly recommendedHarnessId: string | null;
   readonly supportedReasoningEfforts: readonly AgentReasoningEffortOption[];
   readonly defaultReasoningEffort: string | null;
+  readonly supportedServiceTiers: readonly AgentServiceTierOption[];
+  readonly defaultServiceTier: string | null;
   readonly inputCapabilities: readonly ("text" | "image")[];
   readonly switchPolicy: "same-thread" | "new-thread";
 }
@@ -65,6 +74,28 @@ export interface AgentProviderCredentialMutationResult {
   readonly providerId: string;
   readonly status: AgentProviderCredentialStatus;
   readonly runtimeRestartPending: boolean;
+}
+
+const AGENT_REASONING_EFFORT_LABELS: Readonly<Record<string, string>> = {
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra High",
+  ultra: "Ultra",
+  none: "Default",
+};
+
+export function formatAgentReasoningEffortLabel(value: string): string {
+  const knownLabel = AGENT_REASONING_EFFORT_LABELS[value.toLocaleLowerCase()];
+  if (knownLabel) return knownLabel;
+  if (/[A-Z]/u.test(value)) return value;
+
+  return value
+    .split(/[-_\s]+/u)
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toLocaleUpperCase()}${part.slice(1)}`)
+    .join(" ");
 }
 
 export function encodeAgentModelKey(providerId: string, modelId: string): string {
