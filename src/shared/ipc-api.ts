@@ -365,6 +365,11 @@ import type {
   WorkspaceFileMetadata,
   WorkspaceFileReadResult,
   WorkspaceFileRequest,
+  WorkspaceFileTextReadInput,
+  WorkspaceFileSearchInput,
+  WorkspaceFileSearchResult,
+  WorkspaceFileWatchStartResult,
+  WorkspaceFileWatchStopInput,
   WorkspaceFileWriteInput,
   WorkspaceFileWriteResult,
 } from "./types";
@@ -1008,8 +1013,12 @@ export interface IpcApi {
     args: [input: WorkspaceDirectoryEntriesInput];
     result: WorkspaceDirectoryEntriesResult;
   };
+  "workspace-file-search": {
+    args: [input: WorkspaceFileSearchInput];
+    result: WorkspaceFileSearchResult;
+  };
   "read-file": {
-    args: [input: WorkspaceFileRequest];
+    args: [input: WorkspaceFileTextReadInput];
     result: WorkspaceFileReadResult;
   };
   "read-file-metadata": {
@@ -1023,6 +1032,14 @@ export interface IpcApi {
   "write-file": {
     args: [input: WorkspaceFileWriteInput];
     result: WorkspaceFileWriteResult;
+  };
+  "workspace-file-watch:start": {
+    args: [input: WorkspaceFileRequest];
+    result: WorkspaceFileWatchStartResult;
+  };
+  "workspace-file-watch:stop": {
+    args: [input: WorkspaceFileWatchStopInput];
+    result: void;
   };
   "open-file": {
     args: [target: FileLinkTarget, openerId: FileLinkOpenerId];
@@ -1831,6 +1848,7 @@ export interface IpcApi {
 export interface IpcEvents {
   "agent-import:progress": AgentImportProgress;
   "git:live-query:event": GitReviewLiveEvent;
+  "workspace-file:changed": import("./types").WorkspaceFileChangedEvent;
   "document-sync:event": DocumentSyncRealtimeEvent;
   "persisted-atom:updated": PersistedAtomEvent;
   "projection-stream:message": import("./projection-stream").ProjectionStreamMessage;

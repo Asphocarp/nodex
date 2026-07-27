@@ -57,10 +57,10 @@ describe("BudgetedMarkdownRenderer", () => {
     expect(bytes.container.textContent).toContain("Rich preview is unavailable for large content.");
     expect(lines.container.textContent).toContain("Rich preview is unavailable for large content.");
     expect(bytes.container.querySelector(
-      "[data-virtualized-text-viewer='true'], [aria-label='Loading Large byte source']",
+      "[data-source-viewer='true'], [aria-label='Loading Large byte source']",
     )).not.toBeNull();
     expect(lines.container.querySelector(
-      "[data-virtualized-text-viewer='true'], [aria-label='Loading Large line source']",
+      "[data-source-viewer='true'], [aria-label='Loading Large line source']",
     )).not.toBeNull();
   });
 });

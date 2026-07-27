@@ -527,6 +527,14 @@ export function subscribeGitBranchChanges(
   return resolveRendererTransport().subscribeGitBranchChanges(callback);
 }
 
+export function subscribeWorkspaceFileChanges(
+  callback: (
+    event: import("../../shared/types").WorkspaceFileChangedEvent,
+  ) => void,
+): () => void {
+  return resolveRendererTransport().subscribeWorkspaceFileChanges(callback);
+}
+
 export function subscribeGitReviewLiveQueries(
   callback: (
     event: import("../../shared/types").GitReviewLiveEvent,

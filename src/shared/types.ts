@@ -753,6 +753,26 @@ export interface WorkspaceDirectoryEntriesResult {
   entries: WorkspaceFileDirectoryEntry[];
 }
 
+export interface WorkspaceFileSearchInput {
+  hostId?: WorkspaceFileHostId;
+  workspaceRoot: string;
+  query: string;
+  maxResults?: number;
+  maxVisitedEntries?: number;
+}
+
+export interface WorkspaceFileSearchMatch {
+  path: string;
+  kind: "file";
+  score: number;
+}
+
+export interface WorkspaceFileSearchResult {
+  matches: WorkspaceFileSearchMatch[];
+  ancestorDirectories: string[];
+  truncated: boolean;
+}
+
 export interface WorkspaceFileRequest {
   hostId?: WorkspaceFileHostId;
   path: string;
@@ -782,11 +802,25 @@ export interface WorkspaceFileMetadata {
   mtimeMs: number | null;
   sizeBytes: number | null;
   contentKind?: "text" | "binary";
+  mimeType?: string;
 }
 
 export interface WorkspaceFileWriteInput extends WorkspaceFileRequest {
   content: string;
   expectedMtimeMs: number | null;
+}
+
+export interface WorkspaceFileWatchStartResult {
+  subscriptionId: string;
+}
+
+export interface WorkspaceFileWatchStopInput {
+  subscriptionId: string;
+}
+
+export interface WorkspaceFileChangedEvent {
+  subscriptionId: string;
+  path: string;
 }
 
 export type WorkspaceFileWriteResult =

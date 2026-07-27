@@ -367,6 +367,25 @@ export function createElectronRendererTransport(
         callback({ cwd: payload.cwd });
       });
     },
+    subscribeWorkspaceFileChanges(
+      callback: (
+        event: import("../../shared/types").WorkspaceFileChangedEvent,
+      ) => void,
+    ) {
+      return bridge.on("workspace-file:changed", (...args: unknown[]) => {
+        const payload = args[0] as
+          | import("../../shared/types").WorkspaceFileChangedEvent
+          | undefined;
+        if (
+          !payload
+          || typeof payload.subscriptionId !== "string"
+          || typeof payload.path !== "string"
+        ) {
+          return;
+        }
+        callback(payload);
+      });
+    },
     subscribeGitReviewLiveQueries(
       callback: (
         event: import("../../shared/types").GitReviewLiveEvent,

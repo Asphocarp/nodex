@@ -1,45 +1,30 @@
-import type { WorkspaceFileDirectoryEntry } from "@/lib/types";
+import {
+  EXTENSION_TO_FILE_FORMAT,
+  getFiletypeFromFileName,
+  type SupportedLanguages,
+} from "@pierre/diffs";
 
-const TEXT_EXTENSIONS = new Set([
-  ".c",
-  ".cc",
-  ".conf",
-  ".cpp",
-  ".css",
-  ".env",
-  ".go",
-  ".h",
-  ".hpp",
-  ".html",
-  ".ini",
-  ".java",
-  ".js",
-  ".json",
-  ".jsx",
-  ".log",
-  ".md",
-  ".mjs",
-  ".py",
-  ".rs",
-  ".sh",
-  ".toml",
-  ".ts",
-  ".tsx",
-  ".txt",
-  ".xml",
-  ".yaml",
-  ".yml",
-]);
 const IMAGE_EXTENSIONS = new Set([".bmp", ".gif", ".ico", ".jpeg", ".jpg", ".png", ".svg", ".webp"]);
-const GENERATED_NAMES = new Set([".git", "node_modules", "dist", "build", "out", "target", ".next", ".turbo"]);
 
-export type WorkspaceFilePreviewKind =
+export const WORKSPACE_TEXT_EDITABLE_MAX_BYTES = 10 * 1024 * 1024;
+export const WORKSPACE_TEXT_LOAD_MAX_BYTES = 20 * 1024 * 1024;
+
+export type WorkspaceFilePresentation =
   | "markdown"
-  | "text"
+  | "editable-text"
+  | "readonly-text"
   | "image"
   | "pdf"
   | "spreadsheet"
+  | "too-large"
   | "unsupported";
+
+export interface WorkspaceFilePresentationInput {
+  readonly path: string;
+  readonly contentKind: "text" | "binary" | undefined;
+  readonly mimeType?: string | null;
+  readonly sizeBytes: number | null;
+}
 
 export function normalizeWorkspacePath(path: string): string {
   return path.replace(/\\/g, "/").replace(/\/+$/, "") || path;
@@ -85,22 +70,48 @@ export function getWorkspaceFileDomTabId(hostId: string | undefined, path: strin
   return `file:${hostId || "local"}:${path}`;
 }
 
-export function resolveWorkspaceFilePreviewKind(path: string, mimeType: string | null | undefined): WorkspaceFilePreviewKind {
+export function resolveWorkspaceSourceLanguage(path: string): SupportedLanguages | null {
+  const name = getWorkspaceFileName(path);
+  if (EXTENSION_TO_FILE_FORMAT[name] !== undefined) {
+    return getFiletypeFromFileName(name);
+  }
+
+  const compoundExtension = name.match(/\.([^.]+\.[^.]+)$/)?.[1];
+  if (compoundExtension && EXTENSION_TO_FILE_FORMAT[compoundExtension] !== undefined) {
+    return getFiletypeFromFileName(name);
+  }
+
+  const extension = name.match(/\.([^.]+)$/)?.[1] ?? "";
+  return EXTENSION_TO_FILE_FORMAT[extension] === undefined
+    ? null
+    : getFiletypeFromFileName(name);
+}
+
+export function resolveWorkspaceFilePresentation({
+  path,
+  contentKind,
+  mimeType,
+  sizeBytes,
+}: WorkspaceFilePresentationInput): WorkspaceFilePresentation {
   const extension = getWorkspaceFileExtension(path);
-  if (extension === ".md" || extension === ".markdown" || mimeType === "text/markdown") return "markdown";
   if (IMAGE_EXTENSIONS.has(extension) || mimeType?.startsWith("image/")) return "image";
   if (extension === ".pdf" || mimeType === "application/pdf") return "pdf";
-  if (extension === ".csv" || extension === ".tsv" || mimeType === "text/csv") return "spreadsheet";
-  if (TEXT_EXTENSIONS.has(extension) || mimeType?.startsWith("text/")) return "text";
-  return "unsupported";
-}
-
-export function shouldIncludeWorkspaceTreeEntry(entry: WorkspaceFileDirectoryEntry, query: string): boolean {
-  const normalizedQuery = query.trim().toLowerCase();
-  if (!normalizedQuery) return true;
-  return entry.name.toLowerCase().includes(normalizedQuery) || entry.path.toLowerCase().includes(normalizedQuery);
-}
-
-export function isGeneratedWorkspaceEntry(entry: Pick<WorkspaceFileDirectoryEntry, "name" | "type">): boolean {
-  return entry.type === "directory" && GENERATED_NAMES.has(entry.name);
+  if (sizeBytes !== null && sizeBytes > WORKSPACE_TEXT_LOAD_MAX_BYTES) {
+    return "too-large";
+  }
+  if (extension === ".md" || extension === ".markdown" || mimeType === "text/markdown") {
+    return contentKind === "binary" ? "unsupported" : "markdown";
+  }
+  if (extension === ".csv" || extension === ".tsv" || mimeType === "text/csv") {
+    return contentKind === "binary" ? "unsupported" : "spreadsheet";
+  }
+  if (contentKind !== "text" && !mimeType?.startsWith("text/")) return "unsupported";
+  if (
+    sizeBytes !== null
+    && sizeBytes < WORKSPACE_TEXT_EDITABLE_MAX_BYTES
+    && resolveWorkspaceSourceLanguage(path) !== null
+  ) {
+    return "editable-text";
+  }
+  return "readonly-text";
 }

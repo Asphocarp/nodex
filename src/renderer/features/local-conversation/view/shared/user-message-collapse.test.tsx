@@ -1,7 +1,11 @@
 import { fireEvent, waitFor } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { render } from "@/test/dom";
 import { UserMessageText } from "./user-message-collapse";
+
+vi.mock("@/lib/use-theme", () => ({
+  useTheme: () => ({ resolved: "dark" }),
+}));
 
 describe("UserMessageText", () => {
   test("keeps a legacy 100,000-character message out of Markdown and opens a viewport reader", async () => {
@@ -15,6 +19,8 @@ describe("UserMessageText", () => {
     await waitFor(() => {
       expect(view.getByLabelText("Full user message")).toBeDefined();
     });
-    expect(view.container.querySelectorAll(".cm-line").length).toBeLessThan(500);
+    expect(
+      view.getByLabelText("Full user message").getAttribute("data-source-viewer"),
+    ).toBe("true");
   });
 });

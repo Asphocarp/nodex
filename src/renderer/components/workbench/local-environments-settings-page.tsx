@@ -7,7 +7,7 @@ import {
 import { SpinnerIcon } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { LazyVirtualizedTextViewer } from "@/components/ui/lazy-virtualized-text-viewer";
+import { LazySourceViewer } from "@/components/ui/lazy-source-viewer";
 import {
   NodexDropdownItem,
   NodexDropdownMenu,
@@ -253,7 +253,7 @@ function MultiLineCodePreview({
 
   return (
     <div className="h-48 overflow-hidden rounded-lg border-[0.5px] border-token-border bg-token-input-background">
-      <LazyVirtualizedTextViewer
+      <LazySourceViewer
         value={script}
         ariaLabel="Environment script"
         className="h-full"

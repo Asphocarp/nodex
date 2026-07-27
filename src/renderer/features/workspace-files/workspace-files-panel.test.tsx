@@ -4,11 +4,17 @@ import { render, settleAsyncRender } from "../../test/dom";
 import { TestQueryProvider } from "../../test/query";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import type { Project, ProjectSession, WorkspaceFileDirectoryEntry } from "@/lib/types";
+import { WORKSPACE_TEXT_LOAD_MAX_BYTES } from "./workspace-file-model";
 import type { WorkspaceFilesTab } from "./workspace-file-types";
 
 let WorkspaceFilesPanel: typeof import("./workspace-files-panel")["WorkspaceFilesPanel"];
 let invokeCalls: unknown[][] = [];
-let openFileTabCalls: { path: string; title: string; panelId: WorkspaceFilesTab["panelId"] }[] = [];
+let openFileTabCalls: {
+  path: string;
+  title: string;
+  panelId: WorkspaceFilesTab["panelId"];
+  mode: "preview" | "durable";
+}[] = [];
 
 const WORKSPACE_ROOT = "/workspace";
 const WORKTREE_FILE = "/profile/worktrees/abcd/project/README.md";
@@ -52,7 +58,7 @@ vi.mock("@/lib/api", () => ({
       return {
         isFile: true,
         sizeBytes: input.path === HUGE_FILE
-          ? 2_000_000
+          ? WORKSPACE_TEXT_LOAD_MAX_BYTES + 1
           : unsupported
             ? 12_000
             : fileContents[input.path]?.length ?? 0,
@@ -61,12 +67,37 @@ vi.mock("@/lib/api", () => ({
         contentKind: unsupported ? "binary" : "text",
       };
     }
+    if (channel === "workspace-file-search") {
+      const input = args[0] as { query: string };
+      const matches = Object.values(directoryEntries)
+        .flat()
+        .filter((candidate) =>
+          candidate.type === "file"
+          && candidate.path.toLowerCase().includes(input.query.toLowerCase()))
+        .map((candidate) => ({
+          path: candidate.path,
+          kind: "file" as const,
+          score: 0,
+        }));
+      return {
+        matches,
+        ancestorDirectories: [],
+        truncated: false,
+      };
+    }
     if (channel === "read-file") {
       const input = args[0] as { path: string };
       const content = fileContents[input.path] ?? "";
       return {
         contents: content,
       };
+    }
+    if (channel === "workspace-file-watch:start") {
+      return { subscriptionId: "00000000-0000-4000-8000-000000000001" };
+    }
+    if (channel === "workspace-file-watch:stop") return undefined;
+    if (channel === "write-file") {
+      return { outcome: "saved", mtimeMs: Date.parse(CREATED_AT) + 1 };
     }
     if (channel === "open-file") return true;
     throw new Error(`Unexpected channel: ${channel}`);
@@ -77,9 +108,53 @@ vi.mock("@/lib/api", () => ({
   subscribeCodexHostMessages: () => () => undefined,
   subscribeDesktopNotificationActions: () => () => undefined,
   subscribeGitBranchChanges: () => () => undefined,
+  subscribeWorkspaceFileChanges: () => () => undefined,
   subscribeAppUpdateStatus: () => () => undefined,
   getWindowFocusState: async () => true,
   subscribeWindowFocusChanges: () => () => undefined,
+}));
+
+vi.mock("./workspace-file-tree", () => ({
+  WorkspaceFileTree: ({
+    paths,
+    searchQuery,
+    onExpand,
+    onOpen,
+  }: {
+    paths: Array<{ path: string; kind: "directory" | "file" }>;
+    searchQuery: string;
+    onExpand: (path: string) => void;
+    onOpen: (path: string, mode: "preview" | "durable") => void;
+  }) => (
+    <div role="tree" aria-label="Workspace files">
+      {paths
+        .filter((item) => !searchQuery || item.path.toLowerCase().includes(searchQuery.toLowerCase()))
+        .map((item) => (
+          <button
+            type="button"
+            key={item.path}
+            onClick={() => {
+              if (item.kind === "directory") {
+                onExpand(item.path);
+                return;
+              }
+              onOpen(item.path, "preview");
+            }}
+            onDoubleClick={() => {
+              if (item.kind === "file") onOpen(item.path, "durable");
+            }}
+          >
+            {item.path.split("/").at(-1)}
+          </button>
+        ))}
+    </div>
+  ),
+}));
+
+vi.mock("@/components/ui/lazy-source-viewer", () => ({
+  LazySourceViewer: ({ ariaLabel }: { ariaLabel: string }) => (
+    <div data-source-viewer="true" aria-label={ariaLabel} />
+  ),
 }));
 
 beforeAll(async () => {
@@ -98,11 +173,12 @@ describe("WorkspaceFilesPanel", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(view.getByPlaceholderText("Filter files...") !== null).toBe(true);
+    expect(view.getByPlaceholderText("Filter files…") !== null).toBe(true);
     expect(view.getByText("README.md") !== null).toBe(true);
     expect(view.getByText("archive.zip") !== null).toBe(true);
 
-    fireEvent.input(view.getByPlaceholderText("Filter files..."), { target: { value: "read" } });
+    fireEvent.input(view.getByPlaceholderText("Filter files…"), { target: { value: "read" } });
+    await new Promise((resolve) => window.setTimeout(resolve, 175));
     await settleAsyncRender();
     expect(view.getByText("README.md") !== null).toBe(true);
     expect(view.queryByText("archive.zip")).toBe(null);
@@ -114,6 +190,7 @@ describe("WorkspaceFilesPanel", () => {
       path: `${WORKSPACE_ROOT}/README.md`,
       title: "README.md",
       panelId: "right",
+      mode: "preview",
     }]));
   });
 
@@ -131,8 +208,10 @@ describe("WorkspaceFilesPanel", () => {
       directoryPath: "",
       includeHidden: true,
     });
-    const fileCalls = invokeCalls.filter((call) => ["read-file-metadata", "read-file"].includes(String(call[0])));
-    expect(fileCalls.length).toBe(2);
+    const fileCalls = invokeCalls.filter((call) =>
+      ["read-file-metadata", "read-file"].includes(String(call[0])));
+    expect(fileCalls.some((call) => call[0] === "read-file-metadata")).toBe(true);
+    expect(fileCalls.some((call) => call[0] === "read-file")).toBe(true);
     expect(fileCalls.every((call) => !JSON.stringify(call[1]).includes("workspaceRoot"))).toBe(true);
   });
 
@@ -182,12 +261,12 @@ describe("WorkspaceFilesPanel", () => {
 
     expect(view.getByText("Rich preview is unavailable for large Markdown files.")).not.toBeNull();
     expect(view.container.querySelector(
-      "[data-virtualized-text-viewer='true'], [aria-label^='Loading Markdown source']",
+      "[data-source-viewer='true'], [aria-label^='Loading Markdown source']",
     )).not.toBeNull();
     expect(view.container.querySelector(".codex-markdown-user")).toBe(null);
     expect(invokeCalls.some((call) => (
       call[0] === "read-file"
-      && (call[1] as { maxBytes?: number }).maxBytes === 1_500_000
+      && (call[1] as { maxBytes?: number }).maxBytes === WORKSPACE_TEXT_LOAD_MAX_BYTES
     ))).toBe(true);
   });
 
@@ -197,7 +276,7 @@ describe("WorkspaceFilesPanel", () => {
     await settleAsyncRender();
 
     expect(view.getByText("Preview is not available for archive.zip.") !== null).toBe(true);
-    fireEvent.click(view.getByRole("button", { name: "Open" }));
+    fireEvent.click(view.getByRole("button", { name: "Open externally" }));
     await settleAsyncRender();
 
     expect(JSON.stringify(invokeCalls.at(-1))).toBe(JSON.stringify([
@@ -243,7 +322,7 @@ function makeFilesTab(selectedPath?: string): WorkspaceFilesTab {
       ...(selectedPath ? { path: selectedPath } : {}),
     },
     stateKey: 0,
-    state: {},
+    state: { markdownMode: "rendered" },
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
   };

@@ -1,4 +1,4 @@
-import { LazyVirtualizedTextViewer } from "@/components/ui/lazy-virtualized-text-viewer";
+import { LazySourceViewer } from "@/components/ui/lazy-source-viewer";
 import { classifyContentBudget } from "@/lib/content-budget";
 import { MarkdownRenderer, type MarkdownRendererProps } from "./markdown-renderer";
 
@@ -32,7 +32,7 @@ export function BudgetedMarkdownRenderer({
       <div className="shrink-0 px-3 py-2 text-xs text-token-description-foreground">
         {fallbackMessage}
       </div>
-      <LazyVirtualizedTextViewer
+      <LazySourceViewer
         value={rendererProps.content}
         ariaLabel={sourceAriaLabel}
         sourceIdentity={sourceIdentity}

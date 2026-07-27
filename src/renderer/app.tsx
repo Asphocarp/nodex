@@ -30,6 +30,7 @@ import { useCommandKeymapState } from "@/lib/use-command-keymap-state";
 import type { CommandMenuMode, CommandMenuOpenRequest } from "@/lib/command-palette";
 import { invoke } from "@/lib/api";
 import { registerAppCloseFlushHandler } from "@/lib/app-close-flush";
+import { workspaceTextDocumentRegistry } from "@/features/workspace-files/workspace-text-document-controller";
 import { pageEditorSessionRegistry } from "@/lib/page-editor-session-registry";
 import { NodexModalHost } from "@/lib/modal-registry";
 import {
@@ -397,6 +398,7 @@ function WorkbenchApp({
       }
       await pageStagePersistRef.current?.();
       await pageEditorSessionRegistry.persistAll();
+      await workspaceTextDocumentRegistry.flushAll();
       await flushWindowSessionLayout();
     });
   }, [

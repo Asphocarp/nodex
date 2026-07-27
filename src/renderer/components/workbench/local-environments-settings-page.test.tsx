@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import type {
   Project,
@@ -8,6 +8,10 @@ import type {
 import { render, settleAsyncRender, textContent } from "../../test/dom";
 import { LocalEnvironmentsSettingsPage } from "./local-environments-settings-page";
 import { NodexSettingsPageSurface as SettingsPageSurface } from "../ui/settings";
+
+vi.mock("@/lib/use-theme", () => ({
+  useTheme: () => ({ resolved: "dark" }),
+}));
 
 const PROJECTS: Project[] = [
   {

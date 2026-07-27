@@ -3,6 +3,7 @@ import type {
   WorkspaceDirectoryEntriesInput,
   WorkspaceFileMetadataInput,
   WorkspaceFileRequest,
+  WorkspaceFileSearchInput,
   WorkspaceFileTextReadInput,
 } from "./types";
 
@@ -197,6 +198,16 @@ export const queryKeys = {
         input.directoryPath ?? "",
         input.includeHidden ?? false,
         input.directoriesOnly ?? false,
+      ] as const,
+    search: (input: WorkspaceFileSearchInput) =>
+      [
+        "workspaceFiles",
+        "search",
+        normalizeHostId(input.hostId),
+        input.workspaceRoot,
+        input.query,
+        input.maxResults ?? 0,
+        input.maxVisitedEntries ?? 0,
       ] as const,
     metadata: (input: WorkspaceFileMetadataInput) =>
       [

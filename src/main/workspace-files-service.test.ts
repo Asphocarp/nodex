@@ -16,6 +16,7 @@ import {
   readWorkspaceFile,
   readWorkspaceFileBinary,
   readWorkspaceFileMetadata,
+  searchWorkspaceFiles,
   toWorkspaceFileIpcError,
   WorkspaceFileUserError,
   writeWorkspaceFile,
@@ -106,6 +107,65 @@ describe("workspace-files-service directory browsing", () => {
   );
 });
 
+describe("workspace-files-service workspace search", () => {
+  test("finds nested, hidden, and generated files while excluding escaping symlinks", async () => {
+    const root = await makeTempWorkspace();
+    const outsideRoot = await makeTempWorkspace();
+    await mkdir(join(root, "src", "nested"), { recursive: true });
+    await mkdir(join(root, ".hidden"));
+    await mkdir(join(root, "node_modules", "fixture"), { recursive: true });
+    await writeFile(join(root, "src", "nested", "needle.ts"), "export {};\n", "utf8");
+    await writeFile(join(root, ".hidden", "needle.env"), "SAFE=yes\n", "utf8");
+    await writeFile(join(root, "node_modules", "fixture", "needle.js"), "module.exports = {};\n", "utf8");
+    await writeFile(join(outsideRoot, "needle-secret.txt"), "outside", "utf8");
+    await symlink(outsideRoot, join(root, "escape"), "dir");
+
+    const result = await searchWorkspaceFiles({
+      workspaceRoot: root,
+      query: "needle",
+    });
+
+    expect(result.matches.map((match) => match.path)).toEqual([
+      "node_modules/fixture/needle.js",
+      "src/nested/needle.ts",
+      ".hidden/needle.env",
+    ]);
+    expect(result.ancestorDirectories).toEqual([
+      ".hidden",
+      "node_modules",
+      "node_modules/fixture",
+      "src",
+      "src/nested",
+    ]);
+    expect(result.truncated).toBe(false);
+  });
+
+  test("reports bounded traversal and result truncation deterministically", async () => {
+    const root = await makeTempWorkspace();
+    await Promise.all(Array.from({ length: 8 }, (_, index) =>
+      writeFile(join(root, `match-${index}.txt`), `${index}`, "utf8")));
+
+    const resultLimited = await searchWorkspaceFiles({
+      workspaceRoot: root,
+      query: "match",
+      maxResults: 2,
+    });
+    const traversalLimited = await searchWorkspaceFiles({
+      workspaceRoot: root,
+      query: "match",
+      maxVisitedEntries: 1,
+    });
+
+    expect(resultLimited.matches.map((match) => match.path)).toEqual([
+      "match-0.txt",
+      "match-1.txt",
+    ]);
+    expect(resultLimited.truncated).toBe(true);
+    expect(traversalLimited.matches).toHaveLength(1);
+    expect(traversalLimited.truncated).toBe(true);
+  });
+});
+
 describe("workspace-files-service exact file resources", () => {
   test.each([
     ["ENOENT", "not_found"],
@@ -150,6 +210,7 @@ describe("workspace-files-service exact file resources", () => {
     expect(textMetadata.sizeBytes).toBe(8);
     expect(skippedSample.contentKind).toBeUndefined();
     expect(binaryMetadata.contentKind).toBe("binary");
+    expect(binaryMetadata.mimeType).toBe("image/png");
     expect(binary).toEqual({
       contentsBase64: "iVBORw0KGgoA",
       mimeType: "image/png",

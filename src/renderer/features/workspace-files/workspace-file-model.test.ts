@@ -1,24 +1,14 @@
 import { describe, expect, test } from "vitest";
 import {
   getWorkspaceFileDomTabId,
-  getWorkspaceFileName,
   getWorkspaceRelativePath,
   isWorkspacePathInsideRoot,
-  resolveWorkspaceFilePreviewKind,
+  resolveWorkspaceFilePresentation,
+  resolveWorkspaceSourceLanguage,
   resolveWorkspaceTreeFilePath,
-  shouldIncludeWorkspaceTreeEntry,
+  WORKSPACE_TEXT_EDITABLE_MAX_BYTES,
+  WORKSPACE_TEXT_LOAD_MAX_BYTES,
 } from "./workspace-file-model";
-import type { WorkspaceFileDirectoryEntry } from "@/lib/types";
-
-function makeEntry(name: string, path: string): WorkspaceFileDirectoryEntry {
-  return {
-    name,
-    path,
-    type: "file",
-    isSymlink: false,
-  };
-}
-
 describe("workspace-file-model", () => {
   test("builds Codex-style file DOM tab ids", () => {
     expect(getWorkspaceFileDomTabId("local", "/Users/asc/repo/nodex/README.md")).toBe(
@@ -26,21 +16,67 @@ describe("workspace-file-model", () => {
     );
   });
 
-  test("resolves preview kinds from paths and mime types", () => {
-    expect(resolveWorkspaceFilePreviewKind("/repo/README.md", null)).toBe("markdown");
-    expect(resolveWorkspaceFilePreviewKind("/repo/image.png", null)).toBe("image");
-    expect(resolveWorkspaceFilePreviewKind("/repo/file.pdf", null)).toBe("pdf");
-    expect(resolveWorkspaceFilePreviewKind("/repo/data.csv", null)).toBe("spreadsheet");
-    expect(resolveWorkspaceFilePreviewKind("/repo/main.ts", null)).toBe("text");
-    expect(resolveWorkspaceFilePreviewKind("/repo/archive.zip", null)).toBe("unsupported");
+  test("routes files from sampled metadata instead of filename alone", () => {
+    expect(resolveWorkspaceFilePresentation({
+      path: "/repo/LICENSE",
+      contentKind: "text",
+      sizeBytes: 1_024,
+    })).toBe("readonly-text");
+    expect(resolveWorkspaceFilePresentation({
+      path: "/repo/main.ts",
+      contentKind: "text",
+      sizeBytes: 1_024,
+    })).toBe("editable-text");
+    expect(resolveWorkspaceFilePresentation({
+      path: "/repo/image.png",
+      contentKind: "binary",
+      sizeBytes: 1_024,
+    })).toBe("image");
+    expect(resolveWorkspaceFilePresentation({
+      path: "/repo/extensionless-asset",
+      contentKind: "binary",
+      mimeType: "image/png",
+      sizeBytes: WORKSPACE_TEXT_LOAD_MAX_BYTES + 1,
+    })).toBe("image");
+    expect(resolveWorkspaceFilePresentation({
+      path: "/repo/file.pdf",
+      contentKind: "binary",
+      sizeBytes: 1_024,
+    })).toBe("pdf");
+    expect(resolveWorkspaceFilePresentation({
+      path: "/repo/archive.zip",
+      contentKind: "binary",
+      sizeBytes: 1_024,
+    })).toBe("unsupported");
   });
 
-  test("filters tree entries by name or path", () => {
-    const entry = makeEntry("README.md", "/repo/docs/README.md");
+  test("uses the public source-language registry without treating unknown text as code", () => {
+    expect(resolveWorkspaceSourceLanguage("/repo/main.ts")).toBe("typescript");
+    expect(resolveWorkspaceSourceLanguage("/repo/Dockerfile")).toBe("dockerfile");
+    expect(resolveWorkspaceSourceLanguage("/repo/LICENSE")).toBeNull();
+  });
 
-    expect(getWorkspaceFileName(entry.path)).toBe("README.md");
-    expect(shouldIncludeWorkspaceTreeEntry(entry, "docs")).toBe(true);
-    expect(shouldIncludeWorkspaceTreeEntry(entry, "missing")).toBe(false);
+  test("makes the edit and full-load size boundaries explicit", () => {
+    expect(resolveWorkspaceFilePresentation({
+      path: "/repo/main.ts",
+      contentKind: "text",
+      sizeBytes: WORKSPACE_TEXT_EDITABLE_MAX_BYTES - 1,
+    })).toBe("editable-text");
+    expect(resolveWorkspaceFilePresentation({
+      path: "/repo/main.ts",
+      contentKind: "text",
+      sizeBytes: WORKSPACE_TEXT_EDITABLE_MAX_BYTES,
+    })).toBe("readonly-text");
+    expect(resolveWorkspaceFilePresentation({
+      path: "/repo/main.ts",
+      contentKind: "text",
+      sizeBytes: WORKSPACE_TEXT_LOAD_MAX_BYTES,
+    })).toBe("readonly-text");
+    expect(resolveWorkspaceFilePresentation({
+      path: "/repo/main.ts",
+      contentKind: "text",
+      sizeBytes: WORKSPACE_TEXT_LOAD_MAX_BYTES + 1,
+    })).toBe("too-large");
   });
 
   test("resolves tree coordinates without treating prefix collisions as descendants", () => {

@@ -1,24 +1,36 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
-import { ExternalLink, FileText, FolderOpen, RefreshCw } from "lucide-react";
+import {
+  Check,
+  Copy,
+  ExternalLink,
+  FileText,
+  MoreHorizontal,
+  PanelRightClose,
+  PanelRightOpen,
+  RefreshCw,
+} from "lucide-react";
 import { MarkdownRenderer } from "@/features/local-conversation/view/shared/markdown/markdown-renderer";
 import {
   CodexSidePanelFilesIcon,
-  FileTreeChevronIcon,
-  FileTreeFileIcon,
   SearchIcon,
 } from "@/components/shared/icons";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
 import {
-  LazyVirtualizedTextViewer,
-  preloadVirtualizedTextViewer,
-} from "@/components/ui/lazy-virtualized-text-viewer";
-import { invoke } from "@/lib/api";
+  NodexDropdownItem,
+  NodexDropdownMenu,
+  NodexDropdownSeparator,
+} from "@/components/ui/dropdown";
+import {
+  LazySourceViewer,
+} from "@/components/ui/lazy-source-viewer";
+import { invoke, subscribeWorkspaceFileChanges } from "@/lib/api";
 import {
   workspaceDirectoryQueryOptions,
   workspaceFileBinaryQueryOptions,
   workspaceFileMetadataQueryOptions,
+  workspaceFileSearchQueryOptions,
   workspaceFileTextQueryOptions,
 } from "@/lib/query-options";
 import type {
@@ -28,22 +40,40 @@ import type {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { classifyContentBudget } from "@/lib/content-budget";
+import { writeTextToClipboard } from "@/lib/clipboard";
 import {
   getWorkspaceFileDomTabId,
   getWorkspaceFileName,
   getWorkspaceRelativePath,
-  isGeneratedWorkspaceEntry,
-  resolveWorkspaceFilePreviewKind,
+  resolveWorkspaceFilePresentation,
+  resolveWorkspaceSourceLanguage,
   resolveWorkspaceTreeFilePath,
-  shouldIncludeWorkspaceTreeEntry,
-  type WorkspaceFilePreviewKind,
+  WORKSPACE_TEXT_EDITABLE_MAX_BYTES,
+  WORKSPACE_TEXT_LOAD_MAX_BYTES,
+  type WorkspaceFilePresentation,
 } from "./workspace-file-model";
-import type { WorkspaceFilesTab, WorkspaceFilePreviewState, WorkspaceFileTreeNode } from "./workspace-file-types";
+import { WorkspaceFileTree, type WorkspaceFileTreePath } from "./workspace-file-tree";
+import {
+  clampWorkspaceTreeWidth,
+  WORKSPACE_TREE_DEFAULT_WIDTH,
+  WORKSPACE_TREE_MAX_RATIO,
+  WORKSPACE_TREE_MIN_WIDTH,
+} from "./workspace-file-layout";
+import { WorkspaceFileConflict } from "./workspace-file-conflict";
+import { WorkspacePierreEditor } from "./workspace-pierre-editor";
+import {
+  WorkspaceTextDocumentController,
+  workspaceTextDocumentRegistry,
+  type WorkspaceTextDocumentSnapshot,
+} from "./workspace-text-document-controller";
+import {
+  normalizeWorkspaceFilesTabState,
+  type WorkspaceFilesTab,
+  type WorkspaceFilesTabState,
+  type WorkspaceFilePreviewState,
+} from "./workspace-file-types";
 
-const TREE_DEFAULT_WIDTH = 250;
-const TREE_MIN_WIDTH = 190;
-const TREE_MAX_RATIO = 0.6;
-export const WORKSPACE_TEXT_MAX_BYTES = 1_500_000;
+export const WORKSPACE_TEXT_MAX_BYTES = WORKSPACE_TEXT_LOAD_MAX_BYTES;
 const MAX_BINARY_PREVIEW_BYTES = 25_000_000;
 const CONTENT_SAMPLE_BYTES = 8_192;
 export const WORKSPACE_RICH_MARKDOWN_MAX_BYTES = 256 * 1024;
@@ -63,7 +93,13 @@ interface WorkspaceFilesPanelProps {
   tab: WorkspaceFilesTab;
   activeSession: ProjectSession;
   project: Project | null;
-  onOpenFileTab: (input: { path: string; title: string; panelId: WorkspaceFilesTab["panelId"] }) => Promise<unknown>;
+  onOpenFileTab: (input: {
+    path: string;
+    title: string;
+    panelId: WorkspaceFilesTab["panelId"];
+    mode: "preview" | "durable";
+  }) => Promise<unknown>;
+  onUpdateTabState?: (state: WorkspaceFilesTabState) => void;
 }
 
 type EntriesByPath = Record<string, WorkspaceFileDirectoryEntry[]>;
@@ -82,36 +118,6 @@ function resolveWorkspaceRoot(tab: WorkspaceFilesTab, project: Project | null): 
   const configuredRoot = tab.config.workspaceRoot?.trim();
   if (configuredRoot) return configuredRoot;
   return project?.primaryWorkspaceRoot?.trim() || project?.sources[0]?.root.trim() || null;
-}
-
-function sortTreeRows(rows: WorkspaceFileDirectoryEntry[]): WorkspaceFileDirectoryEntry[] {
-  return [...rows].sort((a, b) => {
-    if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
-    return a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
-  });
-}
-
-function buildVisibleTreeRows(input: {
-  rootPath: string;
-  entriesByPath: EntriesByPath;
-  expandedPaths: ReadonlySet<string>;
-  query: string;
-}): WorkspaceFileTreeNode[] {
-  const rows: WorkspaceFileTreeNode[] = [];
-  const visit = (directoryPath: string, level: number) => {
-    const entries = sortTreeRows(input.entriesByPath[directoryPath] ?? []);
-    for (const entry of entries) {
-      if (isGeneratedWorkspaceEntry(entry)) continue;
-      if (!shouldIncludeWorkspaceTreeEntry(entry, input.query) && input.query.trim()) continue;
-      rows.push({ entry, level });
-      if (entry.type === "directory" && input.expandedPaths.has(entry.path)) {
-        visit(entry.path, level + 1);
-      }
-    }
-  };
-
-  visit(input.rootPath, 0);
-  return rows;
 }
 
 function buildDataUrl(dataBase64: string, mimeType: string | undefined): string {
@@ -152,17 +158,39 @@ function Breadcrumb({
 
 function WorkspaceFilePreview({
   state,
-  previewKind,
+  presentation,
+  document,
   onOpenExternal,
+  onEdit,
+  onUseDisk,
+  onKeepLocal,
+  onRetrySave,
+  markdownMode,
+  wrap,
 }: {
   state: WorkspaceFilePreviewState;
-  previewKind: WorkspaceFilePreviewKind | null;
+  presentation: WorkspaceFilePresentation | null;
+  document: WorkspaceTextDocumentSnapshot | null;
   onOpenExternal: () => void;
+  onEdit: (value: string) => void;
+  onUseDisk: () => void;
+  onKeepLocal: () => void;
+  onRetrySave: () => void;
+  markdownMode: "source" | "rendered";
+  wrap: boolean;
 }) {
   if (state.status === "idle") {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-token-text-secondary">
-        Select a file to preview.
+      <div className="flex h-full items-center justify-center px-6 text-center">
+        <div className="flex max-w-72 flex-col items-center gap-3">
+          <CodexSidePanelFilesIcon className="size-8 text-token-description-foreground" />
+          <div className="space-y-1">
+            <div className="text-lg/6 font-medium text-token-text-primary">Open file</div>
+            <div className="text-sm text-token-text-secondary">
+              Select a file from the workspace tree
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -184,7 +212,11 @@ function WorkspaceFilePreview({
     );
   }
 
-  if (state.status === "unsupported" || previewKind === "unsupported") {
+  if (
+    state.status === "unsupported"
+    || presentation === "unsupported"
+    || presentation === "too-large"
+  ) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-sm text-token-text-secondary">
         <CodexSidePanelFilesIcon className="icon-md" />
@@ -195,14 +227,15 @@ function WorkspaceFilePreview({
           onClick={onOpenExternal}
         >
           <ExternalLink className="icon-2xs" />
-          Open
+          Open externally
         </button>
       </div>
     );
   }
 
-  if (previewKind === "markdown") {
-    const richPreviewDecision = classifyWorkspaceMarkdownPreview(state.content);
+  if (presentation === "markdown" && markdownMode === "rendered") {
+    const markdownContent = document?.content ?? state.content;
+    const richPreviewDecision = classifyWorkspaceMarkdownPreview(markdownContent);
     if (richPreviewDecision.kind === "tooLarge") {
       return (
         <div className="flex h-full min-h-0 flex-col">
@@ -216,11 +249,12 @@ function WorkspaceFilePreview({
               Open
             </button>
           </div>
-          <LazyVirtualizedTextViewer
-            value={state.content}
+          <LazySourceViewer
+            value={markdownContent}
             ariaLabel={`Markdown source for ${getWorkspaceFileName(state.path ?? "file")}`}
             sourceIdentity={state.path ?? undefined}
             lineNumbers
+            wrap={wrap}
             className="min-h-0 flex-1"
           />
         </div>
@@ -229,12 +263,12 @@ function WorkspaceFilePreview({
 
     return (
       <div className="h-full overflow-auto px-6 py-4">
-        <MarkdownRenderer content={state.content} className="max-w-3xl text-sm leading-6" />
+        <MarkdownRenderer content={markdownContent} className="max-w-3xl text-sm leading-6" />
       </div>
     );
   }
 
-  if (previewKind === "image" && state.binaryUrl) {
+  if (presentation === "image" && state.binaryUrl) {
     return (
       <div className="flex h-full items-center justify-center overflow-auto bg-token-main-surface-primary p-4">
         <img src={state.binaryUrl} alt="" className="max-h-full max-w-full object-contain" />
@@ -242,77 +276,87 @@ function WorkspaceFilePreview({
     );
   }
 
-  if (previewKind === "pdf" && state.binaryUrl) {
+  if (presentation === "pdf" && state.binaryUrl) {
     return <iframe title="PDF preview" src={state.binaryUrl} className="h-full w-full border-0" />;
   }
 
-  return (
-    <LazyVirtualizedTextViewer
-      value={state.content}
-      ariaLabel={`Source preview for ${getWorkspaceFileName(state.path ?? "file")}`}
-      sourceIdentity={state.path ?? undefined}
-      lineNumbers
-      className="h-full bg-token-main-surface-primary"
-    />
-  );
-}
+  if (
+    (presentation === "editable-text"
+      || (presentation === "markdown" && markdownMode === "source"))
+    && document
+  ) {
+    if (document.status === "conflict" && document.diskContent !== null) {
+      return (
+        <WorkspaceFileConflict
+          filename={getWorkspaceFileName(document.path)}
+          diskValue={document.diskContent}
+          localValue={document.content}
+          onUseDisk={onUseDisk}
+          onKeepLocal={onKeepLocal}
+        />
+      );
+    }
 
-function WorkspaceFileTreeRow({
-  node,
-  selectedPath,
-  expanded,
-  loading,
-  onToggle,
-  onOpen,
-}: {
-  node: WorkspaceFileTreeNode;
-  selectedPath: string | null;
-  expanded: boolean;
-  loading: boolean;
-  onToggle: (entry: WorkspaceFileDirectoryEntry) => void;
-  onOpen: (entry: WorkspaceFileDirectoryEntry) => void;
-}) {
-  const { entry, level } = node;
-  const selected = selectedPath === entry.path;
-  const isDirectory = entry.type === "directory";
-  const Icon = isDirectory ? FolderOpen : FileTreeFileIcon;
-  return (
-    <button
-      type="button"
-      role="treeitem"
-      aria-selected={selected}
-      aria-expanded={isDirectory ? expanded : undefined}
-      className={cn(
-        "flex h-[28px] w-full items-center gap-1 rounded-md px-2 text-left text-[13px] text-token-text-secondary hover:bg-token-list-hover-background",
-        selected && "bg-token-list-active-selection-background text-token-list-active-selection-foreground",
-      )}
-      style={{ paddingLeft: 8 + level * 14 }}
-      onClick={() => {
-        if (isDirectory) {
-          onToggle(entry);
-          return;
-        }
-        onOpen(entry);
-      }}
-      onDoubleClick={() => {
-        if (!isDirectory) onOpen(entry);
-      }}
-      onPointerEnter={() => {
-        if (!isDirectory) preloadVirtualizedTextViewer();
-      }}
-      onFocus={() => {
-        if (!isDirectory) preloadVirtualizedTextViewer();
-      }}
-    >
-      <span className="flex icon-2xs shrink-0 items-center justify-center text-token-description-foreground">
-        {isDirectory ? (
-          <FileTreeChevronIcon className={cn("icon-2xs transition-transform duration-150", expanded && "rotate-90")} />
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        {document.status === "error" ? (
+          <div className="flex min-h-9 shrink-0 items-center gap-2 border-b-[0.5px] border-token-border px-3 text-xs text-token-text-secondary">
+            <span className="min-w-0 flex-1 truncate">
+              {document.message ?? "Unable to save file."}
+            </span>
+            <button
+              type="button"
+              className="rounded-md px-2 py-1 text-token-text-primary hover:bg-token-list-hover-background"
+              onClick={onRetrySave}
+            >
+              Retry
+            </button>
+          </div>
         ) : null}
-      </span>
-      <Icon className={cn("icon-2xs shrink-0", isDirectory ? "text-token-text-secondary" : "text-token-description-foreground")} />
-      <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-      {loading ? <span className="text-[11px] text-token-description-foreground">...</span> : null}
-    </button>
+        <WorkspacePierreEditor
+          value={document.content}
+          filename={getWorkspaceFileName(document.path)}
+          language={resolveWorkspaceSourceLanguage(document.path)}
+          sourceIdentity={document.path}
+          documentVersion={document.documentVersion}
+          ariaLabel={`Source editor for ${getWorkspaceFileName(document.path)}`}
+          wrap={wrap}
+          className="min-h-0 flex-1"
+          onChange={onEdit}
+        />
+        <div className="flex h-6 shrink-0 items-center justify-end border-t-[0.5px] border-token-border px-2 text-[11px] text-token-description-foreground">
+          {document.status === "saving"
+            ? "Saving…"
+            : document.status === "dirty"
+              ? "Unsaved"
+              : "Saved"}
+        </div>
+      </div>
+    );
+  }
+
+  const isLargeReadOnlySource = (
+    presentation === "readonly-text"
+    || (presentation === "markdown" && markdownMode === "source")
+  ) && (state.metadata?.sizeBytes ?? 0) >= WORKSPACE_TEXT_EDITABLE_MAX_BYTES;
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      {isLargeReadOnlySource ? (
+        <div className="flex h-7 shrink-0 items-center border-b-[0.5px] border-token-border px-3 text-xs text-token-description-foreground">
+          Large file — read only
+        </div>
+      ) : null}
+      <LazySourceViewer
+        value={state.content}
+        ariaLabel={`Source preview for ${getWorkspaceFileName(state.path ?? "file")}`}
+        filename={getWorkspaceFileName(state.path ?? "file")}
+        language={resolveWorkspaceSourceLanguage(state.path ?? "")}
+        sourceIdentity={state.path ?? undefined}
+        lineNumbers
+        wrap={wrap}
+        className="min-h-0 flex-1 bg-token-main-surface-primary"
+      />
+    </div>
   );
 }
 
@@ -321,22 +365,66 @@ export function WorkspaceFilesPanel({
   activeSession,
   project,
   onOpenFileTab,
+  onUpdateTabState,
 }: WorkspaceFilesPanelProps) {
   const workspaceRoot = resolveWorkspaceRoot(tab, project);
   const hostId = tab.config.hostId ?? "local";
   const selectedPath = tab.config.path ?? null;
   const cwd = tab.config.cwd?.trim() || activeSession.thread?.cwd?.trim() || null;
   const queryClient = useQueryClient();
+  const initialTabStateRef = useRef(normalizeWorkspaceFilesTabState(tab.state));
   const [entriesByPath, setEntriesByPath] = useState<EntriesByPath>({});
   const [loadStateByPath, setLoadStateByPath] = useState<LoadStateByPath>({});
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set(workspaceRoot ? [""] : []));
   const [filterQuery, setFilterQuery] = useState("");
-  const [treeWidth, setTreeWidth] = useState(TREE_DEFAULT_WIDTH);
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
+  const [searchPaths, setSearchPaths] = useState<WorkspaceFileTreePath[] | null>(null);
+  const [searchPending, setSearchPending] = useState(false);
+  const searchGenerationRef = useRef(0);
+  const persistedTabStateRef = useRef<WorkspaceFilesTabState>(initialTabStateRef.current);
+  const [treeWidth, setTreeWidth] = useState(
+    initialTabStateRef.current.treeWidth ?? WORKSPACE_TREE_DEFAULT_WIDTH,
+  );
+  const [treeVisible, setTreeVisible] = useState(
+    initialTabStateRef.current.treeVisible ?? true,
+  );
+  const [markdownMode, setMarkdownMode] = useState<"source" | "rendered">(
+    initialTabStateRef.current.markdownMode ?? "source",
+  );
+  const [wordWrap, setWordWrap] = useState(
+    initialTabStateRef.current.wordWrap ?? true,
+  );
   const [previewState, setPreviewState] = useState<WorkspaceFilePreviewState>(EMPTY_PREVIEW_STATE);
+  const [documentSnapshot, setDocumentSnapshot] = useState<WorkspaceTextDocumentSnapshot | null>(null);
+  const documentControllerRef = useRef<WorkspaceTextDocumentController | null>(null);
+  const onUpdateTabStateRef = useRef(onUpdateTabState);
+  onUpdateTabStateRef.current = onUpdateTabState;
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const previewKind = previewState.metadata
-    ? resolveWorkspaceFilePreviewKind(previewState.path ?? "", null)
+  const presentation = previewState.metadata
+    ? resolveWorkspaceFilePresentation({
+      path: previewState.path ?? "",
+      contentKind: previewState.metadata.contentKind,
+      mimeType: previewState.metadata.mimeType,
+      sizeBytes: previewState.metadata.sizeBytes,
+    })
     : null;
+
+  const persistTabState = useCallback((state: WorkspaceFilesTabState) => {
+    persistedTabStateRef.current = state;
+    onUpdateTabStateRef.current?.(state);
+  }, []);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry) return;
+      setTreeWidth((current) =>
+        clampWorkspaceTreeWidth(current, entry.contentRect.width));
+    });
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, []);
 
   const loadDirectory = useCallback(async (directoryPath: string) => {
     if (!workspaceRoot) return;
@@ -366,12 +454,61 @@ export function WorkspaceFilesPanel({
   }, [loadDirectory, workspaceRoot]);
 
   useEffect(() => {
+    const normalizedQuery = filterQuery.trim();
+    const generation = searchGenerationRef.current + 1;
+    searchGenerationRef.current = generation;
+    if (!workspaceRoot || !normalizedQuery) {
+      setDebouncedSearchQuery("");
+      setSearchPaths(null);
+      setSearchPending(false);
+      return;
+    }
+
+    setSearchPending(true);
+    const timeout = window.setTimeout(() => {
+      setDebouncedSearchQuery(normalizedQuery);
+      void queryClient.fetchQuery(workspaceFileSearchQueryOptions({
+        hostId,
+        workspaceRoot,
+        query: normalizedQuery,
+      })).then((result) => {
+        if (searchGenerationRef.current !== generation) return;
+        setSearchPaths([
+          ...result.ancestorDirectories.map((path) => ({
+            path,
+            kind: "directory" as const,
+          })),
+          ...result.matches.map((match) => ({
+            path: match.path,
+            kind: "file" as const,
+          })),
+        ]);
+        setSearchPending(false);
+      }).catch((error: unknown) => {
+        if (searchGenerationRef.current !== generation) return;
+        setSearchPaths([]);
+        setSearchPending(false);
+        toast.danger(error instanceof Error ? error.message : "Unable to search files");
+      });
+    }, 150);
+    return () => window.clearTimeout(timeout);
+  }, [filterQuery, hostId, queryClient, workspaceRoot]);
+
+  useEffect(() => {
     if (!selectedPath) {
       setPreviewState(EMPTY_PREVIEW_STATE);
+      setDocumentSnapshot(null);
       return;
     }
 
     let cancelled = false;
+    let unsubscribeDocument: (() => void) | null = null;
+    let unregisterDocument: (() => void) | null = null;
+    let loadedController: WorkspaceTextDocumentController | null = null;
+    let fileWatchSubscriptionId: string | null = null;
+    let unsubscribeFileWatch: (() => void) | null = null;
+    documentControllerRef.current = null;
+    setDocumentSnapshot(null);
     setPreviewState({
       ...EMPTY_PREVIEW_STATE,
       status: "loading",
@@ -400,8 +537,13 @@ export function WorkspaceFilesPanel({
           return;
         }
 
-        const kind = resolveWorkspaceFilePreviewKind(selectedPath, null);
-        if (kind === "image" || kind === "pdf") {
+        const nextPresentation = resolveWorkspaceFilePresentation({
+          path: selectedPath,
+          contentKind: metadata.contentKind,
+          mimeType: metadata.mimeType,
+          sizeBytes: metadata.sizeBytes,
+        });
+        if (nextPresentation === "image" || nextPresentation === "pdf") {
           if (metadata.sizeBytes !== null && metadata.sizeBytes > MAX_BINARY_PREVIEW_BYTES) {
             if (!cancelled) {
               setPreviewState({
@@ -434,7 +576,11 @@ export function WorkspaceFilesPanel({
           return;
         }
 
-        if (kind === "unsupported" || metadata.contentKind === "binary") {
+        if (
+          nextPresentation === "unsupported"
+          || nextPresentation === "too-large"
+          || metadata.contentKind === "binary"
+        ) {
           if (!cancelled) {
             setPreviewState({
               status: "unsupported",
@@ -442,7 +588,9 @@ export function WorkspaceFilesPanel({
               metadata,
               content: "",
               binaryUrl: null,
-              message: `Preview is not available for ${getWorkspaceFileName(selectedPath)}.`,
+              message: nextPresentation === "too-large"
+                ? `${getWorkspaceFileName(selectedPath)} is too large to preview.`
+                : `Preview is not available for ${getWorkspaceFileName(selectedPath)}.`,
             });
           }
           return;
@@ -468,6 +616,84 @@ export function WorkspaceFilesPanel({
           maxBytes: WORKSPACE_TEXT_MAX_BYTES,
         }));
         if (!cancelled) {
+          const editableMarkdown = nextPresentation === "markdown"
+            && metadata.sizeBytes !== null
+            && metadata.sizeBytes < WORKSPACE_TEXT_EDITABLE_MAX_BYTES;
+          if (nextPresentation === "editable-text" || editableMarkdown) {
+            loadedController = new WorkspaceTextDocumentController({
+              path: selectedPath,
+              content: text.contents,
+              mtimeMs: metadata.mtimeMs,
+              draft: persistedTabStateRef.current.draft,
+            }, {
+              write: async (path, content, expectedMtimeMs) =>
+                await invoke("write-file", {
+                  hostId,
+                  path,
+                  content,
+                  expectedMtimeMs,
+                }),
+              readDisk: async (path) => {
+                const nextMetadata = await invoke("read-file-metadata", {
+                  hostId,
+                  path,
+                  contentSampleByteLimit: CONTENT_SAMPLE_BYTES,
+                  contentSampleMaxFileBytes: WORKSPACE_TEXT_MAX_BYTES,
+                });
+                const nextText = await invoke("read-file", {
+                  hostId,
+                  path,
+                  maxBytes: WORKSPACE_TEXT_MAX_BYTES,
+                });
+                return {
+                  content: nextText.contents,
+                  mtimeMs: nextMetadata.mtimeMs,
+                };
+              },
+              persistDraft: (draft) => {
+                persistTabState({
+                  ...persistedTabStateRef.current,
+                  draft,
+                });
+              },
+              clearDraft: () => {
+                const nextState = { ...persistedTabStateRef.current };
+                delete nextState.draft;
+                persistTabState(nextState);
+              },
+            });
+            documentControllerRef.current = loadedController;
+            setDocumentSnapshot(loadedController.getSnapshot());
+            unsubscribeDocument = loadedController.subscribe(() => {
+              setDocumentSnapshot(loadedController?.getSnapshot() ?? null);
+            });
+            unregisterDocument = workspaceTextDocumentRegistry.register(
+              tab.id,
+              loadedController,
+            );
+            unsubscribeFileWatch = subscribeWorkspaceFileChanges((event) => {
+              if (event.subscriptionId !== fileWatchSubscriptionId) return;
+              void loadedController?.notifyExternalChange();
+            });
+            void invoke("workspace-file-watch:start", {
+              hostId,
+              path: selectedPath,
+            }).then((result) => {
+              if (cancelled) {
+                void invoke("workspace-file-watch:stop", {
+                  subscriptionId: result.subscriptionId,
+                });
+                return;
+              }
+              fileWatchSubscriptionId = result.subscriptionId;
+              // Reconcile once after subscribing so a write between the
+              // initial read and watcher registration cannot leave a stale view.
+              void loadedController?.notifyExternalChange();
+            }).catch(() => {
+              unsubscribeFileWatch?.();
+              unsubscribeFileWatch = null;
+            });
+          }
           setPreviewState({
             status: "loaded",
             path: selectedPath,
@@ -493,47 +719,71 @@ export function WorkspaceFilesPanel({
     void loadPreview();
     return () => {
       cancelled = true;
+      unsubscribeDocument?.();
+      unregisterDocument?.();
+      unsubscribeFileWatch?.();
+      if (fileWatchSubscriptionId) {
+        void invoke("workspace-file-watch:stop", {
+          subscriptionId: fileWatchSubscriptionId,
+        });
+      }
+      if (loadedController) {
+        void loadedController.flush().finally(() => loadedController?.dispose());
+      }
+      if (documentControllerRef.current === loadedController) {
+        documentControllerRef.current = null;
+      }
     };
-  }, [hostId, queryClient, selectedPath]);
+  }, [hostId, persistTabState, queryClient, selectedPath, tab.id]);
 
-  const rows = useMemo(() => buildVisibleTreeRows({
-    rootPath: "",
-    entriesByPath,
-    expandedPaths,
-    query: filterQuery,
-  }), [entriesByPath, expandedPaths, filterQuery]);
+  const browsePaths = useMemo(() => {
+    const byPath = new Map<string, WorkspaceFileTreePath>();
+    for (const entries of Object.values(entriesByPath)) {
+      for (const entry of entries) {
+        byPath.set(entry.path, {
+          path: entry.path,
+          kind: entry.type,
+        });
+      }
+    }
+    return [...byPath.values()];
+  }, [entriesByPath]);
+  const treePaths = searchPaths ?? browsePaths;
   const selectedTreePath = selectedPath && workspaceRoot
     ? getWorkspaceRelativePath(workspaceRoot, selectedPath)
     : null;
 
-  const openTreeEntry = useCallback(async (entry: WorkspaceFileDirectoryEntry) => {
+  const openTreeEntry = useCallback(async (
+    path: string,
+    mode: "preview" | "durable",
+  ) => {
     if (!workspaceRoot) return;
-    if (entry.type === "directory") {
-      setExpandedPaths((current) => new Set([...current, entry.path]));
-      await loadDirectory(entry.path);
-      return;
-    }
     await onOpenFileTab({
-      path: resolveWorkspaceTreeFilePath(workspaceRoot, entry.path),
-      title: entry.name,
+      path: resolveWorkspaceTreeFilePath(workspaceRoot, path),
+      title: getWorkspaceFileName(path),
       panelId: tab.panelId,
+      mode,
     });
-  }, [loadDirectory, onOpenFileTab, tab.panelId, workspaceRoot]);
+  }, [onOpenFileTab, tab.panelId, workspaceRoot]);
 
-  const toggleTreeEntry = useCallback((entry: WorkspaceFileDirectoryEntry) => {
+  const expandTreeEntry = useCallback((path: string) => {
     setExpandedPaths((current) => {
       const next = new Set(current);
-      if (next.has(entry.path)) {
-        next.delete(entry.path);
-        return next;
-      }
-      next.add(entry.path);
+      next.add(path);
       return next;
     });
-    if (!entriesByPath[entry.path]) {
-      void loadDirectory(entry.path);
+    if (!entriesByPath[path]) {
+      void loadDirectory(path);
     }
   }, [entriesByPath, loadDirectory]);
+
+  const collapseTreeEntry = useCallback((path: string) => {
+    setExpandedPaths((current) => {
+      const next = new Set(current);
+      next.delete(path);
+      return next;
+    });
+  }, []);
 
   const openExternal = useCallback(() => {
     if (!selectedPath) return;
@@ -546,20 +796,101 @@ export function WorkspaceFilesPanel({
     event.preventDefault();
     const startX = event.clientX;
     const startWidth = treeWidth;
+    let latestWidth = startWidth;
     const rootWidth = rootRef.current?.getBoundingClientRect().width ?? 0;
-    const maxWidth = rootWidth > 0 ? Math.max(TREE_MIN_WIDTH, rootWidth * TREE_MAX_RATIO) : 520;
 
     const onMove = (moveEvent: PointerEvent) => {
-      const nextWidth = Math.min(maxWidth, Math.max(TREE_MIN_WIDTH, startWidth - (moveEvent.clientX - startX)));
+      const nextWidth = clampWorkspaceTreeWidth(
+        startWidth - (moveEvent.clientX - startX),
+        rootWidth,
+      );
+      latestWidth = nextWidth;
       setTreeWidth(nextWidth);
     };
     const onUp = () => {
+      persistTabState({
+        ...persistedTabStateRef.current,
+        treeWidth: latestWidth,
+      });
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
     };
     document.addEventListener("pointermove", onMove);
     document.addEventListener("pointerup", onUp, { once: true });
-  }, [treeWidth]);
+  }, [persistTabState, treeWidth]);
+
+  const resizeTreeByKeyboard = useCallback((delta: number) => {
+    const rootWidth = rootRef.current?.getBoundingClientRect().width ?? 0;
+    setTreeWidth((current) => {
+      const next = clampWorkspaceTreeWidth(current + delta, rootWidth);
+      persistTabState({
+        ...persistedTabStateRef.current,
+        treeWidth: next,
+      });
+      return next;
+    });
+  }, [persistTabState]);
+
+  const editDocument = useCallback((value: string) => {
+    documentControllerRef.current?.edit(value);
+  }, []);
+
+  const useDiskVersion = useCallback(() => {
+    documentControllerRef.current?.useDiskVersion();
+  }, []);
+
+  const keepLocalChanges = useCallback(() => {
+    documentControllerRef.current?.keepLocalChanges();
+  }, []);
+
+  const retrySave = useCallback(() => {
+    void documentControllerRef.current?.flush();
+  }, []);
+
+  const toggleTree = useCallback(() => {
+    setTreeVisible((current) => {
+      const next = !current;
+      persistTabState({
+        ...persistedTabStateRef.current,
+        treeVisible: next,
+      });
+      return next;
+    });
+  }, [persistTabState]);
+
+  const toggleWordWrap = useCallback(() => {
+    setWordWrap((current) => {
+      const next = !current;
+      persistTabState({
+        ...persistedTabStateRef.current,
+        wordWrap: next,
+      });
+      return next;
+    });
+  }, [persistTabState]);
+
+  const selectMarkdownMode = useCallback((mode: "source" | "rendered") => {
+    setMarkdownMode(mode);
+    persistTabState({
+      ...persistedTabStateRef.current,
+      markdownMode: mode,
+    });
+  }, [persistTabState]);
+
+  const copyPath = useCallback(() => {
+    if (!selectedPath) return;
+    void writeTextToClipboard(selectedPath).then((copied) => {
+      if (!copied) toast.danger("Unable to copy path");
+    });
+  }, [selectedPath]);
+
+  const copyContents = useCallback(() => {
+    const content = documentSnapshot?.content ?? previewState.content;
+    if (!content) return;
+    void writeTextToClipboard(content).then((copied) => {
+      if (!copied) toast.danger("Unable to copy contents");
+    });
+  }, [documentSnapshot?.content, previewState.content]);
 
   if (!workspaceRoot && !selectedPath) {
     return (
@@ -578,9 +909,86 @@ export function WorkspaceFilesPanel({
       data-workspace-files-session-id={activeSession.id}
     >
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex h-toolbar-pane shrink-0 items-center gap-2 border-b-[0.5px] border-token-border px-3">
+        <div
+          className="flex h-toolbar-pane shrink-0 items-center gap-2 border-b-[0.5px] border-token-border px-3"
+          data-tab-preview-pin-exempt="true"
+        >
           <Breadcrumb cwd={cwd} workspaceRoot={workspaceRoot} selectedPath={selectedPath} />
           <div className="ml-auto flex items-center gap-1">
+            <button
+              type="button"
+              className="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-token-text-secondary hover:bg-token-list-hover-background hover:text-token-text-primary disabled:opacity-40"
+              onClick={openExternal}
+              disabled={!selectedPath}
+            >
+              <ExternalLink className="icon-2xs" />
+              Open
+            </button>
+            <NodexDropdownMenu
+              align="end"
+              contentWidth="menuNarrow"
+              triggerButton={(
+                <button
+                  type="button"
+                  aria-label="File options"
+                  className="flex aspect-square h-token-button-composer items-center justify-center rounded-lg text-token-text-tertiary hover:bg-token-list-hover-background hover:text-token-text-primary"
+                >
+                  <MoreHorizontal className="icon-2xs" />
+                </button>
+              )}
+            >
+              {presentation === "markdown" ? (
+                <>
+                  <NodexDropdownItem
+                    data-tab-preview-pin-exempt="true"
+                    onSelect={() => selectMarkdownMode("source")}
+                    rightSlot={markdownMode === "source" ? <Check className="icon-2xs" /> : null}
+                  >
+                    Source
+                  </NodexDropdownItem>
+                  <NodexDropdownItem
+                    data-tab-preview-pin-exempt="true"
+                    onSelect={() => selectMarkdownMode("rendered")}
+                    rightSlot={markdownMode === "rendered" ? <Check className="icon-2xs" /> : null}
+                  >
+                    Rendered Markdown
+                  </NodexDropdownItem>
+                  <NodexDropdownSeparator />
+                </>
+              ) : null}
+              <NodexDropdownItem
+                data-tab-preview-pin-exempt="true"
+                onSelect={toggleWordWrap}
+                rightSlot={wordWrap ? <Check className="icon-2xs" /> : null}
+                disabled={previewState.status !== "loaded" || previewState.binaryUrl !== null}
+              >
+                Word wrap
+              </NodexDropdownItem>
+              <NodexDropdownItem
+                data-tab-preview-pin-exempt="true"
+                leftSlot={<Copy className="icon-2xs" />}
+                onSelect={copyPath}
+                disabled={!selectedPath}
+              >
+                Copy path
+              </NodexDropdownItem>
+              <NodexDropdownItem
+                data-tab-preview-pin-exempt="true"
+                leftSlot={<Copy className="icon-2xs" />}
+                onSelect={copyContents}
+                disabled={
+                  previewState.status !== "loaded"
+                  || previewState.binaryUrl !== null
+                  || !(documentSnapshot?.content ?? previewState.content)
+                }
+              >
+                Copy contents
+              </NodexDropdownItem>
+              <NodexDropdownSeparator />
+              <NodexDropdownItem data-tab-preview-pin-exempt="true" onSelect={toggleTree}>
+                {treeVisible ? "Hide file tree" : "Show file tree"}
+              </NodexDropdownItem>
+            </NodexDropdownMenu>
             <NodexTooltip tooltipContent="Refresh files" delayOpen>
               <button
                 type="button"
@@ -591,32 +999,75 @@ export function WorkspaceFilesPanel({
                 <RefreshCw className="icon-2xs" />
               </button>
             </NodexTooltip>
-            <NodexTooltip tooltipContent="Open in Finder" delayOpen>
+            <NodexTooltip
+              tooltipContent={treeVisible ? "Hide file tree" : "Show file tree"}
+              delayOpen
+            >
               <button
                 type="button"
                 className="flex aspect-square h-token-button-composer items-center justify-center rounded-lg text-token-text-tertiary hover:bg-token-list-hover-background hover:text-token-text-primary"
-                onClick={openExternal}
-                disabled={!selectedPath}
+                onClick={toggleTree}
+                disabled={!workspaceRoot}
               >
-                <ExternalLink className="icon-2xs" />
+                {treeVisible
+                  ? <PanelRightClose className="icon-2xs" />
+                  : <PanelRightOpen className="icon-2xs" />}
               </button>
             </NodexTooltip>
           </div>
         </div>
         <div className="min-h-0 flex-1">
-          <WorkspaceFilePreview state={previewState} previewKind={previewKind} onOpenExternal={openExternal} />
+          <WorkspaceFilePreview
+            state={previewState}
+            presentation={presentation}
+            document={documentSnapshot}
+            onOpenExternal={openExternal}
+            onEdit={editDocument}
+            onUseDisk={useDiskVersion}
+            onKeepLocal={keepLocalChanges}
+            onRetrySave={retrySave}
+            markdownMode={markdownMode}
+            wrap={wordWrap}
+          />
         </div>
       </div>
 
-      {workspaceRoot ? <aside
+      {workspaceRoot && treeVisible ? <aside
         className="relative flex h-full min-h-0 shrink-0 flex-col border-l-[0.5px] border-token-border bg-token-main-surface-primary"
-        style={{ width: treeWidth, maxWidth: "60%" } satisfies CSSProperties}
+        style={{
+          width: treeWidth,
+          maxWidth: `${WORKSPACE_TREE_MAX_RATIO * 100}%`,
+        } satisfies CSSProperties}
+        data-tab-preview-pin-exempt="true"
       >
         <div
           role="separator"
           aria-orientation="vertical"
+          aria-label="Resize file tree"
+          aria-valuemin={WORKSPACE_TREE_MIN_WIDTH}
+          aria-valuemax={Math.max(
+            WORKSPACE_TREE_MIN_WIDTH,
+            Math.round(
+              (rootRef.current?.getBoundingClientRect().width ?? 0)
+                * WORKSPACE_TREE_MAX_RATIO,
+            ),
+          )}
+          aria-valuenow={Math.round(treeWidth)}
+          tabIndex={0}
           className="absolute inset-y-0 left-0 z-10 w-4 -translate-x-2 cursor-col-resize"
           onPointerDown={startResize}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowLeft") {
+              event.preventDefault();
+              resizeTreeByKeyboard(10);
+            } else if (event.key === "ArrowRight") {
+              event.preventDefault();
+              resizeTreeByKeyboard(-10);
+            } else if (event.key === "Home") {
+              event.preventDefault();
+              resizeTreeByKeyboard(WORKSPACE_TREE_MIN_WIDTH - treeWidth);
+            }
+          }}
         >
           <div className="mx-auto h-full w-px bg-gradient-to-b from-transparent via-token-foreground/25 to-transparent" />
         </div>
@@ -628,35 +1079,30 @@ export function WorkspaceFilesPanel({
             <SearchIcon className="icon-2xs shrink-0 text-token-description-foreground" />
             <input
               id="workspace-directory-tree-search"
+              aria-label="Filter files"
               value={filterQuery}
               onInput={(event) => setFilterQuery(event.currentTarget.value)}
-              placeholder="Filter files..."
+              placeholder="Filter files…"
               className="min-w-0 flex-1 bg-transparent text-sm text-token-text-primary outline-none placeholder:text-token-description-foreground"
             />
           </label>
         </div>
-        <div
-          role="tree"
-          aria-label="Workspace files"
-          className="min-h-0 flex-1 overflow-auto px-1 pb-2"
-          style={{
-            "--trees-item-height": "28px",
-            "--trees-density-override": "1",
-          } as CSSProperties}
-        >
-          {rows.length > 0 ? rows.map((node) => (
-            <WorkspaceFileTreeRow
-              key={node.entry.path}
-              node={node}
+        <div className="min-h-0 flex-1 px-1 pb-2">
+          {treePaths.length > 0 ? (
+            <WorkspaceFileTree
+              paths={treePaths}
+              expandedPaths={expandedPaths}
               selectedPath={selectedTreePath}
-              expanded={expandedPaths.has(node.entry.path)}
-              loading={loadStateByPath[node.entry.path] === "loading"}
-              onToggle={toggleTreeEntry}
+              searchQuery={debouncedSearchQuery}
+              onExpand={expandTreeEntry}
+              onCollapse={collapseTreeEntry}
               onOpen={openTreeEntry}
             />
-          )) : (
+          ) : (
             <div className="px-2 py-4 text-sm text-token-text-secondary">
-              {loadStateByPath[""] === "loading" ? "Loading files..." : "No files found."}
+              {loadStateByPath[""] === "loading" || searchPending
+                ? "Loading files..."
+                : "No files found."}
             </div>
           )}
         </div>

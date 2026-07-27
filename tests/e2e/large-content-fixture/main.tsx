@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { useRef, useState } from "react";
 import { OpenSourceLicensesSettingsPage } from "@/components/workbench/open-source-licenses-settings-page";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
-import { LazyVirtualizedTextViewer } from "@/components/ui/lazy-virtualized-text-viewer";
+import { LazySourceViewer } from "@/components/ui/lazy-source-viewer";
 import { WorkspaceFilesPanel } from "@/features/workspace-files/workspace-files-panel";
 import { ThreadStartProgressPanel } from "@/features/local-conversation/view/local-conversation-thread-body-owner";
 import { ToolCallRawDialog } from "@/features/local-conversation/view/shared/tools/tool-call-inspection";
@@ -203,7 +203,7 @@ function FixtureApp() {
               >
                 Run {scenario}
               </button>
-              <LazyVirtualizedTextViewer
+              <LazySourceViewer
                 value={"warm viewport reader\n".repeat(100)}
                 ariaLabel="Warm viewport reader"
                 className="min-h-0 flex-1"

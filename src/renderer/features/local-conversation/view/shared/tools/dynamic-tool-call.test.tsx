@@ -1,11 +1,42 @@
-import { describe, expect, test } from "vitest";
-import { act, fireEvent, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../../components/ui/tooltip";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
-import { render, textContent } from "../../../../../test/dom";
+import {
+  render,
+  textContent,
+  textContentIncludingShadowRoots,
+} from "../../../../../test/dom";
 import { DynamicToolCall } from "./dynamic-tool-call";
+
+vi.mock("../../../../../lib/use-theme", () => ({
+  useTheme: () => ({ resolved: "dark" }),
+}));
+
+const originalClipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+let clipboardWrites: string[] = [];
+
+beforeEach(() => {
+  clipboardWrites = [];
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: async (value: string) => {
+        clipboardWrites.push(value);
+      },
+    },
+  });
+});
+
+afterEach(() => {
+  if (originalClipboardDescriptor) {
+    Object.defineProperty(navigator, "clipboard", originalClipboardDescriptor);
+    return;
+  }
+  Reflect.deleteProperty(navigator, "clipboard");
+});
 
 function activityText(container: HTMLElement): string {
   const shimmer = container.querySelector(".loading-shimmer-pure-text");
@@ -377,9 +408,16 @@ describe("DynamicToolCall", () => {
     const dialog = getByRole("dialog");
     expect(textContent(dialog).includes("Raw nodex_app.edit_document tool call")).toBe(true);
     await waitFor(() => {
-      expect(textContent(dialog).includes('"type": "dynamicToolCall"')).toBe(true);
-      expect(textContent(dialog).includes('"id": "dynamic-1"')).toBe(true);
-      expect(textContent(dialog).includes('"durationMs": 37')).toBe(true);
+      const rawText = textContentIncludingShadowRoots(dialog);
+      expect(rawText.includes('"type": "dynamicToolCall"')).toBe(true);
+      expect(rawText.includes('"id": "dynamic-1"')).toBe(true);
+    });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Copy" }));
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(clipboardWrites.at(-1)?.includes('"durationMs": 37')).toBe(true);
     });
   });
 
@@ -470,7 +508,15 @@ describe("DynamicToolCall", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(textContent(getByRole("dialog")).includes('"oldMarkdown": "Status: Draft"')).toBe(true);
+      expect(textContentIncludingShadowRoots(getByRole("dialog")).includes('"pageId": "page-launch"'))
+        .toBe(true);
+    });
+    await act(async () => {
+      fireEvent.click(within(getByRole("dialog")).getByRole("button", { name: "Copy" }));
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(clipboardWrites.at(-1)?.includes('"oldMarkdown": "Status: Draft"')).toBe(true);
     });
   });
 

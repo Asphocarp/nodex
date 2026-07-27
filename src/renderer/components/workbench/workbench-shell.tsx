@@ -70,11 +70,13 @@ import {
 import { ContentSearchSurface } from "@/features/content-search/content-search-surface";
 import {
   WorkspaceFilesPanel,
+  decideWorkspaceFileTabOpen,
   getWorkspaceFileDomTabId,
   getWorkspaceFileName,
   isWorkspacePathInsideRoot,
   type WorkspaceFilesTab,
 } from "@/features/workspace-files";
+import { workspaceTextDocumentRegistry } from "@/features/workspace-files/workspace-text-document-controller";
 import { CommandPalette } from "./workbench-shell-deps";
 import { SettingsRouteShell } from "./workbench-settings-overlay";
 import { buildSettingsPath } from "./workbench-settings-routes";
@@ -105,7 +107,7 @@ import { NodexButton, NodexIconButton } from "@/components/ui/button";
 import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
 import { NodexTooltip, NodexTooltipProvider } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
-import { LazyVirtualizedTextViewer } from "@/components/ui/lazy-virtualized-text-viewer";
+import { LazySourceViewer } from "@/components/ui/lazy-source-viewer";
 import {
   NodexDialog,
   NodexDialogAction,
@@ -2214,6 +2216,7 @@ function makePreviewWorkspaceFileTab(
   panelId: PanelId,
   input: {
     cwd: string | null;
+    leafId: string;
     path: string;
     title: string;
     workspaceRoot: string | null;
@@ -2222,7 +2225,7 @@ function makePreviewWorkspaceFileTab(
   const now = new Date().toISOString();
   const projectId = session.projectId;
   return {
-    id: `preview:${session.id}:${panelId}:files:${input.path}`,
+    id: `preview:${session.id}:${panelId}:${input.leafId}:files:${input.path}`,
     sessionId: session.id,
     projectId,
     browserTabId: null,
@@ -4874,6 +4877,13 @@ export function WorkbenchShell({
     const closingPageEditorSessionKey = closingTab?.kind === "page_stage"
       ? makePageEditorSessionKey(activeSession.id, closingTab.id)
       : null;
+    if (closingTab?.kind === "files") {
+      const saved = await workspaceTextDocumentRegistry.flush(closingTab.id);
+      if (!saved) {
+        toast.danger("Resolve the file conflict before closing this tab");
+        return;
+      }
+    }
     if (
       closingTab?.kind === "terminal"
       && "terminalSessionId" in closingTab.config
@@ -4937,6 +4947,13 @@ export function WorkbenchShell({
     const previewTab = previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId, targetLeafId)]
       ?? previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId)]
       ?? null;
+    if (previewTab?.kind === "files") {
+      const saved = await workspaceTextDocumentRegistry.flush(previewTab.id);
+      if (!saved) {
+        toast.danger("Resolve the file conflict before closing this tab");
+        return;
+      }
+    }
     if (previewTab?.kind === "browser") {
       const browserTabId = requireWorkbenchBrowserTabProjectionId(previewTab);
       const durableIdentityStillReferenced = activeSession.tabs.some((tab) =>
@@ -5743,6 +5760,11 @@ export function WorkbenchShell({
   ) => {
     if (!activeSession) return;
     if (targetPanelId !== "right" && targetPanelId !== "bottom") return;
+    const saved = await workspaceTextDocumentRegistry.flush(tabId);
+    if (!saved) {
+      toast.danger("Resolve the file conflict before moving this tab");
+      return;
+    }
     const sideChatTab = (sideChatTabsBySession[activeSession.id] ?? []).find((tab) => tab.id === tabId);
     if (sideChatTab) {
       const nextLeafId = targetLeafId ?? resolveSessionPanelActiveLeafId(activeSession, targetPanelId);
@@ -6373,10 +6395,12 @@ export function WorkbenchShell({
     path: string;
     title: string;
     panelId: PanelId;
+    mode?: "preview" | "durable";
     workspaceRoot?: string | null;
   }) => {
     if (!activeSession) return false;
     const sessionProjectId = activeSession.projectId;
+    const leafId = resolveSessionPanelActiveLeafId(activeSession, input.panelId);
     const project = sessionProjectId === null
       ? null
       : projects.find((candidate) => candidate.id === sessionProjectId) ?? null;
@@ -6391,23 +6415,111 @@ export function WorkbenchShell({
       ?? matchingProjectRoot
       ?? (project === null ? normalizeOptionalPath(getWorkspaceFileParentPath(input.path)) : undefined)
       ?? null;
-    const existing = activeSession.tabs.find((tab) =>
-      tab.kind === "files"
-      && tab.panelId === input.panelId
-      && "hostId" in tab.config
-      && tab.config.hostId === (input.hostId ?? "local")
-      && "path" in tab.config
-      && tab.config.path === input.path,
+    const activeTabId = resolveSessionPanelActiveTabId(activeSession, input.panelId);
+    const leaf = findWorkbenchPanelLeaf(activeSession.panels[input.panelId].layout, leafId);
+    const durableFilesTabs = activeSession.tabs.flatMap((tab) => {
+      if (
+        tab.kind !== "files"
+        || tab.panelId !== input.panelId
+        || !leaf?.tabIds.includes(tab.id)
+      ) {
+        return [];
+      }
+      return [{
+        id: tab.id,
+        hostId: "local" as const,
+        path: "path" in tab.config && typeof tab.config.path === "string"
+          ? tab.config.path
+          : null,
+      }];
+    });
+    const renderablePreviewTab = getRenderablePanelPreviewTab(
+      activeSession,
+      input.panelId,
+      leafId,
+      previewTabsByPanel,
     );
-    if (existing) {
-      await setActivePanelTab(input.panelId, existing.id, { openPanel: true });
+    const filesPreviewTab = renderablePreviewTab?.kind === "files"
+      ? {
+        id: renderablePreviewTab.id,
+        hostId: "local" as const,
+        path: typeof renderablePreviewTab.config.path === "string"
+          ? renderablePreviewTab.config.path
+          : null,
+      }
+      : null;
+    const decision = decideWorkspaceFileTabOpen({
+      activeDurableTabId: activeTabId,
+      durableTabs: durableFilesTabs,
+      hostId: input.hostId ?? "local",
+      mode: input.mode ?? "preview",
+      path: input.path,
+      previewTab: filesPreviewTab,
+    });
+    const fileConfig = {
+      projectId: activeSession.projectId,
+      hostId: input.hostId ?? "local",
+      cwd,
+      workspaceRoot,
+      path: input.path,
+    } as const;
+    if (decision.kind === "focus-durable") {
+      if (filesPreviewTab) {
+        const saved = await workspaceTextDocumentRegistry.flush(filesPreviewTab.id);
+        if (!saved) {
+          toast.danger("Resolve the file conflict before opening another file");
+          return false;
+        }
+      }
+      clearPanelPreviewTab(activeSession.id, input.panelId, leafId);
+      await setActivePanelTab(input.panelId, decision.tabId, { openPanel: true });
+      return true;
+    }
+    if (decision.kind === "focus-preview") {
+      await ensureActivePanelOpenWithoutRefresh(input.panelId);
+      return true;
+    }
+    if (decision.kind === "replace-empty") {
+      updateSessionViewTab(decision.tabId, {
+        title: input.title || getWorkspaceFileName(input.path),
+        config: fileConfig,
+      });
+      await ensureActivePanelOpenWithoutRefresh(input.panelId);
+      return true;
+    }
+    if (decision.kind === "pin-preview") {
+      await pinPreviewTab(input.panelId, decision.tabId, leafId);
       return true;
     }
 
-    const leafId = resolveSessionPanelActiveLeafId(activeSession, input.panelId);
+    if (decision.replacingPreviewTabId) {
+      const saved = await workspaceTextDocumentRegistry.flush(
+        decision.replacingPreviewTabId,
+      );
+      if (!saved) {
+        toast.danger("Resolve the file conflict before opening another file");
+        return false;
+      }
+    }
+
+    if (decision.kind === "create-durable") {
+      clearPanelPreviewTab(activeSession.id, input.panelId, leafId);
+      createSessionViewTab({
+        sessionId: activeSession.id,
+        panelId: input.panelId,
+        targetLeafId: leafId,
+        kind: "files",
+        title: input.title || getWorkspaceFileName(input.path),
+        config: fileConfig,
+      });
+      await ensureActivePanelOpenWithoutRefresh(input.panelId);
+      return true;
+    }
+
     setPreviewTabsByPanel((current) => ({
       ...current,
       [makePanelPreviewKey(activeSession.id, input.panelId, leafId)]: makePreviewWorkspaceFileTab(activeSession, input.panelId, {
+        leafId,
         path: input.path,
         title: input.title || getWorkspaceFileName(input.path),
         cwd,
@@ -6417,7 +6529,18 @@ export function WorkbenchShell({
     await ensureActivePanelOpenWithoutRefresh(input.panelId);
     await refreshProjectSessions(sessionProjectId);
     return true;
-  }, [activeSession, ensureActivePanelOpenWithoutRefresh, projects, refreshProjectSessions, setActivePanelTab]);
+  }, [
+    activeSession,
+    clearPanelPreviewTab,
+    createSessionViewTab,
+    ensureActivePanelOpenWithoutRefresh,
+    pinPreviewTab,
+    previewTabsByPanel,
+    projects,
+    refreshProjectSessions,
+    setActivePanelTab,
+    updateSessionViewTab,
+  ]);
 
   const openPageTab = useCallback<OpenPageTabHandler>(async (projectId, pageId, titleSnapshot, options) => {
     if (!activeSession || activeSession.projectId === null) {
@@ -7565,6 +7688,10 @@ export function WorkbenchShell({
       return await focusOrCreateProjectDbViewTab(panelId, options.leafId);
     }
     if (!isWorkbenchTabKind(kind)) return false;
+    if (kind === "files") {
+      await createManualTab(kind, panelId, options.leafId);
+      return true;
+    }
     if (isPreviewableWorkbenchTabKind(kind)) {
       await openPreviewTab(kind, panelId, options.leafId);
       return true;
@@ -13308,7 +13435,7 @@ function ProcessOutputPanelTabView({ tab }: { tab: ProcessOutputPanelTab }) {
         ) : null}
       </div>
       {displayOutput ? (
-        <LazyVirtualizedTextViewer
+        <LazySourceViewer
           value={displayOutput}
           ariaLabel={`Process output for ${displayCommand}`}
           sourceIdentity={tab.terminalSessionId ?? `${tab.threadId}:${tab.itemId}`}
@@ -13822,7 +13949,12 @@ function WorkbenchTabProjectionPanel({
   }) => void;
   onLeavePageStage: (snapshot: PageStageSessionSnapshot) => void;
   onOpenPageTab: OpenPageTabHandler;
-  onOpenFileTab: (input: { path: string; title: string; panelId: PanelId }) => Promise<unknown>;
+  onOpenFileTab: (input: {
+    path: string;
+    title: string;
+    panelId: PanelId;
+    mode?: "preview" | "durable";
+  }) => Promise<unknown>;
   onEnsureBlankSessionForProject: (
     projectId: string,
     options?: { select?: boolean },
@@ -13964,6 +14096,9 @@ function WorkbenchTabProjectionPanel({
         activeSession={activeSession}
         project={projects.find((item) => item.id === tab.projectId) ?? null}
         onOpenFileTab={onOpenFileTab}
+        onUpdateTabState={(state) => {
+          onUpdateTab(tab.id, { state });
+        }}
       />
     );
   }

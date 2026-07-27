@@ -6,9 +6,9 @@ import { MarkdownRenderer } from "./markdown/markdown-renderer";
 import { useClippedFocusSafety } from "./use-clipped-focus-safety";
 import { useContentOverflow } from "./use-content-overflow";
 import {
-  LazyVirtualizedTextViewer,
-  preloadVirtualizedTextViewer,
-} from "@/components/ui/lazy-virtualized-text-viewer";
+  LazySourceViewer,
+  preloadSourceViewer,
+} from "@/components/ui/lazy-source-viewer";
 import {
   NodexDialog,
   NodexDialogBody,
@@ -52,8 +52,8 @@ function LargeUserMessageText({
         type="button"
         className="text-size-chat cursor-interaction text-token-description-foreground hover:text-token-foreground"
         onClick={() => setDialogOpen(true)}
-        onPointerEnter={preloadVirtualizedTextViewer}
-        onFocus={preloadVirtualizedTextViewer}
+        onPointerEnter={preloadSourceViewer}
+        onFocus={preloadSourceViewer}
       >
         View full message
       </button>
@@ -70,7 +70,7 @@ function LargeUserMessageText({
               </div>
             </NodexDialogHeader>
             <NodexDialogBody className="min-h-0 flex-1 !pt-0">
-              <LazyVirtualizedTextViewer
+              <LazySourceViewer
                 value={text}
                 ariaLabel="Full user message"
                 className="min-h-0 flex-1"

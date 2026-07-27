@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { LazyVirtualizedTextViewer } from "@/components/ui/lazy-virtualized-text-viewer";
+import { LazySourceViewer } from "@/components/ui/lazy-source-viewer";
 
 interface PageStageRawContentProps {
   content: string;
@@ -30,7 +30,7 @@ export function PageStageRawContent({
       </div>
 
       {hasContent ? (
-        <LazyVirtualizedTextViewer
+        <LazySourceViewer
           value={content}
           ariaLabel="Raw page source"
           className="min-h-0 flex-1"

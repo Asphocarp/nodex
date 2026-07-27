@@ -61,7 +61,12 @@ import type {
   SidebarCollapsibleSectionId,
   SidebarCollapsibleSectionsState,
 } from "@/lib/use-workbench-state";
-import { render, settleAsyncRender, textContent } from "../../test/dom";
+import {
+  render,
+  settleAsyncRender,
+  textContent,
+  textContentIncludingShadowRoots,
+} from "../../test/dom";
 import { TestQueryProvider } from "../../test/query";
 import { RendererStateProvider } from "../../app-providers";
 import { NodexModalHost } from "@/lib/modal-registry";
@@ -3431,7 +3436,7 @@ async function pointerDownAndSettle(element: HTMLElement): Promise<void> {
 }
 
 function getFilesPreviewInteractionTarget(screen: ReturnType<typeof renderWorkbench>): HTMLElement {
-  return screen.queryByPlaceholderText("Filter files...")
+  return screen.queryByPlaceholderText("Filter files…")
     ?? screen.getByText("No file or workspace folder is available.");
 }
 
@@ -8894,7 +8899,7 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(restoredExpandButton.getAttribute("aria-pressed")).toBe("false");
   });
 
-  test("previewable right-panel add actions pin only after panel interaction", async () => {
+  test("right-panel Files action creates a durable empty tab and exempts navigation from pinning", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
@@ -8908,21 +8913,23 @@ describe(`workbench session shell / ${scope}`, () => {
     await clickMenuItem(menu, "Files");
 
     expect(screen.getByRole("tab", { name: "Files" }) !== null).toBe(true);
-    expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBe(true);
-    expect(invokeCalls.some((call) => call[0] === "window-session-view:tab-create")).toBe(false);
-
-    await pointerDownAndSettle(getFilesPreviewInteractionTarget(screen));
     await waitFor(() => {
       expect(invokeCalls.some((call) =>
         call[0] === "window-session-view:tab-create"
         && JSON.stringify(call[1]).includes('"kind":"files"')
       )).toBe(true);
     });
-
-    expect(invokeCalls.some((call) =>
+    expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]')).toBe(null);
+    const fileTabCreateCount = invokeCalls.filter((call) =>
       call[0] === "window-session-view:tab-create"
       && JSON.stringify(call[1]).includes('"kind":"files"')
-    )).toBe(true);
+    ).length;
+
+    await pointerDownAndSettle(getFilesPreviewInteractionTarget(screen));
+    expect(invokeCalls.filter((call) =>
+      call[0] === "window-session-view:tab-create"
+      && JSON.stringify(call[1]).includes('"kind":"files"')
+    )).toHaveLength(fileTabCreateCount);
   });
 
   test("proposed-plan side panel opens as a renderer-local singleton tab", async () => {
@@ -9136,7 +9143,7 @@ describe(`workbench session shell / ${scope}`, () => {
     });
   });
 
-  test("opening another preview tab replaces the prior same-panel preview", async () => {
+  test("opening a Browser preview preserves the durable empty Files tab", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
@@ -9149,11 +9156,13 @@ describe(`workbench session shell / ${scope}`, () => {
     const browserMenu = await openPanelMenu(screen, "Open side panel tab");
     await clickMenuItem(browserMenu, "Browser");
 
-    await waitFor(() => {
-      expect(screen.queryByRole("tab", { name: "Files" })).toBe(null);
-    });
+    expect(screen.getByRole("tab", { name: "Files" }) !== null).toBe(true);
     expect(screen.getByRole("tab", { name: "Browser" }) !== null).toBe(true);
-    expect(invokeCalls.some((call) => call[0] === "window-session-view:tab-create")).toBe(false);
+    expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBe(true);
+    expect(invokeCalls.some((call) =>
+      call[0] === "window-session-view:tab-create"
+      && JSON.stringify(call[1]).includes('"kind":"files"')
+    )).toBe(true);
   });
 
   test("empty right panel renders Codex-style new-tab actions", async () => {
@@ -9577,8 +9586,36 @@ describe(`workbench session shell / ${scope}`, () => {
     )).toBe(true);
   });
 
+  test("Files action creates a durable empty tab whose navigation does not trigger preview pinning", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+    await openBottomPanel(screen);
+
+    const menu = await openPanelMenu(screen, "Open bottom panel tab");
+    await clickMenuItem(menu, "Files");
+    await waitFor(() => {
+      expect(invokeCalls.some((call) =>
+        call[0] === "window-session-view:tab-create"
+        && JSON.stringify(call[1]).includes('"panelId":"bottom"')
+        && JSON.stringify(call[1]).includes('"kind":"files"')
+      )).toBe(true);
+    });
+
+    expect(screen.getByRole("tab", { name: "Files" }) !== null).toBe(true);
+    expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]')).toBe(null);
+    const tabCreateCount = invokeCalls.filter((call) =>
+      call[0] === "window-session-view:tab-create"
+      && JSON.stringify(call[1]).includes('"kind":"files"')
+    ).length;
+    await pointerDownAndSettle(getFilesPreviewInteractionTarget(screen));
+    expect(invokeCalls.filter((call) =>
+      call[0] === "window-session-view:tab-create"
+      && JSON.stringify(call[1]).includes('"kind":"files"')
+    )).toHaveLength(tabCreateCount);
+  });
+
   for (const previewCase of [
-    { label: "Files", kind: "files", pinText: "Filter files..." },
     { label: "Browser", kind: "browser", pinText: "Browser is available in the desktop app" },
   ] as const) {
     test(`bottom ${previewCase.label} preview mounts and pins after interaction`, async () => {
@@ -9594,10 +9631,7 @@ describe(`workbench session shell / ${scope}`, () => {
       expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBe(true);
       expect(invokeCalls.some((call) => call[0] === "window-session-view:tab-create")).toBe(false);
 
-      const pinTarget = previewCase.kind === "files"
-        ? getFilesPreviewInteractionTarget(screen)
-        : screen.getByText(previewCase.pinText);
-      await pointerDownAndSettle(pinTarget);
+      await pointerDownAndSettle(screen.getByText(previewCase.pinText));
       await waitFor(() => {
         expect(invokeCalls.some((call) =>
           call[0] === "window-session-view:tab-create"
@@ -10190,7 +10224,7 @@ describe(`workbench session shell / ${scope}`, () => {
     fireEvent.click(screen.getByText("bun run dev"));
     await waitFor(() => {
       expect(screen.container.querySelector("[data-process-output-panel-tab]") !== null).toBe(true);
-      expect(textContent(screen.container).includes("ready in 421ms")).toBe(true);
+      expect(textContentIncludingShadowRoots(screen.container).includes("ready in 421ms")).toBe(true);
     });
   });
 
@@ -10229,8 +10263,11 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
 
     expect(screen.getByRole("tab", { name: "Files" }) !== null).toBe(true);
-    expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBe(true);
-    expect(invokeCalls.some((call) => call[0] === "window-session-view:tab-create")).toBe(false);
+    expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]')).toBe(null);
+    expect(invokeCalls.some((call) =>
+      call[0] === "window-session-view:tab-create"
+      && JSON.stringify(call[1]).includes('"kind":"files"')
+    )).toBe(true);
   });
 
   test("right-panel shortcuts create tabs and ignore editable targets", async () => {

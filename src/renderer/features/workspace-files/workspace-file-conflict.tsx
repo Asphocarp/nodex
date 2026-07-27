@@ -1,0 +1,87 @@
+import { parseDiffFromFile } from "@pierre/diffs";
+import { FileDiff } from "@pierre/diffs/react";
+import { useMemo } from "react";
+import {
+  NODEX_DIFF_HOST_CLASS,
+  getNodexDiffHostStyle,
+  getNodexReviewDiffOptions,
+} from "@/lib/diff-presentation";
+import { useTheme } from "@/lib/use-theme";
+import { getSourceContentVersion } from "@/lib/source-content-version";
+
+interface WorkspaceFileConflictProps {
+  readonly filename: string;
+  readonly diskValue: string;
+  readonly localValue: string;
+  readonly onUseDisk: () => void;
+  readonly onKeepLocal: () => void;
+}
+
+export function WorkspaceFileConflict({
+  filename,
+  diskValue,
+  localValue,
+  onUseDisk,
+  onKeepLocal,
+}: WorkspaceFileConflictProps) {
+  const { resolved } = useTheme();
+  const fileDiff = useMemo(() => parseDiffFromFile(
+    {
+      name: filename,
+      contents: diskValue,
+      cacheKey: `${filename}:disk:${getSourceContentVersion(diskValue)}`,
+    },
+    {
+      name: filename,
+      contents: localValue,
+      cacheKey: `${filename}:local:${getSourceContentVersion(localValue)}`,
+    },
+  ), [diskValue, filename, localValue]);
+  const options = useMemo(
+    () => getNodexReviewDiffOptions(resolved, true, {
+      diffStyle: "split",
+      wrap: true,
+      collapsed: false,
+    }),
+    [resolved],
+  );
+  const style = useMemo(() => getNodexDiffHostStyle(resolved), [resolved]);
+
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary">
+      <div className="flex min-h-12 shrink-0 items-center gap-3 border-b-[0.5px] border-token-border px-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-token-text-primary">
+            File changed on disk
+          </div>
+          <div className="truncate text-xs text-token-text-secondary">
+            Compare the disk version (left) with your local changes (right).
+          </div>
+        </div>
+        <button
+          type="button"
+          className="h-7 rounded-md px-2 text-xs text-token-text-secondary hover:bg-token-list-hover-background hover:text-token-text-primary"
+          onClick={onUseDisk}
+        >
+          Use disk version
+        </button>
+        <button
+          type="button"
+          className="h-7 rounded-md bg-token-foreground px-2 text-xs text-token-side-bar-background hover:opacity-90"
+          onClick={onKeepLocal}
+        >
+          Keep my changes
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto">
+        <FileDiff
+          fileDiff={fileDiff}
+          options={options}
+          disableWorkerPool
+          className={`${NODEX_DIFF_HOST_CLASS} min-h-full`}
+          style={style}
+        />
+      </div>
+    </div>
+  );
+}

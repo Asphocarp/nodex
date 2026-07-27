@@ -1,6 +1,10 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { waitFor } from "@testing-library/react";
-import { render, textContent } from "../../../test/dom";
+import { render } from "../../../test/dom";
+
+vi.mock("@/lib/use-theme", () => ({
+  useTheme: () => ({ resolved: "dark" }),
+}));
 
 describe("page stage raw content", () => {
   test("renders exact raw content in a read-only chrome", async () => {
@@ -12,7 +16,12 @@ describe("page stage raw content", () => {
     expect(getByText("Raw format").textContent).toBe("Raw format");
     expect(getByText("Read-only").textContent).toBe("Read-only");
     await waitFor(() => {
-      expect(textContent(container).includes('<image source="nodex://assets/demo.png" />')).toBe(true);
+      const source = container.querySelector("diffs-container");
+      expect(
+        source?.shadowRoot?.textContent.includes(
+          '<image source="nodex://assets/demo.png" />',
+        ),
+      ).toBe(true);
     });
   });
 

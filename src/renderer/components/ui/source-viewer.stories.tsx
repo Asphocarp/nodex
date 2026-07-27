@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import { VirtualizedTextViewer } from "./virtualized-text-viewer";
+import { SourceViewer } from "./source-viewer";
 
 const source = Array.from({ length: 10_000 }, (_, index) => (
   `${String(index + 1).padStart(5, "0")}  export const value${index} = ${index};`
@@ -21,9 +21,10 @@ function ViewerStory() {
           Wrap
         </button>
       </div>
-      <VirtualizedTextViewer
+      <SourceViewer
         value={source}
         ariaLabel="Large source example"
+        filename="large-source.ts"
         lineNumbers
         wrap={wrap}
         className="min-h-0 flex-1"
@@ -33,10 +34,10 @@ function ViewerStory() {
 }
 
 const meta = {
-  title: "Shared UI/Virtualized Text Viewer",
-  component: VirtualizedTextViewer,
+  title: "Shared UI/Source Viewer",
+  component: SourceViewer,
   parameters: { layout: "fullscreen" },
-} satisfies Meta<typeof VirtualizedTextViewer>;
+} satisfies Meta<typeof SourceViewer>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -50,6 +51,7 @@ export const Wrapped: Story = {
   args: {
     value: `${source}\n${"long-token-".repeat(200)}`,
     ariaLabel: "Wrapped source example",
+    filename: "wrapped-source.ts",
     lineNumbers: true,
     wrap: true,
     className: "h-screen",

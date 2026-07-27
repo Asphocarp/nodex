@@ -1,9 +1,59 @@
-import type { PanelId, WorkbenchTabProjection, WorkspaceFileDirectoryEntry, WorkspaceFileMetadata } from "@/lib/types";
+import type { PanelId, WorkbenchTabProjection, WorkspaceFileMetadata } from "@/lib/types";
 
-export type WorkspaceFilesTab = Omit<WorkbenchTabProjection, "projectId" | "config"> & {
+export interface WorkspaceFilesDraftState {
+  path: string;
+  content: string;
+  baseMtimeMs: number | null;
+  updatedAt: string;
+}
+
+export interface WorkspaceFilesTabState {
+  draft?: WorkspaceFilesDraftState;
+  markdownMode?: "source" | "rendered";
+  treeVisible?: boolean;
+  treeWidth?: number;
+  wordWrap?: boolean;
+}
+
+export function normalizeWorkspaceFilesTabState(
+  value: unknown,
+): WorkspaceFilesTabState {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  const candidate = value as Partial<WorkspaceFilesTabState>;
+  const draft = candidate.draft;
+  const validDraft = typeof draft === "object"
+    && draft !== null
+    && typeof draft.path === "string"
+    && typeof draft.content === "string"
+    && (typeof draft.baseMtimeMs === "number" || draft.baseMtimeMs === null)
+    && typeof draft.updatedAt === "string"
+    ? draft
+    : undefined;
+  return {
+    ...(validDraft ? { draft: validDraft } : {}),
+    ...(candidate.markdownMode === "source" || candidate.markdownMode === "rendered"
+      ? { markdownMode: candidate.markdownMode }
+      : {}),
+    ...(typeof candidate.treeVisible === "boolean"
+      ? { treeVisible: candidate.treeVisible }
+      : {}),
+    ...(typeof candidate.treeWidth === "number" && Number.isFinite(candidate.treeWidth)
+      ? { treeWidth: candidate.treeWidth }
+      : {}),
+    ...(typeof candidate.wordWrap === "boolean"
+      ? { wordWrap: candidate.wordWrap }
+      : {}),
+  };
+}
+
+export type WorkspaceFilesTab = Omit<
+  WorkbenchTabProjection,
+  "projectId" | "config" | "state"
+> & {
   projectId: string | null;
   panelId: PanelId;
   preview?: true;
+  state: WorkspaceFilesTabState;
   config: {
     projectId: string | null;
     hostId?: "local";
@@ -12,11 +62,6 @@ export type WorkspaceFilesTab = Omit<WorkbenchTabProjection, "projectId" | "conf
     path?: string;
   };
 };
-
-export interface WorkspaceFileTreeNode {
-  entry: WorkspaceFileDirectoryEntry;
-  level: number;
-}
 
 export interface WorkspaceFilePreviewState {
   status: "idle" | "loading" | "loaded" | "unsupported" | "error";

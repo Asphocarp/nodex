@@ -1,8 +1,19 @@
 export { WorkspaceFilesPanel } from "./workspace-files-panel";
 export {
+  decideWorkspaceFileTabOpen,
+  type WorkspaceFileOpenMode,
+} from "./workspace-file-tab-model";
+export {
   getWorkspaceFileDomTabId,
   getWorkspaceFileName,
   isWorkspacePathInsideRoot,
-  resolveWorkspaceFilePreviewKind,
+  resolveWorkspaceFilePresentation,
+  resolveWorkspaceSourceLanguage,
+  WORKSPACE_TEXT_EDITABLE_MAX_BYTES,
+  WORKSPACE_TEXT_LOAD_MAX_BYTES,
 } from "./workspace-file-model";
-export type { WorkspaceFilesTab } from "./workspace-file-types";
+export type {
+  WorkspaceFilesDraftState,
+  WorkspaceFilesTab,
+  WorkspaceFilesTabState,
+} from "./workspace-file-types";

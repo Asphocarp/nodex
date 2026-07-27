@@ -12,9 +12,9 @@ import { NodexTooltip } from "../../../../../components/ui/tooltip";
 import { cn } from "../../../../../lib/utils";
 import { CopyMessageActionButton } from "../thread-message-actions";
 import {
-  LazyVirtualizedTextViewer,
-  preloadVirtualizedTextViewer,
-} from "@/components/ui/lazy-virtualized-text-viewer";
+  LazySourceViewer,
+  preloadSourceViewer,
+} from "@/components/ui/lazy-source-viewer";
 import {
   buildTextPreview,
   INLINE_TEXT_PREVIEW_MAX_CHARS,
@@ -138,8 +138,8 @@ export function ToolCallRawDialog({
       onClick={() => {
         onOpenChange(true);
       }}
-      onPointerEnter={preloadVirtualizedTextViewer}
-      onFocus={preloadVirtualizedTextViewer}
+      onPointerEnter={preloadSourceViewer}
+      onFocus={preloadSourceViewer}
     >
       <CodeBracketsIcon />
       {triggerKind === "text" ? <span>{triggerText}</span> : null}
@@ -208,7 +208,7 @@ function ToolCallRawContent({
           copiedTooltipLabel="Copied"
         />
       </div>
-      <LazyVirtualizedTextViewer
+      <LazySourceViewer
         value={rawText}
         ariaLabel={title}
         className="min-h-0 flex-1"

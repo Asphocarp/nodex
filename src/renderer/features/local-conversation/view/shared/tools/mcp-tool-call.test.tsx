@@ -8,6 +8,7 @@ import {
   renderWithMaitai as render,
   settleAsyncRender,
   textContent,
+  textContentIncludingShadowRoots,
 } from "../../../../../test/dom";
 import { createTestQueryClient, TestQueryProvider } from "../../../../../test/query";
 import { queryKeys } from "../../../../../lib/query-keys";
@@ -463,7 +464,10 @@ describe("McpToolCall", () => {
       ).toBe(true);
     });
     await waitFor(() => {
-      expect(textContent(getByRole("dialog")).includes("call_9L9LUlz6nkg1Jp2LA4mrAL8o")).toBe(true);
+      expect(
+        textContentIncludingShadowRoots(getByRole("dialog"))
+          .includes("call_9L9LUlz6nkg1Jp2LA4mrAL8o"),
+      ).toBe(true);
     });
     expect(textContent(container).includes("pluginId")).toBe(false);
     expect(textContent(container).includes("mcpAppResourceUri")).toBe(false);

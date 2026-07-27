@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
+import { createMaitaiStore, MaitaiProvider } from "@/lib/maitai";
 import { installWindowApi } from "@/test/browser-globals";
 import "../../globals.css";
 import { OpenSourceLicensesSettingsPage } from "./open-source-licenses-settings-page";
@@ -14,9 +15,11 @@ describe("OpenSourceLicensesSettingsPage browser layout", () => {
       defaultOptions: { queries: { retry: false } },
     });
     const view = render(
-      <QueryClientProvider client={queryClient}>
-        <OpenSourceLicensesSettingsPage onBack={() => {}} />
-      </QueryClientProvider>,
+      <MaitaiProvider store={createMaitaiStore()}>
+        <QueryClientProvider client={queryClient}>
+          <OpenSourceLicensesSettingsPage onBack={() => {}} />
+        </QueryClientProvider>
+      </MaitaiProvider>,
     );
 
     const accessibleDocument = await view.findByRole("document", {
@@ -24,7 +27,8 @@ describe("OpenSourceLicensesSettingsPage browser layout", () => {
     });
     expect(accessibleDocument.getAttribute("aria-label")).toBe("dependency notices\n");
     expect(accessibleDocument.querySelector("pre")).toBeNull();
-    expect(await view.findByLabelText("Open source license text")).toBeDefined();
-    expect(accessibleDocument.querySelectorAll(".cm-line").length).toBeLessThan(100);
+    const source = await view.findByLabelText("Open source license text");
+    expect(source.getAttribute("data-source-viewer")).toBe("true");
+    expect(source.querySelector("diffs-container")).not.toBeNull();
   });
 });

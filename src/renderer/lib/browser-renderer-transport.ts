@@ -2739,6 +2739,15 @@ function subscribeGitBranchChanges(
   return () => {};
 }
 
+function subscribeWorkspaceFileChanges(
+  callback: (
+    event: import("../../shared/types").WorkspaceFileChangedEvent,
+  ) => void,
+): () => void {
+  void callback;
+  return () => {};
+}
+
 function subscribeAppUpdateStatus(
   callback: (status: AppUpdateStatus) => void,
 ): () => void {
@@ -3116,6 +3125,7 @@ export const browserRendererTransport = {
   subscribeCodexRendererClientRequests,
   subscribeDesktopNotificationActions,
   subscribeGitBranchChanges,
+  subscribeWorkspaceFileChanges,
   subscribeGitReviewLiveQueries,
   subscribeAppUpdateStatus,
   subscribeCommandKeymapChanges,

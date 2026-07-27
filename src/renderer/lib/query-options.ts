@@ -26,6 +26,8 @@ import type {
   WorkspaceFileMetadataInput,
   WorkspaceFileReadResult,
   WorkspaceFileRequest,
+  WorkspaceFileSearchInput,
+  WorkspaceFileSearchResult,
   WorkspaceFileTextReadInput,
 } from "./types";
 import type { GitBranchState } from "../../shared/ipc-api";
@@ -254,6 +256,13 @@ export function workspaceDirectoryQueryOptions(input: WorkspaceDirectoryEntriesI
   return queryOptions({
     queryKey: queryKeys.workspaceFiles.directory(input),
     queryFn: () => invoke("workspace-directory-entries", input) as Promise<WorkspaceDirectoryEntriesResult>,
+  });
+}
+
+export function workspaceFileSearchQueryOptions(input: WorkspaceFileSearchInput) {
+  return queryOptions({
+    queryKey: queryKeys.workspaceFiles.search(input),
+    queryFn: () => invoke("workspace-file-search", input) as Promise<WorkspaceFileSearchResult>,
   });
 }
 

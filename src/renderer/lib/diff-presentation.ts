@@ -1,8 +1,18 @@
-import type { FileDiffProps, ThemeTypes, ThemesType } from "@pierre/diffs/react";
+import type {
+  CodeViewProps,
+  FileDiffProps,
+  ThemeTypes,
+  ThemesType,
+} from "@pierre/diffs/react";
 import type { CSSProperties } from "react";
 
 type DiffThemeType = Exclude<ThemeTypes, "system">;
 type SharedDiffOptions = NonNullable<FileDiffProps<undefined>["options"]>;
+type SharedSourceOptions = NonNullable<CodeViewProps<undefined>["options"]>;
+type SharedCodeOptions = Pick<
+  SharedSourceOptions,
+  "disableFileHeader" | "overflow" | "theme" | "themeType" | "unsafeCSS"
+>;
 type DiffHostStyle = Record<string, string>;
 
 const NODEX_DIFF_THEME: ThemesType = {
@@ -12,6 +22,7 @@ const NODEX_DIFF_THEME: ThemesType = {
 
 export const NODEX_REVIEW_DIFF_EXPANSION_LINE_COUNT = 20;
 export const NODEX_DIFF_HOST_CLASS = "nodex-inline-diff";
+export const NODEX_SOURCE_HOST_CLASS = "nodex-source-file";
 
 const NODEX_DIFF_ROOT_SELECTOR = ":is([data-diff], [data-file], [data-diffs])";
 const NODEX_DIFF_HEADER_AND_ROOT_SELECTOR = `[data-diffs-header],
@@ -242,15 +253,46 @@ export function getNodexDiffOptions(
   },
 ): SharedDiffOptions {
   return {
-    theme: NODEX_DIFF_THEME,
-    themeType,
+    ...getNodexCodeOptions(themeType, disableFileHeader, {
+      overflow: opts?.overflow,
+      wrap: opts?.wrap,
+    }),
     diffStyle: opts?.diffStyle ?? "unified",
     diffIndicators: "bars",
-    overflow: opts?.overflow ?? (opts?.wrap ? "wrap" : "scroll"),
     lineDiffType: opts?.lineDiffType ?? "none",
     hunkSeparators: "simple",
+  };
+}
+
+function getNodexCodeOptions(
+  themeType: DiffThemeType,
+  disableFileHeader: boolean,
+  opts?: {
+    overflow?: SharedCodeOptions["overflow"];
+    wrap?: boolean;
+  },
+): SharedCodeOptions {
+  return {
+    theme: NODEX_DIFF_THEME,
+    themeType,
+    overflow: opts?.overflow ?? (opts?.wrap ? "wrap" : "scroll"),
     unsafeCSS: NODEX_DIFF_UNSAFE_CSS,
     disableFileHeader,
+  };
+}
+
+export function getNodexSourceOptions(
+  themeType: DiffThemeType,
+  disableFileHeader: boolean,
+  opts?: {
+    disableLineNumbers?: boolean;
+    overflow?: SharedSourceOptions["overflow"];
+    wrap?: boolean;
+  },
+): SharedSourceOptions {
+  return {
+    ...getNodexCodeOptions(themeType, disableFileHeader, opts),
+    disableLineNumbers: opts?.disableLineNumbers,
   };
 }
 

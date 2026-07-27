@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { WorkspaceFilesPanel } from "./workspace-files-panel";
+import type { WorkspaceFilesTab } from "./workspace-file-types";
 import type { Project, ProjectSession, WorkspaceFileDirectoryEntry } from "@/lib/types";
 
 const WORKSPACE_ROOT = "/Users/asc/repo/nodex";
@@ -90,9 +91,21 @@ export const MarkdownSelected: Story = {
   ),
 };
 
+export const MarkdownRendered: Story = {
+  render: () => (
+    <WorkspaceFilesStoryFrame
+      selectedPath={`${WORKSPACE_ROOT}/README.md`}
+      tabState={{ markdownMode: "rendered" }}
+    />
+  ),
+};
+
 export const LargeMarkdownSourceFallback: Story = {
   render: () => (
-    <WorkspaceFilesStoryFrame selectedPath={LARGE_MARKDOWN_FILE} />
+    <WorkspaceFilesStoryFrame
+      selectedPath={LARGE_MARKDOWN_FILE}
+      tabState={{ markdownMode: "rendered" }}
+    />
   ),
 };
 
@@ -116,12 +129,15 @@ export const ProjectlessFile: Story = {
 
 function WorkspaceFilesStoryFrame({
   selectedPath,
+  tabState = {},
   workspaceRoot = WORKSPACE_ROOT,
 }: {
   selectedPath: string | undefined;
+  tabState?: WorkspaceFilesTab["state"];
   workspaceRoot?: string | null;
 }) {
-  useMockWorkspaceFilesBridge();
+  const bridgeReady = useMockWorkspaceFilesBridge();
+  if (!bridgeReady) return null;
   const projectless = workspaceRoot === null;
   const activeSession = projectless
     ? { ...session, projectId: null }
@@ -146,7 +162,7 @@ function WorkspaceFilesStoryFrame({
             ...(selectedPath ? { path: selectedPath } : {}),
           },
           stateKey: 0,
-          state: {},
+          state: tabState,
           createdAt: CREATED_AT,
           updatedAt: CREATED_AT,
         }}
@@ -167,7 +183,8 @@ function entry(name: string, path: string, kind: "directory" | "file"): Workspac
   };
 }
 
-function useMockWorkspaceFilesBridge() {
+function useMockWorkspaceFilesBridge(): boolean {
+  const [ready, setReady] = useState(false);
   useEffect(() => {
     const previousApi = window.api;
     Object.defineProperty(window, "api", {
@@ -200,6 +217,31 @@ function useMockWorkspaceFilesBridge() {
               contents: fileContents[input.path] ?? "",
             };
           }
+          if (channel === "workspace-file-search") {
+            const input = args[0] as { query: string };
+            const matches = Object.values(directoryEntries)
+              .flat()
+              .filter((candidate) =>
+                candidate.type === "file"
+                && candidate.path.toLowerCase().includes(input.query.toLowerCase()))
+              .map((candidate) => ({
+                path: candidate.path,
+                kind: "file" as const,
+                score: 0,
+              }));
+            return {
+              matches,
+              ancestorDirectories: [],
+              truncated: false,
+            };
+          }
+          if (channel === "workspace-file-watch:start") {
+            return { subscriptionId: "00000000-0000-4000-8000-000000000001" };
+          }
+          if (channel === "workspace-file-watch:stop") return undefined;
+          if (channel === "write-file") {
+            return { outcome: "saved", mtimeMs: Date.now() };
+          }
           if (channel === "open-file") return true;
           return null;
         },
@@ -207,6 +249,7 @@ function useMockWorkspaceFilesBridge() {
         off: () => undefined,
       },
     });
+    setReady(true);
     return () => {
       Object.defineProperty(window, "api", {
         configurable: true,
@@ -214,4 +257,5 @@ function useMockWorkspaceFilesBridge() {
       });
     };
   }, []);
+  return ready;
 }

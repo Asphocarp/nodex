@@ -1,4 +1,4 @@
-import { act, fireEvent } from "@testing-library/react";
+import { act, fireEvent, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { useEffect, type ReactNode } from "react";
 
@@ -13,7 +13,7 @@ import type { PageStageProps } from "./page-stage/types";
 import {
   renderWithMaitai as render,
   settleAsyncRender,
-  textContent,
+  textContentIncludingShadowRoots,
 } from "@/test/dom";
 import {
   PAGE_DOCUMENT_SCHEMA_VERSION,
@@ -318,8 +318,10 @@ describe("page stage", () => {
     expect(getByText("Raw format").textContent).toBe("Raw format");
     expect(queryByText("Mock collaborative editor")).toBe(null);
     const rawContent = await findByLabelText("Raw page source");
-    expect(textContent(rawContent).includes("Live collaborative body")).toBe(true);
-    expect(textContent(rawContent).includes("Stale projected body")).toBe(false);
+    await waitFor(() => {
+      expect(textContentIncludingShadowRoots(rawContent).includes("Live collaborative body")).toBe(true);
+      expect(textContentIncludingShadowRoots(rawContent).includes("Stale projected body")).toBe(false);
+    });
   });
 
   test("full width changes only the Page Detail presentation lane", async () => {

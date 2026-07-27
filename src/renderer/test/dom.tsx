@@ -48,6 +48,17 @@ export function textContent(node: ParentNode): string {
   return node.textContent ?? "";
 }
 
+export function textContentIncludingShadowRoots(node: ParentNode): string {
+  const chunks = [textContent(node)];
+
+  for (const element of node.querySelectorAll<HTMLElement>("*")) {
+    if (!element.shadowRoot) continue;
+    chunks.push(textContentIncludingShadowRoots(element.shadowRoot));
+  }
+
+  return chunks.join("");
+}
+
 export async function settleAsyncRender() {
   await act(async () => {
     await Promise.resolve();
