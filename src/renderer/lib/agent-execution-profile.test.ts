@@ -3,6 +3,7 @@ import type { AgentProviderCatalog } from "../../shared/agent-runtime";
 import {
   parseStoredAgentExecutionProfile,
   resolveAgentExecutionProfile,
+  resolveEffectiveAgentExecutionProfile,
   selectAgentModel,
   selectAgentReasoningEffort,
   selectAgentProvider,
@@ -138,6 +139,68 @@ describe("agent execution profile selection", () => {
     expect(profile?.serviceTier).toBe("priority");
     expect(profile && selectAgentProvider(CATALOG, "kimi-for-coding", profile)?.serviceTier)
       .toBe("priority");
+  });
+
+  test("preserves the task harness when changing intelligence within one provider", () => {
+    const kimiModel = CATALOG.providers[1]?.models[0];
+    const current = {
+      providerId: "kimi-for-coding",
+      modelId: "kimi-k3",
+      harnessId: "custom-kimi-harness",
+      reasoningEffort: "Thinking",
+      serviceTier: null,
+    };
+
+    expect(kimiModel && selectAgentModel(kimiModel, current).harnessId)
+      .toBe("custom-kimi-harness");
+  });
+
+  test("projects active-thread intelligence without borrowing the global draft", () => {
+    const draftProfile = {
+      providerId: "kimi-for-coding",
+      modelId: "kimi-k3",
+      harnessId: "kimi-code",
+      reasoningEffort: "Thinking",
+      serviceTier: null,
+    };
+    const legacyThread = resolveEffectiveAgentExecutionProfile({
+      catalog: CATALOG,
+      activeThreadId: "thread_legacy",
+      threadProfile: null,
+      threadModelProvider: "openai",
+      liveModel: "gpt-5.5",
+      liveReasoningEffort: "high",
+      liveServiceTier: "fast",
+      draftProfile,
+    });
+
+    expect(legacyThread).toEqual({
+      providerId: "openai",
+      modelId: "gpt-5.5",
+      harnessId: null,
+      reasoningEffort: "high",
+      serviceTier: "fast",
+    });
+    expect(resolveEffectiveAgentExecutionProfile({
+      catalog: CATALOG,
+      activeThreadId: "thread_unknown",
+      threadProfile: null,
+      threadModelProvider: "removed",
+      liveModel: "gpt-5.5",
+      liveReasoningEffort: "high",
+      liveServiceTier: null,
+      draftProfile,
+    })).toBeNull();
+    expect(resolveEffectiveAgentExecutionProfile({
+      catalog: CATALOG,
+      activeThreadId: null,
+      threadProfile: null,
+      threadModelProvider: null,
+      liveModel: null,
+      liveReasoningEffort: null,
+      liveServiceTier: undefined,
+      draftProfile,
+    })).toEqual(draftProfile);
   });
 
   test("treats an explicit standard tier as an override for a stored fast tier", () => {

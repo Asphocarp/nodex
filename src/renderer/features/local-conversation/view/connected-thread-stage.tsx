@@ -64,6 +64,8 @@ import {
   ThreadSummaryPanelRenderBoundary,
   ThreadSummaryPanelRenderErrorFallback,
 } from "./summary-panel";
+import { resolveEffectiveAgentExecutionProfile } from "@/lib/agent-execution-profile";
+import type { AgentExecutionProfile } from "../../../../shared/agent-runtime";
 
 type ConnectedThreadStageInput = Omit<
   ThreadStageRouteInput,
@@ -103,6 +105,7 @@ export function resolveEffectiveThreadStageSettings({
   fallbackMode,
   fallbackModel,
   fallbackReasoningEffort,
+  threadExecutionProfile,
   availableModes,
 }: {
   activeThreadId: string | null;
@@ -111,6 +114,7 @@ export function resolveEffectiveThreadStageSettings({
   fallbackMode: CodexCollaborationModeKind;
   fallbackModel: string;
   fallbackReasoningEffort: ConnectedThreadStageInput["selectedReasoningEffort"];
+  threadExecutionProfile?: AgentExecutionProfile | null;
   availableModes: ConnectedThreadStageInput["collaborationModes"];
 }): {
   selectedCollaborationMode: CodexCollaborationModeKind;
@@ -120,8 +124,9 @@ export function resolveEffectiveThreadStageSettings({
   const candidateMode = liveThreadSettings?.collaborationMode?.mode ?? liveMode?.mode;
   const fallback = {
     selectedCollaborationMode: fallbackMode,
-    selectedModel: fallbackModel,
-    selectedReasoningEffort: fallbackReasoningEffort,
+    selectedModel: threadExecutionProfile?.modelId ?? fallbackModel,
+    selectedReasoningEffort:
+      threadExecutionProfile?.reasoningEffort ?? fallbackReasoningEffort,
   };
   if (!activeThreadId || !isKnownCollaborationMode(candidateMode)) {
     return fallback;
@@ -132,8 +137,14 @@ export function resolveEffectiveThreadStageSettings({
     : fallbackMode;
   return {
     selectedCollaborationMode,
-    selectedModel: normalizeSelectedModel(liveThreadSettings?.model) ?? fallbackModel,
-    selectedReasoningEffort: liveThreadSettings?.reasoningEffort ?? fallbackReasoningEffort,
+    selectedModel:
+      normalizeSelectedModel(liveThreadSettings?.model)
+      ?? threadExecutionProfile?.modelId
+      ?? fallbackModel,
+    selectedReasoningEffort:
+      liveThreadSettings?.reasoningEffort
+      ?? threadExecutionProfile?.reasoningEffort
+      ?? fallbackReasoningEffort,
   };
 }
 
@@ -465,6 +476,28 @@ function ConnectedThreadStageFooter({
     () => [...turns].reverse().find((turn) => turn.status === "inProgress") ?? null,
     [turns],
   );
+  const executionProfile = useMemo(() => resolveEffectiveAgentExecutionProfile({
+    catalog: input.agentProviderCatalog,
+    activeThreadId,
+    threadProfile: input.activeThreadSummary?.executionProfile,
+    threadModelProvider:
+      liveThreadSettings?.modelProvider
+      ?? input.activeThreadSummary?.modelProvider,
+    liveModel: liveThreadSettings?.model,
+    liveReasoningEffort: liveThreadSettings?.reasoningEffort,
+    liveServiceTier: liveThreadSettings?.serviceTier,
+    draftProfile: input.selectedExecutionProfile,
+  }), [
+    activeThreadId,
+    input.activeThreadSummary?.executionProfile,
+    input.activeThreadSummary?.modelProvider,
+    input.agentProviderCatalog,
+    input.selectedExecutionProfile,
+    liveThreadSettings?.model,
+    liveThreadSettings?.modelProvider,
+    liveThreadSettings?.reasoningEffort,
+    liveThreadSettings?.serviceTier,
+  ]);
   const effectiveSettings = resolveEffectiveThreadStageSettings({
     activeThreadId,
     liveThreadSettings,
@@ -472,6 +505,7 @@ function ConnectedThreadStageFooter({
     fallbackMode: input.selectedCollaborationMode,
     fallbackModel: input.selectedModel,
     fallbackReasoningEffort: input.selectedReasoningEffort,
+    threadExecutionProfile: executionProfile,
     availableModes: input.collaborationModes,
   });
   const {
@@ -561,13 +595,8 @@ function ConnectedThreadStageFooter({
       availableModels: input.availableModels,
       agentProviderCatalog: input.agentProviderCatalog ?? null,
       agentProviderCatalogLoading: input.agentProviderCatalogLoading ?? false,
-      executionProfile:
-        input.activeThreadSummary?.executionProfile
-        ?? input.selectedExecutionProfile
-        ?? null,
-      executionProfileLocked: Boolean(
-        activeThreadId && input.activeThreadSummary?.executionProfile,
-      ),
+      executionProfile,
+      executionIdentityLocked: Boolean(activeThreadId && executionProfile),
       selectedReasoningEffort,
       selectedPersonality:
         liveThreadSettings?.personality ?? input.selectedPersonality ?? "friendly",
@@ -602,7 +631,7 @@ function ConnectedThreadStageFooter({
       input.collaborationModes,
       input.composerEnterBehavior,
       input.activeThreadSummary,
-      input.selectedExecutionProfile,
+      executionProfile,
       input.isNewThreadTab,
       input.isQueueingEnabled,
       input.newThreadProjectSelector,

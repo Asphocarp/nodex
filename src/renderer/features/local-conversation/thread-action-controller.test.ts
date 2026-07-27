@@ -171,6 +171,7 @@ describe("createThreadStageActions settings routing", () => {
       activeThreadId: null,
       codexControl: {
         setExecutionProfile: (next: unknown) => calls.push({ profile: next }),
+        setDefaultServiceTier: (serviceTier: unknown) => calls.push({ serviceTier }),
         setProviderCredential: async (input: unknown) => {
           calls.push({ setCredential: input });
           return { providerId: "kimi-for-coding", status: "ready", runtimeRestartPending: false };
@@ -188,20 +189,45 @@ describe("createThreadStageActions settings routing", () => {
 
     expect(calls).toEqual([
       { profile },
+      { serviceTier: null },
       { setCredential: { providerId: "kimi-for-coding", apiKey: "secret-key" } },
       { deleteCredential: { providerId: "kimi-for-coding" } },
     ]);
   });
 
-  test("rejects changing the immutable execution profile of an active thread", () => {
-    const actions = createThreadStageActions(buildInput());
-    expect(() => actions.onExecutionProfileChange?.({
+  test("routes active profile intelligence through the thread-owned settings boundary", async () => {
+    const settingsUpdates: unknown[] = [];
+    const actions = createThreadStageActions(buildInput({
+      codexControl: {
+        setConversationThreadSettings: async (threadId: string, patch: unknown) => {
+          settingsUpdates.push({ threadId, patch });
+          return null;
+        },
+        setExecutionProfile: () => {
+          throw new Error("active thread changes must not update the draft profile");
+        },
+        setDefaultServiceTier: () => {
+          throw new Error("active thread changes must not update the draft speed");
+        },
+      } as unknown as ThreadActionControllerInput["codexControl"],
+    }));
+    const profile = {
       providerId: "anthropic",
       modelId: "claude-opus-4-1",
       harnessId: "claude-code",
       reasoningEffort: "high",
       serviceTier: null,
-    })).toThrow("Start a new thread");
+    };
+
+    await actions.onExecutionProfileChange?.(profile, "model");
+
+    expect(settingsUpdates).toEqual([{
+      threadId: "thread_1",
+      patch: {
+        executionProfile: profile,
+        executionProfileChange: "model",
+      },
+    }]);
   });
 
   test("opens a pending worktree route without refreshing real project sessions", async () => {

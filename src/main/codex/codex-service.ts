@@ -512,6 +512,8 @@ import { resolveCodexRuntime, type ResolvedCodexRuntime } from "./codex-runtime"
 import { AGENT_RUNTIME_METADATA_FILENAME } from "../../shared/codex-runtime-metadata";
 import type {
   AgentExecutionProfile,
+  AgentExecutionProfileChange,
+  AgentModelOption,
   AgentProviderCatalog,
   AgentProviderCredentialDeleteInput,
   AgentProviderCredentialMutationInput,
@@ -2141,6 +2143,46 @@ function formatServiceTierForReporting(value: unknown): string {
 function buildServiceTierParams(value: unknown): { serviceTier?: string } {
   const normalized = normalizeCodexServiceTier(value);
   return normalized ? { serviceTier: normalized } : {};
+}
+
+function preserveSupportedAgentProfileValue(
+  current: string | null,
+  requestedFallback: string | null,
+  supported: readonly { readonly value: string | null }[],
+): string | null {
+  if (current === null) return null;
+  return supported.some((option) => option.value === current)
+    ? current
+    : requestedFallback;
+}
+
+function mergeAgentModelChange(
+  current: AgentExecutionProfile,
+  requested: AgentExecutionProfile,
+  model: AgentModelOption | null,
+): AgentExecutionProfile {
+  if (!model) {
+    return {
+      ...requested,
+      providerId: current.providerId,
+      harnessId: current.harnessId,
+    };
+  }
+
+  return {
+    ...current,
+    modelId: requested.modelId,
+    reasoningEffort: preserveSupportedAgentProfileValue(
+      current.reasoningEffort,
+      requested.reasoningEffort,
+      model.supportedReasoningEfforts,
+    ),
+    serviceTier: preserveSupportedAgentProfileValue(
+      current.serviceTier,
+      requested.serviceTier,
+      model.supportedServiceTiers,
+    ),
+  };
 }
 
 function buildHeartbeatPermissionOverrides(
@@ -5065,6 +5107,8 @@ export class CodexService extends EventEmitter {
 
   private buildConversationThreadSettings(input: {
     model?: string | null;
+    modelProvider?: string | null;
+    serviceTier?: string | null;
     reasoningEffort?: CodexReasoningEffort | null;
     collaborationMode?: CodexCollaborationModeKind | null;
     personality?: CodexPersonality | null;
@@ -5090,6 +5134,12 @@ export class CodexService extends EventEmitter {
 
     return {
       model,
+      modelProvider: normalizeThreadSettingsModel(input.modelProvider)
+        ?? normalizeThreadSettingsModel(input.fallback?.modelProvider)
+        ?? null,
+      serviceTier: input.serviceTier !== undefined
+        ? normalizeCodexServiceTier(input.serviceTier)
+        : input.fallback?.serviceTier ?? null,
       reasoningEffort: reasoningEffort ?? null,
       collaborationMode,
       personality: input.personality !== undefined
@@ -5103,9 +5153,21 @@ export class CodexService extends EventEmitter {
     patch: CodexConversationThreadSettingsPatch,
   ): CodexConversationThreadSettings {
     const record = this.getConversationRecord(threadId);
+    const executionProfile = patch.executionProfile;
     return this.buildConversationThreadSettings({
-      model: hasOwnValue(patch, "model") ? patch.model ?? null : undefined,
-      reasoningEffort: hasOwnValue(patch, "reasoningEffort") ? patch.reasoningEffort ?? null : undefined,
+      model: executionProfile?.modelId
+        ?? (hasOwnValue(patch, "model") ? patch.model ?? null : undefined),
+      modelProvider: executionProfile?.providerId,
+      serviceTier: executionProfile
+        ? executionProfile.serviceTier
+        : hasOwnValue(patch, "serviceTier")
+          ? patch.serviceTier ?? null
+          : undefined,
+      reasoningEffort: executionProfile
+        ? executionProfile.reasoningEffort
+        : hasOwnValue(patch, "reasoningEffort")
+          ? patch.reasoningEffort ?? null
+          : undefined,
       collaborationMode: hasOwnValue(patch, "collaborationMode") ? patch.collaborationMode ?? "default" : undefined,
       personality: hasOwnValue(patch, "personality") ? patch.personality ?? null : undefined,
       fallback: record.latestThreadSettings,
@@ -5173,6 +5235,12 @@ export class CodexService extends EventEmitter {
 
     return {
       model,
+      modelProvider: normalizeThreadSettingsModel(candidate.modelProvider)
+        ?? normalizeThreadSettingsModel(fallback?.modelProvider)
+        ?? null,
+      serviceTier: hasOwnValue(candidate, "serviceTier")
+        ? normalizeCodexServiceTier(candidate.serviceTier)
+        : fallback?.serviceTier ?? null,
       reasoningEffort,
       collaborationMode,
       personality: hasOwnValue(candidate, "personality")
@@ -5205,6 +5273,7 @@ export class CodexService extends EventEmitter {
             latestThreadSettings: {
               ...(hydrationContext.latestThreadSettings ?? {}),
               model: latestThreadSettings.model ?? hydrationContext.latestModel,
+              serviceTier: latestThreadSettings.serviceTier ?? null,
               effort: latestThreadSettings.reasoningEffort,
               personality: latestThreadSettings.personality,
             },
@@ -5279,6 +5348,8 @@ export class CodexService extends EventEmitter {
     record.latestCollaborationMode = latestCollaborationMode;
     record.latestThreadSettings = {
       model: latestCollaborationMode.settings.model,
+      modelProvider: record.latestThreadSettings?.modelProvider ?? null,
+      serviceTier: record.latestThreadSettings?.serviceTier ?? null,
       reasoningEffort: latestCollaborationMode.settings.reasoning_effort,
       collaborationMode: latestCollaborationMode,
       personality: record.latestThreadSettings?.personality ?? this.personality,
@@ -9557,6 +9628,88 @@ export class CodexService extends EventEmitter {
     });
   }
 
+  private async validateAndPersistThreadExecutionProfile(
+    threadId: string,
+    requested: AgentExecutionProfile,
+    change?: AgentExecutionProfileChange,
+  ): Promise<AgentExecutionProfile> {
+    const workspaceThread = await this.readWorkspaceThread(threadId);
+    if (!workspaceThread) {
+      throw new Error(`Cannot update execution settings for unknown thread '${threadId}'`);
+    }
+
+    const current = workspaceThread.executionProfile ?? null;
+    const modelChangeCatalog = current && change === "model"
+      ? await this.listAgentProviderCatalog()
+      : null;
+    const requestedModel = modelChangeCatalog?.providers
+      .find((provider) => provider.id === current?.providerId)
+      ?.models.find((model) => model.modelId === requested.modelId)
+      ?? null;
+    let requestedUpdate = requested;
+    if (current && change === "model") {
+      requestedUpdate = mergeAgentModelChange(current, requested, requestedModel);
+    } else if (current && change === "reasoningEffort") {
+      requestedUpdate = {
+        ...current,
+        reasoningEffort: requested.reasoningEffort,
+      };
+    } else if (current && change === "serviceTier") {
+      requestedUpdate = {
+        ...current,
+        serviceTier: requested.serviceTier,
+      };
+    }
+    const resolved = await this.resolveAgentExecutionProfile(requestedUpdate);
+    if (!resolved) {
+      throw new Error("The requested execution profile is unavailable");
+    }
+
+    const boundProviderId = current?.providerId
+      ?? normalizeThreadSettingsModel(workspaceThread.modelProvider);
+    if (boundProviderId && resolved.providerId !== boundProviderId) {
+      throw new Error("Start a new thread to change provider");
+    }
+    if (current && resolved.harnessId !== current.harnessId) {
+      throw new Error("Start a new thread to change the agent harness");
+    }
+
+    const currentModelId = current?.modelId
+      ?? normalizeThreadSettingsModel(
+        this.getMaybeConversationRecord(threadId)?.latestThreadSettings?.model,
+    );
+    if (currentModelId && resolved.modelId !== currentModelId) {
+      const catalog = modelChangeCatalog ?? await this.listAgentProviderCatalog();
+      const model = catalog.providers
+        .find((provider) => provider.id === resolved.providerId)
+        ?.models.find((candidate) => candidate.modelId === resolved.modelId);
+      if (!model || model.switchPolicy !== "same-thread") {
+        throw new Error("Start a new thread to use this model");
+      }
+    }
+
+    const updated = await this.updateWorkspaceThreadSummary(threadId, {
+      modelProvider: resolved.providerId,
+      executionProfile: resolved,
+    });
+    if (!updated) {
+      throw new Error(`Unable to persist execution settings for '${threadId}'`);
+    }
+
+    const record = this.getMaybeConversationRecord(threadId);
+    if (record?.detail) {
+      record.detail = {
+        ...record.detail,
+        modelProvider: resolved.providerId,
+        executionProfile: resolved,
+      };
+    }
+    this.invalidateSidebarSnapshotCache();
+    this.emitEvent({ type: "threadSummary", thread: updated });
+    await this.emitSidebarCatalogChangedForThread(threadId, "host-message");
+    return resolved;
+  }
+
   async prepareScheduledAutomationInput<
     Input extends CodexScheduledAutomationCreateInput | CodexScheduledAutomationUpdateInput,
   >(
@@ -11004,14 +11157,29 @@ export class CodexService extends EventEmitter {
     nextSettings: CodexConversationThreadSettings,
   ): ThreadSettingsUpdateParams {
     const params: ThreadSettingsUpdateParams = { threadId };
-    if (hasOwnValue(patch, "model")) {
-      params.model = patch.model ?? null;
+    const executionProfile = patch.executionProfile;
+    if (executionProfile || hasOwnValue(patch, "model")) {
+      params.model = executionProfile?.modelId ?? patch.model ?? null;
     }
-    if (hasOwnValue(patch, "reasoningEffort")) {
-      params.effort = patch.reasoningEffort ?? null;
+    if (executionProfile) {
+      params.modelProvider = executionProfile.providerId;
     }
-    if (hasOwnValue(patch, "collaborationMode")) {
-      const selectedMode = patch.collaborationMode ?? "default";
+    if (executionProfile || hasOwnValue(patch, "serviceTier")) {
+      params.serviceTier = executionProfile?.serviceTier ?? patch.serviceTier ?? null;
+    }
+    if (executionProfile || hasOwnValue(patch, "reasoningEffort")) {
+      params.effort = executionProfile?.reasoningEffort ?? patch.reasoningEffort ?? null;
+    }
+    if (
+      executionProfile
+      || hasOwnValue(patch, "model")
+      || hasOwnValue(patch, "reasoningEffort")
+      || hasOwnValue(patch, "collaborationMode")
+    ) {
+      const selectedMode =
+        patch.collaborationMode
+        ?? nextSettings.collaborationMode?.mode
+        ?? "default";
       params.collaborationMode = this.buildCollaborationModePayload({
         collaborationMode: selectedMode,
         model: normalizeThreadSettingsModel(nextSettings.model) ?? undefined,
@@ -15131,6 +15299,8 @@ export class CodexService extends EventEmitter {
         const record = this.getConversationRecord(link.threadId);
         this.applyLatestThreadSettingsForThread(link.threadId, this.buildConversationThreadSettings({
           model: effectiveModel ?? null,
+          modelProvider: executionProfile?.providerId ?? null,
+          serviceTier: executionProfile?.serviceTier ?? null,
           reasoningEffort: effectiveReasoningEffort ?? null,
           collaborationMode: effectiveCollaborationMode ?? record.latestCollaborationMode.mode,
           fallback: record.latestThreadSettings,
@@ -17626,7 +17796,17 @@ export class CodexService extends EventEmitter {
       .catch(() => null)
       .then(async () => {
         await this.ensureClientReady();
-        const nextSettings = this.mergeThreadSettingsPatch(threadId, patch);
+        const executionProfile = patch.executionProfile
+          ? await this.validateAndPersistThreadExecutionProfile(
+              threadId,
+              patch.executionProfile,
+              patch.executionProfileChange,
+            )
+          : null;
+        const validatedPatch = executionProfile
+          ? { ...patch, executionProfile }
+          : patch;
+        const nextSettings = this.mergeThreadSettingsPatch(threadId, validatedPatch);
         this.applyLatestThreadSettingsForThread(threadId, nextSettings);
         if (syncDormantConversationUpdates) {
           this.syncAcceptedConversationDocument(threadId, {
@@ -17636,7 +17816,11 @@ export class CodexService extends EventEmitter {
         }
 
         if (this.threadSettingsUpdateSupport !== "unsupported") {
-          const params = this.buildThreadSettingsUpdateParams(threadId, patch, nextSettings);
+          const params = this.buildThreadSettingsUpdateParams(
+            threadId,
+            validatedPatch,
+            nextSettings,
+          );
           try {
             await this.client.request<"thread/settings/update", ThreadSettingsUpdateResponse>(
               "thread/settings/update",
@@ -17980,6 +18164,10 @@ export class CodexService extends EventEmitter {
   ): Promise<CodexTurnSummary | TurnStartResponse | null> {
     await this.ensureClientReady();
     await this.ensureAgentRuntimeCredentialReloaded();
+    const pendingThreadSettingsUpdate = this.pendingThreadSettingsUpdates.get(threadId);
+    if (pendingThreadSettingsUpdate) {
+      await pendingThreadSettingsUpdate;
+    }
     const rendererOwnsState = options.stateOwner === "renderer";
     const syncDormantConversationUpdates = rendererOwnsState
       ? false
@@ -18002,6 +18190,12 @@ export class CodexService extends EventEmitter {
       ?? overrides?.reasoningEffort
       ?? latestThreadSettings?.reasoningEffort
       ?? fallbackCollaborationMode.settings.reasoning_effort;
+    const hasExplicitServiceTier = Boolean(
+      overrides && hasOwnValue(overrides, "serviceTier"),
+    );
+    const effectiveServiceTier = hasExplicitServiceTier
+      ? normalizeCodexServiceTier(overrides?.serviceTier)
+      : normalizeCodexServiceTier(latestThreadSettings?.serviceTier);
     const effectiveCollaborationMode =
       preparedPrompt.agentConfigOverrides.collaborationMode
       ?? overrides?.collaborationMode
@@ -18041,6 +18235,8 @@ export class CodexService extends EventEmitter {
     });
     this.applyLatestThreadSettingsForThread(threadId, this.buildConversationThreadSettings({
       model: effectiveModel,
+      modelProvider: threadRef?.executionProfile?.providerId,
+      serviceTier: effectiveServiceTier,
       reasoningEffort: effectiveReasoningEffort ?? null,
       collaborationMode: effectiveCollaborationMode,
       fallback: latestThreadSettings,
@@ -18069,7 +18265,7 @@ export class CodexService extends EventEmitter {
       cwd: workspacePath,
       permissionMode,
       model: effectiveModel ?? null,
-      serviceTier: formatServiceTierForReporting(overrides?.serviceTier),
+      serviceTier: formatServiceTierForReporting(effectiveServiceTier),
       reasoningEffort: effectiveReasoningEffort ?? null,
       collaborationMode: effectiveCollaborationMode ?? null,
       promptLength: promptText.length,
@@ -18085,7 +18281,7 @@ export class CodexService extends EventEmitter {
         : {}),
       ...turnPermissionOverrides,
       ...(effectiveModel ? { model: effectiveModel } : {}),
-      ...buildServiceTierParams(overrides?.serviceTier),
+      ...(effectiveServiceTier ? { serviceTier: effectiveServiceTier } : {}),
       ...(effectiveReasoningEffort ? { effort: effectiveReasoningEffort } : {}),
       ...(collaborationMode ? { collaborationMode } : {}),
       input: preparedPrompt.inputItems,
@@ -18141,10 +18337,11 @@ export class CodexService extends EventEmitter {
             : null,
           useAppServerPermissionDefault: permissionState.effectivePreset === "custom",
           model: collaborationMode ? null : effectiveModel,
-          serviceTier:
-            normalizeCodexServiceTier(overrides?.serviceTier)
-            ?? hydration.latestThreadSettings?.serviceTier
-            ?? null,
+          serviceTier: hasExplicitServiceTier
+            ? effectiveServiceTier
+            : latestThreadSettings?.serviceTier !== undefined
+            ? effectiveServiceTier
+            : hydration.latestThreadSettings?.serviceTier ?? null,
           effort: collaborationMode ? null : effectiveReasoningEffort ?? null,
           multiAgentMode: hydration.latestThreadSettings?.multiAgentMode ?? "explicitRequestOnly",
           summary: hydration.latestThreadSettings?.summary ?? "none",

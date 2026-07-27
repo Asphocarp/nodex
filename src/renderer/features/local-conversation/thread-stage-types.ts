@@ -60,6 +60,7 @@ import type { NewChatStartInTarget } from "../../lib/new-chat-start-in-selector"
 import type { ThreadWorkedForTiming } from "./thread-worked-for-time";
 import type {
   AgentExecutionProfile,
+  AgentExecutionProfileChange,
   AgentProviderCatalog,
   AgentProviderCredentialMutationResult,
 } from "../../../shared/agent-runtime";
@@ -248,7 +249,10 @@ export interface ThreadStageActions {
   onCollaborationModeChange: (mode: CodexCollaborationModeKind) => void | Promise<void>;
   onModelChange: (model: string) => void | Promise<void>;
   onReasoningEffortChange: (reasoningEffort: CodexReasoningEffort) => void | Promise<void>;
-  onExecutionProfileChange?: (profile: AgentExecutionProfile) => void | Promise<void>;
+  onExecutionProfileChange?: (
+    profile: AgentExecutionProfile,
+    change?: AgentExecutionProfileChange,
+  ) => void | Promise<void>;
   onProviderCredentialSet?: (
     providerId: string,
     apiKey: string,
@@ -971,7 +975,7 @@ export interface ThreadFooterModel {
   agentProviderCatalog?: AgentProviderCatalog | null;
   agentProviderCatalogLoading?: boolean;
   executionProfile?: AgentExecutionProfile | null;
-  executionProfileLocked?: boolean;
+  executionIdentityLocked?: boolean;
   selectedReasoningEffort: CodexReasoningEffort;
   selectedPersonality?: CodexPersonality;
   reasoningEffortOptions: CodexReasoningEffortOption[];

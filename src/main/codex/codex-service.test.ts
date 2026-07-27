@@ -60,6 +60,7 @@ import type {
   Turn,
 } from "@nodex/codex-app-server-protocol/v2";
 import type { ServerNotification as CodexServerNotification } from "@nodex/codex-app-server-protocol";
+import type { AgentProviderCatalog } from "../../shared/agent-runtime";
 
 type CodexTestServerNotification = {
   method: CodexServerNotification["method"];
@@ -7413,6 +7414,7 @@ describe("codex-service collaboration modes", () => {
       await service.updateThreadSettingsForNextTurn("thr_start_settings_priority", {
         model: "gpt-settings",
         reasoningEffort: "medium",
+        serviceTier: "fast",
         collaborationMode: "plan",
       });
       await service.startTurn("thr_start_settings_priority", "Use settings");
@@ -7430,10 +7432,214 @@ describe("codex-service collaboration modes", () => {
 
       expect(firstTurn?.model).toBe("gpt-settings");
       expect(firstTurn?.effort).toBe("medium");
+      expect(firstTurn?.serviceTier).toBe("fast");
       expect(firstMode?.mode).toBe("plan");
       expect(secondTurn?.model).toBe("gpt-explicit");
       expect(secondTurn?.effort).toBe("high");
       expect(secondMode?.mode).toBe("default");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("validates active-task identity and persists compatible intelligence updates", async () => {
+    const service = createService();
+    const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+    const persistedProfiles: unknown[] = [];
+    const currentProfile = {
+      providerId: "openai",
+      modelId: "gpt-5.5",
+      harnessId: null,
+      reasoningEffort: "high",
+      serviceTier: null,
+    };
+    let persistedCurrentProfile = currentProfile;
+    const serviceInternals = service as unknown as {
+      ensureConversationDetail: (threadId: string) => CodexThreadDetail | null;
+      readWorkspaceThread: (threadId: string) => Promise<{
+        modelProvider: string;
+        executionProfile: typeof currentProfile;
+      } | null>;
+      resolveAgentExecutionProfile: (
+        profile: typeof currentProfile,
+      ) => Promise<typeof currentProfile | null>;
+      listAgentProviderCatalog: () => Promise<AgentProviderCatalog>;
+      updateWorkspaceThreadSummary: (
+        threadId: string,
+        patch: { executionProfile?: typeof currentProfile },
+      ) => Promise<CodexThreadSummary | null>;
+      emitSidebarCatalogChangedForThread: () => Promise<void>;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    client.start = async () => undefined;
+    client.request = async (method, params) => {
+      requests.push({ method, params: params as Record<string, unknown> });
+      return {};
+    };
+    serviceInternals.ensureConversationDetail("thr_profile_update");
+    serviceInternals.readWorkspaceThread = async () => ({
+      modelProvider: "openai",
+      executionProfile: persistedCurrentProfile,
+    });
+    serviceInternals.resolveAgentExecutionProfile = async (profile) => profile;
+    serviceInternals.listAgentProviderCatalog = async () => ({
+      providers: [{
+        id: "openai",
+        displayName: "OpenAI",
+        description: null,
+        wireApi: "responses",
+        credentialStatus: "runtimeManaged",
+        supportedByNodex: true,
+        isDefault: true,
+        credentialEnvKey: null,
+        recommendedHarnessId: null,
+        models: [
+          {
+            providerId: "openai",
+            modelId: "gpt-5.4",
+            displayName: "GPT-5.4",
+            description: null,
+            hidden: false,
+            isDefault: false,
+            recommendedHarnessId: null,
+            supportedReasoningEfforts: [],
+            defaultReasoningEffort: null,
+            supportedServiceTiers: [],
+            defaultServiceTier: null,
+            inputCapabilities: ["text"],
+            switchPolicy: "same-thread",
+          },
+          {
+            providerId: "openai",
+            modelId: "gpt-new-thread-only",
+            displayName: "New task only",
+            description: null,
+            hidden: false,
+            isDefault: false,
+            recommendedHarnessId: null,
+            supportedReasoningEfforts: [],
+            defaultReasoningEffort: null,
+            supportedServiceTiers: [],
+            defaultServiceTier: null,
+            inputCapabilities: ["text"],
+            switchPolicy: "new-thread",
+          },
+          {
+            providerId: "openai",
+            modelId: "gpt-5.6",
+            displayName: "GPT-5.6",
+            description: null,
+            hidden: false,
+            isDefault: false,
+            recommendedHarnessId: null,
+            supportedReasoningEfforts: [{
+              value: "xhigh",
+              displayName: "Extra high",
+              description: null,
+            }],
+            defaultReasoningEffort: "xhigh",
+            supportedServiceTiers: [{
+              value: "fast",
+              displayName: "Fast",
+              description: null,
+            }],
+            defaultServiceTier: "fast",
+            inputCapabilities: ["text"],
+            switchPolicy: "same-thread",
+          },
+        ],
+      }],
+    });
+    serviceInternals.updateWorkspaceThreadSummary = async (_threadId, patch) => {
+      persistedProfiles.push(patch.executionProfile);
+      if (patch.executionProfile) {
+        persistedCurrentProfile = patch.executionProfile;
+      }
+      return {
+        ...makeThreadDetail("thr_profile_update"),
+        statusType: "idle",
+        statusActiveFlags: [],
+        archived: false,
+        createdAt: 1,
+        updatedAt: 1,
+        linkedAt: "2026-07-28T00:00:00.000Z",
+      };
+    };
+    serviceInternals.emitSidebarCatalogChangedForThread = async () => undefined;
+
+    const nextProfile = {
+      ...currentProfile,
+      modelId: "gpt-5.4",
+      reasoningEffort: "medium",
+      serviceTier: "fast",
+    };
+
+    try {
+      const settings = await service.updateThreadSettingsForNextTurn(
+        "thr_profile_update",
+        { executionProfile: nextProfile },
+      );
+      const params = requests[0]?.params;
+      expect(persistedProfiles).toEqual([nextProfile]);
+      expect(params?.model).toBe("gpt-5.4");
+      expect(params?.modelProvider).toBe("openai");
+      expect(params?.effort).toBe("medium");
+      expect(params?.serviceTier).toBe("fast");
+      expect(settings.model).toBe("gpt-5.4");
+      expect(settings.serviceTier).toBe("fast");
+
+      await service.updateThreadSettingsForNextTurn(
+        "thr_profile_update",
+        {
+          executionProfile: {
+            ...currentProfile,
+            reasoningEffort: "xhigh",
+          },
+          executionProfileChange: "reasoningEffort",
+        },
+      );
+      expect(persistedProfiles[1]).toEqual({
+        ...nextProfile,
+        reasoningEffort: "xhigh",
+      });
+
+      await service.updateThreadSettingsForNextTurn(
+        "thr_profile_update",
+        {
+          executionProfile: {
+            ...currentProfile,
+            modelId: "gpt-5.6",
+          },
+          executionProfileChange: "model",
+        },
+      );
+      const latestProfile = {
+        ...nextProfile,
+        modelId: "gpt-5.6",
+        reasoningEffort: "xhigh",
+      };
+      expect(persistedProfiles[2]).toEqual(latestProfile);
+
+      await expect(service.updateThreadSettingsForNextTurn(
+        "thr_profile_update",
+        {
+          executionProfile: {
+            ...nextProfile,
+            modelId: "gpt-new-thread-only",
+          },
+        },
+      )).rejects.toThrow("Start a new thread");
+      expect(persistedProfiles).toEqual([
+        nextProfile,
+        {
+          ...nextProfile,
+          reasoningEffort: "xhigh",
+        },
+        latestProfile,
+      ]);
     } finally {
       await service.shutdown();
     }

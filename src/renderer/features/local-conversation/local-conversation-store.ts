@@ -2765,6 +2765,8 @@ function buildOwnerConversationThreadSettings(
 
   return {
     model,
+    modelProvider: threadSettings.modelProvider,
+    serviceTier: threadSettings.serviceTier,
     reasoningEffort,
     collaborationMode: {
       mode,
@@ -2786,6 +2788,8 @@ function areOwnerThreadSettingsEqual(
 
   return Boolean(left)
     && left?.model === right.model
+    && left.modelProvider === right.modelProvider
+    && left.serviceTier === right.serviceTier
     && left.reasoningEffort === right.reasoningEffort
     && left.personality === right.personality
     && left.collaborationMode?.mode === right.collaborationMode.mode
@@ -4769,6 +4773,12 @@ export class CodexAppServerManager {
         const protocolSettings: Parameters<typeof reduceCodexConversationThreadSettings>[2] = {
           ...previous,
           model: persistedSettings.model ?? previous.model,
+          modelProvider:
+            persistedSettings.modelProvider
+            ?? previous.modelProvider,
+          serviceTier: persistedSettings.serviceTier === undefined
+            ? previous.serviceTier
+            : persistedSettings.serviceTier,
           effort: persistedSettings.reasoningEffort,
           collaborationMode:
             persistedSettings.collaborationMode ?? previous.collaborationMode,
@@ -10261,7 +10271,7 @@ export function useCodexAppServerControl(activeProjectId: string | null) {
     settings: storedThreadSettings,
     updateSettings: updateStoredThreadSettings,
   } = useCodexThreadSettings();
-  const { serviceTierSettings } = useCodexServiceTierSettings();
+  const { serviceTierSettings, setServiceTier } = useCodexServiceTierSettings();
   const [personality, setPersonalityState] = useState<CodexPersonality>("friendly");
 
   useEffect(() => {
@@ -10377,16 +10387,15 @@ export function useCodexAppServerControl(activeProjectId: string | null) {
     opts?: { projectId?: string; collaborationMode?: CodexCollaborationModeKind; serviceTier?: CodexServiceTier; promptInput?: CodexTurnStartOptions["promptInput"] },
   ) => {
     const resolvedProjectId = opts?.projectId ?? activeProjectId;
-    const effectiveServiceTier = resolveCodexRequestServiceTier(opts, serviceTierSettings.serviceTier);
     await manager.loadPermissionState(resolvedProjectId);
     const turnOpts: CodexTurnStartOptions = {
       permissionMode: manager.readPermissionMode(resolvedProjectId),
       collaborationMode: opts?.collaborationMode,
       ...(opts?.promptInput ? { promptInput: opts.promptInput } : {}),
-      ...buildCodexServiceTierRequestOverride(effectiveServiceTier),
+      ...buildCodexServiceTierRequestOverride(opts?.serviceTier ?? null),
     };
     return manager.startTurn(threadId, prompt, turnOpts);
-  }, [activeProjectId, manager, serviceTierSettings.serviceTier]);
+  }, [activeProjectId, manager]);
 
   const enqueueQueuedFollowUp = useCallback(async (
     threadId: string,
@@ -10394,16 +10403,15 @@ export function useCodexAppServerControl(activeProjectId: string | null) {
     opts?: { projectId?: string; collaborationMode?: CodexCollaborationModeKind | null; serviceTier?: CodexServiceTier; promptInput?: CodexTurnStartOptions["promptInput"] },
   ) => {
     const resolvedProjectId = opts?.projectId ?? activeProjectId;
-    const effectiveServiceTier = resolveCodexRequestServiceTier(opts, serviceTierSettings.serviceTier);
     await manager.loadPermissionState(resolvedProjectId);
     const turnOpts: CodexTurnStartOptions = {
       permissionMode: manager.readPermissionMode(resolvedProjectId),
       collaborationMode: opts?.collaborationMode ?? undefined,
       ...(opts?.promptInput ? { promptInput: opts.promptInput } : {}),
-      ...buildCodexServiceTierRequestOverride(effectiveServiceTier),
+      ...buildCodexServiceTierRequestOverride(opts?.serviceTier ?? null),
     };
     await manager.enqueueQueuedFollowUp(threadId, prompt, turnOpts);
-  }, [activeProjectId, manager, serviceTierSettings.serviceTier]);
+  }, [activeProjectId, manager]);
 
   const removeQueuedFollowUp = useCallback(
     async (threadId: string, followUpId: string) => manager.removeQueuedFollowUp(threadId, followUpId),
@@ -10423,14 +10431,13 @@ export function useCodexAppServerControl(activeProjectId: string | null) {
     message: string,
     opts?: { serviceTier?: CodexServiceTier },
   ) => {
-    const effectiveServiceTier = resolveCodexRequestServiceTier(opts, serviceTierSettings.serviceTier);
     return manager.editLastUserTurn(
       threadId,
       turnId,
       message,
-      buildCodexServiceTierRequestOverride(effectiveServiceTier),
+      buildCodexServiceTierRequestOverride(opts?.serviceTier ?? null),
     );
-  }, [manager, serviceTierSettings.serviceTier]);
+  }, [manager]);
   const forkConversationFromTurn = useCallback(
     async (threadId: string, turnId: string, message: string) =>
       manager.forkConversationFromTurn(threadId, turnId, message),
@@ -10525,14 +10532,8 @@ export function useCodexAppServerControl(activeProjectId: string | null) {
   );
 
   const steerTurn = useCallback(
-    async (input: CodexSteerTurnInput) => {
-      const effectiveServiceTier = resolveCodexRequestServiceTier(input, serviceTierSettings.serviceTier);
-      return manager.steerTurn({
-        ...input,
-        ...buildCodexServiceTierRequestOverride(effectiveServiceTier),
-      });
-    },
-    [manager, serviceTierSettings.serviceTier],
+    async (input: CodexSteerTurnInput) => manager.steerTurn(input),
+    [manager],
   );
   const interruptTurn = useCallback(
     async (threadId: string, turnId?: string) => manager.interruptTurn(threadId, turnId),
@@ -10607,6 +10608,9 @@ export function useCodexAppServerControl(activeProjectId: string | null) {
 
     updateStoredThreadSettings({ reasoningEffort });
   }, [updateStoredThreadSettings]);
+  const setDefaultServiceTier = useCallback((serviceTier: CodexServiceTier) => {
+    setServiceTier(serviceTier, "composer_menu");
+  }, [setServiceTier]);
   const setProviderCredential = useCallback(async (
     input: AgentProviderCredentialMutationInput,
   ): Promise<AgentProviderCredentialMutationResult> => {
@@ -10685,6 +10689,7 @@ export function useCodexAppServerControl(activeProjectId: string | null) {
     setPermissionMode,
     setThreadModel,
     setThreadReasoningEffort,
+    setDefaultServiceTier,
     setExecutionProfile,
     setProviderCredential,
     deleteProviderCredential,

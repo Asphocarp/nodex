@@ -1904,6 +1904,8 @@ export interface CodexHeartbeatAutomationPermissions {
 
 export interface CodexConversationThreadSettings {
   model: CodexAppServerThreadSettings["model"];
+  modelProvider?: CodexAppServerThreadSettings["modelProvider"] | null;
+  serviceTier?: CodexAppServerThreadSettings["serviceTier"];
   reasoningEffort: CodexReasoningEffort | null;
   collaborationMode: CodexCollaborationModeState | null;
   personality: CodexPersonality | null;
@@ -1911,9 +1913,16 @@ export interface CodexConversationThreadSettings {
 
 export interface CodexConversationThreadSettingsPatch {
   model?: string | null;
+  serviceTier?: CodexServiceTier;
   reasoningEffort?: CodexReasoningEffort | null;
   collaborationMode?: CodexCollaborationModeKind | null;
   personality?: CodexPersonality | null;
+  /**
+   * A validated compound update for profile-backed tasks. Main preserves the
+   * task's provider/harness binding and persists the mutable fields to Core.
+   */
+  executionProfile?: AgentExecutionProfile;
+  executionProfileChange?: import("./agent-runtime").AgentExecutionProfileChange;
 }
 
 export type CodexPersonality = CodexAppServerPersonality;

@@ -8,13 +8,28 @@ export type AgentProviderCredentialStatus =
   | "unavailable"
   | "unsupported";
 
-export interface AgentExecutionProfile {
+export interface AgentRuntimeBinding {
   readonly providerId: string;
-  readonly modelId: string;
   readonly harnessId: string | null;
+}
+
+export interface AgentTurnIntelligence {
+  readonly modelId: string;
   readonly reasoningEffort: string | null;
   readonly serviceTier: string | null;
 }
+
+/**
+ * Durable projection of a task's immutable runtime binding plus its mutable
+ * next-turn intelligence settings.
+ */
+export interface AgentExecutionProfile extends AgentRuntimeBinding, AgentTurnIntelligence {}
+
+export type AgentExecutionProfileChange =
+  | "provider"
+  | "model"
+  | "reasoningEffort"
+  | "serviceTier";
 
 export interface AgentReasoningEffortOption {
   readonly value: string;

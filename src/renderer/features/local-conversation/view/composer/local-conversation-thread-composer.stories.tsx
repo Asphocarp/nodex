@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useLayoutEffect } from "react";
+import { fireEvent, getByRole, waitFor } from "@testing-library/dom";
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import { CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY } from "@/lib/codex-service-tier-settings";
@@ -65,28 +66,51 @@ const STORY_AGENT_PROVIDER_CATALOG: AgentProviderCatalog = {
       isDefault: true,
       credentialEnvKey: null,
       recommendedHarnessId: null,
-      models: [{
-        providerId: "openai",
-        modelId: "gpt-5.5",
-        displayName: "GPT-5.5",
-        description: "Default Codex coding model.",
-        hidden: false,
-        isDefault: true,
-        recommendedHarnessId: null,
-        supportedReasoningEfforts: [{
-          value: "high",
-          displayName: "High",
-          description: "Deep reasoning.",
-        }],
-        defaultReasoningEffort: "high",
-        supportedServiceTiers: [
-          { value: null, displayName: "Standard", description: "Default speed, normal usage" },
-          { value: "fast", displayName: "Fast", description: "Faster responses, higher usage" },
-        ],
-        defaultServiceTier: null,
-        inputCapabilities: ["text", "image"],
-        switchPolicy: "same-thread",
-      }],
+      models: [
+        {
+          providerId: "openai",
+          modelId: "gpt-5.5",
+          displayName: "GPT-5.5",
+          description: "Default Codex coding model.",
+          hidden: false,
+          isDefault: true,
+          recommendedHarnessId: null,
+          supportedReasoningEfforts: [{
+            value: "high",
+            displayName: "High",
+            description: "Deep reasoning.",
+          }],
+          defaultReasoningEffort: "high",
+          supportedServiceTiers: [
+            { value: null, displayName: "Standard", description: "Default speed, normal usage" },
+            { value: "fast", displayName: "Fast", description: "Faster responses, higher usage" },
+          ],
+          defaultServiceTier: null,
+          inputCapabilities: ["text", "image"],
+          switchPolicy: "same-thread",
+        },
+        {
+          providerId: "openai",
+          modelId: "gpt-5.4",
+          displayName: "GPT-5.4",
+          description: "Previous Codex coding model.",
+          hidden: false,
+          isDefault: false,
+          recommendedHarnessId: null,
+          supportedReasoningEfforts: [
+            { value: "medium", displayName: "Medium", description: "Balanced reasoning." },
+            { value: "high", displayName: "High", description: "Deep reasoning." },
+          ],
+          defaultReasoningEffort: "medium",
+          supportedServiceTiers: [
+            { value: null, displayName: "Standard", description: "Default speed, normal usage" },
+            { value: "fast", displayName: "Fast", description: "Faster responses, higher usage" },
+          ],
+          defaultServiceTier: null,
+          inputCapabilities: ["text", "image"],
+          switchPolicy: "same-thread",
+        },
+      ],
     },
     {
       id: "anthropic",
@@ -299,14 +323,22 @@ function buildModel(args: ComposerSendButtonStoryProps): ThreadFooterModel {
     ...(args.multiProviderCatalog
       ? {
           agentProviderCatalog: STORY_AGENT_PROVIDER_CATALOG,
-          executionProfile: {
-            providerId: "anthropic",
-            modelId: "claude-opus-4-1",
-            harnessId: "claude-code",
-            reasoningEffort: "high",
-            serviceTier: null,
-          },
-          executionProfileLocked: args.threadState !== "newChat",
+          executionProfile: args.threadState === "newChat"
+            ? {
+                providerId: "anthropic",
+                modelId: "claude-opus-4-1",
+                harnessId: "claude-code",
+                reasoningEffort: "high",
+                serviceTier: null,
+              }
+            : {
+                providerId: "openai",
+                modelId: "gpt-5.4",
+                harnessId: null,
+                reasoningEffort: "medium",
+                serviceTier: null,
+              },
+          executionIdentityLocked: args.threadState !== "newChat",
         }
       : {}),
     ...(args.threadState === "newChat" && newChatTarget
@@ -683,6 +715,30 @@ export const NewChatEmptyNarrow: Story = {
   },
 };
 
+export const IntelligenceAnchorStability: Story = {
+  args: {
+    threadState: "newChat",
+    modelCatalog: "expanded",
+    multiProviderCatalog: true,
+    selectedModel: "gpt-5.5",
+    selectedModelDisplayName: "GPT-5.5",
+  },
+  play: async ({ canvasElement }) => {
+    const trigger = getByRole(canvasElement, "button", { name: "Select model" });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(trigger);
+    await waitFor(() => getByRole(document.body, "menuitem", { name: /Model/ }));
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Open multi-provider Intelligence selector. The trigger expands to its stable candidate width so model or reasoning changes cannot move the open menu anchor.",
+      },
+    },
+  },
+};
+
 export const PlanModeFooterAccessory: Story = {
   args: {
     selectedCollaborationMode: "plan",
@@ -861,7 +917,7 @@ export const MultiProviderClaudeSetup: Story = {
   },
 };
 
-export const MultiProviderLockedProfile: Story = {
+export const MultiProviderThreadProfile: Story = {
   args: {
     threadState: "existingThread",
     multiProviderCatalog: true,
@@ -870,7 +926,7 @@ export const MultiProviderLockedProfile: Story = {
   parameters: {
     docs: {
       description: {
-        story: "An existing task keeps its durable provider/model profile visible while the selector explains that changes require a new task.",
+        story: "An existing task with the second catalog model selected. The model flyout keeps provider catalog order stable while compatible model, effort, and speed settings remain editable for the next turn.",
       },
     },
   },

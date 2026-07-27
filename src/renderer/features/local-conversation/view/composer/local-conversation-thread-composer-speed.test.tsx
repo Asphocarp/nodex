@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { useState } from "react";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { AppProviders } from "@/app-providers";
 import {
@@ -33,27 +34,50 @@ const TEST_AGENT_PROVIDER_CATALOG: AgentProviderCatalog = {
       isDefault: true,
       credentialEnvKey: null,
       recommendedHarnessId: null,
-      models: [{
-        providerId: "openai",
-        modelId: "gpt-5.5",
-        displayName: "GPT-5.5",
-        description: "Default Codex coding model.",
-        hidden: false,
-        isDefault: true,
-        recommendedHarnessId: null,
-        supportedReasoningEfforts: [
-          { value: "high", displayName: "High", description: "Deep reasoning." },
-          { value: "xhigh", displayName: "Extra High", description: "Deeper reasoning." },
-        ],
-        defaultReasoningEffort: "high",
-        supportedServiceTiers: [
-          { value: null, displayName: "Standard", description: "Default speed, normal usage" },
-          { value: "fast", displayName: "Fast", description: "Faster responses, higher usage" },
-        ],
-        defaultServiceTier: null,
-        inputCapabilities: ["text", "image"],
-        switchPolicy: "same-thread",
-      }],
+      models: [
+        {
+          providerId: "openai",
+          modelId: "gpt-5.5",
+          displayName: "GPT-5.5",
+          description: "Default Codex coding model.",
+          hidden: false,
+          isDefault: true,
+          recommendedHarnessId: null,
+          supportedReasoningEfforts: [
+            { value: "high", displayName: "High", description: "Deep reasoning." },
+            { value: "xhigh", displayName: "Extra High", description: "Deeper reasoning." },
+          ],
+          defaultReasoningEffort: "high",
+          supportedServiceTiers: [
+            { value: null, displayName: "Standard", description: "Default speed, normal usage" },
+            { value: "fast", displayName: "Fast", description: "Faster responses, higher usage" },
+          ],
+          defaultServiceTier: null,
+          inputCapabilities: ["text", "image"],
+          switchPolicy: "same-thread",
+        },
+        {
+          providerId: "openai",
+          modelId: "gpt-5.4",
+          displayName: "GPT-5.4",
+          description: "Previous Codex coding model.",
+          hidden: false,
+          isDefault: false,
+          recommendedHarnessId: null,
+          supportedReasoningEfforts: [
+            { value: "medium", displayName: "Medium", description: "Balanced reasoning." },
+            { value: "high", displayName: "High", description: "Deep reasoning." },
+          ],
+          defaultReasoningEffort: "medium",
+          supportedServiceTiers: [
+            { value: null, displayName: "Standard", description: "Default speed, normal usage" },
+            { value: "fast", displayName: "Fast", description: "Faster responses, higher usage" },
+          ],
+          defaultServiceTier: null,
+          inputCapabilities: ["text", "image"],
+          switchPolicy: "same-thread",
+        },
+      ],
     },
     {
       id: "anthropic",
@@ -432,6 +456,51 @@ async function renderComposer(
   });
   await settleComposerFrame();
 
+  return view;
+}
+
+async function renderControlledThreadIntelligenceComposer() {
+  installAsyncRequestAnimationFrame();
+  document.documentElement.dataset.codexWindowType = "electron";
+  installComposerWindowApi();
+
+  function ControlledComposer() {
+    const [executionProfile, setExecutionProfile] = useState<
+      NonNullable<ThreadFooterModel["executionProfile"]>
+    >({
+      providerId: "openai",
+      modelId: "gpt-5.5",
+      harnessId: null,
+      reasoningEffort: "high",
+      serviceTier: null,
+    });
+    return (
+      <ThreadComposer
+        model={buildModel({
+          agentProviderCatalog: TEST_AGENT_PROVIDER_CATALOG,
+          executionProfile,
+          executionIdentityLocked: true,
+        })}
+        actions={buildActions({
+          onExecutionProfileChange: setExecutionProfile,
+        })}
+        errorMessage={null}
+        onErrorMessage={() => {}}
+      />
+    );
+  }
+
+  let view!: ReturnType<typeof render>;
+  await act(async () => {
+    view = render(
+      <AppProviders>
+        <TestComposerScopePath>
+          <ControlledComposer />
+        </TestComposerScopePath>
+      </AppProviders>,
+    );
+  });
+  await settleComposerFrame();
   return view;
 }
 
@@ -2412,7 +2481,7 @@ describe("ThreadComposer speed menu", () => {
           reasoningEffort: "high",
           serviceTier: null,
         },
-        executionProfileLocked: false,
+        executionIdentityLocked: false,
       },
       {
         onExecutionProfileChange: (profile) => {
@@ -2453,7 +2522,7 @@ describe("ThreadComposer speed menu", () => {
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
   });
 
-  test("agent speed selection updates both the execution profile and shared default", async () => {
+  test("agent speed selection emits a compound execution-profile update", async () => {
     resetStorage();
     const selectedProfiles: Array<NonNullable<ThreadFooterModel["executionProfile"]>> = [];
     const view = await renderComposer(
@@ -2466,7 +2535,7 @@ describe("ThreadComposer speed menu", () => {
           reasoningEffort: "high",
           serviceTier: null,
         },
-        executionProfileLocked: false,
+        executionIdentityLocked: false,
       },
       {
         onExecutionProfileChange: (profile) => {
@@ -2491,7 +2560,7 @@ describe("ThreadComposer speed menu", () => {
     });
 
     expect(selectedProfiles[0]?.serviceTier).toBe("fast");
-    expect(localStorage.getItem("nodex-codex-default-service-tier-v1")).toBe("fast");
+    expect(localStorage.getItem("nodex-codex-default-service-tier-v1")).toBe(null);
   });
 
   test("configures a missing provider in the modal layer before selecting it", async () => {
@@ -2508,7 +2577,7 @@ describe("ThreadComposer speed menu", () => {
           reasoningEffort: "high",
           serviceTier: null,
         },
-        executionProfileLocked: false,
+        executionIdentityLocked: false,
       },
       {
         onExecutionProfileChange: (profile) => {
@@ -2567,7 +2636,7 @@ describe("ThreadComposer speed menu", () => {
     });
   });
 
-  test("keeps an existing task profile inspectable but immutable", async () => {
+  test("locks an existing task identity while keeping compatible intelligence editable", async () => {
     resetStorage();
     const selectedProfiles: Array<NonNullable<ThreadFooterModel["executionProfile"]>> = [];
     const view = await renderComposer(
@@ -2580,7 +2649,7 @@ describe("ThreadComposer speed menu", () => {
           reasoningEffort: "high",
           serviceTier: null,
         },
-        executionProfileLocked: true,
+        executionIdentityLocked: true,
       },
       {
         onExecutionProfileChange: (profile) => {
@@ -2596,14 +2665,73 @@ describe("ThreadComposer speed menu", () => {
       await Promise.resolve();
     });
 
-    expect(view.getByText("Start a new task to change these settings.")).toBeTruthy();
+    expect(view.getByText("Start a new task to change provider.")).toBeTruthy();
+    expect(view.getByLabelText("Provider OpenAI").getAttribute("data-disabled")).not.toBe(null);
     await act(async () => {
       fireEvent.click(view.getByLabelText("Model GPT-5.5"));
       await Promise.resolve();
     });
-    expect(selectedProfiles).toEqual([]);
-    expect(view.container.ownerDocument.body.textContent?.includes("Default Codex coding model.") ?? false)
-      .toBe(false);
+    await act(async () => {
+      fireEvent.click(within(view.container.ownerDocument.body).getByText("GPT-5.4"));
+      await Promise.resolve();
+    });
+    expect(selectedProfiles[0]).toMatchObject({
+      providerId: "openai",
+      modelId: "gpt-5.4",
+      harnessId: null,
+      reasoningEffort: "high",
+    });
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  test("keeps the selector anchored while controlled thread intelligence updates", async () => {
+    resetStorage();
+    const view = await renderControlledThreadIntelligenceComposer();
+    const trigger = view.getByLabelText("Select model");
+    await act(async () => {
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(view.getByLabelText("Model GPT-5.5"));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(within(view.container.ownerDocument.body).getByText("GPT-5.4"));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(trigger.textContent?.includes("GPT-5.4")).toBe(true);
+      expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    });
+    const visibleModelLabels = Array.from(
+      view.container.ownerDocument.body.querySelectorAll<HTMLElement>(
+        '[data-radix-collection-item]',
+      ),
+    )
+      .map((item) => item.textContent?.trim())
+      .filter((label) => label === "GPT-5.5" || label === "GPT-5.4");
+    expect(visibleModelLabels).toEqual(["GPT-5.5", "GPT-5.4"]);
+
+    await act(async () => {
+      fireEvent.click(view.getByLabelText("Effort High"));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      const mediumOption = within(view.container.ownerDocument.body)
+        .getAllByText("Medium")
+        .map((node) => node.closest<HTMLElement>('[role="menuitem"]'))
+        .find((node): node is HTMLElement => node !== null);
+      if (!mediumOption) throw new Error("Expected the Medium effort option.");
+      fireEvent.click(mediumOption);
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(trigger.textContent?.includes("Medium")).toBe(true);
+      expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    });
   });
 
   test("model selector preserves model and effort submenus", async () => {
@@ -2738,7 +2866,7 @@ describe("ThreadComposer speed menu", () => {
   test("model flyout keeps every model in one concise searchable list", async () => {
     resetStorage();
     const view = await renderComposer({
-      selectedModel: "gpt-5.5",
+      selectedModel: "gpt-5.4",
       availableModels: [
         {
           id: "gpt-5.5",
@@ -2799,7 +2927,7 @@ describe("ThreadComposer speed menu", () => {
       await Promise.resolve();
     });
 
-    const modelTrigger = view.getByLabelText("Model GPT-5.5");
+    const modelTrigger = view.getByLabelText("Model GPT-5.4");
 
     await act(async () => {
       fireEvent.click(modelTrigger);
@@ -2812,6 +2940,24 @@ describe("ThreadComposer speed menu", () => {
     expect(Boolean(modelMenuText.includes("Other models"))).toBe(false);
     expect(Boolean(modelMenuText.includes("Latest Codex model"))).toBe(false);
     expect(Boolean(modelMenuText.includes("Previous stable Codex model"))).toBe(false);
+    const visibleModelLabels = Array.from(
+      view.container.ownerDocument.body.querySelectorAll<HTMLElement>(
+        '[data-radix-collection-item]',
+      ),
+    )
+      .map((item) => item.textContent?.trim())
+      .filter((label) => (
+        label === "GPT-5.5"
+        || label === "GPT-5.4"
+        || label === "GPT-5.4-Mini"
+        || label === "GPT-5.3-Codex-Spark"
+      ));
+    expect(visibleModelLabels).toEqual([
+      "GPT-5.5",
+      "GPT-5.4",
+      "GPT-5.4-Mini",
+      "GPT-5.3-Codex-Spark",
+    ]);
   });
 
   test("renders active Plan mode as a direct toggle chip", async () => {

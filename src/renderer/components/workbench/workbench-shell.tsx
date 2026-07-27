@@ -337,11 +337,11 @@ import type {
   WorkbenchTabProjection,
   WorkbenchProjectionTabConfiguration,
   WorkbenchTabCreateInput,
-  ProjectSessionThreadLink,
   WorkbenchPanelSplitSide,
   WorktreeStartMode,
   WorktreeEnvironmentOption,
 } from "@/lib/types";
+import { projectSessionThreadLinkToSummary } from "./thread-summary-projection";
 
 type ProjectSession = WindowLocalProjectSession;
 import type {
@@ -13087,7 +13087,9 @@ function SessionThreadPage({
   commandKeymapState?: CommandKeymapState | null;
   isMac: boolean;
 }) {
-  const summary = session.thread ? makeThreadSummary(session.thread) : null;
+  const summary = session.thread
+    ? projectSessionThreadLinkToSummary(session.thread)
+    : null;
   const [selectedNewThreadProjectId, setSelectedNewThreadProjectId] = useState<string | null>(
     session.projectId,
   );
@@ -13383,27 +13385,6 @@ function SessionThreadPage({
       />
     </div>
   );
-}
-
-function makeThreadSummary(thread: ProjectSessionThreadLink): CodexThreadSummary {
-  return {
-    threadId: thread.threadId,
-    projectId: thread.projectId,
-    source: thread.parentThreadId ? { parentThreadId: thread.parentThreadId } : null,
-    threadName: thread.threadName ?? null,
-    threadPreview: thread.threadPreview,
-    modelProvider: thread.modelProvider,
-    cwd: thread.cwd ?? null,
-    managedWorktreePath: thread.managedWorktreePath ?? null,
-    projectlessOutputDirectory: thread.projectlessOutputDirectory ?? null,
-    projectlessWorkspaceBrowserRoot: thread.projectlessWorkspaceBrowserRoot ?? null,
-    statusType: thread.statusType as CodexThreadSummary["statusType"],
-    statusActiveFlags: thread.statusActiveFlags as CodexThreadSummary["statusActiveFlags"],
-    archived: thread.archived,
-    createdAt: thread.createdAt,
-    updatedAt: thread.updatedAt,
-    linkedAt: thread.linkedAt,
-  };
 }
 
 function McpAppSessionTab({ tab }: { tab: McpAppPanelTab }) {
@@ -14065,7 +14046,9 @@ function WorkbenchTabProjectionPanel({
         persistRef={pageStagePersistRef}
         sessionSnapshotRef={pageStageSessionSnapshotRef}
         sessionId={activeSession.id}
-        sessionThread={activeSession.thread ? makeThreadSummary(activeSession.thread) : null}
+        sessionThread={activeSession.thread
+          ? projectSessionThreadLinkToSummary(activeSession.thread)
+          : null}
         canStartThreadInSession={
           !activeSession.thread
           && activeSession.projectId === pageTab.config.projectId

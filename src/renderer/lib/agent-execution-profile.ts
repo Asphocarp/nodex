@@ -186,11 +186,62 @@ export function selectAgentModel(
   model: AgentModelOption,
   current: AgentExecutionProfile | null,
 ): AgentExecutionProfile {
-  return buildAgentExecutionProfile({
+  const next = buildAgentExecutionProfile({
     model,
     reasoningEffort: current?.providerId === model.providerId ? current.reasoningEffort : null,
     serviceTier: current?.providerId === model.providerId ? current.serviceTier : undefined,
   });
+  if (current?.providerId !== model.providerId) return next;
+  return {
+    ...next,
+    harnessId: current.harnessId,
+  };
+}
+
+export function resolveEffectiveAgentExecutionProfile(input: {
+  catalog: AgentProviderCatalog | null | undefined;
+  activeThreadId: string | null;
+  threadProfile: AgentExecutionProfile | null | undefined;
+  threadModelProvider: string | null | undefined;
+  liveModel: string | null | undefined;
+  liveReasoningEffort: string | null | undefined;
+  liveServiceTier: string | null | undefined;
+  draftProfile: AgentExecutionProfile | null | undefined;
+}): AgentExecutionProfile | null {
+  if (!input.activeThreadId) return input.draftProfile ?? null;
+
+  const catalog = input.catalog;
+  if (!catalog) return null;
+  const providerId = input.threadProfile?.providerId
+    ?? normalizeProfileValue(input.threadModelProvider);
+  if (!providerId) return null;
+  const provider = findAgentProvider(catalog, providerId);
+  if (!provider) return null;
+
+  const liveModelId = normalizeProfileValue(input.liveModel);
+  const baseModelId = input.threadProfile?.modelId ?? liveModelId;
+  const requestedModel = liveModelId
+    ? provider.models.find((model) => !model.hidden && model.modelId === liveModelId)
+    : null;
+  const baseModel = baseModelId
+    ? provider.models.find((model) => !model.hidden && model.modelId === baseModelId)
+    : null;
+  const model = requestedModel ?? baseModel;
+  if (!model) return null;
+
+  const base = buildAgentExecutionProfile({
+    model,
+    reasoningEffort: input.liveReasoningEffort
+      ?? input.threadProfile?.reasoningEffort
+      ?? null,
+    serviceTier: input.liveServiceTier === undefined
+      ? input.threadProfile?.serviceTier
+      : input.liveServiceTier,
+  });
+  return {
+    ...base,
+    harnessId: input.threadProfile?.harnessId ?? model.recommendedHarnessId,
+  };
 }
 
 export function selectAgentReasoningEffort(
