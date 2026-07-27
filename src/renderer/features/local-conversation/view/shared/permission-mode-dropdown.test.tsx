@@ -37,7 +37,7 @@ describe("permission mode dropdown", () => {
     await openPermissionMenu(view);
 
     const bodyText = view.container.ownerDocument.body.textContent ?? "";
-    expect(bodyText.includes("How should Codex actions be approved?")).toBe(true);
+    expect(bodyText.includes("How should Agent actions be approved?")).toBe(true);
     expect(bodyText.includes("Ask for approval")).toBe(true);
     expect(bodyText.includes("Always ask to edit external files and use the internet")).toBe(true);
     expect(bodyText.includes("Approve for me")).toBe(true);
@@ -194,7 +194,7 @@ describe("permission mode dropdown", () => {
 
       const fullAccessItem = view.getByText("Full access");
       expect((view.container.ownerDocument.body.textContent ?? "").includes(
-        "Allow unrestricted file and network access, and read or modify the entire Nodex Library without approval prompts.",
+        "Unrestricted access to the internet and any file on your computer",
       )).toBe(true);
 
       await act(async () => {

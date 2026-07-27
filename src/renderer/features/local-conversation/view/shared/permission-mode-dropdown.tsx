@@ -20,7 +20,7 @@ type PermissionModeDropdownItem = {
 };
 
 export const FULL_ACCESS_PERMISSION_DESCRIPTION =
-  "Allow unrestricted file and network access, and read or modify the entire Nodex Library without approval prompts.";
+  "Unrestricted access to the internet and any file on your computer";
 
 const PERMISSION_MODE_ITEMS: PermissionModeDropdownItem[] = [
   {
@@ -65,7 +65,6 @@ const PERMISSION_MENU_ICON_CLASS_NAME =
 const PERMISSION_MENU_CHECK_CLASS_NAME =
   "icon-xs shrink-0 opacity-75 group-focus:opacity-100 group-hover:opacity-100";
 const FULL_ACCESS_ACCENT_CLASS_NAME = "text-token-editor-warning-foreground";
-const APPROVE_FOR_ME_ACCENT_CLASS_NAME = "text-token-text-link-foreground";
 
 function formatPermissionModeLabel(mode: CodexPermissionMode): string {
   const match = PERMISSION_MODE_ITEMS.find((item) => item.value === mode);
@@ -74,7 +73,6 @@ function formatPermissionModeLabel(mode: CodexPermissionMode): string {
 
 function resolvePermissionModeAccentClass(mode: CodexPermissionMode): string | undefined {
   if (mode === "full-access") return FULL_ACCESS_ACCENT_CLASS_NAME;
-  if (mode === "guardian-approvals") return APPROVE_FOR_ME_ACCENT_CLASS_NAME;
   return undefined;
 }
 
@@ -113,6 +111,8 @@ function PermissionModeOption({
   disabled: boolean;
   onSelect: () => boolean;
 }) {
+  const accentClass = resolvePermissionModeAccentClass(item.value);
+
   return (
     <DropdownMenuPrimitive.Item
       disabled={disabled}
@@ -134,17 +134,25 @@ function PermissionModeOption({
       <div className="flex w-full items-center gap-3">
         <PermissionModeMenuIcon
           mode={item.value}
-          className={PERMISSION_MENU_ICON_CLASS_NAME}
+          className={cn(PERMISSION_MENU_ICON_CLASS_NAME, accentClass)}
         />
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="min-w-0 whitespace-normal">{item.optionLabel}</span>
+          <span className={cn("min-w-0 whitespace-normal", accentClass)}>
+            {item.optionLabel}
+          </span>
           <span className="min-w-0 truncate">
-            <span className="text-token-description-foreground">
+            <span className={cn("text-token-description-foreground", accentClass)}>
               {disabled && item.disabledDescription ? item.disabledDescription : item.description}
             </span>
           </span>
         </span>
-        {selected ? <PermissionModeCheckIcon className={PERMISSION_MENU_CHECK_CLASS_NAME} /> : null}
+        {selected
+          ? (
+              <PermissionModeCheckIcon
+                className={cn(PERMISSION_MENU_CHECK_CLASS_NAME, accentClass)}
+              />
+            )
+          : null}
       </div>
     </DropdownMenuPrimitive.Item>
   );
@@ -188,7 +196,7 @@ export function PermissionModeDropdown({
     >
       <div className={PERMISSION_MENU_TITLE_CLASS_NAME}>
         <div className="flex items-center justify-between gap-8">
-          <span>How should Codex actions be approved?</span>
+          <span>How should Agent actions be approved?</span>
           <button
             type="button"
             className="cursor-interaction underline underline-offset-2 hover:text-token-description-foreground"
