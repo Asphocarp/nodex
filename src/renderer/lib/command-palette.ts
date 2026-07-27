@@ -22,6 +22,7 @@ import type {
   CodexThreadStatusType,
   Priority,
 } from "./types";
+import type { ProjectAppearance } from "../../shared/project-appearance";
 
 export interface CommandPaletteCommand {
   kind: "command";
@@ -60,7 +61,7 @@ export interface CommandPalettePage {
   id: string;
   projectId: string;
   projectName: string;
-  projectIcon: string;
+  projectAppearance: ProjectAppearance;
   columnName: string;
   page: DatabasePageSummary;
   inActiveProject: boolean;

@@ -75,6 +75,7 @@ export interface CodexSidebarFloatingVisibilityInput {
   sidebarAnimating: boolean;
   hoverSuppressed: boolean;
   focusOverride: boolean;
+  hoverSurfaceActive?: boolean;
   currentlyVisible: boolean;
 }
 
@@ -183,9 +184,10 @@ export function deriveCodexSidebarFloatingVisibility(
     input.pointerX,
     input.leftPanelWidthPx,
   );
-  if (input.currentlyVisible) return keepOpen || input.focusOverride;
+  const explicitKeepOpen = input.focusOverride || input.hoverSurfaceActive === true;
+  if (input.currentlyVisible) return keepOpen || explicitKeepOpen;
 
-  return isCodexSidebarEdgeEnterX(input.pointerX) || input.focusOverride;
+  return isCodexSidebarEdgeEnterX(input.pointerX) || explicitKeepOpen;
 }
 
 export function normalizeCodexSidebarPointer(

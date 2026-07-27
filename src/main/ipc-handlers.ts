@@ -10,6 +10,8 @@ import {
   type OpenDialogOptions,
 } from "electron";
 import { performance } from "node:perf_hooks";
+import { homedir } from "node:os";
+import { sep } from "node:path";
 import { writeImageToClipboard } from "./clipboard-image-writer";
 import { inspectClipboardPasteItems } from "./clipboard-paste-inspector";
 import { prepareComposerPickedFiles } from "./composer-picked-files";
@@ -143,6 +145,7 @@ import {
   readGitBranchState,
   watchGitBranch,
 } from "./git-branch-service";
+import { readGitRepositoryIdentity } from "./git-repository-identity-service";
 import {
   cancelGitAction,
   commitGitChanges,
@@ -1586,6 +1589,10 @@ export function registerIpcHandlers(
     await projectWorkspace.getProject(projectId),
   );
 
+  registerHandle("projects:activity-summaries", async (_, projectIds: string[]) =>
+    await projectWorkspace.readProjectActivitySummaries(projectIds),
+  );
+
   registerHandle("projects:create", async (_, input) =>
     await projectWorkspace.createProject(input),
   );
@@ -2097,6 +2104,10 @@ export function registerIpcHandlers(
   registerHandle("shell:open-file-link", (_, target, openerId) =>
     openFileLinkTarget(target, openerId),
   );
+  registerHandle("shell:path-context:get", () => ({
+    homeDirectory: homedir(),
+    separator: sep === "\\" ? ("\\" as const) : ("/" as const),
+  }));
 
   registerHandle("workspace-directory-entries", (event, input) =>
     runWorkspaceFileHandler(event, () => listWorkspaceDirectoryEntries(
@@ -2172,6 +2183,9 @@ export function registerIpcHandlers(
 
   registerHandle("git:branch:state", (_, cwd: string) => {
     return readGitBranchState(cwd);
+  });
+  registerHandle("git:repository:identity", (_, cwd: string) => {
+    return readGitRepositoryIdentity(cwd);
   });
 
   registerHandle(

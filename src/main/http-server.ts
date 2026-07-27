@@ -4,6 +4,8 @@ import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
+import { sep } from "node:path";
 import {
   getBackupSettings,
   getHistorySettings,
@@ -21,6 +23,7 @@ import {
   createAndCheckoutGitBranch,
   readGitBranchState,
 } from "./git-branch-service";
+import { readGitRepositoryIdentity } from "./git-repository-identity-service";
 import type {
   PageOccurrenceActionInput,
   PageOccurrenceCompleteInput,
@@ -45,10 +48,12 @@ import {
   parseOptionalWorkflowStatus,
 } from "../shared/schemas/http";
 import {
+  ProjectCreateInputSchema,
   ProjectLifecycleInputSchema,
   ProjectOrderInputSchema,
   ProjectPinnedInputSchema,
   ProjectPinnedOrderInputSchema,
+  ProjectUpdateInputSchema,
 } from "../shared/schemas/projects";
 import { codexService } from "./codex/codex-service";
 import { terminalManager } from "./terminal-manager";
@@ -704,6 +709,11 @@ app.put("/api/settings/thread-notifications", async (c) => {
 
 // === Git routes ===
 
+app.get("/api/shell/path-context", (c) => c.json({
+  homeDirectory: homedir(),
+  separator: sep === "\\" ? "\\" : "/",
+}));
+
 app.get("/api/git/branch", async (c) => {
   const cwd = c.req.query("cwd");
   if (!cwd) {
@@ -713,6 +723,19 @@ app.get("/api/git/branch", async (c) => {
   try {
     const state = await readGitBranchState(cwd);
     return c.json(state);
+  } catch (error) {
+    return c.json({ error: (error as Error).message }, 400);
+  }
+});
+
+app.get("/api/git/repository-identity", async (c) => {
+  const cwd = c.req.query("cwd");
+  if (!cwd) {
+    return c.json({ error: "Missing cwd" }, 400);
+  }
+
+  try {
+    return c.json(await readGitRepositoryIdentity(cwd));
   } catch (error) {
     return c.json({ error: (error as Error).message }, 400);
   }
@@ -852,6 +875,18 @@ app.get("/api/projects", async (c) => {
   return c.json(window);
 });
 
+app.get("/api/projects/activity-summaries", async (c) => {
+  try {
+    return c.json(
+      await projectWorkspaceAuthority().readProjectActivitySummaries(
+        c.req.queries("projectId") ?? [],
+      ),
+    );
+  } catch (error) {
+    return c.json({ error: (error as Error).message }, 400);
+  }
+});
+
 app.post("/api/projects", async (c) => {
   const body = await c.req.json();
   try {
@@ -859,12 +894,9 @@ app.post("/api/projects", async (c) => {
     if (legacyField) {
       return c.json({ error: `Unsupported legacy project field: ${legacyField}` }, 400);
     }
-    const project = await projectWorkspaceAuthority().createProject({
-      name: typeof body.name === "string" ? body.name : undefined,
-      description: typeof body.description === "string" ? body.description : undefined,
-      icon: typeof body.icon === "string" ? body.icon : undefined,
-      sources: Array.isArray(body.sources) ? body.sources : undefined,
-    });
+    const project = await projectWorkspaceAuthority().createProject(
+      ProjectCreateInputSchema.parse(body),
+    );
     return c.json(project, 201);
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -911,12 +943,10 @@ app.put("/api/projects/:projectId", async (c) => {
     if (legacyField) {
       return c.json({ error: `Unsupported legacy project field: ${legacyField}` }, 400);
     }
-    const result = await projectWorkspaceAuthority().updateProject(projectId, {
-      name: typeof body.name === "string" ? body.name : undefined,
-      description: typeof body.description === "string" ? body.description : undefined,
-      icon: typeof body.icon === "string" ? body.icon : undefined,
-      sources: Array.isArray(body.sources) ? body.sources : undefined,
-    });
+    const result = await projectWorkspaceAuthority().updateProject(
+      projectId,
+      ProjectUpdateInputSchema.parse(body),
+    );
     if (!result) return c.json({ error: "Not found" }, 404);
     return c.json(result);
   } catch (err) {

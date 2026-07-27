@@ -10,6 +10,7 @@ import {
 import { createCommandPalettePageSearchIndex } from "./command-palette-page-search";
 import type { BoardSummary, DatabasePageSummary, PageSearchResult, Project } from "./types";
 import { plainTextToPortableRichText } from "../../shared/block-documents";
+import { DEFAULT_PROJECT_APPEARANCE } from "../../shared/project-appearance";
 
 function makePage(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSummary {
   const descriptionPreview = overrides.descriptionPreview ?? "Add quick page switching and commands.";
@@ -52,7 +53,7 @@ function makePalettePage(overrides: Partial<CommandPalettePage> = {}): CommandPa
     id: overrides.id ?? `${overrides.projectId ?? "default"}:${page.id}`,
     projectId: overrides.projectId ?? "default",
     projectName: overrides.projectName ?? "Default",
-    projectIcon: overrides.projectIcon ?? "",
+    projectAppearance: overrides.projectAppearance ?? DEFAULT_PROJECT_APPEARANCE,
     columnName: overrides.columnName ?? "In progress",
     page,
     inActiveProject: overrides.inActiveProject ?? true,
@@ -71,6 +72,7 @@ function makeProject(id: string, name: string): Project {
     bindingRevision: 1,
     name,
     description: "",
+    appearance: DEFAULT_PROJECT_APPEARANCE,
     sources: [],
     primaryWorkspaceRoot: null,
     pinned: false,

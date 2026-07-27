@@ -73,9 +73,9 @@ impl Fixture {
                     transaction.execute(
                         "INSERT INTO projects(\
                            id, library_id, database_block_id, lifecycle, binding_revision, \
-                           name, description, icon, created, updated\
+                           name, description, created, updated\
                          ) VALUES ('project:administration-test', ?1, NULL, 'active', 1, \
-                           'Administration', '', '', '2026-07-19T00:00:00.000Z', \
+                           'Administration', '', '2026-07-19T00:00:00.000Z', \
                            '2026-07-19T00:00:00.000Z')",
                         [LIBRARY_ID],
                     )?;

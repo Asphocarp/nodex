@@ -1214,7 +1214,10 @@ function makeProject(id = "alpha", name = "Alpha", primarySourceRoot?: string): 
     bindingRevision: 1,
     name,
     description: "",
-    icon: "",
+    appearance: {
+      color: "black",
+      marker: { kind: "icon", icon: "folder" },
+    },
     sources: normalizedPrimarySourceRoot ? [{ root: normalizedPrimarySourceRoot, order: 0 }] : [],
     primaryWorkspaceRoot: normalizedPrimarySourceRoot,
     pinned: false,
@@ -3180,11 +3183,6 @@ function renderWorkbench({
         activeDbViewPrefs={null}
         searchByProject={searchByProject}
         dbViewPrefsByProject={dbViewPrefsByProject}
-        projectRefs={renderedProjects.map((project) => ({
-          projectId: project.id,
-          colorToken: "var(--accent-blue)",
-          initial: project.name.slice(0, 1).toUpperCase(),
-        }))}
         sidebar={sidebarState}
         pageStageCloseRef={createRef()}
         setDbProject={(projectId) => {

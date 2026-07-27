@@ -120,7 +120,7 @@ pub(super) fn create_project(
             project_id: project_id.to_owned(),
             name: project_id.to_owned(),
             description: String::new(),
-            icon: None,
+            appearance: None,
             source_roots: vec![format!("/workspace/{project_id}")],
         },
     );

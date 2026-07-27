@@ -18,7 +18,7 @@ const PROJECT: Project = {
   bindingRevision: 1,
   name: "Beta",
   description: "",
-  icon: "",
+  appearance: { color: "blue", marker: { kind: "icon", icon: "terminal" } },
   sources: [
     { root: "/repo/beta", order: 0 },
     { root: "/repo/beta-docs", order: 1 },
@@ -66,7 +66,125 @@ describe("ProjectEditDialog", () => {
     await waitFor(() => {
       expect(submitted[0]?.sources).toEqual(["/repo/beta-docs", "/repo/beta"]);
       expect(submitted[0]?.name).toBe("Beta");
+      expect(submitted[0]?.appearance).toEqual(PROJECT.appearance);
     });
+  });
+
+  test("stages marker changes and submits appearance atomically with the form", async () => {
+    const submitted: ProjectDialogSubmitInput[] = [];
+    const view = renderEditDialog(async (input) => {
+      submitted.push(input);
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Change marker for Beta" }));
+      await Promise.resolve();
+    });
+    const editorDialog = view.getByRole("heading", {
+      name: "Edit project",
+    }).closest('[role="dialog"]');
+    const pickerDialog = view.getByRole("dialog", {
+      name: "Project marker for Beta",
+    });
+    expect(editorDialog?.contains(pickerDialog)).toBe(false);
+    expect(document.body.contains(pickerDialog)).toBe(true);
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Use Red" }));
+      await Promise.resolve();
+    });
+
+    expect(submitted).toHaveLength(0);
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Save" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(submitted).toEqual([{
+        appearance: {
+          color: "red",
+          marker: { kind: "icon", icon: "terminal" },
+        },
+        name: "Beta",
+        sources: ["/repo/beta", "/repo/beta-docs"],
+      }]);
+    });
+  });
+
+  test("Cancel discards a staged marker without submitting", async () => {
+    const onClose = vi.fn();
+    const onSubmit = vi.fn(async () => undefined);
+    const view = render(
+      <NodexTooltipProvider>
+        <ProjectEditDialog
+          project={PROJECT}
+          onClose={onClose}
+          onSubmit={onSubmit}
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", {
+        name: "Change marker for Beta",
+      }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Use Red" }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Cancel" }));
+      await Promise.resolve();
+    });
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  test("keeps the dialog and staged marker intact after a rejected Save", async () => {
+    const view = renderEditDialog(async () => {
+      throw new Error("revision changed");
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", {
+        name: "Change marker for Beta",
+      }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Use Red" }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Done" }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Save" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Edit project" })).toBeTruthy();
+      expect(view.getByRole("button", {
+        name: "Change marker for Beta",
+      })).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", {
+        name: "Change marker for Beta",
+      }));
+      await Promise.resolve();
+    });
+    expect(view.getByRole("button", {
+      name: "Use Red",
+    }).getAttribute("aria-pressed")).toBe("true");
   });
 
   test("removing a folder drops it from the saved sources", async () => {

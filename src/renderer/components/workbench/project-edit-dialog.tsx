@@ -13,6 +13,10 @@ import {
   CodexFolderIcon,
   CodexFolderPlusIcon,
 } from "@/components/shared/icons";
+import {
+  DEFAULT_PROJECT_APPEARANCE,
+  type ProjectAppearance,
+} from "../../../shared/project-appearance";
 import { NodexButton } from "@/components/ui/button";
 import {
   NodexDialog,
@@ -33,11 +37,13 @@ import {
 } from "@/lib/project-sources";
 import type { Project, ProjectLifecycleMutationResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { ProjectMarkerPicker } from "./project-marker-picker";
 import { ProjectRemoveDialog } from "./project-remove-dialog";
 
 const PRIMARY_SOURCE_TOOLTIP = "Agents run in this folder and look inside it for AGENTS.md and skills";
 
 export interface ProjectDialogSubmitInput {
+  appearance: ProjectAppearance;
   name: string;
   sources: string[];
 }
@@ -211,6 +217,7 @@ function ProjectEditorForm({
   submitLabel,
   saveErrorMessage,
   initialName,
+  initialAppearance,
   initialSources,
   requireSources = false,
   onSubmit,
@@ -221,6 +228,7 @@ function ProjectEditorForm({
   submitLabel: string;
   saveErrorMessage: string;
   initialName: string;
+  initialAppearance: ProjectAppearance;
   initialSources: readonly string[];
   requireSources?: boolean;
   onSubmit: (input: ProjectDialogSubmitInput) => Promise<void>;
@@ -229,6 +237,7 @@ function ProjectEditorForm({
 }) {
   const nameInputId = useId();
   const [name, setName] = useState(initialName);
+  const [appearance, setAppearance] = useState(initialAppearance);
   const [sources, setSources] = useState<string[]>(() => dedupeSourceRoots(initialSources));
   const [saving, setSaving] = useState(false);
 
@@ -237,7 +246,7 @@ function ProjectEditorForm({
     if (saving) return;
     setSaving(true);
     try {
-      await onSubmit({ name, sources });
+      await onSubmit({ appearance, name, sources });
       onClose();
     } catch {
       setSaving(false);
@@ -256,12 +265,17 @@ function ProjectEditorForm({
             Name
           </label>
           <div className="flex h-10 shrink-0 items-center gap-2 overflow-hidden rounded-xl border border-token-border bg-token-input-background pr-3 pl-0 focus-within:border-token-focus-border">
-            <span
-              aria-hidden="true"
-              className="flex h-full w-10 shrink-0 items-center justify-center border-r border-token-border text-token-description-foreground"
-            >
-              <CodexFolderIcon className="icon-xs" />
-            </span>
+            <div className="flex h-full w-10 shrink-0 items-center justify-center border-r border-token-border">
+              <ProjectMarkerPicker
+                appearance={appearance}
+                onAppearanceChange={setAppearance}
+                projectName={name.trim() || "Untitled project"}
+                pending={saving}
+                headerLabel={name.trim() || "Untitled project"}
+                showDividers={false}
+                buttonClassName="h-full w-full rounded-none"
+              />
+            </div>
             <input
               id={nameInputId}
               autoFocus
@@ -363,6 +377,7 @@ function ProjectEditDialogContent({
           submitLabel="Save"
           saveErrorMessage="Failed to save project"
           initialName={project.name}
+          initialAppearance={project.appearance}
           initialSources={initialSources}
           onSubmit={onSubmit}
           onClose={onClose}
@@ -393,7 +408,7 @@ export function ProjectEditDialog(props: ProjectEditDialogProps) {
 
   return (
     <ProjectEditDialogContent
-      key={`${props.project.id}:${props.project.name}:${sourceIdentity}`}
+      key={`${props.project.id}:${props.project.name}:${JSON.stringify(props.project.appearance)}:${sourceIdentity}`}
       {...props}
     />
   );
@@ -413,6 +428,7 @@ export function ProjectCreateDialog({
         submitLabel="Create project"
         saveErrorMessage="Failed to create project"
         initialName=""
+        initialAppearance={DEFAULT_PROJECT_APPEARANCE}
         initialSources={[]}
         requireSources
         onSubmit={onCreate}

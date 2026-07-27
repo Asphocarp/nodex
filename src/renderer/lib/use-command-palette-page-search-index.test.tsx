@@ -9,6 +9,7 @@ import {
 import { useCommandPalettePageSearchIndex } from "./use-command-palette-page-search-index";
 import type { DatabasePageSummary } from "./types";
 import { plainTextToPortableRichText } from "../../shared/block-documents";
+import { DEFAULT_PROJECT_APPEARANCE } from "../../shared/project-appearance";
 
 function makePage(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSummary {
   const descriptionPreview = overrides.descriptionPreview ?? "Shared picker search.";
@@ -51,7 +52,7 @@ function makePalettePage(overrides: Partial<CommandPalettePage> = {}): CommandPa
     id: overrides.id ?? `${overrides.projectId ?? "project-1"}:${page.id}`,
     projectId: overrides.projectId ?? "project-1",
     projectName: overrides.projectName ?? "Project",
-    projectIcon: overrides.projectIcon ?? "",
+    projectAppearance: overrides.projectAppearance ?? DEFAULT_PROJECT_APPEARANCE,
     columnName: overrides.columnName ?? "Doing",
     page,
     inActiveProject: overrides.inActiveProject ?? true,

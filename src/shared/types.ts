@@ -69,6 +69,7 @@ import type {
 import type { AgentExecutionProfile } from "./agent-runtime";
 import type { PortableRichText } from "./block-documents/portable-rich-text";
 import type { ProjectLifecycle } from "./library";
+import type { ProjectAppearance } from "./project-appearance";
 import type {
   CodexApprovalResponse,
 } from "./codex-approval-response";
@@ -442,7 +443,7 @@ export interface Project {
   bindingRevision: number;
   name: string;
   description: string;
-  icon?: string;
+  appearance: ProjectAppearance;
   sources: ProjectSource[];
   primaryWorkspaceRoot: string | null;
   pinned: boolean;
@@ -454,14 +455,19 @@ export interface Project {
 export interface ProjectCreateInput {
   name?: string;
   description?: string;
-  icon?: string;
+  appearance?: ProjectAppearance;
   sources?: string[];
 }
 
 export interface ProjectUpdateInput {
+  /**
+   * Revision observed by the editing surface. Supplying it turns the update
+   * into a user-visible optimistic-concurrency fence.
+   */
+  expectedBindingRevision?: number;
   name?: string;
   description?: string;
-  icon?: string;
+  appearance?: ProjectAppearance;
   sources?: string[];
 }
 
@@ -482,6 +488,19 @@ export interface ProjectWindow {
   items: Project[];
   nextCursor: string | null;
   hasMore: boolean;
+  projectionRevision: number;
+}
+
+export interface ProjectActivitySummary {
+  projectId: string;
+  taskCount: number;
+  waitingCount: number;
+  unreadCount: number;
+  activeCount: number;
+}
+
+export interface ProjectActivitySummaryResult {
+  summaries: ProjectActivitySummary[];
   projectionRevision: number;
 }
 

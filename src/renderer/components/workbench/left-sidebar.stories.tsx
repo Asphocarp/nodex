@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { CodexAccountSnapshot, CodexSidebarThreadItem, Project, ProjectSession } from "@/lib/types";
-import type { ProjectRef } from "@/lib/use-workbench-state";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { CodexAutomationsIcon, ComposerPluginsIcon } from "@/components/shared/icons";
 import {
@@ -65,6 +64,7 @@ const PROJECTS: Project[] = [
     bindingRevision: 1,
     name: "Nodex",
     description: "",
+    appearance: { color: "blue", marker: { kind: "icon", icon: "terminal" } },
     sources: [{ root: "/Users/asc/repo/nodex", order: 0 }],
     primaryWorkspaceRoot: "/Users/asc/repo/nodex",
     pinned: false,
@@ -81,6 +81,7 @@ const PROJECTS: Project[] = [
     bindingRevision: 1,
     name: "Codex bundle",
     description: "",
+    appearance: { color: "green", marker: { kind: "icon", icon: "book" } },
     sources: [{ root: "/Users/asc/repo/devtools-codex", order: 0 }],
     primaryWorkspaceRoot: "/Users/asc/repo/devtools-codex",
     pinned: false,
@@ -90,9 +91,9 @@ const PROJECTS: Project[] = [
   },
 ];
 
-const PROJECT_REFS: ProjectRef[] = [
-  { projectId: "default", colorToken: "var(--accent-blue)", initial: "N" },
-  { projectId: "bundle", colorToken: "var(--accent-green)", initial: "C" },
+const PROJECT_ORDER = [
+  "default",
+  "bundle",
 ];
 
 const SIDEBAR_PARITY_PROJECTS: Project[] = [
@@ -105,6 +106,7 @@ const SIDEBAR_PARITY_PROJECTS: Project[] = [
     bindingRevision: 1,
     name: "Nodex",
     description: "",
+    appearance: { color: "blue", marker: { kind: "icon", icon: "terminal" } },
     sources: [{ root: "/Users/asc/repo/nodex", order: 0 }],
     primaryWorkspaceRoot: "/Users/asc/repo/nodex",
     pinned: false,
@@ -121,6 +123,7 @@ const SIDEBAR_PARITY_PROJECTS: Project[] = [
     bindingRevision: 1,
     name: "Codex Electron readable bundle with a very long project label",
     description: "",
+    appearance: { color: "purple", marker: { kind: "icon", icon: "book" } },
     sources: [{ root: "/Users/asc/repo/devtools-codex/codex_electron_26.519.81530_to_be_readable", order: 0 }],
     primaryWorkspaceRoot: "/Users/asc/repo/devtools-codex/codex_electron_26.519.81530_to_be_readable",
     pinned: false,
@@ -137,6 +140,7 @@ const SIDEBAR_PARITY_PROJECTS: Project[] = [
     bindingRevision: 1,
     name: "Missing workspace path",
     description: "",
+    appearance: { color: "orange", marker: { kind: "icon", icon: "folder" } },
     sources: [],
     primaryWorkspaceRoot: null,
     pinned: false,
@@ -148,10 +152,10 @@ const SIDEBAR_PARITY_PROJECTS: Project[] = [
 
 const STORY_TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1_000;
 
-const SIDEBAR_PARITY_PROJECT_REFS: ProjectRef[] = [
-  { projectId: "nodex", colorToken: "var(--accent-blue)", initial: "N" },
-  { projectId: "codex-electron-readable-bundle-with-a-very-long-name", colorToken: "var(--accent-green)", initial: "C" },
-  { projectId: "missing-workspace", colorToken: "var(--accent-yellow)", initial: "M" },
+const SIDEBAR_PARITY_PROJECT_ORDER = [
+  "nodex",
+  "codex-electron-readable-bundle-with-a-very-long-name",
+  "missing-workspace",
 ];
 
 const FOOTER_QUOTA_ACCOUNT: CodexAccountSnapshot = {
@@ -258,7 +262,7 @@ function SidebarSectionMenuHarness() {
     <div className="min-h-screen bg-(--background)">
       <LeftSidebar
         projects={PROJECTS}
-        projectRefs={PROJECT_REFS}
+        projectOrder={PROJECT_ORDER}
         activeProjectId="default"
         stageGroups={groups}
         collapsed={false}
@@ -349,7 +353,7 @@ function StatusGroupOrderHarness() {
     <div className="min-h-screen bg-(--background)">
       <LeftSidebar
         projects={PROJECTS}
-        projectRefs={PROJECT_REFS}
+        projectOrder={PROJECT_ORDER}
         activeProjectId="default"
         stageGroups={groups}
         collapsed={false}
@@ -514,7 +518,7 @@ function CodexProjectsHarness({
         <div className="app-shell-left-panel w-[300px] overflow-visible py-4">
           <SidebarProjectsSection
             projects={projects}
-            projectRefs={SIDEBAR_PARITY_PROJECT_REFS}
+            projectOrder={SIDEBAR_PARITY_PROJECT_ORDER}
             activeProjectId={activeProjectId}
             expanded={expanded}
             onToggleExpanded={() => {}}
@@ -1586,6 +1590,60 @@ function CodexSidebarThreadHoverCardHarness() {
   );
 }
 
+function CodexSidebarProjectHoverCardHarness() {
+  const [project, setProject] = useState<Project>({
+    ...SIDEBAR_PARITY_PROJECTS[0]!,
+    sources: [
+      { root: "/Users/nodex/repo/nodex", order: 0 },
+      { root: "/Users/nodex/repo/shared-design-system", order: 1 },
+    ],
+    primaryWorkspaceRoot: "/Users/nodex/repo/nodex",
+  });
+
+  return (
+    <SidebarProjectsChrome>
+      <CodexSidebarSection heading="Projects" collapsed={false} onToggle={() => {}}>
+        <div className="isolate flex flex-col [contain:layout]">
+          <div className="flex flex-col" role="list" aria-label="Projects">
+            <CodexProjectRow
+              project={project}
+              activity={{
+                projectId: project.id,
+                taskCount: 66,
+                waitingCount: 2,
+                unreadCount: 3,
+                activeCount: 1,
+              }}
+              active
+              expanded
+              hoverCardOpen
+              onActivate={() => {}}
+              onUpdateProject={async (_projectId, updates) => {
+                const nextProject = {
+                  ...project,
+                  ...updates,
+                  sources: updates.sources
+                    ? updates.sources.map((root, order) => ({ root, order }))
+                    : project.sources,
+                  updated: new Date(),
+                };
+                setProject(nextProject);
+                return nextProject;
+              }}
+              onArchiveProject={async () => ({ kind: "not-found" })}
+              onSetProjectPinned={async (_projectId, input) => {
+                const nextProject = { ...project, pinned: input.pinned };
+                setProject(nextProject);
+                return nextProject;
+              }}
+            />
+          </div>
+        </div>
+      </CodexSidebarSection>
+    </SidebarProjectsChrome>
+  );
+}
+
 function CodexSidebarShowMoreHarness({
   initialExpanded = false,
 }: {
@@ -1842,6 +1900,10 @@ export const CodexSidebarThreadElapsedActionRail: Story = {
 
 export const CodexSidebarThreadHoverCard: Story = {
   render: () => <CodexSidebarThreadHoverCardHarness />,
+};
+
+export const CodexSidebarProjectHoverCard: Story = {
+  render: () => <CodexSidebarProjectHoverCardHarness />,
 };
 
 export const CodexSidebarShowMore: Story = {

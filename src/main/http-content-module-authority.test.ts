@@ -213,6 +213,10 @@ describe("HTTP content Module authority", () => {
             bindingRevision: 3,
             name: "Native",
             description: "",
+            appearance: {
+              color: "black",
+              marker: { kind: "icon", icon: "folder" },
+            },
             sources: [],
             primaryWorkspaceRoot: null,
             pinned: false,

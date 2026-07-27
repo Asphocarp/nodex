@@ -2,9 +2,11 @@ import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { useSortable } from "@dnd-kit/sortable";
 import { useState } from "react";
 import { describe, expect, test, vi } from "vitest";
+import { NodexHoverCardProvider } from "@/components/ui/hover-card";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import type { Project } from "@/lib/types";
 import { renderWithMaitai as render } from "../../test/dom";
+import { TestQueryProvider } from "../../test/query";
 import { CodexProjectRow } from "./codex-sidebar";
 import {
   getSidebarGroupDndId,
@@ -32,6 +34,7 @@ const PROJECTS: Project[] = [
     bindingRevision: 1,
     name: "Project alpha",
     description: "",
+    appearance: { color: "black", marker: { kind: "icon", icon: "folder" } },
     sources: [],
     primaryWorkspaceRoot: null,
     pinned: false,
@@ -48,6 +51,7 @@ const PROJECTS: Project[] = [
     bindingRevision: 1,
     name: "Project beta",
     description: "",
+    appearance: { color: "blue", marker: { kind: "icon", icon: "terminal" } },
     sources: [],
     primaryWorkspaceRoot: null,
     pinned: false,
@@ -141,8 +145,10 @@ function MixedSidebarReorderHarness({
   });
 
   return (
-    <NodexTooltipProvider>
-      <div aria-label="Mixed sidebar projects" role="list">
+    <TestQueryProvider>
+      <NodexHoverCardProvider>
+        <NodexTooltipProvider>
+          <div aria-label="Mixed sidebar projects" role="list">
         <SidebarProjectSortableContext groupIds={reorder.groupIds}>
           {reorder.groupIds.map((projectId, index) => {
             const project = PROJECTS.find((candidate) => candidate.id === projectId);
@@ -180,8 +186,10 @@ function MixedSidebarReorderHarness({
             ? <SidebarDropIndicator />
             : null}
         </SidebarProjectSortableContext>
-      </div>
-    </NodexTooltipProvider>
+          </div>
+        </NodexTooltipProvider>
+      </NodexHoverCardProvider>
+    </TestQueryProvider>
   );
 }
 

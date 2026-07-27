@@ -22,7 +22,7 @@ function makeProject(input: {
     bindingRevision: 1,
     name: input.name,
     description: input.description ?? "",
-    icon: "",
+    appearance: { color: "black", marker: { kind: "icon", icon: "folder" } },
     sources: primaryWorkspaceRoot ? [{ root: primaryWorkspaceRoot, order: 0 }] : [],
     primaryWorkspaceRoot,
     pinned: false,
@@ -74,6 +74,10 @@ describe("new-chat project selector options", () => {
   test("preserves selected-project metadata", () => {
     const selected = resolveSelectedNewChatProjectSelectorOption(options, "devtools-codex");
     expect(selected?.label).toBe("Devtools Codex");
+    expect(selected?.appearance).toEqual({
+      color: "black",
+      marker: { kind: "icon", icon: "folder" },
+    });
     expect(selected?.primaryWorkspaceRoot).toBe("/Users/asc/repo/devtools-codex");
   });
 });

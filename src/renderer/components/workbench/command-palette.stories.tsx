@@ -13,6 +13,7 @@ import type { CommandPaletteThreadSearchBatch } from "@/lib/command-palette-chat
 import { buildCommandPaletteCommands } from "@/lib/command-palette-commands";
 import type { DatabasePageSummary } from "@/lib/types";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import { DEFAULT_PROJECT_APPEARANCE } from "../../../shared/project-appearance";
 import { CommandPaletteSurface } from "./command-palette-surface";
 
 function makeStoryPage(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSummary {
@@ -46,7 +47,7 @@ function makePalettePage(
     id: overrides.id ?? page.id,
     projectId,
     projectName: overrides.projectName ?? "Nodex",
-    projectIcon: overrides.projectIcon ?? "",
+    projectAppearance: overrides.projectAppearance ?? DEFAULT_PROJECT_APPEARANCE,
     columnName: overrides.columnName ?? "Build",
     page,
     inActiveProject: overrides.inActiveProject ?? true,

@@ -14,11 +14,9 @@ import {
   type ReactNode,
 } from "react";
 import {
-  CodexFolderIcon,
   NfmSideMenuChevronRightIcon,
   SpinnerIcon,
 } from "@/components/shared/icons";
-import { normalizeProjectIcon } from "@/lib/project-icon";
 import {
   resolveQueryFreshAccept,
   shouldConsumeStalePickerNavigation,
@@ -45,6 +43,7 @@ import {
   type NfmMoveToSection,
 } from "./nfm-move-to-menu-model";
 import { createNfmMoveToSearchIndex } from "./nfm-move-to-menu-search";
+import { ProjectMarker } from "@/components/workbench/project-marker";
 
 interface NfmMoveToMenuProps {
   sourceProjectId: string | null;
@@ -88,29 +87,13 @@ function keepEditorSelection(event: ReactPointerEvent<HTMLElement>) {
 }
 
 function MoveToProjectIcon({
-  projectIcon,
+  projectAppearance,
   className,
 }: {
-  projectIcon?: string;
+  projectAppearance: Project["appearance"];
   className?: string;
 }) {
-  const normalizedIcon = normalizeProjectIcon(projectIcon);
-  if (normalizedIcon) {
-    return (
-      <span
-        aria-hidden="true"
-        className={cn("text-[15px] leading-none", className)}
-      >
-        {normalizedIcon}
-      </span>
-    );
-  }
-
-  return (
-    <CodexFolderIcon
-      className={cn("text-token-description-foreground", className)}
-    />
-  );
+  return <ProjectMarker appearance={projectAppearance} className={className} />;
 }
 
 function MoveToRowIcon({ row }: { row: NfmMoveToRow }) {
@@ -124,7 +107,7 @@ function MoveToRowIcon({ row }: { row: NfmMoveToRow }) {
       />
     );
   }
-  return <MoveToProjectIcon projectIcon={row.projectIcon} />;
+  return <MoveToProjectIcon projectAppearance={row.projectAppearance} />;
 }
 
 function getMoveToRowLabel(row: NfmMoveToRow) {

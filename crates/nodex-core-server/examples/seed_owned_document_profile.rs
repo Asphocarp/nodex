@@ -76,7 +76,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     project_id: PROJECT_ID.to_owned(),
                     name: "Core renderer test".to_owned(),
                     description: String::new(),
-                    icon: None,
+                    appearance: None,
                     source_roots: Vec::new(),
                 },
             },

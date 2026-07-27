@@ -23,7 +23,7 @@ function makeProject(input: {
     bindingRevision: 1,
     name: input.name ?? input.id,
     description: "",
-    icon: "",
+    appearance: { color: "black", marker: { kind: "icon", icon: "folder" } },
     sources: roots.map((root, order) => ({ root, order })),
     primaryWorkspaceRoot: input.primaryWorkspaceRoot ?? roots[0] ?? null,
     pinned: false,

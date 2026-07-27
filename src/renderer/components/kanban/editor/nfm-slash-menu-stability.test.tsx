@@ -6,6 +6,7 @@ import type { CommandPalettePage, CommandPaletteThread } from "@/lib/command-pal
 import type { CommandPalettePageSearchIndex } from "@/lib/command-palette-page-search";
 import type { NfmMentionGetItemsLoaders } from "./nfm-slash-menu";
 import { plainTextToPortableRichText } from "../../../../shared/block-documents";
+import { DEFAULT_PROJECT_APPEARANCE } from "../../../../shared/project-appearance";
 import { useNfmMentionGetItems } from "./nfm-slash-menu";
 
 type GetItems = (query: string) => Promise<DefaultReactSuggestionItem[]>;
@@ -28,7 +29,7 @@ function makePalettePage(): CommandPalettePage {
     id: "project-1:page-1",
     projectId: "project-1",
     projectName: "Project",
-    projectIcon: "",
+    projectAppearance: DEFAULT_PROJECT_APPEARANCE,
     columnName: "Doing",
     page: {
       id: "page-1",

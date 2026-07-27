@@ -31,7 +31,9 @@ function makeStoryProject(id: string, name: string, icon?: string): Project {
     bindingRevision: 1,
     name,
     description: "",
-    icon,
+    appearance: icon
+      ? { color: "black", marker: { kind: "emoji", emoji: icon } }
+      : { color: "black", marker: { kind: "icon", icon: "folder" } },
     sources: [],
     primaryWorkspaceRoot: null,
     pinned: false,

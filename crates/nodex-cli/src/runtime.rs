@@ -1817,7 +1817,7 @@ struct ProjectCandidate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nodex_core_contracts::workspace::ProjectSource;
+    use nodex_core_contracts::workspace::{ProjectAppearance, ProjectSource};
     use tempfile::tempdir;
 
     fn project(id: &str, name: &str, root: &Path) -> ProjectWorkspaceProject {
@@ -1830,7 +1830,7 @@ mod tests {
             binding_revision: 1,
             name: name.to_owned(),
             description: String::new(),
-            icon: None,
+            appearance: ProjectAppearance::default(),
             sources: vec![ProjectSource {
                 root: root.to_string_lossy().into_owned(),
                 order: 0,

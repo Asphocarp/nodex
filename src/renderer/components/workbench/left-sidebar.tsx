@@ -10,7 +10,6 @@ import {
 import { cn } from "@/lib/utils";
 import { formatElapsedSince } from "@/lib/elapsed-time";
 import type { Project, ProjectCreateInput, ProjectLifecycleMutationResult, ProjectUpdateInput } from "@/lib/types";
-import type { ProjectRef } from "@/lib/use-workbench-state";
 import { resolveStageSidebarSectionRenderState } from "./left-sidebar-section-state";
 import { LeftSidebarFooter, type LeftSidebarFooterProps } from "./left-sidebar-footer";
 import { SidebarProjectsSection } from "./left-sidebar-projects-section";
@@ -70,7 +69,7 @@ export interface StageSidebarGroup {
 
 interface LeftSidebarProps {
   projects: Project[];
-  projectRefs: ProjectRef[];
+  projectOrder: string[];
   activeProjectId: string | null;
   stageGroups: StageSidebarGroup[];
   collapsed: boolean;
@@ -194,7 +193,7 @@ function SidebarSectionMoreActionsMenu({
 
 export function LeftSidebar({
   projects,
-  projectRefs,
+  projectOrder,
   activeProjectId,
   stageGroups,
   collapsed,
@@ -286,7 +285,7 @@ export function LeftSidebar({
       <div className="scrollbar-token min-h-0 flex-1 overflow-y-auto px-(--sidebar-shell-padding-x) py-1">
         <SidebarProjectsSection
           projects={projects}
-          projectRefs={projectRefs}
+          projectOrder={projectOrder}
           activeProjectId={activeProjectId}
           expanded={projectsStageGroup?.expanded ?? true}
           onToggleExpanded={projectsStageGroup?.onToggleExpanded ?? (() => undefined)}

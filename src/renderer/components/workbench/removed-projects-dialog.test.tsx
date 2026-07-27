@@ -16,6 +16,7 @@ function makeRemovedProject(): Project {
     bindingRevision: 3,
     name: "Removed Alpha",
     description: "",
+    appearance: { color: "black", marker: { kind: "icon", icon: "folder" } },
     sources: [{ root: "/repo/removed-alpha", order: 0 }],
     primaryWorkspaceRoot: "/repo/removed-alpha",
     pinned: false,

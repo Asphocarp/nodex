@@ -7,6 +7,7 @@ import type {
   ReactNode,
 } from "react";
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS, useCombinedRefs, type Transform } from "@dnd-kit/utilities";
@@ -30,13 +31,29 @@ import {
   NodexDropdownItem,
   NodexDropdownMenu,
 } from "@/components/ui/dropdown";
+import { NodexHoverCard } from "@/components/ui/hover-card";
 import { NodexTooltip } from "@/components/ui/tooltip";
+import { toast } from "@/components/ui/toast";
 import { invoke } from "@/lib/api";
 import { CODEX_SIDEBAR_PROJECT_FOLDER_TRANSITION } from "@/lib/codex-panel-motion";
 import { formatElapsedSince } from "@/lib/elapsed-time";
 import { appScope, useScopeHandle } from "@/lib/maitai";
 import { openModal } from "@/lib/modal-registry";
-import type { CodexSidebarThreadItem, Project, ProjectLifecycleMutationResult, ProjectPinnedInput, ProjectSession, ProjectUpdateInput } from "@/lib/types";
+import { waitForProjectCatalogUpdates } from "@/lib/project-update-queue";
+import {
+  gitRepositoryIdentityQueryOptions,
+  localPathPresentationContextQueryOptions,
+} from "@/lib/query-options";
+import type {
+  CodexSidebarThreadItem,
+  Project,
+  ProjectActivitySummary,
+  ProjectLifecycleMutationResult,
+  ProjectPinnedInput,
+  ProjectSession,
+  ProjectUpdateInput,
+} from "@/lib/types";
+import { useProjectAppearanceMutation } from "@/lib/use-project-appearance-mutation";
 import { cn } from "@/lib/utils";
 import {
   SIDEBAR_NEW_CHAT_ROW_CLASS,
@@ -59,6 +76,8 @@ import {
   runProjectThreadBatches,
 } from "./project-archive-chats-dialog";
 import { ProjectEditDialog } from "./project-edit-dialog";
+import { ProjectHoverCard } from "./project-hover-card";
+import { ProjectMarker } from "./project-marker";
 import { ProjectRemoveDialog } from "./project-remove-dialog";
 
 type SidebarRowActionEvent =
@@ -74,7 +93,6 @@ export const CODEX_SIDEBAR_PROJECT_ACTIONS_BUTTON_CLASS = SIDEBAR_PROJECT_NEW_CH
 export const CODEX_SIDEBAR_THREAD_ROW_CLASS = "group relative h-token-nav-row cursor-interaction rounded-lg py-row-y text-sm hover:bg-token-list-hover-background focus-visible:outline-offset-[-2px]";
 export const CODEX_SIDEBAR_THREAD_ACTION_RAIL_CLASS = "pointer-events-none absolute right-0 top-0 z-10 mr-0.5 flex h-full w-[52px] items-center justify-end gap-2 pr-0.5 opacity-0 group-hover:opacity-100 [&:has(:focus-visible)]:opacity-100";
 export const CODEX_SIDEBAR_THREAD_ARCHIVE_BUTTON_CLASS = "!h-5 !w-5 !p-0 opacity-50 hover:opacity-100 focus-visible:opacity-100 [&>svg]:!h-4 [&>svg]:!w-4 pointer-events-auto";
-const CODEX_SIDEBAR_THREAD_HOVER_CARD_DELAY_MS = 700;
 const CODEX_SIDEBAR_THREAD_ELAPSED_REFRESH_MS = 30_000;
 const CODEX_SIDEBAR_THREAD_PIN_BUTTON_CLASS = "pointer-events-auto flex h-5 w-5 items-center justify-center leading-none text-token-foreground/70 hover:text-token-foreground [&>svg]:!h-4 [&>svg]:!w-4";
 const CODEX_SIDEBAR_THREAD_HOVER_CARD_FALLBACK_PROJECT_LABEL = "Chat";
@@ -296,6 +314,7 @@ export function CodexProjectActionsMenu({
   onArchiveThreadItem,
   onMarkThreadItemRead,
   onThreadsChanged,
+  onOpenChange,
 }: {
   project: Project;
   threadItems?: readonly CodexSidebarThreadItem[];
@@ -309,6 +328,7 @@ export function CodexProjectActionsMenu({
   onArchiveThreadItem?: (item: CodexSidebarThreadItem) => Promise<boolean>;
   onMarkThreadItemRead?: (item: CodexSidebarThreadItem) => Promise<void>;
   onThreadsChanged?: () => Promise<unknown> | void;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const appHandle = useScopeHandle(appScope);
   const [open, setOpen] = useState(false);
@@ -327,6 +347,10 @@ export function CodexProjectActionsMenu({
     !item.archived && !item.disabled && item.kind !== "pending-worktree"
   ));
   const unreadItems = threadItems.filter((item) => item.unread && !item.archived);
+  const setMenuOpen = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    onOpenChange?.(nextOpen);
+  };
 
   const openProjectFolder = async () => {
     if (!primaryWorkspaceRoot) return;
@@ -354,21 +378,27 @@ export function CodexProjectActionsMenu({
     >
       <NodexDropdownMenu
         open={open}
-        onOpenChange={setOpen}
+        onOpenChange={setMenuOpen}
         onCloseAutoFocus={(event) => {
           if (!openEditAfterMenuCloseRef.current) return;
           openEditAfterMenuCloseRef.current = false;
           event.preventDefault();
-          openModal(appHandle, ProjectEditDialog, {
-            project,
-            onSubmit: async ({ name, sources }) => {
-              const updated = await onUpdateProject(project.id, {
-                name: name.trim() || project.name,
-                sources,
-              });
-              if (!updated) throw new Error(`Project ${project.id} not found`);
-            },
-            onArchiveProject,
+          void waitForProjectCatalogUpdates(project).then((editableProject) => {
+            openModal(appHandle, ProjectEditDialog, {
+              project: editableProject,
+              onSubmit: async ({ appearance, name, sources }) => {
+                const updated = await onUpdateProject(editableProject.id, {
+                  expectedBindingRevision: editableProject.bindingRevision,
+                  appearance,
+                  name: name.trim() || editableProject.name,
+                  sources,
+                });
+                if (!updated) {
+                  throw new Error(`Project ${editableProject.id} not found`);
+                }
+              },
+              onArchiveProject,
+            });
           });
         }}
         side="bottom"
@@ -409,7 +439,7 @@ export function CodexProjectActionsMenu({
             <NodexDropdownItem
               leftSlot={<WorktreeStatusIcon className="icon-xs" />}
               onSelect={() => {
-                setOpen(false);
+                setMenuOpen(false);
                 setCreateStableWorktreeOpen(true);
               }}
             >
@@ -428,7 +458,7 @@ export function CodexProjectActionsMenu({
             <NodexDropdownItem
               leftSlot={<CheckmarkIcon className="icon-xs" />}
               onSelect={() => {
-                setOpen(false);
+                setMenuOpen(false);
                 void markAllThreadsRead();
               }}
             >
@@ -439,7 +469,7 @@ export function CodexProjectActionsMenu({
             leftSlot={<CodexArchiveIcon className="icon-xs" />}
             disabled={!onArchiveThreadItem || archiveableItems.length === 0}
             onSelect={() => {
-              setOpen(false);
+              setMenuOpen(false);
               setArchiveChatsOpen(true);
             }}
           >
@@ -448,7 +478,7 @@ export function CodexProjectActionsMenu({
           <NodexDropdownItem
             leftSlot={<CodexCloseIcon className="icon-xs" />}
             onSelect={() => {
-              setOpen(false);
+              setMenuOpen(false);
               setRemoveOpen(true);
             }}
           >
@@ -488,8 +518,132 @@ export function CodexProjectActionsMenu({
   );
 }
 
+function CodexProjectHoverCardContent({
+  project,
+  activity,
+  onUpdateProject,
+  onArchiveProject,
+  onSetProjectPinned,
+  onRequestClose,
+}: {
+  project: Project;
+  activity: ProjectActivitySummary | null | undefined;
+  onUpdateProject: (
+    projectId: string,
+    updates: ProjectUpdateInput,
+  ) => Promise<Project | null>;
+  onArchiveProject: (
+    projectId: string,
+  ) => Promise<ProjectLifecycleMutationResult>;
+  onSetProjectPinned?: (
+    projectId: string,
+    input: ProjectPinnedInput,
+  ) => Promise<Project | null>;
+  onRequestClose: () => void;
+}) {
+  const appHandle = useScopeHandle(appScope);
+  const primaryWorkspaceRoot = normalizePrimaryWorkspaceRoot(project);
+  const repositoryIdentityQuery = useQuery({
+    ...gitRepositoryIdentityQueryOptions(primaryWorkspaceRoot),
+    enabled: primaryWorkspaceRoot.length > 0,
+  });
+  const pathContextQuery = useQuery(localPathPresentationContextQueryOptions());
+  const [appearance, setAppearance] = useState(project.appearance);
+  const appearanceMutation = useProjectAppearanceMutation(project);
+  const [pinPending, setPinPending] = useState(false);
+
+  useEffect(() => {
+    if (appearanceMutation.pending) return;
+    setAppearance(project.appearance);
+  }, [appearanceMutation.pending, project.appearance]);
+
+  const renameProject = async (name: string) => {
+    const updated = await onUpdateProject(project.id, { name });
+    if (updated) return;
+    throw new Error("The project is no longer available");
+  };
+
+  const setProjectPinned = onSetProjectPinned
+    ? async (pinned: boolean) => {
+        if (pinPending) return;
+
+        setPinPending(true);
+        try {
+          const updated = await onSetProjectPinned(project.id, { pinned });
+          if (!updated) throw new Error("The project is no longer available");
+        } catch (error) {
+          toast.danger("Could not update project pin", {
+            description: error instanceof Error ? error.message : undefined,
+          });
+        } finally {
+          setPinPending(false);
+        }
+      }
+    : undefined;
+
+  const openProjectSource = (path: string) => {
+    void invoke("shell:open-file-link", { path }, "fileManager").then(
+      (opened) => {
+        if (opened) return;
+        throw new Error("Opening local folders is unavailable in this runtime");
+      },
+    ).catch(
+      (error) => {
+        toast.danger(`Could not ${revealInFileManagerLabel().toLowerCase()}`, {
+          description: error instanceof Error ? error.message : undefined,
+        });
+      },
+    );
+  };
+
+  const openProjectEditor = async () => {
+    const settledProject = await waitForProjectCatalogUpdates(project);
+    const editableProject = {
+      ...settledProject,
+      appearance: settledProject.appearance,
+    };
+    onRequestClose();
+    queueMicrotask(() => {
+      openModal(appHandle, ProjectEditDialog, {
+        project: editableProject,
+        onSubmit: async ({ appearance: nextAppearance, name, sources }) => {
+          const updated = await onUpdateProject(project.id, {
+            expectedBindingRevision: editableProject.bindingRevision,
+            appearance: nextAppearance,
+            name: name.trim() || editableProject.name,
+            sources,
+          });
+          if (!updated) throw new Error(`Project ${project.id} not found`);
+        },
+        onArchiveProject,
+      });
+    });
+  };
+
+  return (
+    <ProjectHoverCard
+      project={project}
+      activity={activity}
+      repositoryIdentity={repositoryIdentityQuery.data ?? null}
+      pathContext={pathContextQuery.data ?? null}
+      appearance={appearance}
+      appearancePending={false}
+      pinPending={pinPending}
+      onAppearanceChange={(nextAppearance) => {
+        setAppearance(nextAppearance);
+        appearanceMutation.changeAppearance(nextAppearance);
+      }}
+      onRename={renameProject}
+      onSetPinned={setProjectPinned}
+      onOpenSource={openProjectSource}
+      onEdit={openProjectEditor}
+    />
+  );
+}
+
 export function CodexProjectRow({
   project,
+  activity,
   active,
   expanded,
   animateChildren = true,
@@ -508,9 +662,12 @@ export function CodexProjectRow({
   onArchiveThreadItem,
   onMarkThreadItemRead,
   onThreadsChanged,
+  hoverCardOpen,
+  onHoverCardOpenChange,
   children,
 }: {
   project: Project;
+  activity?: ProjectActivitySummary | null;
   active: boolean;
   expanded: boolean;
   animateChildren?: boolean;
@@ -529,11 +686,16 @@ export function CodexProjectRow({
   onArchiveThreadItem?: (item: CodexSidebarThreadItem) => Promise<boolean>;
   onMarkThreadItemRead?: (item: CodexSidebarThreadItem) => Promise<void>;
   onThreadsChanged?: () => Promise<unknown> | void;
+  hoverCardOpen?: boolean;
+  onHoverCardOpenChange?: (open: boolean) => void;
   children?: ReactNode;
 }) {
   const sortableEnabled = allowProjectReorder && Boolean(groupDndController);
   const primaryWorkspaceRoot = normalizePrimaryWorkspaceRoot(project);
+  const queryClient = useQueryClient();
   const [canCreateStableWorktree, setCanCreateStableWorktree] = useState(false);
+  const [uncontrolledHoverCardOpen, setUncontrolledHoverCardOpen] = useState(false);
+  const [projectActionsMenuOpen, setProjectActionsMenuOpen] = useState(false);
   const {
     gutter: gutterThreadDropTarget,
     icon: iconThreadDropTarget,
@@ -547,12 +709,13 @@ export function CodexProjectRow({
   const { activeProjectId, projectDragActive } = useSidebarProjectDndState();
   const dragOverlay = useMemo(() => (
     <div className="flex h-[var(--height-token-row)] max-w-80 items-center gap-2 px-2 text-base text-token-foreground">
-      <span className="flex size-5 shrink-0 items-center justify-center">
-        <CodexProjectFolderIcon className="icon-xs shrink-0" />
-      </span>
+      <ProjectMarker
+        appearance={project.appearance}
+        fallbackIcon={<CodexProjectFolderIcon />}
+      />
       <span className="min-w-0 truncate">{project.name}</span>
     </div>
-  ), [project.name]);
+  ), [project.appearance, project.name]);
   const sortableData = useMemo<SidebarGroupDndPayload>(() => ({
     kind: "sidebar-group",
     controller: groupDndController ?? NOOP_SIDEBAR_GROUP_DND_CONTROLLER,
@@ -577,6 +740,12 @@ export function CodexProjectRow({
     wholeThreadDropTarget.setNodeRef,
   );
   const activeProjectDrag = isDragging || activeProjectId === project.id;
+  const resolvedHoverCardOpen = hoverCardOpen ?? uncontrolledHoverCardOpen;
+  const hoverCardDisabled = activeProjectDrag
+    || projectDragActive
+    || projectActionsMenuOpen
+    || rowThreadDropTarget.isExternalThreadDropTarget
+    || wholeThreadDropTarget.isExternalThreadDropTarget;
   const sortableStyle = sortableEnabled && !projectDragActive && transform
     ? getCodexSidebarSortableStyle(transform, transition)
     : undefined;
@@ -589,6 +758,21 @@ export function CodexProjectRow({
       {children}
     </CodexProjectChildrenDisclosure>
   ) : null;
+  const setProjectHoverCardOpen = (nextOpen: boolean) => {
+    if (hoverCardOpen === undefined) {
+      setUncontrolledHoverCardOpen(nextOpen);
+    }
+    onHoverCardOpenChange?.(nextOpen);
+  };
+  const prefetchProjectHoverCardMetadata = () => {
+    void queryClient.prefetchQuery(
+      localPathPresentationContextQueryOptions(),
+    );
+    if (!primaryWorkspaceRoot) return;
+    void queryClient.prefetchQuery(
+      gitRepositoryIdentityQueryOptions(primaryWorkspaceRoot),
+    );
+  };
 
   useEffect(() => {
     if (!onCreateStableWorktree || !primaryWorkspaceRoot) {
@@ -635,120 +819,144 @@ export function CodexProjectRow({
       role="listitem"
       aria-label={project.name}
     >
-      <div
-        ref={rowThreadDropTarget.setNodeRef}
-        {...(sortableEnabled ? attributes : {})}
-        data-app-action-sidebar-project-collapsed={String(!expanded)}
-        data-app-action-sidebar-project-id={project.id}
-        data-app-action-sidebar-project-label={project.name}
-        data-app-action-sidebar-project-row=""
-        data-active={active ? "true" : undefined}
-        className={cn(
-          CODEX_SIDEBAR_PROJECT_ROW_CLASS,
-          active && "bg-token-list-hover-background",
-          rowThreadDropTarget.isExternalThreadDropTarget
-            && rowThreadDropTarget.isOver
-            && "bg-token-list-hover-background",
-          projectDragActive && "pointer-events-none",
-        )}
-        role="button"
-        tabIndex={0}
-        aria-label={project.name}
-        aria-expanded={expanded}
-        onClick={(event) => {
-          if (event.defaultPrevented) return;
-          if (!isEventWithinCurrentTarget(event)) return;
-          onActivate();
-        }}
-        onKeyDown={(event) => handleProjectRowKeyboard(event, onActivate)}
-      >
-        <div className="flex min-w-0 flex-1 items-center gap-1 pl-1">
-          <span
-            ref={iconThreadDropTarget.setNodeRef}
-            className={cn(
-              "relative flex h-6 w-6 items-center justify-center",
-              iconThreadDropTarget.isExternalThreadDropTarget
-                && iconThreadDropTarget.isOver
-                && "rounded-md bg-token-list-hover-background",
-            )}
-          >
-            {expanded ? (
-              <CodexProjectFolderOpenIcon className="icon-xs shrink-0" />
-            ) : (
-              <CodexProjectFolderIcon className="icon-xs shrink-0" />
-            )}
-          </span>
-          <div
-            ref={setActivatorNodeRef}
-            className="flex min-w-0 flex-1 cursor-interaction items-center gap-2 whitespace-nowrap rounded-md py-1 pr-0 text-left text-base text-token-foreground"
-            {...(sortableEnabled ? listeners : {})}
-          >
-            <span className="flex min-w-0 flex-1 items-center gap-2 whitespace-nowrap">
-              <span className="flex min-w-0 flex-1 items-center gap-0.5">
-                <span className="min-w-0 truncate pr-1" data-app-action-sidebar-project-label-text="">
-                  {project.name}
-                </span>
-                <button
-                  type="button"
-                  aria-expanded={expanded}
-                  aria-label={expanded ? "Collapse project" : "Expand project"}
-                  className="-ml-1 flex h-5 w-5 shrink-0 cursor-interaction items-center justify-center rounded-sm text-token-foreground opacity-0 group-hover/folder-row:opacity-100 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-                  data-app-action-sidebar-project-toggle-chevron=""
-                  onPointerDown={stopCodexSidebarRowActionPropagation}
-                  onMouseDown={stopCodexSidebarRowActionPropagation}
-                  onKeyDown={stopCodexSidebarRowActionPropagation}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onActivate();
-                  }}
-                >
-                  <ChevronDownIcon
-                    className={cn(
-                      "icon-2xs shrink-0 transition-transform",
-                      !expanded && "-rotate-90",
-                    )}
-                  />
-                </button>
-              </span>
-            </span>
-          </div>
-        </div>
-        <div className="flex gap-1">
-          <CodexProjectActionsMenu
+      <NodexHoverCard
+        ariaLabel={`Project details for ${project.name}`}
+        disabled={hoverCardDisabled}
+        open={resolvedHoverCardOpen}
+        onOpenChange={setProjectHoverCardOpen}
+        hoverCardContent={(
+          <CodexProjectHoverCardContent
             project={project}
-            threadItems={threadItems}
+            activity={activity}
             onUpdateProject={onUpdateProject}
             onArchiveProject={onArchiveProject}
             onSetProjectPinned={onSetProjectPinned}
-            onCreateStableWorktree={onCreateStableWorktree}
-            canCreateStableWorktree={canCreateStableWorktree}
-            stableWorktreeWorkspaceRootOptions={stableWorktreeWorkspaceRootOptions}
-            stableWorktreeWorkspaceRootLabels={stableWorktreeWorkspaceRootLabels}
-            onArchiveThreadItem={onArchiveThreadItem}
-            onMarkThreadItemRead={onMarkThreadItemRead}
-            onThreadsChanged={onThreadsChanged}
+            onRequestClose={() => setProjectHoverCardOpen(false)}
           />
-          {onStartNewChat ? (
-            <SidebarProjectNewChatButton
-              label={`Start new chat in ${project.name}`}
-              onClick={onStartNewChat}
-            />
-          ) : null}
-        </div>
-        <button
-          type="button"
-          aria-hidden="true"
-          tabIndex={-1}
-          className="sr-only"
-          data-app-action-sidebar-select-project=""
+        )}
+      >
+        <div
+          ref={rowThreadDropTarget.setNodeRef}
+          {...(sortableEnabled ? attributes : {})}
+          data-app-action-sidebar-project-collapsed={String(!expanded)}
+          data-app-action-sidebar-project-id={project.id}
+          data-app-action-sidebar-project-label={project.name}
+          data-app-action-sidebar-project-row=""
+          data-active={active ? "true" : undefined}
+          className={cn(
+            CODEX_SIDEBAR_PROJECT_ROW_CLASS,
+            active && "bg-token-list-hover-background",
+            rowThreadDropTarget.isExternalThreadDropTarget
+              && rowThreadDropTarget.isOver
+              && "bg-token-list-hover-background",
+            projectDragActive && "pointer-events-none",
+          )}
+          role="button"
+          tabIndex={0}
+          aria-label={project.name}
+          aria-expanded={expanded}
+          onPointerEnter={prefetchProjectHoverCardMetadata}
+          onFocus={prefetchProjectHoverCardMetadata}
           onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onSelectProject?.();
+            if (event.defaultPrevented) return;
+            if (!isEventWithinCurrentTarget(event)) return;
+            onActivate();
           }}
-        />
-      </div>
+          onKeyDown={(event) => handleProjectRowKeyboard(event, onActivate)}
+        >
+          <div className="flex min-w-0 flex-1 items-center gap-1 pl-1">
+            <span
+              ref={iconThreadDropTarget.setNodeRef}
+              className={cn(
+                "relative flex h-6 w-6 items-center justify-center",
+                iconThreadDropTarget.isExternalThreadDropTarget
+                  && iconThreadDropTarget.isOver
+                  && "rounded-md bg-token-list-hover-background",
+              )}
+            >
+              <ProjectMarker
+                appearance={project.appearance}
+                fallbackIcon={expanded
+                  ? <CodexProjectFolderOpenIcon />
+                  : <CodexProjectFolderIcon />}
+              />
+            </span>
+            <div
+              ref={setActivatorNodeRef}
+              className="flex min-w-0 flex-1 cursor-interaction items-center gap-2 whitespace-nowrap rounded-md py-1 pr-0 text-left text-base text-token-foreground"
+              {...(sortableEnabled ? listeners : {})}
+            >
+              <span className="flex min-w-0 flex-1 items-center gap-2 whitespace-nowrap">
+                <span className="flex min-w-0 flex-1 items-center gap-0.5">
+                  <span className="min-w-0 truncate pr-1" data-app-action-sidebar-project-label-text="">
+                    {project.name}
+                  </span>
+                  <button
+                    type="button"
+                    aria-expanded={expanded}
+                    aria-label={expanded ? "Collapse project" : "Expand project"}
+                    className="-ml-1 flex h-5 w-5 shrink-0 cursor-interaction items-center justify-center rounded-sm text-token-foreground opacity-0 group-hover/folder-row:opacity-100 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                    data-app-action-sidebar-project-toggle-chevron=""
+                    onPointerDown={stopCodexSidebarRowActionPropagation}
+                    onMouseDown={stopCodexSidebarRowActionPropagation}
+                    onKeyDown={stopCodexSidebarRowActionPropagation}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onActivate();
+                    }}
+                  >
+                    <ChevronDownIcon
+                      className={cn(
+                        "icon-2xs shrink-0 transition-transform",
+                        !expanded && "-rotate-90",
+                      )}
+                    />
+                  </button>
+                </span>
+              </span>
+            </div>
+          </div>
+          <div className="flex gap-1">
+            <CodexProjectActionsMenu
+              project={project}
+              threadItems={threadItems}
+              onUpdateProject={onUpdateProject}
+              onArchiveProject={onArchiveProject}
+              onSetProjectPinned={onSetProjectPinned}
+              onCreateStableWorktree={onCreateStableWorktree}
+              canCreateStableWorktree={canCreateStableWorktree}
+              stableWorktreeWorkspaceRootOptions={stableWorktreeWorkspaceRootOptions}
+              stableWorktreeWorkspaceRootLabels={stableWorktreeWorkspaceRootLabels}
+              onArchiveThreadItem={onArchiveThreadItem}
+              onMarkThreadItemRead={onMarkThreadItemRead}
+              onThreadsChanged={onThreadsChanged}
+              onOpenChange={(open) => {
+                setProjectActionsMenuOpen(open);
+                if (open) setProjectHoverCardOpen(false);
+              }}
+            />
+            {onStartNewChat ? (
+              <SidebarProjectNewChatButton
+                label={`Start new chat in ${project.name}`}
+                onClick={onStartNewChat}
+              />
+            ) : null}
+          </div>
+          <button
+            type="button"
+            aria-hidden="true"
+            tabIndex={-1}
+            className="sr-only"
+            data-app-action-sidebar-select-project=""
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onSelectProject?.();
+            }}
+          />
+        </div>
+      </NodexHoverCard>
       <div
         ref={gutterThreadDropTarget.setNodeRef}
         aria-hidden
@@ -1237,8 +1445,9 @@ export function CodexSidebarThreadRow({
 
   return (
     <div className="after:block after:h-px after:content-[''] last:after:hidden" role="listitem">
-      <NodexTooltip
-        tooltipContent={(
+      <NodexHoverCard
+        ariaLabel={`Chat details for ${item.title}`}
+        hoverCardContent={(
           <CodexSidebarThreadHoverCard
             item={item}
             projectLabel={hoverCardProjectLabel}
@@ -1246,18 +1455,12 @@ export function CodexSidebarThreadRow({
             onRenameFromTitleClick={onRenameFromTitleDoubleClick}
           />
         )}
-        surface="rich"
-        side="right"
-        align="start"
-        sideOffset={2}
-        delayDuration={CODEX_SIDEBAR_THREAD_HOVER_CARD_DELAY_MS}
-        interactive
         disabled={item.disabled}
         open={hoverCardOpen}
         onOpenChange={handleHoverCardOpenChange}
       >
         {row}
-      </NodexTooltip>
+      </NodexHoverCard>
     </div>
   );
 }

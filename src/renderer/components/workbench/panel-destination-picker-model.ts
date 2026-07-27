@@ -1,5 +1,6 @@
 import type { BoardSummary, Project } from "@/lib/types";
 import type { DatabaseContainerDescriptorV2 } from "../../../shared/database-module-v2";
+import type { ProjectAppearance } from "../../../shared/project-appearance";
 import { normalizeSearchText } from "@/lib/search-text";
 import {
   createNfmMoveToSearchIndex,
@@ -28,7 +29,7 @@ export interface PanelDestinationDbRow {
   id: string;
   projectId: string;
   projectName: string;
-  projectIcon?: string;
+  projectAppearance: ProjectAppearance;
   databaseName: string;
   viewName: string;
   destination: PanelDestination;
@@ -39,7 +40,7 @@ export interface PanelDestinationPageRow {
   id: string;
   projectId: string;
   projectName: string;
-  projectIcon?: string;
+  projectAppearance: ProjectAppearance;
   columnId: string;
   columnName: string;
   pageId: string;
@@ -78,7 +79,7 @@ function createDbRow(
     id: `panel-db:${project.id}:${view.viewId}`,
     projectId: project.id,
     projectName: project.name || "Untitled",
-    projectIcon: project.icon,
+    projectAppearance: project.appearance,
     databaseName: descriptor.database.name,
     viewName: view.name,
     destination: {
@@ -95,7 +96,7 @@ function createPageRowFromSearchHit(hit: NfmMoveToPageSearchHit): PanelDestinati
     id: `panel-page:${hit.projectId}:${hit.pageId}`,
     projectId: hit.projectId,
     projectName: hit.projectName,
-    projectIcon: hit.projectIcon,
+    projectAppearance: hit.projectAppearance,
     columnId: hit.columnId,
     columnName: hit.columnName,
     pageId: hit.pageId,
@@ -121,7 +122,7 @@ function createPageRowFromSummary(
     id: `panel-page:${project.id}:${page.id}`,
     projectId: project.id,
     projectName: project.name || "Untitled",
-    projectIcon: project.icon,
+    projectAppearance: project.appearance,
     columnId: column.id,
     columnName: column.name,
     pageId: page.id,

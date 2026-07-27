@@ -4,6 +4,7 @@ import {
   buildRemoteDestinationSearchResult,
   mergeDestinationSearchResults,
 } from "./use-project-page-destination-search";
+import { DEFAULT_PROJECT_APPEARANCE } from "../../shared/project-appearance";
 
 const TEST_DATE = new Date("2026-07-25T00:00:00.000Z");
 
@@ -17,6 +18,7 @@ function makeProject(id: string, name: string): Project {
     bindingRevision: 1,
     name,
     description: "",
+    appearance: DEFAULT_PROJECT_APPEARANCE,
     sources: [],
     primaryWorkspaceRoot: null,
     pinned: false,
@@ -45,7 +47,7 @@ describe("Project Page destination search", () => {
       id: "page:beta:page:release",
       projectId: "beta",
       projectName: "Beta",
-      projectIcon: undefined,
+      projectAppearance: DEFAULT_PROJECT_APPEARANCE,
       columnId: "review",
       columnName: "Review",
       pageId: "page:release",

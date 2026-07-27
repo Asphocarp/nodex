@@ -143,6 +143,19 @@ describe("Codex sidebar auto-reveal contract", () => {
     })).toBe(true);
   });
 
+  test("keeps a floating sidebar visible while a portalled hover surface is active", () => {
+    expect(deriveCodexSidebarFloatingVisibility({
+      pointerX: 640,
+      leftPanelWidthPx: 300,
+      sidebarOpen: false,
+      sidebarAnimating: false,
+      hoverSuppressed: false,
+      focusOverride: false,
+      hoverSurfaceActive: true,
+      currentlyVisible: true,
+    })).toBe(true);
+  });
+
   test("derives Codex explicit toggle target progress and hover suppression", () => {
     expect(resolveCodexSidebarToggleTargetProgress(true)).toBe(1);
     expect(resolveCodexSidebarToggleTargetProgress(false)).toBe(0);

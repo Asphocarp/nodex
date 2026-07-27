@@ -53,6 +53,7 @@ function makeProject(id: string, name: string): Project {
     bindingRevision: 1,
     name,
     description: "",
+    appearance: { color: "black", marker: { kind: "icon", icon: "folder" } },
     sources: [],
     primaryWorkspaceRoot: null,
     pinned: false,
@@ -638,15 +639,6 @@ describe("use-workbench-state helpers", () => {
     expect(existingSelection.activePagesTabId).toBe("session:session-1");
     expect(missingSelection.activeRecentSessionId).toBe(null);
     expect(missingSelection.activePagesTabId).toBe("");
-  });
-
-  test("space refs have stable color and initial", () => {
-    resetStorage();
-    const one = workbenchTestHelpers.makeProjectRef("project-a");
-    const two = workbenchTestHelpers.makeProjectRef("project-a");
-
-    expect(one.colorToken).toBe(two.colorToken);
-    expect(one.initial).toBe("P");
   });
 
   test("resolveExpandedStages uses direction for middle stages", () => {

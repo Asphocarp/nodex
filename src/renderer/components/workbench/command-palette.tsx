@@ -11,7 +11,6 @@ import type {
   CommandPaletteThread,
 } from "@/lib/command-palette";
 import { getKanbanProjectStore } from "@/lib/kanban-store";
-import { normalizeProjectIcon } from "@/lib/project-icon";
 import type { Project } from "@/lib/types";
 import { useCommandPalettePageSearchIndex } from "@/lib/use-command-palette-page-search-index";
 import { useCommandPaletteThreadItems } from "@/lib/command-palette-chat-search";
@@ -91,14 +90,13 @@ function useCommandPalettePages(
         loading = true;
       }
 
-      const projectIcon = normalizeProjectIcon(project.icon);
       for (const page of snapshot.pageIndex.values()) {
         pages.push({
           kind: "page",
           id: `${project.id}:${page.id}`,
           projectId: project.id,
           projectName: project.name,
-          projectIcon,
+          projectAppearance: project.appearance,
           columnName: page.columnName,
           page,
           inActiveProject: project.id === activeProjectId,

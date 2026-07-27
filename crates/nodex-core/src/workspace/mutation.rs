@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
 
 use nodex_core_contracts::workspace::{
-    ProjectCatalogChangeKind, ProjectLifecycle, ProjectSessionInvalidationScope,
-    ProjectWorkspaceCommitValue, ProjectWorkspaceIntent, ProjectWorkspaceReceipt,
+    ProjectAppearance, ProjectCatalogChangeKind, ProjectLifecycle, ProjectMarker,
+    ProjectSessionInvalidationScope, ProjectWorkspaceCommitValue, ProjectWorkspaceIntent,
+    ProjectWorkspaceReceipt,
 };
 use nodex_core_contracts::{
     BoundModuleContext, CommittedModuleValue, ModuleApplyRequest, ModuleMutationReceipt,
@@ -12,11 +12,13 @@ use nodex_core_contracts::{
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
-use unicode_segmentation::UnicodeSegmentation;
 
 use crate::database::create_database_authority_records;
 use crate::document::{PrimaryCanvasIdentity, create_primary_canvas, read_store_epoch, sha256};
 use crate::domain::identity::stable_uuid_v7;
+use crate::domain::project_appearance::{
+    normalize_project_appearance, project_marker_color_literal, project_marker_icon_literal,
+};
 use crate::infrastructure::event_log::{
     NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
 };
@@ -35,18 +37,12 @@ const MODULE_NAME: &str = "project_workspace";
 const MAX_ID_LENGTH: usize = 512;
 const MAX_PROJECT_NAME_CHARS: usize = 256;
 const MAX_PROJECT_DESCRIPTION_BYTES: usize = 100_000;
-const MAX_PROJECT_ICON_BYTES: usize = 256;
 const MAX_SOURCE_ROOTS: usize = 128;
 const MAX_SOURCE_ROOT_BYTES: usize = 4_096;
 const MAX_PROJECT_ORDER_SIZE: usize = 100_000;
 const MAX_UNARCHIVED_PROJECTS: usize = 200;
 const INITIAL_RANK_KEY: &str = "7fffffffffffffffffffffffffffffff";
 const DEFAULT_SESSION_TITLE: &str = "Database View";
-
-static EXTENDED_PICTOGRAPHIC: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"\p{Extended_Pictographic}")
-        .expect("Extended_Pictographic is a supported Unicode property")
-});
 
 struct ProjectAggregateIdentities {
     database_id: String,
@@ -115,7 +111,7 @@ pub(super) fn ensure_default_project(
                 "project:default",
                 "Nodex",
                 "",
-                "",
+                &ProjectAppearance::default(),
                 &[],
                 "system:bootstrap-default-project:v1",
                 &assets_root,
@@ -183,7 +179,7 @@ pub(super) fn apply(
                     project_id,
                     name,
                     description,
-                    icon,
+                    appearance,
                     source_roots,
                 } => create_project(
                     transaction,
@@ -195,7 +191,7 @@ pub(super) fn apply(
                     project_id,
                     name,
                     description,
-                    icon.as_deref().unwrap_or_default(),
+                    appearance.as_ref(),
                     source_roots,
                     &assets_root,
                 ),
@@ -204,7 +200,7 @@ pub(super) fn apply(
                     expected_binding_revision,
                     name,
                     description,
-                    icon,
+                    appearance,
                     source_roots,
                 } => update_project(
                     transaction,
@@ -217,7 +213,7 @@ pub(super) fn apply(
                     *expected_binding_revision,
                     name.as_deref(),
                     description.as_deref(),
-                    icon.as_deref(),
+                    appearance.as_ref(),
                     source_roots.as_deref(),
                 ),
                 ProjectWorkspaceIntent::SetProjectLifecycle {
@@ -627,7 +623,7 @@ fn create_project(
     project_id: &str,
     name: &str,
     description: &str,
-    icon: &str,
+    appearance: Option<&ProjectAppearance>,
     source_roots: &[String],
     assets_root: &Path,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
@@ -635,14 +631,18 @@ fn create_project(
     require_unarchived_project_capacity(connection, library_id)?;
     let sources = normalize_source_roots(source_roots)?;
     let name = normalize_project_name(name, &sources)?;
-    let icon = normalize_icon(icon)?;
+    let appearance = appearance
+        .map(normalize_project_appearance)
+        .transpose()
+        .map_err(invalid)?
+        .unwrap_or_default();
     let created = create_project_records(
         connection,
         library_id,
         project_id,
         &name,
         description,
-        &icon,
+        &appearance,
         &sources,
         operation_id,
         assets_root,
@@ -773,7 +773,7 @@ fn update_project(
     expected_binding_revision: i64,
     name: Option<&str>,
     description: Option<&str>,
-    icon: Option<&str>,
+    appearance: Option<&ProjectAppearance>,
     source_roots: Option<&[String]>,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
     validate_id("project_id", project_id)?;
@@ -799,20 +799,29 @@ fn update_project(
     if let Some(value) = description {
         validate_description(value)?;
     }
-    let icon = icon.map(normalize_icon).transpose()?;
+    let appearance = appearance
+        .map(normalize_project_appearance)
+        .transpose()
+        .map_err(invalid)?;
     let sources = source_roots.map(normalize_source_roots).transpose()?;
     let now = sqlite_now(connection)?;
-    let metadata_changed = name.is_some() || description.is_some() || icon.is_some();
+    let metadata_changed = name.is_some() || description.is_some() || appearance.is_some();
     if metadata_changed {
+        let appearance_storage = appearance.as_ref().map(project_appearance_storage);
         let changed = connection.execute(
             "UPDATE projects SET \
                name = COALESCE(?1, name), description = COALESCE(?2, description), \
-               icon = COALESCE(?3, icon), updated = ?4 \
-             WHERE id = ?5 AND library_id = ?6 AND binding_revision = ?7",
+               appearance_color = COALESCE(?3, appearance_color), \
+               appearance_marker_kind = COALESCE(?4, appearance_marker_kind), \
+               appearance_marker_value = COALESCE(?5, appearance_marker_value), \
+               binding_revision = binding_revision + 1, updated = ?6 \
+             WHERE id = ?7 AND library_id = ?8 AND binding_revision = ?9",
             params![
                 name.as_deref(),
                 description,
-                icon.as_deref(),
+                appearance_storage.as_ref().map(|value| value.0),
+                appearance_storage.as_ref().map(|value| value.1),
+                appearance_storage.as_ref().map(|value| value.2.as_str()),
                 now,
                 project_id,
                 library_id,
@@ -831,7 +840,7 @@ fn update_project(
         insert_project_sources(connection, project_id, sources, &now)?;
         if !metadata_changed {
             let changed = connection.execute(
-                "UPDATE projects SET updated = ?1 \
+                "UPDATE projects SET binding_revision = binding_revision + 1, updated = ?1 \
                  WHERE id = ?2 AND library_id = ?3 AND binding_revision = ?4",
                 params![now, project_id, library_id, expected_binding_revision],
             )?;
@@ -847,6 +856,9 @@ fn update_project(
         operation_id,
         request_hash,
         "update_project",
+        // Source-derived consumers need the broader invalidation whenever a
+        // compound Edit includes sources; metadata-only writes use the
+        // narrower MetadataUpdated classification.
         if sources.is_some() {
             ProjectCatalogChangeKind::SourcesUpdated
         } else {
@@ -1213,7 +1225,7 @@ fn create_project_records(
     project_id: &str,
     name: &str,
     description: &str,
-    icon: &str,
+    appearance: &ProjectAppearance,
     sources: &[ProjectSource],
     identity_namespace: &str,
     assets_root: &Path,
@@ -1249,19 +1261,22 @@ fn create_project_records(
         ));
     }
     let now = sqlite_now(connection)?;
+    let appearance_storage = project_appearance_storage(appearance);
     connection.execute("UPDATE project_order SET \"order\" = \"order\" + 1", [])?;
     connection.execute(
         "INSERT INTO projects(\
            id, library_id, database_block_id, lifecycle, binding_revision, name, description, \
-           icon, created, updated\
-         ) VALUES (?1, ?2, ?3, 'active', 1, ?4, ?5, ?6, ?7, ?7)",
+           appearance_color, appearance_marker_kind, appearance_marker_value, created, updated\
+         ) VALUES (?1, ?2, ?3, 'active', 1, ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
         params![
             project_id,
             library_id,
             identities.database_id,
             name,
             description,
-            icon,
+            appearance_storage.0,
+            appearance_storage.1,
+            appearance_storage.2,
             now
         ],
     )?;
@@ -1400,16 +1415,16 @@ fn validate_description(description: &str) -> Result<(), StoreError> {
     Ok(())
 }
 
-fn normalize_icon(icon: &str) -> Result<String, StoreError> {
-    let icon = icon.trim();
-    if icon.len() > MAX_PROJECT_ICON_BYTES || icon.chars().any(char::is_control) {
-        return Err(invalid("Project icon is invalid"));
+fn project_appearance_storage(
+    appearance: &ProjectAppearance,
+) -> (&'static str, &'static str, String) {
+    let color = project_marker_color_literal(appearance.color);
+    match &appearance.marker {
+        ProjectMarker::Icon { icon } => {
+            (color, "icon", project_marker_icon_literal(*icon).to_owned())
+        }
+        ProjectMarker::Emoji { emoji } => (color, "emoji", emoji.clone()),
     }
-    Ok(icon
-        .graphemes(true)
-        .find(|grapheme| EXTENDED_PICTOGRAPHIC.is_match(grapheme))
-        .unwrap_or_default()
-        .to_owned())
 }
 
 fn normalize_project_name(name: &str, sources: &[ProjectSource]) -> Result<String, StoreError> {
@@ -1530,7 +1545,8 @@ mod tests {
     use std::fs;
 
     use nodex_core_contracts::workspace::{
-        CodexThreadActiveFlag, CodexThreadStatusType, ProjectCatalogChangeKind, ProjectLifecycle,
+        CodexThreadActiveFlag, CodexThreadStatusType, ProjectAppearance, ProjectCatalogChangeKind,
+        ProjectLifecycle, ProjectMarker, ProjectMarkerColor, ProjectMarkerIcon,
         ProjectSessionIntent, ProjectSessionInvalidationScope, ProjectWorkspaceIntent,
         ProjectWorkspaceRead, ProjectWorkspaceReadValue, ProjectWorkspaceThreadPatch,
         ProjectWorkspaceThreadStatus, ProjectWorkspaceTurnAuthoritySource,
@@ -1601,7 +1617,12 @@ mod tests {
                 project_id: project_id.to_owned(),
                 name: "  Native project  ".to_owned(),
                 description: "Workspace aggregate".to_owned(),
-                icon: Some("🚀".to_owned()),
+                appearance: Some(ProjectAppearance {
+                    color: ProjectMarkerColor::Black,
+                    marker: ProjectMarker::Emoji {
+                        emoji: "🚀".to_owned(),
+                    },
+                }),
                 source_roots: vec![
                     "/workspace/native".to_owned(),
                     "/workspace/native".to_owned(),
@@ -1653,8 +1674,8 @@ mod tests {
                 for index in existing..super::MAX_UNARCHIVED_PROJECTS {
                     connection.execute(
                         "INSERT INTO projects(\
-                           id, name, description, icon, created, updated, library_id, lifecycle\
-                         ) VALUES (?1, ?1, '', '', ?2, ?2, 'library-1', 'active')",
+                           id, name, description, created, updated, library_id, lifecycle\
+                         ) VALUES (?1, ?1, '', ?2, ?2, 'library-1', 'active')",
                         rusqlite::params![format!("project:capacity:{index}"), NOW],
                     )?;
                 }
@@ -1673,6 +1694,182 @@ mod tests {
                 Ok(())
             })
             .expect("check Project capacity");
+    }
+
+    #[test]
+    fn validates_and_persists_the_closed_project_appearance_catalog() {
+        let (_directory, kernel, module) = seeded_module();
+        let mut binding_revision = 1;
+        let colors = [
+            ProjectMarkerColor::Black,
+            ProjectMarkerColor::Red,
+            ProjectMarkerColor::Orange,
+            ProjectMarkerColor::Yellow,
+            ProjectMarkerColor::Green,
+            ProjectMarkerColor::Blue,
+            ProjectMarkerColor::Purple,
+            ProjectMarkerColor::Pink,
+        ];
+        for (index, color) in colors.into_iter().enumerate() {
+            let outcome = module
+                .apply(
+                    &context(),
+                    request(
+                        &format!("appearance-color-{index}"),
+                        ProjectWorkspaceIntent::UpdateProject {
+                            project_id: "project:default".to_owned(),
+                            expected_binding_revision: binding_revision,
+                            name: None,
+                            description: None,
+                            appearance: Some(ProjectAppearance {
+                                color,
+                                marker: ProjectMarker::Icon {
+                                    icon: ProjectMarkerIcon::Heart,
+                                },
+                            }),
+                            source_roots: None,
+                        },
+                    ),
+                )
+                .expect("legal Project color");
+            binding_revision += 1;
+            let Some(event) = outcome.event else {
+                panic!("appearance update event");
+            };
+            let CoreModuleEventPayload::ProjectWorkspace(event) = event.payload else {
+                panic!("Project Workspace event");
+            };
+            assert_eq!(
+                event.project_catalog_change,
+                Some(ProjectCatalogChangeKind::MetadataUpdated)
+            );
+        }
+        for (index, icon) in [
+            ProjectMarkerIcon::Folder,
+            ProjectMarkerIcon::CurrencyDollar,
+            ProjectMarkerIcon::DeskGlobe,
+            ProjectMarkerIcon::Plant,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            module
+                .apply(
+                    &context(),
+                    request(
+                        &format!("appearance-icon-{index}"),
+                        ProjectWorkspaceIntent::UpdateProject {
+                            project_id: "project:default".to_owned(),
+                            expected_binding_revision: binding_revision,
+                            name: None,
+                            description: None,
+                            appearance: Some(ProjectAppearance {
+                                color: ProjectMarkerColor::Blue,
+                                marker: ProjectMarker::Icon { icon },
+                            }),
+                            source_roots: None,
+                        },
+                    ),
+                )
+                .expect("legal Project marker icon");
+            binding_revision += 1;
+        }
+        module
+            .apply(
+                &context(),
+                request(
+                    "appearance-emoji",
+                    ProjectWorkspaceIntent::UpdateProject {
+                        project_id: "project:default".to_owned(),
+                        expected_binding_revision: binding_revision,
+                        name: None,
+                        description: None,
+                        appearance: Some(ProjectAppearance {
+                            color: ProjectMarkerColor::Green,
+                            marker: ProjectMarker::Emoji {
+                                emoji: "  Ship 👩🏽‍💻 now  ".to_owned(),
+                            },
+                        }),
+                        source_roots: None,
+                    },
+                ),
+            )
+            .expect("normalized Project emoji");
+        binding_revision += 1;
+        for (index, emoji) in ["plain text".to_owned(), "🚀\0".to_owned(), "🚀".repeat(100)]
+            .into_iter()
+            .enumerate()
+        {
+            let error = module
+                .apply(
+                    &context(),
+                    request(
+                        &format!("appearance-invalid-emoji-{index}"),
+                        ProjectWorkspaceIntent::UpdateProject {
+                            project_id: "project:default".to_owned(),
+                            expected_binding_revision: binding_revision,
+                            name: None,
+                            description: None,
+                            appearance: Some(ProjectAppearance {
+                                color: ProjectMarkerColor::Black,
+                                marker: ProjectMarker::Emoji { emoji },
+                            }),
+                            source_roots: None,
+                        },
+                    ),
+                )
+                .expect_err("invalid Project emoji");
+            assert_eq!(error.code, CoreErrorCode::InvalidInput);
+        }
+
+        kernel
+            .writer()
+            .call(move |connection| {
+                let stored = connection.query_row(
+                    "SELECT appearance_color, appearance_marker_kind, appearance_marker_value, \
+                       binding_revision \
+                     FROM projects WHERE id = 'project:default'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, i64>(3)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    stored,
+                    (
+                        "green".to_owned(),
+                        "emoji".to_owned(),
+                        "👩🏽‍💻".to_owned(),
+                        binding_revision,
+                    )
+                );
+                assert!(
+                    connection
+                        .execute(
+                            "UPDATE projects SET appearance_color = 'chartreuse' \
+                             WHERE id = 'project:default'",
+                            [],
+                        )
+                        .is_err()
+                );
+                assert!(
+                    connection
+                        .execute(
+                            "UPDATE projects SET appearance_marker_kind = 'icon', \
+                               appearance_marker_value = 'unknown' \
+                             WHERE id = 'project:default'",
+                            [],
+                        )
+                        .is_err()
+                );
+                Ok(())
+            })
+            .expect("verify Project appearance storage");
     }
 
     #[test]
@@ -1760,7 +1957,8 @@ mod tests {
             .call(|connection| {
                 connection
                     .query_row(
-                        "SELECT project.name, project.description, project.icon, \
+                        "SELECT project.name, project.description, project.appearance_color, \
+                            project.appearance_marker_kind, project.appearance_marker_value, \
                             project.database_block_id, binding.database_block_id, \
                             (SELECT count(*) FROM project_sources \
                              WHERE project_id = project.id), \
@@ -1790,12 +1988,14 @@ mod tests {
                                 row.get::<_, String>(2)?,
                                 row.get::<_, String>(3)?,
                                 row.get::<_, String>(4)?,
-                                row.get::<_, i64>(5)?,
-                                row.get::<_, i64>(6)?,
+                                row.get::<_, String>(5)?,
+                                row.get::<_, String>(6)?,
                                 row.get::<_, i64>(7)?,
                                 row.get::<_, i64>(8)?,
                                 row.get::<_, i64>(9)?,
                                 row.get::<_, i64>(10)?,
+                                row.get::<_, i64>(11)?,
+                                row.get::<_, i64>(12)?,
                             ))
                         },
                     )
@@ -1804,14 +2004,17 @@ mod tests {
             .expect("read created aggregate");
         assert_eq!(stored.0, "Native project");
         assert_eq!(stored.1, "Workspace aggregate");
-        assert_eq!(stored.2, "🚀");
-        assert_eq!(stored.3, stored.4);
-        assert_eq!(stored.5, 2);
-        assert_eq!(stored.6, 8);
-        assert_eq!(stored.7, 1);
-        assert_eq!(stored.8, 1);
+        assert_eq!(
+            (&stored.2[..], &stored.3[..], &stored.4[..]),
+            ("black", "emoji", "🚀")
+        );
+        assert_eq!(stored.5, stored.6);
+        assert_eq!(stored.7, 2);
+        assert_eq!(stored.8, 8);
         assert_eq!(stored.9, 1);
         assert_eq!(stored.10, 1);
+        assert_eq!(stored.11, 1);
+        assert_eq!(stored.12, 1);
 
         let divergent = module
             .apply(
@@ -1846,7 +2049,12 @@ mod tests {
                 expected_binding_revision: 1,
                 name: Some("  Renamed Project  ".to_owned()),
                 description: Some("Updated metadata".to_owned()),
-                icon: Some("  Build 🧭 workspace  ".to_owned()),
+                appearance: Some(ProjectAppearance {
+                    color: ProjectMarkerColor::Purple,
+                    marker: ProjectMarker::Emoji {
+                        emoji: "  Build 🧭 workspace  ".to_owned(),
+                    },
+                }),
                 source_roots: Some(vec![
                     "/workspace/updated".to_owned(),
                     "/workspace/updated".to_owned(),
@@ -1876,16 +2084,38 @@ mod tests {
                     "workspace-update-stale",
                     ProjectWorkspaceIntent::UpdateProject {
                         project_id: "project-native".to_owned(),
-                        expected_binding_revision: 2,
+                        expected_binding_revision: 1,
                         name: Some("Stale".to_owned()),
                         description: None,
-                        icon: None,
+                        appearance: None,
                         source_roots: None,
                     },
                 ),
             )
             .expect_err("reject stale Project binding revision");
         assert_eq!(stale.code, CoreErrorCode::RevisionConflict);
+
+        module
+            .apply(
+                &context(),
+                request(
+                    "workspace-update-native-sources",
+                    ProjectWorkspaceIntent::UpdateProject {
+                        project_id: "project-native".to_owned(),
+                        expected_binding_revision: 2,
+                        name: None,
+                        description: None,
+                        appearance: None,
+                        source_roots: Some(vec!["/workspace/source-only".to_owned()]),
+                    },
+                ),
+            )
+            .expect("update only Project sources");
+        let (_, binding_revision) = kernel
+            .writer()
+            .call(|connection| super::require_project(connection, "library-1", "project-native"))
+            .expect("read advanced Project binding revision");
+        assert_eq!(binding_revision, 3);
 
         module
             .apply(
@@ -1999,10 +2229,10 @@ mod tests {
                     "workspace-update-archived",
                     ProjectWorkspaceIntent::UpdateProject {
                         project_id: "project-native".to_owned(),
-                        expected_binding_revision: 3,
+                        expected_binding_revision: 5,
                         name: Some("Must not change".to_owned()),
                         description: None,
-                        icon: None,
+                        appearance: None,
                         source_roots: None,
                     },
                 ),
@@ -2102,7 +2332,8 @@ mod tests {
             .call(|connection| {
                 connection
                     .query_row(
-                        "SELECT project.name, project.description, project.icon, \
+                        "SELECT project.name, project.description, project.appearance_color, \
+                            project.appearance_marker_kind, project.appearance_marker_value, \
                             project.lifecycle, project.binding_revision, \
                             binding.lifecycle, binding.revision, \
                             (SELECT group_concat(root, '|') FROM project_sources \
@@ -2125,14 +2356,16 @@ mod tests {
                                 row.get::<_, String>(1)?,
                                 row.get::<_, String>(2)?,
                                 row.get::<_, String>(3)?,
-                                row.get::<_, i64>(4)?,
+                                row.get::<_, String>(4)?,
                                 row.get::<_, String>(5)?,
                                 row.get::<_, i64>(6)?,
                                 row.get::<_, String>(7)?,
                                 row.get::<_, i64>(8)?,
-                                row.get::<_, i64>(9)?,
+                                row.get::<_, String>(9)?,
                                 row.get::<_, i64>(10)?,
                                 row.get::<_, i64>(11)?,
+                                row.get::<_, i64>(12)?,
+                                row.get::<_, i64>(13)?,
                             ))
                         },
                     )
@@ -2141,14 +2374,17 @@ mod tests {
             .expect("read mutated Project");
         assert_eq!(stored.0, "Renamed Project");
         assert_eq!(stored.1, "Updated metadata");
-        assert_eq!(stored.2, "🧭");
-        assert_eq!(stored.3, "archived");
-        assert_eq!(stored.4, 3);
+        assert_eq!(
+            (&stored.2[..], &stored.3[..], &stored.4[..]),
+            ("purple", "emoji", "🧭")
+        );
         assert_eq!(stored.5, "archived");
-        assert_eq!(stored.6, 3);
-        assert_eq!(stored.7, "/workspace/updated");
-        assert_eq!((stored.8, stored.9), (0, 0));
+        assert_eq!(stored.6, 5);
+        assert_eq!(stored.7, "archived");
+        assert_eq!(stored.8, 5);
+        assert_eq!(stored.9, "/workspace/source-only");
         assert_eq!((stored.10, stored.11), (0, 0));
+        assert_eq!((stored.12, stored.13), (0, 0));
 
         module
             .apply(
@@ -2183,7 +2419,7 @@ mod tests {
                     .map_err(Into::into)
             })
             .expect("read restored Project");
-        assert_eq!(restored, ("active".to_owned(), 4, 3));
+        assert_eq!(restored, ("active".to_owned(), 6, 3));
     }
 
     #[test]

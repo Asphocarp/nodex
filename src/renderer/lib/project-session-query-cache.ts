@@ -122,26 +122,31 @@ export async function invalidateProjectSessionScope(
   queryClient: QueryClient,
   event: ProjectSessionsChangeEvent,
 ): Promise<void> {
-  const summaryInvalidations = event.summaryScopes.map(async (scope) => {
+  const invalidations: Array<Promise<unknown>> = [];
+  invalidations.push(queryClient.invalidateQueries({
+    queryKey: queryKeys.projectActivity.all(),
+  }));
+
+  for (const scope of event.summaryScopes) {
     if (scope.kind === "all") {
-      await queryClient.invalidateQueries({
+      invalidations.push(queryClient.invalidateQueries({
         queryKey: ["projectSessions", "summaries"],
-      });
-      return;
+      }));
+      continue;
     }
-    await queryClient.invalidateQueries({
+    invalidations.push(queryClient.invalidateQueries({
       queryKey: queryKeys.projectSessions.summaries(
         scope.kind === "project" ? scope.projectId : null,
       ),
       exact: true,
-    });
-  });
-  await Promise.all(summaryInvalidations);
+    }));
+  }
 
   if (event.detailInvalidation.kind === "all") {
-    await queryClient.invalidateQueries({
+    invalidations.push(queryClient.invalidateQueries({
       queryKey: ["projectSessions", "detail"],
-    });
+    }));
+    await Promise.all(invalidations);
     return;
   }
 
@@ -153,13 +158,15 @@ export async function invalidateProjectSessionScope(
         exact: true,
       });
     }
+    await Promise.all(invalidations);
     return;
   }
 
-  await Promise.all(sessionIds.map(async (sessionId) => {
-    await queryClient.invalidateQueries({
+  for (const sessionId of sessionIds) {
+    invalidations.push(queryClient.invalidateQueries({
       queryKey: queryKeys.projectSessions.detail(sessionId),
       exact: true,
-    });
-  }));
+    }));
+  }
+  await Promise.all(invalidations);
 }

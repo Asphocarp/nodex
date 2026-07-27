@@ -25,6 +25,7 @@ import type { DefaultReactSuggestionItem } from "@blocknote/react";
 import type { CommandPalettePage, CommandPaletteThread } from "@/lib/command-palette";
 import type { DatabasePageSummary, CodexThreadSummary, Project } from "@/lib/types";
 import { plainTextToPortableRichText } from "../../../../shared/block-documents";
+import { DEFAULT_PROJECT_APPEARANCE } from "../../../../shared/project-appearance";
 
 function makeItems(): DefaultReactSuggestionItem[] {
   return [
@@ -115,6 +116,7 @@ function createMentionProject(): Project {
     bindingRevision: 1,
     name: "Alpha",
     description: "",
+    appearance: DEFAULT_PROJECT_APPEARANCE,
     sources: [],
     primaryWorkspaceRoot: null,
     pinned: false,
@@ -165,7 +167,7 @@ function makePalettePage(overrides: Partial<CommandPalettePage> = {}): CommandPa
     id: overrides.id ?? `${overrides.projectId ?? "project-1"}:${page.id}`,
     projectId: overrides.projectId ?? "project-1",
     projectName: overrides.projectName ?? "Alpha",
-    projectIcon: overrides.projectIcon ?? "",
+    projectAppearance: overrides.projectAppearance ?? DEFAULT_PROJECT_APPEARANCE,
     columnName: overrides.columnName ?? "Doing",
     page,
     inActiveProject: overrides.inActiveProject ?? true,

@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { NodexTooltip } from "@/components/ui/tooltip";
+import { NodexHoverCard } from "@/components/ui/hover-card";
 import { cn } from "@/lib/utils";
 import type {
   CodexAccountSnapshot,
@@ -188,14 +188,11 @@ export function AccountRateLimitRing({
   });
 
   return (
-    <NodexTooltip
-      tooltipContent={tooltipContent}
-      side="right"
-      align="end"
-      delayDuration={0}
+    <NodexHoverCard
+      ariaLabel="Account and usage details"
+      hoverCardContent={tooltipContent}
+      placement="right-end"
       onOpenChange={handleTooltipOpenChange}
-      interactive
-      surface="rich"
     >
       <button
         type="button"
@@ -216,6 +213,6 @@ export function AccountRateLimitRing({
           hasLimits={viewModel.hasLimits}
         />
       </button>
-    </NodexTooltip>
+    </NodexHoverCard>
   );
 }

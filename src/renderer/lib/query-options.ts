@@ -10,6 +10,7 @@ import type {
   ProtocolExperimentalFeature,
   ProtocolListMcpServerStatusResponse,
   ProjectListOptions,
+  ProjectActivitySummaryResult,
   ProjectWindow,
   ProjectSession,
   ProjectSessionSummaryWindow,
@@ -28,6 +29,8 @@ import type {
   WorkspaceFileTextReadInput,
 } from "./types";
 import type { GitBranchState } from "../../shared/ipc-api";
+import type { GitRepositoryIdentity } from "../../shared/git-repository-identity";
+import type { LocalPathPresentationContext } from "../../shared/local-path-presentation";
 import type { CommandKeymapState } from "../../shared/command-keybindings";
 import type { ProtocolMcpResourceReadParams } from "../../shared/types";
 import type { CodexHooksListInput, CodexHooksListResponse } from "../../shared/codex-hooks";
@@ -47,6 +50,20 @@ export function projectsListQueryOptions(options: ProjectListOptions = {}) {
         first: 100,
       }) as ProjectWindow,
     getNextPageParam: (window) => window.nextCursor ?? undefined,
+  });
+}
+
+export function projectActivitySummariesQueryOptions(
+  projectIds: readonly string[],
+) {
+  return queryOptions({
+    queryKey: queryKeys.projectActivity.summaries(projectIds),
+    queryFn: () => invoke(
+      "projects:activity-summaries",
+      [...projectIds],
+    ) as Promise<ProjectActivitySummaryResult>,
+    enabled: projectIds.length > 0,
+    staleTime: 30_000,
   });
 }
 
@@ -163,6 +180,24 @@ export function gitBranchStateQueryOptions(cwd: string) {
     queryKey: queryKeys.git.branchState(cwd),
     queryFn: () => invoke("git:branch:state", cwd) as Promise<GitBranchState>,
     enabled: cwd.trim().length > 0,
+  });
+}
+
+export function gitRepositoryIdentityQueryOptions(cwd: string) {
+  return queryOptions({
+    queryKey: queryKeys.git.repositoryIdentity(cwd),
+    queryFn: () => invoke("git:repository:identity", cwd) as Promise<GitRepositoryIdentity | null>,
+    enabled: cwd.trim().length > 0,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function localPathPresentationContextQueryOptions() {
+  return queryOptions({
+    queryKey: queryKeys.shell.pathContext(),
+    queryFn: () => invoke("shell:path-context:get") as Promise<LocalPathPresentationContext>,
+    staleTime: Number.POSITIVE_INFINITY,
+    retry: false,
   });
 }
 

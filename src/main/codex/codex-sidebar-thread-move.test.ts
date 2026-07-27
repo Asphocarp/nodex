@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { Project } from "../../shared/types";
+import { DEFAULT_PROJECT_APPEARANCE } from "../../shared/project-appearance";
 import {
   listMissingCodexProjectMoveSources,
   resolveCodexProjectThreadWorkspaceMove,
@@ -16,6 +17,7 @@ function makeProject(id: string, roots: string[]): Project {
     bindingRevision: 1,
     name: id,
     description: "",
+    appearance: DEFAULT_PROJECT_APPEARANCE,
     sources: roots.map((root, order) => ({ root, order })),
     primaryWorkspaceRoot: roots[0] ?? null,
     pinned: false,

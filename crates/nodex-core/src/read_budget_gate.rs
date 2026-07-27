@@ -76,9 +76,9 @@ fn seed_identity_and_workspace(kernel: &SqliteStoreKernel) {
                 {
                     let mut insert_project = transaction.prepare(
                         "INSERT INTO projects(\
-                           id, library_id, lifecycle, binding_revision, name, description, icon, \
+                           id, library_id, lifecycle, binding_revision, name, description, \
                            created, updated\
-                         ) VALUES (?1, ?2, 'active', 1, ?3, '', '', ?4, ?4)",
+                         ) VALUES (?1, ?2, 'active', 1, ?3, '', ?4, ?4)",
                     )?;
                     let mut insert_order = transaction.prepare(
                         "INSERT INTO project_order(project_id, \"order\", updated) \

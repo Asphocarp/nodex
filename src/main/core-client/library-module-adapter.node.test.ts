@@ -7,6 +7,7 @@ import {
   parseDataSourceOptionId,
   parseDataSourcePropertyId,
 } from "../../shared/database-identities";
+import { LIBRARY_NAVIGATION_EVENT_VERSION } from "../../shared/library-events";
 import { LIBRARY_MODULE_CONTRACT_VERSION } from "../../shared/library-module";
 import { PAGE_HISTORY_CONTRACT_VERSION } from "../../shared/page-history";
 import type { PageLifecycleMutationRequestV2 } from "../../shared/page-lifecycle-v2";
@@ -1236,7 +1237,7 @@ describe("Core Library Module Adapter", () => {
         },
       },
     }, identity.libraryId)).toEqual({
-      version: 2,
+      version: LIBRARY_NAVIGATION_EVENT_VERSION,
       libraryId: identity.libraryId,
       storeEpoch: identity.storeEpoch,
       changeLogSeq: 9,

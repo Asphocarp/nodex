@@ -304,6 +304,10 @@ function buildModel(args: ComposerSendButtonStoryProps): ThreadFooterModel {
                 : [{
                     id: newChatTarget.projectId,
                     label: newChatTarget.projectName,
+                    appearance: {
+                      color: "green",
+                      marker: { kind: "icon", icon: "plant" },
+                    } as const,
                     description: footerModel.projectWorkspacePath ?? "/Users/asc/repo/nodex",
                     primaryWorkspaceRoot: footerModel.projectWorkspacePath ?? "/Users/asc/repo/nodex",
                     searchText: `${newChatTarget.projectId} ${newChatTarget.projectName}`,
@@ -311,6 +315,10 @@ function buildModel(args: ComposerSendButtonStoryProps): ThreadFooterModel {
               {
                 id: "project_devtools_codex",
                 label: "Devtools Codex",
+                appearance: {
+                  color: "blue",
+                  marker: { kind: "icon", icon: "function" },
+                } as const,
                 description: "/Users/asc/repo/devtools-codex",
                 primaryWorkspaceRoot: "/Users/asc/repo/devtools-codex",
                 searchText: "project_devtools_codex devtools codex",

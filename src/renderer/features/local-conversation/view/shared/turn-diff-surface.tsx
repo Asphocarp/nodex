@@ -239,7 +239,7 @@ function TurnDiffFileRow({
         delayDuration={800}
         disabled={disableHoverPreview || !row.fileDiff || row.isTooLarge}
         surface="rich"
-        interactive
+        hoverable
         side="top"
         align="center"
         sideOffset={0}

@@ -12,6 +12,7 @@ import {
 } from "./codex-sidebar";
 import { ProjectCreateDialog } from "./project-edit-dialog";
 import { CodexProjectAddIcon } from "@/components/shared/icons";
+import { DEFAULT_PROJECT_APPEARANCE } from "../../../shared/project-appearance";
 
 export type SidebarCreateProjectHandler = (input: ProjectCreateInput) => Promise<Project | null>;
 
@@ -35,9 +36,10 @@ export function SidebarProjectAddMenu({
 
   const openProjectCreateDialog = () => {
     openModal(appHandle, ProjectCreateDialog, {
-      onCreate: async ({ name, sources }) => {
+      onCreate: async ({ appearance, name, sources }) => {
         const fallbackName = sources[0] ? basename(sources[0]) : "Untitled project";
         const project = await onCreateProject({
+          appearance,
           name: name.trim() || fallbackName,
           sources,
         });
@@ -61,6 +63,7 @@ export function SidebarProjectAddMenu({
     const sourceRoot = picked[0];
     if (!sourceRoot) return;
     await onCreateProject({
+      appearance: DEFAULT_PROJECT_APPEARANCE,
       name: basename(sourceRoot),
       sources: picked,
     });

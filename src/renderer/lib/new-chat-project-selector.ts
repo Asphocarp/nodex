@@ -1,8 +1,10 @@
 import type { Project } from "./types";
+import type { ProjectAppearance } from "../../shared/project-appearance";
 
 export interface NewChatProjectSelectorOption {
   id: string;
   label: string;
+  appearance: ProjectAppearance;
   description: string | null;
   primaryWorkspaceRoot: string | null;
   searchText: string;
@@ -30,6 +32,7 @@ export function formatNewChatProjectSelectorOption(project: Project): NewChatPro
   return {
     id: project.id,
     label,
+    appearance: project.appearance,
     description,
     primaryWorkspaceRoot,
     searchText,

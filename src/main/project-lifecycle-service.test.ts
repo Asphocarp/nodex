@@ -14,6 +14,7 @@ import {
 } from "./project-lifecycle-service";
 import { ProjectRuntimeLifecycleCoordinator } from "./project-runtime-lifecycle-coordinator";
 import type { DesktopProjectWorkspaceThread } from "./core-client/project-workspace-adapter";
+import { DEFAULT_PROJECT_APPEARANCE } from "../shared/project-appearance";
 
 function makeProject(overrides: Partial<Project> = {}): Project {
   return {
@@ -25,6 +26,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     bindingRevision: 1,
     name: "Alpha",
     description: "",
+    appearance: DEFAULT_PROJECT_APPEARANCE,
     sources: [{ root: "/workspace/alpha", order: 0 }],
     primaryWorkspaceRoot: "/workspace/alpha",
     pinned: false,

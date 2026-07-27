@@ -20,7 +20,7 @@ import {
 import type { CommandMenuOpenRequest } from "./command-palette";
 
 export interface WorkbenchShortcutActions {
-  projectRefs: { projectId: string }[];
+  projectOrder: string[];
   dbProjectId: string | null;
   focusedStage: StageId;
   focusAdjacentStage: (projectId: string, direction: -1 | 1) => void;
@@ -203,7 +203,7 @@ export function handleWorkbenchShortcut(
   if (e.altKey && e.key >= "1" && e.key <= "9") {
     if (targetIsEditable) return false;
     const index = Number.parseInt(e.key, 10) - 1;
-    if (index < actions.projectRefs.length) {
+    if (index < actions.projectOrder.length) {
       actions.switchToProjectIndex(index);
     }
     return true;

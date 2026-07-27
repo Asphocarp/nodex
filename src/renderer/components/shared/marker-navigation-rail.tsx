@@ -592,7 +592,6 @@ export function MarkerNavigationRail<TItem extends MarkerNavigationItem>({
               align="center"
               sideOffset={0}
               delayOpen
-              interactive={false}
               open={isScrubTarget && scrubTargetId !== null ? true : undefined}
               surface="rich"
               tooltipClassName="!m-0 !rounded-xl !border-0 !bg-transparent !p-0 !shadow-none !ring-0 !backdrop-blur-none"

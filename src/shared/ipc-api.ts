@@ -1,4 +1,6 @@
 import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminal";
+import type { GitRepositoryIdentity } from "./git-repository-identity";
+import type { LocalPathPresentationContext } from "./local-path-presentation";
 import type {
   DocumentAwarenessPublishAck,
   DocumentAwarenessPublishRequest,
@@ -306,6 +308,7 @@ import type {
   CommandPaletteThreadSummary,
   CreateBackupInput,
   Project,
+  ProjectActivitySummaryResult,
   ProjectCreateInput,
   ProjectLifecycleInput,
   ProjectLifecycleMutationResult,
@@ -743,6 +746,10 @@ export interface IpcApi {
   };
   "projects:list": { args: [input?: ProjectWindowInput]; result: ProjectWindow };
   "projects:get": { args: [projectId: string]; result: Project | null };
+  "projects:activity-summaries": {
+    args: [projectIds: string[]];
+    result: ProjectActivitySummaryResult;
+  };
   "projects:create": { args: [input: ProjectCreateInput]; result: Project };
   "projects:update": {
     args: [projectId: string, updates: ProjectUpdateInput];
@@ -993,6 +1000,10 @@ export interface IpcApi {
     args: [target: FileLinkTarget, openerId: FileLinkOpenerId];
     result: boolean;
   };
+  "shell:path-context:get": {
+    args: [];
+    result: LocalPathPresentationContext;
+  };
   "workspace-directory-entries": {
     args: [input: WorkspaceDirectoryEntriesInput];
     result: WorkspaceDirectoryEntriesResult;
@@ -1070,6 +1081,10 @@ export interface IpcApi {
   "git:branch:state": {
     args: [cwd: string];
     result: GitBranchState;
+  };
+  "git:repository:identity": {
+    args: [cwd: string];
+    result: GitRepositoryIdentity | null;
   };
   "git:branch:checkout": {
     args: [input: GitBranchInput];

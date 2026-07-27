@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { act } from "react";
+import { NodexHoverCardProvider } from "@/components/ui/hover-card";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { render, textContent } from "@/test/dom";
 import type { CodexSidebarThreadItem } from "@/lib/types";
@@ -37,16 +38,18 @@ function renderOpenThreadHoverCard(item: CodexSidebarThreadItem, props: {
   branchName?: string | null;
 } = {}) {
   return render(
-    <NodexTooltipProvider>
-      <CodexSidebarThreadRow
-        item={item}
-        active={false}
-        hoverCardOpen
-        hoverCardProjectLabel={props.projectLabel}
-        hoverCardBranchName={props.branchName}
-        onSelect={() => {}}
-      />
-    </NodexTooltipProvider>,
+    <NodexHoverCardProvider>
+      <NodexTooltipProvider>
+        <CodexSidebarThreadRow
+          item={item}
+          active={false}
+          hoverCardOpen
+          hoverCardProjectLabel={props.projectLabel}
+          hoverCardBranchName={props.branchName}
+          onSelect={() => {}}
+        />
+      </NodexTooltipProvider>
+    </NodexHoverCardProvider>,
   );
 }
 
@@ -59,14 +62,14 @@ describe("codex sidebar thread hover card", () => {
       });
     });
 
-    const tooltip = document.body.querySelector('[role="tooltip"]') as HTMLElement | null;
-    expect(tooltip).not.toBeNull();
+    const hoverCard = document.body.querySelector('[role="dialog"]') as HTMLElement | null;
+    expect(hoverCard).not.toBeNull();
 
-    const tooltipText = textContent(tooltip as HTMLElement);
-    expect(tooltipText.includes("X Plan Codex terminal reverse engineer")).toBe(true);
-    expect(tooltipText.includes("2d")).toBe(true);
-    expect(tooltipText.includes("nodex")).toBe(true);
-    expect(tooltipText.includes("feat/thread-tools")).toBe(true);
+    const hoverCardText = textContent(hoverCard as HTMLElement);
+    expect(hoverCardText.includes("X Plan Codex terminal reverse engineer")).toBe(true);
+    expect(hoverCardText.includes("2d")).toBe(true);
+    expect(hoverCardText.includes("nodex")).toBe(true);
+    expect(hoverCardText.includes("feat/thread-tools")).toBe(true);
   });
 
   test("uses Chat as the projectless fallback label", async () => {
@@ -82,12 +85,12 @@ describe("codex sidebar thread hover card", () => {
       }));
     });
 
-    const tooltip = document.body.querySelector('[role="tooltip"]') as HTMLElement | null;
-    expect(tooltip).not.toBeNull();
+    const hoverCard = document.body.querySelector('[role="dialog"]') as HTMLElement | null;
+    expect(hoverCard).not.toBeNull();
 
-    const tooltipText = textContent(tooltip as HTMLElement);
-    expect(tooltipText.includes("Projectless chat")).toBe(true);
-    expect(tooltipText.includes("Chat")).toBe(true);
+    const hoverCardText = textContent(hoverCard as HTMLElement);
+    expect(hoverCardText.includes("Projectless chat")).toBe(true);
+    expect(hoverCardText.includes("Chat")).toBe(true);
   });
 });
 

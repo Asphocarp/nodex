@@ -267,7 +267,7 @@ const project: Project = {
   bindingRevision: 1,
   name: "Alpha",
   description: "",
-  icon: "",
+  appearance: { color: "black", marker: { kind: "icon", icon: "folder" } },
   sources: [{ root: WORKSPACE_ROOT, order: 0 }],
   primaryWorkspaceRoot: WORKSPACE_ROOT,
   pinned: false,

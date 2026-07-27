@@ -32,6 +32,7 @@ const PROJECTS: Project[] = [
     bindingRevision: 1,
     name: "Nodex",
     description: "",
+    appearance: { color: "blue", marker: { kind: "icon", icon: "terminal" } },
     sources: [{ root: "/Users/asc/repo/nodex", order: 0 }],
     primaryWorkspaceRoot: "/Users/asc/repo/nodex",
     pinned: false,

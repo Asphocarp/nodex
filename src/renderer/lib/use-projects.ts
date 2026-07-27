@@ -18,6 +18,7 @@ import type {
 import { invoke, subscribeProjectChanges } from "./api";
 import { projectsListQueryOptions } from "./query-options";
 import { queryKeys } from "./query-keys";
+import { runSerializedProjectCatalogUpdate } from "./project-update-queue";
 
 const PROJECTS_LIST_QUERY_KEY = queryKeys.projects.list(false);
 const EMPTY_PROJECTS: Project[] = [];
@@ -57,10 +58,19 @@ export function useProjects() {
   }, [queryClient]);
 
   useEffect(() => {
-    return subscribeProjectChanges(() => {
+    return subscribeProjectChanges((event) => {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.projects.all(),
       });
+      if (
+        event.changeType === "create"
+        || event.changeType === "lifecycle"
+        || event.changeType === "delete"
+      ) {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.projectActivity.all(),
+        });
+      }
     });
   }, [queryClient]);
 
@@ -97,7 +107,10 @@ export function useProjects() {
 
   const { mutateAsync: updateProjectRequest } = useMutation({
     mutationFn: ({ projectId, updates }: { projectId: string; updates: ProjectUpdateInput }) =>
-      invoke("projects:update", projectId, updates) as Promise<Project>,
+      runSerializedProjectCatalogUpdate(
+        projectId,
+        () => invoke("projects:update", projectId, updates) as Promise<Project | null>,
+      ),
     onMutate: () => {
       setActionError(null);
     },

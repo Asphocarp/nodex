@@ -7,6 +7,7 @@ import type {
   CodexThreadStatusType,
   CodexThreadSummary,
   Project,
+  ProjectActivitySummaryResult,
   ProjectCreateInput,
   ProjectOrderInput,
   ProjectPinnedInput,
@@ -174,6 +175,9 @@ export interface DesktopProjectWorkspacePort {
   /** Available (non-archived) Projects form one fixed 200-item domain collection. */
   listProjects(): Promise<Project[]>;
   listProjectWindow(input?: ProjectWindowInput): Promise<ProjectWindow>;
+  readProjectActivitySummaries(
+    projectIds: readonly string[],
+  ): Promise<ProjectActivitySummaryResult>;
   getProject(projectId: string): Promise<Project | null>;
   readProjectPermissionMode(
     projectId: string,
@@ -334,7 +338,7 @@ const fromCoreProject = (project: CoreProject): Project => ({
   bindingRevision: project.binding_revision,
   name: project.name,
   description: project.description,
-  icon: project.icon || undefined,
+  appearance: project.appearance,
   sources: project.sources.map((source) => ({
     root: source.root,
     order: source.order,
@@ -645,6 +649,27 @@ const fromCoreTask = (task: CoreTask): ProjectSessionSummary =>
 export function createCoreProjectWorkspaceAdapter(
   client: CoreClientPort,
 ): DesktopProjectWorkspacePort {
+  const projectUpdateTails = new Map<string, Promise<void>>();
+  const runSerializedProjectUpdate = async <T>(
+    projectId: string,
+    operation: () => Promise<T>,
+  ): Promise<T> => {
+    const previous = projectUpdateTails.get(projectId) ?? Promise.resolve();
+    const result = previous.catch(() => undefined).then(operation);
+    const tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    projectUpdateTails.set(projectId, tail);
+    try {
+      return await result;
+    } finally {
+      if (projectUpdateTails.get(projectId) === tail) {
+        projectUpdateTails.delete(projectId);
+      }
+    }
+  };
+
   const readCoreThread = async (threadId: string): Promise<CoreThread | null> => {
     let snapshot: ProjectWorkspaceReadSnapshot;
     try {
@@ -816,6 +841,30 @@ export function createCoreProjectWorkspaceAdapter(
     return [...window.items];
   };
 
+  const readProjectActivitySummaries = async (
+    projectIds: readonly string[],
+  ): Promise<ProjectActivitySummaryResult> => {
+    const snapshot = await client.workspaceRead({
+      kind: "project_activity_summaries",
+      project_ids: [...projectIds],
+    });
+    if (snapshot.value.kind !== "project_activity_summaries") {
+      throw new Error(
+        "Core returned the wrong Project activity summaries read variant",
+      );
+    }
+    return {
+      summaries: snapshot.value.summaries.map((summary) => ({
+        projectId: summary.project_id,
+        taskCount: summary.task_count,
+        waitingCount: summary.waiting_count,
+        unreadCount: summary.unread_count,
+        activeCount: summary.active_count,
+      })),
+      projectionRevision: snapshot.value.projection_revision,
+    };
+  };
+
   const readProjectPermissionMode = async (
     projectId: string,
   ): Promise<CodexPermissionMode | null> => {
@@ -920,6 +969,7 @@ export function createCoreProjectWorkspaceAdapter(
   return {
     listProjects: readProjects,
     listProjectWindow: readProjectWindow,
+    readProjectActivitySummaries,
     getProject,
     readProjectPermissionMode,
     setProjectPermissionMode: async (projectId, mode) => {
@@ -941,29 +991,33 @@ export function createCoreProjectWorkspaceAdapter(
         project_id: projectId,
         name: input.name ?? "",
         description: input.description ?? "",
-        icon: input.icon ?? null,
+        appearance: input.appearance ?? null,
         source_roots: input.sources ?? [],
       });
       const project = await getProject(projectId);
       if (!project) throw new Error(`Created Project not found: ${projectId}`);
       return project;
     },
-    updateProject: async (projectId, input) => {
-      const current = await getProject(projectId);
-      if (!current) return null;
-      await apply({
-        kind: "update_project",
-        project_id: projectId,
-        expected_binding_revision: current.bindingRevision,
-        ...(input.name !== undefined ? { name: input.name } : {}),
-        ...(input.description !== undefined
-          ? { description: input.description }
-          : {}),
-        ...(input.icon !== undefined ? { icon: input.icon } : {}),
-        ...(input.sources !== undefined ? { source_roots: input.sources } : {}),
-      });
-      return await getProject(projectId);
-    },
+    updateProject: (projectId, input) =>
+      runSerializedProjectUpdate(projectId, async () => {
+        const current = await getProject(projectId);
+        if (!current) return null;
+        await apply({
+          kind: "update_project",
+          project_id: projectId,
+          expected_binding_revision:
+            input.expectedBindingRevision ?? current.bindingRevision,
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.description !== undefined
+            ? { description: input.description }
+            : {}),
+          ...(input.appearance !== undefined
+            ? { appearance: input.appearance }
+            : {}),
+          ...(input.sources !== undefined ? { source_roots: input.sources } : {}),
+        });
+        return await getProject(projectId);
+      }),
     reorderProjects: async (input) => {
       await apply({
         kind: "reorder_projects",

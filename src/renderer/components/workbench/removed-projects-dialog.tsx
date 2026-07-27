@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FolderClosed, LoaderCircle } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import { useRemovedProjects } from "@/lib/use-projects";
 import type { Project } from "@/lib/types";
 import { NodexButton } from "@/components/ui/button";
@@ -13,12 +13,13 @@ import {
   NodexDialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
+import { ProjectMarker } from "./project-marker";
 
 function ProjectIdentity({ project }: { project: Project }) {
   return (
     <div className="flex min-w-0 items-center gap-3">
       <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-token-foreground/6 text-sm">
-        {project.icon?.trim() || <FolderClosed className="size-4 text-token-description-foreground" />}
+        <ProjectMarker appearance={project.appearance} />
       </span>
       <span className="min-w-0">
         <span className="block truncate text-sm font-medium text-token-foreground">

@@ -32,7 +32,10 @@ const project: Project = {
   bindingRevision: 1,
   name: "Large content performance",
   description: "",
-  icon: "",
+  appearance: {
+    color: "black",
+    marker: { kind: "icon", icon: "folder" },
+  },
   sources: [{ root: workspaceRoot, order: 0 }],
   primaryWorkspaceRoot: workspaceRoot,
   pinned: false,

@@ -2170,6 +2170,7 @@ describe("ThreadComposer speed menu", () => {
             {
               id: "project_1",
               label: "Nodex",
+              appearance: { color: "green", marker: { kind: "icon", icon: "plant" } },
               description: "/tmp/project",
               primaryWorkspaceRoot: "/tmp/project",
               searchText: "project_1 nodex /tmp/project",
@@ -2177,6 +2178,7 @@ describe("ThreadComposer speed menu", () => {
             {
               id: "project_2",
               label: "Devtools Codex",
+              appearance: { color: "blue", marker: { kind: "icon", icon: "function" } },
               description: "/tmp/devtools-codex",
               primaryWorkspaceRoot: "/tmp/devtools-codex",
               searchText: "project_2 devtools codex /tmp/devtools-codex",

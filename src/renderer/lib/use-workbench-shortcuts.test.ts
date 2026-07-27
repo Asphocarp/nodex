@@ -50,7 +50,7 @@ function makeTerminalTarget(): EventTarget {
 
 function makeActions(overrides: Partial<WorkbenchShortcutActions> = {}): WorkbenchShortcutActions {
   return {
-    projectRefs: [{ projectId: "a" }, { projectId: "b" }, { projectId: "c" }],
+    projectOrder: ["a", "b", "c"],
     dbProjectId: "a",
     focusedStage: "db",
     focusAdjacentStage: () => {},

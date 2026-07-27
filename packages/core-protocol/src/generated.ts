@@ -791,6 +791,7 @@ export interface components {
         readonly CollectionWindow_ProjectWorkspaceProject: {
             readonly authority: components["schemas"]["CollectionWindowAuthority"];
             readonly items: readonly {
+                readonly appearance: components["schemas"]["ProjectAppearance"];
                 /** Format: int64 */
                 readonly binding_revision: number;
                 readonly created_at: string;
@@ -802,7 +803,6 @@ export interface components {
                  */
                 readonly default_database_view_id?: string | null;
                 readonly description: string;
-                readonly icon?: string | null;
                 readonly id: string;
                 readonly library_id: string;
                 readonly lifecycle: components["schemas"]["ProjectLifecycle"];
@@ -3389,18 +3389,18 @@ export interface components {
             /** Format: int32 */
             readonly contract_version: number;
             readonly intent: {
+                readonly appearance?: null | components["schemas"]["ProjectAppearance"];
                 readonly description: string;
-                readonly icon?: string | null;
                 /** @enum {string} */
                 readonly kind: "create_project";
                 readonly name: string;
                 readonly project_id: string;
                 readonly source_roots: readonly string[];
             } | {
+                readonly appearance?: null | components["schemas"]["ProjectAppearance"];
                 readonly description?: string | null;
                 /** Format: int64 */
                 readonly expected_binding_revision: number;
-                readonly icon?: string | null;
                 /** @enum {string} */
                 readonly kind: "update_project";
                 readonly name?: string | null;
@@ -4004,6 +4004,10 @@ export interface components {
                 readonly project_id: string;
             } | {
                 /** @enum {string} */
+                readonly kind: "project_activity_summaries";
+                readonly project_ids: readonly string[];
+            } | {
+                /** @enum {string} */
                 readonly kind: "project_permission_mode";
                 readonly project_id: string;
             } | {
@@ -4159,6 +4163,10 @@ export interface components {
             /** Format: int32 */
             readonly offsetMinutes: number;
         };
+        readonly ProjectAppearance: {
+            readonly color: components["schemas"]["ProjectMarkerColor"];
+            readonly marker: components["schemas"]["ProjectMarker"];
+        };
         /** @enum {string} */
         readonly ProjectCatalogChangeKind: "created" | "metadata_updated" | "sources_updated" | "lifecycle_updated" | "reordered" | "pin_updated";
         readonly ProjectedIdentityV1: {
@@ -4229,6 +4237,19 @@ export interface components {
         };
         /** @enum {string} */
         readonly ProjectLifecycle: "active" | "inactive" | "archived";
+        readonly ProjectMarker: {
+            readonly icon: components["schemas"]["ProjectMarkerIcon"];
+            /** @enum {string} */
+            readonly kind: "icon";
+        } | {
+            readonly emoji: string;
+            /** @enum {string} */
+            readonly kind: "emoji";
+        };
+        /** @enum {string} */
+        readonly ProjectMarkerColor: "black" | "red" | "orange" | "yellow" | "green" | "blue" | "purple" | "pink";
+        /** @enum {string} */
+        readonly ProjectMarkerIcon: "folder" | "currency-dollar" | "book" | "graduation-cap" | "edit" | "writing" | "function" | "terminal" | "music" | "popcorn" | "customize" | "palette" | "stethoscope" | "health" | "lotus" | "suitcase" | "bar-chart" | "kettlebell" | "dumbbell" | "logs" | "scale" | "desk-globe" | "plane" | "globe" | "wrench" | "paw" | "flask" | "brain" | "heart" | "plant";
         readonly ProjectSessionIntent: {
             /** @enum {string} */
             readonly kind: "rename";
@@ -4320,6 +4341,7 @@ export interface components {
             readonly thread: components["schemas"]["ProjectWorkspaceThread"];
         };
         readonly ProjectWorkspaceProject: {
+            readonly appearance: components["schemas"]["ProjectAppearance"];
             /** Format: int64 */
             readonly binding_revision: number;
             readonly created_at: string;
@@ -4331,7 +4353,6 @@ export interface components {
              */
             readonly default_database_view_id?: string | null;
             readonly description: string;
-            readonly icon?: string | null;
             readonly id: string;
             readonly library_id: string;
             readonly lifecycle: components["schemas"]["ProjectLifecycle"];
@@ -4342,6 +4363,17 @@ export interface components {
             readonly primary_workspace_root?: string | null;
             readonly sources: readonly components["schemas"]["ProjectSource"][];
             readonly updated_at: string;
+        };
+        readonly ProjectWorkspaceProjectActivitySummary: {
+            /** Format: int32 */
+            readonly active_count: number;
+            readonly project_id: string;
+            /** Format: int32 */
+            readonly task_count: number;
+            /** Format: int32 */
+            readonly unread_count: number;
+            /** Format: int32 */
+            readonly waiting_count: number;
         };
         readonly ProjectWorkspaceReadRequest: components["schemas"]["ModuleReadRequest_ProjectWorkspaceRead"];
         readonly ProjectWorkspaceReadResponse: components["schemas"]["ResponseEnvelope_ModuleReadSnapshot_ProjectWorkspaceReadValue"];
@@ -5057,6 +5089,12 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "project";
                     readonly project: components["schemas"]["ProjectWorkspaceProject"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "project_activity_summaries";
+                    /** Format: int64 */
+                    readonly projection_revision: number;
+                    readonly summaries: readonly components["schemas"]["ProjectWorkspaceProjectActivitySummary"][];
                 } | {
                     /** @enum {string} */
                     readonly kind: "project_permission_mode";

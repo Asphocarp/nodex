@@ -1,4 +1,5 @@
 import type { BoardSummary, Project } from "@/lib/types";
+import type { ProjectAppearance } from "../../../../shared/project-appearance";
 import { normalizeSearchText } from "@/lib/search-text";
 import {
   createNfmMoveToSearchIndex,
@@ -26,7 +27,7 @@ export interface NfmMoveToDbRow {
   id: string;
   projectId: string;
   projectName: string;
-  projectIcon?: string;
+  projectAppearance: ProjectAppearance;
   expanded: boolean;
 }
 
@@ -35,7 +36,7 @@ export interface NfmMoveToDbColumnRow {
   id: string;
   projectId: string;
   projectName: string;
-  projectIcon?: string;
+  projectAppearance: ProjectAppearance;
   columnId: string;
   columnName: string;
   depth: 1;
@@ -47,7 +48,7 @@ export interface NfmMoveToPageRow {
   id: string;
   projectId: string;
   projectName: string;
-  projectIcon?: string;
+  projectAppearance: ProjectAppearance;
   columnId: string;
   columnName: string;
   pageId: string;
@@ -84,7 +85,7 @@ function createDbRow(project: Project, expanded: boolean): NfmMoveToDbRow {
     id: `db:${project.id}`,
     projectId: project.id,
     projectName: project.name || "Untitled",
-    projectIcon: project.icon,
+    projectAppearance: project.appearance,
     expanded,
   };
 }
@@ -95,7 +96,7 @@ function createPageRowFromSearchHit(hit: NfmMoveToPageSearchHit): NfmMoveToPageR
     id: hit.id,
     projectId: hit.projectId,
     projectName: hit.projectName,
-    projectIcon: hit.projectIcon,
+    projectAppearance: hit.projectAppearance,
     columnId: hit.columnId,
     columnName: hit.columnName,
     pageId: hit.pageId,
@@ -183,7 +184,7 @@ export function buildNfmMoveToSections({
           id: `db-column:${project.id}:${column.id}`,
           projectId: project.id,
           projectName,
-          projectIcon: project.icon,
+          projectAppearance: project.appearance,
           columnId: column.id,
           columnName: column.name,
           depth: 1,
@@ -207,7 +208,7 @@ export function buildNfmMoveToSections({
           id: `page:${project.id}:${page.id}`,
           projectId: project.id,
           projectName,
-          projectIcon: project.icon,
+          projectAppearance: project.appearance,
           columnId: column.id,
           columnName: column.name,
           pageId: page.id,

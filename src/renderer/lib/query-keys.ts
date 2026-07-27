@@ -110,6 +110,14 @@ export const queryKeys = {
     summaries: (projectId: string | null) => ["projectSessions", "summaries", normalizeNullable(projectId)] as const,
     detail: (sessionId: string) => ["projectSessions", "detail", sessionId] as const,
   },
+  projectActivity: {
+    all: () => ["projectActivity"] as const,
+    summaries: (projectIds: readonly string[]) => [
+      "projectActivity",
+      "summaries",
+      ...[...projectIds].sort(),
+    ] as const,
+  },
   settings: {
     all: () => ["settings"] as const,
     windowRestore: () => ["settings", "windowRestore"] as const,
@@ -120,6 +128,10 @@ export const queryKeys = {
   git: {
     all: () => ["git"] as const,
     branchState: (cwd: string) => ["git", "branchState", cwd] as const,
+    repositoryIdentity: (cwd: string) => ["git", "repositoryIdentity", cwd] as const,
+  },
+  shell: {
+    pathContext: () => ["shell", "pathContext"] as const,
   },
   localEnvironments: {
     all: () => ["localEnvironments"] as const,

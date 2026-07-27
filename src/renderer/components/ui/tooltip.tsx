@@ -10,42 +10,34 @@ import {
 } from "react";
 import { APP_SHELL_FLOATING_UI_LAYER_CLASS } from "@/lib/app-shell-layers";
 import { cn } from "@/lib/utils";
-
-const CODEX_TOOLTIP_DISMISS_EVENT = "codex:dismiss-tooltips";
+import {
+  dismissNodexFloatingSurfaces,
+  makeNodexFloatingSurfaceBoundaryStyle,
+  NODEX_FLOATING_SURFACE_DISMISS_EVENT,
+  nodexFloatingSurfaceBoundaryStyle,
+  nodexFloatingSurfaceClassName,
+  NodexFloatingSurfaceBody,
+  useNodexFloatingSurfaceGlobalDismissal,
+} from "./floating-surface";
 
 export function dismissNodexTooltips() {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(new Event(CODEX_TOOLTIP_DISMISS_EVENT));
-}
-
-function dismissNodexTooltipsOnHiddenDocument() {
-  if (typeof document === "undefined") return;
-  if (document.visibilityState !== "hidden") return;
-  dismissNodexTooltips();
+  dismissNodexFloatingSurfaces();
 }
 
 export type NodexTooltipProviderProps = ComponentPropsWithoutRef<typeof RadixTooltip.Provider>;
 
 export function NodexTooltipProvider({
+  children,
   delayDuration = 0,
   ...props
 }: NodexTooltipProviderProps) {
-  useEffect(() => {
-    if (typeof window === "undefined") return undefined;
-    if (typeof document === "undefined") return undefined;
+  useNodexFloatingSurfaceGlobalDismissal();
 
-    window.addEventListener("blur", dismissNodexTooltips);
-    window.addEventListener("pagehide", dismissNodexTooltips);
-    document.addEventListener("visibilitychange", dismissNodexTooltipsOnHiddenDocument);
-
-    return () => {
-      window.removeEventListener("blur", dismissNodexTooltips);
-      window.removeEventListener("pagehide", dismissNodexTooltips);
-      document.removeEventListener("visibilitychange", dismissNodexTooltipsOnHiddenDocument);
-    };
-  }, []);
-
-  return <RadixTooltip.Provider delayDuration={delayDuration} {...props} />;
+  return (
+    <RadixTooltip.Provider delayDuration={delayDuration} {...props}>
+      {children}
+    </RadixTooltip.Provider>
+  );
 }
 
 export interface NodexTooltipProps
@@ -61,7 +53,7 @@ export interface NodexTooltipProps
   triggerAsChild?: boolean;
   triggerRef?: RefObject<HTMLElement | null>;
   delayOpen?: boolean;
-  interactive?: boolean;
+  hoverable?: boolean;
   surface?: "default" | "rich";
   tooltipClassName?: string;
   tooltipBodyClassName?: string;
@@ -75,7 +67,7 @@ export function NodexTooltip({
   triggerAsChild = true,
   triggerRef,
   delayOpen,
-  interactive = false,
+  hoverable = false,
   open,
   defaultOpen,
   onOpenChange,
@@ -105,9 +97,15 @@ export function NodexTooltip({
       }
     };
 
-    window.addEventListener(CODEX_TOOLTIP_DISMISS_EVENT, handleDismiss);
+    window.addEventListener(
+      NODEX_FLOATING_SURFACE_DISMISS_EVENT,
+      handleDismiss,
+    );
     return () => {
-      window.removeEventListener(CODEX_TOOLTIP_DISMISS_EVENT, handleDismiss);
+      window.removeEventListener(
+        NODEX_FLOATING_SURFACE_DISMISS_EVENT,
+        handleDismiss,
+      );
     };
   }, [isControlled, onOpenChange, open, uncontrolledOpen]);
 
@@ -126,7 +124,7 @@ export function NodexTooltip({
         onOpenChange?.(nextOpen);
       }}
       delayDuration={resolvedDelay}
-      disableHoverableContent={!interactive}
+      disableHoverableContent={!hoverable}
     >
       <RadixTooltip.Trigger
         asChild={triggerAsChild}
@@ -145,22 +143,45 @@ export function NodexTooltip({
           collisionPadding={8}
           className={cn(
             richSurface
-              ? "m-px flex w-fit select-none flex-col rounded-xl bg-token-dropdown-background/90 text-sm text-token-foreground shadow-xl-spread ring-[0.5px] ring-token-border backdrop-blur-sm whitespace-normal break-words"
+              ? nodexFloatingSurfaceClassName
               : "bg-token-dropdown-background text-token-foreground border-token-border w-fit select-none rounded-lg border px-2 py-1 text-sm whitespace-normal break-words",
-            APP_SHELL_FLOATING_UI_LAYER_CLASS,
+            !richSurface && APP_SHELL_FLOATING_UI_LAYER_CLASS,
             tooltipClassName,
           )}
           style={{
-            maxWidth: "min(20rem, var(--radix-tooltip-content-available-width), calc(100vw - 16px))",
-            maxHeight: "min(var(--radix-tooltip-content-available-height), calc(100vh - 16px))",
+            ...(richSurface
+              ? {
+                  ...nodexFloatingSurfaceBoundaryStyle,
+                  ...makeNodexFloatingSurfaceBoundaryStyle(
+                    "var(--radix-tooltip-content-available-width)",
+                    "var(--radix-tooltip-content-available-height)",
+                  ),
+                }
+              : {
+                  maxWidth:
+                    "min(20rem, var(--radix-tooltip-content-available-width), calc(100vw - 16px))",
+                  maxHeight:
+                    "min(var(--radix-tooltip-content-available-height), calc(100vh - 16px))",
+                }),
             ...style,
           }}
           {...props}
         >
-          <div className={cn("flex items-center gap-2", richSurface && "min-h-0 flex-1")}>
-            <div className={cn(richSurface ? "min-h-0 min-w-0 flex w-full" : "min-w-0", tooltipBodyClassName)}>{tooltipContent}</div>
-            {shortcut ? <span>{shortcut}</span> : null}
-          </div>
+          {richSurface ? (
+            <NodexFloatingSurfaceBody
+              className={tooltipBodyClassName}
+              shortcut={shortcut}
+            >
+              {tooltipContent}
+            </NodexFloatingSurfaceBody>
+          ) : (
+            <div className="flex items-center gap-2">
+              <div className={cn("min-w-0", tooltipBodyClassName)}>
+                {tooltipContent}
+              </div>
+              {shortcut ? <span>{shortcut}</span> : null}
+            </div>
+          )}
         </RadixTooltip.Content>
       </RadixTooltip.Portal>
     </RadixTooltip.Root>

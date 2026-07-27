@@ -4,6 +4,7 @@ use nodex_core_contracts::workspace::{
 };
 use rusqlite::{Connection, OptionalExtension, params};
 
+use crate::domain::project_appearance::project_appearance_from_storage;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::execution;
@@ -19,7 +20,9 @@ pub(super) struct ProjectRow {
     pub(super) binding_revision: i64,
     pub(super) name: String,
     pub(super) description: String,
-    pub(super) icon: String,
+    pub(super) appearance_color: String,
+    pub(super) appearance_marker_kind: String,
+    pub(super) appearance_marker_value: String,
     pub(super) pinned_order: Option<i64>,
     pub(super) created_at: String,
     pub(super) updated_at: String,
@@ -68,6 +71,16 @@ pub(super) fn read(
             Ok(ProjectWorkspaceReadValue::Project {
                 project: read_project(connection, library_id, &project_id)?
                     .ok_or_else(|| not_found("Project is unavailable in this Library"))?,
+            })
+        }
+        ProjectWorkspaceRead::ProjectActivitySummaries { project_ids } => {
+            Ok(ProjectWorkspaceReadValue::ProjectActivitySummaries {
+                summaries: super::project_activity_summary::read_project_activity_summaries(
+                    connection,
+                    library_id,
+                    &project_ids,
+                )?,
+                projection_revision: event_head,
             })
         }
         ProjectWorkspaceRead::ProjectPermissionMode { project_id } => {
@@ -210,7 +223,8 @@ pub(super) fn read_project(
         .query_row(
             "SELECT project.id, project.library_id, project.database_block_id, \
                project.lifecycle, project.binding_revision, project.name, project.description, \
-               project.icon, pinned.\"order\", project.created, project.updated, \
+               project.appearance_color, project.appearance_marker_kind, \
+               project.appearance_marker_value, pinned.\"order\", project.created, project.updated, \
                default_view.id \
              FROM projects project \
              LEFT JOIN pinned_project_order pinned ON pinned.project_id = project.id \
@@ -237,11 +251,13 @@ pub(super) fn project_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectRo
         binding_revision: row.get(4)?,
         name: row.get(5)?,
         description: row.get(6)?,
-        icon: row.get(7)?,
-        pinned_order: row.get(8)?,
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
-        default_database_view_id: row.get(11)?,
+        appearance_color: row.get(7)?,
+        appearance_marker_kind: row.get(8)?,
+        appearance_marker_value: row.get(9)?,
+        pinned_order: row.get(10)?,
+        created_at: row.get(11)?,
+        updated_at: row.get(12)?,
+        default_database_view_id: row.get(13)?,
     })
 }
 
@@ -258,6 +274,12 @@ pub(super) fn project(
         "archived" => ProjectLifecycle::Archived,
         _ => return Err(corrupt("Project lifecycle is invalid")),
     };
+    let appearance = project_appearance_from_storage(
+        &row.appearance_color,
+        &row.appearance_marker_kind,
+        &row.appearance_marker_value,
+    )
+    .map_err(corrupt)?;
     let sources = connection
         .prepare(
             "SELECT root, \"order\" FROM project_sources \
@@ -279,7 +301,7 @@ pub(super) fn project(
         binding_revision: row.binding_revision,
         name: row.name,
         description: row.description,
-        icon: (!row.icon.trim().is_empty()).then_some(row.icon),
+        appearance,
         primary_workspace_root: sources.first().map(|source| source.root.clone()),
         sources,
         pinned: row.pinned_order.is_some(),
@@ -407,7 +429,9 @@ fn corrupt(message: &str) -> StoreError {
 #[cfg(test)]
 mod tests {
     use nodex_core_contracts::collection::CollectionWindowRequest;
-    use nodex_core_contracts::workspace::{ProjectWorkspaceRead, ProjectWorkspaceReadValue};
+    use nodex_core_contracts::workspace::{
+        ProjectMarker, ProjectMarkerColor, ProjectWorkspaceRead, ProjectWorkspaceReadValue,
+    };
     use nodex_core_contracts::{
         AdapterKind, BoundModuleContext, CoreErrorCode, LibraryId, ModuleReadRequest,
         PROJECT_WORKSPACE_CONTRACT_VERSION, ProfileId, ProjectId,
@@ -465,16 +489,17 @@ mod tests {
                     transaction.execute_batch(
                         "INSERT INTO projects( \
                            id, library_id, database_block_id, lifecycle, binding_revision, \
-                           name, description, icon, created, updated \
+                           name, description, appearance_color, appearance_marker_kind, \
+                           appearance_marker_value, created, updated \
                          ) VALUES \
                            ('project-1', 'library-1', 'database-1', 'active', 3, \
-                            'Workspace', 'Primary project', '🚀', \
+                            'Workspace', 'Primary project', 'black', 'emoji', '🚀', \
                             '2026-07-19T03:30:00.000Z', '2026-07-19T03:31:00.000Z'), \
                            ('project-2', 'library-1', 'database-2', 'archived', 2, \
-                            'Archived', '', '', \
+                            'Archived', '', 'black', 'icon', 'folder', \
                             '2026-07-19T03:32:00.000Z', '2026-07-19T03:32:00.000Z'), \
                            ('project-foreign', 'library-foreign', 'database-foreign', 'active', 1, \
-                            'Foreign', '', '', \
+                            'Foreign', '', 'black', 'icon', 'folder', \
                             '2026-07-19T03:33:00.000Z', '2026-07-19T03:33:00.000Z'); \
                          INSERT INTO project_order(project_id, \"order\", updated) VALUES \
                            ('project-1', 0, '2026-07-19T03:31:00.000Z'), \
@@ -615,7 +640,13 @@ mod tests {
             Some("view-1")
         );
         assert_eq!(projects[0].binding_revision, 3);
-        assert_eq!(projects[0].icon.as_deref(), Some("🚀"));
+        assert_eq!(projects[0].appearance.color, ProjectMarkerColor::Black);
+        assert_eq!(
+            projects[0].appearance.marker,
+            ProjectMarker::Emoji {
+                emoji: "🚀".to_owned(),
+            }
+        );
         assert_eq!(
             projects[0].primary_workspace_root.as_deref(),
             Some("/workspace/one")

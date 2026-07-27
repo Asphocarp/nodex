@@ -147,7 +147,7 @@ function WorkbenchApp({
   const {
     dbProjectId,
     threadsProjectId,
-    projectRefs,
+    projectOrder,
     activeView,
     activeSearchQuery,
     activeDbViewPrefs,
@@ -707,10 +707,10 @@ function WorkbenchApp({
   }, [recordNavigation, resolveProjectView, setDbProjectState]);
 
   const navigateToProjectIndex = useCallback((index: number) => {
-    const projectId = projectRefs[index]?.projectId;
+    const projectId = projectOrder[index];
     if (!projectId) return;
     navigateToProject(projectId);
-  }, [navigateToProject, projectRefs]);
+  }, [navigateToProject, projectOrder]);
 
   const navigateToDbView = useCallback((projectId: string, view: WorkbenchView) => {
     const nextSnapshot: NavigationSnapshot = {
@@ -1166,7 +1166,7 @@ function WorkbenchApp({
   const commandKeymapQuery = useCommandKeymapState();
 
   useWorkbenchShortcuts({
-    projectRefs,
+    projectOrder,
     dbProjectId: resolvedDbProjectId,
     focusedStage,
     focusAdjacentStage: handleShortcutFocusAdjacentStage,
@@ -1248,7 +1248,6 @@ function WorkbenchApp({
       activeDbViewPrefs={activeDbViewPrefs}
       searchByProject={searchByProject}
       dbViewPrefsByProject={dbViewPrefsByProject}
-      projectRefs={projectRefs}
       recentPageSessions={recentPageSessions}
       activeRecentSessionId={activeRecentSessionId}
       sidebar={sidebar}

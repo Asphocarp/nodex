@@ -43,12 +43,13 @@ function buildModel(input: {
   selectedProjectId: string | null;
   state: "default" | "empty" | "disabled";
 }): NewChatProjectSelectorModel {
-  const projects = input.state === "empty"
+  const projects: NewChatProjectSelectorModel["projects"] = input.state === "empty"
     ? []
     : [
         {
           id: "nodex",
           label: "nodex",
+          appearance: { color: "green", marker: { kind: "icon", icon: "plant" } },
           description: "/Users/asc/repo/nodex",
           primaryWorkspaceRoot: "/Users/asc/repo/nodex",
           searchText: "nodex /users/asc/repo/nodex",
@@ -56,6 +57,7 @@ function buildModel(input: {
         {
           id: "devtools-codex",
           label: "devtools-codex",
+          appearance: { color: "blue", marker: { kind: "icon", icon: "function" } },
           description: "/Users/asc/repo/devtools-codex",
           primaryWorkspaceRoot: "/Users/asc/repo/devtools-codex",
           searchText: "devtools-codex /users/asc/repo/devtools-codex",
@@ -63,6 +65,7 @@ function buildModel(input: {
         {
           id: "get-job",
           label: "get-job",
+          appearance: { color: "orange", marker: { kind: "icon", icon: "suitcase" } },
           description: "/Users/asc/repo/get-job",
           primaryWorkspaceRoot: "/Users/asc/repo/get-job",
           searchText: "get-job /users/asc/repo/get-job",
@@ -70,6 +73,7 @@ function buildModel(input: {
         {
           id: "videos",
           label: "videos",
+          appearance: { color: "pink", marker: { kind: "icon", icon: "popcorn" } },
           description: "/Users/asc/repo/videos",
           primaryWorkspaceRoot: "/Users/asc/repo/videos",
           searchText: "videos /users/asc/repo/videos",
@@ -77,6 +81,7 @@ function buildModel(input: {
         {
           id: "c-kindavim",
           label: "c-kindavim",
+          appearance: { color: "purple", marker: { kind: "emoji", emoji: "⌨️" } },
           description: "/Users/asc/repo/c-kindavim",
           primaryWorkspaceRoot: "/Users/asc/repo/c-kindavim",
           searchText: "c-kindavim /users/asc/repo/c-kindavim",

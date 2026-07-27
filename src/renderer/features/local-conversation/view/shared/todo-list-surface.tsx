@@ -209,7 +209,7 @@ export function TodoListCompactPillContent({
   return (
     <NodexTooltip
       delayDuration={0}
-      interactive
+      hoverable
       surface="rich"
       side="top"
       sideOffset={8}

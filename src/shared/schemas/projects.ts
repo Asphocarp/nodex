@@ -1,12 +1,32 @@
 import { z } from "zod";
 import type {
   Project,
+  ProjectCreateInput,
   ProjectLifecycleInput,
   ProjectLifecycleMutationResult,
   ProjectOrderInput,
   ProjectPinnedInput,
   ProjectPinnedOrderInput,
+  ProjectUpdateInput,
 } from "../types";
+import {
+  PROJECT_MARKER_COLORS,
+  PROJECT_MARKER_ICONS,
+} from "../project-appearance";
+
+export const ProjectAppearanceSchema = z.object({
+  color: z.enum(PROJECT_MARKER_COLORS),
+  marker: z.discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("icon"),
+      icon: z.enum(PROJECT_MARKER_ICONS),
+    }),
+    z.object({
+      kind: z.literal("emoji"),
+      emoji: z.string().min(1).max(256),
+    }),
+  ]),
+});
 
 const ProjectSchema = z.object({
   id: z.string(),
@@ -17,7 +37,7 @@ const ProjectSchema = z.object({
   bindingRevision: z.number(),
   name: z.string(),
   description: z.string(),
-  icon: z.string().optional(),
+  appearance: ProjectAppearanceSchema,
   sources: z.array(z.object({ root: z.string(), order: z.number() })),
   primaryWorkspaceRoot: z.string().nullable(),
   pinned: z.boolean(),
@@ -73,6 +93,21 @@ export function parseProjectLifecycleMutationResult(
 export const ProjectLifecycleInputSchema = z.object({
   lifecycle: z.enum(["active", "archived"]),
 }) satisfies z.ZodType<ProjectLifecycleInput>;
+
+export const ProjectUpdateInputSchema = z.object({
+  expectedBindingRevision: z.number().int().positive().safe().optional(),
+  name: z.string().optional(),
+  description: z.string().optional(),
+  appearance: ProjectAppearanceSchema.optional(),
+  sources: z.array(z.string()).optional(),
+}).strict() satisfies z.ZodType<ProjectUpdateInput>;
+
+export const ProjectCreateInputSchema = z.object({
+  name: z.string().optional(),
+  description: z.string().optional(),
+  appearance: ProjectAppearanceSchema.optional(),
+  sources: z.array(z.string()).optional(),
+}).strict() satisfies z.ZodType<ProjectCreateInput>;
 
 export const ProjectOrderInputSchema = z.object({
   orderedProjectIds: z.array(z.string()),

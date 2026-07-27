@@ -13,6 +13,7 @@ const PROJECT: Project = {
   bindingRevision: 1,
   name: "Alpha",
   description: "",
+  appearance: { color: "black", marker: { kind: "icon", icon: "folder" } },
   sources: [{ root: "/repo/alpha", order: 0 }],
   primaryWorkspaceRoot: "/repo/alpha",
   pinned: false,

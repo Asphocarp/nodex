@@ -19,7 +19,7 @@ const ACTIVE_PROJECT: Project = {
   bindingRevision: 2,
   name: "Nodex desktop",
   description: "",
-  icon: "N",
+  appearance: { color: "blue", marker: { kind: "icon", icon: "terminal" } },
   sources: [{ root: "/Users/asc/repo/nodex2", order: 0 }],
   primaryWorkspaceRoot: "/Users/asc/repo/nodex2",
   pinned: false,
@@ -36,7 +36,7 @@ const REMOVED_PROJECTS: Project[] = [
     lifecycle: "archived",
     bindingRevision: 7,
     name: "A removed project with a deliberately long name for truncation review",
-    icon: "",
+    appearance: { color: "orange", marker: { kind: "icon", icon: "book" } },
     primaryWorkspaceRoot: "/Users/asc/repo/archive/a/very/long/workspace/path/that/should/not/widen/the/dialog",
   },
 ];

@@ -4,7 +4,7 @@ use utoipa::ToSchema;
 use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 5;
+pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 6;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -15,6 +15,9 @@ pub enum ProjectWorkspaceRead {
     },
     Project {
         project_id: String,
+    },
+    ProjectActivitySummaries {
+        project_ids: Vec<String>,
     },
     ProjectPermissionMode {
         project_id: String,
@@ -66,6 +69,10 @@ pub enum ProjectWorkspaceReadValue {
     },
     Project {
         project: ProjectWorkspaceProject,
+    },
+    ProjectActivitySummaries {
+        summaries: Vec<ProjectWorkspaceProjectActivitySummary>,
+        projection_revision: i64,
     },
     ProjectPermissionMode {
         mode: Option<CodexPermissionMode>,
@@ -421,13 +428,94 @@ pub struct ProjectWorkspaceProject {
     pub binding_revision: i64,
     pub name: String,
     pub description: String,
-    pub icon: Option<String>,
+    pub appearance: ProjectAppearance,
     pub sources: Vec<ProjectSource>,
     pub primary_workspace_root: Option<String>,
     pub pinned: bool,
     pub pinned_order: Option<i64>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectMarkerColor {
+    Black,
+    Red,
+    Orange,
+    Yellow,
+    Green,
+    Blue,
+    Purple,
+    Pink,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProjectMarkerIcon {
+    Folder,
+    CurrencyDollar,
+    Book,
+    GraduationCap,
+    Edit,
+    Writing,
+    Function,
+    Terminal,
+    Music,
+    Popcorn,
+    Customize,
+    Palette,
+    Stethoscope,
+    Health,
+    Lotus,
+    Suitcase,
+    BarChart,
+    Kettlebell,
+    Dumbbell,
+    Logs,
+    Scale,
+    DeskGlobe,
+    Plane,
+    Globe,
+    Wrench,
+    Paw,
+    Flask,
+    Brain,
+    Heart,
+    Plant,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ProjectMarker {
+    Icon { icon: ProjectMarkerIcon },
+    Emoji { emoji: String },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectAppearance {
+    pub color: ProjectMarkerColor,
+    pub marker: ProjectMarker,
+}
+
+impl Default for ProjectAppearance {
+    fn default() -> Self {
+        Self {
+            color: ProjectMarkerColor::Black,
+            marker: ProjectMarker::Icon {
+                icon: ProjectMarkerIcon::Folder,
+            },
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceProjectActivitySummary {
+    pub project_id: String,
+    pub task_count: u32,
+    pub waiting_count: u32,
+    pub unread_count: u32,
+    pub active_count: u32,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -531,7 +619,7 @@ pub enum ProjectWorkspaceIntent {
         project_id: String,
         name: String,
         description: String,
-        icon: Option<String>,
+        appearance: Option<ProjectAppearance>,
         source_roots: Vec<String>,
     },
     UpdateProject {
@@ -539,7 +627,7 @@ pub enum ProjectWorkspaceIntent {
         expected_binding_revision: i64,
         name: Option<String>,
         description: Option<String>,
-        icon: Option<String>,
+        appearance: Option<ProjectAppearance>,
         source_roots: Option<Vec<String>>,
     },
     SetProjectLifecycle {
@@ -772,8 +860,44 @@ mod tests {
     use serde_json::json;
 
     use super::{
+        ProjectAppearance, ProjectMarker, ProjectMarkerColor, ProjectMarkerIcon,
         ProjectWorkspaceIntent, ProjectWorkspaceThreadLane, ProjectWorkspaceThreadPlacement,
     };
+
+    #[test]
+    fn project_appearance_has_a_closed_tagged_wire_contract() {
+        let value = serde_json::to_value(ProjectAppearance {
+            color: ProjectMarkerColor::Purple,
+            marker: ProjectMarker::Icon {
+                icon: ProjectMarkerIcon::CurrencyDollar,
+            },
+        })
+        .expect("Project appearance");
+        assert_eq!(
+            value,
+            json!({
+                "color": "purple",
+                "marker": {
+                    "kind": "icon",
+                    "icon": "currency-dollar"
+                }
+            })
+        );
+        assert!(
+            serde_json::from_value::<ProjectAppearance>(json!({
+                "color": "chartreuse",
+                "marker": { "kind": "icon", "icon": "folder" }
+            }))
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<ProjectAppearance>(json!({
+                "color": "black",
+                "marker": { "kind": "icon", "icon": "unknown" }
+            }))
+            .is_err()
+        );
+    }
 
     #[test]
     fn thread_patch_distinguishes_absence_from_an_explicit_clear() {

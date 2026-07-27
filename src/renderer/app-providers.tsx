@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { NodexHoverCardProvider } from "./components/ui/hover-card";
 import { NodexTooltipProvider } from "./components/ui/tooltip";
 import { CodeFontSizeProvider } from "./lib/use-code-font-size";
 import { FileLinkOpenerProvider } from "./lib/use-file-link-opener";
@@ -112,9 +113,11 @@ export function AppProviders({ children }: AppProvidersProps) {
               <FileLinkOpenerProvider>
                 <CodexServiceTierSettingsProvider>
                   <CodexThreadSettingsProvider>
-                    <NodexTooltipProvider>
-                      {children}
-                    </NodexTooltipProvider>
+                    <NodexHoverCardProvider>
+                      <NodexTooltipProvider>
+                        {children}
+                      </NodexTooltipProvider>
+                    </NodexHoverCardProvider>
                   </CodexThreadSettingsProvider>
                 </CodexServiceTierSettingsProvider>
               </FileLinkOpenerProvider>

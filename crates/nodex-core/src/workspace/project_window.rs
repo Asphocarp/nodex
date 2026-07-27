@@ -73,7 +73,8 @@ pub(super) fn read_project_window(
     let sql = format!(
         "SELECT project.id, project.library_id, project.database_block_id, \
            project.lifecycle, project.binding_revision, project.name, project.description, \
-           project.icon, pinned.\"order\", project.created, project.updated, \
+           project.appearance_color, project.appearance_marker_kind, \
+           project.appearance_marker_value, pinned.\"order\", project.created, project.updated, \
            default_view.id, \
            COALESCE(ordering.\"order\", 9223372036854775807) AS order_key \
          FROM projects project \
@@ -91,7 +92,7 @@ pub(super) fn read_project_window(
     let rows = connection
         .prepare(&sql)?
         .query_map(params_from_iter(parameters.iter()), |row| {
-            Ok((project_row(row)?, row.get::<_, i64>(12)?))
+            Ok((project_row(row)?, row.get::<_, i64>(14)?))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let candidates = rows

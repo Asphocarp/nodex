@@ -234,6 +234,7 @@ import {
   setProjectSessionSummaries,
 } from "@/lib/project-session-query-cache";
 import {
+  projectActivitySummariesQueryOptions,
   projectSessionDetailQueryOptions,
   projectSessionSummariesQueryOptions,
 } from "@/lib/query-options";
@@ -365,7 +366,6 @@ import {
 } from "@/lib/db-view-prefs";
 import {
   type RecentPageSession,
-  type ProjectRef,
   type WorkbenchView,
 } from "@/lib/use-workbench-state";
 import type { PageStageSessionSnapshot } from "@/components/kanban/page-stage/types";
@@ -946,7 +946,6 @@ interface WorkbenchShellProps {
   activeDbViewPrefs: DbViewPrefs | null;
   searchByProject: Record<string, string>;
   dbViewPrefsByProject: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
-  projectRefs?: ProjectRef[];
   sidebar?: {
     collapsed: boolean;
     width: number;
@@ -2395,7 +2394,6 @@ export function WorkbenchShell({
   activeDbViewPrefs,
   searchByProject,
   dbViewPrefsByProject,
-  projectRefs = [],
   recentPageSessions = [],
   sidebar,
   pageStageCloseRef,
@@ -2639,6 +2637,8 @@ export function WorkbenchShell({
   const [sidebarClickInFlight, setSidebarClickInFlight] = useState(false);
   const [floatingSidebarFocusActive, setFloatingSidebarFocusActive] =
     useDistinctState(false);
+  const [floatingSidebarHoverSurfaceActive, setFloatingSidebarHoverSurfaceActive] =
+    useDistinctState(false);
   const [sidebarDragWidth, setSidebarDragWidth] = useState<number | null>(null);
   const [shellNavigationHistory, setShellNavigationHistory] = useState(() => {
     const history = readWorkbenchShellNavigationHistoryState();
@@ -2659,6 +2659,7 @@ export function WorkbenchShell({
     sidebarCollapsed: false,
     sidebarAnimating: false,
     floatingSidebarFocusActive: false,
+    floatingSidebarHoverSurfaceActive: false,
     sidebarHoverSuppressed: false,
     sidebarTriggerHovered: false,
   });
@@ -8759,6 +8760,7 @@ export function WorkbenchShell({
       sidebarAnimating: inputs.sidebarAnimating,
       hoverSuppressed: false,
       focusOverride: inputs.floatingSidebarFocusActive,
+      hoverSurfaceActive: inputs.floatingSidebarHoverSurfaceActive,
       currentlyVisible,
     }));
   }, [getFloatingSidebarVisible, setFloatingSidebarVisible, setSidebarHoverSuppressed]);
@@ -8831,12 +8833,14 @@ export function WorkbenchShell({
       sidebarCollapsed: sidebarLogicalCollapsed,
       sidebarAnimating,
       floatingSidebarFocusActive,
+      floatingSidebarHoverSurfaceActive,
       sidebarHoverSuppressed,
       sidebarTriggerHovered,
     };
     recomputeFloatingSidebarVisibility(sidebarPointerRef.current.x);
   }, [
     floatingSidebarFocusActive,
+    floatingSidebarHoverSurfaceActive,
     recomputeFloatingSidebarVisibility,
     sidebarAnimating,
     sidebarLogicalCollapsed,
@@ -10113,7 +10117,6 @@ export function WorkbenchShell({
           {showInlineSidebar ? (
             <ProjectSessionSidebar
               libraryWorkspaceEnabled={libraryWorkspaceEnabled}
-              projectRefs={projectRefs}
               hasMoreProjects={hasMoreProjects}
               loadingMoreProjects={loadingMoreProjects}
               onLoadMoreProjects={onLoadMoreProjects}
@@ -10229,7 +10232,6 @@ export function WorkbenchShell({
                   libraryWorkspaceEnabled={libraryWorkspaceEnabled}
                   floating
                   header={floatingSidebarHeader}
-                  projectRefs={projectRefs}
                   hasMoreProjects={hasMoreProjects}
                   loadingMoreProjects={loadingMoreProjects}
                   onLoadMoreProjects={onLoadMoreProjects}
@@ -10253,6 +10255,7 @@ export function WorkbenchShell({
                   getWindowZoom={getWindowZoom}
                   onResizeWidth={applySidebarWidth}
                   onResizeActiveChange={setFloatingSidebarResizing}
+                  onHoverSurfaceOpenChange={setFloatingSidebarHoverSurfaceActive}
                   onTogglePinnedProjectsSectionCollapsed={togglePinnedProjectsSectionCollapsed}
                   onToggleLibrarySectionCollapsed={toggleLibrarySectionCollapsed}
                   onToggleProjectsSectionCollapsed={toggleProjectsSectionCollapsed}
@@ -11046,6 +11049,7 @@ function SidebarThreadOrganizerSections({
   taskWindowHasMoreByScope,
   onLoadMoreTaskWindow,
   model,
+  onHoverSurfaceOpenChange,
   onTogglePinnedThreadsSectionCollapsed,
   onToggleLibrarySectionCollapsed,
   onToggleProjectsSectionCollapsed,
@@ -11102,6 +11106,7 @@ function SidebarThreadOrganizerSections({
   taskWindowHasMoreByScope: Readonly<Record<string, boolean>>;
   onLoadMoreTaskWindow: (projectId: string | null) => Promise<void>;
   model: CodexSidebarThreadSyncModel;
+  onHoverSurfaceOpenChange?: (open: boolean) => void;
   onTogglePinnedThreadsSectionCollapsed: () => void;
   onToggleLibrarySectionCollapsed: () => void;
   onToggleProjectsSectionCollapsed: () => void;
@@ -11154,6 +11159,19 @@ function SidebarThreadOrganizerSections({
   const [expandedProjectThreadListIds, setExpandedProjectThreadListIds] = useState<Set<string>>(new Set());
   const [projectlessThreadListExpanded, setProjectlessThreadListExpanded] = useState(false);
   const [previouslyExpandedProjectGroupIds, setPreviouslyExpandedProjectGroupIds] = useState<string[]>([]);
+  const openHoverSurfaceKeysRef = useRef(new Set<string>());
+  const setSidebarHoverSurfaceOpen = useCallback((
+    key: string,
+    open: boolean,
+  ) => {
+    const openKeys = openHoverSurfaceKeysRef.current;
+    if (open) {
+      openKeys.add(key);
+    } else {
+      openKeys.delete(key);
+    }
+    onHoverSurfaceOpenChange?.(openKeys.size > 0);
+  }, [onHoverSurfaceOpenChange]);
   const pinnedDropTarget = useSidebarPinnedDropContainer();
   const sessionsById = useMemo(() => {
     const entries = [
@@ -11373,6 +11391,17 @@ function SidebarThreadOrganizerSections({
     () => projectGroups.map((group) => group.project.id),
     [projectGroups],
   );
+  const projectActivityQuery = useQuery(
+    projectActivitySummariesQueryOptions(projectOrderIds),
+  );
+  const projectActivityById = useMemo(
+    () => new Map(
+      (projectActivityQuery.data?.summaries ?? []).map(
+        (summary) => [summary.projectId, summary] as const,
+      ),
+    ),
+    [projectActivityQuery.data?.summaries],
+  );
   const pinnedProjectGroups = useMemo(
     () => projectGroups
       .filter((group) => group.project.pinned)
@@ -11556,6 +11585,9 @@ function SidebarThreadOrganizerSections({
           || Boolean(sessionId && activeSessionId === sessionId)}
         contextMenuOpen={Boolean(sessionId && contextMenuSessionId === sessionId)}
         hoverCardProjectLabel={hoverCardProjectLabel}
+        onHoverCardOpenChange={(open) => {
+          setSidebarHoverSurfaceOpen(`thread:${item.key}`, open);
+        }}
         onSelect={() => {
           void onSelectSidebarThread(item);
         }}
@@ -11589,6 +11621,7 @@ function SidebarThreadOrganizerSections({
     onToggleSidebarThreadPinned,
     projectLabelById,
     resolveSessionForItem,
+    setSidebarHoverSurfaceOpen,
     sidebarArchivePendingKeys,
     sidebarThreadItemsByKey,
   ]);
@@ -11676,6 +11709,11 @@ function SidebarThreadOrganizerSections({
                 <CodexProjectRow
                   key={project.id}
                   project={project}
+                  activity={projectActivityQuery.isPending
+                    ? undefined
+                    : projectActivityQuery.isError
+                      ? null
+                      : projectActivityById.get(project.id) ?? null}
                   active={activeSessionId === null && activeProjectId === project.id}
                   expanded={expanded}
                   groupDndController={groupDndController}
@@ -11693,6 +11731,9 @@ function SidebarThreadOrganizerSections({
                   onArchiveThreadItem={onArchiveThreadItem}
                   onMarkThreadItemRead={onMarkThreadItemRead}
                   onThreadsChanged={onThreadsChanged}
+                  onHoverCardOpenChange={(open) => {
+                    setSidebarHoverSurfaceOpen(`project:${project.id}`, open);
+                  }}
                 >
                   <SidebarProjectThreadRowsContent
                     project={project}
@@ -11911,6 +11952,7 @@ function ProjectSessionSidebar({
   getWindowZoom,
   onResizeWidth,
   onResizeActiveChange,
+  onHoverSurfaceOpenChange,
   onTogglePinnedProjectsSectionCollapsed,
   onToggleLibrarySectionCollapsed,
   onToggleProjectsSectionCollapsed,
@@ -11968,7 +12010,6 @@ function ProjectSessionSidebar({
   libraryWorkspaceEnabled: boolean;
   floating?: boolean;
   header?: ReactNode;
-  projectRefs: ProjectRef[];
   activeProjectId: string | null;
   activeSessionId: string | null;
   activePendingClientThreadId?: string | null;
@@ -11992,6 +12033,7 @@ function ProjectSessionSidebar({
   getWindowZoom?: () => number;
   onResizeWidth: (width: number, phase?: SidebarResizePhase, surface?: SidebarResizeSurface) => void;
   onResizeActiveChange?: (active: boolean) => void;
+  onHoverSurfaceOpenChange?: (open: boolean) => void;
   onTogglePinnedProjectsSectionCollapsed: () => void;
   onToggleLibrarySectionCollapsed: () => void;
   onToggleProjectsSectionCollapsed: () => void;
@@ -12069,6 +12111,9 @@ function ProjectSessionSidebar({
     setSidebarResizing(active);
     onResizeActiveChange?.(active);
   };
+  useEffect(() => () => {
+    onHoverSurfaceOpenChange?.(false);
+  }, [onHoverSurfaceOpenChange]);
   const handleProjectDrop = useCallback((drop: { projectId: string; targetContainerId: string }) => {
     if (drop.targetContainerId !== "pinned") return;
     void onSetProjectPinned(drop.projectId, { pinned: true }).catch(() => {
@@ -12348,6 +12393,7 @@ function ProjectSessionSidebar({
                   taskWindowHasMoreByScope={taskWindowHasMoreByScope}
                   onLoadMoreTaskWindow={onLoadMoreTaskWindow}
                   model={sidebarThreadModel}
+                  onHoverSurfaceOpenChange={onHoverSurfaceOpenChange}
                   onTogglePinnedThreadsSectionCollapsed={onTogglePinnedProjectsSectionCollapsed}
                   onToggleLibrarySectionCollapsed={onToggleLibrarySectionCollapsed}
                   onToggleProjectsSectionCollapsed={onToggleProjectsSectionCollapsed}

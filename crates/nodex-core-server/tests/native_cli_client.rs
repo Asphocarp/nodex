@@ -81,7 +81,7 @@ fn native_client_cold_starts_reuses_and_reads_the_authenticated_core() {
                     project_id: project_id.to_owned(),
                     name: "Native CLI".to_owned(),
                     description: String::new(),
-                    icon: None,
+                    appearance: None,
                     source_roots: vec![source.to_string_lossy().into_owned()],
                 },
             },

@@ -142,7 +142,7 @@ For empty queries, Page results skip MiniSearch and sort by:
 ### Primary line
 Each Page result renders:
 
-- project icon chip
+- canonical Project marker
 - Page title
 - project and column subtitle
 

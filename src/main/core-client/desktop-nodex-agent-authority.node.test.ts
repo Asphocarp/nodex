@@ -15,7 +15,10 @@ const project = {
   binding_revision: 1,
   name: "One",
   description: "First Project",
-  icon: "",
+  appearance: {
+    color: "black" as const,
+    marker: { kind: "icon" as const, icon: "folder" as const },
+  },
   sources: [{ root: "/workspace/one", order: 0 }],
   primary_workspace_root: "/workspace/one",
   pinned: false,

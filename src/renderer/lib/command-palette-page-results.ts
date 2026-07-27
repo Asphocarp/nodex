@@ -16,7 +16,6 @@ import {
 import {
   buildCommandPaletteQueryHighlightPreview,
 } from "./command-palette-highlight";
-import { normalizeProjectIcon } from "./project-icon";
 import type {
   BoardSummary,
   PageSearchResult,
@@ -123,14 +122,13 @@ export function buildCommandPalettePageItemsFromBoardSummaries({
     const board = boardMap.get(project.id);
     if (!board) return [];
 
-    const projectIcon = normalizeProjectIcon(project.icon);
     return board.columns.flatMap((column, columnIndex) => (
       column.cards.map((page, pageIndex) => ({
         kind: "page" as const,
         id: `${project.id}:${page.id}`,
         projectId: project.id,
         projectName: project.name,
-        projectIcon,
+        projectAppearance: project.appearance,
         columnName: column.name,
         page,
         inActiveProject: project.id === activeProjectId,

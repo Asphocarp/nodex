@@ -49,6 +49,7 @@ import {
 } from "../../lib/query-fresh-picker";
 import { cn } from "../../lib/utils";
 import { PageIcon } from "./page-icon";
+import { ProjectMarker } from "./project-marker";
 import { CommandMenuReferenceIcon } from "./command-menu-reference-icons";
 import {
   CommandPalettePageFilterPopover,
@@ -444,11 +445,11 @@ function PageRow({
   return (
     <div className={cn("flex w-full gap-2", hasPreview ? "items-start" : "items-center")}>
       <div className={cn(
-        "flex size-6 shrink-0 items-center justify-center rounded-lg bg-token-foreground/5 text-xs text-token-description-foreground",
+        "flex size-6 shrink-0 items-center justify-center rounded-lg bg-token-foreground/5",
         selected && "bg-token-foreground/10 text-token-foreground",
         hasPreview && "mt-0.5",
       )}>
-        {item.projectIcon || item.projectName.slice(0, 1).toUpperCase()}
+        <ProjectMarker appearance={item.projectAppearance} />
       </div>
       <div className="min-w-0 flex-1">
         <div className="truncate text-token-foreground">

@@ -1,9 +1,11 @@
 import { beforeAll, beforeEach, describe, expect, vi, test } from "vitest";
-import { act, fireEvent, waitFor } from "@testing-library/react";
+import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import type { Project } from "../../lib/types";
+import { NodexHoverCardProvider } from "@/components/ui/hover-card";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { NodexModalHost } from "@/lib/modal-registry";
 import { renderWithMaitai, textContent } from "../../test/dom";
+import { TestQueryProvider } from "../../test/query";
 
 let SidebarProjectsSection: typeof import("./left-sidebar-projects-section")["SidebarProjectsSection"];
 let CodexProjectRow: typeof import("./codex-sidebar")["CodexProjectRow"];
@@ -38,7 +40,7 @@ const PROJECTS: Project[] = [
     bindingRevision: 1,
     name: "Alpha",
     description: "",
-    icon: "A",
+    appearance: { color: "green", marker: { kind: "icon", icon: "plant" } },
     sources: [],
     primaryWorkspaceRoot: null,
     pinned: false,
@@ -55,7 +57,7 @@ const PROJECTS: Project[] = [
     bindingRevision: 1,
     name: "Beta",
     description: "",
-    icon: "B",
+    appearance: { color: "blue", marker: { kind: "icon", icon: "function" } },
     sources: [{ root: "/repo/beta", order: 0 }],
     primaryWorkspaceRoot: "/repo/beta",
     pinned: false,
@@ -83,10 +85,14 @@ beforeEach(() => {
 
 function renderProjectsSection(element: Parameters<typeof renderWithMaitai>[0]) {
   return renderWithMaitai(
-    <NodexTooltipProvider>
-      {element}
-      <NodexModalHost />
-    </NodexTooltipProvider>,
+    <TestQueryProvider>
+      <NodexHoverCardProvider>
+        <NodexTooltipProvider>
+          {element}
+          <NodexModalHost />
+        </NodexTooltipProvider>
+      </NodexHoverCardProvider>
+    </TestQueryProvider>,
   );
 }
 
@@ -117,14 +123,11 @@ function renderProjectRowWithSessions({
 }
 
 describe("SidebarProjectsSection", () => {
-  test("renders project rows in projectRef order with the Codex sidebar contract", () => {
+  test("renders project rows in project order with the Codex sidebar contract", () => {
     const { container, getByText, getByLabelText } = renderProjectsSection(
       <SidebarProjectsSection
         projects={PROJECTS}
-        projectRefs={[
-          { projectId: "beta", colorToken: "var(--accent-blue)", initial: "B" },
-          { projectId: "alpha", colorToken: "var(--accent-green)", initial: "A" },
-        ]}
+        projectOrder={["beta", "alpha"]}
         activeProjectId="beta"
         expanded
         onToggleExpanded={() => undefined}
@@ -161,10 +164,7 @@ describe("SidebarProjectsSection", () => {
     const { getByLabelText, getByRole, getByText, queryByRole } = renderProjectsSection(
       <SidebarProjectsSection
         projects={PROJECTS}
-        projectRefs={[
-          { projectId: "alpha", colorToken: "var(--accent-green)", initial: "A" },
-          { projectId: "beta", colorToken: "var(--accent-blue)", initial: "B" },
-        ]}
+        projectOrder={["alpha", "beta"]}
         activeProjectId="alpha"
         expanded
         onToggleExpanded={() => undefined}
@@ -189,18 +189,17 @@ describe("SidebarProjectsSection", () => {
       await Promise.resolve();
     });
 
-    expect(queryByRole("menu")).toBe(null);
-    expect(getByRole("heading", { name: "Create project" })).toBeTruthy();
+    await waitFor(() => {
+      expect(queryByRole("menu")).toBe(null);
+      expect(getByRole("heading", { name: "Create project" })).toBeTruthy();
+    });
   });
 
   test("opens the project sidebar options menu and sort flyout", async () => {
     const { getByLabelText, getByText } = renderProjectsSection(
       <SidebarProjectsSection
         projects={PROJECTS}
-        projectRefs={[
-          { projectId: "alpha", colorToken: "var(--accent-green)", initial: "A" },
-          { projectId: "beta", colorToken: "var(--accent-blue)", initial: "B" },
-        ]}
+        projectOrder={["alpha", "beta"]}
         activeProjectId="alpha"
         expanded
         onToggleExpanded={() => undefined}
@@ -247,10 +246,7 @@ describe("SidebarProjectsSection", () => {
     const { container, queryByText } = renderProjectsSection(
       <SidebarProjectsSection
         projects={PROJECTS}
-        projectRefs={[
-          { projectId: "beta", colorToken: "var(--accent-blue)", initial: "B" },
-          { projectId: "alpha", colorToken: "var(--accent-green)", initial: "A" },
-        ]}
+        projectOrder={["beta", "alpha"]}
         activeProjectId="beta"
         expanded={false}
         onToggleExpanded={() => undefined}
@@ -279,10 +275,7 @@ describe("SidebarProjectsSection", () => {
     const { getByLabelText, getByText, queryByRole, queryByText, findByText } = renderProjectsSection(
       <SidebarProjectsSection
         projects={PROJECTS}
-        projectRefs={[
-          { projectId: "beta", colorToken: "var(--accent-blue)", initial: "B" },
-          { projectId: "alpha", colorToken: "var(--accent-green)", initial: "A" },
-        ]}
+        projectOrder={["beta", "alpha"]}
         activeProjectId="beta"
         expanded
         onToggleExpanded={() => undefined}
@@ -337,7 +330,12 @@ describe("SidebarProjectsSection", () => {
     await waitFor(() => {
       expect(JSON.stringify(updateCalls[0])).toBe(JSON.stringify([
         "beta",
-        { name: "Beta", sources: ["/repo/beta", "/repo/selected"] },
+        {
+          expectedBindingRevision: 1,
+          appearance: PROJECTS[1]?.appearance,
+          name: "Beta",
+          sources: ["/repo/beta", "/repo/selected"],
+        },
       ]));
     });
   });
@@ -385,6 +383,80 @@ describe("SidebarProjectsSection", () => {
       await Promise.resolve();
     });
 
+    expect(onActivate).not.toHaveBeenCalled();
+  });
+
+  test("keeps disclosure stable across the interactive Project card and its Edit action", async () => {
+    const onActivate = vi.fn();
+    const onHoverCardOpenChange = vi.fn();
+    mockInvokeImpl = async (channel) => {
+      if (channel === "shell:path-context:get") {
+        return { homeDirectory: "/Users/asc", separator: "/" };
+      }
+      if (channel === "git:repository:identity") {
+        return {
+          repositoryRoot: "/repo/beta",
+          ownerRepo: { owner: "acme", repo: "beta" },
+        };
+      }
+      if (channel === "shell:open-file-link") return true;
+      return null;
+    };
+
+    renderProjectsSection(
+      <CodexProjectRow
+        project={PROJECTS[1] as Project}
+        activity={{
+          projectId: "beta",
+          taskCount: 66,
+          waitingCount: 1,
+          unreadCount: 2,
+          activeCount: 3,
+        }}
+        active
+        expanded
+        hoverCardOpen
+        onHoverCardOpenChange={onHoverCardOpenChange}
+        onActivate={onActivate}
+        onUpdateProject={async () => PROJECTS[1] ?? null}
+        onArchiveProject={async () => ({ kind: "not-found" })}
+      />,
+    );
+
+    const card = await waitFor(() => {
+      const candidate = document.body.querySelector<HTMLElement>(
+        "[data-app-action-sidebar-project-hover-card]",
+      );
+      if (!candidate) throw new Error("Expected Project hover card");
+      return candidate;
+    });
+    expect(within(card).getByText("66 tasks · 1 waiting · 2 unread · 3 active"))
+      .toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(card);
+      await Promise.resolve();
+    });
+    expect(onActivate).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.click(within(card).getByText("/repo/beta"));
+      await Promise.resolve();
+    });
+    expect(invokeCalls.some(([channel, target, opener]) => (
+      channel === "shell:open-file-link"
+      && JSON.stringify(target) === JSON.stringify({ path: "/repo/beta" })
+      && opener === "fileManager"
+    ))).toBe(true);
+
+    await act(async () => {
+      fireEvent.click(within(card).getByText("Edit project"));
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(onHoverCardOpenChange).toHaveBeenCalledWith(false);
+      expect(document.body.textContent?.includes("Source folders")).toBe(true);
+    });
     expect(onActivate).not.toHaveBeenCalled();
   });
 
@@ -436,9 +508,7 @@ describe("SidebarProjectsSection", () => {
     const { getByLabelText, getByText, queryByText } = renderProjectsSection(
       <SidebarProjectsSection
         projects={[multiRootBeta]}
-        projectRefs={[
-          { projectId: "beta", colorToken: "var(--accent-blue)", initial: "B" },
-        ]}
+        projectOrder={["beta"]}
         activeProjectId="beta"
         expanded
         onToggleExpanded={() => undefined}
@@ -485,20 +555,24 @@ describe("SidebarProjectsSection", () => {
     expect(Boolean(expandedLabel.compareDocumentPosition(expandedChevron) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
 
     rerender(
-      <NodexTooltipProvider>
-        <CodexProjectRow
-          project={PROJECTS[0] as Project}
-          active
-          expanded={false}
-          onActivate={() => undefined}
-          onUpdateProject={async () => null}
-          onArchiveProject={async () => ({ kind: "not-found" })}
-        >
-          <CodexProjectSessionList project={PROJECTS[0] as Project}>
-            <div role="listitem">Alpha session</div>
-          </CodexProjectSessionList>
-        </CodexProjectRow>
-      </NodexTooltipProvider>,
+      <TestQueryProvider>
+        <NodexHoverCardProvider>
+          <NodexTooltipProvider>
+            <CodexProjectRow
+              project={PROJECTS[0] as Project}
+              active
+              expanded={false}
+              onActivate={() => undefined}
+              onUpdateProject={async () => null}
+              onArchiveProject={async () => ({ kind: "not-found" })}
+            >
+              <CodexProjectSessionList project={PROJECTS[0] as Project}>
+                <div role="listitem">Alpha session</div>
+              </CodexProjectSessionList>
+            </CodexProjectRow>
+          </NodexTooltipProvider>
+        </NodexHoverCardProvider>
+      </TestQueryProvider>,
     );
 
     const collapsedChevronIcon = container.querySelector("[data-app-action-sidebar-project-toggle-chevron] svg");

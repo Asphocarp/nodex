@@ -469,6 +469,7 @@ async function renderNewThreadHome(overrides?: {
               {
                 id: "project_1",
                 label: "Nodex",
+                appearance: { color: "green", marker: { kind: "icon", icon: "plant" } },
                 description: "/tmp/nodex",
                 primaryWorkspaceRoot: "/tmp/nodex",
                 searchText: "nodex /tmp/nodex",

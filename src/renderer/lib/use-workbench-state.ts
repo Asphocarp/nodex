@@ -71,12 +71,6 @@ export type {
 export const STAGE_ORDER: StageId[] = ["db", "pages", "threads", "files"];
 export const NEW_THREAD_STAGE_TAB_ID = "thread:new";
 
-export interface ProjectRef {
-  projectId: string;
-  colorToken: string;
-  initial: string;
-}
-
 export type RecentPageSession = WorkbenchRecentPageSession;
 
 export interface PagesStageTab {
@@ -191,17 +185,6 @@ const DOCK_MAX_WIDTH = 1100;
 const SLIDING_WINDOW_MIN_PANES = 1;
 const SLIDING_WINDOW_MAX_PANES = STAGE_ORDER.length;
 const SLIDING_WINDOW_DEFAULT_PANES = 2;
-const PROJECT_COLOR_PALETTE = [
-  "#5e9fe8",
-  "#72bc8f",
-  "#de9255",
-  "#bf8eda",
-  "#eac26b",
-  "#e97366",
-  "#46a171",
-  "#2783de",
-];
-
 const DEFAULT_FILES_TABS: FilesStageTab[] = [
   { id: "diff", title: "Diffs" },
 ];
@@ -452,20 +435,6 @@ function writeNumberStorage(key: string, value: number): void {
   } catch {
     // ignore localStorage failures
   }
-}
-
-function hashProjectId(projectId: string): number {
-  let hash = 0;
-  for (let index = 0; index < projectId.length; index += 1) {
-    hash = (hash * 31 + projectId.charCodeAt(index)) | 0;
-  }
-  return Math.abs(hash);
-}
-
-function makeProjectRef(projectId: string): ProjectRef {
-  const colorToken = PROJECT_COLOR_PALETTE[hashProjectId(projectId) % PROJECT_COLOR_PALETTE.length];
-  const initial = projectId.slice(0, 1).toUpperCase() || "?";
-  return { projectId, colorToken, initial };
 }
 
 function buildProjectIdSet(projects: Project[]): Set<string> {
@@ -1158,11 +1127,6 @@ export function useWorkbenchState(
     };
   }, [flushPersistedState]);
 
-  const projectRefs = useMemo(
-    () => state.projectOrder.map((projectId) => makeProjectRef(projectId)),
-    [state.projectOrder],
-  );
-
   const activeView = state.dbProjectId
     ? state.viewsByProject[state.dbProjectId] ?? "kanban"
     : "kanban";
@@ -1743,7 +1707,7 @@ export function useWorkbenchState(
     dbProjectId: state.dbProjectId,
     activeProjectId: state.dbProjectId,
     threadsProjectId: state.threadsProjectId,
-    projectRefs,
+    projectOrder: state.projectOrder,
     activeView,
     activeSearchQuery,
     activeDbViewPrefs,
@@ -1833,7 +1797,6 @@ export const workbenchTestHelpers = {
   reconcileProjectOrder,
   resolveActiveProjectAfterCatalogChange,
   loadInitialState,
-  makeProjectRef,
   resolveExpandedStages,
   resolveNearestSlidingWindowDirection,
   resolveSlidingWindowFocusIntent,

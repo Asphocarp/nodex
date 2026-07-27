@@ -376,6 +376,22 @@ const fetchCoreReadEnvelope = async (url: string): Promise<unknown> => {
   };
 };
 
+const readCheckedJson = async <T>(
+  response: Response,
+  fallbackMessage: string,
+): Promise<T> => {
+  const body: unknown = await response.json().catch(() => null);
+  if (response.ok) return body as T;
+
+  const message = body
+    && typeof body === "object"
+    && "error" in body
+    && typeof body.error === "string"
+    ? body.error
+    : `${fallbackMessage} with HTTP ${response.status}`;
+  throw new Error(message);
+};
+
 async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
   switch (channel) {
     case "codex:personality:get":
@@ -454,7 +470,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         {
           name?: string;
           description?: string;
-          icon?: string;
+          appearance?: import("../../shared/project-appearance").ProjectAppearance;
           sources?: string[];
         },
       ];
@@ -463,7 +479,19 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(input),
       });
-      return res.json();
+      return readCheckedJson(res, "Project creation failed");
+    }
+    case "projects:activity-summaries": {
+      const [projectIds] = args as [string[]];
+      if (projectIds.length === 0) {
+        return { summaries: [], projectionRevision: 0 };
+      }
+      const params = new URLSearchParams();
+      for (const projectId of projectIds) params.append("projectId", projectId);
+      const res = await fetch(
+        toApiUrl(`/api/projects/activity-summaries?${params.toString()}`),
+      );
+      return readCheckedJson(res, "Project activity read failed");
     }
     case "projects:set-lifecycle": {
       const [projectId, input] = args as [
@@ -498,7 +526,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         {
           name?: string;
           description?: string;
-          icon?: string;
+          appearance?: import("../../shared/project-appearance").ProjectAppearance;
           sources?: string[];
         },
       ];
@@ -507,7 +535,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
       });
-      return res.json();
+      return readCheckedJson(res, "Project update failed");
     }
     case "projects:reorder": {
       const [input] = args as [{ orderedProjectIds: string[] }];
@@ -1506,6 +1534,20 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       const res = await fetch(toApiUrl(`/api/git/branch?${params.toString()}`));
       return res.json();
     }
+    case "git:repository:identity": {
+      const [cwd] = args as [string];
+      if (isStorybookRuntime()) {
+        return {
+          repositoryRoot: cwd,
+          ownerRepo: { owner: "acme", repo: "nodex" },
+        };
+      }
+      const params = new URLSearchParams({ cwd });
+      const res = await fetch(
+        toApiUrl(`/api/git/repository-identity?${params.toString()}`),
+      );
+      return readCheckedJson(res, "Git repository identity read failed");
+    }
     case "git:branch:checkout": {
       if (isStorybookRuntime()) {
         return { success: true };
@@ -2220,6 +2262,16 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     }
     case "shell:open-file-link": {
       return false;
+    }
+    case "shell:path-context:get": {
+      if (isStorybookRuntime()) {
+        return {
+          homeDirectory: "/Users/nodex",
+          separator: "/",
+        };
+      }
+      const res = await fetch(toApiUrl("/api/shell/path-context"));
+      return readCheckedJson(res, "Path context read failed");
     }
     case "worktrees:list": {
       return [];

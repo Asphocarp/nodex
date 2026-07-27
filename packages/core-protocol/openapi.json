@@ -2721,12 +2721,16 @@
                 "binding_revision",
                 "name",
                 "description",
+                "appearance",
                 "sources",
                 "pinned",
                 "created_at",
                 "updated_at"
               ],
               "properties": {
+                "appearance": {
+                  "$ref": "#/components/schemas/ProjectAppearance"
+                },
                 "binding_revision": {
                   "type": "integer",
                   "format": "int64"
@@ -2746,12 +2750,6 @@
                 },
                 "description": {
                   "type": "string"
-                },
-                "icon": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
                 },
                 "id": {
                   "type": "string"
@@ -13504,14 +13502,18 @@
                   "kind"
                 ],
                 "properties": {
+                  "appearance": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/ProjectAppearance"
+                      }
+                    ]
+                  },
                   "description": {
                     "type": "string"
-                  },
-                  "icon": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
                   },
                   "kind": {
                     "type": "string",
@@ -13541,6 +13543,16 @@
                   "kind"
                 ],
                 "properties": {
+                  "appearance": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/ProjectAppearance"
+                      }
+                    ]
+                  },
                   "description": {
                     "type": [
                       "string",
@@ -13550,12 +13562,6 @@
                   "expected_binding_revision": {
                     "type": "integer",
                     "format": "int64"
-                  },
-                  "icon": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
                   },
                   "kind": {
                     "type": "string",
@@ -16294,6 +16300,27 @@
               {
                 "type": "object",
                 "required": [
+                  "project_ids",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "project_activity_summaries"
+                    ]
+                  },
+                  "project_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "project_id",
                   "kind"
                 ],
@@ -16970,6 +16997,21 @@
           }
         }
       },
+      "ProjectAppearance": {
+        "type": "object",
+        "required": [
+          "color",
+          "marker"
+        ],
+        "properties": {
+          "color": {
+            "$ref": "#/components/schemas/ProjectMarkerColor"
+          },
+          "marker": {
+            "$ref": "#/components/schemas/ProjectMarker"
+          }
+        }
+      },
       "ProjectCatalogChangeKind": {
         "type": "string",
         "enum": [
@@ -16987,6 +17029,94 @@
           "active",
           "inactive",
           "archived"
+        ]
+      },
+      "ProjectMarker": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "icon",
+              "kind"
+            ],
+            "properties": {
+              "icon": {
+                "$ref": "#/components/schemas/ProjectMarkerIcon"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "icon"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "emoji",
+              "kind"
+            ],
+            "properties": {
+              "emoji": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "emoji"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ProjectMarkerColor": {
+        "type": "string",
+        "enum": [
+          "black",
+          "red",
+          "orange",
+          "yellow",
+          "green",
+          "blue",
+          "purple",
+          "pink"
+        ]
+      },
+      "ProjectMarkerIcon": {
+        "type": "string",
+        "enum": [
+          "folder",
+          "currency-dollar",
+          "book",
+          "graduation-cap",
+          "edit",
+          "writing",
+          "function",
+          "terminal",
+          "music",
+          "popcorn",
+          "customize",
+          "palette",
+          "stethoscope",
+          "health",
+          "lotus",
+          "suitcase",
+          "bar-chart",
+          "kettlebell",
+          "dumbbell",
+          "logs",
+          "scale",
+          "desk-globe",
+          "plane",
+          "globe",
+          "wrench",
+          "paw",
+          "flask",
+          "brain",
+          "heart",
+          "plant"
         ]
       },
       "ProjectSessionIntent": {
@@ -17407,12 +17537,16 @@
           "binding_revision",
           "name",
           "description",
+          "appearance",
           "sources",
           "pinned",
           "created_at",
           "updated_at"
         ],
         "properties": {
+          "appearance": {
+            "$ref": "#/components/schemas/ProjectAppearance"
+          },
           "binding_revision": {
             "type": "integer",
             "format": "int64"
@@ -17432,12 +17566,6 @@
           },
           "description": {
             "type": "string"
-          },
-          "icon": {
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "id": {
             "type": "string"
@@ -17475,6 +17603,41 @@
           },
           "updated_at": {
             "type": "string"
+          }
+        }
+      },
+      "ProjectWorkspaceProjectActivitySummary": {
+        "type": "object",
+        "required": [
+          "project_id",
+          "task_count",
+          "waiting_count",
+          "unread_count",
+          "active_count"
+        ],
+        "properties": {
+          "active_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "task_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "unread_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "waiting_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -21093,6 +21256,32 @@
                           },
                           "project": {
                             "$ref": "#/components/schemas/ProjectWorkspaceProject"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "summaries",
+                          "projection_revision",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "project_activity_summaries"
+                            ]
+                          },
+                          "projection_revision": {
+                            "type": "integer",
+                            "format": "int64"
+                          },
+                          "summaries": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/ProjectWorkspaceProjectActivitySummary"
+                            }
                           }
                         }
                       },

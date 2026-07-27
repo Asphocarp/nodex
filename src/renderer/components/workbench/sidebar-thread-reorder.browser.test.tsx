@@ -1,9 +1,11 @@
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, test, vi } from "vitest";
+import { NodexHoverCardProvider } from "@/components/ui/hover-card";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import type { CodexSidebarThreadItem, Project } from "@/lib/types";
 import { renderWithMaitai as render } from "../../test/dom";
+import { TestQueryProvider } from "../../test/query";
 import {
   CodexProjectRow,
   CodexSidebarThreadRow,
@@ -25,6 +27,7 @@ const PROJECT: Project = {
   bindingRevision: 1,
   name: "Project beta",
   description: "",
+  appearance: { color: "black", marker: { kind: "icon", icon: "folder" } },
   sources: [],
   primaryWorkspaceRoot: null,
   pinned: false,
@@ -267,8 +270,10 @@ describe("sidebar thread reorder in Chromium", () => {
     window.addEventListener("error", handleError);
 
     const view = render(
-      <NodexTooltipProvider>
-        <SidebarReorderDndProvider>
+      <TestQueryProvider>
+        <NodexHoverCardProvider>
+          <NodexTooltipProvider>
+            <SidebarReorderDndProvider>
           <SidebarThreadSortableContext threadKeys={[THREAD.key]}>
             <div role="list" aria-label="Source project chats">
               <SidebarThreadSortableItem
@@ -297,8 +302,10 @@ describe("sidebar thread reorder in Chromium", () => {
               onArchiveProject={async () => ({ kind: "not-found" })}
             />
           </div>
-        </SidebarReorderDndProvider>
-      </NodexTooltipProvider>,
+            </SidebarReorderDndProvider>
+          </NodexTooltipProvider>
+        </NodexHoverCardProvider>
+      </TestQueryProvider>,
     );
 
     try {
@@ -313,10 +320,13 @@ describe("sidebar thread reorder in Chromium", () => {
       }
 
       await act(async () => {
-        fireEvent.pointerMove(row, { pointerType: "mouse" });
+        fireEvent.mouseEnter(row, {
+          clientX: 20,
+          clientY: 20,
+        });
       });
       await waitFor(() => {
-        expect(document.body.querySelector('[role="tooltip"]')).not.toBeNull();
+        expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
       });
 
       await act(async () => {

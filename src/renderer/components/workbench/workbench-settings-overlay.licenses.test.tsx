@@ -22,6 +22,7 @@ const PROJECTS = [
     bindingRevision: 1,
     name: "Nodex",
     description: "",
+    appearance: { color: "black", marker: { kind: "icon", icon: "folder" } } as const,
     sources: [{ root: "/Users/asc/repo/nodex", order: 0 }],
     primaryWorkspaceRoot: "/Users/asc/repo/nodex",
     pinned: false,

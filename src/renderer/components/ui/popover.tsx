@@ -30,9 +30,14 @@ export function NodexPopoverPortal(
   return <PopoverPrimitive.Portal data-slot="popover-portal" {...props} />;
 }
 
+export interface NodexPopoverContentProps
+  extends ComponentPropsWithoutRef<typeof PopoverPrimitive.Content> {
+  portalled?: boolean;
+}
+
 export const NodexPopoverContent = forwardRef<
   HTMLDivElement,
-  ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>
+  NodexPopoverContentProps
 >(function NodexPopoverContent(
   {
     className,
@@ -40,28 +45,31 @@ export const NodexPopoverContent = forwardRef<
     sideOffset = 4,
     style,
     collisionPadding = 6,
+    portalled = true,
     ...props
   },
   ref,
 ) {
-  return (
-    <NodexPopoverPortal>
-      <PopoverPrimitive.Content
-        ref={ref}
-        data-slot="popover-content"
-        align={align}
-        sideOffset={sideOffset}
-        collisionPadding={collisionPadding}
-        className={cn(
-          "bg-token-dropdown-background/90 text-token-foreground ring-token-border flex w-72 origin-[var(--radix-popover-content-transform-origin)] flex-col overflow-y-auto rounded-xl px-1 py-1 shadow-lg ring-[0.5px] backdrop-blur-sm outline-hidden",
-          APP_SHELL_FLOATING_UI_LAYER_CLASS,
-          className,
-        )}
-        style={{ ...CODEX_POPOVER_BOUNDARY_STYLE, ...style }}
-        {...props}
-      />
-    </NodexPopoverPortal>
+  const content = (
+    <PopoverPrimitive.Content
+      ref={ref}
+      data-slot="popover-content"
+      align={align}
+      sideOffset={sideOffset}
+      collisionPadding={collisionPadding}
+      className={cn(
+        "bg-token-dropdown-background/90 text-token-foreground ring-token-border flex w-72 origin-[var(--radix-popover-content-transform-origin)] flex-col overflow-y-auto rounded-xl px-1 py-1 shadow-lg ring-[0.5px] backdrop-blur-sm outline-hidden",
+        APP_SHELL_FLOATING_UI_LAYER_CLASS,
+        className,
+      )}
+      style={{ ...CODEX_POPOVER_BOUNDARY_STYLE, ...style }}
+      {...props}
+    />
   );
+
+  if (!portalled) return content;
+
+  return <NodexPopoverPortal>{content}</NodexPopoverPortal>;
 });
 
 export function NodexPopoverTitle({

@@ -16,6 +16,10 @@ use crate::document::{
     create_compatible_document, decode_block_document, decode_state_vector_v1,
     has_pending_dependencies, materialize_decoded_document, rebuild_legacy_import_projections,
 };
+use crate::domain::project_appearance::{
+    legacy_project_appearance, project_marker_color_literal, project_marker_icon_literal,
+};
+use nodex_core_contracts::workspace::ProjectMarker;
 
 use super::document_repository::{DocumentHeadRow, DocumentReadRepository};
 use super::schema::{
@@ -501,6 +505,33 @@ CREATE UNIQUE INDEX idx_project_session_threads_thread
   ON project_session_threads(thread_id);
 "#;
 
+const V94_PROJECT_APPEARANCE_SCHEMA_SQL: &str = r#"
+ALTER TABLE projects ADD COLUMN appearance_color TEXT NOT NULL DEFAULT 'black'
+  CHECK (appearance_color IN ('black', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink'));
+
+ALTER TABLE projects ADD COLUMN appearance_marker_kind TEXT NOT NULL DEFAULT 'icon'
+  CHECK (appearance_marker_kind IN ('icon', 'emoji'));
+
+ALTER TABLE projects ADD COLUMN appearance_marker_value TEXT NOT NULL DEFAULT 'folder'
+  CHECK (
+    (
+      appearance_marker_kind = 'icon'
+      AND appearance_marker_value IN (
+        'folder', 'currency-dollar', 'book', 'graduation-cap', 'edit', 'writing',
+        'function', 'terminal', 'music', 'popcorn', 'customize', 'palette',
+        'stethoscope', 'health', 'lotus', 'suitcase', 'bar-chart', 'kettlebell',
+        'dumbbell', 'logs', 'scale', 'desk-globe', 'plane', 'globe', 'wrench',
+        'paw', 'flask', 'brain', 'heart', 'plant'
+      )
+    )
+    OR (
+      appearance_marker_kind = 'emoji'
+      AND length(trim(appearance_marker_value)) > 0
+      AND length(CAST(appearance_marker_value AS BLOB)) <= 256
+    )
+  );
+"#;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentEngineFingerprint {
@@ -727,6 +758,7 @@ fn upgrade_owned_store(
         90 => validate_exact_v90_schema(connection)?,
         91 => validate_exact_v91_schema(connection)?,
         92 => validate_exact_v92_schema(connection)?,
+        93 => validate_exact_v93_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -766,6 +798,9 @@ fn upgrade_owned_store(
         }
         if source_version < 93 {
             ensure_v93_database_starter_sessions_schema(transaction)?;
+        }
+        if source_version < 94 {
+            ensure_v94_project_appearance_schema(transaction)?;
         }
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
@@ -1056,6 +1091,7 @@ fn publish_current_store(
         ensure_v91_workspace_sidebar_lanes_schema(transaction)?;
         ensure_v92_canonical_text_timestamps(transaction)?;
         ensure_v93_database_starter_sessions_schema(transaction)?;
+        ensure_v94_project_appearance_schema(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -1081,6 +1117,7 @@ fn create_fresh_store(
         ensure_v91_workspace_sidebar_lanes_schema(transaction)?;
         ensure_v92_canonical_text_timestamps(transaction)?;
         ensure_v93_database_starter_sessions_schema(transaction)?;
+        ensure_v94_project_appearance_schema(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -1278,6 +1315,46 @@ fn ensure_v93_database_starter_sessions_schema(connection: &Connection) -> Resul
     if foreign_key_violation.is_some() {
         return Err(corrupt(
             "v93 Project Session migration produced a foreign-key violation",
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_v94_project_appearance_schema(connection: &Connection) -> Result<(), StoreError> {
+    connection.execute_batch(V94_PROJECT_APPEARANCE_SCHEMA_SQL)?;
+    let legacy_icons = connection
+        .prepare("SELECT id, icon FROM projects ORDER BY id")?
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut update = connection.prepare(
+        "UPDATE projects SET appearance_color = ?1, appearance_marker_kind = ?2, \
+           appearance_marker_value = ?3 WHERE id = ?4",
+    )?;
+    for (project_id, icon) in legacy_icons {
+        let appearance = legacy_project_appearance(&icon);
+        let color = project_marker_color_literal(appearance.color);
+        let (marker_kind, marker_value) = match appearance.marker {
+            ProjectMarker::Icon { icon } => ("icon", project_marker_icon_literal(icon).to_owned()),
+            ProjectMarker::Emoji { emoji } => ("emoji", emoji),
+        };
+        let changed = update.execute(params![color, marker_kind, marker_value, project_id])?;
+        if changed != 1 {
+            return Err(corrupt(
+                "Project changed during the v94 appearance migration",
+            ));
+        }
+    }
+    drop(update);
+    connection.execute_batch("ALTER TABLE projects DROP COLUMN icon;")?;
+    let foreign_key_violation = connection
+        .prepare("PRAGMA foreign_key_check")?
+        .query_row([], |_| Ok(()))
+        .optional()?;
+    if foreign_key_violation.is_some() {
+        return Err(corrupt(
+            "v94 Project appearance migration produced a foreign-key violation",
         ));
     }
     Ok(())
@@ -2007,40 +2084,51 @@ fn validate_core_metadata(
 }
 
 fn validate_exact_v85_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, false, false, false, false, false, false, 85)
+    validate_exact_core_schema(
+        connection, false, false, false, false, false, false, false, 85,
+    )
 }
 
 fn validate_exact_v86_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, false, false, false, false, false, 86)
+    validate_exact_core_schema(
+        connection, true, false, false, false, false, false, false, 86,
+    )
 }
 
 fn validate_exact_v87_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, false, false, false, false, 87)
+    validate_exact_core_schema(
+        connection, true, true, false, false, false, false, false, 87,
+    )
 }
 
 fn validate_exact_v88_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, false, false, false, 88)
+    validate_exact_core_schema(connection, true, true, true, false, false, false, false, 88)
 }
 
 fn validate_exact_v89_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, false, false, false, 89)
+    validate_exact_core_schema(connection, true, true, true, false, false, false, false, 89)
 }
 
 fn validate_exact_v90_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, false, false, 90)
+    validate_exact_core_schema(connection, true, true, true, true, false, false, false, 90)
 }
 
 fn validate_exact_v91_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, false, 91)
+    validate_exact_core_schema(connection, true, true, true, true, true, false, false, 91)
 }
 
 fn validate_exact_v92_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, false, 92)
+    validate_exact_core_schema(connection, true, true, true, true, true, false, false, 92)
+}
+
+fn validate_exact_v93_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, false, 93)
 }
 
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
+        true,
         true,
         true,
         true,
@@ -2060,6 +2148,7 @@ fn validate_exact_core_schema(
     include_window_owned_session_views: bool,
     include_workspace_sidebar_lanes: bool,
     include_database_starter_sessions: bool,
+    include_project_appearance: bool,
     schema_version: i64,
 ) -> Result<(), StoreError> {
     let expected = Connection::open_in_memory()?;
@@ -2085,6 +2174,9 @@ fn validate_exact_core_schema(
     }
     if include_database_starter_sessions {
         ensure_v93_database_starter_sessions_schema(&expected)?;
+    }
+    if include_project_appearance {
+        ensure_v94_project_appearance_schema(&expected)?;
     }
 
     let expected_inventory = read_schema_inventory(&expected)?;
@@ -2150,6 +2242,9 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     }
     if version >= 93 {
         ensure_v93_database_starter_sessions_schema(&expected)?;
+    }
+    if version >= 94 {
+        ensure_v94_project_appearance_schema(&expected)?;
     }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
@@ -3054,6 +3149,52 @@ mod tests {
         .expect("seed v92 starter store");
     }
 
+    fn seed_owned_v93_store_with_legacy_project_icons(home: &Path) {
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v93 writer");
+        install_v84_schema(&connection).expect("v84 schema");
+        with_immediate_transaction(&mut connection, |transaction| {
+            transaction.execute_batch(V85_SCHEMA_SQL)?;
+            transaction.execute_batch(V85_EXECUTION_SCHEMA_SQL)?;
+            ensure_automation_definition_revision(transaction)?;
+            ensure_automation_run_revision(transaction)?;
+            ensure_v86_execution_profile_schema(transaction)?;
+            ensure_v87_project_session_tabs_schema(transaction)?;
+            ensure_v88_projection_impact_schema(transaction)?;
+            ensure_v90_window_owned_session_views_schema(transaction)?;
+            ensure_v91_workspace_sidebar_lanes_schema(transaction)?;
+            ensure_v93_database_starter_sessions_schema(transaction)?;
+            transaction.execute(
+                "INSERT INTO core_store_metadata(
+                   id, schema_owner, store_format_version, migrated_from_version,
+                   migration_backup_name, migrated_at_unix_ms, projection_event_v2_floor
+                 ) VALUES (1, ?1, 93, NULL, NULL, 1, 1)",
+                [CORE_SCHEMA_OWNER],
+            )?;
+            let canonical = "2026-07-26T00:00:00.000Z";
+            transaction.execute(
+                "INSERT INTO profiles(id, created_at, updated_at)
+                 VALUES ('profile:appearance', ?1, ?1)",
+                [canonical],
+            )?;
+            transaction.execute(
+                "INSERT INTO libraries(id, profile_id, created_at, updated_at)
+                 VALUES ('library:appearance', 'profile:appearance', ?1, ?1)",
+                [canonical],
+            )?;
+            transaction.execute(
+                "INSERT INTO projects(id, name, description, icon, created, updated, library_id)
+                 VALUES
+                   ('project:empty', 'Empty', '', '', ?1, ?1, 'library:appearance'),
+                   ('project:emoji', 'Emoji', '', 'Launch 🚀 now', ?1, ?1, 'library:appearance'),
+                   ('project:malformed', 'Malformed', '', 'plain text', ?1, ?1, 'library:appearance')",
+                [canonical],
+            )?;
+            transaction.pragma_update(None, "user_version", 93)?;
+            Ok(())
+        })
+        .expect("seed v93 Project appearances");
+    }
+
     #[test]
     fn v92_upgrade_replaces_initial_view_pointer_with_database_starter_marker() {
         let directory = tempdir().expect("Profile");
@@ -3091,6 +3232,94 @@ mod tests {
             .expect("verify v93 database starter migration");
         drop(upgraded);
         let reopened = SqliteStoreKernel::open(&home).expect("validate current store exactly");
+        assert_eq!(reopened.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(reopened.preparation().migrated_from_version, None);
+    }
+
+    #[test]
+    fn v93_upgrade_moves_legacy_project_icons_into_valid_owned_appearances() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v93_store_with_legacy_project_icons(&home);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v93 Core store");
+        assert_eq!(upgraded.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(93));
+        let backup_path = upgraded
+            .preparation()
+            .migration_backup_path
+            .as_ref()
+            .expect("v93 migration backup");
+        let backup = open_immutable_reader(backup_path).expect("backup opens");
+        assert_eq!(
+            backup
+                .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .expect("backup version"),
+            93
+        );
+        assert_eq!(
+            backup
+                .query_row(
+                    "SELECT icon FROM projects WHERE id = 'project:emoji'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .expect("legacy backup icon"),
+            "Launch 🚀 now"
+        );
+
+        upgraded
+            .writer()
+            .call(|connection| {
+                let legacy_column: i64 = connection.query_row(
+                    "SELECT count(*) FROM pragma_table_info('projects') WHERE name = 'icon'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(legacy_column, 0);
+                let appearances = connection
+                    .prepare(
+                        "SELECT id, appearance_color, appearance_marker_kind, \
+                           appearance_marker_value FROM projects ORDER BY id",
+                    )?
+                    .query_map([], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, String>(3)?,
+                        ))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                assert_eq!(
+                    appearances,
+                    [
+                        (
+                            "project:emoji".to_owned(),
+                            "black".to_owned(),
+                            "emoji".to_owned(),
+                            "🚀".to_owned(),
+                        ),
+                        (
+                            "project:empty".to_owned(),
+                            "black".to_owned(),
+                            "icon".to_owned(),
+                            "folder".to_owned(),
+                        ),
+                        (
+                            "project:malformed".to_owned(),
+                            "black".to_owned(),
+                            "icon".to_owned(),
+                            "folder".to_owned(),
+                        ),
+                    ]
+                );
+                Ok::<_, StoreError>(())
+            })
+            .expect("verify v94 Project appearances");
+        drop(upgraded);
+
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen current store");
         assert_eq!(reopened.preparation().schema_version, CORE_SCHEMA_VERSION);
         assert_eq!(reopened.preparation().migrated_from_version, None);
     }

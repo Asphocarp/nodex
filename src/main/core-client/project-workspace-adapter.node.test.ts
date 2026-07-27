@@ -12,7 +12,10 @@ const project = (overrides: Record<string, unknown> = {}) => ({
   binding_revision: 1,
   name: "One",
   description: "First Project",
-  icon: "📘",
+  appearance: {
+    color: "blue" as const,
+    marker: { kind: "emoji" as const, emoji: "📘" },
+  },
   sources: [{ root: "/workspace/one", order: 0 }],
   primary_workspace_root: "/workspace/one",
   pinned: false,
@@ -132,6 +135,10 @@ describe("Core Project Workspace adapter", () => {
       expect.objectContaining({
         id: "project:one",
         databaseId: "database:one",
+        appearance: {
+          color: "blue",
+          marker: { kind: "emoji", emoji: "📘" },
+        },
         primaryWorkspaceRoot: "/workspace/one",
         created: new Date("2026-07-19T15:00:00.000Z"),
       }),
@@ -140,6 +147,44 @@ describe("Core Project Workspace adapter", () => {
       kind: "project_window",
       include_archived: false,
       window: { after: null, first: 200 },
+    }]);
+  });
+
+  test("maps one bounded Project activity summary batch", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueWorkspaceRead({
+      contract_version: 6,
+      event_head: 5,
+      store_epoch: "epoch:test",
+      value: {
+        kind: "project_activity_summaries",
+        summaries: [{
+          project_id: "project:one",
+          task_count: 72,
+          waiting_count: 2,
+          unread_count: 3,
+          active_count: 4,
+        }],
+        projection_revision: 11,
+      },
+    });
+    const adapter = createCoreProjectWorkspaceAdapter(client);
+
+    await expect(
+      adapter.readProjectActivitySummaries(["project:one"]),
+    ).resolves.toEqual({
+      summaries: [{
+        projectId: "project:one",
+        taskCount: 72,
+        waitingCount: 2,
+        unreadCount: 3,
+        activeCount: 4,
+      }],
+      projectionRevision: 11,
+    });
+    expect(client.workspaceReads).toEqual([{
+      kind: "project_activity_summaries",
+      project_ids: ["project:one"],
     }]);
   });
 
@@ -273,6 +318,64 @@ describe("Core Project Workspace adapter", () => {
         },
       },
     ]);
+  });
+
+  test("forwards one structured Project appearance atomically", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueWorkspaceRead({
+      contract_version: 6,
+      event_head: 3,
+      store_epoch: "epoch:test",
+      value: { kind: "project", project: project() },
+    });
+    client.enqueueWorkspaceApply({
+      value: {
+        affected_project_ids: ["project:one"],
+        affected_session_ids: [],
+        affected_thread_ids: [],
+      },
+      receipt: {
+        operation_id: "operation:appearance",
+        duplicate: false,
+        affected_project_ids: ["project:one"],
+        affected_session_ids: [],
+      },
+      event_sequence: 4,
+      store_epoch: "epoch:test",
+    });
+    const appearance = {
+      color: "red" as const,
+      marker: { kind: "icon" as const, icon: "heart" as const },
+    };
+    client.enqueueWorkspaceRead({
+      contract_version: 6,
+      event_head: 4,
+      store_epoch: "epoch:test",
+      value: {
+        kind: "project",
+        project: project({ binding_revision: 2, appearance, name: "Loved" }),
+      },
+    });
+    const adapter = createCoreProjectWorkspaceAdapter(client);
+
+    await expect(
+      adapter.updateProject("project:one", {
+        appearance,
+        name: "Loved",
+        sources: ["/workspace/loved"],
+      }),
+    ).resolves.toMatchObject({ appearance, name: "Loved" });
+    expect(client.workspaceApplies).toEqual([{
+      operationId: expect.any(String),
+      intent: {
+        kind: "update_project",
+        project_id: "project:one",
+        expected_binding_revision: 1,
+        appearance,
+        name: "Loved",
+        source_roots: ["/workspace/loved"],
+      },
+    }]);
   });
 
   test("sets Project lifecycle through the target-state Core intent", async () => {

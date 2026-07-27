@@ -4,13 +4,14 @@ import {
   resolveFuzzyThreshold,
 } from "@/lib/search-text";
 import type { BoardSummary, Project } from "@/lib/types";
+import type { ProjectAppearance } from "../../../../shared/project-appearance";
 
 interface NfmMoveToSearchDocument {
   id: string;
   kind: "project" | "column" | "page";
   projectId: string;
   projectName: string;
-  projectIcon: string;
+  projectAppearance: ProjectAppearance;
   columnId: string;
   columnName: string;
   pageId: string;
@@ -22,7 +23,7 @@ export interface NfmMoveToPageSearchHit {
   id: string;
   projectId: string;
   projectName: string;
-  projectIcon?: string;
+  projectAppearance: ProjectAppearance;
   columnId: string;
   columnName: string;
   pageId: string;
@@ -107,7 +108,7 @@ function createPageHit(
     id: document.id,
     projectId: document.projectId,
     projectName: document.projectName,
-    projectIcon: document.projectIcon || undefined,
+    projectAppearance: document.projectAppearance,
     columnId: document.columnId,
     columnName: document.columnName,
     pageId: document.pageId,
@@ -127,13 +128,13 @@ export function createNfmMoveToSearchIndex({
 
   projects.forEach((project, projectIndex) => {
     const projectName = project.name || "Untitled";
-    const projectIcon = project.icon ?? "";
+    const projectAppearance = project.appearance;
     documents.push({
       id: `db:${project.id}`,
       kind: "project",
       projectId: project.id,
       projectName,
-      projectIcon,
+      projectAppearance,
       columnId: "",
       columnName: "",
       pageId: "",
@@ -149,7 +150,7 @@ export function createNfmMoveToSearchIndex({
         kind: "column",
         projectId: project.id,
         projectName,
-        projectIcon,
+        projectAppearance,
         columnId: column.id,
         columnName: column.name,
         pageId: "",
@@ -165,7 +166,7 @@ export function createNfmMoveToSearchIndex({
           kind: "page",
           projectId: project.id,
           projectName,
-          projectIcon,
+          projectAppearance,
           columnId: column.id,
           columnName: column.name,
           pageId: page.id,

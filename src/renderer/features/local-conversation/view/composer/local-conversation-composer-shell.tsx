@@ -567,7 +567,7 @@ function BackgroundTerminalRow({
         </div>
       )}
       side="top"
-      interactive
+      hoverable
       tooltipBodyClassName="max-w-none"
     >
       {visibleRow}

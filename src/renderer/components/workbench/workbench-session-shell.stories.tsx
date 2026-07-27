@@ -141,7 +141,7 @@ const PROJECTS: Project[] = [
     bindingRevision: 1,
     name: "Nodex",
     description: "",
-    icon: "",
+    appearance: { color: "black", marker: { kind: "icon", icon: "folder" } },
     sources: [{ root: "/Users/asc/repo/nodex", order: 0 }],
     primaryWorkspaceRoot: "/Users/asc/repo/nodex",
     pinned: false,
@@ -158,7 +158,7 @@ const PROJECTS: Project[] = [
     bindingRevision: 1,
     name: "Codex readable pack",
     description: "",
-    icon: "",
+    appearance: { color: "blue", marker: { kind: "icon", icon: "terminal" } },
     sources: [{ root: "/Users/asc/repo/devtools-codex", order: 0 }],
     primaryWorkspaceRoot: "/Users/asc/repo/devtools-codex",
     pinned: false,
@@ -167,12 +167,6 @@ const PROJECTS: Project[] = [
     updated: new Date(CREATED_AT),
   },
 ];
-
-const PROJECT_REFS = PROJECTS.map((project) => ({
-  projectId: project.id,
-  colorToken: "var(--accent-blue)",
-  initial: project.name.slice(0, 1).toUpperCase(),
-}));
 
 const STORY_BOARD: BoardSummary = {
   columns: [
@@ -797,7 +791,6 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
         activeDbViewPrefs={null}
         searchByProject={args.workspace === "projectless-only" ? {} : { nodex: "" }}
         dbViewPrefsByProject={{}}
-        projectRefs={args.workspace === "projectless-only" ? [] : PROJECT_REFS}
         sidebar={{
           collapsed: sidebarCollapsed,
           width: sidebarWidth,

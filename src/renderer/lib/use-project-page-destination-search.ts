@@ -73,7 +73,7 @@ export function buildRemoteDestinationSearchResult({
         id: `page:${result.projectId}:${result.pageId}`,
         projectId: result.projectId,
         projectName: project.name || "Untitled",
-        projectIcon: project.icon,
+        projectAppearance: project.appearance,
         columnId: result.status,
         columnName: WORKFLOW_STATUS_LABELS[result.status],
         pageId: result.pageId,

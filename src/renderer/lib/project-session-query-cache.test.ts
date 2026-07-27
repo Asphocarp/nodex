@@ -146,4 +146,19 @@ describe("project session query cache", () => {
     )?.isInvalidated).toBe(true);
     queryClient.clear();
   });
+
+  test("session changes invalidate complete Project activity aggregates", async () => {
+    const queryClient = createQueryClient();
+    const activityKey = queryKeys.projectActivity.summaries(["project-2", "project-1"]);
+    queryClient.setQueryData(activityKey, []);
+
+    await invalidateProjectSessionScope(queryClient, {
+      summaryScopes: [{ kind: "project", projectId: "project-1" }],
+      detailInvalidation: { kind: "sessions", sessionIds: ["session-1"] },
+      changeType: "update",
+    });
+
+    expect(queryClient.getQueryState(activityKey)?.isInvalidated).toBe(true);
+    queryClient.clear();
+  });
 });

@@ -24,6 +24,7 @@ import {
   TOGGLE_SIDEBAR_COMMAND_ID,
 } from "../../../shared/window-navigation";
 import { TOGGLE_BOTTOM_PANEL_COMMAND_ID } from "../../../shared/workbench-commands";
+import { DEFAULT_PROJECT_APPEARANCE } from "../../../shared/project-appearance";
 
 vi.mock("./page-icon", () => ({
   PageIcon: ({ className }: { className?: string }) => createElement("span", { className }, "C"),
@@ -280,7 +281,7 @@ function makePalettePage(overrides: Partial<CommandPalettePage> = {}): CommandPa
     id: overrides.id ?? `${overrides.projectId ?? "default"}:${page.id}`,
     projectId: overrides.projectId ?? "default",
     projectName: overrides.projectName ?? "Default",
-    projectIcon: overrides.projectIcon ?? "",
+    projectAppearance: overrides.projectAppearance ?? DEFAULT_PROJECT_APPEARANCE,
     columnName: overrides.columnName ?? "In progress",
     page,
     inActiveProject: overrides.inActiveProject ?? true,

@@ -41,7 +41,7 @@ function makeProject(id: string): Project {
     bindingRevision: 1,
     name: id,
     description: "",
-    icon: undefined,
+    appearance: { color: "black", marker: { kind: "icon", icon: "folder" } },
     sources: [{ root: `/work/${id}`, order: 0 }],
     primaryWorkspaceRoot: `/work/${id}`,
     pinned: false,

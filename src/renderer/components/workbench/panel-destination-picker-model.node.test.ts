@@ -16,7 +16,11 @@ import {
 
 const TEST_DATE = new Date("2026-01-01T00:00:00.000Z");
 
-function makeProject(id: string, name: string, icon?: string): Project {
+function makeProject(
+  id: string,
+  name: string,
+  icon?: "heart" | "plant",
+): Project {
   return {
     id,
     libraryId: "library:test",
@@ -26,7 +30,9 @@ function makeProject(id: string, name: string, icon?: string): Project {
     bindingRevision: 1,
     name,
     description: "",
-    icon,
+    appearance: icon
+      ? { color: "black", marker: { kind: "icon", icon } }
+      : { color: "black", marker: { kind: "icon", icon: "folder" } },
     sources: [],
     primaryWorkspaceRoot: null,
     pinned: false,
@@ -59,8 +65,8 @@ function makePage(
 }
 
 const PROJECTS = [
-  makeProject("alpha", "Alpha DB", "A"),
-  makeProject("beta", "Beta DB", "B"),
+  makeProject("alpha", "Alpha DB", "heart"),
+  makeProject("beta", "Beta DB", "plant"),
 ];
 
 const BOARD_MAP = new Map<string, BoardSummary>([

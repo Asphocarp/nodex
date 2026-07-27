@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Folder, FolderPlus } from "lucide-react";
+import { FolderPlus } from "lucide-react";
+import { ProjectMarker } from "@/components/workbench/project-marker";
 import {
   filterNewChatProjectSelectorOptions,
   resolveSelectedNewChatProjectSelectorOption,
@@ -67,7 +68,15 @@ export function NewChatProjectSelector({
             className="outline-hidden cursor-interaction relative z-0 inline-block whitespace-pre after:absolute after:-inset-x-1.5 after:-inset-y-0 after:-z-10 after:rounded-xl after:content-[''] group-hover/title:after:bg-token-foreground/5 hover:after:bg-token-foreground/10 data-[state=open]:after:bg-token-foreground/5 data-[state=open]:hover:after:bg-token-foreground/10 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={selectorDisabled}
           >
-            {triggerLabel}
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              {selectedOption ? (
+                <ProjectMarker
+                  appearance={selectedOption.appearance}
+                  className="size-4"
+                />
+              ) : null}
+              <span className="truncate">{triggerLabel}</span>
+            </span>
           </button>
         )}
       >
@@ -97,7 +106,12 @@ export function NewChatProjectSelector({
               data-new-chat-project-selector-trigger="true"
               className="max-w-full px-1.5 text-token-text-tertiary hover:text-token-foreground"
             >
-              <Folder className="icon-xs" />
+              {selectedOption ? (
+                <ProjectMarker
+                  appearance={selectedOption.appearance}
+                  className="size-4"
+                />
+              ) : null}
               <span className="max-w-40 truncate whitespace-nowrap text-left">{triggerLabel}</span>
             </NodexDropdownButtonTrigger>
           )}
@@ -140,7 +154,12 @@ function ProjectSelectorMenuContent({
               return (
                 <NodexDropdownItem
                   key={option.id}
-                  leftSlot={<Folder className="icon-xs text-token-description-foreground" />}
+                  leftSlot={(
+                    <ProjectMarker
+                      appearance={option.appearance}
+                      className="size-4 text-token-description-foreground"
+                    />
+                  )}
                   rightSlot={selected ? <NodexDropdownSelectedIcon /> : null}
                   subText={option.description}
                   tooltipText={option.primaryWorkspaceRoot ?? undefined}

@@ -11,6 +11,10 @@ function projectJson(lifecycle: "active" | "archived" = "active") {
     bindingRevision: 1,
     name: "Alpha",
     description: "",
+    appearance: {
+      color: "black",
+      marker: { kind: "icon", icon: "folder" },
+    },
     sources: [{ root: "/workspace/alpha", order: 0 }],
     primaryWorkspaceRoot: "/workspace/alpha",
     pinned: false,

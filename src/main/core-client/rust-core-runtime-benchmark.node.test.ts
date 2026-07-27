@@ -208,7 +208,7 @@ describe.runIf(enabled)("Rust Core Gate E runtime", () => {
         project_id: projectId,
         name: "Gate E benchmark",
         description: "Native Core runtime quality fixture",
-        icon: null,
+        appearance: null,
         source_roots: [],
       },
     });

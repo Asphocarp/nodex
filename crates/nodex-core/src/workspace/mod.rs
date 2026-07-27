@@ -2,6 +2,7 @@ mod child_thread_window;
 mod execution;
 mod managed_worktree_window;
 mod mutation;
+mod project_activity_summary;
 mod project_window;
 mod read;
 mod session_lifecycle;

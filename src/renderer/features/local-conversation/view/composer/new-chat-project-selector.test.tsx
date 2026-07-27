@@ -14,6 +14,7 @@ function buildModel(overrides?: Partial<NewChatProjectSelectorModel>): NewChatPr
       {
         id: "nodex",
         label: "Nodex",
+        appearance: { color: "green", marker: { kind: "icon", icon: "plant" } },
         description: "/Users/asc/repo/nodex",
         primaryWorkspaceRoot: "/Users/asc/repo/nodex",
         searchText: "nodex /users/asc/repo/nodex",
@@ -21,6 +22,7 @@ function buildModel(overrides?: Partial<NewChatProjectSelectorModel>): NewChatPr
       {
         id: "devtools-codex",
         label: "Devtools Codex",
+        appearance: { color: "blue", marker: { kind: "icon", icon: "function" } },
         description: "/Users/asc/repo/devtools-codex",
         primaryWorkspaceRoot: "/Users/asc/repo/devtools-codex",
         searchText: "devtools-codex devtools codex /users/asc/repo/devtools-codex",

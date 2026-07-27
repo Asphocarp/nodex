@@ -13,11 +13,9 @@ import {
   type ReactNode,
 } from "react";
 import {
-  CodexFolderIcon,
   SpinnerIcon,
 } from "@/components/shared/icons";
 import { createNfmMoveToSearchIndex } from "@/components/kanban/editor/nfm-move-to-menu-search";
-import { normalizeProjectIcon } from "@/lib/project-icon";
 import {
   resolveQueryFreshAccept,
   shouldConsumeStalePickerNavigation,
@@ -45,6 +43,7 @@ import {
   type PanelDestinationRow,
   type PanelDestinationSection,
 } from "./panel-destination-picker-model";
+import { ProjectMarker } from "./project-marker";
 
 interface PanelDestinationPickerProps {
   projects: readonly Project[];
@@ -85,34 +84,20 @@ function PanelDestinationStatusRow({
 }
 
 function PanelDestinationProjectIcon({
-  projectIcon,
+  projectAppearance,
   className,
 }: {
-  projectIcon?: string;
+  projectAppearance: Project["appearance"];
   className?: string;
 }) {
-  const normalizedIcon = normalizeProjectIcon(projectIcon);
-  if (normalizedIcon) {
-    return (
-      <span
-        aria-hidden="true"
-        className={cn("text-[15px] leading-none", className)}
-      >
-        {normalizedIcon}
-      </span>
-    );
-  }
-
-  return (
-    <CodexFolderIcon
-      className={cn("text-token-description-foreground", className)}
-    />
-  );
+  return <ProjectMarker appearance={projectAppearance} className={className} />;
 }
 
 function PanelDestinationRowIcon({ row }: { row: PanelDestinationRow }) {
   if (row.kind === "page") return <FileText className="size-4" aria-hidden="true" />;
-  return <PanelDestinationProjectIcon projectIcon={row.projectIcon} />;
+  return (
+    <PanelDestinationProjectIcon projectAppearance={row.projectAppearance} />
+  );
 }
 
 function getPanelDestinationRowLabel(row: PanelDestinationRow) {

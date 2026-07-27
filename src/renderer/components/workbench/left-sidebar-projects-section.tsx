@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import type { Project, ProjectCreateInput, ProjectLifecycleMutationResult, ProjectUpdateInput } from "../../lib/types";
-import type { ProjectRef } from "../../lib/use-workbench-state";
 import {
   CodexProjectRow,
   CodexSidebarSection,
@@ -9,7 +8,7 @@ import { SidebarProjectsSectionActions } from "./sidebar-projects-section-action
 
 interface SidebarProjectsSectionProps {
   projects: Project[];
-  projectRefs: ProjectRef[];
+  projectOrder: string[];
   activeProjectId: string | null;
   onSelectProject: (projectId: string) => void;
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
@@ -20,22 +19,22 @@ interface SidebarProjectsSectionProps {
   projectPickerOpenTick: number;
 }
 
-function resolveOrderedProjects(projects: Project[], projectRefs: ProjectRef[]) {
+function resolveOrderedProjects(projects: Project[], projectOrder: string[]) {
   const projectById = new Map(projects.map((project) => [project.id, project]));
   const seen = new Set<string>();
-  const orderedProjects: Array<{ project: Project; colorToken?: string }> = [];
+  const orderedProjects: Project[] = [];
 
-  for (const projectRef of projectRefs) {
-    const project = projectById.get(projectRef.projectId);
+  for (const projectId of projectOrder) {
+    const project = projectById.get(projectId);
     if (!project || seen.has(project.id)) continue;
     seen.add(project.id);
-    orderedProjects.push({ project, colorToken: projectRef.colorToken });
+    orderedProjects.push(project);
   }
 
   for (const project of projects) {
     if (seen.has(project.id)) continue;
     seen.add(project.id);
-    orderedProjects.push({ project });
+    orderedProjects.push(project);
   }
 
   return orderedProjects;
@@ -43,7 +42,7 @@ function resolveOrderedProjects(projects: Project[], projectRefs: ProjectRef[]) 
 
 export function SidebarProjectsSection({
   projects,
-  projectRefs,
+  projectOrder,
   activeProjectId,
   expanded,
   onToggleExpanded,
@@ -54,8 +53,8 @@ export function SidebarProjectsSection({
   projectPickerOpenTick,
 }: SidebarProjectsSectionProps) {
   const orderedProjects = useMemo(
-    () => resolveOrderedProjects(projects, projectRefs),
-    [projects, projectRefs],
+    () => resolveOrderedProjects(projects, projectOrder),
+    [projectOrder, projects],
   );
 
   return (
@@ -72,7 +71,7 @@ export function SidebarProjectsSection({
     >
       <div className="isolate flex flex-col [contain:layout]">
         <div className="flex flex-col" role="list" aria-label="Projects">
-          {orderedProjects.map(({ project }) => {
+          {orderedProjects.map((project) => {
             const isActive = project.id === activeProjectId;
 
             return (
