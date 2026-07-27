@@ -13,7 +13,7 @@ export default defineConfig({
     env: { TZ: "UTC" },
     environment: "jsdom",
     environmentOptions: {
-      jsdom: { url: "http://localhost:51283/" },
+      jsdom: { url: "http://renderer.test/" },
     },
     exclude: [
       "src/renderer/**/*.browser.test.{ts,tsx}",

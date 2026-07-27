@@ -1,7 +1,5 @@
-import { Hono } from "hono";
 import { describe, expect, test } from "vitest";
 import type { PageDetailResult } from "../shared/page-detail";
-import { registerPageDetailHttpRoute } from "./page-detail-http";
 import {
   PAGE_DETAIL_IPC_CHANNEL,
   registerPageDetailIpcHandler,
@@ -13,7 +11,7 @@ const result = (): PageDetailResult => ({
 });
 
 describe("Page Detail transport", () => {
-  test("keeps IPC and HTTP Project/Page coordinates equivalent", async () => {
+  test("keeps trusted IPC Project/Page coordinates exact", async () => {
     const reads: string[] = [];
     const read = async (projectId: string, pageId: string) => {
       reads.push(`${projectId}:${pageId}`);
@@ -37,13 +35,7 @@ describe("Page Detail transport", () => {
       error: { code: "authorization_denied" },
     });
 
-    const app = new Hono();
-    registerPageDetailHttpRoute(app, { read });
-    const response = await app.request(
-      "/api/projects/project-1/pages/page-1",
-    );
-    expect(response.status).toBe(404);
-    expect(JSON.stringify(ipc)).toBe(JSON.stringify(await response.json()));
-    expect(reads).toEqual(["project-1:page-1", "project-1:page-1"]);
+    expect(ipc).toEqual(result());
+    expect(reads).toEqual(["project-1:page-1"]);
   });
 });

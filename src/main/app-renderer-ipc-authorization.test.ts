@@ -1,9 +1,9 @@
 import { describe, expect, test } from "vitest";
-import { isTrustedWorkspaceFileIpcSender } from "./workspace-file-ipc-authorization";
+import { isTrustedAppRendererIpcSender } from "./app-renderer-ipc-authorization";
 
-describe("isTrustedWorkspaceFileIpcSender", () => {
+describe("isTrustedAppRendererIpcSender", () => {
   test("accepts only the top-level frame of an owned app window", () => {
-    expect(isTrustedWorkspaceFileIpcSender({
+    expect(isTrustedAppRendererIpcSender({
       hasOwnerWindow: true,
       senderType: "window",
       isMainFrame: true,
@@ -27,6 +27,6 @@ describe("isTrustedWorkspaceFileIpcSender", () => {
       isMainFrame: false,
     },
   ])("rejects an untrusted sender: %o", (facts) => {
-    expect(isTrustedWorkspaceFileIpcSender(facts)).toBe(false);
+    expect(isTrustedAppRendererIpcSender(facts)).toBe(false);
   });
 });

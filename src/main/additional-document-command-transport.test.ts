@@ -1,10 +1,8 @@
-import { Hono } from "hono";
 import { describe, expect, test } from "vitest";
 import type {
   AdditionalDocumentCommandResult,
 } from "../shared/additional-document-commands";
 import type { PublicAdditionalDocumentCommandRequest } from "../shared/additional-document-command-transport";
-import { registerAdditionalDocumentCommandHttpRoute } from "./additional-document-command-http";
 import {
   ADDITIONAL_DOCUMENT_COMMAND_IPC_CHANNEL,
   registerAdditionalDocumentCommandIpcHandler,
@@ -54,7 +52,7 @@ const committed = (
   },
 });
 
-describe("Additional Document command transports", () => {
+describe("Additional Document command IPC", () => {
   test("Electron IPC binds the trusted main-frame identity", async () => {
     let handler: AdditionalDocumentCommandIpcHandler = async () => {
       throw new Error("IPC handler was not registered");
@@ -116,110 +114,4 @@ describe("Additional Document command transports", () => {
     expect(calls).toBe(0);
   });
 
-  test("HTTP binds loopback identity and preserves typed conflict statuses", async () => {
-    const captured: PublicAdditionalDocumentCommandRequest[] = [];
-    const app = new Hono();
-    registerAdditionalDocumentCommandHttpRoute(app, {
-      applyCommand: async (bound) => {
-        captured.push(bound);
-        return committed(bound);
-      },
-    });
-    const response = await app.request(
-      "/api/projects/project-1/document-commands",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
-      },
-    );
-    expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(captured[0]?.clientSessionId).toBe("http-loopback");
-    expect(captured[0]?.actor.kind).toBe("http_loopback");
-
-    const conflict = new Hono();
-    registerAdditionalDocumentCommandHttpRoute(conflict, {
-      applyCommand: async (bound) => ({
-        ok: false,
-        error: {
-          code: "document_head_conflict",
-          message: "stale",
-          retryable: true,
-          operationId: bound.operationId,
-          operationKind: bound.operation.kind,
-        },
-      }),
-    });
-    const conflictResponse = await conflict.request(
-      "/api/projects/project-1/document-commands",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
-      },
-    );
-    expect(conflictResponse.status).toBe(409);
-  });
-
-  test("HTTP rejects route mismatch before authority and normalizes outage", async () => {
-    let calls = 0;
-    const scoped = new Hono();
-    registerAdditionalDocumentCommandHttpRoute(scoped, {
-      applyCommand: async (bound) => {
-        calls += 1;
-        return committed(bound);
-      },
-    });
-    const mismatch = await scoped.request(
-      "/api/projects/project-2/document-commands",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
-      },
-    );
-    expect(mismatch.status).toBe(400);
-    expect(calls).toBe(0);
-
-    const invalidScope = await scoped.request(
-      "/api/projects/project-1/document-commands",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...request,
-          operation: {
-            kind: "create_canvas_owner",
-            scope: "primary",
-            blockId: "canvas-1",
-            documentId: "document-canvas-1",
-            displayName: "Canvas",
-            placement: { kind: "space" },
-          },
-        }),
-      },
-    );
-    expect(invalidScope.status).toBe(400);
-    expect(calls).toBe(0);
-
-    const unavailable = new Hono();
-    registerAdditionalDocumentCommandHttpRoute(unavailable, {
-      applyCommand: async () => {
-        throw new Error("writer offline");
-      },
-    });
-    const outage = await unavailable.request(
-      "/api/projects/project-1/document-commands",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
-      },
-    );
-    expect(outage.status).toBe(503);
-    const body = (await outage.json()) as AdditionalDocumentCommandResult;
-    expect(body.ok).toBe(false);
-    if (!body.ok) expect(body.error.operationId).toBe(request.operationId);
-  });
 });

@@ -6,11 +6,26 @@ import { getNodexHome } from "./assets-deps";
 import {
   getAssetSource,
   isSafeAssetFileName,
+  parseAssetSource,
 } from "../../shared/assets";
+import {
+  MAX_MANAGED_IMAGE_BYTES,
+  MAX_MANAGED_PREVIEW_BYTES,
+  MAX_MANAGED_RESOURCE_BYTES,
+  createManagedTextPreview,
+  type ManagedAssetImageBytes,
+  type ManagedAssetPreview,
+  type ManagedAssetPreviewInput,
+  type ManagedAssetUploadInput,
+  type ManagedFolderManifest,
+  type ManagedFolderManifestEntry,
+  type ManagedImageSaveResult,
+  type ManagedResourceSaveResult,
+} from "../../shared/managed-assets";
 import { storeMaintenanceGate } from "./store-maintenance-gate";
 
-export const MAX_IMAGE_UPLOAD_BYTES = 10 * 1024 * 1024;
-export const MAX_RESOURCE_UPLOAD_BYTES = 64 * 1024 * 1024;
+export const MAX_IMAGE_UPLOAD_BYTES = MAX_MANAGED_IMAGE_BYTES;
+export const MAX_RESOURCE_UPLOAD_BYTES = MAX_MANAGED_RESOURCE_BYTES;
 
 const IMAGE_MIME_TO_EXTENSION: Record<string, string> = {
   "image/png": ".png",
@@ -60,21 +75,6 @@ const EXTENSION_TO_TEXT_MIME: Record<string, string> = {
   ".yml": "application/yaml",
   ".zsh": "text/x-shellscript",
 };
-
-interface FolderManifestEntry {
-  path: string;
-  kind: "file" | "folder";
-  bytes?: number;
-}
-
-interface FolderManifest {
-  rootName: string;
-  generatedAt: string;
-  maxEntries: number;
-  maxDepth: number;
-  truncated: boolean;
-  entries: FolderManifestEntry[];
-}
 
 interface CachedAssetPaths {
   pathPrefix: string;
@@ -151,6 +151,11 @@ export function getMimeTypeForAssetFile(fileName: string): string {
   return EXTENSION_TO_IMAGE_MIME[extension]
     ?? EXTENSION_TO_TEXT_MIME[extension]
     ?? "application/octet-stream";
+}
+
+export function getImageMimeTypeForAssetFile(fileName: string): string | null {
+  const extension = path.extname(fileName).toLowerCase();
+  return EXTENSION_TO_IMAGE_MIME[extension] ?? null;
 }
 
 function sanitizeExtension(extension: string): string {
@@ -267,8 +272,8 @@ function buildFolderManifest(
   rootPath: string,
   maxEntries = 100,
   maxDepth = 3,
-): FolderManifest {
-  const entries: FolderManifestEntry[] = [];
+): ManagedFolderManifest {
+  const entries: ManagedFolderManifestEntry[] = [];
   const normalizedRootPath = path.resolve(rootPath);
   let truncated = false;
 
@@ -320,25 +325,48 @@ function buildFolderManifest(
   };
 }
 
-export async function saveUploadedImage(file: File): Promise<{ source: string; fileName: string }> {
+function normalizeAssetUploadInput(
+  input: ManagedAssetUploadInput,
+): { name: string; mimeType: string; bytes: Buffer } {
+  if (!input || typeof input !== "object") {
+    throw new Error("Asset upload is required");
+  }
+  if (!(input.bytes instanceof Uint8Array)) {
+    throw new Error("Asset upload bytes are invalid");
+  }
+
+  const name = input.name
+    .replace(/[\u0000-\u001F\u007F]/gu, "")
+    .trim()
+    .slice(0, 512);
+  const mimeType = normalizeMimeType(input.mimeType);
+  return {
+    name,
+    mimeType,
+    bytes: Buffer.from(input.bytes),
+  };
+}
+
+export function saveUploadedImage(
+  input: ManagedAssetUploadInput,
+): ManagedImageSaveResult {
   const mutation = storeMaintenanceGate.beginMutation();
   try {
-    if (!isSupportedImageMimeType(file.type)) {
-      throw new Error(`Unsupported image type: ${file.type || "unknown"}`);
+    const upload = normalizeAssetUploadInput(input);
+    if (!isSupportedImageMimeType(upload.mimeType)) {
+      throw new Error(`Unsupported image type: ${upload.mimeType || "unknown"}`);
     }
 
-    if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
+    if (upload.bytes.byteLength > MAX_IMAGE_UPLOAD_BYTES) {
       throw new Error("Image exceeds 10MB upload limit");
     }
 
-    const extension = IMAGE_MIME_TO_EXTENSION[file.type] ?? "";
+    const extension = IMAGE_MIME_TO_EXTENSION[upload.mimeType] ?? "";
     const fileName = `${crypto.randomUUID()}${extension}`;
     const absolutePath = resolveFlatAssetPath(fileName);
 
     fs.mkdirSync(getAssetsRootPath(), { recursive: true });
-
-    const fileBytes = Buffer.from(await file.arrayBuffer());
-    fs.writeFileSync(absolutePath, fileBytes);
+    fs.writeFileSync(absolutePath, upload.bytes);
 
     return {
       source: getAssetSource(fileName),
@@ -349,27 +377,31 @@ export async function saveUploadedImage(file: File): Promise<{ source: string; f
   }
 }
 
-export async function saveUploadedResource(
-  file: File,
-): Promise<{ source: string; fileName: string; name: string; mimeType: string; bytes: number }> {
+export function saveUploadedResource(
+  input: ManagedAssetUploadInput,
+): ManagedResourceSaveResult {
   const mutation = storeMaintenanceGate.beginMutation();
   try {
-    if (file.size > MAX_RESOURCE_UPLOAD_BYTES) {
+    const upload = normalizeAssetUploadInput(input);
+    if (upload.bytes.byteLength > MAX_RESOURCE_UPLOAD_BYTES) {
       throw new Error("Resource exceeds 64MB upload limit");
     }
 
-    const normalizedMimeType = normalizeMimeType(file.type || inferMimeTypeFromLocalPath(file.name));
-    const extension = resolveStoredExtension(file.name, normalizedMimeType);
+    const normalizedMimeType = normalizeMimeType(
+      upload.mimeType === "application/octet-stream" && upload.name
+        ? inferMimeTypeFromLocalPath(upload.name)
+        : upload.mimeType,
+    );
+    const extension = resolveStoredExtension(upload.name, normalizedMimeType);
     const fileName = `${crypto.randomUUID()}${extension}`;
-    const fileBytes = Buffer.from(await file.arrayBuffer());
-    writeAssetBytes(fileName, fileBytes);
+    writeAssetBytes(fileName, upload.bytes);
 
     return {
       source: getAssetSource(fileName),
       fileName,
-      name: file.name || fileName,
+      name: upload.name || fileName,
       mimeType: normalizedMimeType,
-      bytes: fileBytes.byteLength,
+      bytes: upload.bytes.byteLength,
     };
   } finally {
     mutation.release();
@@ -378,13 +410,14 @@ export async function saveUploadedResource(
 
 export function materializeLocalResource(
   localPath: string,
-): { source: string; fileName: string; name: string; mimeType: string; bytes: number } {
+): ManagedResourceSaveResult {
   const mutation = storeMaintenanceGate.beginMutation();
   try {
-    const normalizedLocalPath = path.resolve(localPath.trim());
-    if (!path.isAbsolute(normalizedLocalPath)) {
+    const trimmedLocalPath = localPath.trim();
+    if (!path.isAbsolute(trimmedLocalPath)) {
       throw new Error("Local resource path must be absolute");
     }
+    const normalizedLocalPath = path.resolve(trimmedLocalPath);
     if (!fs.existsSync(normalizedLocalPath)) {
       throw new Error("Local resource not found");
     }
@@ -432,6 +465,10 @@ export function readAssetFile(fileName: string): { bytes: Buffer; mimeType: stri
   if (!fs.existsSync(absolutePath)) {
     throw new Error("Asset not found");
   }
+  const stats = fs.lstatSync(absolutePath);
+  if (!stats.isFile() || stats.isSymbolicLink()) {
+    throw new Error("Managed asset must be a regular file");
+  }
 
   const bytes = fs.readFileSync(absolutePath);
 
@@ -439,4 +476,113 @@ export function readAssetFile(fileName: string): { bytes: Buffer; mimeType: stri
     bytes,
     mimeType: getMimeTypeForAssetFile(fileName),
   };
+}
+
+function readAssetFileBounded(fileName: string, maxBytes: number): Buffer {
+  const absolutePath = resolveFlatAssetPath(fileName);
+  if (!fs.existsSync(absolutePath)) {
+    throw new Error("Asset not found");
+  }
+  const stats = fs.lstatSync(absolutePath);
+  if (!stats.isFile() || stats.isSymbolicLink()) {
+    throw new Error("Managed asset must be a regular file");
+  }
+
+  const descriptor = fs.openSync(absolutePath, "r");
+  try {
+    const bytes = Buffer.alloc(Math.min(stats.size, maxBytes + 1));
+    const bytesRead = fs.readSync(descriptor, bytes, 0, bytes.length, 0);
+    return bytes.subarray(0, bytesRead);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+function parseManagedAssetFileName(source: string): string {
+  const parsed = parseAssetSource(source);
+  if (!parsed) throw new Error("Invalid managed asset source");
+  return parsed.fileName;
+}
+
+export function readManagedAssetImage(source: string): ManagedAssetImageBytes {
+  const fileName = parseManagedAssetFileName(source);
+  const mimeType = getImageMimeTypeForAssetFile(fileName);
+  if (!mimeType) throw new Error("Managed asset is not a supported image");
+
+  const bytes = readAssetFileBounded(fileName, MAX_MANAGED_IMAGE_BYTES);
+  if (bytes.byteLength > MAX_MANAGED_IMAGE_BYTES) {
+    throw new Error("Image exceeds 10MB upload limit");
+  }
+  return { mimeType, bytes };
+}
+
+function isManagedFolderManifest(value: unknown): value is ManagedFolderManifest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const manifest = value as Partial<ManagedFolderManifest>;
+  if (
+    typeof manifest.rootName !== "string"
+    || typeof manifest.generatedAt !== "string"
+    || typeof manifest.maxEntries !== "number"
+    || typeof manifest.maxDepth !== "number"
+    || typeof manifest.truncated !== "boolean"
+    || !Array.isArray(manifest.entries)
+    || manifest.entries.length > 100
+  ) {
+    return false;
+  }
+  return manifest.entries.every((entry) => {
+    if (!entry || typeof entry !== "object") return false;
+    const candidate = entry as Partial<ManagedFolderManifestEntry>;
+    return (
+      typeof candidate.path === "string"
+      && candidate.path.length <= 4096
+      && (candidate.kind === "file" || candidate.kind === "folder")
+      && (candidate.bytes === undefined || (
+        typeof candidate.bytes === "number"
+        && Number.isFinite(candidate.bytes)
+        && candidate.bytes >= 0
+      ))
+    );
+  });
+}
+
+function isTextPreviewMimeType(mimeType: string): boolean {
+  return mimeType.startsWith("text/")
+    || mimeType === "application/json"
+    || mimeType === "application/sql"
+    || mimeType === "application/toml"
+    || mimeType === "application/xml"
+    || mimeType === "application/yaml";
+}
+
+export function readManagedAssetPreview(
+  input: ManagedAssetPreviewInput,
+): ManagedAssetPreview {
+  const fileName = parseManagedAssetFileName(input.source);
+  const mimeType = getMimeTypeForAssetFile(fileName);
+  if (input.kind === "text") {
+    if (!isTextPreviewMimeType(mimeType)) {
+      throw new Error("Managed asset is not text-previewable");
+    }
+    const bytes = readAssetFileBounded(fileName, MAX_MANAGED_PREVIEW_BYTES);
+    const text = bytes.toString("utf8");
+    const preview = createManagedTextPreview(text);
+    return {
+      ...preview,
+      truncated: preview.truncated || bytes.byteLength > MAX_MANAGED_PREVIEW_BYTES,
+    };
+  }
+
+  if (mimeType !== "application/json") {
+    throw new Error("Managed folder manifest must be JSON");
+  }
+  const bytes = readAssetFileBounded(fileName, MAX_MANAGED_PREVIEW_BYTES);
+  if (bytes.byteLength > MAX_MANAGED_PREVIEW_BYTES) {
+    throw new Error("Managed folder manifest exceeds preview limit");
+  }
+  const parsed = JSON.parse(bytes.toString("utf8")) as unknown;
+  if (!isManagedFolderManifest(parsed)) {
+    throw new Error("Managed folder manifest is invalid");
+  }
+  return { kind: "folder", manifest: parsed };
 }

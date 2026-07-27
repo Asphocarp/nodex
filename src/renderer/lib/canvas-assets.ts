@@ -1,5 +1,5 @@
 import type { CanvasSceneFile } from "../../shared/block-documents/canvas-scene";
-import { resolveAssetSourceToHttpUrl, uploadImageAsset } from "./assets";
+import { readManagedImageDataUrl, uploadImageAsset } from "./assets";
 
 export interface CanvasBinaryFileData {
   readonly id: string;
@@ -13,8 +13,7 @@ export type CanvasBinaryFiles = Readonly<Record<string, CanvasBinaryFileData>>;
 
 export interface CanvasAssetBridgeDependencies {
   readonly uploadImage?: (file: File) => Promise<string>;
-  readonly fetchAsset?: (url: string) => Promise<Response>;
-  readonly blobToDataUrl?: (blob: Blob) => Promise<string>;
+  readonly readAssetDataUrl?: (source: string) => Promise<string>;
   readonly now?: () => number;
 }
 
@@ -88,20 +87,6 @@ export const materializeDurableCanvasFiles = async (input: {
   return durable;
 };
 
-const readBlobAsDataUrl = (blob: Blob): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error("Asset read failed"));
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        resolve(reader.result);
-        return;
-      }
-      reject(new Error("Asset reader returned a non-string result"));
-    };
-    reader.readAsDataURL(blob);
-  });
-
 interface CanvasBinaryFileCacheEntry {
   readonly identity: string;
   readonly dataUrl: Promise<string>;
@@ -174,16 +159,11 @@ export class CanvasBinaryFileResolver {
   ): CanvasBinaryFileCacheEntry {
     const current = this.cache.get(fileId);
     if (current?.identity === identity) return current;
-    const fetchAsset = this.dependencies.fetchAsset ?? fetch;
-    const blobToDataUrl = this.dependencies.blobToDataUrl ?? readBlobAsDataUrl;
+    const readAssetDataUrl = this.dependencies.readAssetDataUrl
+      ?? readManagedImageDataUrl;
     const entry: CanvasBinaryFileCacheEntry = {
       identity,
-      dataUrl: fetchAsset(resolveAssetSourceToHttpUrl(file.source))
-        .then((response) => {
-          if (response.ok) return response.blob();
-          throw new Error(`Managed Canvas asset ${file.source} is unavailable`);
-        })
-        .then(blobToDataUrl),
+      dataUrl: readAssetDataUrl(file.source),
     };
     this.cache.set(fileId, entry);
     void entry.dataUrl.catch(() => {

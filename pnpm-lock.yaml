@@ -31,18 +31,12 @@ importers:
 
   .:
     dependencies:
-      '@hono/node-server':
-        specifier: 2.0.5
-        version: 2.0.5(hono@4.12.25)
       '@sentry/electron':
         specifier: 7.13.0
         version: 7.13.0(supports-color@10.2.2)
       electron-updater:
         specifier: 6.8.9
         version: 6.8.9
-      hono:
-        specifier: 4.12.25
-        version: 4.12.25
       immer:
         specifier: 11.1.8
         version: 11.1.8
@@ -1536,12 +1530,6 @@ packages:
       prosemirror-model: 1.25.9
       prosemirror-state: ^1.0.0
       prosemirror-view: 1.41.9
-
-  '@hono/node-server@2.0.5':
-    resolution: {integrity: sha512-yQFvDmyDo3y6rEOJZDUYPJ49DIKTPpIk4kGvm40xx4Ejne0Pu9a1+exxPN+C1UppWK/WGZX9F++/Xs231tE86g==}
-    engines: {node: '>=20'}
-    peerDependencies:
-      hono: ^4
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -5621,10 +5609,6 @@ packages:
   hermes-parser@0.25.1:
     resolution: {integrity: sha512-6pEjquH3rqaI6cYAXYPcz9MS4rY6R4ngRgrgfDshRptUZIc3lw0MCIJIGDj9++mfySOuPTHB4nrSW99BCvOPIA==}
 
-  hono@4.12.25:
-    resolution: {integrity: sha512-2NFaIyNVgJmBs/ecmtGzlmluTFs5cHEWGTdu0t1HBwYzoGXOL5nUQBRMXsXWla5i4KkG//QMzVP88m1+I3fdAQ==}
-    engines: {node: '>=16.9.0'}
-
   hosted-git-info@4.1.0:
     resolution: {integrity: sha512-kyCuEOWjJqZuDbRHzL8V93NzQhwIB71oFWSyzVo+KPZI+pnQPPxucdkrOZvkLRnrf5URsQM+IJ09Dw29cRALIA==}
     engines: {node: '>=10'}
@@ -8570,10 +8554,6 @@ snapshots:
       prosemirror-state: 1.4.4
       prosemirror-transform: 1.12.0
       prosemirror-view: 1.41.9
-
-  '@hono/node-server@2.0.5(hono@4.12.25)':
-    dependencies:
-      hono: 4.12.25
 
   '@humanfs/core@0.19.2':
     dependencies:
@@ -13034,8 +13014,6 @@ snapshots:
   hermes-parser@0.25.1:
     dependencies:
       hermes-estree: 0.25.1
-
-  hono@4.12.25: {}
 
   hosted-git-info@4.1.0:
     dependencies:

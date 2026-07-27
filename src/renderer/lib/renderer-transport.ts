@@ -1,4 +1,3 @@
-import { browserRendererTransport } from "./browser-renderer-transport";
 import {
   createElectronRendererTransport,
   type ElectronRendererBridge,
@@ -12,7 +11,6 @@ import type {
 } from "../../shared/projection-stream";
 
 export interface RendererTransport {
-  kind: "browser" | "electron";
   readPageLifecyclePreflight: (
     projectId: string,
     pageId: string,
@@ -211,23 +209,18 @@ export interface RendererTransport {
   ) => () => void;
 }
 
-const BROWSER_ONLY_INVOKE_CHANNELS = new Set<string>(["asset:resolve-path"]);
-
-function readElectronBridge(): ElectronRendererBridge | null {
-  if (typeof window === "undefined") return null;
-  return window.api ?? null;
+function readElectronBridge(): ElectronRendererBridge {
+  const bridge = typeof window === "undefined" ? undefined : window.api;
+  if (!bridge) {
+    throw new Error("Nodex renderer requires the Electron preload bridge");
+  }
+  return bridge;
 }
 
 export function resolveRendererTransport(): RendererTransport {
-  const bridge = readElectronBridge();
-  if (!bridge) return browserRendererTransport;
-  return createElectronRendererTransport(bridge);
+  return createElectronRendererTransport(readElectronBridge());
 }
 
-export function resolveInvokeTransport(channel: string): RendererTransport {
-  if (BROWSER_ONLY_INVOKE_CHANNELS.has(channel)) {
-    return browserRendererTransport;
-  }
-
+export function resolveInvokeTransport(): RendererTransport {
   return resolveRendererTransport();
 }

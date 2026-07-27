@@ -89,14 +89,6 @@ import type {
   RemovePastedTextAttachmentInput,
 } from "../../shared/pasted-text-attachments";
 
-const BROWSER_CODEX_INVOKE_CHANNELS = new Set<string>([
-  "codex:sidebar:thread:move",
-  "codex:sidebar:project-thread-order:set",
-  "codex:sidebar:chats-thread-order:set",
-  "codex:thread:archive",
-  "codex:thread:unarchive",
-]);
-
 export async function invoke<Channel extends keyof IpcApi>(
   channel: Channel,
   ...args: IpcApi[Channel]["args"]
@@ -109,16 +101,7 @@ export async function invoke(
   channel: string,
   ...args: unknown[]
 ): Promise<unknown> {
-  const transport = resolveInvokeTransport(channel);
-
-  if (
-    (channel.startsWith("codex:") || channel.startsWith("agent-runtime:")) &&
-    transport.kind !== "electron" &&
-    !BROWSER_CODEX_INVOKE_CHANNELS.has(channel)
-  ) {
-    throw new Error("Codex threads require Electron in this release");
-  }
-
+  const transport = resolveInvokeTransport();
   return transport.invoke(channel, ...args);
 }
 

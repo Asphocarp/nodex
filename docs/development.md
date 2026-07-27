@@ -80,6 +80,21 @@ when `--keep` is also set. Reuse preserves its existing schema and data; choose
 a new root when checking first-run behavior or when the retained profile predates
 the currently supported Core import boundary.
 
+Desktop process isolation is keyed by the resolved `NODEX_HOME`. A development
+run and a packaged app may run concurrently when their homes differ; each gets
+its own Electron storage, process lock, Core socket/capability, database,
+assets, backups, and logs. Nodex no longer starts a Desktop TCP API or reads
+`NODEX_PORT` / `[server].port`. To verify that boundary with disposable data:
+
+```bash
+scripts/run.sh -ck -r ../tmp/no/oi --dev
+lsof -nP -iTCP:51283 -sTCP:LISTEN
+```
+
+The listener check should show no Nodex desktop process. The Browser sidebar is
+still supported, but it is a separate webview partition and cannot resolve the
+default-session-only `nodex-asset:` protocol.
+
 Build the app:
 
 ```bash

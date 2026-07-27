@@ -2145,6 +2145,9 @@ function renderWorkbench({
     generatedAt: 1,
   });
   mockInvokeImpl = async (channel, ...args) => {
+    if (channel === "browser-sidebar-command") {
+      return { ok: true };
+    }
     if (channel === "page-ownership-path:resolve") {
       const input = args[0] as { targetPageId: string };
       return {
@@ -3284,17 +3287,25 @@ function renderWorkbench({
   };
 }
 
-function installTerminalEventApiMock(): TerminalEventListenerMap {
-  const listeners: TerminalEventListenerMap = {};
+function installRendererApiMock(listeners?: TerminalEventListenerMap): void {
   window.api = {
-    invoke: async () => undefined,
+    invoke: async (channel: string, ...args: unknown[]) => {
+      invokeCalls.push([channel, ...args]);
+      return mockInvokeImpl?.(channel, ...args) ?? null;
+    },
     on: (event: string, callback: (...args: unknown[]) => void) => {
+      if (!listeners) return () => undefined;
       listeners[event] = (payload: unknown) => callback(payload);
       return () => {
         delete listeners[event];
       };
     },
   } as typeof window.api;
+}
+
+function installTerminalEventApiMock(): TerminalEventListenerMap {
+  const listeners: TerminalEventListenerMap = {};
+  installRendererApiMock(listeners);
   return listeners;
 }
 
@@ -3304,7 +3315,7 @@ beforeEach(() => {
   resetPageDetailStoreForTests();
   __resetNodexToastStoreForTests();
   document.body.removeAttribute("style");
-  delete (window as { api?: typeof window.api }).api;
+  installRendererApiMock();
   invokeCalls = [];
   startThreadForSessionCalls = [];
   startThreadForSessionResult = {
@@ -9674,7 +9685,7 @@ describe(`workbench session shell / ${scope}`, () => {
   });
 
   for (const previewCase of [
-    { label: "Browser", kind: "browser", pinText: "Browser is available in the desktop app" },
+    { label: "Browser", kind: "browser", pinPlaceholder: "Enter a URL" },
   ] as const) {
     test(`bottom ${previewCase.label} preview mounts and pins after interaction`, async () => {
       const screen = renderWorkbench();
@@ -9689,7 +9700,7 @@ describe(`workbench session shell / ${scope}`, () => {
       expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBe(true);
       expect(invokeCalls.some((call) => call[0] === "window-session-view:tab-create")).toBe(false);
 
-      await pointerDownAndSettle(screen.getByText(previewCase.pinText));
+      await pointerDownAndSettle(screen.getByPlaceholderText(previewCase.pinPlaceholder));
       await waitFor(() => {
         expect(invokeCalls.some((call) =>
           call[0] === "window-session-view:tab-create"
@@ -13543,10 +13554,13 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(screen.getByText("Browser is available in the desktop app") !== null).toBe(true);
+    expect(screen.getByRole("tab", { name: "Browser" }).getAttribute("aria-selected")).toBe("true");
 
+    const navigationChrome = screen.getAllByTestId("workbench-window-navigation-chrome")
+      .find((element) => element.closest('[aria-hidden="true"]') === null);
+    expect(navigationChrome).toBeDefined();
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Back" }));
+      fireEvent.click(within(navigationChrome!).getByRole("button", { name: "Back" }));
       await Promise.resolve();
     });
     await settleAsyncRender();

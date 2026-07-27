@@ -40,7 +40,6 @@ import type {
 
 interface ServerTomlConfig {
   home?: string;
-  port?: number;
   backup_auto_enabled?: boolean;
   backup_interval_hours?: number;
   backup_retention?: number;
@@ -195,16 +194,6 @@ export function getNodexHome(): string {
 
 export function getDatabasePath(): string {
   return path.join(getNodexHome(), DATABASE_FILE_NAME);
-}
-
-export function getPort(): number {
-  const envPort = process.env.NODEX_PORT;
-  if (envPort) {
-    const parsed = Number.parseInt(envPort, 10);
-    if (!Number.isNaN(parsed)) return parsed;
-  }
-  if (typeof serverToml.port === "number") return serverToml.port;
-  return 51283;
 }
 
 function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {

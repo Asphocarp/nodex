@@ -45,16 +45,6 @@ import {
   type CanvasSceneRealtimeEvent,
 } from "../shared/block-documents";
 import { BLOCK_TRANSFER_INTENT_CONTRACT_VERSION } from "../shared/block-transfer";
-import {
-  DOCUMENT_HTTP_CONTENT_TYPE,
-  decodeDocumentSyncHttpResponse,
-  encodeDocumentSyncHttpRequest,
-} from "../shared/block-documents/http-contract";
-import {
-  __resetHttpServerDependenciesForTests,
-  __setHttpContentModuleDependenciesForTests,
-  getHttpServerOptions,
-} from "./http-server";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 const temporaryDirectories: string[] = [];
@@ -81,7 +71,6 @@ const listCurrentProcessFiles = (): string => {
 };
 
 afterEach(() => {
-  __resetHttpServerDependenciesForTests();
   delete process.env.NODEX_CORE_EXECUTABLE;
   delete process.env.NODEX_HOME;
   for (const directory of temporaryDirectories.splice(0)) {
@@ -126,25 +115,11 @@ describe("Electron native data authority", () => {
       const desktopWorkspace = createDesktopProjectWorkspaceBridge({
         authority: Promise.resolve(runtime),
       });
-      __setHttpContentModuleDependenciesForTests({
-        projectWorkspace: desktopWorkspace,
-      });
-      const projectsHttpResponse = await getHttpServerOptions(51_284).fetch(
-        new Request("http://127.0.0.1:51284/api/projects"),
-      );
-      expect(projectsHttpResponse.status).toBe(200);
-      await expect(projectsHttpResponse.json()).resolves.toMatchObject({
-        items: expect.arrayContaining([
+      await expect(desktopWorkspace.listProjects()).resolves.toEqual(
+        expect.arrayContaining([
           expect.objectContaining({ id: projectId }),
         ]),
-        nextCursor: null,
-      });
-      const sqlHttpResponse = await getHttpServerOptions(51_284).fetch(
-        new Request(
-          `http://127.0.0.1:51284/api/projects/${projectId}/schema`,
-        ),
       );
-      expect(sqlHttpResponse.status).toBe(404);
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
       const database = createCoreDatabaseModuleAdapter({
         client: runtime.clientForProject(projectId),
@@ -168,35 +143,6 @@ describe("Electron native data authority", () => {
       if (!databaseCatalog.ok || databaseCatalog.value.value.kind !== "database") {
         throw new Error("Expected Core Database descriptor");
       }
-      __setHttpContentModuleDependenciesForTests({
-        database: {
-          read: (request) => database.read(request),
-          apply: (request) => database.apply(request),
-        },
-      });
-      const databaseHttpResponse = await getHttpServerOptions(51_284).fetch(
-        new Request(
-          `http://127.0.0.1:51284/api/projects/${projectId}/database-module/read`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-              projectId,
-              read: { target: { kind: "project_default" }, mode: "database" },
-            }),
-          },
-        ),
-      );
-      expect(databaseHttpResponse.status).toBe(200);
-      await expect(databaseHttpResponse.json()).resolves.toMatchObject({
-        ok: true,
-        value: {
-          projectId,
-          libraryId: runtime.rootClient.handshake.library_id,
-          value: { kind: "database" },
-        },
-      });
       const primaryDatabase = databaseCatalog.value.value.value;
       const primaryDataSource = primaryDatabase?.dataSources[0];
       const primaryView = primaryDatabase?.views.find((view) =>
@@ -432,55 +378,14 @@ describe("Electron native data authority", () => {
       const desktopDocuments = createDesktopDocumentSyncBridge({
         authority: Promise.resolve(runtime),
       });
-      __setHttpContentModuleDependenciesForTests({
-        documentSync: {
-          realtime: desktopDocuments,
-          getOwnedDocumentDescriptor: (targetProjectId, ownerBlockId) =>
-            desktopDocuments.getOwnedDocumentDescriptor(
-              targetProjectId,
-              ownerBlockId,
-            ),
-          prepareOwnedBlockDocument: (targetProjectId, ownerBlockId) =>
-            desktopDocuments.prepareOwnedBlockDocument(
-              targetProjectId,
-              ownerBlockId,
-            ),
-          prepareLibraryOwnedBlockDocument: (ownerBlockId) =>
-            desktopDocuments.prepareLibraryOwnedBlockDocument(ownerBlockId),
-        },
-      });
-      const documentEventsResponse = await getHttpServerOptions(51_284).fetch(
-        new Request(
-          `http://127.0.0.1:51284/api/projects/${projectId}/documents/${nativeSourceDocumentId}/events?clientSessionId=http-native-document`,
-        ),
-      );
-      expect(documentEventsResponse.status).toBe(200);
-      const documentEventReader = documentEventsResponse.body?.getReader();
-      if (!documentEventReader) throw new Error("Native HTTP SSE body is missing");
-      const documentSyncResponse = await getHttpServerOptions(51_284).fetch(
-        new Request(
-          `http://127.0.0.1:51284/api/projects/${projectId}/documents/${nativeSourceDocumentId}/sync`,
-          {
-            method: "POST",
-            headers: { "Content-Type": DOCUMENT_HTTP_CONTENT_TYPE },
-            body: encodeDocumentSyncHttpRequest({
-              documentId: nativeSourceDocumentId,
-              clientSessionId: "http-native-document",
-              stateVector: new Uint8Array(),
-            }).slice().buffer,
-          },
-        ),
-      );
-      expect(documentSyncResponse.status).toBe(200);
-      expect(decodeDocumentSyncHttpResponse(
-        new Uint8Array(await documentSyncResponse.arrayBuffer()),
-      )).toMatchObject({
+      await expect(desktopDocuments.getOwnedDocumentDescriptor(
+        projectId,
+        nativeSourceBlockId,
+      )).resolves.toMatchObject({
         documentId: nativeSourceDocumentId,
-        storeEpoch: runtime.rootClient.handshake.store_epoch,
         generation: 1,
         headSeq: 1,
       });
-      await documentEventReader.cancel();
       await expect(projectDocuments.applyAdditionalDocumentCommand(
         createSyncedSource,
       )).resolves.toMatchObject({
@@ -1020,34 +925,6 @@ describe("Electron native data authority", () => {
             hasDescription: false,
           }),
         ]));
-      __setHttpContentModuleDependenciesForTests({
-        databaseProjections: desktopDatabase,
-      });
-      const windowHttpResponse = await getHttpServerOptions(51_284).fetch(
-        new Request(
-          `http://127.0.0.1:51284/api/projects/${projectId}/database-views/default/rows?first=200`,
-        ),
-      );
-      expect(windowHttpResponse.status).toBe(200);
-      await expect(windowHttpResponse.json()).resolves.toMatchObject({
-        projectId,
-        libraryId: nativeWindow.libraryId,
-        databaseId: nativeWindow.databaseId,
-        dataSourceId: nativeWindow.dataSourceId,
-        viewId: nativeWindow.viewId,
-        storeEpoch: nativeWindow.storeEpoch,
-        changeLogSeq: nativeWindow.changeLogSeq,
-        board: {
-          columns: expect.arrayContaining([
-            expect.objectContaining({
-              id: "ship",
-              cards: expect.arrayContaining([
-                expect.objectContaining({ id: copiedDataSourcePageId }),
-              ]),
-            }),
-          ]),
-        },
-      });
       const scopedWindow = await desktopDatabase.getDatabaseViewWindow(
         projectId,
         { first: 200, groupScope: { kind: "key", key: "ship" } },
@@ -1066,27 +943,6 @@ describe("Electron native data authority", () => {
         nativeGroups.groups.find((group) => group.groupKey === "ship")
           ?.totalRows,
       ).toBe(scopedWindow.rows.length);
-      const groupsHttpResponse = await getHttpServerOptions(51_284).fetch(
-        new Request(
-          `http://127.0.0.1:51284/api/projects/${projectId}/database-views/default/groups`,
-        ),
-      );
-      expect(groupsHttpResponse.status).toBe(200);
-      await expect(groupsHttpResponse.json()).resolves.toMatchObject({
-        projectId,
-        grouped: true,
-        totalRows: nativeGroups.totalRows,
-      });
-      // A malformed continuation is a typed 400 with a stable code, not a 500.
-      const rejectedCursorResponse = await getHttpServerOptions(51_284).fetch(
-        new Request(
-          `http://127.0.0.1:51284/api/projects/${projectId}/database-views/default/rows?after=nxc1.bogus.bogus`,
-        ),
-      );
-      expect(rejectedCursorResponse.status).toBe(400);
-      await expect(rejectedCursorResponse.json()).resolves.toMatchObject({
-        error: expect.objectContaining({ code: "invalid_input" }),
-      });
       await expect(desktopDatabase.getDatabaseRowPage(
         projectId,
         copiedDataSourcePageId,
@@ -2366,17 +2222,6 @@ describe("Electron native data authority", () => {
         new Date("2026-07-19T00:00:00.000Z"),
         new Date("2026-07-21T00:00:00.000Z"),
       )).resolves.toEqual({ items: [], nextCursor: null });
-      __setHttpContentModuleDependenciesForTests({ automation });
-      const occurrencesHttpResponse = await getHttpServerOptions(51_284).fetch(
-        new Request(
-          `http://127.0.0.1:51284/api/projects/${createdProject.id}/calendar/occurrences?start=2026-07-19T00:00:00.000Z&end=2026-07-21T00:00:00.000Z`,
-        ),
-      );
-      expect(occurrencesHttpResponse.status).toBe(200);
-      await expect(occurrencesHttpResponse.json()).resolves.toEqual({
-        occurrences: [],
-        nextCursor: null,
-      });
       await expect(
         automation.claimDueReminders(10, 120_000),
       ).resolves.toEqual([]);
@@ -2400,18 +2245,6 @@ describe("Electron native data authority", () => {
         label: "Electron native authority",
         includesAssets: true,
         dbBytes: expect.any(Number),
-      });
-      __setHttpContentModuleDependenciesForTests({
-        storeAdministration: { port: administration },
-      });
-      const backupsHttpResponse = await getHttpServerOptions(51_284).fetch(
-        new Request("http://127.0.0.1:51284/api/backups"),
-      );
-      expect(backupsHttpResponse.status).toBe(200);
-      await expect(backupsHttpResponse.json()).resolves.toMatchObject({
-        backups: expect.arrayContaining([
-          expect.objectContaining({ id: nativeBackup.id }),
-        ]),
       });
       await expect(administration.listBackups()).resolves.toEqual(
         expect.arrayContaining([

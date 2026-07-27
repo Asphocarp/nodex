@@ -52,8 +52,7 @@ declare global {
         callback: (invocation: WorkbenchCommandInvocation) => void,
       ) => () => void;
       requestMicrophonePermission?: () => void;
-      serverUrl?: string;
-      assetPathPrefix?: string;
+      resolveManagedAssetPath?: (source: string) => string | null;
       inspectPasteClipboard?: () => ClipboardPasteInspectionResult;
       readPasteClipboard?: () => ClipboardPastePayload;
       getPathInfoForFile?: (file: File) => ClipboardPasteInspectionItem | null;

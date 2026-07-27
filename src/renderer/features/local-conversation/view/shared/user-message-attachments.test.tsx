@@ -1,21 +1,24 @@
 import { describe, expect, test } from "vitest";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
 import { installWindowApi } from "../../../../test/browser-globals";
+import { TestQueryProvider } from "../../../../test/query";
 import { UserAttachmentStrip } from "./user-message-attachments";
 
 describe("UserAttachmentStrip", () => {
   test("renders remote thumbnails with preview action", async () => {
     const view = render(
-      <UserAttachmentStrip
-        attachments={[
-          {
-            type: "image",
-            id: "remote-image",
-            source: "data:image/png;base64,aW1hZ2U=",
-            sourceKind: "remote",
-          },
-        ]}
-      />,
+      <TestQueryProvider>
+        <UserAttachmentStrip
+          attachments={[
+            {
+              type: "image",
+              id: "remote-image",
+              source: "data:image/png;base64,aW1hZ2U=",
+              sourceKind: "remote",
+            },
+          ]}
+        />
+      </TestQueryProvider>,
     );
 
     const image = view.container.querySelector("img");
@@ -24,10 +27,16 @@ describe("UserAttachmentStrip", () => {
   });
 
   test("hides failed remote thumbnails after the loading state", async () => {
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () => new Response("", { status: 404 })) as typeof fetch;
-    try {
-      const view = render(
+    installWindowApi({
+      invoke: async () => ({
+        ok: false,
+        status: 404,
+        message: "Image not found",
+      }),
+      on: () => () => {},
+    });
+    const view = render(
+      <TestQueryProvider>
         <UserAttachmentStrip
           attachments={[
             {
@@ -37,16 +46,14 @@ describe("UserAttachmentStrip", () => {
               sourceKind: "remote",
             },
           ]}
-        />,
-      );
+        />
+      </TestQueryProvider>,
+    );
 
-      expect(textContent(view.container).includes("...")).toBe(true);
-      await settleAsyncRender();
-      expect(Boolean(view.container.querySelector('[aria-label="Open image preview"]'))).toBe(false);
-      expect(textContent(view.container).includes("...")).toBe(false);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    expect(textContent(view.container).includes("...")).toBe(true);
+    await settleAsyncRender();
+    expect(Boolean(view.container.querySelector('[aria-label="Open image preview"]'))).toBe(false);
+    expect(textContent(view.container).includes("...")).toBe(false);
   });
 
   test("does not read arbitrary absolute local paths for previews", async () => {
@@ -63,16 +70,18 @@ describe("UserAttachmentStrip", () => {
     });
 
     const view = render(
-      <UserAttachmentStrip
-        attachments={[
-          {
-            type: "image",
-            id: "local-image",
-            source: "/Users/example/secret.png",
-            sourceKind: "local",
-          },
-        ]}
-      />,
+      <TestQueryProvider>
+        <UserAttachmentStrip
+          attachments={[
+            {
+              type: "image",
+              id: "local-image",
+              source: "/Users/example/secret.png",
+              sourceKind: "local",
+            },
+          ]}
+        />
+      </TestQueryProvider>,
     );
 
     await settleAsyncRender();

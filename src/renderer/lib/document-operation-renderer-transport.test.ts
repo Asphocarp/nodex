@@ -3,7 +3,6 @@ import type {
   DocumentMutationRequest,
   DocumentOperationCommandResult,
 } from "../../shared/block-documents/document-operations";
-import { browserRendererTransport } from "./browser-renderer-transport";
 import {
   createElectronRendererTransport,
   type ElectronRendererBridge,
@@ -48,40 +47,7 @@ const result: DocumentOperationCommandResult = {
   },
 };
 
-describe("Document operation renderer transports", () => {
-  test("browser posts the scoped JSON contract and parses the receipt", async () => {
-    const originalFetch = globalThis.fetch;
-    let capturedUrl = "";
-    let capturedMutationId = "";
-    globalThis.fetch = (async (input, init) => {
-      capturedUrl = String(input);
-      capturedMutationId = (
-        JSON.parse(String(init?.body)) as { readonly mutationId: string }
-      ).mutationId;
-      return new Response(JSON.stringify(result), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    }) as typeof fetch;
-
-    try {
-      const response = await browserRendererTransport.mutateDocument(
-        "project-1",
-        "document-1",
-        request,
-      );
-      expect(response.ok).toBe(true);
-      expect(capturedMutationId).toBe(request.mutationId);
-      expect(
-        capturedUrl.endsWith(
-          "/api/projects/project-1/documents/document-1/mutations",
-        ),
-      ).toBe(true);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
+describe("Document operation renderer IPC", () => {
   test("Electron invokes the typed main-frame channel", async () => {
     let capturedChannel = "";
     let capturedDocumentId = "";

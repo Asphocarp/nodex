@@ -198,15 +198,22 @@ async function renderThreadComposer(input?: {
 }
 
 describe("ThreadComposer dictation", () => {
-  const nativeFetch = globalThis.fetch;
   const nativeMediaRecorder = globalThis.MediaRecorder;
   const nativeAudioContext = globalThis.AudioContext;
+  let transcribeCallCount = 0;
+  let transcribeResult = "";
 
   beforeEach(() => {
+    transcribeCallCount = 0;
+    transcribeResult = "";
     installAsyncRequestAnimationFrame();
     document.documentElement.dataset.codexWindowType = "electron";
     installWindowApi({
-      invoke: async () => null,
+      invoke: async (channel: string) => {
+        if (channel !== "codex:dictation:transcribe") return null;
+        transcribeCallCount += 1;
+        return transcribeResult;
+      },
       on: () => () => {},
       requestMicrophonePermission: () => {},
     });
@@ -237,7 +244,6 @@ describe("ThreadComposer dictation", () => {
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    globalThis.fetch = nativeFetch;
     Object.defineProperty(globalThis, "MediaRecorder", {
       configurable: true,
       writable: true,
@@ -281,14 +287,7 @@ describe("ThreadComposer dictation", () => {
   });
 
   test("starts on click and inserts the transcript on stop", async () => {
-    globalThis.fetch = (async () => {
-      return new Response(JSON.stringify({ text: "transcribed text" }), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-    }) as typeof fetch;
+    transcribeResult = "transcribed text";
 
     const { container, getByLabelText } = await renderThreadComposer();
 
@@ -313,16 +312,7 @@ describe("ThreadComposer dictation", () => {
   });
 
   test("uses Ctrl+M hold to start and keyup to stop with insert", async () => {
-    let fetchCallCount = 0;
-    globalThis.fetch = (async () => {
-      fetchCallCount += 1;
-      return new Response(JSON.stringify({ text: "send me" }), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-    }) as typeof fetch;
+    transcribeResult = "send me";
 
     const { container } = await renderThreadComposer();
 
@@ -340,7 +330,7 @@ describe("ThreadComposer dictation", () => {
       fireEvent.keyUp(document, { key: "m", ctrlKey: true });
     });
     await waitFor(() => {
-      expect(fetchCallCount).toBe(1);
+      expect(transcribeCallCount).toBe(1);
     });
     await waitFor(() => {
       const editor = container.querySelector<HTMLElement>("[data-codex-composer='true']");
@@ -349,13 +339,7 @@ describe("ThreadComposer dictation", () => {
   });
 
   test("sends the transcript on explicit send stop mode", async () => {
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ text: "send me" }), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      })) as typeof fetch;
+    transcribeResult = "send me";
 
     const onSendPromptCalls: string[] = [];
     const { getByLabelText } = await renderThreadComposer({

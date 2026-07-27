@@ -1,6 +1,6 @@
 /**
  * Transport envelope for Core-backed read channels. Electron IPC and the
- * browser HTTP transport both flatten thrown errors into plain strings, so
+ * Electron IPC may flatten thrown errors into plain strings, so
  * typed Core error codes must ride inside the successful response payload.
  * Main wraps handler results with `registerCoreReadHandle`; the renderer
  * unwraps them through `invokeCoreRead`, which rethrows a typed

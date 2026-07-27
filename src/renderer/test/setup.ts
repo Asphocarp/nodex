@@ -141,6 +141,45 @@ Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
 const browserWindow = window;
 const browserDocument = document;
 const browserWindowApiDescriptor = Object.getOwnPropertyDescriptor(browserWindow, "api");
+function createDefaultRendererApi(): NonNullable<Window["api"]> {
+  let persistedAtomRevision = 0;
+  const persistedAtomValues: Record<string, unknown> = {};
+  const persistedAtomListeners = new Set<(...args: unknown[]) => void>();
+
+  return {
+    invoke: async (channel, ...args) => {
+      if (channel === "persisted-atom:sync-request") {
+        return {
+          revision: persistedAtomRevision,
+          values: { ...persistedAtomValues },
+        };
+      }
+      if (channel !== "persisted-atom:update") return undefined;
+
+      const mutation = args[0] as {
+        key: string;
+        mutationId: string;
+        value: unknown;
+      };
+      persistedAtomRevision += 1;
+      persistedAtomValues[mutation.key] = mutation.value;
+      const event = {
+        ...mutation,
+        revision: persistedAtomRevision,
+        originRendererId: "renderer-test",
+      };
+      for (const listener of persistedAtomListeners) listener(event);
+      return event;
+    },
+    on: (event, callback) => {
+      if (event !== "persisted-atom:updated") return () => undefined;
+      persistedAtomListeners.add(callback);
+      return () => {
+        persistedAtomListeners.delete(callback);
+      };
+    },
+  };
+}
 const browserLocalStorage = localStorage;
 const browserSessionStorage = sessionStorage;
 const browserNode = globalThis.Node;
@@ -210,7 +249,11 @@ function restoreBrowserGlobals() {
   if (browserWindowApiDescriptor) {
     Object.defineProperty(browserWindow, "api", browserWindowApiDescriptor);
   } else {
-    Reflect.deleteProperty(browserWindow as Window & typeof globalThis & { api?: unknown }, "api");
+    Object.defineProperty(browserWindow, "api", {
+      configurable: true,
+      writable: true,
+      value: createDefaultRendererApi(),
+    });
   }
   Object.defineProperty(globalThis, "document", {
     configurable: true,

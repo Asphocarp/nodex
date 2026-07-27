@@ -182,7 +182,7 @@ function ComposerDictationStory({ state }: ComposerDictationStoryProps) {
       <div className="mb-4 max-w-2xl">
         <div className="text-sm font-semibold text-(--foreground)">Composer Dictation</div>
         <div className="mt-1 text-sm/relaxed text-(--foreground-secondary)">
-          Codex-style dictation states reconstructed from the Electron dictation flow, keyboard hold path, and buffered `/transcribe` transport.
+          Codex-style dictation states reconstructed from the Electron dictation flow, keyboard hold path, and buffered IPC transport.
         </div>
       </div>
       <TooltipProvider>

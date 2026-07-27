@@ -1,8 +1,6 @@
-import { Hono } from "hono";
 import { describe, expect, test } from "vitest";
 
 import type { LibraryPageDetailResult } from "../shared/page-detail";
-import { registerLibraryPageDetailHttpRoute } from "./library-page-detail-http";
 import {
   LIBRARY_PAGE_DETAIL_IPC_CHANNEL,
   registerLibraryPageDetailIpcHandler,
@@ -38,10 +36,6 @@ describe("Library Page Detail transport", () => {
       "page/two",
     )).toMatchObject({ ok: false, error: { code: "authorization_denied" } });
 
-    const app = new Hono();
-    registerLibraryPageDetailHttpRoute(app, { read });
-    const response = await app.request("/api/library/pages/page%2Fthree");
-    expect(response.status).toBe(404);
-    expect(pageIds).toEqual(["page/one", "page/three"]);
+    expect(pageIds).toEqual(["page/one"]);
   });
 });

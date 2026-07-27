@@ -29,7 +29,7 @@ Editor-local derived features may observe BlockNote transactions for selection, 
 
 ## Provider and Writer
 
-`BlockDocumentSurfaceRuntime` owns the surface Y.Doc, `NodexYProvider`, lifecycle preparation, disposable checkpoint boundary, and status projection. Electron IPC and browser HTTP/SSE implement the same Document contract:
+`BlockDocumentSurfaceRuntime` owns the surface Y.Doc, `NodexYProvider`, lifecycle preparation, disposable checkpoint boundary, and status projection. Electron IPC implements the Document contract:
 
 - subscribe before the state-vector handshake;
 - submit idempotent binary updates scoped by `storeEpoch`, Document generation, update ID, and client session;
@@ -39,7 +39,7 @@ Editor-local derived features may observe BlockNote transactions for selection, 
 
 Electron coordinates this asynchronously through the native Document bridge. A
 single Rust Core process owns SQLite, the serialized writer, and the bounded Yrs
-Document cache; IPC and HTTP handlers never open the Store. Core validates cache
+Document cache; IPC handlers never open the Store. Core validates cache
 coordinates against SQLite and swaps the cached Document only after commit.
 
 If validation or persistence fails, the provider remains pending/failed and exposes retry or reload. There is no synchronous main-process fallback and no snapshot overwrite action.

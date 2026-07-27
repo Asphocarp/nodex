@@ -183,15 +183,11 @@ const auditProductionMainBundle = (
   }
 };
 
-for (const file of [
-  "src/main/http-server.ts",
-  "src/shared/ipc-api.ts",
-  "src/renderer/lib/browser-renderer-transport.ts",
-]) {
+for (const file of ["src/shared/ipc-api.ts"]) {
   assertAbsent(
     file,
     [/\bdb:(?:query|schema)\b/, /\/api\/db\/(?:query|schema)\b/],
-    "Desktop public transports must not expose arbitrary SQL inspection",
+    "Desktop renderer transport must not expose arbitrary SQL inspection",
   );
 }
 

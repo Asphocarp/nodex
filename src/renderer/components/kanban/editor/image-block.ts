@@ -1,10 +1,10 @@
 import { createImageBlockSpec } from "@blocknote/core";
-import { resolveAssetSourceToHttpUrl } from "../../../lib/assets";
+import { resolveAssetSourceToDisplayUrl } from "../../../lib/assets";
 
 const baseImageBlockSpec = createImageBlockSpec();
 
 export function resolveExternalImageSource(source: string): string {
-  return resolveAssetSourceToHttpUrl(source);
+  return resolveAssetSourceToDisplayUrl(source);
 }
 
 function resolveExternalImageBlockUrl<TBlock extends { props?: { url?: string } }>(

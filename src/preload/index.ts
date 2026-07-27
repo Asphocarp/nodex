@@ -19,17 +19,9 @@ import {
 } from "../shared/workbench-commands";
 import { inspectClipboardPasteItems, readClipboardPastePayload } from "../main/clipboard-paste-inspector";
 import type { CodexDesktopMessageFromView } from "../shared/remote-hosted-pip";
+import { parseAssetSource } from "../shared/assets";
 
-const SERVER_URL_ARG_PREFIX = "--nodex-server-url=";
 const ASSET_PATH_PREFIX_ARG_PREFIX = "--nodex-asset-path-prefix=";
-
-function getServerUrlFromArgv(argv: string[]): string | undefined {
-  const arg = argv.find((entry) => entry.startsWith(SERVER_URL_ARG_PREFIX));
-  if (!arg) return undefined;
-
-  const raw = arg.slice(SERVER_URL_ARG_PREFIX.length).trim();
-  return raw.length > 0 ? raw : undefined;
-}
 
 function getAssetPathPrefixFromArgv(argv: string[]): string | undefined {
   const arg = argv.find((entry) => entry.startsWith(ASSET_PATH_PREFIX_ARG_PREFIX));
@@ -45,8 +37,14 @@ function getAssetPathPrefixFromArgv(argv: string[]): string | undefined {
   }
 }
 
-const serverUrl = getServerUrlFromArgv(process.argv);
 const assetPathPrefix = getAssetPathPrefixFromArgv(process.argv);
+
+function resolveManagedAssetPath(source: string): string | null {
+  if (!assetPathPrefix) return null;
+  const parsed = parseAssetSource(source);
+  if (!parsed) return null;
+  return path.join(assetPathPrefix, parsed.fileName);
+}
 
 // Multiple editor blocks (toggle-list-inline-view, pageRef) each subscribe to
 // board-changed via useKanban, easily exceeding the default limit of 10.
@@ -154,8 +152,7 @@ contextBridge.exposeInMainWorld("api", {
   requestMicrophonePermission: () => {
     ipcRenderer.send("electron-request-microphone-permission");
   },
-  serverUrl,
-  assetPathPrefix,
+  resolveManagedAssetPath,
   inspectPasteClipboard: () => inspectClipboardPasteItems(),
   readPasteClipboard: () => readClipboardPastePayload(),
   getPathInfoForFile: (file: File) => {

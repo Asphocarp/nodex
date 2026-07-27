@@ -1,111 +1,98 @@
-import { parseAssetSource } from "../../shared/assets";
-import { toApiUrl } from "./http-base";
-
-const MAX_IMAGE_UPLOAD_BYTES = 10 * 1024 * 1024;
-const MAX_RESOURCE_UPLOAD_BYTES = 64 * 1024 * 1024;
-
-interface UploadImageResponse {
-  source?: string;
-  error?: string;
-}
+import {
+  MAX_MANAGED_IMAGE_BYTES,
+  MAX_MANAGED_RESOURCE_BYTES,
+  getManagedAssetDisplayUrl,
+  type ManagedAssetPreview,
+  type ManagedAssetPreviewInput,
+  type ManagedResourceSaveResult,
+} from "../../shared/managed-assets";
+import { invoke } from "./api";
 
 export interface UploadedResourceAssetResponse {
-  source?: string;
-  name?: string;
-  mimeType?: string;
-  bytes?: number;
-  error?: string;
+  source: string;
+  name: string;
+  mimeType: string;
+  bytes: number;
 }
 
-export function resolveAssetSourceToHttpUrl(source: string): string {
-  const parsed = parseAssetSource(source);
-  if (!parsed) return source;
+export function resolveAssetSourceToDisplayUrl(source: string): string {
+  return getManagedAssetDisplayUrl(source);
+}
 
-  const fileName = encodeURIComponent(parsed.fileName);
-  return toApiUrl(`/api/assets/${fileName}`);
+function fileToUploadInput(file: File, bytes: Uint8Array) {
+  return {
+    name: file.name,
+    mimeType: file.type,
+    bytes,
+  };
 }
 
 export async function uploadImageAsset(file: File): Promise<string> {
-  if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
+  if (file.size > MAX_MANAGED_IMAGE_BYTES) {
     throw new Error("Image exceeds 10MB upload limit");
   }
-
-  const formData = new FormData();
-  formData.set("file", file);
-
-  const response = await fetch(
-    toApiUrl("/api/assets/images"),
-    {
-      method: "POST",
-      body: formData,
-    },
+  const result = await invoke(
+    "asset:image:save",
+    fileToUploadInput(file, new Uint8Array(await file.arrayBuffer())),
   );
+  return result.source;
+}
 
-  const body = (await response.json()) as UploadImageResponse;
-
-  if (!response.ok) {
-    throw new Error(body.error || "Image upload failed");
-  }
-
-  if (!body.source) {
-    throw new Error("Image upload response is missing source");
-  }
-
-  return body.source;
+function toUploadedResourceAssetResponse(
+  result: ManagedResourceSaveResult,
+): UploadedResourceAssetResponse {
+  return {
+    source: result.source,
+    name: result.name,
+    mimeType: result.mimeType,
+    bytes: result.bytes,
+  };
 }
 
 export async function uploadResourceAsset(
   file: File,
-): Promise<Required<Pick<UploadedResourceAssetResponse, "source" | "name" | "mimeType" | "bytes">>> {
-  if (file.size > MAX_RESOURCE_UPLOAD_BYTES) {
+): Promise<UploadedResourceAssetResponse> {
+  if (file.size > MAX_MANAGED_RESOURCE_BYTES) {
     throw new Error("Resource exceeds 64MB upload limit");
   }
-
-  const formData = new FormData();
-  formData.set("file", file);
-
-  const response = await fetch(toApiUrl("/api/assets/resources"), {
-    method: "POST",
-    body: formData,
-  });
-
-  const body = (await response.json()) as UploadedResourceAssetResponse;
-  if (!response.ok) {
-    throw new Error(body.error || "Resource upload failed");
-  }
-  if (!body.source || !body.name || !body.mimeType || typeof body.bytes !== "number") {
-    throw new Error("Resource upload response is missing fields");
-  }
-
-  return {
-    source: body.source,
-    name: body.name,
-    mimeType: body.mimeType,
-    bytes: body.bytes,
-  };
+  return toUploadedResourceAssetResponse(await invoke(
+    "asset:resource:save",
+    fileToUploadInput(file, new Uint8Array(await file.arrayBuffer())),
+  ));
 }
 
 export async function materializeLocalResourceAsset(
   localPath: string,
-): Promise<Required<Pick<UploadedResourceAssetResponse, "source" | "name" | "mimeType" | "bytes">>> {
-  const response = await fetch(toApiUrl("/api/assets/resources"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ localPath }),
+): Promise<UploadedResourceAssetResponse> {
+  return toUploadedResourceAssetResponse(
+    await invoke("asset:resource:materialize", localPath),
+  );
+}
+
+export async function readManagedAssetPreview(
+  input: ManagedAssetPreviewInput,
+): Promise<ManagedAssetPreview> {
+  return await invoke("asset:preview:read", input);
+}
+
+function readBlobAsDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("Asset read failed"));
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error("Asset reader returned a non-string result"));
+    };
+    reader.readAsDataURL(blob);
   });
+}
 
-  const body = (await response.json()) as UploadedResourceAssetResponse;
-  if (!response.ok) {
-    throw new Error(body.error || "Resource materialization failed");
-  }
-  if (!body.source || !body.name || !body.mimeType || typeof body.bytes !== "number") {
-    throw new Error("Resource materialization response is missing fields");
-  }
-
-  return {
-    source: body.source,
-    name: body.name,
-    mimeType: body.mimeType,
-    bytes: body.bytes,
-  };
+export async function readManagedImageDataUrl(source: string): Promise<string> {
+  const result = await invoke("asset:image:read", source);
+  return await readBlobAsDataUrl(
+    new Blob([new Uint8Array(result.bytes)], { type: result.mimeType }),
+  );
 }

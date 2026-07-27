@@ -159,7 +159,7 @@ import {
 import type { CodexThreadSummary } from "@/lib/types";
 import {
   materializeLocalResourceAsset,
-  resolveAssetSourceToHttpUrl,
+  resolveAssetSourceToDisplayUrl,
   uploadImageAsset,
   uploadResourceAsset,
 } from "@/lib/assets";
@@ -516,7 +516,7 @@ function NfmEditorInstance({
   );
 
   const resolveFileUrl = useCallback(
-    async (source: string) => resolveAssetSourceToHttpUrl(source),
+    async (source: string) => resolveAssetSourceToDisplayUrl(source),
     [],
   );
 
@@ -1391,7 +1391,7 @@ function NfmEditorInstance({
             event.stopPropagation();
             if (!event.repeat) {
               setImagePreview({
-                source: resolveAssetSourceToHttpUrl(focusedImage.source),
+                source: resolveAssetSourceToDisplayUrl(focusedImage.source),
                 alt: focusedImage.alt,
               });
             }
@@ -1459,7 +1459,7 @@ function NfmEditorInstance({
             {
               openImagePreview: (preview) => {
                 setImagePreview({
-                  source: resolveAssetSourceToHttpUrl(preview.source),
+                  source: resolveAssetSourceToDisplayUrl(preview.source),
                   alt: preview.alt,
                 });
               },
@@ -1562,7 +1562,7 @@ function NfmEditorInstance({
       event.preventDefault();
       event.stopPropagation();
       setImagePreview({
-        source: resolveAssetSourceToHttpUrl(preview.source),
+        source: resolveAssetSourceToDisplayUrl(preview.source),
         alt: preview.alt,
       });
     };

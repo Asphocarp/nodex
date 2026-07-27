@@ -533,7 +533,7 @@ export function TurnDiffSurface({
   const [patchActionInFlight, setPatchActionInFlight] = useState(false);
   const [failure, setFailure] = useState<TurnDiffPatchFailure | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-  const patchTransport = useMemo(() => resolveInvokeTransport("git:apply-patch"), []);
+  const patchTransport = useMemo(() => resolveInvokeTransport(), []);
 
   useEffect(() => {
     setExpanded(false);

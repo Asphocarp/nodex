@@ -1,0 +1,40 @@
+import { MAX_MANAGED_RESOURCE_BYTES } from "../shared/managed-assets";
+
+export interface DictationTranscriptionInput {
+  readonly contentType: string;
+  readonly base64Payload: string;
+}
+
+const MULTIPART_CONTENT_TYPE =
+  /^multipart\/form-data;\s*boundary=[^;\s]+$/iu;
+const BASE64_PAYLOAD = /^[A-Za-z0-9+/]+={0,2}$/u;
+
+export function validateDictationTranscriptionInput(
+  input: unknown,
+  maxEncodedBytes = MAX_MANAGED_RESOURCE_BYTES,
+): DictationTranscriptionInput {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error("Invalid dictation content type");
+  }
+
+  const candidate = input as Partial<DictationTranscriptionInput>;
+  const contentType = typeof candidate.contentType === "string"
+    ? candidate.contentType.trim()
+    : "";
+  if (!MULTIPART_CONTENT_TYPE.test(contentType)) {
+    throw new Error("Invalid dictation content type");
+  }
+
+  const base64Payload = candidate.base64Payload;
+  if (
+    typeof base64Payload !== "string"
+    || base64Payload.length === 0
+    || Buffer.byteLength(base64Payload, "utf8") > maxEncodedBytes
+    || base64Payload.length % 4 !== 0
+    || !BASE64_PAYLOAD.test(base64Payload)
+  ) {
+    throw new Error("Invalid or oversized dictation payload");
+  }
+
+  return { contentType, base64Payload };
+}

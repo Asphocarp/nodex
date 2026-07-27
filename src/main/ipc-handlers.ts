@@ -41,7 +41,14 @@ import {
   updateThreadNotificationSettings,
   updateWindowRestoreSettings,
 } from "./local-store/config";
-import { resolveAssetPath } from "./local-store/assets";
+import {
+  materializeLocalResource,
+  readManagedAssetImage,
+  readManagedAssetPreview,
+  resolveAssetPath,
+  saveUploadedImage,
+  saveUploadedResource,
+} from "./local-store/assets";
 import { parseAssetSource } from "../shared/assets";
 import { parseCodexApprovalResponse } from "../shared/codex-approval-response";
 import { codexService } from "./codex/codex-service";
@@ -90,7 +97,8 @@ import {
   WorkspaceFileUserError,
   writeWorkspaceFile,
 } from "./workspace-files-service";
-import { isTrustedWorkspaceFileIpcSender } from "./workspace-file-ipc-authorization";
+import { isTrustedAppRendererIpcSender } from "./app-renderer-ipc-authorization";
+import { validateDictationTranscriptionInput } from "./dictation-transcription-input";
 import { localFileWatchHost, type FileWatchSession } from "./file-watch-host";
 import {
   WorkspaceDirectoryEntriesInputSchema,
@@ -340,18 +348,29 @@ function registerCoreReadHandle<Channel extends keyof IpcApi>(
 }
 
 function requireTrustedWorkspaceFileSender(event: IpcMainInvokeEvent): void {
+  try {
+    requireTrustedAppRendererSender(event, "Workspace file access");
+  } catch {
+    throw new WorkspaceFileUserError(
+      "unauthorized_sender",
+      "Workspace file access is available only to the top-level app renderer",
+    );
+  }
+}
+
+function requireTrustedAppRendererSender(
+  event: IpcMainInvokeEvent,
+  capabilityName: string,
+): void {
   const ownerWindow = BrowserWindow.fromWebContents(event.sender);
-  if (isTrustedWorkspaceFileIpcSender({
+  if (isTrustedAppRendererIpcSender({
     hasOwnerWindow: ownerWindow !== null,
     senderType: event.sender.getType(),
     isMainFrame: event.senderFrame === event.sender.mainFrame,
   })) {
     return;
   }
-  throw new WorkspaceFileUserError(
-    "unauthorized_sender",
-    "Workspace file access is available only to the top-level app renderer",
-  );
+  throw new Error(`${capabilityName} is available only to the top-level app renderer`);
 }
 
 async function runWorkspaceFileHandler<Result>(
@@ -2561,7 +2580,8 @@ export function registerIpcHandlers(
   });
 
   // Assets
-  registerHandle("asset:resolve-path", (_, source: string) => {
+  registerHandle("asset:resolve-path", (event, source: string) => {
+    requireTrustedAppRendererSender(event, "Managed asset path access");
     if (typeof source !== "string") return null;
 
     const parsed = parseAssetSource(source);
@@ -2572,6 +2592,29 @@ export function registerIpcHandlers(
     } catch {
       return null;
     }
+  });
+  registerHandle("asset:image:save", (event, input) => {
+    requireTrustedAppRendererSender(event, "Managed image writes");
+    return saveUploadedImage(input);
+  });
+  registerHandle("asset:image:read", (event, source) => {
+    requireTrustedAppRendererSender(event, "Managed image reads");
+    return readManagedAssetImage(source);
+  });
+  registerHandle("asset:resource:save", (event, input) => {
+    requireTrustedAppRendererSender(event, "Managed resource writes");
+    return saveUploadedResource(input);
+  });
+  registerHandle("asset:resource:materialize", (event, localPath) => {
+    requireTrustedAppRendererSender(event, "Managed resource imports");
+    if (typeof localPath !== "string") {
+      throw new Error("Local resource path is required");
+    }
+    return materializeLocalResource(localPath);
+  });
+  registerHandle("asset:preview:read", (event, input) => {
+    requireTrustedAppRendererSender(event, "Managed asset previews");
+    return readManagedAssetPreview(input);
   });
 
   registerHandle(
@@ -2774,6 +2817,12 @@ export function registerIpcHandlers(
   registerHandle("codex:dictation:state:read", () =>
     codexService.readDictationStateSnapshot(),
   );
+  registerHandle("codex:dictation:transcribe", (event, input) => {
+    requireTrustedAppRendererSender(event, "Dictation transcription");
+    return codexService.transcribeDictation(
+      validateDictationTranscriptionInput(input),
+    );
+  });
 
   registerHandle("codex:conversation-image-asset:resolve", (_, input) =>
     codexService.resolveConversationImageAsset(input),

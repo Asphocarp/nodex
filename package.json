@@ -116,10 +116,8 @@
     "postinstall": "electron-builder install-app-deps && node scripts/ensure-node-pty-permissions.mjs"
   },
   "dependencies": {
-    "@hono/node-server": "2.0.5",
     "@sentry/electron": "7.13.0",
     "electron-updater": "6.8.9",
-    "hono": "4.12.25",
     "immer": "11.1.8",
     "node-pty": "^1.1.0",
     "rrule": "2.8.1",

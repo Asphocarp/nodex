@@ -27,30 +27,30 @@ describe("composer dictation transport", () => {
     expect(Boolean(bodyText.includes("audio-bytes"))).toBe(true);
   });
 
-  test("posts a base64-wrapped multipart payload to /transcribe", async () => {
-    let capturedRequest: RequestInit | null = null;
+  test("sends a base64-wrapped multipart payload through the typed bridge", async () => {
+    let capturedInput: {
+      contentType: string;
+      base64Payload: string;
+    } | null = null;
     const text = await transcribeDictationBlob(
       new Blob(["audio-bytes"], { type: "audio/webm" }),
       {
-        fetchImpl: async (_url, init) => {
-          capturedRequest = init ?? null;
-          return new Response(JSON.stringify({ text: "transcribed text" }), {
-            status: 200,
-            headers: {
-              "Content-Type": "application/json",
-            },
-          });
+        transcribe: async (input) => {
+          capturedInput = input;
+          return "transcribed text";
         },
       },
     );
 
-    const request = capturedRequest as unknown as RequestInit;
+    const input = capturedInput as unknown as {
+      contentType: string;
+      base64Payload: string;
+    };
     expect(text).toBe("transcribed text");
-    expect(request.method).toBe("POST");
-    expect((request.headers as Record<string, string>)["X-Codex-Base64"]).toBe("1");
-    expect(Boolean((request.body as string).length > 0)).toBe(true);
+    expect(input.contentType.startsWith("multipart/form-data; boundary=")).toBe(true);
+    expect(input.base64Payload.length > 0).toBe(true);
 
-    const decoded = atob(request.body as string);
+    const decoded = atob(input.base64Payload);
     expect(Boolean(decoded.includes('Content-Disposition: form-data; name="file"; filename="codex.webm"'))).toBe(true);
   });
 

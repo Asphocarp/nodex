@@ -9,6 +9,7 @@ import {
   nativeTheme,
   powerMonitor,
   screen,
+  session as electronSession,
   shell,
   systemPreferences,
   type IpcMainInvokeEvent,
@@ -24,10 +25,6 @@ import {
   type ProjectionScope,
 } from "../shared/projection-stream";
 import { registerIpcHandlers } from "./ipc-handlers";
-import {
-  configureHttpContentModuleAuthorities,
-  startHttpServer,
-} from "./http-server";
 import { dbNotifier } from "./local-store/notifier";
 import { getAssetsPathPrefix } from "./local-store/assets";
 import {
@@ -43,7 +40,6 @@ import {
   getHistorySettings,
   getNodexHome,
   getWindowRestoreSettings,
-  getPort,
 } from "./local-store/config";
 import { codexService } from "./codex/codex-service";
 import { NodexAgentAuthorizationBroker } from "./agent-tools/authorization-broker";
@@ -172,6 +168,7 @@ import {
   startStoreAdministrationMaintenanceScheduler,
   type StoreAdministrationMaintenanceScheduler,
 } from "./store-administration-maintenance-scheduler";
+import { registerManagedAssetProtocol } from "./managed-asset-protocol";
 // macOS uses the packaged bundle icon from the app resources.
 // We only keep a PNG around for development Dock icon parity and non-macOS window icons.
 const appIconPath = app.isPackaged
@@ -181,7 +178,8 @@ const appDockIcon = nativeImage.createFromPath(appIconPath);
 
 const openWindows = new Map<number, BrowserWindow>();
 let lastFocusedWindowId: number | null = null;
-let serverUrlForWindows: string | null = null;
+let rendererHostReadyForWindows = false;
+let disposeManagedAssetProtocol: (() => void) | null = null;
 let stopReminderScheduler: (() => void) | null = null;
 let runtimeReminderTick: (() => Promise<void>) | null = null;
 let databaseReady = false;
@@ -369,12 +367,12 @@ function focusLastWindow(): void {
 }
 
 function openNewWindow(sourceWebContentsId?: number): BrowserWindow | null {
-  if (!serverUrlForWindows || !windowSessionState) return null;
+  if (!rendererHostReadyForWindows || !windowSessionState) return null;
   let acquired: AcquiredWindowSession | null = null;
 
   try {
     acquired = windowSessionState.acquireSessionForNewWindow(sourceWebContentsId);
-    const window = createWindow(serverUrlForWindows, {
+    const window = createWindow({
       session: acquired.session,
     });
     window.show();
@@ -435,12 +433,12 @@ function openClonedWindow(
   sourceWebContentsId: number,
   override: WindowSessionNewWindowRequest,
 ): BrowserWindow | null {
-  if (!serverUrlForWindows || !windowSessionState) return null;
+  if (!rendererHostReadyForWindows || !windowSessionState) return null;
   const session = windowSessionState.cloneSessionForWindow(
     sourceWebContentsId,
     override,
   );
-  const window = createWindow(serverUrlForWindows, { session });
+  const window = createWindow({ session });
   window.show();
   window.focus();
   return window;
@@ -969,7 +967,6 @@ function registerDeepLinkProtocol(): void {
 }
 
 function createWindow(
-  serverUrl: string,
   options: { session: WindowSessionRecord },
 ): BrowserWindow {
   const windowCreatedAt = performance.now();
@@ -1006,7 +1003,6 @@ function createWindow(
       webviewTag: true,
       backgroundThrottling: false,
       additionalArguments: [
-        `--nodex-server-url=${serverUrl}`,
         `--nodex-asset-path-prefix=${encodeURIComponent(getAssetsPathPrefix())}`,
       ],
     },
@@ -1305,7 +1301,6 @@ async function publishCoreResync(eventHead: number): Promise<void> {
 }
 
 async function initializeDesktopApp(
-  serverPort: number,
   authority: Promise<DesktopDataAuthorityRuntime>,
 ): Promise<void> {
   const initializationStartedAt = performance.now();
@@ -1387,7 +1382,6 @@ async function initializeDesktopApp(
   databaseReady = true;
   await resolvePendingPageDeepLink();
   await resolvePendingSessionDeepLink();
-  startHttpServer(serverPort);
   configureRuntimeBackupScheduler(getBackupSettings());
   startRuntimeStoreMaintenanceScheduler();
   startRuntimeReminderDelivery();
@@ -1615,6 +1609,7 @@ function collectStartupDeepLinks(context: MainRuntimeStartupContext): string[][]
 function beginMainRuntimeShutdown(): void {
   if (runtimeShutdownStarted) return;
   runtimeShutdownStarted = true;
+  rendererHostReadyForWindows = false;
   appQuitRequested = true;
   logger.info("Nodex before-quit");
   coreEventSubscription?.close();
@@ -1679,6 +1674,8 @@ function shutdownMainRuntime(): Promise<void> {
   }
 
   runtimeShutdownPromise = (async () => {
+    disposeManagedAssetProtocol?.();
+    disposeManagedAssetProtocol = null;
     await settleRuntimeShutdownStep(
       "Codex service",
       () => codexService.shutdown(),
@@ -1751,6 +1748,13 @@ export async function runMainAppStartup(
   context: MainRuntimeStartupContext,
 ): Promise<MainRuntimeController> {
   registerRuntimeLifecycleHandlers();
+  disposeManagedAssetProtocol?.();
+  disposeManagedAssetProtocol = registerManagedAssetProtocol(
+    electronSession.defaultSession,
+    {
+      logError: (message, error) => logger.warn(message, { error }),
+    },
+  );
   const startupSecondInstancesWithoutDeepLinks = collectStartupDeepLinks(context);
 
   logger.info("Nodex main process starting", {
@@ -1779,7 +1783,6 @@ export async function runMainAppStartup(
   });
   appUpdateService.initialize();
 
-  const serverPort = getPort();
   setAppInitializationStep({ phase: "opening" });
   const dataAuthority = initializeDesktopDataAuthority({
     appResourcesPath: app.isPackaged ? process.resourcesPath : undefined,
@@ -1873,92 +1876,8 @@ export async function runMainAppStartup(
       documentSync,
     }),
   );
-  configureHttpContentModuleAuthorities({
-    referenceReads: {
-      resolvePageOwnershipPath: (input) =>
-        libraryModule.resolvePageOwnershipPath(input),
-      resolvePageTarget: (input) => libraryModule.resolvePageTarget(input),
-      readDatabaseViewReference: (input) =>
-        databaseModule.resolveDatabaseViewReference(input),
-    },
-    propertyMutations: {
-      project: (request) => libraryModule.applyBlockPropertyMutation(request),
-      library: (input) =>
-        libraryModule.applyLibraryBlockPropertyMutation(input),
-    },
-    database: {
-      read: (request) => databaseModule.read(request),
-      apply: (request) => databaseModule.apply(request),
-    },
-    library: {
-      read: (request) => libraryModule.read(request),
-      apply: (request) => libraryModule.applyTrustedLibrary(request),
-    },
-    libraryDatabase: {
-      read: (request) => databaseModule.readLibrary(request, "http_loopback"),
-      apply: (request) => databaseModule.applyLibrary(request, {
-        actor: { kind: "http_loopback" },
-        accessActor: "http_loopback",
-      }),
-    },
-    pageDetail: {
-      read: (projectId, pageId) =>
-        libraryModule.readProjectPageDetail(projectId, pageId),
-    },
-    libraryPageDetail: {
-      read: (pageId) =>
-        libraryModule.readLibraryPageDetail(pageId, "http_loopback"),
-    },
-    pageLifecyclePreflight: {
-      readPreflight: (projectId, pageId) =>
-        libraryModule.readPageLifecyclePreflight(projectId, pageId),
-    },
-    pageLifecycle: {
-      applyMutation: (request) =>
-        libraryModule.applyPageLifecycleMutation(request),
-    },
-    projectWorkspace,
-    databaseProjections: databaseModule,
-    pageSearch: libraryModule,
-    automation: automationModule,
-    storeAdministration: {
-      port: storeAdministration,
-      onBackupSettingsChanged: configureRuntimeBackupScheduler,
-      onStoreRestored,
-    },
-    documentSync: {
-      realtime: documentSync,
-      getOwnedDocumentDescriptor: (projectId, ownerBlockId) =>
-        documentSync.getOwnedDocumentDescriptor(projectId, ownerBlockId),
-      prepareOwnedBlockDocument: (projectId, ownerBlockId) =>
-        documentSync.prepareOwnedBlockDocument(projectId, ownerBlockId),
-      prepareLibraryOwnedBlockDocument: (ownerBlockId) =>
-        documentSync.prepareLibraryOwnedBlockDocument(ownerBlockId),
-    },
-    documentMutation: {
-      applyMutation: (request) => documentSync.applyDocumentMutation(request),
-    },
-    additionalDocumentCommand: {
-      applyCommand: (request) =>
-        documentSync.applyAdditionalDocumentCommand(request),
-    },
-    blockTransfer: {
-      transfer: (intent) => documentSync.transferBlocks(intent),
-    },
-    documentHistory: {
-      createCheckpoint: (request) => documentSync.createCheckpoint(request),
-      listVersions: (request) => documentSync.listVersions(request),
-      getVersion: (request) => documentSync.getVersion(request),
-      restoreVersion: (request) => documentSync.applyDocumentMutation(request),
-    },
-    pageHistory: {
-      listHistory: (request) => libraryModule.listPageHistory(request),
-    },
-  });
-  appInitializationPromise = initializeDesktopApp(serverPort, dataAuthority);
-
-  const serverUrl = `http://127.0.0.1:${serverPort}`;
-  serverUrlForWindows = serverUrl;
+  appInitializationPromise = initializeDesktopApp(dataAuthority);
+  rendererHostReadyForWindows = true;
   configureApplicationMenus();
   registerInitializationIpcHandlers();
   registerProjectionStreamIpcHandlers();
@@ -2060,7 +1979,7 @@ export async function runMainAppStartup(
   const restorePolicy = getWindowRestoreSettings().policy;
   const startupSessions = windowSessionState.selectStartupSessions(restorePolicy);
   for (const session of startupSessions) {
-    createWindow(serverUrl, { session });
+    createWindow({ session });
   }
 
   for (const argv of startupSecondInstancesWithoutDeepLinks) {

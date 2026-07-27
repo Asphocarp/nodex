@@ -1,24 +1,24 @@
 import { describe, expect, test } from "vitest";
 
-import { resolveAssetSourceToHttpUrl } from "./assets";
+import { resolveAssetSourceToDisplayUrl } from "./assets";
 import { getAssetSource } from "../../shared/assets";
 
 describe("assets helpers", () => {
-  test("resolveAssetSourceToHttpUrl maps canonical nodex asset URI to flat asset route", () => {
+  test("maps canonical managed asset URI to the private display protocol", () => {
     const source = getAssetSource("abc.png");
 
-    expect(resolveAssetSourceToHttpUrl(source)).toBe(
-      "http://localhost:51283/api/assets/abc.png",
+    expect(resolveAssetSourceToDisplayUrl(source)).toBe(
+      "nodex-asset://managed/abc.png",
     );
   });
 
-  test("resolveAssetSourceToHttpUrl passes through non-asset URLs", () => {
+  test("passes through non-asset URLs", () => {
     const external = "https://example.com/image.png";
-    expect(resolveAssetSourceToHttpUrl(external)).toBe(external);
+    expect(resolveAssetSourceToDisplayUrl(external)).toBe(external);
   });
 
-  test("resolveAssetSourceToHttpUrl passes through invalid asset URI", () => {
+  test("passes through invalid asset URIs", () => {
     const invalid = "nodex://assets/not/valid/path/extra";
-    expect(resolveAssetSourceToHttpUrl(invalid)).toBe(invalid);
+    expect(resolveAssetSourceToDisplayUrl(invalid)).toBe(invalid);
   });
 });

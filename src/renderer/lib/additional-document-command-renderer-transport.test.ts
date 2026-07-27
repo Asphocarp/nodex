@@ -3,7 +3,6 @@ import type {
   AdditionalDocumentCommandResult,
 } from "../../shared/additional-document-commands";
 import type { PublicAdditionalDocumentCommandRequest } from "../../shared/additional-document-command-transport";
-import { browserRendererTransport } from "./browser-renderer-transport";
 import {
   createElectronRendererTransport,
   type ElectronRendererBridge,
@@ -49,40 +48,7 @@ const result: AdditionalDocumentCommandResult = {
   },
 };
 
-describe("Additional Document command renderer transports", () => {
-  test("browser posts the project-scoped logical command", async () => {
-    const originalFetch = globalThis.fetch;
-    let capturedUrl = "";
-    let capturedOperationId = "";
-    globalThis.fetch = (async (input, init) => {
-      capturedUrl = String(input);
-      capturedOperationId = (
-        JSON.parse(String(init?.body)) as { readonly operationId: string }
-      ).operationId;
-      return new Response(JSON.stringify(result), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    }) as typeof fetch;
-
-    try {
-      const response =
-        await browserRendererTransport.applyAdditionalDocumentCommand(
-          "project-1",
-          request,
-        );
-      expect(response.ok).toBe(true);
-      expect(capturedOperationId).toBe(request.operationId);
-      expect(
-        capturedUrl.endsWith(
-          "/api/projects/project-1/document-commands",
-        ),
-      ).toBe(true);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
+describe("Additional Document command renderer IPC", () => {
   test("Electron invokes the trusted main-frame command channel", async () => {
     let capturedChannel = "";
     let capturedProjectId = "";

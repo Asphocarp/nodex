@@ -1,11 +1,9 @@
-import { Hono } from "hono";
 import { describe, expect, test } from "vitest";
 
 import type {
   LibraryModuleApplyResult,
   LibraryModuleReadResult,
 } from "../shared/library-module";
-import { registerLibraryModuleHttpRoute } from "./library-module-http";
 import {
   LIBRARY_MODULE_APPLY_IPC_CHANNEL,
   LIBRARY_MODULE_READ_IPC_CHANNEL,
@@ -60,8 +58,8 @@ const applyResult = (): LibraryModuleApplyResult => ({
   },
 });
 
-describe("Library Module IPC/HTTP transport", () => {
-  test("derives Library identity instead of accepting one from either transport", async () => {
+describe("Library Module IPC", () => {
+  test("derives Library identity and rejects untrusted senders", async () => {
     const received: unknown[] = [];
     const handlers = new Map<
       string,
@@ -97,39 +95,6 @@ describe("Library Module IPC/HTTP transport", () => {
       applyRequest,
     )).toMatchObject({ ok: false, error: { code: "invalid_request" } });
 
-    const app = new Hono();
-    registerLibraryModuleHttpRoute(app, {
-      read: async (bound) => {
-        received.push(bound);
-        return result();
-      },
-      apply: async (bound) => {
-        received.push(bound);
-        return applyResult();
-      },
-    });
-    const response = await app.request("/api/library-module/read", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(request),
-    });
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(result());
-    const applyResponse = await app.request("/api/library-module/apply", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(applyRequest),
-    });
-    expect(applyResponse.status).toBe(200);
-    expect(await applyResponse.json()).toEqual(applyResult());
-    expect(received).toEqual([request, applyRequest, request, applyRequest]);
-
-    const forged = await app.request("/api/library-module/read", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...request, libraryId: "forged" }),
-    });
-    expect(forged.status).toBe(400);
-    expect(received).toHaveLength(4);
+    expect(received).toEqual([request, applyRequest]);
   });
 });

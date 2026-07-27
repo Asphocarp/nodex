@@ -7,18 +7,12 @@ import {
   NodexDialogTitle as DialogTitle,
 } from "@/components/ui/dialog";
 import type { CodexUserAttachment, CodexUserImageAttachment } from "@/lib/types";
-import { resolveAssetSourceToHttpUrl } from "@/lib/assets";
-import { toApiUrl } from "@/lib/http-base";
+import { resolveAssetSourceToDisplayUrl } from "@/lib/assets";
 import { cn } from "@/lib/utils";
+import { useConversationImageAsset } from "./use-conversation-image-asset";
 
 function isDirectImageSource(source: string): boolean {
   return source.startsWith("data:image/") || source.startsWith("http://") || source.startsWith("https://");
-}
-
-function normalizeFilePointerId(value: string): string {
-  return value
-    .replace(/^file-service:\/\//, "")
-    .replace(/^sediment:\/\//, "");
 }
 
 export function useLocalImageSource(source: string): {
@@ -27,7 +21,7 @@ export function useLocalImageSource(source: string): {
   isError: boolean;
 } {
   const directSource = isDirectImageSource(source) || source.startsWith("nodex://assets/")
-    ? resolveAssetSourceToHttpUrl(source)
+    ? resolveAssetSourceToDisplayUrl(source)
     : null;
   const [state, setState] = useState<{
     src: string | null;
@@ -51,89 +45,21 @@ export function useLocalImageSource(source: string): {
   return state;
 }
 
-async function resolveRemoteImageBlobUrl(pointer: string): Promise<string> {
-  const fileId = normalizeFilePointerId(pointer);
-  const response = await fetch(toApiUrl(`/files/download/${encodeURIComponent(fileId)}`));
-  if (!response.ok) throw new Error("Could not resolve remote image");
-
-  const contentType = response.headers.get("content-type") ?? "";
-  if (!contentType.includes("application/json")) {
-    return URL.createObjectURL(await response.blob());
-  }
-
-  const payload = await response.json() as {
-    url?: string;
-    download_url?: string;
-    downloadUrl?: string;
-    base64?: string;
-    data?: string;
-    mimeType?: string;
-    mime_type?: string;
-  };
-  const downloadUrl = payload.url ?? payload.download_url ?? payload.downloadUrl;
-  if (downloadUrl) {
-    const downloaded = await fetch(downloadUrl);
-    if (!downloaded.ok) throw new Error("Could not download remote image");
-    return URL.createObjectURL(await downloaded.blob());
-  }
-
-  const base64 = payload.base64 ?? payload.data;
-  if (!base64) throw new Error("Remote image response is missing data");
-  const mimeType = payload.mimeType ?? payload.mime_type ?? "image/png";
-  const byteString = window.atob(base64);
-  const bytes = new Uint8Array(byteString.length);
-  for (let index = 0; index < byteString.length; index += 1) {
-    bytes[index] = byteString.charCodeAt(index);
-  }
-  return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
-}
-
 export function useRemoteImageSource(pointer: string): {
   src: string | null;
   isLoading: boolean;
   isError: boolean;
   refetch: () => void;
 } {
-  const directSource = isDirectImageSource(pointer) || pointer.startsWith("nodex://assets/")
-    ? resolveAssetSourceToHttpUrl(pointer)
-    : null;
-  const [revision, setRevision] = useState(0);
-  const [state, setState] = useState({
-    src: directSource,
-    isLoading: directSource === null,
-    isError: false,
+  const asset = useConversationImageAsset(pointer, {
+    shouldLoadFileDataUrl: false,
   });
-
-  useEffect(() => {
-    if (directSource !== null) {
-      setState({ src: directSource, isLoading: false, isError: false });
-      return;
-    }
-
-    let ignore = false;
-    let objectUrl: string | null = null;
-    setState({ src: null, isLoading: true, isError: false });
-
-    void resolveRemoteImageBlobUrl(pointer)
-      .then((src) => {
-        objectUrl = src;
-        if (!ignore) setState({ src, isLoading: false, isError: false });
-      })
-      .catch(() => {
-        if (!ignore) setState({ src: null, isLoading: false, isError: true });
-      });
-
-    return () => {
-      ignore = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [directSource, pointer, revision]);
-
-  const refetch = useCallback(() => {
-    setRevision((current) => current + 1);
-  }, []);
-
-  return { ...state, refetch };
+  return {
+    src: asset.previewSrc,
+    isLoading: asset.isLoading,
+    isError: asset.isError,
+    refetch: asset.refetch,
+  };
 }
 
 export function ImagePreviewDialog({

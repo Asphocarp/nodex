@@ -306,24 +306,6 @@ observable even if the file sink is under pressure.
 - uncaught exceptions
 - unhandled promise rejections
 
-### HTTP
-
-[src/main/http-server.ts](src/main/http-server.ts) logs:
-
-- server startup
-- one completion record per request
-- request id via `x-nodex-request-id`
-- method, path, status, duration, origin
-- uncaught request failures through `app.onError(...)`
-- metadata-only Card mutation acknowledgements; the retired whole-description endpoint returns `410 Gone` and produces no durable mutation acknowledgement
-
-Severity policy:
-
-- `debug` for routine successful responses
-- `info` for successful responses taking at least one second
-- `warn` for 4xx responses
-- `error` for 5xx responses and uncaught handler failures
-
 ### Codex App-Server Client
 
 [src/main/codex/codex-app-server-client.ts](src/main/codex/codex-app-server-client.ts) logs:
@@ -402,7 +384,7 @@ Codex-specific logging policy:
 
 ### Block and Document Mutations
 
-[src/main/ipc-handlers.ts](src/main/ipc-handlers.ts), [src/main/http-server.ts](src/main/http-server.ts), and [src/main/block-mutation-writer.ts](src/main/block-mutation-writer.ts) log:
+[src/main/ipc-handlers.ts](../../src/main/ipc-handlers.ts) and the native Core writer log:
 
 - worker queue, transaction, and main-event-loop lag metrics for Card lifecycle, Block property, Database, Document, relocation, transfer, history, and maintenance commands
 - durable Document generation/head/update-size evidence without title/body content

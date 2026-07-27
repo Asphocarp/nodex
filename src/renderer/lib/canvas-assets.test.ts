@@ -50,8 +50,7 @@ describe("Canvas managed asset bridge", () => {
         },
       },
       {
-        fetchAsset: async () => new Response("bytes"),
-        blobToDataUrl: async () => "data:image/png;base64,Ynl0ZXM=",
+        readAssetDataUrl: async () => "data:image/png;base64,Ynl0ZXM=",
         now: () => 20,
       },
     );
@@ -63,11 +62,10 @@ describe("Canvas managed asset bridge", () => {
   test("incrementally resolves unchanged files and prunes unreferenced cache entries", async () => {
     const fetched: string[] = [];
     const resolver = new CanvasBinaryFileResolver({
-      fetchAsset: async (url) => {
-        fetched.push(url);
-        return new Response(url);
+      readAssetDataUrl: async (source) => {
+        fetched.push(source);
+        return `data:${source}`;
       },
-      blobToDataUrl: async (blob) => `data:${await blob.text()}`,
       now: () => 50,
     });
     const first = await resolver.resolve({
@@ -127,12 +125,11 @@ describe("Canvas managed asset bridge", () => {
     let fetchCount = 0;
     let fail = true;
     const resolver = new CanvasBinaryFileResolver({
-      fetchAsset: async () => {
+      readAssetDataUrl: async () => {
         fetchCount += 1;
-        if (fail) return new Response(null, { status: 503 });
-        return new Response("ok");
+        if (fail) throw new Error("unavailable");
+        return "data:image/png;base64,b2s=";
       },
-      blobToDataUrl: async () => "data:image/png;base64,b2s=",
     });
     const files = {
       image: {

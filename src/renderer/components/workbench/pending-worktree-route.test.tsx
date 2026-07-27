@@ -251,6 +251,9 @@ describe("PendingWorktreeRoute", () => {
     );
 
     const cancel = await view.findByRole("button", { name: "Cancel" });
+    await waitFor(() => {
+      expect(transport.calls[0]).toBe("clear-attention:local:local:pending-1");
+    });
     await act(async () => {
       fireEvent.click(cancel);
       await Promise.resolve();
@@ -276,6 +279,9 @@ describe("PendingWorktreeRoute", () => {
     );
 
     const workLocally = await view.findByRole("button", { name: "Work locally" });
+    await waitFor(() => {
+      expect(transport.calls[0]).toBe("clear-attention:local:local:pending-1");
+    });
     await act(async () => {
       fireEvent.click(workLocally);
       await Promise.resolve();

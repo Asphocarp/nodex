@@ -1,5 +1,4 @@
 import { invoke } from "../../../lib/api";
-import { parseAssetSource } from "../../../../shared/assets";
 import { blockNoteToNfm, serializeClipboardText } from "../../../lib/nfm";
 import { TextSelection } from "@tiptap/pm/state";
 
@@ -86,22 +85,9 @@ function getClipboardItemCtor(
   return ClipboardItem;
 }
 
-function resolveAssetPathPrefixSource(source: string, assetPathPrefix: string): string {
-  const parsed = parseAssetSource(source);
-  if (!parsed) return source;
-  if (assetPathPrefix.length === 0) return source;
-  return `${assetPathPrefix}${parsed.fileName}`;
-}
-
-function getAssetPathPrefix(): string {
-  const assetPathPrefix = typeof window !== "undefined"
-    ? window.api?.assetPathPrefix?.trim() ?? ""
-    : "";
-  return assetPathPrefix;
-}
-
 function resolveAssetSourceToAbsolutePathSync(source: string): string {
-  return resolveAssetPathPrefixSource(source, getAssetPathPrefix());
+  if (typeof window === "undefined") return source;
+  return window.api?.resolveManagedAssetPath?.(source) ?? source;
 }
 
 async function resolveAssetSourceToAbsolutePath(source: string): Promise<string> {

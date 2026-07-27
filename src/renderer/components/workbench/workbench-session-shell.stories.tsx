@@ -1124,8 +1124,6 @@ function installStoryApi(
       onInitializationStep: () => () => undefined,
       reportInitializationReady: () => undefined,
       requestMicrophonePermission: () => undefined,
-      serverUrl: undefined,
-      assetPathPrefix: undefined,
       inspectPasteClipboard: () => ({ items: [] }),
       readPasteClipboard: () => ({}),
       getPathInfoForFile: () => null,

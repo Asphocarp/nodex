@@ -8,7 +8,7 @@ import {
   parseAbsoluteImagePath,
 } from "../../../../lib/codex-conversation-image-assets";
 import { workspaceFileBinaryQueryOptions } from "../../../../lib/query-options";
-import { resolveAssetSourceToHttpUrl } from "../../../../lib/assets";
+import { resolveAssetSourceToDisplayUrl } from "../../../../lib/assets";
 import { useConversationImageAssetContext } from "../conversation-image-asset-context";
 
 interface ConversationImageAssetResolution {
@@ -25,7 +25,7 @@ function buildDataUrl(dataBase64: string, mimeType: string | null): string {
 }
 
 function normalizeDirectImageSource(source: string): string {
-  return source.startsWith("nodex://assets/") ? resolveAssetSourceToHttpUrl(source) : source;
+  return source.startsWith("nodex://assets/") ? resolveAssetSourceToDisplayUrl(source) : source;
 }
 
 function useAssetObjectUrl(blob: Blob | null): string | null {

@@ -13,7 +13,7 @@ import { Bot, Database, FileText, Link2, ListTree, Paperclip, RefreshCw, Rows3, 
 
 import { cn } from "@/lib/utils";
 import { parseNfm, nfmToBlockNote } from "@/lib/nfm";
-import { resolveAssetSourceToHttpUrl } from "@/lib/assets";
+import { resolveAssetSourceToDisplayUrl } from "@/lib/assets";
 import { resolveAgentConfigChip, type AgentConfigProps } from "./agent-config-chip";
 import { formatAttachmentBytes } from "./attachment-chip-format";
 import { createReadonlyDateMentionInlineContentSpec } from "./date-mention-chip";
@@ -377,7 +377,7 @@ export function ReadonlyNfmBlockNotePreview({
     {
       schema: readonlyNfmBlockNotePreviewSchema,
       initialContent: previewDocument.initialContent,
-      resolveFileUrl: async (source) => resolveAssetSourceToHttpUrl(source),
+      resolveFileUrl: async (source) => resolveAssetSourceToDisplayUrl(source),
       tables: {
         headers: true,
         cellBackgroundColor: true,

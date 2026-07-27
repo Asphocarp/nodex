@@ -1,16 +1,14 @@
 # Security
 
 ## Threat Model
-Nodex is local-first. Main risks are malformed local inputs, accidental data loss, unintended exposure of the local HTTP API, and unsafe command/file-change approvals during Codex thread execution.
+Nodex is local-first. Main risks are malformed local inputs, accidental data loss, renderer capability abuse, and unsafe command/file-change approvals during Codex thread execution.
 
 ## Security Controls in Place
-- Boundary validation for typed Core Module, IPC, and HTTP requests.
-- HTTP body limits for mutation and image-upload routes.
-- Browser-origin checks for mutating HTTP requests (trusted local dev origins only).
-- Restrictive CORS policy for browser access (trusted local dev origins only).
-- No arbitrary SQL inspection route in IPC, loopback HTTP, or the public CLI.
+- Boundary validation for typed Core Module and IPC requests.
+- No arbitrary SQL inspection route in IPC or the public CLI.
 - Electron preload bridge limits renderer access to a typed API surface.
 - Workspace-file IPC is available only to the top-level renderer frame of an owned app window. Directory browsing accepts canonical root-relative coordinates, verifies lexical and resolved-realpath containment, and omits directory symlinks that escape the selected root. Exact-file metadata/text/binary operations intentionally accept an absolute local path without a Project-root grant so user-visible agent outputs and patches remain openable outside the active source; this relies on the trusted-renderer boundary rather than path sandboxing. Write requests use an expected-modification-time CAS guard and never create missing parent directories implicitly.
+- Managed-asset mutation, byte reads, bounded previews, path resolution, and dictation IPC are likewise available only to the top-level frame of an owned app window and validate payload types and byte budgets again in Main. Persisted `nodex://assets/<safe-name>` identities do not expose filesystem roots. Raster display uses `nodex-asset://managed/<safe-name>` through a handler installed only on `session.defaultSession`; it accepts `GET`/`HEAD`, allowlisted raster extensions, and regular non-symlink files. SVG, text/script content, directories, traversal, and the Browser-sidebar partition are excluded.
 - Electron bootstrap fixes Rust Core as the only production authority before
   store startup; the retired selector and JavaScript SQLite/Yjs implementation
   are absent. Native launch validates a regular, executable,
@@ -125,11 +123,6 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
 - Optional Statsig telemetry is disabled by default, sends no `userID` or account data, and relies on Statsig's anonymous Stable ID plus safe app/runtime metadata. Statsig web analytics is a separate off-by-default opt-in that disables console-log capture, copy-text capture, and current-page URL attachment, then filters AutoCapture to low-risk technical events such as web vitals, performance, and session start. Click, copy, form, dead-click, rage-click, error, and page-view AutoCapture events are blocked by default. Nodex does not enable Statsig Session Replay.
 
 ## Current Gaps
-- The public loopback HTTP API still has no built-in authentication; it is a
-  separate Electron adapter and never receives the native Core bearer
-  capability. Behavioral coverage requires 404 for native health, lifecycle,
-  and Store Administration `read`/`apply` paths; the loopback router cannot
-  proxy those private UDS routes by path coincidence.
 - No role-based access control model (single-user/local trust assumption).
 - Security logging/auditing is still local-first and not audit-grade. Backend logs redact common secret-bearing fields (for example authorization headers, tokens, API keys, passwords, cookies, and session values) before writing JSON-line log records; optional Sentry crash diagnostics are for failure triage, not an audit trail.
 - `full-access` is intentionally high authority: it removes Nodex approval prompts for the exact Turn and permits every read/write/destructive action currently exposed by `nodex_app@5` across the current Library, in addition to unrestricted Codex filesystem and network access.
@@ -138,13 +131,10 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
 - Dynamic-tool receipts are an idempotency and recovery ledger, not an audit-grade record of human intent. They intentionally exclude raw Nested Markdown/body content; the authorization preview is not retained as a second document history.
 
 ## Safe Operating Practices
-- Bind HTTP server to loopback-only contexts where possible.
-- Do not expose the local API port publicly without external controls.
 - Keep dependencies updated (`bun update` cadence).
 - Use manual backups before destructive operations.
 
 ## Hardening Backlog
-- Optional API token gate for CLI/browser calls.
-- Basic security smoke checks in CI for transport/body limits and absence of SQL inspection routes.
+- Basic security smoke checks in CI for IPC/body limits and absence of SQL inspection routes.
 - Approval policy profiles (for example, command/file-change scopes and allow-lists) beyond the current `sandbox`/`full-access`/`custom` permission presets.
 - Additional execution boundary controls for Codex subprocess invocations.

@@ -1,8 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { EventEmitter } from "node:events";
-import { Hono } from "hono";
 import * as Y from "yjs";
-import { PAGE_DOCUMENT_SCHEMA_VERSION } from "../../shared/block-documents";
 import type {
   DocumentAwarenessPublishRequest,
   DocumentRelocationLeaseResponseRequest,
@@ -20,10 +18,8 @@ import type {
   DesktopDocumentSyncPort,
   DesktopDocumentSyncScope,
 } from "../../main/core-client/desktop-document-sync-bridge";
-import { registerDocumentSyncHttpRoutes } from "../../main/document-sync-http";
 import { createElectronDocumentSyncAdapter } from "./electron-document-sync-adapter";
 import type { ElectronRendererBridge } from "./electron-renderer-transport";
-import { createHttpDocumentSyncAdapter } from "./http-document-sync-adapter";
 import { NodexYProvider } from "./nodex-y-provider";
 
 const success = <T>(value: T): DocumentSyncCommandResult<T> => ({
@@ -292,7 +288,6 @@ class FakeElectronTarget extends EventEmitter implements DocumentSyncClientTarge
     return {
       invoke: this.invoke,
       on: this.onBridge,
-      serverUrl: "http://unused.test",
     } as unknown as ElectronRendererBridge;
   }
 
@@ -300,54 +295,6 @@ class FakeElectronTarget extends EventEmitter implements DocumentSyncClientTarge
     if (this.destroyed) return;
     this.destroyed = true;
     this.emit("destroyed");
-  }
-}
-
-class HonoEventSource {
-  onopen: (() => void) | null = null;
-  onerror: (() => void) | null = null;
-  onmessage: ((event: { readonly data: string }) => void) | null = null;
-  private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-  private closed = false;
-
-  constructor(readonly url: string, private readonly app: Hono) {
-    queueMicrotask(() => void this.start());
-  }
-
-  close(): void {
-    this.closed = true;
-    void this.reader?.cancel();
-    this.reader = null;
-  }
-
-  private async start(): Promise<void> {
-    const parsed = new URL(this.url);
-    const response = await this.app.request(`${parsed.pathname}${parsed.search}`);
-    if (!response.ok || !response.body || this.closed) {
-      this.onerror?.();
-      return;
-    }
-    this.reader = response.body.getReader();
-    this.onopen?.();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    while (!this.closed) {
-      const next = await this.reader.read();
-      if (next.done) break;
-      buffer += decoder.decode(next.value, { stream: true });
-      let boundary = buffer.indexOf("\n\n");
-      while (boundary >= 0) {
-        const frame = buffer.slice(0, boundary);
-        buffer = buffer.slice(boundary + 2);
-        const data = frame
-          .split("\n")
-          .find((line) => line.startsWith("data: "))
-          ?.slice("data: ".length);
-        if (data) this.onmessage?.({ data });
-        boundary = buffer.indexOf("\n\n");
-      }
-    }
-    if (!this.closed) this.onerror?.();
   }
 }
 
@@ -391,7 +338,7 @@ const runConcurrentEdit = async (
   }
 };
 
-describe("Document sync transport parity", () => {
+describe("Document sync renderer IPC", () => {
   test("converges two independent Electron IPC provider surfaces", async () => {
     const backend = new MemoryDurableBackend();
     const realtime = new MemoryDocumentRealtime(backend);
@@ -416,60 +363,4 @@ describe("Document sync transport parity", () => {
     }
   });
 
-  test("converges two independent browser HTTP/SSE provider surfaces", async () => {
-    const backend = new MemoryDurableBackend();
-    const realtime = new MemoryDocumentRealtime(backend);
-    const app = new Hono();
-    registerDocumentSyncHttpRoutes(app, {
-      realtime,
-      getOwnedDocumentDescriptor: async (projectId: string, ownerBlockId: string) => ({
-        projectId,
-        ownerBlockId,
-        ownerType: "page",
-        ownerLifecycle: "active",
-        documentId: "document-1",
-        storeEpoch: "store-1",
-        generation: 1,
-        headSeq: 0,
-        schemaKey: "nodex.page",
-        schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
-        readiness: "ready",
-        sync: { kind: "yjs", stateVector: new Uint8Array() },
-      }),
-      prepareOwnedBlockDocument: async (projectId, ownerBlockId) => success({
-        projectId,
-        ownerBlockId,
-        ownerType: "page",
-        ownerLifecycle: "active",
-        documentId: "document-1",
-        storeEpoch: "store-1",
-        generation: 1,
-        headSeq: 0,
-        schemaKey: "nodex.page",
-        schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
-        readiness: "ready",
-        sync: { kind: "yjs", stateVector: new Uint8Array() },
-      }),
-    });
-    const adapters = [1, 2].map(() =>
-      createHttpDocumentSyncAdapter({
-        projectId: "project-1",
-        toUrl: (path) => `http://nodex.test${path}`,
-        fetch: ((input: string | URL | Request, init?: RequestInit) => {
-          const parsed = new URL(String(input));
-          return app.request(`${parsed.pathname}${parsed.search}`, init);
-        }) as typeof globalThis.fetch,
-        createEventSource: (url) => new HonoEventSource(url, app),
-      }),
-    );
-    try {
-      const result = await runConcurrentEdit((index) => adapters[index - 1]!);
-      expect(result.first).toBe(result.merged);
-      expect(result.second).toBe(result.merged);
-      expect(result.merged.length).toBe(2);
-      expect(backend.document.getText("title").toString()).toBe(result.merged);
-    } finally {
-      backend.destroy();
-    }
-  });
 });

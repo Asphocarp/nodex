@@ -23,7 +23,7 @@ import type {
 } from "@/lib/nfm/types";
 import { FileLinkAnchor } from "../shared/file-link-anchor";
 import { parseNfm } from "@/lib/nfm/parser";
-import { resolveAssetSourceToHttpUrl } from "@/lib/assets";
+import { resolveAssetSourceToDisplayUrl } from "@/lib/assets";
 import { formatCodexModelLabel } from "@/lib/codex-thread-settings";
 import { formatThreadMentionShortUuid } from "@/lib/nfm/thread-mention-display";
 import { formatDateMentionPlainText } from "@/lib/nfm/date-mention";
@@ -275,7 +275,7 @@ function BlockComponent({
       );
 
     case "image": {
-      const sourceUrl = resolveAssetSourceToHttpUrl(block.source);
+      const sourceUrl = resolveAssetSourceToDisplayUrl(block.source);
       const alt = inlineText(block.caption) || "Image";
       const widthStyle = block.previewWidth !== undefined
         ? { width: `${block.previewWidth}px`, maxWidth: "100%" }

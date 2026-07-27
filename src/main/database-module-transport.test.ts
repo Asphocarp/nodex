@@ -1,4 +1,3 @@
-import { Hono } from "hono";
 import { describe, expect, test } from "vitest";
 import type {
   DatabaseApplyResultV2,
@@ -11,7 +10,6 @@ import {
   parseDataSourceId,
   parseDataSourcePropertyId,
 } from "../shared/database-identities";
-import { registerDatabaseModuleHttpRoutes } from "./database-module-http";
 import {
   DATABASE_MODULE_APPLY_IPC_CHANNEL,
   DATABASE_MODULE_READ_IPC_CHANNEL,
@@ -74,8 +72,8 @@ const readResult = (): DatabaseModuleReadResultV2 => ({
   },
 });
 
-describe("Database Module IPC/HTTP transport", () => {
-  test("shares retry identity while replacing transport actor attribution", async () => {
+describe("Database Module IPC", () => {
+  test("preserves retry identity while binding trusted actor attribution", async () => {
     const received: DatabaseApplyV2[] = [];
     const apply = async (request: DatabaseApplyV2): Promise<DatabaseApplyResultV2> => {
       received.push(request);
@@ -126,38 +124,11 @@ describe("Database Module IPC/HTTP transport", () => {
     )) as DatabaseApplyResultV2;
     expect(!untrusted.ok && untrusted.error.code).toBe("invalid_request");
 
-    const app = new Hono();
-    registerDatabaseModuleHttpRoutes(app, {
-      apply,
-      read: async () => readResult(),
-    });
-    const response = await app.request(
-      "/api/projects/project-1/database-module/apply",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(applyRequest()),
-      },
-    );
-    const http = (await response.json()) as DatabaseApplyResultV2;
-    expect(response.status).toBe(200);
-    expect(http.ok && http.value.duplicate).toBe(true);
     expect(received[0]?.actor.kind).toBe("electron_renderer");
-    expect(received[1]?.actor.kind).toBe("http_loopback");
-
-    const mismatch = await app.request(
-      "/api/projects/project-2/database-module/apply",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(applyRequest()),
-      },
-    );
-    expect(mismatch.status).toBe(400);
-    expect(received).toHaveLength(2);
+    expect(received).toHaveLength(1);
   });
 
-  test("returns the same catalog read over IPC and HTTP", async () => {
+  test("returns the catalog read over IPC", async () => {
     const handlers = new Map<
       string,
       (event: unknown, projectId: string, request: unknown) => Promise<unknown>
@@ -170,28 +141,11 @@ describe("Database Module IPC/HTTP transport", () => {
       },
       read: async () => readResult(),
     });
-    const app = new Hono();
-    registerDatabaseModuleHttpRoutes(app, {
-      apply: async () => {
-        throw new Error("not used");
-      },
-      read: async () => readResult(),
-    });
-
     const ipc = await handlers.get(DATABASE_MODULE_READ_IPC_CHANNEL)?.(
       "trusted",
       "project-1",
       readRequest(),
     );
-    const response = await app.request(
-      "/api/projects/project-1/database-module/read",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(readRequest()),
-      },
-    );
-    expect(response.status).toBe(200);
-    expect(JSON.stringify(ipc)).toBe(JSON.stringify(await response.json()));
+    expect(ipc).toEqual(readResult());
   });
 });

@@ -1,14 +1,9 @@
-import { Hono } from "hono";
 import { describe, expect, test } from "vitest";
 import type {
   BlockTransferCommandResult,
   BlockTransferIntent,
 } from "../shared/block-transfer";
-import {
-  decodeBlockTransferHttpResult,
-  type PublicBlockTransferIntent,
-} from "../shared/block-transfer-transport";
-import { registerBlockTransferHttpRoute } from "./block-transfer-http";
+import type { PublicBlockTransferIntent } from "../shared/block-transfer-transport";
 import {
   BLOCK_TRANSFER_IPC_CHANNEL,
   registerBlockTransferIpcHandler,
@@ -60,7 +55,7 @@ const committed = (bound: BlockTransferIntent): BlockTransferCommandResult => ({
   },
 });
 
-describe("Block transfer public transports", () => {
+describe("Block transfer IPC", () => {
   test("Electron binds trusted main-frame audit identity", async () => {
     let handler: BlockTransferIpcHandler = async () => {
       throw new Error("handler missing");
@@ -116,34 +111,4 @@ describe("Block transfer public transports", () => {
     expect(calls).toBe(0);
   });
 
-  test("HTTP round-trips binary Document commits as bounded base64", async () => {
-    const app = new Hono();
-    const captured: BlockTransferIntent[] = [];
-    registerBlockTransferHttpRoute(app, {
-      transfer: async (bound) => {
-        captured.push(bound);
-        return committed(bound);
-      },
-    });
-    const response = await app.request(
-      "/api/projects/project-a/block-transfers",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(intent),
-      },
-    );
-    expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(captured[0]?.actor.kind).toBe("http_loopback");
-    const decoded = decodeBlockTransferHttpResult(await response.json());
-    expect(decoded.ok).toBe(true);
-    if (!decoded.ok) return;
-    expect(decoded.value.documentCommits[0]?.update).toEqual(
-      new Uint8Array([1, 2, 3]),
-    );
-    expect(decoded.value.documentCommits[0]?.stateVector).toEqual(
-      new Uint8Array([4, 5]),
-    );
-  });
 });

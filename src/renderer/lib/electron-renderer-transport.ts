@@ -63,7 +63,6 @@ export function createElectronRendererTransport(
   bridge: ElectronRendererBridge,
 ) {
   return {
-    kind: "electron" as const,
     readPageLifecyclePreflight(projectId: string, pageId: string) {
       return bridge.invoke(
         "pages:lifecycle:preflight",

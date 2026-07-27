@@ -2,6 +2,14 @@ import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/
 import type { GitRepositoryIdentity } from "./git-repository-identity";
 import type { LocalPathPresentationContext } from "./local-path-presentation";
 import type {
+  ManagedAssetImageBytes,
+  ManagedAssetPreview,
+  ManagedAssetPreviewInput,
+  ManagedAssetUploadInput,
+  ManagedImageSaveResult,
+  ManagedResourceSaveResult,
+} from "./managed-assets";
+import type {
   DocumentAwarenessPublishAck,
   DocumentAwarenessPublishRequest,
   DocumentRelocationLeaseResponseRequest,
@@ -1046,6 +1054,26 @@ export interface IpcApi {
     result: boolean;
   };
   "asset:resolve-path": { args: [source: string]; result: string | null };
+  "asset:image:save": {
+    args: [input: ManagedAssetUploadInput];
+    result: ManagedImageSaveResult;
+  };
+  "asset:image:read": {
+    args: [source: string];
+    result: ManagedAssetImageBytes;
+  };
+  "asset:resource:save": {
+    args: [input: ManagedAssetUploadInput];
+    result: ManagedResourceSaveResult;
+  };
+  "asset:resource:materialize": {
+    args: [localPath: string];
+    result: ManagedResourceSaveResult;
+  };
+  "asset:preview:read": {
+    args: [input: ManagedAssetPreviewInput];
+    result: ManagedAssetPreview;
+  };
   "clipboard:write-image": {
     args: [input: { source: string }];
     result: ClipboardWriteImageResult;
@@ -1290,6 +1318,10 @@ export interface IpcApi {
   "codex:dictation:state:read": {
     args: [];
     result: CodexDictationStateSnapshot;
+  };
+  "codex:dictation:transcribe": {
+    args: [input: { contentType: string; base64Payload: string }];
+    result: string;
   };
   "codex:conversation-image-asset:resolve": {
     args: [input: CodexConversationImageAssetResolveInput];

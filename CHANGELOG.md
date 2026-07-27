@@ -120,6 +120,7 @@ All notable changes to this project will be documented in this file.
 - Right-panel Database View and Page Stage actions now use the same dense searchable picker chrome as NFM move-to, scoped to Database or Page destinations.
 
 ### Removed
+- Removed the legacy unauthenticated local HTTP API and fixed desktop port; desktop workflows now use trusted Electron IPC, while the CLI continues through the private Profile-scoped Core transport.
 - Removed the legacy Card snapshot tables and whole-Page write APIs during the shipped-store import; Page commands and read models now operate only on Block, Document, and Database authority.
 - Removed the old `KANBAN_*` server environment variable aliases.
 - Removed the floating Manage Projects popover entry points.

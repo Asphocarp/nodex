@@ -16,7 +16,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 
 ## Goals
 
-1. **Agent-Native**: Agents use REST API to read/write task status
+1. **Agent-Native**: Agents use the semantic native CLI and approved tools to read/write product state
 2. **Real-Time Sync**: UI reflects changes instantly via SSE
 3. **Human-Friendly**: Notion-like UI for manual task management
 4. **Portable**: Single SQLite database file, easy to backup/restore
@@ -286,7 +286,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - A title-only Page opens as a normal empty editor. Its collaborative body contains one authority-owned empty paragraph with a stable Block ID, while NFM/plain-text exports remain empty; the editor never creates a placeholder identity during mount.
 - On a primary Page, every mounted writable surface owns an independent Y.Doc client/session, completes state-vector synchronization before mounting content, binds title to `Y.Text("title")`, and binds BlockNote to `Y.XmlFragment("body")`.
 - Page title is a rich contenteditable projection of that Y.Text. It preserves bold/italic/underline/code/color, links, line breaks, and registered title-safe mention atoms; formatting never applies to atomic objects or line breaks. Ordinary input and deletion mutate minimal Y.Text ranges, Shift+Enter inserts a canonical line break, Enter remains Page Stage navigation, and paste falls back to sanitized plain title text when external rich content is unsupported. Copy and cut write plain text plus semantic HTML derived from the selected title content, so Page-title presentation weight never becomes a copied bold mark while explicit inline formatting remains portable; cut deletes only after a clipboard payload is written successfully.
-- Synced Block sources are not another Page: each is a system-managed body-only collaborative Document whose Library placement is omitted from normal Page/Database navigation, while visible occurrences are childless references to the same source Block. The typed ownership command is available through renderer IPC/HTTP and CLI. A collapsed occurrence creates no provider; expanding a visible occurrence mounts the source's independent collaborative editor without copying its body into the host Page.
+- Synced Block sources are not another Page: each is a system-managed body-only collaborative Document whose Library placement is omitted from normal Page/Database navigation, while visible occurrences are childless references to the same source Block. The typed ownership command is available through renderer IPC and CLI. A collapsed occurrence creates no provider; expanding a visible occurrence mounts the source's independent collaborative editor without copying its body into the host Page.
 - Reusable Template Library sources and non-primary Canvas owners use the same production command boundary. Templates have an authoritative human name, childless references, and copy-on-instantiate semantics with fresh Block IDs; expanding a reference opens the independently synchronized source without embedding foreign body content. Canvas scene Documents remain in Canvas view and never mount a BlockNote body editor. A source can be deleted only after a global exact-head scan proves that no Project references any Block in its recursively owned closure; deletion retains Documents/history until GC. Long-form content remains a Page, ordinary code remains a `codeBlock`, and size never changes a Block's durable type or ownership.
 - Promotion/demotion preserves selected subtree IDs, allocates fresh IDs only for copies, obtains host/source flush evidence through the Host coordinator, and lets Core reprepare and either commit a sole-occurrence demotion completely or leave both Documents unchanged. Clients never submit writer fence proofs directly.
 - Primary title/body edits are Yjs transactions and never run whole-NFM autosave, external whole-body replacement, or description conflict overwrite. Lifecycle and metadata use separate typed commands; explicit NFM import requires current Document generation/head CAS and produces a forward Yjs transaction.
@@ -442,7 +442,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Page Detail exposes repeat settings (frequency, interval, weekly weekdays, inclusive end date), reminder offsets, and schedule timezone.
 - Users can complete or skip a specific occurrence from Calendar quick actions and from Page Detail.
 - Shipping an occurrence creates a new current-content Page with status `ship` and `archived=true`; archived events remain visible on Calendar with muted styling. Because completion and recurring-series detach/split create sibling Pages, they require the executing Project's bound Data Source `create_child` authority; an explicit grant can update or skip the granted Page but cannot confer structural creation authority.
-- Complete, skip, and scoped update are idempotent logical commands. Every caller supplies and retains an `operationId`; retrying the same command after a lost response, app restart, or IPC/HTTP switch returns the first committed or rejected result without cloning or advancing again. Reusing that ID for a different Page, occurrence, scope, update, or command kind returns a typed collision.
+- Complete, skip, and scoped update are idempotent logical commands. Every caller supplies and retains an `operationId`; retrying the same command after a lost response, or app restart returns the first committed or rejected result without cloning or advancing again. Reusing that ID for a different Page, occurrence, scope, update, or command kind returns a typed collision.
 - Missing/unscheduled/unauthorized targets and invalid occurrence updates are durable rejections: an exact retry returns the same error, but no Page, schedule, exception, projection, or change-log entry is written. Complete and clone-capable update commands preallocate a UUID-v7 `createdPageId` as part of their canonical intent; complete/detach/split clone the source's current collaborative title/body and Data Source properties into that identity without creating another storage aggregate.
 - Recurrence logs are not exposed in product UI or API.
 - Occurrence schedule edits support scope: `this`, `this-and-future` (series split), and `all`.
@@ -550,12 +550,11 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Thread stage request ownership has three states: normal composer, Auto-review offer, or request stack. The Auto-review offer is exclusive while idle. Otherwise a background child approval or permission is rendered before the active thread request, and both may coexist; private child input, picker, setup, MCP, or plan requests never own the parent composer. Any replacement removes the normal editor, attachments, add-context, permission, context, model selector, dictation, and send/stop footer controls while preserving queue, background-agent, terminal, goal, and other above-composer lanes.
 - Thread stage composer lower status row is a pre-start new-chat-only backplate mounted before and behind the raised home composer surface through the composer-owned external footer slot. It shows the selected project when available, the local run target (`Work locally`) or `Start in` selector, optional environment selection for `New worktree`, and the real Git branch for the selected primary source. It remains orthogonal to composer ownership, so a new-thread replacement would keep the strip; once a conversation exists, existing-thread composers do not mount it.
 - Thread stage composer shows the context-window meter tooltip from the composer footer: unavailable data falls back to `0% used (100% left)`, ready data rounds token counts to whole thousands, usage below `50%` reads `{usage}% used ({remaining}% left)`, usage at or above `50%` reads `{usage}% full`, and the `Codex automatically compacts its context` line appears only for ChatGPT-authenticated sessions without an explicit `modelProvider`.
-- Thread stage composer includes dictation as a separate buffered speech-to-text feature in Electron: the mic button is shown in supported ChatGPT-authenticated sessions, tooltip copy is `Click to dictate or hold`, `Ctrl+M` starts on keydown and stops on keyup with `insert`, button click starts recording, recordings shorter than `250ms` are discarded locally, and stop actions stay split between `Stop dictation` (`insert`) and `Transcribe and send` (`send`) before one `/transcribe` POST returns transcript text.
+- Thread stage composer includes dictation as a separate buffered speech-to-text feature in Electron: the mic button is shown in supported ChatGPT-authenticated sessions, tooltip copy is `Click to dictate or hold`, `Ctrl+M` starts on keydown and stops on keyup with `insert`, button click starts recording, recordings shorter than `250ms` are discarded locally, and stop actions stay split between `Stop dictation` (`insert`) and `Transcribe and send` (`send`) before one bounded, sender-validated IPC command returns transcript text.
 - Threads composer uses one round icon button: it sends when idle, shows a spinner immediately while the prompt send is pending, and switches to a stop icon while Codex is running so users can interrupt immediately.
 - The `/personality` composer command is available when host personality support is connected. It offers `Friendly` (`Warm, collaborative, and helpful`) and `Pragmatic` (`Concise, task-focused, and direct`), marks the active value, and updates both the host default and the current thread's next-turn settings. The host default is `friendly`, accepts the protocol `none` state without exposing it as a third selector row, reaches ordinary and dynamic `thread/start`, and is replaced by hydrated thread personality for an existing conversation. Internal title-generation and heartbeat utility threads keep an explicit null personality.
 - Threads composer send behavior defaults to `Enter` (with `Shift+Enter` for newline). Settings -> Editor exposes `Cmd/Ctrl+Enter to send long prompts`; when enabled, single-line drafts still submit on `Enter`, multiline drafts switch primary submit to `Cmd/Ctrl+Enter`, and running-thread alternate queue/steer submit moves to `Cmd/Ctrl+Shift+Enter`. Running-thread primary and alternate submits carry explicit `Queue` or `Steer` actions so alternate queue submissions cannot fall through to normal steer.
 - Visible transcript semantics are defined in [Codex Thread Transcript Behavior](./codex-thread-transcript-behavior.md), including params-owned pending prompt rows, steering user-message acceptance and divider rows, request-user-input cards, plan follow-up flow, local file links in transcript markdown, reasoning/tool rendering, exploration coalescing, queue cleanup, and restart recovery consistency.
-- Browser/HTTP transport returns explicit unsupported errors for `codex:*` methods in this release.
 
 ### Statuses
 
@@ -578,18 +577,16 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - **UI**: React 19, shadcn/ui, Tailwind CSS
 - **Block Editor**: BlockNote (@blocknote/core, @blocknote/react, @blocknote/shadcn)
 - **Description Format**: [Nested Markdown](../references/nested-markdown-spec.md) with custom parser/serializer
-- **HTTP Server**: Hono (embedded in main process)
-- **HTTP Server Port**: Configurable via `[server].port` / `NODEX_PORT` (default 51283)
+- **Desktop Renderer Transport**: typed Electron IPC through a context-isolated preload bridge
 - **Drag & Drop**: @atlaskit/pragmatic-drag-and-drop, @atlaskit/pragmatic-drag-and-drop-auto-scroll
 - **Data Authority**: detached Rust Core with rusqlite and Yrs over an authenticated Profile-private Unix socket
-- **Real-Time**: IPC events (Electron) / SSE (browser fallback)
+- **Real-Time**: Electron IPC over the authenticated private Core event stream
 - **Codex Runtime**: main-process `codex app-server --listen stdio://` JSON-RPC bridge
-- **Transport**: Dual-mode — IPC when in Electron, HTTP fetch when in browser
-- **Codex Transport**: Electron IPC only (browser runtime unsupported in this phase)
+- **Transport**: Electron IPC for desktop workflows; native CLI over authenticated Profile-private UDS
 - **Package Manager**: pnpm (pinned through `packageManager`)
 - **Development Runtime**: Node 24.15.0
-- **Tests**: Vitest projects for Node, Electron-main, renderer, browser, and integration behavior; Playwright for Electron/browser E2E
-- **Local Assets**: Uploaded images are stored under `~/.nodex/assets/` and served via flat asset HTTP routes
+- **Tests**: Vitest projects for Node, Electron-main, renderer, browser-sensitive components, and integration behavior; Playwright for Electron E2E
+- **Local Assets**: canonical `nodex://assets/<safe-name>` files under `${NODEX_HOME}/assets`; raster display uses the default-session-only `nodex-asset://managed/<safe-name>` protocol, while writes/bytes/previews use typed IPC
 - **Backups**: Whole-store snapshots are stored under `~/.nodex/backups/<backup-id>/`
 
 ### Directory Structure
@@ -630,9 +627,9 @@ nodex/
 │   │   └── page-limits.ts      # Shared Page payload/field size limits
 │   ├── main/                   # Electron main process
 │   │   ├── bootstrap.ts        # Early Electron lifecycle, profile lock, dynamic runtime import
-│   │   ├── main-runtime.ts     # Core readiness, BrowserWindow, IPC, HTTP server
+│   │   ├── main-runtime.ts     # Core readiness, BrowserWindow, IPC, managed-asset protocol
 │   │   ├── ipc-handlers.ts     # ipcMain.handle() registrations
-│   │   ├── http-server.ts      # Hono browser/loopback Adapter over Core
+│   │   ├── managed-asset-protocol.ts # Default-session-only raster delivery
 │   │   ├── core-client/        # Authenticated typed desktop Adapters
 │   │   └── local-store/
 │   │       ├── config.ts       # Host Profile configuration
@@ -641,7 +638,7 @@ nodex/
 │   │       ├── notifier.ts     # Host event fanout only
 │   │       └── store-maintenance-gate.ts # Host admission during Core maintenance
 │   ├── preload/
-│   │   └── index.ts            # contextBridge: exposes window.api (invoke, on, serverUrl, assetPathPrefix)
+│   │   └── index.ts            # contextBridge: typed IPC/events + narrow copy-path resolver
 │   └── renderer/               # React SPA (Vite dev server on port 51284)
 │       ├── index.html          # HTML entry
 │       ├── main.tsx            # React root
@@ -681,9 +678,8 @@ nodex/
 │       │   │       └── use-editor-drag-behaviors.ts # Shared drag-state + toggle-drop editor wiring
 │       │   └── ui/                        # shadcn/ui components
 │       └── lib/
-│           ├── api.ts            # Transport abstraction (IPC or HTTP fetch)
+│           ├── api.ts            # Typed Electron renderer transport facade
 │           ├── assets.ts         # Image upload + asset URI resolution helpers
-│           ├── http-base.ts      # Runtime HTTP base resolver (Electron serverUrl / browser origin)
 │           ├── page-search.ts    # Shared token search helpers for Page filtering
 │           ├── kanban-store.ts   # Per-project shared board store + realtime/fetch dedupe + pageIndex
 │           ├── use-toggle-list-settings.ts # Per-project persisted toggle-list rules/settings
@@ -722,104 +718,6 @@ nodex/
 │   └── Nodex-*-x64.zip         # Intel ZIP companion artifact
 └── package.json
 ```
-
-### API Endpoints
-
-#### Backup Routes (global)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/backups` | List the fixed active backup inventory (newest first, at most 200) |
-| POST | `/api/backups` | Create manual backup (body: `{label?}`); creation fails until an older backup is deleted when the 200-backup inventory is full |
-| POST | `/api/backups/[backupId]/restore` | Restore whole-store backup (body: `{confirm: true, createSafetyBackup?}`) |
-
-#### Project Routes
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/projects` | Read a Project window (`?after=<opaque>&first=<1..200>`); active Projects are the default and `?includeArchived=true` includes removed Projects |
-| POST | `/api/projects` | Create Project (body: `{name?, description?, appearance?, sources?}` where `appearance` is the constrained color-plus-marker value and the canonical ID is generated server-side); omitted appearance defaults to black/folder, and at most 200 Projects may be available (active or inactive), while removed Projects remain windowed history |
-| GET | `/api/projects/activity-summaries` | Read complete task/activity aggregates for a bounded set of Projects (`?projectId=<id>` repeated, at most 200 unique IDs); returns one ordered summary per requested Project and is independent of task-window pagination |
-| PUT | `/api/projects/order` | Reorder normal project groups (body: `{orderedProjectIds}`) |
-| PUT | `/api/projects/pinned-order` | Reorder pinned project groups (body: `{orderedProjectIds}`) |
-| GET | `/api/projects/events` | SSE stream for project list, project order, and project pin changes |
-| GET | `/api/projects/[projectId]` | Get project details; `[projectId]` may be a UUID or retained legacy alias |
-| PUT | `/api/projects/[projectId]` | Update Project display fields and sources (body: `{expectedBindingRevision?, name?, description?, appearance?, sources?}`); a supplied positive revision fences staged whole-form writes against stale snapshots, and ID or legacy `icon` changes are rejected |
-| PUT | `/api/projects/[projectId]/pinned` | Pin or unpin a project group (body: `{pinned}`) |
-| PUT | `/api/projects/[projectId]/lifecycle` | Remove or restore the execution Project (body: `{lifecycle: "archived" | "active"}`); archive returns typed runtime blockers without mutation, and Library content remains intact |
-
-#### Project Session Routes
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/workspace/tasks` | Read one Project or projectless task-summary window (`?projectId=<id>&after=<opaque>&first=<1..200>`); omitting `projectId` selects the projectless lane and `?includeArchived=true` includes archived Sessions |
-| GET | `/api/project-sessions/[sessionId]` | Fetch one domain-only Session descriptor; Window Session tabs and panels are not exposed over HTTP |
-| POST | `/api/projects/[projectId]/sessions` | Create a project-owned session (body: `{noThreadFallbackTitle}`) |
-| PUT | `/api/projects/[projectId]/sessions/reorder` | Reorder sessions (body: `{orderedSessionIds}`) |
-| PUT | `/api/projects/[projectId]/sessions/pinned-order` | Reorder pinned sessions inside the project (body: `{orderedSessionIds}`) |
-| PUT | `/api/project-sessions/[sessionId]` | Update the no-thread fallback label; UI view state is owned by Window Session persistence |
-| PUT | `/api/project-sessions/[sessionId]/rename` | Rename a session using manual chat-title sanitization (body: `{title}`); whitespace-only input is a no-op |
-| PUT | `/api/project-sessions/[sessionId]/pinned` | Pin or unpin a session (body: `{pinned}`) |
-| PUT | `/api/project-sessions/[sessionId]/archive` | Archive a session and linked Codex thread when attached |
-| PUT | `/api/project-sessions/[sessionId]/unarchive` | Unarchive a session and linked Codex thread when attached |
-| GET | `/api/project-sessions/events` | Global SSE stream for typed Project/projectless Session summary scopes and exact/all detail invalidations |
-| PUT | `/api/codex/threads/[threadId]/archive` | Archive a snapshot-only Codex thread without requiring a local session |
-| PUT | `/api/codex/threads/[threadId]/unarchive` | Unarchive a snapshot-only Codex thread without requiring a local session |
-| PUT | `/api/project-sessions/[sessionId]/unread` | Mark a session read/unread (body: `{unread}`) |
-| POST | `/api/project-sessions/[sessionId]/fork` | Fork an attached session thread into a new project session (body: `{target: "local" \| "newWorktree", turnId?, message?, collaborationMode?}`) |
-| DELETE | `/api/project-sessions/[sessionId]` | Delete a session |
-| PUT | `/api/project-sessions/[sessionId]/thread` | Attach or update a session-owned thread link |
-| DELETE | `/api/project-sessions/[sessionId]/thread` | Detach the session-owned thread link |
-
-#### Page and Board Routes (project-scoped)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/projects/[projectId]/database-views/[viewId]/rows` | Fetch one bounded Database View row window (`?after=<opaque>&first=<1..200>`); `viewId=default` selects the Project primary View |
-| GET | `/api/projects/[projectId]/pages/[pageId]` | Read one grant-aware versioned Page Detail result, including Source context only when the exclusive parent is a Data Source |
-| POST | `/api/projects/[projectId]/database-module/read` | Read authorized Database descriptors and bounded compatibility projections; collection reads cannot return Page bodies |
-| POST | `/api/projects/[projectId]/database-module/apply` | Apply a v3 revisioned Data Source Property/option/value, Page membership, View, or Page-position batch |
-| GET | `/api/projects/[projectId]/database-row` | Read the compatibility wide Page projection for an active Data Source row |
-| POST | `/api/projects/[projectId]/page-lifecycle-mutations` | Create, archive/restore, tombstone, or reparent a Page and its owned Document closure through one idempotent, grant-aware lifecycle command |
-| GET | `/api/projects/[projectId]/page-lifecycle-preflight` | Read exact Page parent, ownership, Data Source membership, default View, and authorization evidence needed to compile a lifecycle command (`?pageId=<id>`) |
-| POST | `/api/projects/[projectId]/block-transfers` | Atomically Move/Copy stable ordinary Blocks and Page ownership closures across Document, Library, and Data Source parents |
-| POST | `/api/pages/search` | Search fresh Page Documents in the selected Projects' Library scope, filter candidates through effective grants, and return bounded excerpts |
-| GET | `/api/projects/[projectId]/calendar/occurrences` | Read a bounded calendar-occurrence window (`?start=ISO&end=ISO&search=...&after=<opaque>`), returning `occurrences` plus `nextCursor` |
-| POST | `/api/projects/[projectId]/page-occurrence/complete` | Complete one occurrence (body: `{operationId, createdPageId, pageId, occurrenceStart, source, sessionId?}`) |
-| POST | `/api/projects/[projectId]/page-occurrence/skip` | Skip one occurrence (body: `{operationId, pageId, occurrenceStart, source, sessionId?}`) |
-| PUT | `/api/projects/[projectId]/page-occurrence` | Update occurrence timing with scope (body: `{operationId, createdPageId?, pageId, occurrenceStart, source, scope, updates, sessionId?}`; `createdPageId` is required for `this` and `this-and-future`) |
-| GET | `/api/projects/[projectId]/events` | SSE stream for real-time updates |
-| GET | `/api/projects/[projectId]/pages/[pageId]/history` | Cursor-paginated canonical Page timeline after Project resource authorization |
-The former SQL/schema inspection, board-create, Page-delete, and
-description-write snapshot endpoints are absent or return `410 Gone` with the
-typed semantic replacement. No HTTP route accepts a whole-Page update or raw
-SQL.
-
-#### Block Document Routes (project-scoped)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/projects/[projectId]/blocks/[ownerBlockId]/document` | Read the exact owned-Document descriptor without changing authority |
-| POST | `/api/projects/[projectId]/blocks/[ownerBlockId]/document/prepare` | Validate and return the exact ready descriptor with its `yjs` or `canvas_scene` sync-engine discriminant |
-| GET | `/api/projects/[projectId]/documents/[documentId]/events` | Subscribe to targeted engine-discriminated events before synchronization |
-| POST | `/api/projects/[projectId]/documents/[documentId]/sync` | Send a state vector and receive the missing binary update plus current durable head |
-| POST | `/api/projects/[projectId]/documents/[documentId]/updates` | Submit one idempotent binary update; success is acknowledged only after SQLite commit |
-| POST | `/api/projects/[projectId]/documents/[documentId]/awareness` | Publish bounded ephemeral presence; it never mutates content or SQLite |
-| POST | `/api/projects/[projectId]/documents/[documentId]/canvas-scene/sync` | Load the bounded full canonical Canvas scene at its current durable head |
-| POST | `/api/projects/[projectId]/documents/[documentId]/canvas-scene/mutations` | Merge one idempotent bounded element/app-state/file mutation and return its durable receipt |
-| POST | `/api/projects/[projectId]/documents/[documentId]/relocation-leases/[leaseId]/responses` | ACK/NACK a surface-local relocation freeze after its pending edits are durable |
-| POST | `/api/projects/[projectId]/documents/[documentId]/mutations` | Apply a stable-ID title/insert/update/delete/move or CAS-gated NFM replacement batch |
-| GET/POST | `/api/projects/[projectId]/documents/[documentId]/versions...` | List/get/checkpoint immutable Document versions and forward-restore one version through a write fence |
-| POST | `/api/projects/[projectId]/block-property-mutations` | Apply a v2 field-level intrinsic/Data Source property batch with explicit Source coordinates, scalar CAS or set add/remove intent, and an immutable typed receipt |
-| POST | `/api/projects/[projectId]/document-commands` | Create/promote/demote/instantiate/tombstone registered Synced, Template, Large, or Canvas Document owners |
-
-#### Asset Routes
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/assets/images` | Upload image via multipart `file`; returns `{source}` with canonical `nodex://assets/<file-name>` URI |
-| POST | `/api/assets/resources` | Upload or materialize pasted text/files/folders; accepts multipart `file` or JSON `{localPath}` and returns `{source, name, mimeType, bytes}` |
-| GET | `/api/assets/[fileName]` | Serve asset bytes for editor/read-only rendering |
 
 ### Database Schema
 
@@ -999,7 +897,6 @@ CREATE TABLE codex_pinned_threads (
 
 ### Real-Time Sync Flow
 
-**Electron path (IPC):**
 ```
 Core commit → authenticated event stream → mainWindow.webContents.send()
     → window.api Page/Database subscriptions → exact-head reread → UI re-renders
@@ -1013,23 +910,17 @@ Page Stage Y.Doc transaction → Core Document apply → serialized SQLite commi
     → mounted editors apply remote origin; Page/Database readers invalidate and reread
 ```
 
-The durable projection impact identifies every affected Page, Database, Data Source, View, and Page-bound Document head at commit time. It contains no title, summary, property value, or Page DTO. One scoped projection stream carries Core epoch/sequence coordinates through Electron IPC or browser SSE. Page detail, primary/filtered Database Views, Page and Database references, Library navigation, and management queries reread their canonical projection; if an event arrives during an in-flight read, the renderer performs one trailing reread unless the completed snapshot already covers that cursor. A committed title/body edit therefore converges across windows and browser clients without save, focus change, remount, or manual refresh.
+The durable projection impact identifies every affected Page, Database, Data Source, View, and Page-bound Document head at commit time. It contains no title, summary, property value, or Page DTO. One scoped projection stream carries Core epoch/sequence coordinates through Electron IPC. Page detail, primary/filtered Database Views, Page and Database references, Library navigation, and management queries reread their canonical projection; if an event arrives during an in-flight read, the renderer performs one trailing reread unless the completed snapshot already covers that cursor. A committed title/body edit therefore converges across app windows without save, focus change, remount, or manual refresh.
 
-Each editor surface subscribes before its state-vector handshake. A successful subscription ACK proves that surface's exact authenticated Core stream is open. Retryable physical interruptions remain inside one logical subscription, resume from its accepted cursor, and pause dependent sync/mutation commands until reconnection. If Core observes the lost lease before the client receives stream closure, its typed recovery forces a fresh stream and one safe/idempotent command retry; a terminal failure releases the exact session so Reload or a replacement surface can subscribe cleanly. Session-qualified connection state and serialized local teardown prevent a retiring surface from disconnecting its replacement. Missed or reordered Document updates are repaired by a later handshake; a fast successful ACK shows no save indicator. The global Core event stream replays from its last accepted sequence. A retention gap emits a scoped `event_gap` resync, and every browser SSE connection receives a checkpoint that repairs disconnect-time changes. Browser clients use the equivalent binary POST + Document SSE Adapter. Both transports reach the same Document authority and no Page snapshot write exists.
+Each editor surface subscribes before its state-vector handshake. A successful subscription ACK proves that surface's exact authenticated Core stream is open. Retryable physical interruptions remain inside one logical subscription, resume from its accepted cursor, and pause dependent sync/mutation commands until reconnection. If Core observes the lost lease before the client receives stream closure, its typed recovery forces a fresh stream and one safe/idempotent command retry; a terminal failure releases the exact session so Reload or a replacement surface can subscribe cleanly. Session-qualified connection state and serialized local teardown prevent a retiring surface from disconnecting its replacement. Missed or reordered Document updates are repaired by a later handshake; a fast successful ACK shows no save indicator. The global Core event stream replays from its last accepted sequence, and a retention gap emits a scoped `event_gap` resync.
 
 Agent-facing body edits use ordered stable-ID Document operations (`set title`, `insert`, `update`, `delete`, and `move`) against the current Page Document. A batch either commits its Yjs update, Block registry/indexes, projections, mutation receipt, and change cursor together or changes nothing. Identity-destructive operations require mounted editors to flush and freeze behind a short write fence. Whole NFM input is an explicit compare-and-swap import; an owning `<page uuid="..." />` may pin only an existing Page shell in that same Document.
 
-Electron exposes this contract as `block-documents:mutate`. Browser clients use `POST /api/projects/:projectId/documents/:documentId/mutations`; the native CLI calls Core directly over its private UDS contract. Client-supplied `actor`, `clientSessionId`, Project, or Document scope cannot mint authority: the Host binds audit identity and route scope before Core reprepares the request. The response is a typed immutable receipt or typed conflict; structural fence proof is never part of the public body.
+Electron exposes this contract as `block-documents:mutate`; the native CLI calls Core directly over its private UDS contract. Client-supplied `actor`, `clientSessionId`, Project, or Document scope cannot mint authority: Main binds audit identity and scope before Core reprepares the request. The response is a typed immutable receipt or typed conflict; structural fence proof never crosses the renderer boundary.
 
-**Browser path (HTTP + SSE):**
-```
-Core commit → authenticated event stream → SSE push (Hono /events endpoint)
-    → EventSource listener → useKanban hook → UI re-renders
-```
+The renderer transport requires the Electron preload bridge and has no browser or localhost fallback. Private Host/Core transport remains version 4, committed events remain version 2, and semantic Module versions are selected independently from generated requirements. Ordinary Core JSON requests/responses are capped at 2 MiB/16 MiB, while user-growing collections use at most 200 items and 1 MiB per signed-keyset window; 16 MiB is a fault boundary, not a product capacity target.
 
-The transport layer (`src/renderer/lib/api.ts`) auto-detects the runtime and uses the appropriate path. In Electron, a scoped projection subscription uses explicit IPC subscribe/unsubscribe; in browser mode the same message rides the Library or authorized Project SSE endpoint. The endpoint namespace remains `/core/v1/...`; that stable path is not a version negotiation signal. Private Host/Core transport is version 4, committed events remain version 2, and semantic Module versions are selected independently from generated requirements. Ordinary JSON requests/responses are capped at 2 MiB/16 MiB, while user-growing collections use at most 200 items and 1 MiB per signed-keyset window; 16 MiB is a fault boundary, not a product capacity target. Board, navigation, ownership/access, Database, Workspace, and Automation messages on those streams retain only domain or provisional-patch responsibilities. Session invalidations use `/api/project-sessions/events`, and Project-list/order/pin changes use `/api/projects/events`.
-
-Codex Threads emit a separate Electron IPC stream (`codex:event`) from the main-process Codex domain service; browser mode intentionally does not support this transport in this phase.
+Codex Threads emit a separate Electron IPC stream (`codex:event`) from the main-process Codex domain service.
 
 ---
 
@@ -1069,7 +960,6 @@ order (later wins):
 ```toml
 [server]
 home = "~/.nodex"
-port = 51283
 backup_auto_enabled = false
 backup_interval_hours = 6
 backup_retention = 28
@@ -1081,12 +971,11 @@ repository-specific `[server].home`; it overrides the user config for native CLI
 and unpackaged runs launched from that tree. A Dock-launched Electron app reads
 the user-level config because it has no repository working directory.
 
-**Electron renderer API base resolution**: Main process resolves server port from the same config chain (`config.toml` + env), starts HTTP server on that port, and injects `serverUrl` through preload. Renderer HTTP helpers (including image upload and asset URL resolution) consume this runtime URL so `[server].port` changes are honored; browser mode uses same-origin except local Vite dev (`:51284`) which falls back to default API port (`:51283`).
+**Desktop renderer boundary**: Main exposes typed operations and event subscriptions through the context-isolated preload bridge. Distinct Profiles need only distinct `NODEX_HOME` values; no Desktop API port is allocated or coordinated.
 
 ### Server Environment Variables
 ```bash
 NODEX_HOME=~/.nodex     # Nodex home (default: ~/.nodex)
-NODEX_PORT=51283        # Port (default: 51283)
 NODEX_BACKUP_AUTO_ENABLED=false   # Enable auto backups (default: false)
 NODEX_BACKUP_INTERVAL_HOURS=6    # Auto backup interval in hours (default: 6)
 NODEX_BACKUP_RETENTION=28        # Auto backup retention count (default: 28)
@@ -1111,7 +1000,7 @@ These can also be set via the `[server]` section in config.toml. Env vars overri
 
 In the desktop app, Settings -> Backups updates `~/.nodex/config.toml` `[server]` backup fields and reapplies the auto-backup scheduler immediately. If `NODEX_BACKUP_*` environment variables are set, those values remain effective and the UI marks the overridden fields.
 
-In the desktop app, Settings -> General -> `App updates` updates the user-level `~/.nodex/config.toml` `[server].app_updates_auto_check_enabled` flag. Browser mode, unpackaged/non-macOS runtimes, and packaged apps running outside an Applications folder report updater support as unavailable and do not perform background checks.
+In the desktop app, Settings -> General -> `App updates` updates the user-level `~/.nodex/config.toml` `[server].app_updates_auto_check_enabled` flag. Unpackaged/non-macOS runtimes and packaged apps running outside an Applications folder report updater support as unavailable and do not perform background checks.
 
 In the desktop app, Settings -> General -> `Diagnostics` updates user-level `[server]` fields for `diagnostics_enabled`, `diagnostics_dsn`, `diagnostics_environment`, `diagnostics_traces_sample_rate`, `diagnostics_replay_enabled`, `diagnostics_replays_session_sample_rate`, and `diagnostics_replays_on_error_sample_rate`. Diagnostics and Session Replay are disabled by default; Replay is a separate renderer-only opt-in that only runs when crash diagnostics are also enabled. When diagnostics are enabled without an explicit DSN, Nodex uses its bundled Sentry project DSN. Env overrides win and the UI disables overridden controls.
 
@@ -1122,7 +1011,7 @@ In the desktop app, Settings -> General -> `Open source licenses` opens a nested
 ### Development
 ```bash
 pnpm install
-pnpm run dev              # electron-vite dev (renderer on :51284, HTTP API on :51283)
+pnpm run dev              # Electron + electron-vite development renderer on :51284
 ```
 
 ### Production
@@ -1238,7 +1127,7 @@ context/tree inspection, exact Page and metadata reads, bounded history,
 immutable-snapshot ripgrep, explicit one-Page drafts, semantic Page and stable
 Block mutations, backups, doctor, and optional Core prewarming. Browser and
 Electron callers use typed HTTP/IPC Adapters for their product workflows; the
-CLI does not wrap Hono and Hono does not proxy private Core administration.
+The CLI and Electron renderer are separate typed Adapters; neither receives a database path or the Core bearer capability.
 
 Project, Page, Database, Document, and backup commands all submit semantic
 intent. Core resolves current ownership and revisions, applies the mutation and
@@ -1272,22 +1161,14 @@ the supported diagnostics.
 ### Why Electron?
 - Desktop app with native window management
 - Preload script provides secure IPC bridge via contextBridge
-- Rust Core hosts SQLite/Yrs authority; Electron hosts windows, Hono, OS integration, and Codex app-server
+- Rust Core hosts SQLite/Yrs authority; Electron hosts windows, IPC, OS integration, and Codex app-server
 - No need for globalThis singleton hacks (unlike Next.js server)
-- Browser fallback: UI also works at `http://localhost:51284` via HTTP fetch
 
-### Why Dual Transport (IPC + HTTP)?
-- **Electron (IPC)**: Fast, no network overhead, no CORS concerns
-- **Browser (HTTP)**: Allows accessing the board from any browser without Electron
-- Transport abstraction (`api.ts`) makes this transparent to hooks/components
-- Renderer HTTP base is runtime-aware: preload-injected `serverUrl` in Electron, same-origin in browser (with local Vite dev fallback to `:51283`)
-- SSE provides real-time updates in browser mode; IPC events in Electron mode
-- Renderer dedupes realtime fan-out by project: one shared board subscription/fetch path updates all `useKanban` consumers in that project
-
-### Why SSE for Browser Mode?
-- Simpler implementation for one-way updates
-- Automatic reconnection
-- No additional dependencies
+### Why Electron IPC?
+- No public listener, port collision, CORS surface, or browser parity layer
+- Typed structured-clone commands keep sender authorization and payload validation in Main
+- Renderer event fanout stays project-scoped and shared across consumers
+- The Browser sidebar remains an isolated embedded-webview feature rather than a second Nodex client
 
 ### Why a Local Native Core?
 - No server setup required
@@ -1302,9 +1183,9 @@ the supported diagnostics.
 - **Whole-store recovery**: Backups include both `nodex.db` and `assets/`
 
 ### Why Stable Asset URIs?
-- **Port-independent storage**: NFM descriptions stay valid even if server host/port changes
+- **Profile-portable storage**: NFM descriptions stay valid independently of delivery details
 - **Flat asset ids**: canonical asset references use `nodex://assets/<file>` so image blocks stay portable while file lookup remains a simple single-directory join
-- **Simple rendering**: URI resolves to HTTP route in editor (`resolveFileUrl`) and read-only renderer
+- **Narrow rendering**: allowlisted raster images map to a read-only protocol installed only in the owned app session; mutations, bytes, and previews use IPC
 - **Safer lifecycle**: Deferred cleanup avoids accidental data loss from aggressive orphan deletion
 
 ### Why CLI for External Agents and Automation?
@@ -1316,15 +1197,10 @@ the supported diagnostics.
 - **Profile selection**: `NODEX_HOME` and `[server].home` use the same precedence as the desktop
 - **Private transport**: the CLI authenticates over Profile-private UDS and never receives the database path or Core bearer capability
 
-### Why REST API?
-- **Consistent interface**: Same HTTP patterns for all operations
-- **JSON responses**: No database queries required by agents
-- **Granular reads**: Fetch one View group or Page instead of the entire Database.
-
 ### Why Write Limits in App Layer?
 - **Stops runaway growth early**: Field-level validation blocks exponential-content bugs before they hit SQLite/history
-- **Transport consistency**: shared validators and generated Core contracts protect HTTP, Electron IPC, and native Module requests.
-- **Resource protection**: Route-level body caps reject oversized requests with `413` before JSON parsing/DB work
+- **Transport consistency**: shared validators and generated Core contracts protect Electron IPC and native Module requests.
+- **Resource protection**: IPC and Core byte budgets reject oversized requests before domain work
 - **Operational simplicity**: Limits live in shared constants, so values stay consistent across modules
 
 ### Why Popper Positioning for Inline Creator Selects?
@@ -1394,10 +1270,9 @@ the supported diagnostics.
 | **Document** | Independently synchronized content owned by a registered document-bearing Block; its schema selects `yjs` or `canvas_scene` |
 | **Project** | Execution context for filesystem roots, sessions, terminals, Codex tasks, one Database binding, and Library grants |
 | **Page Stage** | Panel for viewing/editing Page properties and its independently synchronized title/body Document |
-| **SSE** | Server-Sent Events for real-time updates (browser mode) |
 | **IPC** | Inter-Process Communication between Electron main and renderer |
-| **Transport** | Abstraction layer (`api.ts`) that routes calls to IPC or HTTP |
-| **Main Process** | Electron process hosting SQLite, IPC handlers, and Hono HTTP server |
+| **Transport** | Typed renderer boundary in `api.ts` backed by Electron IPC |
+| **Main Process** | Electron process hosting IPC handlers, OS integrations, and Core/Codex Adapters |
 | **Preload** | Electron script that bridges main ↔ renderer via contextBridge |
 | **Session ID** | UUID identifying one client session for audit, presence, and exact mutation attempts |
 | **History Panel** | App-shell modal showing a Page's canonical timeline and retained Document checkpoint previews |

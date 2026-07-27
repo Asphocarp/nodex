@@ -213,7 +213,6 @@ function main(): void {
     "v84_store_recovery",
     "--all-features",
   ]);
-  run("pnpm", ["test:main", "src/main/http-server-start.test.ts"]);
   const verification = verifyProfile(profile);
   const rows = [
     ...rustRows.map((row) => ({
@@ -226,14 +225,6 @@ function main(): void {
     {
       failurePoint: "abrupt-wal-process-exit",
       test: "v84_store_recovery::fresh_v85_recovers_a_committed_wal_after_abrupt_writer_exit",
-      recovered: true,
-      finalCommittedSequence: verification.finalCommittedSequence,
-      integrityCheck: verification.integrityCheck,
-      foreignKeyViolations: verification.foreignKeyViolations,
-    },
-    {
-      failurePoint: "loopback-private-route-isolation",
-      test: "http-server-start::does not expose native Core lifecycle or Store Administration routes",
       recovered: true,
       finalCommittedSequence: verification.finalCommittedSequence,
       integrityCheck: verification.integrityCheck,

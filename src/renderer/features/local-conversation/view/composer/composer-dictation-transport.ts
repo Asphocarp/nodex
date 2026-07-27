@@ -1,4 +1,4 @@
-import { resolveHttpBase } from "@/lib/http-base";
+import { invoke } from "@/lib/api";
 
 const DEFAULT_DICTATION_CONTENT_TYPE = "audio/webm";
 const BASE64_CHUNK_SIZE = 32_768;
@@ -85,31 +85,16 @@ function resolveDictationFilename(contentType: string, override?: string): strin
   return sanitizeDictationFilename(override ?? `codex.${extension}`);
 }
 
-function parseDictationResponse(bodyText: string): string {
-  try {
-    const parsed = JSON.parse(bodyText) as { text?: unknown; body?: { text?: unknown } };
-    if (typeof parsed.text === "string") {
-      return parsed.text;
-    }
-    if (typeof parsed.body?.text === "string") {
-      return parsed.body.text;
-    }
-  } catch {
-    if (bodyText.trim().length > 0) {
-      return bodyText;
-    }
-  }
-
-  return "";
-}
-
 export async function transcribeDictationBlob(
   blob: Blob,
   options?: {
     contentType?: string;
     filename?: string;
     language?: string;
-    fetchImpl?: typeof fetch;
+    transcribe?: (input: {
+      contentType: string;
+      base64Payload: string;
+    }) => Promise<string>;
   },
 ): Promise<string> {
   const contentType = resolveDictationContentType(blob, options?.contentType);
@@ -122,20 +107,10 @@ export async function transcribeDictationBlob(
     contentType,
     language: options?.language,
   });
-  const fetchImpl = options?.fetchImpl ?? fetch;
-  const response = await fetchImpl(`${resolveHttpBase()}/transcribe`, {
-    method: "POST",
-    headers: {
-      "Content-Type": `multipart/form-data; boundary=${boundary}`,
-      "X-Codex-Base64": "1",
-    },
-    body: encodeDictationBase64(multipartBody),
+  const transcribe = options?.transcribe
+    ?? (async (input) => await invoke("codex:dictation:transcribe", input));
+  return await transcribe({
+    contentType: `multipart/form-data; boundary=${boundary}`,
+    base64Payload: encodeDictationBase64(multipartBody),
   });
-
-  const bodyText = await response.text();
-  if (!response.ok) {
-    throw new Error(parseDictationResponse(bodyText) || "Unable to transcribe audio");
-  }
-
-  return parseDictationResponse(bodyText);
 }

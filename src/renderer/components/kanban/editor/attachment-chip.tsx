@@ -16,32 +16,18 @@ import {
   NodexPopoverTrigger,
 } from "@/components/ui/popover";
 import { NodexTooltip } from "@/components/ui/tooltip";
-import { resolveAssetSourceToHttpUrl } from "@/lib/assets";
+import { readManagedAssetPreview } from "@/lib/assets";
 import { invoke } from "@/lib/api";
 import { useFileLinkOpener } from "@/lib/use-file-link-opener";
 import { cn } from "@/lib/utils";
 import { attachmentInlineContentConfig } from "../../../../shared/block-documents/blocknote-schema-config";
 import { formatAttachmentBytes } from "./attachment-chip-format";
 import { getAttachmentTooltipLines } from "./attachment-chip-tooltip";
-
-interface FolderManifestEntry {
-  path: string;
-  kind: "file" | "folder";
-  bytes?: number;
-}
-
-interface FolderManifest {
-  rootName: string;
-  generatedAt: string;
-  maxEntries: number;
-  maxDepth: number;
-  truncated: boolean;
-  entries: FolderManifestEntry[];
-}
+import type { ManagedFolderManifest } from "../../../../shared/managed-assets";
 
 type AttachmentPreview =
   | { type: "text"; content: string; truncated: boolean }
-  | { type: "folder"; manifest: FolderManifest }
+  | { type: "folder"; manifest: ManagedFolderManifest }
   | null;
 
 interface AttachmentProps {
@@ -81,20 +67,6 @@ export function getAttachmentLabel(
   return label.length > maxLength ? `${label.slice(0, maxLength).trimEnd()}...` : label;
 }
 
-function truncatePreviewText(
-  value: string,
-  maxLines = 200,
-  maxBytes = 64 * 1024,
-): { content: string; truncated: boolean } {
-  const limitedBytes = value.slice(0, maxBytes);
-  const lines = limitedBytes.split("\n");
-  const truncated = value.length > limitedBytes.length || lines.length > maxLines;
-  return {
-    content: lines.slice(0, maxLines).join("\n"),
-    truncated,
-  };
-}
-
 function getAttachmentIcon(kind: AttachmentProps["kind"], mode: AttachmentProps["mode"]) {
   if (mode === "link") return Link2;
   if (kind === "folder") return Folder;
@@ -112,21 +84,21 @@ function canPreviewAttachment(props: AttachmentProps): boolean {
 async function loadAttachmentPreview(props: AttachmentProps): Promise<AttachmentPreview> {
   if (!canPreviewAttachment(props)) return null;
 
-  const response = await fetch(resolveAssetSourceToHttpUrl(props.source));
-  if (!response.ok) return null;
-
-  if (props.kind === "folder") {
-    const manifest = (await response.json()) as FolderManifest;
-    return { type: "folder", manifest };
+  try {
+    const preview = await readManagedAssetPreview({
+      source: props.source,
+      kind: props.kind === "folder" ? "folder" : "text",
+    });
+    return preview.kind === "folder"
+      ? { type: "folder", manifest: preview.manifest }
+      : {
+        type: "text",
+        content: preview.content,
+        truncated: preview.truncated,
+      };
+  } catch {
+    return null;
   }
-
-  const text = await response.text();
-  const preview = truncatePreviewText(text);
-  return {
-    type: "text",
-    content: preview.content,
-    truncated: preview.truncated,
-  };
 }
 
 function AttachmentPopover({

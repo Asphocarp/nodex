@@ -1,11 +1,11 @@
-export interface WorkspaceFileIpcSenderFacts {
+export interface AppRendererIpcSenderFacts {
   readonly hasOwnerWindow: boolean;
   readonly senderType: string;
   readonly isMainFrame: boolean;
 }
 
-export function isTrustedWorkspaceFileIpcSender(
-  facts: WorkspaceFileIpcSenderFacts,
+export function isTrustedAppRendererIpcSender(
+  facts: AppRendererIpcSenderFacts,
 ): boolean {
   return (
     facts.hasOwnerWindow
