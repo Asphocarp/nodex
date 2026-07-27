@@ -77,6 +77,18 @@ Bottom-panel toggle is a shell-global command and remains available from editabl
 | `↓` | Walk prompt history forward or clear recall | Thread composer only when traversing recalled history. It walks toward newer entries; pressing from the newest recalled entry clears the composer and exits traversal. |
 | `Ctrl+M` | Hold to dictate | Electron-only thread composer dictation. Keydown starts recording; keyup stops and inserts the transcript. Button click also starts dictation, and the active dictation footer exposes `Stop dictation` and `Transcribe and send`. |
 
+### Request Input Cards
+
+| Shortcut | Action | Notes |
+|----------|--------|-------|
+| `1`–`9` | Activate numbered choice | Advances to the next question or submits the final question; the free-form row follows the numbered preset options |
+| `Enter` / `Space` | Activate selected choice | The initially selected choice is not submitted until one of these deliberate activations |
+| `←` / `→` | Previous / next question | Multi-question request-input cards only; preserves the equivalent answer-control focus |
+| `↑` / `↓` | Previous / next answer | Moves through preset choices; the lower boundary can enter the free-form answer |
+| `Enter` | Advance or submit free-form answer | Ignored while an IME composition is active |
+| `Shift+Enter` | Insert newline | Free-form textarea only |
+| `Escape` | Dismiss request | Uses the request family’s dismiss semantics |
+
 ## Editor (NFM / BlockNote)
 
 ### Find & Replace

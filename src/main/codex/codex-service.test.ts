@@ -45,6 +45,10 @@ import type {
   CodexHooksListResponse,
   CodexHooksStateUpdateInput,
 } from "../../shared/codex-hooks";
+import type {
+  CodexUserInputAutoResolutionChange,
+  CodexUserInputAutoResolutionEntry,
+} from "../../shared/codex-user-input-auto-resolution";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
 import type {
   AppInfo,
@@ -96,6 +100,7 @@ import {
   CodexRpcError,
 } from "./codex-app-server-client";
 import { CodexService } from "./codex-service";
+import { USER_INPUT_AUTO_RESOLUTION_COUNTDOWN_MS } from "./codex-user-input-auto-resolution";
 import type { CodexForkSidePanelTransferLifecycle } from "./codex-fork-side-panel-transfer";
 import { removeManagedWorktree } from "./git-worktree-service";
 import type { PastedTextAttachmentManager } from "../thread-goal-attachments";
@@ -1130,6 +1135,43 @@ afterAll(() => {
   fs.rmSync(DEFAULT_TEST_THREAD_GOAL_ATTACHMENTS_ROOT, { recursive: true, force: true });
 });
 
+function createUserInputAutoResolutionTestClock() {
+  let now = 1_000;
+  let nextId = 0;
+  const timers = new Map<number, {
+    callback: () => void;
+    deadline: number;
+  }>();
+
+  return {
+    now: () => now,
+    setTimeout: (callback: () => void, timeoutMs: number) => {
+      const id = ++nextId;
+      timers.set(id, {
+        callback,
+        deadline: now + timeoutMs,
+      });
+      return id;
+    },
+    clearTimeout: (timer: unknown) => {
+      timers.delete(timer as number);
+    },
+    advanceBy: (durationMs: number) => {
+      const target = now + durationMs;
+      while (true) {
+        const due = [...timers.entries()]
+          .filter(([, timer]) => timer.deadline <= target)
+          .sort((left, right) => left[1].deadline - right[1].deadline)[0];
+        if (!due) break;
+        timers.delete(due[0]);
+        now = due[1].deadline;
+        due[1].callback();
+      }
+      now = target;
+    },
+  };
+}
+
 function createService(options?: {
   rateLimitsPollIntervalMs?: number;
   inactiveRendererOwnerRetentionMs?: number;
@@ -1157,6 +1199,11 @@ function createService(options?: {
   forkSidePanelTransferLifecycle?: CodexForkSidePanelTransferLifecycle;
   automationModule?: DesktopAutomationModulePort;
   projectWorkspace?: DesktopProjectWorkspacePort;
+  userInputAutoResolutionTimer?: {
+    now?: () => number;
+    setTimeout?: (callback: () => void, timeoutMs: number) => unknown;
+    clearTimeout?: (timer: unknown) => void;
+  };
 }): TestableCodexService {
   const service = new CodexService({
     rateLimitsPollIntervalMs: options?.rateLimitsPollIntervalMs,
@@ -1177,6 +1224,7 @@ function createService(options?: {
     browserTransferStateReader:
       options?.browserTransferStateReader ?? EMPTY_TEST_BROWSER_TRANSFER_STATE_READER,
     forkSidePanelTransferLifecycle: options?.forkSidePanelTransferLifecycle,
+    userInputAutoResolutionTimer: options?.userInputAutoResolutionTimer,
   }) as unknown as TestableCodexService;
   service.setAutomationModule(
     options?.automationModule ?? createTestAutomationModule(),
@@ -9485,6 +9533,216 @@ describe("codex-service approval fallback", () => {
       expect((result as { currentTimeAt?: number }).currentTimeAt ?? 0).toBe(1_700_000_123);
     } finally {
       Date.now = originalDateNow;
+      await service.shutdown();
+    }
+  });
+
+  test("clears the pending user-input generation when app-server disconnects", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
+      getUserInputAutoResolutionSnapshot: () =>
+        CodexUserInputAutoResolutionEntry[];
+      respondToUserInput: (
+        requestId: string | number,
+        answers: Record<string, string[]>,
+        conversationId: string,
+      ) => Promise<boolean>;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      emit: (event: string, payload: unknown) => boolean;
+    };
+    const threadId = "thread-auto-resolution-disconnect";
+    const requestId = "request-auto-resolution-disconnect";
+
+    try {
+      client.emit("connection", { status: "connected", retries: 0 });
+      const request = serviceInternals.handleServerRequest({
+        id: requestId,
+        method: "item/tool/requestUserInput",
+        params: {
+          threadId,
+          turnId: "turn-1",
+          itemId: "item-1",
+          questions: [{
+            id: "scope",
+            header: "Scope",
+            question: "Continue?",
+            isOther: false,
+            isSecret: false,
+          }],
+        },
+      });
+      await Promise.resolve();
+      expect(serviceInternals.getUserInputAutoResolutionSnapshot()).toHaveLength(1);
+
+      client.emit("connection", { status: "disconnected", retries: 1 });
+      expect(serviceInternals.getUserInputAutoResolutionSnapshot()).toEqual([]);
+
+      expect(await request).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
+      expect(await serviceInternals.respondToUserInput(requestId, {}, threadId)).toBe(false);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("routes timeout through the canonical empty-response lifecycle before notifying the owner", async () => {
+    const clock = createUserInputAutoResolutionTestClock();
+    const service = createService({
+      userInputAutoResolutionTimer: clock,
+    });
+    const changes: CodexUserInputAutoResolutionChange[] = [];
+    const ownerMessages: Array<{
+      targetClientId: string;
+      message: CodexHostMessage;
+    }> = [];
+    const serviceInternals = service as unknown as {
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
+      getUserInputAutoResolutionSnapshot: () =>
+        CodexUserInputAutoResolutionEntry[];
+      getConversationRecord: (threadId: string) => {
+        canonicalState: CodexCanonicalConversationState;
+      };
+      on: (
+        event: "userInputAutoResolutionChanged",
+        listener: (change: CodexUserInputAutoResolutionChange) => void,
+      ) => void;
+    };
+    const threadId = "thread-auto-resolution-timeout";
+    const requestId = "request-auto-resolution-timeout";
+
+    serviceInternals.on("userInputAutoResolutionChanged", (change) => {
+      changes.push(change);
+    });
+    (service as unknown as {
+      on: (
+        event: "rendererOwnerHostMessage",
+        listener: (message: {
+          targetClientId: string;
+          message: CodexHostMessage;
+        }) => void,
+      ) => void;
+    }).on("rendererOwnerHostMessage", (message) => {
+      ownerMessages.push(message);
+    });
+    service.setRendererConversationOwner(threadId, "owner-auto-resolution");
+
+    try {
+      const request = serviceInternals.handleServerRequest({
+        id: requestId,
+        method: "item/tool/requestUserInput",
+        params: {
+          threadId,
+          turnId: "turn-1",
+          itemId: "item-1",
+          questions: [{
+            id: "scope",
+            header: "Scope",
+            question: "Continue?",
+            isOther: false,
+            isSecret: false,
+          }],
+        },
+      });
+      await Promise.resolve();
+      expect(serviceInternals.getUserInputAutoResolutionSnapshot()[0]?.phase.type)
+        .toBe("scheduled");
+
+      clock.advanceBy(USER_INPUT_AUTO_RESOLUTION_COUNTDOWN_MS);
+      expect(serviceInternals.getUserInputAutoResolutionSnapshot()).toEqual([]);
+      expect(changes.at(-1)).toEqual({
+        type: "timedOut",
+        conversationId: threadId,
+        requestId,
+      });
+      expect(await request).toEqual({ answers: {} });
+      await Promise.resolve();
+
+      expect(
+        serviceInternals.getConversationRecord(threadId).canonicalState.requests
+          .some((candidate) =>
+            candidate.method === "item/tool/requestUserInput"
+            && candidate.id === requestId
+          ),
+      ).toBe(false);
+      expect(ownerMessages).toContainEqual({
+        targetClientId: "owner-auto-resolution",
+        message: expect.objectContaining({
+          type: "threadOwnerNotification",
+          notification: {
+            method: "serverRequest/resolved",
+            params: {
+              threadId,
+              requestId,
+            },
+          },
+        }),
+      });
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("tracks only the latest typed user-input request per conversation", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
+      getUserInputAutoResolutionSnapshot: () =>
+        CodexUserInputAutoResolutionEntry[];
+      respondToUserInput: (
+        requestId: string | number,
+        answers: Record<string, string[]>,
+        conversationId: string,
+      ) => Promise<boolean>;
+    };
+    const threadId = "thread-auto-resolution-replacement";
+    const request = (id: string | number, itemId: string) =>
+      serviceInternals.handleServerRequest({
+        id,
+        method: "item/tool/requestUserInput",
+        params: {
+          threadId,
+          turnId: "turn-1",
+          itemId,
+          questions: [{
+            id: "scope",
+            header: "Scope",
+            question: "Continue?",
+            isOther: false,
+            isSecret: false,
+          }],
+        },
+      });
+
+    try {
+      const numeric = request(73, "item-numeric");
+      const textual = request("73", "item-textual");
+      await Promise.resolve();
+
+      expect(serviceInternals.getUserInputAutoResolutionSnapshot()).toEqual([
+        expect.objectContaining({
+          conversationId: threadId,
+          requestId: "73",
+        }),
+      ]);
+
+      expect(await serviceInternals.respondToUserInput("73", {}, threadId)).toBe(true);
+      expect(await serviceInternals.respondToUserInput(73, {}, threadId)).toBe(true);
+      await textual;
+      await numeric;
+    } finally {
       await service.shutdown();
     }
   });

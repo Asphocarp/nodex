@@ -3973,6 +3973,16 @@ export class CodexAppServerManager {
     })) as boolean;
   }
 
+  async setThreadPresented(
+    threadId: string,
+    presented: boolean,
+  ): Promise<boolean> {
+    return (await invoke("codex:thread:presentation:set", {
+      threadId,
+      presented,
+    })) as boolean;
+  }
+
   async markSubagentThreadOpened(threadId: string): Promise<boolean> {
     return (await invoke("codex:subagent-thread:opened", threadId)) as boolean;
   }
@@ -9850,6 +9860,16 @@ export function hydrateLocalBackgroundSubagentThreads(
 
 export function setLocalConversationThreadViewActive(threadId: string, active: boolean): Promise<boolean> {
   return getDefaultLocalConversationManager().setThreadViewActive(threadId, active);
+}
+
+export function setLocalConversationThreadPresented(
+  threadId: string,
+  presented: boolean,
+): Promise<boolean> {
+  return getDefaultLocalConversationManager().setThreadPresented(
+    threadId,
+    presented,
+  );
 }
 
 export function requestLocalConversationOlderTurns(threadId: string): Promise<CodexConversationSnapshot | null> {

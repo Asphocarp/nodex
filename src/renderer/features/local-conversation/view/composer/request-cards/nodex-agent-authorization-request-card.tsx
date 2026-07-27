@@ -4,7 +4,9 @@ import type {
 } from "../../../../../lib/types";
 import { buildCodexCanonicalRequestIdentityKey } from "../../../../../../shared/codex-conversation-state/codex-conversation-state";
 import {
+  EXPLICIT_REQUEST_FORM_POLICY,
   RequestComposerView,
+  getRequestQuestionnaireAnswer,
   type RequestComposerRequest,
 } from "../../shared/request-cards/local-conversation-request-cards";
 
@@ -96,9 +98,13 @@ export function NodexAgentAuthorizationRequestCard({
       body={<AuthorizationBody request={request} />}
       showQuestionBodyWhenHeader={false}
       request={composerRequest}
+      policy={EXPLICIT_REQUEST_FORM_POLICY}
       onSubmit={async (nextRequest, state) => {
         const questionId = nextRequest.questions[0]?.id;
-        const selected = questionId ? state.selectedOptions[questionId] : null;
+        const selected = questionId
+          ? getRequestQuestionnaireAnswer(nextRequest, state, questionId)
+            ?.selectedOptionId
+          : null;
         const decision = selected === ALLOW_ONCE
           ? "allow_once"
           : selected === ALLOW_TASK

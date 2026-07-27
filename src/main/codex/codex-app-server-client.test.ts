@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -227,6 +227,61 @@ describe("codex-app-server-client", () => {
       await client.stop();
       mock.cleanup();
     }
+  });
+
+  test("never writes a completed server-request response into a replacement process", async () => {
+    const client = new CodexAppServerClient({
+      binaryPath: process.execPath,
+    });
+    let resolveHandler: (value: { decision: "accept" }) => void = () => {
+      throw new Error("Server-request resolver was not initialized");
+    };
+    const handlerResult = new Promise<{ decision: "accept" }>((resolve) => {
+      resolveHandler = resolve;
+    });
+    client.setServerRequestHandler(async () => await handlerResult);
+
+    const firstWrite = vi.fn();
+    const secondWrite = vi.fn();
+    const firstChild = {
+      stdin: { destroyed: false, write: firstWrite },
+    };
+    const secondChild = {
+      stdin: { destroyed: false, write: secondWrite },
+    };
+    const clientInternals = client as unknown as {
+      child: unknown;
+      handleServerRequest: (request: {
+        id: number;
+        method: "item/commandExecution/requestApproval";
+        params: {
+          threadId: string;
+          turnId: string;
+          itemId: string;
+          command: string;
+          cwd: string;
+        };
+      }) => Promise<void>;
+    };
+
+    clientInternals.child = firstChild;
+    const handling = clientInternals.handleServerRequest({
+      id: 41,
+      method: "item/commandExecution/requestApproval",
+      params: {
+        threadId: "thread-old-generation",
+        turnId: "turn-old-generation",
+        itemId: "item-old-generation",
+        command: "echo stale",
+        cwd: "/tmp",
+      },
+    });
+    clientInternals.child = secondChild;
+    resolveHandler({ decision: "accept" });
+    await handling;
+
+    expect(firstWrite).not.toHaveBeenCalled();
+    expect(secondWrite).not.toHaveBeenCalled();
   });
 
   test("resolves binaries from additional search paths when PATH is restricted", async () => {

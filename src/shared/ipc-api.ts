@@ -143,6 +143,11 @@ import type {
   CodexForkBrowserTransferConsumeInput,
   CodexForkBrowserViewContext,
 } from "./codex-fork-browser-transfer";
+import type {
+  CodexUserInputAutoResolutionChange,
+  CodexUserInputAutoResolutionEntry,
+  CodexUserInputAutoResolutionTarget,
+} from "./codex-user-input-auto-resolution";
 
 import type {
   BackupRecord,
@@ -1655,6 +1660,22 @@ export interface IpcApi {
     args: [input: { threadId: string; active: boolean }];
     result: boolean;
   };
+  "codex:thread:presentation:set": {
+    args: [input: { threadId: string; presented: boolean }];
+    result: boolean;
+  };
+  "codex:user-input:auto-resolution:snapshot": {
+    args: [];
+    result: CodexUserInputAutoResolutionEntry[];
+  };
+  "codex:user-input:auto-resolution:activity": {
+    args: [input: { conversationId: string }];
+    result: boolean;
+  };
+  "codex:user-input:auto-resolution:snooze": {
+    args: [input: CodexUserInputAutoResolutionTarget];
+    result: boolean;
+  };
   "codex:thread:turns:load-older": {
     args: [threadId: string];
     result: CodexConversationSnapshot | null;
@@ -1903,6 +1924,7 @@ export interface IpcEvents {
   "terminal-view-lease-revoked": TerminalViewLeaseRevokedEvent;
   "codex:event": CodexEvent;
   "codex:host-message": CodexHostMessage;
+  "codex:user-input:auto-resolution:changed": CodexUserInputAutoResolutionChange;
   "codex:renderer-client:request": CodexRendererClientRequestMessage;
   "codex:scheduled-automations:changed": CodexScheduledAutomationChangedEvent;
   "codex:automation-runs:updated": CodexAutomationRunsUpdatedEvent;

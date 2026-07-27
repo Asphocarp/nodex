@@ -93,7 +93,7 @@ describe("CodexSetupCodexStepRequestCard", () => {
     expect(view.getByText("First task").textContent).toBe("First task");
     expect(view.getByText("Debug an issue").textContent).toBe("Debug an issue");
     await act(async () => {
-      fireEvent.click(view.getByText("Submit"));
+      fireEvent.click(view.getByText("Debug an issue"));
       await settleAsyncRender();
     });
 

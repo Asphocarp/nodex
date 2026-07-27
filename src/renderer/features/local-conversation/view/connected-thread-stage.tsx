@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useEffectEvent, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { AppShellHeaderContentRegistrar } from "@/lib/workbench-ui-scopes";
 import { resolveCodexElectronDisplayThreadTitle } from "../../../../shared/codex-thread-title";
 import { buildCodexTurnOccurrenceKey } from "../../../../shared/codex-turn-identity";
@@ -10,6 +18,7 @@ import type {
 } from "@/lib/types";
 import { buildComposerShellModel } from "../projection/build-composer-shell-model";
 import { buildBackgroundSubagentRows } from "../projection/background-subagent-row-model";
+import { selectPrimaryBackgroundConversationRequest } from "../conversation-request-helpers";
 import { copyConversationMarkdown } from "../copy-conversation-markdown";
 import {
   buildThreadBodyModel,
@@ -28,6 +37,7 @@ import {
   markLocalConversationAsRead,
   markLocalSubagentThreadOpened,
   setLocalConversationThreadViewActive,
+  setLocalConversationThreadPresented,
   useComposerIntent,
   useConversationBackgroundTerminalRows,
   useConversationCapabilityFlags,
@@ -77,6 +87,50 @@ type ConnectedThreadStageInput = Omit<
   | "composerIntent"
   | "primaryRequest"
 >;
+
+function usePresentedConversationIds(
+  conversationIds: readonly string[],
+): void {
+  const currentIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const updateQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const updatePresentedIds = useEffectEvent((nextIds: readonly string[]) => {
+    const next = new Set(
+      nextIds.map((conversationId) => conversationId.trim()).filter(Boolean),
+    );
+    const current = currentIdsRef.current;
+    const removed = [...current].filter((conversationId) =>
+      !next.has(conversationId)
+    );
+    const added = [...next].filter((conversationId) =>
+      !current.has(conversationId)
+    );
+    currentIdsRef.current = next;
+    updateQueueRef.current = updateQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        for (const conversationId of removed) {
+          await setLocalConversationThreadPresented(
+            conversationId,
+            false,
+          ).catch(() => undefined);
+        }
+        for (const conversationId of added) {
+          await setLocalConversationThreadPresented(
+            conversationId,
+            true,
+          ).catch(() => undefined);
+        }
+      });
+  });
+
+  useEffect(() => {
+    updatePresentedIds(conversationIds);
+  }, [conversationIds]);
+
+  useEffect(() => () => {
+    updatePresentedIds([]);
+  }, []);
+}
 
 function isKnownCollaborationMode(mode: string | null | undefined): mode is CodexCollaborationModeKind {
   return mode === "default" || mode === "plan";
@@ -745,6 +799,38 @@ export function ConnectedThreadStage({
     [activeThreadId, childMemberships],
   );
   const knownConversationsById = useConversationSubset(childThreadIds);
+  const visibleBackgroundRequestConversationId = useMemo(() => {
+    if (backgroundAgentDetail) return null;
+    for (const membership of childMemberships) {
+      const conversation = knownConversationsById[membership.threadId];
+      if (selectPrimaryBackgroundConversationRequest(conversation ?? null)) {
+        return membership.threadId;
+      }
+    }
+    return null;
+  }, [
+    backgroundAgentDetail,
+    childMemberships,
+    knownConversationsById,
+  ]);
+  const presentedConversationIds = useMemo(() => {
+    const requestSurfaceVisible = threadBodyVisible
+      || rightPanelComposerOverlayEnabled;
+    if (!routeActive || !requestSurfaceVisible) return [];
+    return [...new Set([
+      activeThreadId,
+      visibleBackgroundRequestConversationId,
+    ].filter((conversationId): conversationId is string =>
+      typeof conversationId === "string" && conversationId.length > 0
+    ))];
+  }, [
+    activeThreadId,
+    rightPanelComposerOverlayEnabled,
+    routeActive,
+    threadBodyVisible,
+    visibleBackgroundRequestConversationId,
+  ]);
+  usePresentedConversationIds(presentedConversationIds);
   const isActiveThreadArchived = input.activeThreadSummary?.archived === true || summaryFields.archived;
   const activeThreadProjectless = summaryFields.threadId
     ? summaryFields.projectId === null

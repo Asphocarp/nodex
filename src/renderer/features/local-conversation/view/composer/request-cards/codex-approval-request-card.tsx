@@ -6,7 +6,9 @@ import type {
 } from "../../../../../lib/types";
 import type { ReactNode } from "react";
 import {
+  EXPLICIT_REQUEST_FORM_POLICY,
   RequestComposerView,
+  getRequestQuestionnaireAnswer,
   type RequestComposerRequest,
 } from "../../shared/request-cards/local-conversation-request-cards";
 import {
@@ -250,17 +252,22 @@ export function CodexApprovalRequestCard({
       body={body}
       showQuestionBodyWhenHeader={false}
       request={composerRequest}
+      policy={EXPLICIT_REQUEST_FORM_POLICY}
       onSubmit={async (nextRequest, state) => {
         const questionId = nextRequest.questions[0]?.id;
         if (!questionId) {
           await onRespond(request.requestId, { kind: request.kind, decision: "decline" });
           return;
         }
-        const selected = state.selectedOptions[questionId];
-        const mode = state.modes[questionId];
-        const freeform = state.drafts[questionId]?.trim() ?? "";
+        const answer = getRequestQuestionnaireAnswer(
+          nextRequest,
+          state,
+          questionId,
+        );
+        const selected = answer?.selectedOptionId;
+        const freeform = answer?.freeformText?.trim() ?? "";
 
-        if (mode === "other") {
+        if (selected === null) {
           await onRespond(request.requestId, { kind: request.kind, decision: "decline" });
           if (freeform && onSubmitLocalFollowup) {
             await onSubmitLocalFollowup(freeform);

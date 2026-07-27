@@ -63,6 +63,7 @@ export function CodexPendingRequestCard({
     case "userInput":
       return (
         <CodexUserInputRequestCard
+          conversationId={entry.conversationId}
           request={entry.request}
           onInterrupt={async () => {
             await actions.onInterruptTurn(entry.request.turnId);

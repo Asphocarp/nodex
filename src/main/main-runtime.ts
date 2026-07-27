@@ -1085,6 +1085,10 @@ function createWindow(
   let rendererClientRegistration: RendererClientRegistration | null = null;
   if (rendererClientRouter) {
     rendererClientRegistration = rendererClientRouter.register(window.webContents);
+    codexService.setRendererClientForegrounded(
+      rendererClientRegistration.clientId,
+      window.isFocused(),
+    );
   }
   syncMacWindowTitle(window);
   applyElectronWindowBackdrop(window, true);
@@ -1146,6 +1150,10 @@ function createWindow(
     windowSessionState?.markFocused(webContentsId);
     applyElectronWindowBackdrop(window);
     safeSendToWindow(window, "electron-window:focus-changed", [{ isFocused: true }]);
+    codexService.setRendererClientForegrounded(
+      rendererClientRegistration?.clientId,
+      true,
+    );
   });
   window.on("resize", () => {
     if (window.isDestroyed()) return;
@@ -1160,6 +1168,10 @@ function createWindow(
   window.on("blur", () => {
     applyElectronWindowBackdrop(window);
     safeSendToWindow(window, "electron-window:focus-changed", [{ isFocused: false }]);
+    codexService.setRendererClientForegrounded(
+      rendererClientRegistration?.clientId,
+      false,
+    );
   });
   window.webContents.on("did-finish-load", () => {
     logger.info("Renderer document finished loading", {
@@ -1193,6 +1205,10 @@ function createWindow(
     });
   });
   window.on("closed", () => {
+    codexService.setRendererClientForegrounded(
+      rendererClientRegistration?.clientId,
+      false,
+    );
     try {
       windowSessionState?.detachWindow(webContentsId, {
         disposition: closeDisposition,

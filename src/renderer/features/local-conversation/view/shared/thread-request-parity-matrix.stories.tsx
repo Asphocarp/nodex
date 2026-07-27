@@ -15,9 +15,9 @@ interface ThreadRequestStoryMatrixRow {
 }
 
 const EXACT_BUNDLE_PROVENANCE = {
-  version: "26.707.30751",
-  build: "5018",
-  asarSha256: "bf6a8d30300c95cd12eb51fc39ea462a3b1bd4719a4ab260b22194340d0b2959",
+  version: "26.721.41059",
+  build: "5848",
+  asarSha256: "da39a51b06fb4c728d418b8f0f05fc8fd8c6b1f74c4fb4d47c20c7914a798f45",
 } as const;
 
 const REQUEST_STORY = "?path=/story/workbench-threads-request-cards--";
@@ -61,7 +61,7 @@ const THREAD_REQUEST_STORY_MATRIX = [
   {
     family: "Ordinary and onboarding input",
     packet: "Q-02D",
-    evidence: "b6/S4/gQe · _Ke onboarding owner",
+    evidence: "choice activation → 180ms acknowledgement → advance/submit · host 60s inactivity + 90s countdown",
     direct: [
       { label: "Ordinary input", href: `${REQUEST_STORY}user-input` },
       { label: "Onboarding input", href: `${REQUEST_STORY}onboarding-dynamic-input` },
@@ -108,7 +108,7 @@ const THREAD_REQUEST_STORY_MATRIX = [
   {
     family: "Setup role / task / context",
     packet: "Q-02E",
-    evidence: "o6/f6/K3 · setup request switch",
+    evidence: "task choice activation → immediate submit · role/context retain explicit confirmation",
     direct: [
       { label: "Role", href: `${REQUEST_STORY}setup-role` },
       { label: "First task", href: `${REQUEST_STORY}setup-task` },
@@ -128,7 +128,7 @@ const THREAD_REQUEST_STORY_MATRIX = [
   {
     family: "Implement-plan follow-up",
     packet: "Q-02A",
-    evidence: "TKe · plan fallback and request key aU",
+    evidence: "choice activation → 180ms acknowledgement → submit",
     direct: [
       { label: "Implement plan", href: `${REQUEST_STORY}implement-plan` },
     ],
@@ -207,7 +207,7 @@ function ThreadRequestParityMatrix() {
           <div className="flex shrink-0 items-center gap-2 text-xs tabular-nums text-token-description-foreground">
             <span data-parity-provenance="exact-bundle">Exact bundle {EXACT_BUNDLE_PROVENANCE.version} / {EXACT_BUNDLE_PROVENANCE.build}</span>
             <span aria-hidden="true">·</span>
-            <span data-parity-runtime="pending">Runtime visual sign-off pending E-05</span>
+            <span data-parity-runtime="source-audited">Interaction source audited</span>
           </div>
         </header>
 
@@ -247,7 +247,7 @@ function ThreadRequestParityMatrix() {
         </div>
 
         <p className="mt-2 text-[11px] leading-4 text-token-description-foreground">
-          ASAR SHA-256: <span className="font-mono">{EXACT_BUNDLE_PROVENANCE.asarSha256}</span>. Bundle provenance is frozen; exact runtime visual sign-off remains pending until E-05 can capture the target build.
+          ASAR SHA-256: <span className="font-mono">{EXACT_BUNDLE_PROVENANCE.asarSha256}</span>. Bundle provenance and request-input interaction evidence are frozen; visual review remains a manual Storybook handoff.
         </p>
       </div>
     </main>

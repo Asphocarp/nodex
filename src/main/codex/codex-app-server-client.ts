@@ -748,6 +748,7 @@ export class CodexAppServerClient extends EventEmitter {
   }
 
   private async handleServerRequest(request: CodexServerRequest): Promise<void> {
+    const requestChild = this.child;
     logger.debug("Received Codex server request", {
       requestId: request.id,
       method: request.method,
@@ -779,6 +780,13 @@ export class CodexAppServerClient extends EventEmitter {
         requestId: request.id,
         method: request.method,
       });
+      if (!this.isCurrentChild(requestChild)) {
+        logger.debug("Dropped stale Codex server request response after reconnect", {
+          requestId: request.id,
+          method: request.method,
+        });
+        return;
+      }
       this.writeMessage({
         id: request.id,
         result: result ?? {},
@@ -789,6 +797,13 @@ export class CodexAppServerClient extends EventEmitter {
         method: request.method,
         error,
       });
+      if (!this.isCurrentChild(requestChild)) {
+        logger.debug("Dropped stale Codex server request error after reconnect", {
+          requestId: request.id,
+          method: request.method,
+        });
+        return;
+      }
       this.writeMessage({
         id: request.id,
         error: {
@@ -797,6 +812,12 @@ export class CodexAppServerClient extends EventEmitter {
         },
       } satisfies JsonRpcResponseEnvelope);
     }
+  }
+
+  private isCurrentChild(
+    child: ChildProcessWithoutNullStreams | null,
+  ): child is ChildProcessWithoutNullStreams {
+    return child !== null && this.child === child && !child.stdin.destroyed;
   }
 
   private handleChildExit(code: number | null, signal: NodeJS.Signals | null): void {

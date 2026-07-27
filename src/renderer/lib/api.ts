@@ -591,3 +591,33 @@ export function subscribeWindowFocusChanges(
 ): () => void {
   return resolveRendererTransport().subscribeWindowFocusChanges(callback);
 }
+
+export function getUserInputAutoResolutionSnapshot(): Promise<
+  import("../../shared/codex-user-input-auto-resolution").CodexUserInputAutoResolutionEntry[]
+> {
+  return resolveRendererTransport().getUserInputAutoResolutionSnapshot();
+}
+
+export function recordUserInputAutoResolutionActivity(
+  conversationId: string,
+): Promise<boolean> {
+  return resolveRendererTransport().recordUserInputAutoResolutionActivity(
+    conversationId,
+  );
+}
+
+export function snoozeUserInputAutoResolution(
+  target: import("../../shared/codex-user-input-auto-resolution").CodexUserInputAutoResolutionTarget,
+): Promise<boolean> {
+  return resolveRendererTransport().snoozeUserInputAutoResolution(target);
+}
+
+export function subscribeUserInputAutoResolutionChanges(
+  callback: (
+    change: import("../../shared/codex-user-input-auto-resolution").CodexUserInputAutoResolutionChange,
+  ) => void,
+): () => void {
+  return resolveRendererTransport().subscribeUserInputAutoResolutionChanges(
+    callback,
+  );
+}

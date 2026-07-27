@@ -1,5 +1,6 @@
 import type { CodexPlanImplementationRequest } from "../../../../../lib/types";
 import {
+  REQUEST_INPUT_COMPOSER_POLICY,
   RequestComposerView,
   buildUserInputAnswers,
   type RequestComposerRequest,
@@ -36,12 +37,17 @@ export function CodexImplementPlanRequestCard({
   return (
     <RequestComposerView
       request={composerRequest}
+      policy={REQUEST_INPUT_COMPOSER_POLICY}
+      isPlanMode
       onSubmit={async (nextRequest, state) => {
         const questionId = nextRequest.questions[0]?.id;
         const answer = questionId
           ? buildUserInputAnswers(nextRequest, state)[questionId]?.[0]?.trim() ?? ""
           : "";
-        if (!answer) return;
+        if (!answer) {
+          await onRespond({ type: "dismiss" });
+          return;
+        }
         if (answer === "Yes, implement this plan") {
           await onRespond({ type: "implement" });
           return;

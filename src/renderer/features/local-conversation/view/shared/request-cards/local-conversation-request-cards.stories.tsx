@@ -1,8 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { ReactNode } from "react";
+import {
+  useState,
+  type ReactNode,
+} from "react";
+import type {
+  CodexProtocolRequestId,
+  CodexUserInputRequest,
+} from "@/lib/types";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import {
-  UserInputComposerView,
   UserInputTranscriptView,
 } from "./local-conversation-request-cards";
 import { CodexApprovalRequestCard } from "../../composer/request-cards/codex-approval-request-card";
@@ -14,7 +20,11 @@ import {
   CodexSetupCodexStepRequestCard,
   CodexSetupContextRequestCardView,
 } from "../../composer/request-cards/codex-setup-codex-step-request-card";
-import { CodexUserInputRequestCard } from "../../composer/request-cards/codex-user-input-request-card";
+import {
+  CodexUserInputAutoResolutionCountdown,
+  CodexUserInputRequestCard,
+  CodexUserInputRequestCardView,
+} from "../../composer/request-cards/codex-user-input-request-card";
 import { NodexAgentAuthorizationRequestCard } from "../../composer/request-cards/nodex-agent-authorization-request-card";
 import { AutoReviewApprovalNudge as AutoReviewApprovalNudgeView } from "../../composer/auto-review-approval-nudge";
 import { THREAD_REQUEST_CARD_STORY_DATA } from "../../thread-stage-story-fixtures";
@@ -37,6 +47,38 @@ function RequestSurface({
       <TooltipProvider>
         <div className="max-w-3xl">{children}</div>
       </TooltipProvider>
+    </div>
+  );
+}
+
+function UserInputResponsePreview({
+  children,
+}: {
+  children: (
+    onRespond: (
+      requestId: CodexProtocolRequestId,
+      answers: Record<string, string[]>,
+    ) => Promise<void>,
+  ) => ReactNode;
+}) {
+  const [lastResponse, setLastResponse] = useState<{
+    requestId: CodexProtocolRequestId;
+    answers: Record<string, string[]>;
+  } | null>(null);
+
+  return (
+    <div className="flex flex-col gap-3">
+      {children(async (requestId, answers) => {
+        setLastResponse({ requestId, answers });
+      })}
+      <output
+        className="rounded-lg border border-(--border) bg-(--background-secondary) px-3 py-2 font-mono text-xs text-(--foreground-secondary)"
+        aria-live="polite"
+      >
+        {lastResponse
+          ? JSON.stringify(lastResponse)
+          : "No response submitted yet"}
+      </output>
     </div>
   );
 }
@@ -73,6 +115,25 @@ const setupRequest = {
   step: "role" as const,
   createdAt: 1,
 };
+
+const userInputStoryThreadId =
+  THREAD_REQUEST_CARD_STORY_DATA.userInput.threadId;
+const singleQuestionUserInputRequest = {
+  ...THREAD_REQUEST_CARD_STORY_DATA.userInput,
+  requestId: "user_input_single_question_story",
+  questions: THREAD_REQUEST_CARD_STORY_DATA.userInput.questions.slice(0, 1),
+} satisfies CodexUserInputRequest;
+const freeformOnlyUserInputRequest = {
+  ...THREAD_REQUEST_CARD_STORY_DATA.userInput,
+  requestId: "user_input_freeform_only_story",
+  questions: [{
+    id: "notes",
+    header: "Notes",
+    question: "What else should Codex know?",
+    isOther: true,
+    isSecret: false,
+  }],
+} satisfies CodexUserInputRequest;
 
 export const Approval: Story = {
   render: () => (
@@ -130,10 +191,161 @@ export const UserInput: Story = {
   render: () => (
     <RequestSurface
       title="User Input Request"
-      description="Multi-question request-user-input composer including option and free-form flows."
+      description="Multi-question request-user-input composer: activating a numbered option acknowledges it briefly, then advances or submits without a second confirmation."
     >
-      <UserInputComposerView
+      <UserInputResponsePreview>
+        {(onRespond) => (
+          <CodexUserInputRequestCard
+            conversationId={userInputStoryThreadId}
+            request={THREAD_REQUEST_CARD_STORY_DATA.userInput}
+            onRespond={onRespond}
+          />
+        )}
+      </UserInputResponsePreview>
+    </RequestSurface>
+  ),
+};
+
+export const UserInputSingleQuestion: Story = {
+  render: () => (
+    <RequestSurface
+      title="User Input · Single Question"
+      description="A single option question submits directly after the 180ms acknowledgement state, with no separate confirmation click."
+    >
+      <UserInputResponsePreview>
+        {(onRespond) => (
+          <CodexUserInputRequestCardView
+            request={singleQuestionUserInputRequest}
+            autoResolution={null}
+            onUserInteraction={() => { }}
+            onRespond={onRespond}
+          />
+        )}
+      </UserInputResponsePreview>
+    </RequestSurface>
+  ),
+};
+
+export const UserInputWithSkippedDraft: Story = {
+  render: () => (
+    <RequestSurface
+      title="User Input · Skipped Draft"
+      description="The first question is explicitly skipped and omitted from the final answer map; navigation continues on the second question."
+    >
+      <UserInputResponsePreview>
+        {(onRespond) => (
+          <CodexUserInputRequestCardView
+            request={THREAD_REQUEST_CARD_STORY_DATA.userInput}
+            autoResolution={null}
+            initialDraft={{
+              questionIndex: 1,
+              answers: [
+                { selectedOptionId: null, freeformText: null },
+                { selectedOptionId: null, freeformText: null },
+              ],
+            }}
+            onUserInteraction={() => { }}
+            onRespond={onRespond}
+          />
+        )}
+      </UserInputResponsePreview>
+    </RequestSurface>
+  ),
+};
+
+export const UserInputFreeformOnly: Story = {
+  render: () => (
+    <RequestSurface
+      title="User Input · Freeform Only"
+      description="A question without options uses the inline freeform field; Enter advances or submits and Shift+Enter inserts a newline."
+    >
+      <UserInputResponsePreview>
+        {(onRespond) => (
+          <CodexUserInputRequestCardView
+            request={freeformOnlyUserInputRequest}
+            autoResolution={null}
+            onUserInteraction={() => { }}
+            onRespond={onRespond}
+          />
+        )}
+      </UserInputResponsePreview>
+    </RequestSurface>
+  ),
+};
+
+export const UserInputAutoResolutionCountdown: Story = {
+  render: () => (
+    <RequestSurface
+      title="User Input Auto-resolution"
+      description="The main-hosted countdown becomes visible only during its final minute and resolves with an empty response unless request-card interaction snoozes it."
+    >
+      <div className="flex items-center gap-2 text-sm text-token-description-foreground">
+        <span>Inactive request</span>
+        <CodexUserInputAutoResolutionCountdown
+          deadlineMs={Date.now() + 45_000}
+        />
+      </div>
+    </RequestSurface>
+  ),
+};
+
+export const UserInputWaitingForInactivity: Story = {
+  render: () => (
+    <RequestSurface
+      title="User Input · Waiting"
+      description="A visible request in a foreground window waits for 60 seconds of external inactivity. No countdown badge is shown yet."
+    >
+      <CodexUserInputRequestCardView
         request={THREAD_REQUEST_CARD_STORY_DATA.userInput}
+        autoResolution={{
+          conversationId: userInputStoryThreadId,
+          requestId: THREAD_REQUEST_CARD_STORY_DATA.userInput.requestId,
+          phase: { type: "waitingForInactivity" },
+        }}
+        onUserInteraction={() => { }}
+        onRespond={async () => { }}
+      />
+    </RequestSurface>
+  ),
+};
+
+export const UserInputScheduledForResolution: Story = {
+  render: () => (
+    <RequestSurface
+      title="User Input · Scheduled"
+      description="The production card displays the countdown during its final minute; timeout sends an empty response rather than the selected option."
+    >
+      <CodexUserInputRequestCardView
+        request={THREAD_REQUEST_CARD_STORY_DATA.userInput}
+        autoResolution={{
+          conversationId: userInputStoryThreadId,
+          requestId: THREAD_REQUEST_CARD_STORY_DATA.userInput.requestId,
+          phase: {
+            type: "scheduled",
+            deadlineMs: Date.now() + 45_000,
+          },
+        }}
+        onUserInteraction={() => { }}
+        onRespond={async () => { }}
+      />
+    </RequestSurface>
+  ),
+};
+
+export const UserInputSnoozed: Story = {
+  render: () => (
+    <RequestSurface
+      title="User Input · Snoozed"
+      description="Any interaction inside the request card permanently snoozes automatic resolution for this request; the card remains fully answerable."
+    >
+      <CodexUserInputRequestCardView
+        request={THREAD_REQUEST_CARD_STORY_DATA.userInput}
+        autoResolution={{
+          conversationId: userInputStoryThreadId,
+          requestId: THREAD_REQUEST_CARD_STORY_DATA.userInput.requestId,
+          phase: { type: "snoozed" },
+        }}
+        onUserInteraction={() => { }}
         onRespond={async () => { }}
       />
     </RequestSurface>
@@ -146,14 +358,19 @@ export const OnboardingDynamicInput: Story = {
       title="Onboarding Dynamic Input"
       description="Dynamic onboarding forces a Something else answer for every question and resolves dismiss with an empty response instead of interrupting the thread."
     >
-      <CodexUserInputRequestCard
-        request={{
-          ...THREAD_REQUEST_CARD_STORY_DATA.userInput,
-          requestId: "onboarding_dynamic_input_story",
-          isOnboardingDynamicInput: true,
-        }}
-        onRespond={async () => { }}
-      />
+      <UserInputResponsePreview>
+        {(onRespond) => (
+          <CodexUserInputRequestCard
+            conversationId={userInputStoryThreadId}
+            request={{
+              ...THREAD_REQUEST_CARD_STORY_DATA.userInput,
+              requestId: "onboarding_dynamic_input_story",
+              isOnboardingDynamicInput: true,
+            }}
+            onRespond={onRespond}
+          />
+        )}
+      </UserInputResponsePreview>
     </RequestSurface>
   ),
 };
@@ -190,7 +407,7 @@ export const SetupTask: Story = {
   render: () => (
     <RequestSurface
       title="Setup First Task"
-      description="Role-derived first-task suggestions share the native input form and retain the freeform, skip, and dismiss paths."
+      description="Role-derived first-task suggestions submit immediately when activated while retaining freeform, skip, and dismiss paths."
     >
       <CodexSetupCodexStepRequestCard
         request={{ ...setupRequest, step: "task" }}
@@ -317,7 +534,7 @@ export const ImplementPlan: Story = {
   render: () => (
     <RequestSurface
       title="Implement Plan"
-      description="Synthesized follow-up surface shown after a completed turn ends with a non-empty plan."
+      description="Synthesized follow-up surface whose choice activation acknowledges briefly and submits without a separate confirmation."
     >
       <CodexImplementPlanRequestCard
         request={THREAD_REQUEST_CARD_STORY_DATA.implementPlan}

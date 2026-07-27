@@ -37,4 +37,26 @@ describe("CodexRendererViewRegistry", () => {
     registry.clearConversation("thread-2");
     expect(registry.hasActiveView("thread-2")).toBe(false);
   });
+
+  test("separates foreground presentation from runtime-active views", () => {
+    const registry = new CodexRendererViewRegistry();
+    registry.setActive("thread-1", "renderer-1", true);
+    registry.setActive("thread-1", "renderer-2", true);
+
+    registry.setClientForegrounded("renderer-1", true);
+    expect(registry.isPresentedInForeground("thread-1")).toBe(false);
+
+    registry.setPresented("thread-1", "renderer-1", true);
+    expect(registry.isPresentedInForeground("thread-1")).toBe(true);
+
+    registry.setClientForegrounded("renderer-1", false);
+    expect(registry.isPresentedInForeground("thread-1")).toBe(false);
+
+    registry.setClientForegrounded("renderer-2", true);
+    registry.setPresented("thread-1", "renderer-2", true);
+    expect(registry.isPresentedInForeground("thread-1")).toBe(true);
+
+    registry.removeClient("renderer-2");
+    expect(registry.isPresentedInForeground("thread-1")).toBe(false);
+  });
 });

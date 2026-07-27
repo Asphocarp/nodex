@@ -51,6 +51,10 @@ import {
 } from "./local-store/assets";
 import { parseAssetSource } from "../shared/assets";
 import { parseCodexApprovalResponse } from "../shared/codex-approval-response";
+import {
+  parseCodexUserInputAutoResolutionActivityInput,
+  parseCodexUserInputAutoResolutionTarget,
+} from "../shared/codex-user-input-auto-resolution";
 import { codexService } from "./codex/codex-service";
 import {
   createCodexProjectlessWorkspace,
@@ -1039,6 +1043,9 @@ export function registerIpcHandlers(
         safeBroadcastToWindows(BrowserWindow.getAllWindows(), channel, args),
       message,
     );
+  });
+  codexService.on("userInputAutoResolutionChanged", (change) => {
+    broadcastIpcEvent("codex:user-input:auto-resolution:changed", change);
   });
   codexService.on(
     "rendererOwnerHostMessage",
@@ -3171,16 +3178,73 @@ export function registerIpcHandlers(
 
   registerHandle(
     "codex:thread:view-active:set",
-    (event, input: { threadId?: unknown; active?: unknown }) => {
-      if (typeof input.threadId !== "string") return false;
+    (event, input: unknown) => {
+      if (typeof input !== "object" || input === null) return false;
+      const threadId = "threadId" in input && typeof input.threadId === "string"
+        ? input.threadId.trim()
+        : "";
+      if (!threadId) return false;
       const clientId = resolveRendererClientId(event);
       if (!clientId) return false;
       codexService.setRendererConversationViewActive(
-        input.threadId,
+        threadId,
         clientId,
-        input.active === true,
+        "active" in input && input.active === true,
       );
       return true;
+    },
+  );
+
+  registerHandle(
+    "codex:thread:presentation:set",
+    (event, input: unknown) => {
+      if (typeof input !== "object" || input === null) return false;
+      const threadId = "threadId" in input && typeof input.threadId === "string"
+        ? input.threadId.trim()
+        : "";
+      if (!threadId) return false;
+      const clientId = resolveRendererClientId(event);
+      if (!clientId) return false;
+      codexService.setRendererConversationPresented(
+        threadId,
+        clientId,
+        "presented" in input && input.presented === true,
+      );
+      return true;
+    },
+  );
+
+  registerHandle("codex:user-input:auto-resolution:snapshot", () =>
+    codexService.getUserInputAutoResolutionSnapshot(),
+  );
+
+  registerHandle(
+    "codex:user-input:auto-resolution:activity",
+    (event, input: unknown) => {
+      const conversationId =
+        parseCodexUserInputAutoResolutionActivityInput(input);
+      if (conversationId === null) return false;
+      const clientId = resolveRendererClientId(event);
+      if (!clientId) return false;
+      return codexService.recordUserInputAutoResolutionActivity(
+        conversationId,
+        clientId,
+      );
+    },
+  );
+
+  registerHandle(
+    "codex:user-input:auto-resolution:snooze",
+    (event, input: unknown) => {
+      const target = parseCodexUserInputAutoResolutionTarget(input);
+      if (target === null) return false;
+      const clientId = resolveRendererClientId(event);
+      if (!clientId) return false;
+      return codexService.snoozeUserInputAutoResolution(
+        target.conversationId,
+        target.requestId,
+        clientId,
+      );
     },
   );
 

@@ -17,7 +17,13 @@ import type {
 } from "../../../lib/types";
 import type { ThreadStageActions, ThreadStageRouteInput } from "../thread-stage-types";
 
-let invokeCalls: Array<{ channel: string; args: unknown[]; threadId?: string; active?: boolean }> = [];
+let invokeCalls: Array<{
+  channel: string;
+  args: unknown[];
+  threadId?: string;
+  active?: boolean;
+  presented?: boolean;
+}> = [];
 let hostMessageListener: ((message: CodexHostMessage) => void) | null = null;
 
 function ThreadStageScope({ children }: { children: ReactNode }) {
@@ -53,6 +59,9 @@ vi.mock("../local-conversation-deps", () => ({
           : undefined,
       active: typeof firstArg === "object" && firstArg !== null && typeof (firstArg as { active?: unknown }).active === "boolean"
         ? (firstArg as { active: boolean }).active
+        : undefined,
+      presented: typeof firstArg === "object" && firstArg !== null && typeof (firstArg as { presented?: unknown }).presented === "boolean"
+        ? (firstArg as { presented: boolean }).presented
         : undefined,
     });
     if (channel === "codex:account:read") {
@@ -285,6 +294,7 @@ async function renderStage(
   options: {
     backgroundAgentDetail?: boolean;
     routeActive?: boolean;
+    rightPanelComposerOverlayEnabled?: boolean;
     threadBodyVisible?: boolean;
   } = {},
 ) {
@@ -322,6 +332,9 @@ async function renderStage(
             searchOpenTick={0}
             backgroundAgentDetail={options.backgroundAgentDetail === true}
             routeActive={options.routeActive}
+            rightPanelComposerOverlayEnabled={
+              options.rightPanelComposerOverlayEnabled
+            }
             threadBodyVisible={options.threadBodyVisible}
             actions={buildActions()}
           />
@@ -547,6 +560,12 @@ describe("ConnectedThreadStage archived resume behavior", () => {
         call.threadId === "thread_active" &&
         call.active === true),
     ).toBe(true);
+    expect(
+      invokeCalls.some((call) =>
+        call.channel === "codex:thread:presentation:set" &&
+        call.threadId === "thread_active" &&
+        call.presented === true),
+    ).toBe(true);
 
     await act(async () => {
       view.unmount();
@@ -559,6 +578,142 @@ describe("ConnectedThreadStage archived resume behavior", () => {
         call.threadId === "thread_active" &&
         call.active === false),
     ).toBe(true);
+    expect(
+      invokeCalls.some((call) =>
+        call.channel === "codex:thread:presentation:set" &&
+        call.threadId === "thread_active" &&
+        call.presented === false),
+    ).toBe(true);
+  });
+
+  test("does not present a request surface hidden behind a full-width panel", async () => {
+    installAsyncRequestAnimationFrame();
+    invokeCalls = [];
+    hostMessageListener = null;
+
+    const view = await renderStage(buildThreadSummary(false), {
+      routeActive: true,
+      threadBodyVisible: false,
+      rightPanelComposerOverlayEnabled: false,
+    });
+    await act(async () => {
+      await settleAsyncRender();
+    });
+
+    expect(invokeCalls.some((call) =>
+      call.channel === "codex:thread:view-active:set"
+      && call.threadId === "thread_active"
+      && call.active === true
+    )).toBe(true);
+    expect(invokeCalls.some((call) =>
+      call.channel === "codex:thread:presentation:set"
+      && call.threadId === "thread_active"
+      && call.presented === true
+    )).toBe(false);
+
+    await act(async () => {
+      view.unmount();
+      await settleAsyncRender();
+    });
+  });
+
+  test("presents the request surface through the right-panel composer overlay", async () => {
+    installAsyncRequestAnimationFrame();
+    invokeCalls = [];
+    hostMessageListener = null;
+
+    const view = await renderStage(buildThreadSummary(false), {
+      routeActive: true,
+      threadBodyVisible: false,
+      rightPanelComposerOverlayEnabled: true,
+    });
+    await act(async () => {
+      await settleAsyncRender();
+    });
+
+    expect(invokeCalls.some((call) =>
+      call.channel === "codex:thread:presentation:set"
+      && call.threadId === "thread_active"
+      && call.presented === true
+    )).toBe(true);
+
+    await act(async () => {
+      view.unmount();
+      await settleAsyncRender();
+    });
+  });
+
+  test("registers the conversation behind a visible background request card", async () => {
+    installAsyncRequestAnimationFrame();
+    invokeCalls = [];
+    hostMessageListener = null;
+    const view = await renderStage(buildThreadSummary(false));
+    const { dispatchCodexAppServerMessage } = await import("../app-server-message-bus");
+
+    await act(async () => {
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread_child",
+        version: 1,
+        sourceClientId: "test-owner",
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: buildConversation("thread_child", {
+            source: { parentThreadId: "thread_active" },
+            requests: [{
+              type: "approval",
+              requestId: "background-approval",
+              kind: "command",
+              projectId: "project_1",
+              threadId: "thread_child",
+              turnId: "turn_ready",
+              itemId: "command-background",
+              createdAt: 3,
+            }],
+          }),
+        },
+      });
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread_active",
+        version: 1,
+        sourceClientId: "test-owner",
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: buildConversation("thread_active", {
+            childMemberships: [{
+              threadId: "thread_child",
+              parentThreadId: "thread_active",
+              role: "backgroundChild",
+              actorName: "Worker 1",
+            }],
+          }),
+        },
+      });
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      if (!invokeCalls.some((call) =>
+        call.channel === "codex:thread:presentation:set"
+        && call.threadId === "thread_child"
+        && call.presented === true
+      )) {
+        throw new Error("Expected background request conversation presentation.");
+      }
+    });
+
+    await act(async () => {
+      view.unmount();
+      await settleAsyncRender();
+    });
+    expect(invokeCalls.some((call) =>
+      call.channel === "codex:thread:presentation:set"
+      && call.threadId === "thread_child"
+      && call.presented === false
+    )).toBe(true);
   });
 
   test("does not mark ordinary child thread mounts as opened for full-fidelity subagent streaming", async () => {

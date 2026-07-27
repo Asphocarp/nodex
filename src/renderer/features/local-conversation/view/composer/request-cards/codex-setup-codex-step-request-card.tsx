@@ -29,6 +29,7 @@ import {
   type CodexSetupContextSource,
 } from "../../../setup-codex-context-sources";
 import {
+  SETUP_TASK_FORM_POLICY,
   RequestComposerView,
   buildUserInputAnswers,
   type RequestComposerRequest,
@@ -124,6 +125,7 @@ function CodexSetupTaskRequestCard({
     <RequestComposerView
       header="First task"
       request={taskRequest}
+      policy={SETUP_TASK_FORM_POLICY}
       onSubmit={async (nextRequest, state) => {
         const answer = buildUserInputAnswers(nextRequest, state).first_task?.[0]?.trim() ?? "";
         await respond("submit", answer || null);

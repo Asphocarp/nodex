@@ -207,6 +207,20 @@ export interface RendererTransport {
   subscribeWindowFocusChanges: (
     callback: (isFocused: boolean) => void,
   ) => () => void;
+  getUserInputAutoResolutionSnapshot: () => Promise<
+    import("../../shared/codex-user-input-auto-resolution").CodexUserInputAutoResolutionEntry[]
+  >;
+  recordUserInputAutoResolutionActivity: (
+    conversationId: string,
+  ) => Promise<boolean>;
+  snoozeUserInputAutoResolution: (
+    target: import("../../shared/codex-user-input-auto-resolution").CodexUserInputAutoResolutionTarget,
+  ) => Promise<boolean>;
+  subscribeUserInputAutoResolutionChanges: (
+    callback: (
+      change: import("../../shared/codex-user-input-auto-resolution").CodexUserInputAutoResolutionChange,
+    ) => void,
+  ) => () => void;
 }
 
 function readElectronBridge(): ElectronRendererBridge {

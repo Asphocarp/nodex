@@ -513,5 +513,42 @@ export function createElectronRendererTransport(
         },
       );
     },
+    getUserInputAutoResolutionSnapshot() {
+      return bridge.invoke(
+        "codex:user-input:auto-resolution:snapshot",
+      ) as Promise<
+        import("../../shared/codex-user-input-auto-resolution").CodexUserInputAutoResolutionEntry[]
+      >;
+    },
+    recordUserInputAutoResolutionActivity(conversationId: string) {
+      return bridge.invoke(
+        "codex:user-input:auto-resolution:activity",
+        { conversationId },
+      ) as Promise<boolean>;
+    },
+    snoozeUserInputAutoResolution(
+      target: import("../../shared/codex-user-input-auto-resolution").CodexUserInputAutoResolutionTarget,
+    ) {
+      return bridge.invoke(
+        "codex:user-input:auto-resolution:snooze",
+        target,
+      ) as Promise<boolean>;
+    },
+    subscribeUserInputAutoResolutionChanges(
+      callback: (
+        change: import("../../shared/codex-user-input-auto-resolution").CodexUserInputAutoResolutionChange,
+      ) => void,
+    ) {
+      return bridge.on(
+        "codex:user-input:auto-resolution:changed",
+        (...args: unknown[]) => {
+          const change = args[0] as
+            | import("../../shared/codex-user-input-auto-resolution").CodexUserInputAutoResolutionChange
+            | undefined;
+          if (!change) return;
+          callback(change);
+        },
+      );
+    },
   };
 }
