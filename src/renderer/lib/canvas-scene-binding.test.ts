@@ -35,6 +35,19 @@ class StubSceneProvider {
     await this.submitGate;
   };
 
+  enqueue = (observation: CanvasSceneObservation) => ({
+    durable: Promise.resolve().then(() => {
+      this.submissions.push(observation);
+    }),
+    committed: this.submitGate,
+  });
+
+  persistDurable = async (): Promise<void> => undefined;
+
+  flushCommitted = async (): Promise<void> => {
+    this.flushCount += 1;
+  };
+
   flush = async (): Promise<void> => {
     this.flushCount += 1;
   };
@@ -57,10 +70,10 @@ describe("CanvasSceneBinding", () => {
       onError: (error) => failures.push(error),
     });
     await expect(binding.submitLocalScene({
-      getSceneElementsIncludingDeleted: () => [element(1)],
+      elementsIncludingDeleted: [element(1)],
       appState: {},
       binaryFiles: {},
-    })).rejects.toThrow("initial sync");
+    }).committed).rejects.toThrow("initial sync");
     expect(failures).toHaveLength(1);
   });
 
@@ -71,17 +84,56 @@ describe("CanvasSceneBinding", () => {
       onRemoteScene: () => undefined,
     });
     await binding.submitLocalScene({
-      getSceneElementsIncludingDeleted: () => [
+      elementsIncludingDeleted: [
         element(2),
         element(1, { id: "deleted", isDeleted: true, index: "a1" }),
       ],
       appState: provider.scene.appState,
       binaryFiles: {},
-    });
+    }).committed;
     expect(provider.submissions).toHaveLength(1);
     expect(provider.submissions[0]?.elementCandidates.some(
       (candidate) => candidate.id === "deleted" && candidate.isDeleted === true,
     )).toBe(true);
+  });
+
+  test("submits one candidate for one edit in a 10,000 element scene", async () => {
+    const provider = new StubSceneProvider();
+    const initial: Array<Record<string, unknown>> = Array.from(
+      { length: 10_000 },
+      (_, index) =>
+      element(1, {
+        id: `element-${index}`,
+        index: `a${index.toString().padStart(5, "0")}`,
+        x: index,
+      }),
+    );
+    provider.scene = materializePortableCanvasScene({ elements: initial });
+    const binding = new CanvasSceneBinding({
+      provider: providerFor(provider),
+      onRemoteScene: () => undefined,
+    });
+    const changed = [...initial];
+    changed[4_321] = {
+      ...changed[4_321]!,
+      version: 2,
+      x: 50_000,
+    };
+
+    await binding.submitLocalScene({
+      elementsIncludingDeleted: changed,
+      appState: provider.scene.appState,
+      binaryFiles: {},
+    }).committed;
+
+    expect(provider.submissions).toHaveLength(1);
+    expect(provider.submissions[0]?.elementCandidates).toEqual([
+      expect.objectContaining({
+        id: "element-4321",
+        version: 2,
+        x: 50_000,
+      }),
+    ]);
   });
 
   test("coalesces observations while an image upload is pending", async () => {
@@ -109,7 +161,7 @@ describe("CanvasSceneBinding", () => {
       },
     };
     const first = binding.submitLocalScene({
-      getSceneElementsIncludingDeleted: () => [
+      elementsIncludingDeleted: [
         element(2, { type: "image", fileId: "image" }),
       ],
       appState: provider.scene.appState,
@@ -117,19 +169,61 @@ describe("CanvasSceneBinding", () => {
     });
     await Promise.resolve();
     const second = binding.submitLocalScene({
-      getSceneElementsIncludingDeleted: () => [
+      elementsIncludingDeleted: [
         element(3, { type: "image", fileId: "image", x: 40 }),
       ],
       appState: provider.scene.appState,
       binaryFiles,
     });
     releaseUpload();
-    await Promise.all([first, second]);
+    await Promise.all([first.committed, second.committed]);
     expect(provider.submissions).toHaveLength(1);
     expect(provider.submissions[0]?.elementCandidates[0]?.version).toBe(3);
     expect(provider.submissions[0]?.fileAdditions?.image?.source).toBe(
       "nodex://assets/image.png",
     );
+  });
+
+  test("retains a failed image candidate for an explicit durable retry", async () => {
+    const provider = new StubSceneProvider();
+    let uploadAttempts = 0;
+    const binding = new CanvasSceneBinding({
+      provider: providerFor(provider),
+      assetDependencies: {
+        uploadImage: async () => {
+          uploadAttempts += 1;
+          if (uploadAttempts === 1) throw new Error("upload failed");
+          return "nodex://assets/image.png";
+        },
+      },
+      onRemoteScene: () => undefined,
+    });
+    const submission = binding.submitLocalScene({
+      elementsIncludingDeleted: [
+        element(2, { type: "image", fileId: "image" }),
+      ],
+      appState: provider.scene.appState,
+      binaryFiles: {
+        image: {
+          id: "image",
+          mimeType: "image/png",
+          dataURL: "data:image/png;base64,AA==",
+          created: 1,
+        },
+      },
+    });
+
+    await expect(submission.durable).rejects.toThrow("upload failed");
+    await expect(submission.committed).rejects.toThrow("upload failed");
+    await binding.persistDurable();
+
+    expect(uploadAttempts).toBe(2);
+    expect(provider.submissions).toHaveLength(1);
+    expect(provider.submissions[0]?.elementCandidates[0]).toMatchObject({
+      id: "element-1",
+      version: 2,
+      type: "image",
+    });
   });
 
   test("presents non-conflicting pending app-state intent over a remote scene", async () => {
@@ -146,7 +240,7 @@ describe("CanvasSceneBinding", () => {
       },
     });
     const submission = binding.submitLocalScene({
-      getSceneElementsIncludingDeleted: () => [element(2)],
+      elementsIncludingDeleted: [element(2)],
       appState: { gridSize: 30, viewBackgroundColor: "#ffffff" },
       binaryFiles: {},
     });
@@ -160,7 +254,7 @@ describe("CanvasSceneBinding", () => {
       (presented as PortableCanvasScene | null)?.appState.viewBackgroundColor,
     ).toBe("#101010");
     releaseSubmit();
-    await submission;
+    await submission.committed;
   });
 
   test("flush waits for upload/submission work before flushing the provider", async () => {
@@ -174,7 +268,7 @@ describe("CanvasSceneBinding", () => {
       onRemoteScene: () => undefined,
     });
     const submission = binding.submitLocalScene({
-      getSceneElementsIncludingDeleted: () => [element(2)],
+      elementsIncludingDeleted: [element(2)],
       appState: provider.scene.appState,
       binaryFiles: {},
     });
@@ -185,7 +279,7 @@ describe("CanvasSceneBinding", () => {
     await Promise.resolve();
     expect(flushed).toBe(false);
     releaseSubmit();
-    await Promise.all([submission, flushing]);
+    await Promise.all([submission.committed, flushing]);
     expect(provider.flushCount).toBe(1);
   });
 });

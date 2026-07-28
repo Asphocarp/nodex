@@ -36,6 +36,12 @@ import type {
   CanvasSceneSyncCommandResult,
   CanvasSceneSyncRequest,
 } from "../../shared/block-documents/canvas-scene-sync";
+import type {
+  CanvasSceneCompactionCommandResult,
+  CanvasSceneCompactionReadCommandResult,
+  CanvasSceneCompactionReadRequest,
+  CanvasSceneCompactionRequest,
+} from "../../shared/block-documents/canvas-scene-maintenance";
 import {
   toLibraryOwnedDocumentDescriptor,
   type LibraryOwnedDocumentDescriptor,
@@ -73,7 +79,17 @@ import {
   documentSyncUnauthorized,
   type DocumentSyncClientTarget,
 } from "../document-sync-transport";
+import {
+  createCanvasPresenceHub,
+  type CanvasPresenceHub,
+} from "../canvas-presence-hub";
 import { safeSendToWebContents } from "../ipc-safe-send";
+import {
+  canonicalizeCanvasPresencePublishRequest,
+  type CanvasPresenceCommandErrorCode,
+  type CanvasPresenceCommandResult,
+  type CanvasPresencePublishRequest,
+} from "../../shared/block-documents/document-presence";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import {
   createCoreCanvasSceneAdapter,
@@ -175,6 +191,18 @@ export interface DesktopDocumentSyncPort {
     target: DocumentSyncClientTarget,
     request: CanvasSceneMutationRequest,
   ): Promise<CanvasSceneMutationCommandResult>;
+  publishCanvasPresence(
+    target: DocumentSyncClientTarget,
+    request: CanvasPresencePublishRequest,
+  ): Promise<CanvasPresenceCommandResult>;
+  readCanvasSceneCompaction(
+    target: DocumentSyncClientTarget,
+    request: CanvasSceneCompactionReadRequest,
+  ): Promise<CanvasSceneCompactionReadCommandResult>;
+  compactCanvasScene(
+    target: DocumentSyncClientTarget,
+    request: CanvasSceneCompactionRequest,
+  ): Promise<CanvasSceneCompactionCommandResult>;
   applyAdditionalDocumentCommand(
     request: AdditionalDocumentCommandRequest,
   ): Promise<AdditionalDocumentCommandResult>;
@@ -203,9 +231,11 @@ export interface DesktopDocumentSyncPort {
 
 export interface DesktopDocumentSyncBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
+  readonly canvasPresenceHub?: CanvasPresenceHub;
 }
 
 interface NativeSubscription {
+  readonly engine: "yjs" | "canvas_scene";
   readonly bindingKey: string;
   readonly participantSessionKey: string;
   readonly scope: DesktopDocumentSyncScope;
@@ -377,6 +407,23 @@ const canvasSceneTransportUnavailable = <Value>(
   { retryable: true, mutationId },
 );
 
+const canvasPresenceFailure = (
+  code: CanvasPresenceCommandErrorCode,
+  message: string,
+  options: {
+    readonly retryable?: boolean;
+    readonly resetRequired?: boolean;
+  } = {},
+): CanvasPresenceCommandResult => ({
+  ok: false,
+  error: {
+    code,
+    message,
+    retryable: options.retryable ?? false,
+    resetRequired: options.resetRequired ?? false,
+  },
+});
+
 const hasCanvasSceneIdentity = (
   request: CanvasSceneSubscribeRequest,
 ): boolean => request.version === 1
@@ -398,6 +445,8 @@ export function createDesktopDocumentSyncBridge(
     string,
     NativeWriteLeaseBoundary
   >();
+  const canvasPresenceHub =
+    input.canvasPresenceHub ?? createCanvasPresenceHub();
   let documentMutationLeaseSequence = 0;
   let blockTransferLeaseSequence = 0;
 
@@ -504,6 +553,9 @@ export function createDesktopDocumentSyncBridge(
   const closeSubscription = (key: string): void => {
     const subscription = subscriptions.get(key);
     if (!subscription) return;
+    if (subscription.engine === "canvas_scene") {
+      canvasPresenceHub.unregister(key);
+    }
     relocationLeaseCoordinator.unsubscribe(
       subscription.participantSessionKey,
       subscription.documentId,
@@ -579,9 +631,16 @@ export function createDesktopDocumentSyncBridge(
   ): void => {
     const subscription = subscriptions.get(key);
     if (!subscription) return;
+    const previousGeneration = subscription.generation;
     subscription.storeEpoch = boundary.storeEpoch;
     subscription.generation = boundary.generation;
     subscription.headSeq = Math.max(subscription.headSeq ?? 0, boundary.headSeq);
+    if (
+      subscription.engine === "canvas_scene"
+      && previousGeneration !== boundary.generation
+    ) {
+      canvasPresenceHub.adoptBoundary(key, boundary.generation);
+    }
   };
 
   const addNativeSubscription = (
@@ -652,6 +711,27 @@ export function createDesktopDocumentSyncBridge(
       request,
     ));
     return subscription?.target === target;
+  };
+
+  const isSoleCanvasSceneSubscriber = (
+    target: DocumentSyncClientTarget,
+    request: CanvasSceneSubscribeRequest,
+  ): boolean => {
+    const requesterKey = canvasSceneSubscriptionKey(target, request);
+    let matchingCount = 0;
+    for (const [key, subscription] of subscriptions) {
+      if (
+        subscription.engine !== "canvas_scene"
+        || subscription.scope.kind !== "project"
+        || subscription.scope.projectId !== request.projectId
+        || subscription.documentId !== request.documentId
+      ) {
+        continue;
+      }
+      matchingCount += 1;
+      if (key !== requesterKey || subscription.target !== target) return false;
+    }
+    return matchingCount === 1;
   };
 
   const withRuntime = async <Value>(
@@ -838,6 +918,143 @@ export function createDesktopDocumentSyncBridge(
     nativeWriteLeaseBoundaries.delete(leaseId);
     return committed;
   };
+
+  const compactCanvasScene = async (
+    target: DocumentSyncClientTarget,
+    request: CanvasSceneCompactionRequest,
+  ): Promise<CanvasSceneCompactionCommandResult> =>
+    await withCanvasSceneRuntime(async (runtime) => {
+      if (
+        !hasCanvasSceneIdentity(request)
+        || !hasNativeCanvasSceneSubscription(target, request)
+        || request.trigger !== "automatic_idle"
+      ) {
+        return canvasSceneUnauthorized(request.mutationId);
+      }
+      if (!isSoleCanvasSceneSubscriber(target, request)) {
+        return canvasSceneFailure(
+          "write_fence_required",
+          "Canvas maintenance deferred while another surface is active",
+          { mutationId: request.mutationId, retryable: true },
+        );
+      }
+      const adapter = canvasSceneAdapterFor(runtime, request.projectId);
+      const eligibility = await adapter.readCompaction(request);
+      if (!eligibility.ok) return eligibility;
+      if (!eligibility.value.eligible) {
+        return canvasSceneFailure(
+          "write_fence_required",
+          "Canvas maintenance is below its internal threshold",
+          { mutationId: request.mutationId, retryable: true },
+        );
+      }
+      const firstAttempt = await adapter.compact(
+        request,
+        eligibility.value,
+        false,
+      );
+      if (
+        firstAttempt.ok
+        || firstAttempt.error.code !== "write_fence_required"
+      ) {
+        return firstAttempt;
+      }
+      if (!isSoleCanvasSceneSubscriber(target, request)) {
+        return canvasSceneFailure(
+          "write_fence_required",
+          "Canvas maintenance deferred while another surface became active",
+          { mutationId: request.mutationId, retryable: true },
+        );
+      }
+
+      documentMutationLeaseSequence += 1;
+      const leaseId =
+        `native-canvas-compaction:${documentMutationLeaseSequence.toString(36)}:${createHash("sha256")
+          .update(request.mutationId)
+          .digest("hex")
+          .slice(0, 16)}`;
+      const storeEpoch = runtime.clientForProject(request.projectId)
+        .handshake.store_epoch;
+      const boundary: NativeWriteLeaseBoundary = {
+        leaseId,
+        projectId: request.projectId,
+        documents: new Map([[
+          request.documentId,
+          {
+            documentId: request.documentId,
+            storeEpoch,
+            generation: eligibility.value.generation,
+            headSeq: eligibility.value.headSeq,
+          },
+        ]]),
+      };
+      nativeWriteLeaseBoundaries.set(leaseId, boundary);
+      let prepared;
+      try {
+        prepared = await relocationLeaseCoordinator.prepare({
+          leaseId,
+          documents: [{
+            documentId: request.documentId,
+            generation: eligibility.value.generation,
+            expectedHeadSeq: eligibility.value.headSeq,
+          }],
+        });
+      } catch (error) {
+        relocationLeaseCoordinator.cancel(leaseId);
+        nativeWriteLeaseBoundaries.delete(leaseId);
+        return canvasSceneFailure(
+          "unknown",
+          error instanceof Error ? error.message : String(error),
+          { mutationId: request.mutationId, retryable: true },
+        );
+      }
+      if (!prepared.ok) {
+        nativeWriteLeaseBoundaries.delete(leaseId);
+        return canvasSceneFailure(
+          "unknown",
+          prepared.error.message,
+          { mutationId: request.mutationId, retryable: true },
+        );
+      }
+      const resolved = prepared.value.resolvedHeads.find(
+        (head) => head.documentId === request.documentId,
+      );
+      if (
+        resolved?.generation !== eligibility.value.generation
+        || resolved.headSeq !== eligibility.value.headSeq
+      ) {
+        relocationLeaseCoordinator.cancel(leaseId);
+        nativeWriteLeaseBoundaries.delete(leaseId);
+        return canvasSceneFailure(
+          "future_base_head",
+          "Canvas advanced while collaborators flushed for compaction",
+          { mutationId: request.mutationId, retryable: true },
+        );
+      }
+      const committed = await adapter.compact(request, eligibility.value, true);
+      if (!committed.ok) {
+        relocationLeaseCoordinator.cancel(leaseId);
+        nativeWriteLeaseBoundaries.delete(leaseId);
+        return committed;
+      }
+      for (const [key, subscription] of subscriptions) {
+        if (
+          subscription.scope.kind !== "project"
+          || subscription.scope.projectId !== request.projectId
+          || subscription.documentId !== request.documentId
+        ) {
+          continue;
+        }
+        adoptSubscriptionBoundary(key, {
+          storeEpoch: committed.value.storeEpoch,
+          generation: committed.value.generation,
+          headSeq: committed.value.headSeq,
+        });
+      }
+      relocationLeaseCoordinator.cancel(leaseId);
+      nativeWriteLeaseBoundaries.delete(leaseId);
+      return committed;
+    }, request.mutationId);
 
   const setBlockTransferLeaseBoundary = (
     leaseId: string,
@@ -1262,6 +1479,7 @@ export function createDesktopDocumentSyncBridge(
           return transportUnavailable(error);
         }
         const subscribed = addNativeSubscription(key, {
+          engine: "yjs",
           bindingKey: ownerKey,
           participantSessionKey: participantSessionKey(key),
           scope,
@@ -1461,6 +1679,7 @@ export function createDesktopDocumentSyncBridge(
             return canvasSceneTransportUnavailable(error);
           }
           subscriptions.set(key, {
+            engine: "canvas_scene",
             bindingKey: ownerKey,
             participantSessionKey: participantSessionKey(key),
             scope: { kind: "project", projectId: request.projectId },
@@ -1469,6 +1688,16 @@ export function createDesktopDocumentSyncBridge(
             target,
             targetId: target.id,
             close: lifecycle.close,
+          });
+          canvasPresenceHub.register({
+            key,
+            projectId: request.projectId,
+            documentId: request.documentId,
+            clientSessionId: request.clientSessionId,
+            targetId: target.id,
+            send: (event) => {
+              safeSendToWebContents(target, DOCUMENT_SYNC_EVENT_CHANNEL, [event]);
+            },
           });
           const registered = relocationLeaseCoordinator.subscribe(
             participantSessionKey(key),
@@ -1536,6 +1765,59 @@ export function createDesktopDocumentSyncBridge(
         }
         return result;
       }, request.mutationId),
+    publishCanvasPresence: async (target, request) => {
+      let parsed: CanvasPresencePublishRequest;
+      try {
+        parsed = canonicalizeCanvasPresencePublishRequest(request);
+      } catch (error) {
+        return canvasPresenceFailure(
+          "invalid_presence",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+      const subscriptionRequest: CanvasSceneSubscribeRequest = {
+        version: 1,
+        projectId: parsed.projectId,
+        documentId: parsed.publication.documentId,
+        clientSessionId: parsed.clientSessionId,
+      };
+      const key = canvasSceneSubscriptionKey(target, subscriptionRequest);
+      if (
+        !hasNativeCanvasSceneSubscription(target, subscriptionRequest)
+        || subscriptions.get(key)?.generation === undefined
+      ) {
+        return canvasPresenceFailure(
+          "unauthorized",
+          "An exact active Canvas subscription is required for presence",
+        );
+      }
+      try {
+        return {
+          ok: true,
+          value: canvasPresenceHub.publish(key, parsed.publication),
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes("generation boundary")) {
+          return canvasPresenceFailure("generation_mismatch", message, {
+            resetRequired: true,
+          });
+        }
+        if (error instanceof TypeError) {
+          return canvasPresenceFailure("invalid_presence", message);
+        }
+        return canvasPresenceFailure("unauthorized", message);
+      }
+    },
+    readCanvasSceneCompaction: async (target, request) =>
+      await withCanvasSceneRuntime(async (runtime) => {
+        if (!hasNativeCanvasSceneSubscription(target, request)) {
+          return canvasSceneUnauthorized();
+        }
+        return await canvasSceneAdapterFor(runtime, request.projectId)
+          .readCompaction(request);
+      }),
+    compactCanvasScene,
     applyAdditionalDocumentCommand: async (request) => {
       const runtime = await input.authority;
       return await adapterFor(runtime, {

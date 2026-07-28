@@ -1,4 +1,5 @@
 use base64::prelude::{BASE64_STANDARD, Engine as _};
+use nodex_core::document::CanvasSceneSyncSnapshot;
 use nodex_core_contracts::document::{
     OwnedDocumentCommitValue, OwnedDocumentReadValue, OwnedDocumentReceipt,
 };
@@ -6,30 +7,60 @@ use nodex_core_contracts::{CommittedModuleValue, CoreError, ModuleReadSnapshot};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
-const MAGIC: [u8; 4] = [0x4e, 0x44, 0x58, 0x01];
+const MAGIC: [u8; 4] = [0x4e, 0x44, 0x58, 0x02];
 const HEADER_BYTES: usize = MAGIC.len() + size_of::<u32>();
 const MAX_METADATA_BYTES: usize = 8 * 1024 * 1024;
 const MAX_TRANSPORT_UPDATE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_TRANSPORT_AWARENESS_BYTES: usize = 64 * 1024;
-pub(crate) const CONTENT_TYPE: &str = "application/vnd.nodex.document-sync.v1+octet-stream";
-pub(crate) const MAX_SYNC_FRAME_BYTES: usize = MAX_METADATA_BYTES + 64 * 1024 + HEADER_BYTES;
+pub(crate) const MAX_CANVAS_SCENE_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const CONTENT_TYPE: &str = "application/vnd.nodex.document-sync.v2+octet-stream";
+pub(crate) const MAX_SYNC_FRAME_BYTES: usize =
+    MAX_METADATA_BYTES + MAX_CANVAS_SCENE_SNAPSHOT_BYTES + HEADER_BYTES;
 pub(crate) const MAX_APPLY_FRAME_BYTES: usize =
     MAX_METADATA_BYTES + MAX_TRANSPORT_UPDATE_BYTES + HEADER_BYTES;
 pub(crate) const MAX_AWARENESS_FRAME_BYTES: usize =
     MAX_METADATA_BYTES + MAX_TRANSPORT_AWARENESS_BYTES + HEADER_BYTES;
 pub(crate) const MAX_DOCUMENT_FRAME_BYTES: usize = MAX_APPLY_FRAME_BYTES;
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum WireEngine {
+    Yjs,
+    CanvasScene,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct SyncRequestMetadata {
+pub(crate) struct YjsSyncRequestMetadata {
     pub(crate) version: u32,
+    engine: WireEngine,
     pub(crate) client_session_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct CanvasSyncRequestMetadata {
+    pub(crate) version: u32,
+    engine: WireEngine,
+    pub(crate) sync_request_id: String,
+    pub(crate) client_session_id: String,
+    pub(crate) known_store_epoch: Option<String>,
+    pub(crate) known_generation: Option<i64>,
+    pub(crate) known_head_seq: Option<i64>,
+    pub(crate) known_scene_hash: Option<String>,
+}
+
+#[derive(Debug)]
+pub(crate) enum SyncFrame {
+    Yjs(YjsSyncRequestMetadata, Vec<u8>),
+    Canvas(CanvasSyncRequestMetadata),
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ApplyRequestMetadata {
     pub(crate) version: u32,
+    engine: WireEngine,
     pub(crate) store_epoch: String,
     pub(crate) generation: i64,
     pub(crate) update_id: String,
@@ -42,6 +73,7 @@ pub(crate) struct ApplyRequestMetadata {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct AwarenessRequestMetadata {
     pub(crate) version: u32,
+    engine: WireEngine,
     pub(crate) client_session_id: String,
     pub(crate) store_epoch: String,
     pub(crate) generation: i64,
@@ -56,6 +88,7 @@ pub(crate) enum ApplyFrame {
 #[serde(rename_all = "camelCase")]
 struct SyncResponseMetadata<'a> {
     version: u32,
+    engine: WireEngine,
     document_id: &'a str,
     store_epoch: &'a str,
     generation: i64,
@@ -67,6 +100,7 @@ struct SyncResponseMetadata<'a> {
 #[serde(rename_all = "camelCase")]
 struct ApplyAckMetadata<'a> {
     version: u32,
+    engine: WireEngine,
     document_id: &'a str,
     store_epoch: &'a str,
     generation: i64,
@@ -74,6 +108,28 @@ struct ApplyAckMetadata<'a> {
     committed_seq: i64,
     head_seq: i64,
     duplicate: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CanvasSyncResponseMetadata<'a> {
+    version: u32,
+    engine: WireEngine,
+    kind: CanvasSyncKind,
+    sync_request_id: &'a str,
+    project_id: &'a str,
+    document_id: &'a str,
+    store_epoch: &'a str,
+    generation: i64,
+    head_seq: i64,
+    scene_hash: &'a str,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum CanvasSyncKind {
+    UpToDate,
+    Snapshot,
 }
 
 #[derive(Debug)]
@@ -86,8 +142,52 @@ pub(crate) struct YjsSyncValue {
     pub(crate) update: Vec<u8>,
 }
 
-pub(crate) fn decode_sync(bytes: &[u8]) -> Result<(SyncRequestMetadata, Vec<u8>), CoreError> {
-    decode_envelope(bytes, nodex_core::document::MAX_STATE_VECTOR_BYTES)
+#[derive(Debug)]
+pub(crate) struct CanvasSyncValue {
+    pub(crate) project_id: String,
+    pub(crate) document_id: String,
+    pub(crate) store_epoch: String,
+    pub(crate) generation: i64,
+    pub(crate) head_seq: i64,
+    pub(crate) scene_hash: String,
+    pub(crate) scene_json: Vec<u8>,
+}
+
+pub(crate) fn decode_sync(bytes: &[u8]) -> Result<SyncFrame, CoreError> {
+    let metadata = decode_metadata(bytes)?;
+    match metadata.get("engine").and_then(Value::as_str) {
+        Some("yjs") => {
+            let (metadata, payload) = decode_envelope::<YjsSyncRequestMetadata>(
+                bytes,
+                nodex_core::document::MAX_STATE_VECTOR_BYTES,
+            )?;
+            if !matches!(metadata.engine, WireEngine::Yjs) {
+                return Err(invalid("Yjs sync frame has the wrong engine"));
+            }
+            Ok(SyncFrame::Yjs(metadata, payload))
+        }
+        Some("canvas_scene") => {
+            let (metadata, payload) = decode_envelope::<CanvasSyncRequestMetadata>(bytes, 0)?;
+            if !matches!(metadata.engine, WireEngine::CanvasScene) || !payload.is_empty() {
+                return Err(invalid("Canvas sync request payload must be empty"));
+            }
+            if metadata.sync_request_id.trim() != metadata.sync_request_id
+                || metadata.sync_request_id.is_empty()
+                || metadata.client_session_id.trim() != metadata.client_session_id
+                || metadata.client_session_id.is_empty()
+                || metadata.known_generation.is_some_and(|value| value < 1)
+                || metadata.known_head_seq.is_some_and(|value| value < 0)
+                || metadata
+                    .known_scene_hash
+                    .as_deref()
+                    .is_some_and(|value| !is_sha256(value))
+            {
+                return Err(invalid("Canvas sync request metadata is invalid"));
+            }
+            Ok(SyncFrame::Canvas(metadata))
+        }
+        _ => Err(invalid("Document binary sync engine is unsupported")),
+    }
 }
 
 pub(crate) fn decode_apply(bytes: &[u8]) -> Result<ApplyFrame, CoreError> {
@@ -95,10 +195,16 @@ pub(crate) fn decode_apply(bytes: &[u8]) -> Result<ApplyFrame, CoreError> {
     if metadata.get("updateId").is_some() {
         let (metadata, payload) =
             decode_envelope::<ApplyRequestMetadata>(bytes, MAX_TRANSPORT_UPDATE_BYTES)?;
+        if !matches!(metadata.engine, WireEngine::Yjs) {
+            return Err(invalid("Yjs update frame has the wrong engine"));
+        }
         return Ok(ApplyFrame::Update(metadata, payload));
     }
     let (metadata, payload) =
         decode_envelope::<AwarenessRequestMetadata>(bytes, MAX_TRANSPORT_AWARENESS_BYTES)?;
+    if !matches!(metadata.engine, WireEngine::Yjs) {
+        return Err(invalid("Yjs Awareness frame has the wrong engine"));
+    }
     Ok(ApplyFrame::Awareness(metadata, payload))
 }
 
@@ -128,7 +234,8 @@ pub(crate) fn parse_yjs_sync(
 pub(crate) fn encode_sync(value: &YjsSyncValue) -> Result<Vec<u8>, CoreError> {
     encode_envelope(
         &SyncResponseMetadata {
-            version: 1,
+            version: 2,
+            engine: WireEngine::Yjs,
             document_id: &value.document_id,
             store_epoch: &value.store_epoch,
             generation: value.generation,
@@ -139,6 +246,53 @@ pub(crate) fn encode_sync(value: &YjsSyncValue) -> Result<Vec<u8>, CoreError> {
     )
 }
 
+pub(crate) fn parse_canvas_sync(
+    snapshot: CanvasSceneSyncSnapshot,
+) -> Result<CanvasSyncValue, CoreError> {
+    let scene_json = snapshot.scene_json.into_bytes();
+    if scene_json.len() > MAX_CANVAS_SCENE_SNAPSHOT_BYTES {
+        return Err(invalid("Canvas scene snapshot exceeds its byte bound"));
+    }
+    Ok(CanvasSyncValue {
+        project_id: snapshot.project_id,
+        document_id: snapshot.document_id,
+        store_epoch: snapshot.store_epoch,
+        generation: snapshot.generation,
+        head_seq: snapshot.head_seq,
+        scene_hash: snapshot.scene_hash,
+        scene_json,
+    })
+}
+
+pub(crate) fn encode_canvas_sync(
+    value: &CanvasSyncValue,
+    sync_request_id: &str,
+    kind: CanvasSyncKind,
+) -> Result<Vec<u8>, CoreError> {
+    if value.scene_json.len() > MAX_CANVAS_SCENE_SNAPSHOT_BYTES {
+        return Err(invalid("Canvas scene snapshot exceeds its byte bound"));
+    }
+    let payload = match kind {
+        CanvasSyncKind::UpToDate => &[][..],
+        CanvasSyncKind::Snapshot => value.scene_json.as_slice(),
+    };
+    encode_envelope(
+        &CanvasSyncResponseMetadata {
+            version: 2,
+            engine: WireEngine::CanvasScene,
+            kind,
+            sync_request_id,
+            project_id: &value.project_id,
+            document_id: &value.document_id,
+            store_epoch: &value.store_epoch,
+            generation: value.generation,
+            head_seq: value.head_seq,
+            scene_hash: &value.scene_hash,
+        },
+        payload,
+    )
+}
+
 pub(crate) fn encode_apply_ack(
     committed: &CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
     update_id: &str,
@@ -146,7 +300,8 @@ pub(crate) fn encode_apply_ack(
 ) -> Result<Vec<u8>, CoreError> {
     encode_envelope(
         &ApplyAckMetadata {
-            version: 1,
+            version: 2,
+            engine: WireEngine::Yjs,
             document_id: &committed.receipt.document_id,
             store_epoch: &committed.store_epoch.0,
             generation: committed.receipt.generation,
@@ -282,6 +437,13 @@ fn invalid(message: &str) -> CoreError {
     }
 }
 
+fn is_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -290,14 +452,17 @@ mod tests {
     fn sync_frame_round_trips_raw_state_vector_bytes() {
         let frame = encode_envelope(
             &serde_json::json!({
-                "version": 1,
+                "version": 2,
+                "engine": "yjs",
                 "clientSessionId": "renderer:one",
             }),
             &[0, 1, 2, 255],
         )
         .expect("frame");
-        let (metadata, payload) = decode_sync(&frame).expect("decode");
-        assert_eq!(metadata.version, 1);
+        let SyncFrame::Yjs(metadata, payload) = decode_sync(&frame).expect("decode") else {
+            panic!("expected Yjs frame");
+        };
+        assert_eq!(metadata.version, 2);
         assert_eq!(metadata.client_session_id, "renderer:one");
         assert_eq!(payload, [0, 1, 2, 255]);
     }
@@ -306,7 +471,8 @@ mod tests {
     fn apply_frame_distinguishes_durable_updates_from_awareness() {
         let update = encode_envelope(
             &serde_json::json!({
-                "version": 1,
+                "version": 2,
+                "engine": "yjs",
                 "storeEpoch": "epoch:one",
                 "generation": 1,
                 "updateId": "update:one",
@@ -323,7 +489,8 @@ mod tests {
 
         let awareness = encode_envelope(
             &serde_json::json!({
-                "version": 1,
+                "version": 2,
+                "engine": "yjs",
                 "clientSessionId": "renderer:one",
                 "storeEpoch": "epoch:one",
                 "generation": 1,
@@ -353,7 +520,8 @@ mod tests {
 
         let oversized_payload = encode_envelope(
             &serde_json::json!({
-                "version": 1,
+                "version": 2,
+                "engine": "yjs",
                 "clientSessionId": "renderer:one",
             }),
             &vec![0; nodex_core::document::MAX_STATE_VECTOR_BYTES + 1],
@@ -364,6 +532,55 @@ mod tests {
                 .expect_err("oversized payload")
                 .message,
             "Document binary payload exceeds its bound",
+        );
+    }
+
+    #[test]
+    fn canvas_snapshot_frame_keeps_raw_json_and_up_to_date_is_empty() {
+        let scene = br#"{"appState":{},"elements":[],"files":{},"kind":"canvas_scene","pageReferences":[],"plainText":"","preview":"","schemaVersion":1}"#.to_vec();
+        let value = CanvasSyncValue {
+            project_id: "project:one".to_owned(),
+            document_id: "canvas:one".to_owned(),
+            store_epoch: "epoch:one".to_owned(),
+            generation: 1,
+            head_seq: 2,
+            scene_hash: "a".repeat(64),
+            scene_json: scene.clone(),
+        };
+        let snapshot =
+            encode_canvas_sync(&value, "sync:one", CanvasSyncKind::Snapshot).expect("snapshot");
+        let (metadata, payload) =
+            decode_envelope::<Value>(&snapshot, MAX_CANVAS_SCENE_SNAPSHOT_BYTES)
+                .expect("decode snapshot");
+        assert_eq!(metadata["engine"], "canvas_scene");
+        assert_eq!(metadata["kind"], "snapshot");
+        assert_eq!(payload, scene);
+
+        let current =
+            encode_canvas_sync(&value, "sync:two", CanvasSyncKind::UpToDate).expect("current");
+        let (metadata, payload) =
+            decode_envelope::<Value>(&current, MAX_CANVAS_SCENE_SNAPSHOT_BYTES)
+                .expect("decode current");
+        assert_eq!(metadata["kind"], "up_to_date");
+        assert!(payload.is_empty());
+    }
+
+    #[test]
+    fn canvas_snapshot_encoder_rejects_limit_plus_one() {
+        let value = CanvasSyncValue {
+            project_id: "project:one".to_owned(),
+            document_id: "canvas:one".to_owned(),
+            store_epoch: "epoch:one".to_owned(),
+            generation: 1,
+            head_seq: 2,
+            scene_hash: "a".repeat(64),
+            scene_json: vec![b'x'; MAX_CANVAS_SCENE_SNAPSHOT_BYTES + 1],
+        };
+        assert_eq!(
+            encode_canvas_sync(&value, "sync:one", CanvasSyncKind::Snapshot)
+                .expect_err("oversized Canvas snapshot")
+                .message,
+            "Canvas scene snapshot exceeds its byte bound",
         );
     }
 }

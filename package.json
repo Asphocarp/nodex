@@ -204,6 +204,7 @@
     "eslint-plugin-better-tailwindcss": "4.6.0",
     "eslint-plugin-react-hooks": "7.1.1",
     "eslint-plugin-react-refresh": "0.5.3",
+    "fake-indexeddb": "^6.2.5",
     "jotai": "2.20.2",
     "js-yaml": "4.2.0",
     "jsdom": "29.1.1",

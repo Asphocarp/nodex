@@ -164,6 +164,7 @@ interface WorkbenchPanelProjectionInput {
     | "activeSearchQuery"
     | "activeView"
     | "browserViewScopeId"
+    | "windowSessionId"
     | "dbViewPrefsByProject"
     | "onLeavePageStage"
     | "onReminderHandled"

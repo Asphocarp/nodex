@@ -94,13 +94,11 @@ fn document_policy(read: &OwnedDocumentRead) -> ReadBudgetPolicy {
     match read {
         OwnedDocumentRead::ListVersions { .. }
         | OwnedDocumentRead::AgentSemanticSnapshot { .. } => ReadBudgetPolicy::CollectionWindow,
-        OwnedDocumentRead::Descriptor { .. } | OwnedDocumentRead::GetVersion { .. } => {
-            ReadBudgetPolicy::Identity
-        }
+        OwnedDocumentRead::Descriptor { .. }
+        | OwnedDocumentRead::GetVersion { .. }
+        | OwnedDocumentRead::CanvasCompactionEligibility { .. } => ReadBudgetPolicy::Identity,
         OwnedDocumentRead::PrepareAgentSemanticMutation { .. } => ReadBudgetPolicy::BoundedBatch,
-        OwnedDocumentRead::SyncYjs { .. } | OwnedDocumentRead::SyncCanvas { .. } => {
-            ReadBudgetPolicy::LargeObject
-        }
+        OwnedDocumentRead::SyncYjs { .. } => ReadBudgetPolicy::LargeObject,
     }
 }
 
@@ -159,8 +157,9 @@ fn every_read_variant_has_an_explicit_budget_policy() {
         ReadBudgetPolicy::Identity
     );
     assert_eq!(
-        document_policy(&OwnedDocumentRead::SyncCanvas {
+        document_policy(&OwnedDocumentRead::SyncYjs {
             document_id: "document:audit".to_owned(),
+            state_vector: Vec::new(),
         }),
         ReadBudgetPolicy::LargeObject
     );

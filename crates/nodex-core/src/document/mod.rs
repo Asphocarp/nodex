@@ -35,7 +35,9 @@ pub use materialization::{
     DocumentMaterialization, DocumentMaterializationError, DocumentSearchMarkerKind,
     materialize_decoded_document, schema_metadata,
 };
-pub use module::{DocumentCacheMetrics, OwnedDocumentApplyOutcome, OwnedDocumentModule};
+pub use module::{
+    CanvasSceneSyncSnapshot, DocumentCacheMetrics, OwnedDocumentApplyOutcome, OwnedDocumentModule,
+};
 pub use operations::{
     DocumentBlockOperation, DocumentBlockUpdatePatch, DocumentOperationError,
     DocumentOperationErrorCode, ExactNfmPatch, MAX_DOCUMENT_OPERATION_BATCH_SIZE,
@@ -57,7 +59,12 @@ pub use yrs_engine::{
     has_pending_dependencies,
 };
 
-pub(crate) use canvas::{clone_canvas_genesis, load_canvas_scene};
+pub(crate) use canvas::{clone_canvas_genesis, load_canvas_scene, load_v94_canvas_scene};
+pub(crate) use canvas_scene::{
+    CANVAS_SCENE_HASH_VERSION, CanvasHashItemKind, CanvasScene, canvas_hash_bucket,
+    canvas_semantic_intent_fingerprint, compute_canvas_scene_incremental_metadata,
+    derive_canvas_element,
+};
 pub(crate) use genesis::{
     PreparedYjsGenesis, prepare_page_yjs_genesis, prepare_page_yjs_genesis_with_content,
     prepare_yjs_clone_genesis,

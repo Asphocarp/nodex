@@ -579,6 +579,19 @@ export interface components {
         };
         /** @enum {string} */
         readonly BackupTrigger: "manual" | "auto" | "pre-restore";
+        readonly CanvasCompactionStats: {
+            readonly document_id: string;
+            readonly eligible: boolean;
+            /** Format: int64 */
+            readonly generation: number;
+            /** Format: int64 */
+            readonly head_seq: number;
+            readonly scene_hash: string;
+            /** Format: int64 */
+            readonly tombstone_bytes: number;
+            /** Format: int64 */
+            readonly tombstone_count: number;
+        };
         readonly ClientIdentity: {
             readonly build_id: string;
             readonly kind: components["schemas"]["ClientKind"];
@@ -1118,6 +1131,14 @@ export interface components {
             /** Format: int64 */
             readonly active_writer_commands: number;
             readonly backup_duration: components["schemas"]["HealthDurationMetric"];
+            /** Format: int64 */
+            readonly canvas_sync_initial_snapshots?: number;
+            /** Format: int64 */
+            readonly canvas_sync_repair_snapshots?: number;
+            /** Format: int64 */
+            readonly canvas_sync_snapshot_bytes?: number;
+            /** Format: int64 */
+            readonly canvas_sync_up_to_date?: number;
             readonly command_latency: components["schemas"]["HealthDurationMetric"];
             /** Format: int64 */
             readonly document_cache_entries: number;
@@ -3353,6 +3374,16 @@ export interface components {
                 readonly mutation: unknown;
             } | {
                 readonly actor: unknown;
+                readonly document_id: string;
+                /** Format: int64 */
+                readonly expected_head_seq: number;
+                /** Format: int64 */
+                readonly generation: number;
+                /** @enum {string} */
+                readonly kind: "compact_canvas_tombstones";
+                readonly write_fence_prepared: boolean;
+            } | {
+                readonly actor: unknown;
                 readonly cause: string;
                 readonly document_id: string;
                 /** Format: int64 */
@@ -3951,10 +3982,6 @@ export interface components {
                 readonly kind: "sync_yjs";
                 readonly state_vector: readonly number[];
             } | {
-                readonly document_id: string;
-                /** @enum {string} */
-                readonly kind: "sync_canvas";
-            } | {
                 readonly before?: null | components["schemas"]["DocumentVersionCursor"];
                 readonly document_id: string;
                 /** @enum {string} */
@@ -3966,6 +3993,10 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "get_version";
                 readonly version_id: string;
+            } | {
+                readonly document_id: string;
+                /** @enum {string} */
+                readonly kind: "canvas_compaction_eligibility";
             } | {
                 readonly authorization: components["schemas"]["AgentExecutionAuthorization"];
                 /** @enum {string} */
@@ -4095,6 +4126,19 @@ export interface components {
             /** @enum {string} */
             readonly kind: "canvas_updated";
             readonly mutation: unknown;
+            readonly scene_hash: string;
+        } | {
+            readonly document_id: string;
+            /** Format: int64 */
+            readonly generation: number;
+            /** Format: int64 */
+            readonly head_seq: number;
+            /** @enum {string} */
+            readonly kind: "canvas_generation_changed";
+            /** Format: int64 */
+            readonly previous_generation: number;
+            /** Format: int64 */
+            readonly previous_head_seq: number;
             readonly scene_hash: string;
         } | {
             readonly document_id: string;
@@ -5042,12 +5086,6 @@ export interface components {
                     readonly kind: "yjs_sync";
                     readonly update: readonly number[];
                 } | {
-                    readonly descriptor: unknown;
-                    /** @enum {string} */
-                    readonly kind: "canvas_sync";
-                    readonly scene_hash: string;
-                    readonly scene_json: readonly number[];
-                } | {
                     readonly items: readonly unknown[];
                     /** @enum {string} */
                     readonly kind: "versions";
@@ -5056,6 +5094,10 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "version";
                     readonly value: unknown;
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "canvas_compaction_eligibility";
+                    readonly stats: components["schemas"]["CanvasCompactionStats"];
                 } | {
                     readonly committed?: null | components["schemas"]["CommittedModuleValue_OwnedDocumentCommitValue_OwnedDocumentReceipt"];
                     /** @enum {string} */

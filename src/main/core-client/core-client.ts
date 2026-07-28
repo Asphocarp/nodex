@@ -4,12 +4,19 @@ import { CORE_CLIENT_REQUIREMENTS } from "@nodex/core-protocol";
 import type { components } from "@nodex/core-protocol";
 import type { ProjectionImpact } from "../../shared/projection-stream";
 import {
+  decodeCanvasSceneSyncHttpResponse,
   decodeDocumentApplyHttpAck,
   decodeDocumentSyncHttpResponse,
+  encodeCanvasSceneSyncHttpRequest,
   encodeDocumentApplyHttpRequest,
   encodeDocumentAwarenessHttpRequest,
   encodeDocumentSyncHttpRequest,
 } from "../../shared/block-documents/http-contract";
+import {
+  MAX_CANVAS_SCENE_SNAPSHOT_BYTES,
+  type CanvasSceneSyncRequest,
+  type CanvasSceneSyncResponse,
+} from "../../shared/block-documents/canvas-scene-sync";
 import {
   MAX_PAGE_DOCUMENT_STATE_BYTES,
 } from "../../shared/block-documents/contracts";
@@ -399,6 +406,24 @@ export class CoreClient implements CoreClientPort {
       throw new CoreModuleResponseError(response.value.payload);
     }
     throw new Error("Core returned JSON for a successful binary Document sync");
+  }
+
+  async documentCanvasSync(
+    input: CanvasSceneSyncRequest,
+  ): Promise<CanvasSceneSyncResponse> {
+    const response = await this.#transport.requestDocumentFrame<OwnedDocumentReadResponse>(
+      "/core/v1/modules/document/read",
+      encodeCanvasSceneSyncHttpRequest(input),
+      this.#documentHeaders(input.clientSessionId, input.documentId),
+      DOCUMENT_FRAME_OVERHEAD_BYTES + MAX_CANVAS_SCENE_SNAPSHOT_BYTES,
+    );
+    if (response.kind === "binary") {
+      return decodeCanvasSceneSyncHttpResponse(response.bytes);
+    }
+    if (response.value.status === "error") {
+      throw new CoreModuleResponseError(response.value.payload);
+    }
+    throw new Error("Core returned JSON for a successful binary Canvas sync");
   }
 
   async documentApplyUpdate(

@@ -18,6 +18,10 @@ import {
   pageEditorSessionRegistry,
 } from "./page-editor-session-registry";
 import {
+  canvasSceneSurfaceRegistry,
+  makeCanvasSceneSurfaceKey,
+} from "./canvas-scene-surface-runtime";
+import {
   closeDurablePanelTabWithRuntime,
   closePreviewPanelTabWithRuntime,
 } from "./workbench-panel-runtime-lifecycle";
@@ -415,12 +419,35 @@ const updateSessionPanel = useCallback(async (
             closingPageEditorSessionKey,
           );
         },
+        disposeCanvas: async (tab) => {
+          if (
+            tab.kind !== "db_view"
+            || !("view" in tab.config)
+            || tab.config.view !== "canvas"
+          ) {
+            return true;
+          }
+          try {
+            await canvasSceneSurfaceRegistry.dispose(
+              makeCanvasSceneSurfaceKey(
+                windowSessionId,
+                activeSession.id,
+                tab.id,
+              ),
+            );
+            return true;
+          } catch {
+            return false;
+          }
+        },
       },
     );
-    if (result.status === "vetoed") {
+    if (result.status === "vetoed" && result.reason === "file-conflict") {
       toast.danger("Resolve the file conflict before closing this tab");
+    } else if (result.status === "vetoed") {
+      toast.danger("Canvas changes could not be saved locally");
     }
-  }, [activeSession]);
+  }, [activeSession, windowSessionId]);
 
   const closeExitedTerminalTab = useEffectEvent(async (terminalSessionId: string) => {
     if (!activeSession) return;

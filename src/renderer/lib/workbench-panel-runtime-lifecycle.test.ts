@@ -46,6 +46,7 @@ describe("Workbench panel runtime lifecycle", () => {
         releaseTerminal: vi.fn(),
         removeDescriptor,
         disposePageEditor: vi.fn(),
+        disposeCanvas: async () => true,
       },
     );
 
@@ -67,6 +68,7 @@ describe("Workbench panel runtime lifecycle", () => {
         releaseTerminal: () => calls.push("release"),
         removeDescriptor: () => calls.push("remove"),
         disposePageEditor: vi.fn(),
+        disposeCanvas: async () => true,
       },
     );
 
@@ -87,10 +89,35 @@ describe("Workbench panel runtime lifecycle", () => {
         disposePageEditor: async () => {
           calls.push("dispose");
         },
+        disposeCanvas: async () => true,
       },
     );
 
     expect(calls).toEqual(["remove", "dispose"]);
+  });
+
+  test("Canvas durability veto prevents descriptor removal", async () => {
+    const removeDescriptor = vi.fn();
+    const result = await closeDurablePanelTabWithRuntime(
+      makeTab("db_view", {
+        projectId: "project:one",
+        databaseViewId: "view:one",
+        view: "canvas",
+      }),
+      {
+        flushFile: async () => true,
+        releaseTerminal: vi.fn(),
+        removeDescriptor,
+        disposePageEditor: vi.fn(),
+        disposeCanvas: async () => false,
+      },
+    );
+
+    expect(result).toEqual({
+      status: "vetoed",
+      reason: "canvas-durability",
+    });
+    expect(removeDescriptor).not.toHaveBeenCalled();
   });
 
   test("retained Browser preview does not close the shared runtime", async () => {

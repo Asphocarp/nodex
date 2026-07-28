@@ -16,8 +16,12 @@ const emptyScene = {
 test("Electron Canvas adapter awaits subscription and carries lease responses", async () => {
   const calls: string[] = [];
   const listeners = new Set<(...args: unknown[]) => void>();
+  const presenceEvents: unknown[] = [];
   const bridge = {
-    invoke: async (channel: string, request: { documentId: string }) => {
+    invoke: async (
+      channel: string,
+      request: { documentId: string; syncRequestId?: string },
+    ) => {
       calls.push(channel);
       if (channel === "canvas-scene:subscribe") {
         return { ok: true, value: { subscribed: true } };
@@ -26,7 +30,9 @@ test("Electron Canvas adapter awaits subscription and carries lease responses", 
         return {
           ok: true,
           value: {
+            kind: "snapshot",
             version: 1,
+            syncRequestId: request.syncRequestId,
             projectId: "project-1",
             documentId: request.documentId,
             storeEpoch: "store-1",
@@ -48,6 +54,9 @@ test("Electron Canvas adapter awaits subscription and carries lease responses", 
           },
         };
       }
+      if (channel === "canvas-scene:presence:publish") {
+        return { ok: true, value: { accepted: true, applied: true } };
+      }
       return { ok: true, value: { unsubscribed: true } };
     },
     on: (_event: string, listener: (...args: unknown[]) => void) => {
@@ -60,9 +69,10 @@ test("Electron Canvas adapter awaits subscription and carries lease responses", 
     projectId: "project-1",
     documentId: "canvas-1",
     clientSessionId: "client-1",
-  }, () => undefined);
+  }, () => undefined, undefined, (event) => presenceEvents.push(event));
   const result = await adapter.sync({
     version: 1,
+    syncRequestId: "sync-1",
     projectId: "project-1",
     documentId: "canvas-1",
     clientSessionId: "client-1",
@@ -79,6 +89,28 @@ test("Electron Canvas adapter awaits subscription and carries lease responses", 
     headSeq: 0,
   });
   expect(lease?.ok).toBe(true);
+  listeners.forEach((listener) => listener({
+    type: "canvas_presence_snapshot",
+    version: 1,
+    projectId: "project-1",
+    documentId: "canvas-1",
+    generation: 1,
+    presences: [],
+  }));
+  expect(presenceEvents).toHaveLength(1);
+  await expect(adapter.publishPresence?.({
+    projectId: "project-1",
+    clientSessionId: "client-1",
+    publication: {
+      version: 1,
+      engine: "canvas_scene",
+      documentId: "canvas-1",
+      generation: 1,
+      clock: 1,
+      state: { selectedElementIds: [], idle: "active" },
+    },
+  })).resolves.toMatchObject({ ok: true });
+  expect(calls).toContain("canvas-scene:presence:publish");
   unsubscribe();
 });
 
@@ -89,14 +121,19 @@ test("Electron Canvas keeps a revived exact session ahead of stale teardown", as
   });
   const calls: string[] = [];
   const bridge = {
-    invoke: async (channel: string, request: { documentId: string }) => {
+    invoke: async (
+      channel: string,
+      request: { documentId: string; syncRequestId?: string },
+    ) => {
       calls.push(channel);
       if (channel === "canvas-scene:subscribe") return await subscription;
       if (channel === "canvas-scene:sync") {
         return {
           ok: true,
           value: {
+            kind: "snapshot",
             version: 1,
+            syncRequestId: request.syncRequestId,
             projectId: "project-1",
             documentId: request.documentId,
             storeEpoch: "store-1",
@@ -123,7 +160,11 @@ test("Electron Canvas keeps a revived exact session ahead of stale teardown", as
   const closeSecond = adapter.subscribe(request, listener);
 
   resolveSubscription({ ok: true, value: { subscribed: true } });
-  await expect(adapter.sync({ version: 1, ...request })).resolves.toMatchObject({
+  await expect(adapter.sync({
+    version: 1,
+    syncRequestId: "sync-2",
+    ...request,
+  })).resolves.toMatchObject({
     ok: true,
   });
   expect(calls).toEqual(["canvas-scene:subscribe", "canvas-scene:sync"]);

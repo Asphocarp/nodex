@@ -25,7 +25,6 @@ export type OwnedDocumentRead =
       readonly documentId: string;
       readonly stateVector: Uint8Array;
     }
-  | { readonly kind: "sync_canvas"; readonly documentId: string }
   | {
       readonly kind: "list_versions";
       readonly documentId: string;
@@ -44,12 +43,6 @@ export type OwnedDocumentReadValue =
       readonly kind: "yjs_sync";
       readonly descriptor: OwnedDocumentDescriptor;
       readonly update: Uint8Array;
-    }
-  | {
-      readonly kind: "canvas_sync";
-      readonly descriptor: OwnedDocumentDescriptor;
-      readonly sceneJson: Uint8Array;
-      readonly sceneHash: string;
     }
   | {
       readonly kind: "versions";

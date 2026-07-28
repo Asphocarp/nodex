@@ -48,6 +48,10 @@ struct DocumentEventMetadata {
     generation: i64,
     #[serde(default)]
     base_head_seq: Option<i64>,
+    #[serde(default)]
+    previous_generation: Option<i64>,
+    #[serde(default)]
+    previous_head_seq: Option<i64>,
     head_seq: i64,
     #[serde(default)]
     update_id: Option<String>,
@@ -246,6 +250,57 @@ pub(crate) fn reconstruct_document_event(
                 head_seq: metadata.head_seq,
                 scene_hash,
                 mutation,
+            }
+        }
+        "canvas_generation_changed" => {
+            let previous_generation = metadata
+                .previous_generation
+                .filter(|generation| *generation >= 1 && *generation < metadata.generation)
+                .ok_or_else(|| corrupt("Canvas generation event previous generation is invalid"))?;
+            let previous_head_seq = metadata
+                .previous_head_seq
+                .filter(|head_seq| *head_seq >= 1)
+                .ok_or_else(|| corrupt("Canvas generation event previous head is invalid"))?;
+            if metadata.generation != previous_generation + 1 || metadata.head_seq != 1 {
+                return Err(corrupt(
+                    "Canvas generation event replacement coordinates are invalid",
+                ));
+            }
+            let operation_id = row
+                .operation_id
+                .as_deref()
+                .ok_or_else(|| corrupt("Canvas generation event operation identity is missing"))?;
+            let receipt_exists = connection
+                .query_row(
+                    "SELECT 1 FROM canvas_scene_mutation_receipts \
+                     WHERE document_id = ?1 AND generation = ?2 AND mutation_id = ?3 \
+                       AND base_head_seq = ?4 AND committed_head_seq = ?5 \
+                       AND outcome = 'committed'",
+                    params![
+                        metadata.document_id,
+                        metadata.generation,
+                        operation_id,
+                        previous_head_seq,
+                        metadata.head_seq,
+                    ],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()
+                .map_err(|_| corrupt("Canvas generation event receipt is invalid"))?;
+            if receipt_exists != Some(1) {
+                return Ok(None);
+            }
+            let scene_hash = metadata
+                .scene_hash
+                .filter(|hash| is_sha256(hash))
+                .ok_or_else(|| corrupt("Canvas generation event scene hash is invalid"))?;
+            OwnedDocumentEvent::CanvasGenerationChanged {
+                document_id: metadata.document_id,
+                previous_generation,
+                previous_head_seq,
+                generation: metadata.generation,
+                head_seq: metadata.head_seq,
+                scene_hash,
             }
         }
         "document_restored" => OwnedDocumentEvent::DocumentInvalidated {

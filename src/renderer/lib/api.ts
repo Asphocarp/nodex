@@ -19,6 +19,12 @@ import type {
 import type { DocumentSyncAdapter } from "./nodex-y-provider";
 import type { CanvasSceneSyncAdapter } from "./canvas-scene-provider";
 import type {
+  CanvasSceneCompactionCommandResult,
+  CanvasSceneCompactionReadCommandResult,
+  CanvasSceneCompactionReadRequest,
+  CanvasSceneCompactionRequest,
+} from "../../shared/block-documents/canvas-scene-maintenance";
+import type {
   LibraryOwnedDocumentDescriptor,
   OwnedDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
@@ -129,6 +135,18 @@ export function createCanvasSceneSyncAdapter(
   const createAdapter = transport.createCanvasSceneSyncAdapter;
   if (createAdapter) return createAdapter(projectId);
   throw new Error("Canvas scene sync is unavailable for this renderer transport");
+}
+
+export function readCanvasSceneCompaction(
+  request: CanvasSceneCompactionReadRequest,
+): Promise<CanvasSceneCompactionReadCommandResult> {
+  return invoke("canvas-scene:compaction:read", request);
+}
+
+export function compactCanvasScene(
+  request: CanvasSceneCompactionRequest,
+): Promise<CanvasSceneCompactionCommandResult> {
+  return invoke("canvas-scene:compaction:apply", request);
 }
 
 export function getOwnedDocumentDescriptor(

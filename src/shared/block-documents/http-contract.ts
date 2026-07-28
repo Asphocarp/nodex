@@ -18,6 +18,16 @@ import {
   type DocumentSyncResponse,
 } from "./document-sync";
 import {
+  CANVAS_SCENE_SYNC_VERSION,
+  MAX_CANVAS_SCENE_SNAPSHOT_BYTES,
+  type CanvasSceneSyncRequest,
+  type CanvasSceneSyncResponse,
+} from "./canvas-scene-sync";
+import {
+  canonicalStringifyCanvasScene,
+  parsePortableCanvasScene,
+} from "./canvas-scene";
+import {
   decodeDocumentHttpEnvelope,
   documentBytesFromBase64,
   documentBytesToBase64,
@@ -26,7 +36,7 @@ import {
 } from "./http-wire";
 
 export const DOCUMENT_HTTP_CONTENT_TYPE =
-  "application/vnd.nodex.document-sync.v1+octet-stream";
+  "application/vnd.nodex.document-sync.v2+octet-stream";
 const DOCUMENT_SYNC_ERROR_CODES = new Set<DocumentSyncCommandError["code"]>([
   "transport_unavailable",
   "request_cancelled",
@@ -50,7 +60,8 @@ const DOCUMENT_SYNC_ERROR_CODES = new Set<DocumentSyncCommandError["code"]>([
 ]);
 
 interface VersionedMetadata {
-  readonly version: 1;
+  readonly version: 2;
+  readonly engine: "yjs";
 }
 
 interface SyncRequestMetadata extends VersionedMetadata {
@@ -107,6 +118,30 @@ interface EncodedRealtimeEvent {
   readonly reason?: string;
 }
 
+interface CanvasSyncRequestMetadata {
+  readonly version: 2;
+  readonly engine: "canvas_scene";
+  readonly syncRequestId: string;
+  readonly clientSessionId: string;
+  readonly knownStoreEpoch?: string;
+  readonly knownGeneration?: number;
+  readonly knownHeadSeq?: number;
+  readonly knownSceneHash?: string;
+}
+
+interface CanvasSyncResponseMetadata {
+  readonly version: 2;
+  readonly engine: "canvas_scene";
+  readonly kind: "up_to_date" | "snapshot";
+  readonly syncRequestId: string;
+  readonly projectId: string;
+  readonly documentId: string;
+  readonly storeEpoch: string;
+  readonly generation: number;
+  readonly headSeq: number;
+  readonly sceneHash: string;
+}
+
 type EncodedOwnedDocumentSyncEngine =
   | {
       readonly kind: "yjs";
@@ -160,9 +195,14 @@ const assertExactKeys = (
   throw new DocumentHttpWireError(`${label} has unsupported fields`);
 };
 
-const readVersion = (record: Readonly<Record<string, unknown>>): 1 => {
-  if (record.version === 1) return 1;
+const readWireVersion = (record: Readonly<Record<string, unknown>>): 2 => {
+  if (record.version === 2) return 2;
   throw new DocumentHttpWireError("Unsupported Document HTTP contract version");
+};
+
+const readEventVersion = (record: Readonly<Record<string, unknown>>): 1 => {
+  if (record.version === 1) return 1;
+  throw new DocumentHttpWireError("Unsupported Document event contract version");
 };
 
 const readString = (
@@ -198,6 +238,32 @@ const readInteger = (
     return value;
   }
   throw new DocumentHttpWireError(`${key} must be an integer >= ${minimum}`);
+};
+
+const readOptionalInteger = (
+  record: Readonly<Record<string, unknown>>,
+  key: string,
+  minimum: number,
+): number | undefined => {
+  if (record[key] === undefined) return undefined;
+  return readInteger(record, key, minimum);
+};
+
+const readHash = (
+  record: Readonly<Record<string, unknown>>,
+  key: string,
+): string => {
+  const value = record[key];
+  if (typeof value === "string" && /^[a-f0-9]{64}$/u.test(value)) return value;
+  throw new DocumentHttpWireError(`${key} must be a lowercase SHA-256 hash`);
+};
+
+const readOptionalHash = (
+  record: Readonly<Record<string, unknown>>,
+  key: string,
+): string | undefined => {
+  if (record[key] === undefined) return undefined;
+  return readHash(record, key);
 };
 
 const readBoolean = (
@@ -255,18 +321,49 @@ const assertRouteDocument = (routeDocumentId: string): string => {
   throw new DocumentHttpWireError("route documentId must be non-empty");
 };
 
+const readIdentity = (value: string, field: string): string => {
+  if (value.length > 0 && value === value.trim()) return value;
+  throw new DocumentHttpWireError(`${field} must be non-empty`);
+};
+
 const parseSyncRequestMetadata = (value: unknown): SyncRequestMetadata => {
   const record = readRecord(value);
+  assertExactKeys(
+    record,
+    ["version", "engine", "clientSessionId"],
+    "Yjs sync request",
+  );
+  if (record.engine !== "yjs") {
+    throw new DocumentHttpWireError("Yjs sync request has the wrong engine");
+  }
   return {
-    version: readVersion(record),
+    version: readWireVersion(record),
+    engine: "yjs",
     clientSessionId: readString(record, "clientSessionId"),
   };
 };
 
 const parseSyncResponseMetadata = (value: unknown): SyncResponseMetadata => {
   const record = readRecord(value);
+  assertExactKeys(
+    record,
+    [
+      "version",
+      "engine",
+      "documentId",
+      "storeEpoch",
+      "generation",
+      "headSeq",
+      "stateVector",
+    ],
+    "Yjs sync response",
+  );
+  if (record.engine !== "yjs") {
+    throw new DocumentHttpWireError("Yjs sync response has the wrong engine");
+  }
   return {
-    version: readVersion(record),
+    version: readWireVersion(record),
+    engine: "yjs",
     documentId: readString(record, "documentId"),
     storeEpoch: readString(record, "storeEpoch"),
     generation: readInteger(record, "generation", 1),
@@ -277,8 +374,12 @@ const parseSyncResponseMetadata = (value: unknown): SyncResponseMetadata => {
 
 const parseApplyRequestMetadata = (value: unknown): ApplyRequestMetadata => {
   const record = readRecord(value);
+  if (record.engine !== "yjs") {
+    throw new DocumentHttpWireError("Yjs update request has the wrong engine");
+  }
   return {
-    version: readVersion(record),
+    version: readWireVersion(record),
+    engine: "yjs",
     storeEpoch: readString(record, "storeEpoch"),
     generation: readInteger(record, "generation", 1),
     updateId: readString(record, "updateId"),
@@ -290,8 +391,12 @@ const parseApplyRequestMetadata = (value: unknown): ApplyRequestMetadata => {
 
 const parseApplyAckMetadata = (value: unknown): ApplyAckMetadata => {
   const record = readRecord(value);
+  if (record.engine !== "yjs") {
+    throw new DocumentHttpWireError("Yjs update ACK has the wrong engine");
+  }
   return {
-    version: readVersion(record),
+    version: readWireVersion(record),
+    engine: "yjs",
     documentId: readString(record, "documentId"),
     storeEpoch: readString(record, "storeEpoch"),
     generation: readInteger(record, "generation", 1),
@@ -306,11 +411,87 @@ const parseAwarenessRequestMetadata = (
   value: unknown,
 ): AwarenessRequestMetadata => {
   const record = readRecord(value);
+  if (record.engine !== "yjs") {
+    throw new DocumentHttpWireError("Yjs Awareness request has the wrong engine");
+  }
   return {
-    version: readVersion(record),
+    version: readWireVersion(record),
+    engine: "yjs",
     clientSessionId: readString(record, "clientSessionId"),
     storeEpoch: readString(record, "storeEpoch"),
     generation: readInteger(record, "generation", 1),
+  };
+};
+
+const parseCanvasSyncRequestMetadata = (
+  value: unknown,
+): CanvasSyncRequestMetadata => {
+  const record = readRecord(value);
+  const allowed = [
+    "version",
+    "engine",
+    "syncRequestId",
+    "clientSessionId",
+    "knownStoreEpoch",
+    "knownGeneration",
+    "knownHeadSeq",
+    "knownSceneHash",
+  ];
+  const present = allowed.filter((key) => record[key] !== undefined);
+  assertExactKeys(record, present, "Canvas sync request");
+  if (record.engine !== "canvas_scene") {
+    throw new DocumentHttpWireError("Canvas sync request has the wrong engine");
+  }
+  const knownStoreEpoch = readOptionalString(record, "knownStoreEpoch");
+  const knownGeneration = readOptionalInteger(record, "knownGeneration", 1);
+  const knownHeadSeq = readOptionalInteger(record, "knownHeadSeq", 0);
+  const knownSceneHash = readOptionalHash(record, "knownSceneHash");
+  return {
+    version: readWireVersion(record),
+    engine: "canvas_scene",
+    syncRequestId: readString(record, "syncRequestId"),
+    clientSessionId: readString(record, "clientSessionId"),
+    ...(knownStoreEpoch === undefined ? {} : { knownStoreEpoch }),
+    ...(knownGeneration === undefined ? {} : { knownGeneration }),
+    ...(knownHeadSeq === undefined ? {} : { knownHeadSeq }),
+    ...(knownSceneHash === undefined ? {} : { knownSceneHash }),
+  };
+};
+
+const parseCanvasSyncResponseMetadata = (
+  value: unknown,
+): CanvasSyncResponseMetadata => {
+  const record = readRecord(value);
+  if (record.engine !== "canvas_scene") {
+    throw new DocumentHttpWireError("Canvas sync response has the wrong engine");
+  }
+  assertExactKeys(
+    record,
+    [
+      "version",
+      "engine",
+      "kind",
+      "syncRequestId",
+      "projectId",
+      "documentId",
+      "storeEpoch",
+      "generation",
+      "headSeq",
+      "sceneHash",
+    ],
+    "Canvas sync response",
+  );
+  return {
+    version: readWireVersion(record),
+    engine: "canvas_scene",
+    kind: readEnum(record, "kind", ["up_to_date", "snapshot"] as const),
+    syncRequestId: readString(record, "syncRequestId"),
+    projectId: readString(record, "projectId"),
+    documentId: readString(record, "documentId"),
+    storeEpoch: readString(record, "storeEpoch"),
+    generation: readInteger(record, "generation", 1),
+    headSeq: readInteger(record, "headSeq", 0),
+    sceneHash: readHash(record, "sceneHash"),
   };
 };
 
@@ -540,7 +721,7 @@ export const encodeDocumentSyncHttpRequest = (
   request: DocumentSyncRequest,
 ): Uint8Array =>
   encodeDocumentHttpEnvelope<SyncRequestMetadata>(
-    { version: 1, clientSessionId: request.clientSessionId },
+    { version: 2, engine: "yjs", clientSessionId: request.clientSessionId },
     request.stateVector,
   );
 
@@ -565,7 +746,8 @@ export const encodeDocumentSyncHttpResponse = (
 ): Uint8Array =>
   encodeDocumentHttpEnvelope<SyncResponseMetadata>(
     {
-      version: 1,
+      version: 2,
+      engine: "yjs",
       documentId: response.documentId,
       storeEpoch: response.storeEpoch,
       generation: response.generation,
@@ -596,12 +778,151 @@ export const decodeDocumentSyncHttpResponse = (
   };
 };
 
+export const encodeCanvasSceneSyncHttpRequest = (
+  request: CanvasSceneSyncRequest,
+): Uint8Array =>
+  encodeDocumentHttpEnvelope<CanvasSyncRequestMetadata>(
+    {
+      version: 2,
+      engine: "canvas_scene",
+      syncRequestId: request.syncRequestId,
+      clientSessionId: request.clientSessionId,
+      ...(request.knownStoreEpoch === undefined
+        ? {}
+        : { knownStoreEpoch: request.knownStoreEpoch }),
+      ...(request.knownGeneration === undefined
+        ? {}
+        : { knownGeneration: request.knownGeneration }),
+      ...(request.knownHeadSeq === undefined
+        ? {}
+        : { knownHeadSeq: request.knownHeadSeq }),
+      ...(request.knownSceneHash === undefined
+        ? {}
+        : { knownSceneHash: request.knownSceneHash }),
+    },
+    new Uint8Array(),
+  );
+
+export const decodeCanvasSceneSyncHttpRequest = (
+  routeDocumentId: string,
+  projectId: string,
+  bytes: Uint8Array,
+): CanvasSceneSyncRequest => {
+  const envelope = decodeDocumentHttpEnvelope(
+    bytes,
+    parseCanvasSyncRequestMetadata,
+    0,
+  );
+  return {
+    version: CANVAS_SCENE_SYNC_VERSION,
+    syncRequestId: envelope.metadata.syncRequestId,
+    projectId: readIdentity(projectId, "projectId"),
+    documentId: assertRouteDocument(routeDocumentId),
+    clientSessionId: envelope.metadata.clientSessionId,
+    ...(envelope.metadata.knownStoreEpoch === undefined
+      ? {}
+      : { knownStoreEpoch: envelope.metadata.knownStoreEpoch }),
+    ...(envelope.metadata.knownGeneration === undefined
+      ? {}
+      : { knownGeneration: envelope.metadata.knownGeneration }),
+    ...(envelope.metadata.knownHeadSeq === undefined
+      ? {}
+      : { knownHeadSeq: envelope.metadata.knownHeadSeq }),
+    ...(envelope.metadata.knownSceneHash === undefined
+      ? {}
+      : { knownSceneHash: envelope.metadata.knownSceneHash }),
+  };
+};
+
+export const encodeCanvasSceneSyncHttpResponse = (
+  response: CanvasSceneSyncResponse,
+): Uint8Array => {
+  const payload =
+    response.kind === "snapshot"
+      ? new TextEncoder().encode(canonicalStringifyCanvasScene(response.scene))
+      : new Uint8Array();
+  if (payload.byteLength > MAX_CANVAS_SCENE_SNAPSHOT_BYTES) {
+    throw new DocumentHttpWireError(
+      `Canvas snapshot exceeds ${MAX_CANVAS_SCENE_SNAPSHOT_BYTES} bytes`,
+    );
+  }
+  return encodeDocumentHttpEnvelope<CanvasSyncResponseMetadata>(
+    {
+      version: 2,
+      engine: "canvas_scene",
+      kind: response.kind,
+      syncRequestId: response.syncRequestId,
+      projectId: response.projectId,
+      documentId: response.documentId,
+      storeEpoch: response.storeEpoch,
+      generation: response.generation,
+      headSeq: response.headSeq,
+      sceneHash: response.sceneHash,
+    },
+    payload,
+  );
+};
+
+export const decodeCanvasSceneSyncHttpResponse = (
+  bytes: Uint8Array,
+): CanvasSceneSyncResponse => {
+  const envelope = decodeDocumentHttpEnvelope(
+    bytes,
+    parseCanvasSyncResponseMetadata,
+    MAX_CANVAS_SCENE_SNAPSHOT_BYTES,
+  );
+  const common = {
+    version: CANVAS_SCENE_SYNC_VERSION,
+    syncRequestId: envelope.metadata.syncRequestId,
+    projectId: envelope.metadata.projectId,
+    documentId: envelope.metadata.documentId,
+    storeEpoch: envelope.metadata.storeEpoch,
+    generation: envelope.metadata.generation,
+    headSeq: envelope.metadata.headSeq,
+    sceneHash: envelope.metadata.sceneHash,
+  };
+  if (envelope.metadata.kind === "up_to_date") {
+    if (envelope.payload.byteLength !== 0) {
+      throw new DocumentHttpWireError(
+        "Canvas up-to-date response must have an empty payload",
+      );
+    }
+    return { kind: "up_to_date", ...common };
+  }
+  if (envelope.payload.byteLength === 0) {
+    throw new DocumentHttpWireError(
+      "Canvas snapshot response must have a payload",
+    );
+  }
+  let serialized: string;
+  let parsed: unknown;
+  try {
+    serialized = new TextDecoder("utf-8", { fatal: true }).decode(
+      envelope.payload,
+    );
+    parsed = JSON.parse(serialized) as unknown;
+  } catch (error) {
+    throw new DocumentHttpWireError(
+      "Canvas snapshot payload is not valid UTF-8 JSON",
+      { cause: error },
+    );
+  }
+  const scene = parsePortableCanvasScene(parsed);
+  if (canonicalStringifyCanvasScene(scene) !== serialized) {
+    throw new DocumentHttpWireError(
+      "Canvas snapshot payload is not canonical JSON",
+    );
+  }
+  return { kind: "snapshot", ...common, scene };
+};
+
 export const encodeDocumentApplyHttpRequest = (
   request: DocumentSyncApplyRequest,
 ): Uint8Array =>
   encodeDocumentHttpEnvelope<ApplyRequestMetadata>(
     {
-      version: 1,
+      version: 2,
+      engine: "yjs",
       storeEpoch: request.storeEpoch,
       generation: request.generation,
       updateId: request.updateId,
@@ -638,7 +959,8 @@ export const encodeDocumentApplyHttpAck = (
 ): Uint8Array =>
   encodeDocumentHttpEnvelope<ApplyAckMetadata>(
     {
-      version: 1,
+      version: 2,
+      engine: "yjs",
       documentId: ack.documentId,
       storeEpoch: ack.storeEpoch,
       generation: ack.generation,
@@ -675,7 +997,8 @@ export const encodeDocumentAwarenessHttpRequest = (
 ): Uint8Array =>
   encodeDocumentHttpEnvelope<AwarenessRequestMetadata>(
     {
-      version: 1,
+      version: 2,
+      engine: "yjs",
       clientSessionId: request.clientSessionId,
       storeEpoch: request.storeEpoch,
       generation: request.generation,
@@ -729,7 +1052,7 @@ export const decodeDocumentRealtimeSseEvent = (
     });
   }
   const record = readRecord(value);
-  readVersion(record);
+  readEventVersion(record);
   const kind = readString(record, "kind");
   const documentId = readString(record, "documentId");
   if (kind === "connection") {

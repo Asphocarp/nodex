@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, test, vi } from "vitest";
 
 import {
+  CANVAS_SCENE_MAINTENANCE_VERSION,
   CANVAS_SCENE_SYNC_VERSION,
   materializePortableCanvasScene,
 } from "../../shared/block-documents";
@@ -131,6 +132,27 @@ class ControlledOpeningDocumentStreamClient extends FakeCoreClient {
   }
 }
 
+class CanvasCompactionFenceClient extends FakeCoreClient {
+  compactionAttempts = 0;
+
+  override documentApply(
+    ...args: Parameters<FakeCoreClient["documentApply"]>
+  ): ReturnType<FakeCoreClient["documentApply"]> {
+    if (args[0].intent.kind === "compact_canvas_tombstones") {
+      this.compactionAttempts += 1;
+      if (this.compactionAttempts === 1) {
+        throw new CoreModuleResponseError({
+          code: "revision_conflict",
+          message: "Canvas compaction requires a write fence",
+          retryable: true,
+          recovery: { kind: "none" },
+        });
+      }
+    }
+    return super.documentApply(...args);
+  }
+}
+
 const rustRuntime = (
   rootClient: FakeCoreClient,
   projectClient: FakeCoreClient = rootClient,
@@ -162,32 +184,17 @@ const canvasSubscribeRequest = {
   clientSessionId: "renderer:canvas",
 } as const;
 
-const canvasSyncSnapshot = () => ({
-  contract_version: 1 as const,
-  store_epoch: "epoch:canvas",
-  event_head: 0,
-  value: {
-    kind: "canvas_sync" as const,
-    descriptor: {
-      version: 2 as const,
-      projectId: canvasSubscribeRequest.projectId,
-      ownerBlockId: "canvas:one",
-      ownerType: "canvas" as const,
-      ownerLifecycle: "active" as const,
-      documentId: canvasSubscribeRequest.documentId,
-      storeEpoch: "epoch:canvas",
-      generation: 1,
-      headSeq: 0,
-      schemaKey: "nodex.canvas",
-      schemaVersion: 1,
-      readiness: "ready" as const,
-      sync: { kind: "canvas_scene" as const },
-    },
-    scene_json: [...new TextEncoder().encode(JSON.stringify(
-      materializePortableCanvasScene({ elements: [] }),
-    ))],
-    scene_hash: "a".repeat(64),
-  },
+const canvasSyncSnapshot = (syncRequestId: string) => ({
+  kind: "snapshot" as const,
+  version: CANVAS_SCENE_SYNC_VERSION,
+  syncRequestId,
+  projectId: canvasSubscribeRequest.projectId,
+  documentId: canvasSubscribeRequest.documentId,
+  storeEpoch: "epoch:canvas",
+  generation: 1,
+  headSeq: 0,
+  sceneHash: "a".repeat(64),
+  scene: materializePortableCanvasScene({ elements: [] }),
 });
 
 const ownedDocumentDescriptorSnapshot = (projectId = "project:one") => ({
@@ -1194,7 +1201,7 @@ describe("Desktop Document sync bridge", () => {
   test("binds Canvas sync to its Project client, engine, and exact target", async () => {
     const rootClient = new FakeCoreClient();
     const projectClient = new FakeCoreClient();
-    projectClient.enqueueDocumentRead(canvasSyncSnapshot());
+    projectClient.enqueueDocumentCanvasSync(canvasSyncSnapshot("sync:canvas"));
     const bridge = createDesktopDocumentSyncBridge({
       authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
     });
@@ -1221,30 +1228,301 @@ describe("Desktop Document sync bridge", () => {
     )).resolves.toEqual({ ok: true, value: { subscribed: true } });
     await expect(bridge.syncCanvasScene(
       otherTarget,
-      canvasSubscribeRequest,
+      { ...canvasSubscribeRequest, syncRequestId: "sync:foreign" },
     )).resolves.toMatchObject({
       ok: false,
       error: { code: "project_scope_mismatch" },
     });
     await expect(bridge.syncCanvasScene(
       canvasTarget,
-      canvasSubscribeRequest,
+      { ...canvasSubscribeRequest, syncRequestId: "sync:canvas" },
     )).resolves.toMatchObject({
       ok: true,
       value: {
         projectId: canvasSubscribeRequest.projectId,
         documentId: canvasSubscribeRequest.documentId,
         headSeq: 0,
+        kind: "snapshot",
       },
     });
     expect(rootClient.documentReads).toHaveLength(0);
-    expect(projectClient.documentReads).toEqual([{
-      clientSessionId: canvasSubscribeRequest.clientSessionId,
-      read: {
-        kind: "sync_canvas",
-        document_id: canvasSubscribeRequest.documentId,
-      },
+    expect(projectClient.documentReads).toHaveLength(0);
+    expect(projectClient.documentCanvasSyncs).toEqual([{
+      ...canvasSubscribeRequest,
+      syncRequestId: "sync:canvas",
     }]);
+  });
+
+  test("binds ephemeral Canvas presence to the exact Host target without Core writes", async () => {
+    const projectClient = new FakeCoreClient();
+    const requestA = {
+      ...canvasSubscribeRequest,
+      clientSessionId: "renderer:presence:a",
+    };
+    const requestB = {
+      ...canvasSubscribeRequest,
+      clientSessionId: "renderer:presence:b",
+    };
+    projectClient.enqueueDocumentCanvasSync({
+      ...canvasSyncSnapshot("sync:presence:a"),
+      syncRequestId: "sync:presence:a",
+    });
+    projectClient.enqueueDocumentCanvasSync({
+      ...canvasSyncSnapshot("sync:presence:b"),
+      syncRequestId: "sync:presence:b",
+    });
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(
+        rustRuntime(new FakeCoreClient(), projectClient),
+      ),
+    });
+    const targetA = new FakeTarget(41);
+    const targetB = new FakeTarget(42);
+    await bridge.subscribeCanvasScene(targetA, requestA);
+    await bridge.subscribeCanvasScene(targetB, requestB);
+    await bridge.syncCanvasScene(targetA, {
+      ...requestA,
+      syncRequestId: "sync:presence:a",
+    });
+    await bridge.syncCanvasScene(targetB, {
+      ...requestB,
+      syncRequestId: "sync:presence:b",
+    });
+    targetA.sent.splice(0);
+    targetB.sent.splice(0);
+    const coreSyncCount = projectClient.documentCanvasSyncs.length;
+    const coreApplyCount = projectClient.documentApplies.length;
+
+    await expect(bridge.publishCanvasPresence(targetA, {
+      projectId: requestA.projectId,
+      clientSessionId: requestA.clientSessionId,
+      publication: {
+        version: 1,
+        engine: "canvas_scene",
+        documentId: requestA.documentId,
+        generation: 1,
+        clock: 1,
+        state: {
+          pointer: {
+            x: 20,
+            y: 30,
+            button: "up",
+            tool: "pointer",
+          },
+          selectedElementIds: [],
+          idle: "active",
+        },
+      },
+    })).resolves.toEqual({
+      ok: true,
+      value: { accepted: true, applied: true },
+    });
+    expect(targetA.sent).toHaveLength(0);
+    expect(targetB.sent.at(-1)?.payload).toMatchObject({
+      type: "canvas_presence_updated",
+      presence: {
+        clientSessionId: requestA.clientSessionId,
+        user: {
+          id: "window:41",
+          displayName: "Window 41",
+        },
+        state: { pointer: { x: 20, y: 30 } },
+      },
+    });
+    expect(projectClient.documentCanvasSyncs).toHaveLength(coreSyncCount);
+    expect(projectClient.documentApplies).toHaveLength(coreApplyCount);
+
+    await bridge.unsubscribeCanvasScene(targetA, requestA);
+    expect(targetB.sent.at(-1)?.payload).toMatchObject({
+      type: "canvas_presence_updated",
+      presence: {
+        clientSessionId: requestA.clientSessionId,
+        clock: 1,
+        state: null,
+      },
+    });
+  });
+
+  test("freezes the closing Canvas subscriber before committing idle maintenance", async () => {
+    const projectClient = new CanvasCompactionFenceClient();
+    const storeEpoch = "epoch:canvas";
+    Object.assign(projectClient, {
+      handshake: createFakeCoreHandshake({
+        connectionBinding: "binding:canvas",
+        libraryId: "library:test",
+        profileId: "profile:test",
+        storeEpoch,
+      }),
+    });
+    projectClient.enqueueDocumentRead({
+      contract_version: 3,
+      store_epoch: storeEpoch,
+      event_head: 3,
+      value: {
+        kind: "canvas_compaction_eligibility",
+        stats: {
+          document_id: canvasSubscribeRequest.documentId,
+          generation: 1,
+          head_seq: 8,
+          scene_hash: "a".repeat(64),
+          tombstone_count: 2,
+          tombstone_bytes: 200,
+          eligible: true,
+        },
+      },
+    });
+    const operationId = "canvas-compaction:bridge";
+    const compactionValue = {
+      version: CANVAS_SCENE_MAINTENANCE_VERSION,
+      kind: "tombstone_compaction" as const,
+      operationId,
+      projectId: canvasSubscribeRequest.projectId,
+      documentId: canvasSubscribeRequest.documentId,
+      storeEpoch,
+      previousGeneration: 1,
+      previousHeadSeq: 8,
+      generation: 2,
+      headSeq: 1,
+      duplicate: false,
+      outcome: "committed" as const,
+      sceneHash: "b".repeat(64),
+      removedTombstoneCount: 2,
+      removedTombstoneBytes: 200,
+      checkpointVersionId: "version:canvas-compaction",
+      committedAt: "2026-07-29T00:00:00.000Z",
+    };
+    projectClient.enqueueDocumentApply({
+      store_epoch: storeEpoch,
+      event_sequence: 4,
+      value: {
+        document_id: canvasSubscribeRequest.documentId,
+        generation: 2,
+        head_seq: 1,
+        outcome: "committed",
+        canvas: compactionValue,
+      },
+      receipt: {
+        operation_id: operationId,
+        duplicate: false,
+        document_id: canvasSubscribeRequest.documentId,
+        generation: 2,
+        head_seq: 1,
+      },
+    });
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(new FakeCoreClient(), projectClient)),
+    });
+    const target = new FakeTarget(20);
+    await expect(
+      bridge.subscribeCanvasScene(target, canvasSubscribeRequest),
+    ).resolves.toEqual({ ok: true, value: { subscribed: true } });
+    const pending = bridge.compactCanvasScene(target, {
+      ...canvasSubscribeRequest,
+      version: CANVAS_SCENE_MAINTENANCE_VERSION,
+      mutationId: operationId,
+      trigger: "automatic_idle",
+    });
+    await vi.waitFor(() => {
+      expect(target.sent.some((delivery) =>
+        typeof delivery.payload === "object"
+        && delivery.payload !== null
+        && "kind" in delivery.payload
+        && delivery.payload.kind === "relocation-lease-prepare"
+      )).toBe(true);
+    });
+    expect(projectClient.compactionAttempts).toBe(1);
+    const prepare = target.sent
+      .map((delivery) => delivery.payload)
+      .find((payload) =>
+        typeof payload === "object"
+        && payload !== null
+        && "kind" in payload
+        && payload.kind === "relocation-lease-prepare"
+      );
+    if (
+      typeof prepare !== "object"
+      || prepare === null
+      || !("leaseId" in prepare)
+      || !("documentId" in prepare)
+      || !("clientSessionId" in prepare)
+      || !("storeEpoch" in prepare)
+      || !("generation" in prepare)
+      || !("expectedHeadSeq" in prepare)
+    ) {
+      throw new Error("Expected Canvas compaction lease preparation");
+    }
+    await expect(bridge.respondToRelocationLease(
+      { kind: "project", projectId: canvasSubscribeRequest.projectId },
+      target,
+      {
+        response: "ack",
+        leaseId: String(prepare.leaseId),
+        documentId: String(prepare.documentId),
+        clientSessionId: String(prepare.clientSessionId),
+        storeEpoch: String(prepare.storeEpoch),
+        generation: Number(prepare.generation),
+        headSeq: Number(prepare.expectedHeadSeq),
+      },
+    )).resolves.toMatchObject({ ok: true, value: { status: "frozen" } });
+    await expect(pending).resolves.toEqual({ ok: true, value: compactionValue });
+    expect(projectClient.compactionAttempts).toBe(2);
+    expect(projectClient.documentApplies[0]?.intent).toMatchObject({
+      kind: "compact_canvas_tombstones",
+      write_fence_prepared: true,
+    });
+    expect(target.sent.some((delivery) =>
+      typeof delivery.payload === "object"
+      && delivery.payload !== null
+      && "kind" in delivery.payload
+      && delivery.payload.kind === "relocation-lease-cancel"
+    )).toBe(true);
+  });
+
+  test("defers Canvas maintenance while another surface is subscribed", async () => {
+    const projectClient = new CanvasCompactionFenceClient();
+    Object.assign(projectClient, {
+      handshake: createFakeCoreHandshake({
+        connectionBinding: "binding:canvas",
+        libraryId: "library:test",
+        profileId: "profile:test",
+        storeEpoch: "epoch:canvas",
+      }),
+    });
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(new FakeCoreClient(), projectClient)),
+    });
+    const targetA = new FakeTarget(21);
+    const targetB = new FakeTarget(22);
+    const requestB = {
+      ...canvasSubscribeRequest,
+      clientSessionId: "renderer:canvas:second",
+    };
+    await expect(
+      bridge.subscribeCanvasScene(targetA, canvasSubscribeRequest),
+    ).resolves.toEqual({ ok: true, value: { subscribed: true } });
+    await expect(
+      bridge.subscribeCanvasScene(targetB, requestB),
+    ).resolves.toEqual({ ok: true, value: { subscribed: true } });
+
+    await expect(bridge.compactCanvasScene(targetA, {
+      ...canvasSubscribeRequest,
+      version: CANVAS_SCENE_MAINTENANCE_VERSION,
+      mutationId: "canvas-maintenance:deferred",
+      trigger: "automatic_idle",
+    })).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "write_fence_required",
+        retryable: true,
+      },
+    });
+    expect(projectClient.compactionAttempts).toBe(0);
+    expect([...targetA.sent, ...targetB.sent].some((delivery) =>
+      typeof delivery.payload === "object"
+      && delivery.payload !== null
+      && "kind" in delivery.payload
+      && delivery.payload.kind === "relocation-lease-prepare"
+    )).toBe(false);
   });
 
   test("does not open a late subscription for a destroyed startup target", async () => {

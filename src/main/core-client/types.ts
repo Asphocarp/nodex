@@ -9,6 +9,10 @@ import type {
   DocumentSyncRequest,
   DocumentSyncResponse,
 } from "../../shared/block-documents/document-sync";
+import type {
+  CanvasSceneSyncRequest,
+  CanvasSceneSyncResponse,
+} from "../../shared/block-documents/canvas-scene-sync";
 
 export type CoreRuntimeDescriptor = components["schemas"]["RuntimeDescriptor"];
 export type CoreHandshakeResponse = components["schemas"]["HandshakeResponse"];
@@ -159,6 +163,7 @@ export interface CoreClientPort {
   ): Promise<OwnedDocumentReadSnapshot>;
   documentApply(input: OwnedDocumentApplyInput): Promise<OwnedDocumentCommittedValue>;
   documentSync(input: DocumentSyncRequest): Promise<DocumentSyncResponse>;
+  documentCanvasSync(input: CanvasSceneSyncRequest): Promise<CanvasSceneSyncResponse>;
   documentApplyUpdate(input: DocumentSyncApplyRequest): Promise<DocumentSyncApplyAck>;
   documentPublishAwareness(
     input: DocumentAwarenessPublishRequest,

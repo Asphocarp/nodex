@@ -1294,6 +1294,52 @@ export function registerIpcHandlers(
     }
     return await documentSync.applyCanvasSceneMutation(target, request);
   });
+  registerHandle("canvas-scene:presence:publish", async (event, request) => {
+    const target = resolveDocumentSyncTarget(event);
+    if (!target) {
+      return {
+        ok: false as const,
+        error: {
+          code: "unauthorized" as const,
+          message: "Canvas presence publication is unauthorized",
+          retryable: false,
+          resetRequired: false,
+        },
+      };
+    }
+    return await documentSync.publishCanvasPresence(target, request);
+  });
+  registerHandle("canvas-scene:compaction:read", async (event, request) => {
+    const target = resolveDocumentSyncTarget(event);
+    if (!target) {
+      return {
+        ok: false as const,
+        error: {
+          code: "project_scope_mismatch" as const,
+          message: "Canvas compaction read is unauthorized",
+          retryable: false,
+          resetRequired: false,
+        },
+      };
+    }
+    return await documentSync.readCanvasSceneCompaction(target, request);
+  });
+  registerHandle("canvas-scene:compaction:apply", async (event, request) => {
+    const target = resolveDocumentSyncTarget(event);
+    if (!target) {
+      return {
+        ok: false as const,
+        error: {
+          code: "project_scope_mismatch" as const,
+          message: "Canvas compaction is unauthorized",
+          retryable: false,
+          resetRequired: false,
+          mutationId: request.mutationId,
+        },
+      };
+    }
+    return await documentSync.compactCanvasScene(target, request);
+  });
   registerHandle("document-sync:awareness:publish", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) {

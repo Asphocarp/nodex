@@ -226,7 +226,10 @@ pub(crate) fn insert_canvas_checkpoint(
     let links_mutation = matches!(input.revision_kind, "operation" | "restore");
     let source_mutation_id = links_mutation.then_some(input.source_mutation_id).flatten();
     let source_change_seq = links_mutation.then_some(input.source_change_seq).flatten();
-    let pinned = i64::from(matches!(input.revision_kind, "manual" | "restore"));
+    let pinned = i64::from(
+        matches!(input.revision_kind, "manual" | "restore")
+            || (input.revision_kind == "safety" && input.cause == "canvas_tombstone_compaction"),
+    );
     let identity = json!({
         "version": 1,
         "documentId": authority.head.id,
@@ -471,41 +474,122 @@ pub(crate) fn prepare_document_revision(
     context: &BoundModuleContext,
     now: &str,
 ) -> Result<(), StoreError> {
-    prepare_revision(
-        connection,
-        authority,
-        RevisionContent::Block(materialization),
-        context,
-        now,
-    )
+    prepare_revision(connection, authority, materialization, context, now)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PreparedCanvasRevision {
+    operation_id: String,
+    cause: &'static str,
+    revision_kind: &'static str,
+    clear_revision_session: bool,
 }
 
 pub(crate) fn prepare_canvas_revision(
     connection: &Connection,
     authority: &DocumentAuthorityRow,
+    now: &str,
+) -> Result<Option<PreparedCanvasRevision>, StoreError> {
+    let session = connection
+        .query_row(
+            "SELECT generation, last_edit_at FROM document_revision_sessions \
+             WHERE document_id = ?1",
+            [&authority.head.id],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?;
+    if let Some((session_generation, last_edit_at)) = session {
+        if session_generation != authority.head.generation {
+            connection.execute(
+                "DELETE FROM document_revision_sessions WHERE document_id = ?1",
+                [&authority.head.id],
+            )?;
+        } else {
+            let idle = connection
+                .query_row(
+                    "SELECT (julianday(?1) - julianday(?2)) * 86400000 >= 120000",
+                    params![now, last_edit_at],
+                    |row| row.get::<_, bool>(0),
+                )
+                .map_err(|_| corrupt("Document revision session timestamp is invalid"))?;
+            if !idle {
+                return Ok(None);
+            }
+            return Ok(Some(PreparedCanvasRevision {
+                operation_id: format!(
+                    "revision-idle:{}:{}:{}",
+                    authority.head.id, authority.head.generation, authority.head.head_seq
+                ),
+                cause: "idle_edit",
+                revision_kind: "automatic",
+                clear_revision_session: true,
+            }));
+        }
+    }
+    let covered = connection
+        .query_row(
+            "SELECT 1 FROM document_versions \
+             WHERE document_id = ?1 AND generation = ?2 AND base_head_seq = ?3 LIMIT 1",
+            params![
+                authority.head.id,
+                authority.head.generation,
+                authority.head.head_seq
+            ],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if covered {
+        return Ok(None);
+    }
+    Ok(Some(PreparedCanvasRevision {
+        operation_id: format!(
+            "revision-safety:{}:{}:{}",
+            authority.head.id, authority.head.generation, authority.head.head_seq
+        ),
+        cause: "before_edit_burst",
+        revision_kind: "safety",
+        clear_revision_session: false,
+    }))
+}
+
+pub(crate) fn insert_prepared_canvas_revision(
+    connection: &Connection,
+    authority: &DocumentAuthorityRow,
     scene: &CanvasScene,
     context: &BoundModuleContext,
     now: &str,
+    prepared: &PreparedCanvasRevision,
 ) -> Result<(), StoreError> {
-    prepare_revision(
+    insert_canvas_checkpoint(
         connection,
         authority,
-        RevisionContent::Canvas(scene),
-        context,
-        now,
-    )
-}
-
-#[derive(Clone, Copy)]
-enum RevisionContent<'a> {
-    Block(&'a DocumentMaterialization),
-    Canvas(&'a CanvasScene),
+        scene,
+        NewDocumentCheckpoint {
+            operation_id: &prepared.operation_id,
+            cause: prepared.cause,
+            label: None,
+            revision_kind: prepared.revision_kind,
+            source_mutation_id: None,
+            source_change_seq: None,
+            actor: None,
+            context,
+            now,
+        },
+    )?;
+    if prepared.clear_revision_session {
+        connection.execute(
+            "DELETE FROM document_revision_sessions WHERE document_id = ?1",
+            [&authority.head.id],
+        )?;
+    }
+    Ok(())
 }
 
 fn prepare_revision(
     connection: &Connection,
     authority: &DocumentAuthorityRow,
-    content: RevisionContent<'_>,
+    materialization: &DocumentMaterialization,
     context: &BoundModuleContext,
     now: &str,
 ) -> Result<(), StoreError> {
@@ -541,7 +625,7 @@ fn prepare_revision(
             insert_revision_checkpoint(
                 connection,
                 authority,
-                content,
+                materialization,
                 NewDocumentCheckpoint {
                     operation_id: &operation_id,
                     cause: "idle_edit",
@@ -584,7 +668,7 @@ fn prepare_revision(
     insert_revision_checkpoint(
         connection,
         authority,
-        content,
+        materialization,
         NewDocumentCheckpoint {
             operation_id: &operation_id,
             cause: "before_edit_burst",
@@ -603,17 +687,10 @@ fn prepare_revision(
 fn insert_revision_checkpoint(
     connection: &Connection,
     authority: &DocumentAuthorityRow,
-    content: RevisionContent<'_>,
+    materialization: &DocumentMaterialization,
     input: NewDocumentCheckpoint<'_>,
 ) -> Result<(), StoreError> {
-    match content {
-        RevisionContent::Block(materialization) => {
-            insert_document_checkpoint(connection, authority, materialization, input)?;
-        }
-        RevisionContent::Canvas(scene) => {
-            insert_canvas_checkpoint(connection, authority, scene, input)?;
-        }
-    }
+    insert_document_checkpoint(connection, authority, materialization, input)?;
     Ok(())
 }
 

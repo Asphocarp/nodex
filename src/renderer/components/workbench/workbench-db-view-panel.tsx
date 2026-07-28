@@ -19,6 +19,7 @@ import {
   CalendarToolbarMonthLabel,
 } from "@/components/kanban/calendar/calendar-toolbar";
 import { NodexIconButton } from "@/components/ui/button";
+import { toast } from "@/components/ui/toast";
 import type { CalendarRangeState } from "@/lib/calendar-range";
 import { resolveCalendarVisibleDayCount } from "@/lib/calendar-range";
 import {
@@ -48,6 +49,10 @@ import { DbViewToolbar } from "./db-view-toolbar";
 import { MainViewHost } from "./main-view-host";
 import { ToggleListIcon } from "./toggle-list-icon";
 import type { OpenPageTabHandler } from "./workbench-page-stage-panel";
+import {
+  canvasSceneSurfaceRegistry,
+  makeCanvasSceneSurfaceKey,
+} from "@/lib/canvas-scene-surface-runtime";
 
 const DB_VIEW_TABS: Array<{
   id: ProjectSessionDbView;
@@ -62,6 +67,7 @@ const DB_VIEW_TABS: Array<{
 ];
 
 export function DbViewSessionTab({
+  windowSessionId,
   sessionId,
   tab,
   projects,
@@ -80,6 +86,7 @@ export function DbViewSessionTab({
   onOpenPageTab,
   onUpdateTab,
 }: {
+  windowSessionId: string;
   sessionId: string;
   tab: WorkbenchTabProjection;
   projects: Project[];
@@ -126,6 +133,11 @@ export function DbViewSessionTab({
   const projectId = config.projectId;
   const selectedDatabaseViewId = config.databaseViewId;
   const view = config.view;
+  const canvasSurfaceKey = makeCanvasSceneSurfaceKey(
+    windowSessionId,
+    sessionId,
+    tab.id,
+  );
   const legacyRulesView = viewSupportsDbViewPrefs(view) ? view : null;
   const legacyDbViewPrefs = legacyRulesView
     ? dbViewPrefsByProject[projectId]?.[legacyRulesView]
@@ -259,6 +271,14 @@ export function DbViewSessionTab({
 
   const selectView = async (nextView: ProjectSessionDbView) => {
     if (selectedGeneralView) return;
+    if (renderedView === "canvas" && nextView !== "canvas") {
+      try {
+        await canvasSceneSurfaceRegistry.dispose(canvasSurfaceKey);
+      } catch {
+        toast.danger("Canvas changes could not be saved locally");
+        return;
+      }
+    }
     onUpdateTab(tab.id, {
       config: {
         projectId,
@@ -350,6 +370,7 @@ export function DbViewSessionTab({
         <MainViewHost
           projectId={projectId}
           databaseViewId={selectedDatabaseViewId}
+          canvasSurfaceKey={canvasSurfaceKey}
           databaseView={databaseView}
           databaseViewPagination={selectedDatabaseView.groupPagination}
           onLoadMoreDatabaseViewGroup={selectedDatabaseView.loadMoreGroup}

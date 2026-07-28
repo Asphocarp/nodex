@@ -40,6 +40,10 @@ import type {
   DocumentSyncRequest,
   DocumentSyncResponse,
 } from "../../../shared/block-documents/document-sync";
+import type {
+  CanvasSceneSyncRequest,
+  CanvasSceneSyncResponse,
+} from "../../../shared/block-documents/canvas-scene-sync";
 import type { ProjectionImpact } from "../../../shared/projection-stream";
 
 export interface FakeCoreHandshakeInput {
@@ -104,6 +108,7 @@ export class FakeCoreClient implements CoreClientPort {
   }> = [];
   readonly documentApplies: OwnedDocumentApplyInput[] = [];
   readonly documentSyncs: DocumentSyncRequest[] = [];
+  readonly documentCanvasSyncs: CanvasSceneSyncRequest[] = [];
   readonly documentUpdateApplies: DocumentSyncApplyRequest[] = [];
   readonly awarenessPublishes: DocumentAwarenessPublishRequest[] = [];
   readonly #readResults: LibraryReadSnapshot[] = [];
@@ -119,6 +124,7 @@ export class FakeCoreClient implements CoreClientPort {
   readonly #documentReadResults: OwnedDocumentReadSnapshot[] = [];
   readonly #documentApplyResults: OwnedDocumentCommittedValue[] = [];
   readonly #documentSyncResults: DocumentSyncResponse[] = [];
+  readonly #documentCanvasSyncResults: CanvasSceneSyncResponse[] = [];
   readonly #documentUpdateApplyResults: DocumentSyncApplyAck[] = [];
   readonly #awarenessResults: DocumentAwarenessPublishAck[] = [];
   readonly #eventConsumers = new Set<(event: CoreEventEnvelope) => void>();
@@ -188,6 +194,10 @@ export class FakeCoreClient implements CoreClientPort {
 
   enqueueDocumentSync(result: DocumentSyncResponse): void {
     this.#documentSyncResults.push(result);
+  }
+
+  enqueueDocumentCanvasSync(result: CanvasSceneSyncResponse): void {
+    this.#documentCanvasSyncResults.push(result);
   }
 
   enqueueDocumentUpdateApply(result: DocumentSyncApplyAck): void {
@@ -299,6 +309,15 @@ export class FakeCoreClient implements CoreClientPort {
     this.documentSyncs.push(input);
     const result = this.#documentSyncResults.shift();
     if (!result) throw new Error("Fake Core client has no queued Document sync");
+    return result;
+  }
+
+  async documentCanvasSync(
+    input: CanvasSceneSyncRequest,
+  ): Promise<CanvasSceneSyncResponse> {
+    this.documentCanvasSyncs.push(input);
+    const result = this.#documentCanvasSyncResults.shift();
+    if (!result) throw new Error("Fake Core client has no queued Canvas sync");
     return result;
   }
 

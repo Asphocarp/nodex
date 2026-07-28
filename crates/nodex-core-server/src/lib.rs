@@ -76,7 +76,7 @@ use connections::{
     BoundConnection, ConnectionActivity, ConnectionRegistry, ConnectionRegistryError,
     ConnectionRegistryErrorKind, EventSubscriptionKey, PeerIdentity,
 };
-use document_wire::{ApplyFrame, CONTENT_TYPE as DOCUMENT_CONTENT_TYPE};
+use document_wire::{ApplyFrame, CONTENT_TYPE as DOCUMENT_CONTENT_TYPE, CanvasSyncKind, SyncFrame};
 use lifecycle::{LifecycleCoordinator, configured_idle_timeout, monitor_idle};
 use metrics::ServerMetrics;
 use runtime_files::{
@@ -396,6 +396,12 @@ fn health_metrics(state: &ServerState) -> (CoreReadiness, CoreHealthMetrics) {
             .unwrap_or(1_000_000)
     };
     let (event_replay_lag, event_replay_lag_max) = state.metrics.event_replay_lag();
+    let (
+        canvas_sync_initial_snapshots,
+        canvas_sync_repair_snapshots,
+        canvas_sync_up_to_date,
+        canvas_sync_snapshot_bytes,
+    ) = state.metrics.canvas_sync();
     let store_metrics = state.store.metrics();
     (
         status,
@@ -418,6 +424,10 @@ fn health_metrics(state: &ServerState) -> (CoreReadiness, CoreHealthMetrics) {
             event_replay_lag_max,
             wal_size_bytes: wal_size_bytes.unwrap_or_default(),
             backup_duration: health_duration(state.metrics.backup_duration()),
+            canvas_sync_initial_snapshots,
+            canvas_sync_repair_snapshots,
+            canvas_sync_up_to_date,
+            canvas_sync_snapshot_bytes,
             active_clients: usize_to_u64(connections.clients),
             active_event_subscriptions: usize_to_u64(connections.event_subscriptions),
             active_document_subscriptions: usize_to_u64(realtime.subscriptions),
@@ -804,16 +814,6 @@ async fn document_read(State(state): State<Arc<ServerState>>, request: Request) 
                             )
                         })
                 }
-                OwnedDocumentRead::SyncCanvas { document_id } => {
-                    required_header(&headers, CLIENT_SESSION_HEADER, "Document client session")
-                        .and_then(|client_session_id| {
-                            state.document_realtime.sync_canvas(
-                                &context,
-                                &client_session_id,
-                                document_id.clone(),
-                            )
-                        })
-                }
                 _ => state.document.read(&context, request),
             };
             match result {
@@ -898,20 +898,75 @@ fn binary_document_read(
         let document_id = required_header(headers, DOCUMENT_HEADER, "Document")?;
         let header_session =
             required_header(headers, CLIENT_SESSION_HEADER, "Document client session")?;
-        let (metadata, state_vector) = document_wire::decode_sync(bytes)?;
-        require_wire_version(metadata.version)?;
-        require_same_identity(
-            &header_session,
-            &metadata.client_session_id,
-            "client session",
-        )?;
-        let snapshot = state.document_realtime.sync_yjs(
-            &context,
-            &metadata.client_session_id,
-            document_id,
-            state_vector,
-        )?;
-        document_wire::parse_yjs_sync(snapshot).and_then(|sync| document_wire::encode_sync(&sync))
+        match document_wire::decode_sync(bytes)? {
+            SyncFrame::Yjs(metadata, state_vector) => {
+                require_wire_version(metadata.version)?;
+                require_same_identity(
+                    &header_session,
+                    &metadata.client_session_id,
+                    "client session",
+                )?;
+                let snapshot = state.document_realtime.sync_yjs(
+                    &context,
+                    &metadata.client_session_id,
+                    document_id,
+                    state_vector,
+                )?;
+                document_wire::parse_yjs_sync(snapshot)
+                    .and_then(|sync| document_wire::encode_sync(&sync))
+            }
+            SyncFrame::Canvas(metadata) => {
+                require_wire_version(metadata.version)?;
+                require_same_identity(
+                    &header_session,
+                    &metadata.client_session_id,
+                    "client session",
+                )?;
+                let snapshot = state.document_realtime.sync_canvas(
+                    &context,
+                    &metadata.client_session_id,
+                    document_id,
+                )?;
+                let sync = document_wire::parse_canvas_sync(snapshot)?;
+                if let Some(known_store_epoch) = metadata.known_store_epoch.as_deref()
+                    && known_store_epoch != sync.store_epoch
+                {
+                    return Err(stale_document_store_epoch(&sync.store_epoch));
+                }
+                if let Some(known_generation) = metadata.known_generation
+                    && known_generation != sync.generation
+                {
+                    return Err(stale_document_generation(sync.generation, sync.head_seq));
+                }
+                let kind = match (
+                    metadata.known_head_seq,
+                    metadata.known_scene_hash.as_deref(),
+                ) {
+                    (Some(known_head_seq), Some(known_scene_hash))
+                        if known_head_seq == sync.head_seq
+                            && known_scene_hash == sync.scene_hash =>
+                    {
+                        CanvasSyncKind::UpToDate
+                    }
+                    (Some(known_head_seq), Some(_)) if known_head_seq == sync.head_seq => {
+                        return Err(canvas_scene_corrupt(
+                            "Canvas scene hash disagrees at the same Document head",
+                        ));
+                    }
+                    _ => CanvasSyncKind::Snapshot,
+                };
+                let frame =
+                    document_wire::encode_canvas_sync(&sync, &metadata.sync_request_id, kind)?;
+                state.metrics.record_canvas_sync(
+                    metadata.known_head_seq.is_none(),
+                    match kind {
+                        CanvasSyncKind::Snapshot => Some(sync.scene_json.len()),
+                        CanvasSyncKind::UpToDate => None,
+                    },
+                );
+                Ok(frame)
+            }
+        }
     })();
     match result {
         Ok(frame) => binary_response(frame),
@@ -1517,7 +1572,7 @@ fn json_document_apply_error(error: CoreError) -> Response {
 }
 
 fn require_wire_version(version: u32) -> Result<(), CoreError> {
-    if version == nodex_core_contracts::document::OWNED_DOCUMENT_CONTRACT_VERSION {
+    if version == 2 {
         return Ok(());
     }
     Err(invalid("Document binary frame version is unsupported"))
@@ -1538,6 +1593,38 @@ fn require_same_identity(expected: &str, actual: &str, label: &str) -> Result<()
 fn invalid(message: &str) -> CoreError {
     CoreError {
         code: CoreErrorCode::InvalidInput,
+        message: message.to_owned(),
+        retryable: false,
+        recovery: CoreErrorRecovery::None,
+    }
+}
+
+fn stale_document_store_epoch(current_store_epoch: &str) -> CoreError {
+    CoreError {
+        code: CoreErrorCode::StaleStoreEpoch,
+        message: "Canvas sync belongs to a different store epoch".to_owned(),
+        retryable: false,
+        recovery: CoreErrorRecovery::CurrentStoreEpoch {
+            store_epoch: StoreEpoch(current_store_epoch.to_owned()),
+        },
+    }
+}
+
+fn stale_document_generation(generation: i64, head_seq: i64) -> CoreError {
+    CoreError {
+        code: CoreErrorCode::GenerationConflict,
+        message: "Canvas sync belongs to a different Document generation".to_owned(),
+        retryable: false,
+        recovery: CoreErrorRecovery::CurrentDocumentHead {
+            generation,
+            head_seq,
+        },
+    }
+}
+
+fn canvas_scene_corrupt(message: &str) -> CoreError {
+    CoreError {
+        code: CoreErrorCode::StoreCorrupt,
         message: message.to_owned(),
         retryable: false,
         recovery: CoreErrorRecovery::None,
@@ -1787,6 +1874,10 @@ fn event_document_id(envelope: &EventEnvelope) -> Option<&str> {
                 document_id,
                 ..
             }
+            | nodex_core_contracts::document::OwnedDocumentEvent::CanvasGenerationChanged {
+                document_id,
+                ..
+            }
             | nodex_core_contracts::document::OwnedDocumentEvent::DocumentInvalidated {
                 document_id,
                 ..
@@ -1805,6 +1896,10 @@ fn realtime_event_document_id(event: &DocumentRealtimeEvent) -> &str {
                     ..
                 }
                 | nodex_core_contracts::document::OwnedDocumentEvent::CanvasUpdated {
+                    document_id,
+                    ..
+                }
+                | nodex_core_contracts::document::OwnedDocumentEvent::CanvasGenerationChanged {
                     document_id,
                     ..
                 }
@@ -1940,6 +2035,19 @@ fn event_log_metadata(
             } => (
                 "owned_document",
                 "canvas_updated",
+                Some(document_id),
+                1,
+                Some(*generation),
+                Some(*head_seq),
+            ),
+            nodex_core_contracts::document::OwnedDocumentEvent::CanvasGenerationChanged {
+                document_id,
+                generation,
+                head_seq,
+                ..
+            } => (
+                "owned_document",
+                "canvas_generation_changed",
                 Some(document_id),
                 1,
                 Some(*generation),

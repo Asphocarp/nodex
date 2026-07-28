@@ -130,7 +130,7 @@ matches have one of these explicit lifecycles:
 | Sidebar reorder/DnD and content-search Contexts | One active interaction/search surface; keep mounted feature-local |
 | Workbench header action registry | Ordered multi-producer registry whose entries dispose on registrar unmount; keep separate from the singular Route header value |
 | Block Document surface/write-fence, disclosure, Page/detail/Database-row/Kanban stores | Collaborative runtime, write fence, persisted disclosure, Query/read model, or optimistic journal; keep deep owners |
-| Browser, Terminal, Review full-content/diff batching, Canvas, transport, and subscription hubs | Native/process/data runtime Modules with explicit attach, request, cancellation, or subscription lifecycles; keep |
+| Browser, Terminal, Review full-content/diff batching, Canvas scene/provider/outbox/presence, transport, and subscription hubs | Native/process/data runtime Modules with explicit attach, request, cancellation, close-barrier, or subscription lifecycles; keep |
 | Toast, portal host, date clock, resize/drag/visibility helpers | UI primitive or current mounted interaction lifetime; keep local/focused |
 | Plain `Map`/`Set` in projection, parsing, search, scheduling, and render-model helpers | Per-call computational data structures, not reactive owners |
 

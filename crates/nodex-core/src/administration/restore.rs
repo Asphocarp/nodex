@@ -413,14 +413,13 @@ fn validate_canvas_projection(
         .prepare(
             "SELECT file_id, mime_type, asset_uri, managed_file_name \
              FROM canvas_scene_file_refs WHERE document_id = ?1 AND project_id = ?2 \
-               AND document_generation = ?3 AND projected_seq = ?4 ORDER BY file_id",
+               AND document_generation = ?3 ORDER BY file_id",
         )?
         .query_map(
             params![
                 authority.head.id,
                 authority.head.project_id,
-                authority.head.generation,
-                authority.head.head_seq
+                authority.head.generation
             ],
             |row| {
                 Ok((
@@ -451,14 +450,13 @@ fn validate_canvas_projection(
         .prepare(
             "SELECT source_element_id, target_block_id FROM canvas_page_references \
              WHERE document_id = ?1 AND project_id = ?2 AND document_generation = ?3 \
-               AND projected_seq = ?4 ORDER BY source_element_id",
+             ORDER BY source_element_id",
         )?
         .query_map(
             params![
                 authority.head.id,
                 authority.head.project_id,
-                authority.head.generation,
-                authority.head.head_seq
+                authority.head.generation
             ],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )?
@@ -485,13 +483,12 @@ fn validate_canvas_projection(
         .query_row(
             "SELECT text, text_hash FROM block_search_units \
              WHERE document_id = ?1 AND owner_block_id = ?2 AND block_id = ?2 \
-               AND document_generation = ?3 AND projected_seq = ?4 \
+               AND document_generation = ?3 \
                AND source_kind = 'document_marker' AND field_key = 'marker'",
             params![
                 authority.head.id,
                 authority.owner_block_id,
-                authority.head.generation,
-                authority.head.head_seq
+                authority.head.generation
             ],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
@@ -562,7 +559,7 @@ fn validate_assets(connection: &Connection, assets_root: &Path) -> Result<(), St
              FROM canvas_scene_file_refs asset JOIN documents document \
                ON document.id = asset.document_id AND document.project_id = asset.project_id \
              WHERE asset.document_generation = document.generation \
-               AND asset.projected_seq = document.head_seq ORDER BY asset_uri, document_id, file_id",
+             ORDER BY asset_uri, document_id, file_id",
         )?
         .query_map([], |row| {
             Ok((

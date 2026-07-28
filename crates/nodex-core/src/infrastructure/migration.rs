@@ -12,9 +12,12 @@ use yrs::updates::encoder::Encode;
 use yrs::{ReadTxn, StateVector, Transact, Update};
 
 use crate::document::{
-    BlockDocumentSchema, DocumentMaterialization, MAX_DOCUMENT_UPDATE_BYTES,
+    BlockDocumentSchema, CANVAS_SCENE_HASH_VERSION, CanvasHashItemKind, CanvasScene,
+    DocumentMaterialization, MAX_DOCUMENT_UPDATE_BYTES, canvas_hash_bucket,
+    canvas_semantic_intent_fingerprint, compute_canvas_scene_incremental_metadata,
     create_compatible_document, decode_block_document, decode_state_vector_v1,
-    has_pending_dependencies, materialize_decoded_document, rebuild_legacy_import_projections,
+    derive_canvas_element, has_pending_dependencies, load_v94_canvas_scene,
+    materialize_decoded_document, read_document_authority, rebuild_legacy_import_projections,
 };
 use crate::domain::project_appearance::{
     legacy_project_appearance, project_marker_color_literal, project_marker_icon_literal,
@@ -532,6 +535,129 @@ ALTER TABLE projects ADD COLUMN appearance_marker_value TEXT NOT NULL DEFAULT 'f
   );
 "#;
 
+const V95_CANVAS_INCREMENTAL_STAGING_SCHEMA_SQL: &str = r#"
+CREATE TABLE canvas_scenes_v95 (
+  document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+  generation INTEGER NOT NULL CHECK (generation >= 1),
+  head_seq INTEGER NOT NULL CHECK (head_seq >= 0),
+  schema_version INTEGER NOT NULL CHECK (schema_version >= 1),
+  scene_hash_version INTEGER NOT NULL CHECK (scene_hash_version = 2),
+  app_state_json TEXT NOT NULL DEFAULT '{}',
+  app_state_hash TEXT NOT NULL,
+  scene_hash TEXT NOT NULL,
+  element_count INTEGER NOT NULL CHECK (element_count >= 0),
+  tombstone_count INTEGER NOT NULL
+    CHECK (tombstone_count BETWEEN 0 AND element_count),
+  file_count INTEGER NOT NULL CHECK (file_count >= 0),
+  element_json_bytes INTEGER NOT NULL CHECK (element_json_bytes >= 0),
+  file_json_bytes INTEGER NOT NULL CHECK (file_json_bytes >= 0),
+  scene_byte_length INTEGER NOT NULL
+    CHECK (scene_byte_length BETWEEN 0 AND 16777216),
+  updated_at TEXT NOT NULL,
+  CHECK (json_valid(app_state_json) AND json_type(app_state_json) = 'object'),
+  CHECK (length(app_state_hash) = 64 AND app_state_hash NOT GLOB '*[^0-9a-f]*'),
+  CHECK (length(scene_hash) = 64 AND scene_hash NOT GLOB '*[^0-9a-f]*')
+) WITHOUT ROWID;
+
+CREATE TABLE canvas_scene_elements_v95 (
+  document_id TEXT NOT NULL
+    REFERENCES canvas_scenes_v95(document_id) ON DELETE CASCADE,
+  element_id TEXT NOT NULL,
+  version INTEGER NOT NULL CHECK (version >= 1),
+  version_nonce INTEGER NOT NULL CHECK (version_nonce >= 0),
+  order_key TEXT NOT NULL,
+  is_deleted INTEGER NOT NULL CHECK (is_deleted IN (0, 1)),
+  element_json TEXT NOT NULL,
+  element_hash TEXT NOT NULL,
+  hash_bucket INTEGER NOT NULL CHECK (hash_bucket BETWEEN 0 AND 1023),
+  referenced_file_id TEXT,
+  plain_text TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (document_id, element_id),
+  CHECK (length(element_id) BETWEEN 1 AND 512),
+  CHECK (length(order_key) BETWEEN 1 AND 256),
+  CHECK (json_valid(element_json) AND json_type(element_json) = 'object'),
+  CHECK (length(element_hash) = 64 AND element_hash NOT GLOB '*[^0-9a-f]*'),
+  CHECK (
+    (is_deleted = 0)
+    OR (referenced_file_id IS NULL AND plain_text = '')
+  ),
+  CHECK (referenced_file_id IS NULL OR length(referenced_file_id) BETWEEN 1 AND 512)
+) WITHOUT ROWID;
+
+CREATE TABLE canvas_scene_files_v95 (
+  document_id TEXT NOT NULL
+    REFERENCES canvas_scenes_v95(document_id) ON DELETE CASCADE,
+  file_id TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  asset_uri TEXT NOT NULL,
+  created_ms INTEGER CHECK (created_ms IS NULL OR created_ms >= 0),
+  file_json TEXT NOT NULL,
+  file_hash TEXT NOT NULL,
+  hash_bucket INTEGER NOT NULL CHECK (hash_bucket BETWEEN 0 AND 1023),
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (document_id, file_id),
+  CHECK (length(file_id) BETWEEN 1 AND 512),
+  CHECK (length(mime_type) BETWEEN 1 AND 256),
+  CHECK (length(asset_uri) BETWEEN 1 AND 4096),
+  CHECK (json_valid(file_json) AND json_type(file_json) = 'object'),
+  CHECK (length(file_hash) = 64 AND file_hash NOT GLOB '*[^0-9a-f]*')
+) WITHOUT ROWID;
+
+CREATE TABLE canvas_scene_hash_buckets_v95 (
+  document_id TEXT NOT NULL
+    REFERENCES canvas_scenes_v95(document_id) ON DELETE CASCADE,
+  bucket_index INTEGER NOT NULL CHECK (bucket_index BETWEEN 0 AND 1023),
+  item_count INTEGER NOT NULL CHECK (item_count > 0),
+  bucket_hash TEXT NOT NULL,
+  PRIMARY KEY (document_id, bucket_index),
+  CHECK (length(bucket_hash) = 64 AND bucket_hash NOT GLOB '*[^0-9a-f]*')
+) WITHOUT ROWID;
+
+CREATE TABLE canvas_scene_projection_heads_v95 (
+  document_id TEXT PRIMARY KEY
+    REFERENCES canvas_scenes_v95(document_id) ON DELETE CASCADE,
+  generation INTEGER NOT NULL CHECK (generation >= 1),
+  projected_head_seq INTEGER NOT NULL CHECK (projected_head_seq >= 0),
+  projection_version INTEGER NOT NULL CHECK (projection_version = 2),
+  updated_at TEXT NOT NULL
+) WITHOUT ROWID;
+
+CREATE TABLE canvas_scene_mutation_receipts_v95 (
+  document_id TEXT NOT NULL
+    REFERENCES canvas_scenes_v95(document_id) ON DELETE CASCADE,
+  generation INTEGER NOT NULL CHECK (generation >= 1),
+  mutation_id TEXT NOT NULL,
+  base_head_seq INTEGER NOT NULL CHECK (base_head_seq >= 0),
+  committed_head_seq INTEGER NOT NULL CHECK (committed_head_seq >= 0),
+  intent_hash TEXT NOT NULL,
+  intent_byte_length INTEGER NOT NULL CHECK (intent_byte_length > 0),
+  outcome TEXT NOT NULL CHECK (outcome IN ('committed', 'no_change')),
+  committed_at TEXT NOT NULL,
+  PRIMARY KEY (document_id, generation, mutation_id),
+  UNIQUE (document_id, mutation_id),
+  CHECK (length(mutation_id) BETWEEN 1 AND 512),
+  CHECK (length(intent_hash) = 64 AND intent_hash NOT GLOB '*[^0-9a-f]*')
+) WITHOUT ROWID;
+"#;
+
+const V96_CANVAS_TOMBSTONE_BYTES_SQL: &str = r#"
+ALTER TABLE canvas_scenes
+  ADD COLUMN tombstone_json_bytes INTEGER NOT NULL DEFAULT 0
+  CHECK (
+    tombstone_json_bytes >= 0
+    AND tombstone_json_bytes <= element_json_bytes
+  );
+
+UPDATE canvas_scenes
+SET tombstone_json_bytes = COALESCE((
+  SELECT SUM(length(CAST(element.element_json AS BLOB)))
+  FROM canvas_scene_elements element
+  WHERE element.document_id = canvas_scenes.document_id
+    AND element.is_deleted = 1
+), 0);
+"#;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentEngineFingerprint {
@@ -759,6 +885,8 @@ fn upgrade_owned_store(
         91 => validate_exact_v91_schema(connection)?,
         92 => validate_exact_v92_schema(connection)?,
         93 => validate_exact_v93_schema(connection)?,
+        94 => validate_exact_v94_schema(connection)?,
+        95 => validate_exact_v95_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -801,6 +929,12 @@ fn upgrade_owned_store(
         }
         if source_version < 94 {
             ensure_v94_project_appearance_schema(transaction)?;
+        }
+        if source_version < 95 {
+            ensure_v95_canvas_incremental_schema(transaction)?;
+        }
+        if source_version < 96 {
+            ensure_v96_canvas_tombstone_bytes_schema(transaction)?;
         }
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
@@ -1092,6 +1226,8 @@ fn publish_current_store(
         ensure_v92_canonical_text_timestamps(transaction)?;
         ensure_v93_database_starter_sessions_schema(transaction)?;
         ensure_v94_project_appearance_schema(transaction)?;
+        ensure_v95_canvas_incremental_schema(transaction)?;
+        ensure_v96_canvas_tombstone_bytes_schema(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -1118,6 +1254,8 @@ fn create_fresh_store(
         ensure_v92_canonical_text_timestamps(transaction)?;
         ensure_v93_database_starter_sessions_schema(transaction)?;
         ensure_v94_project_appearance_schema(transaction)?;
+        ensure_v95_canvas_incremental_schema(transaction)?;
+        ensure_v96_canvas_tombstone_bytes_schema(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -1355,6 +1493,496 @@ fn ensure_v94_project_appearance_schema(connection: &Connection) -> Result<(), S
     if foreign_key_violation.is_some() {
         return Err(corrupt(
             "v94 Project appearance migration produced a foreign-key violation",
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_v95_canvas_incremental_schema(connection: &Connection) -> Result<(), StoreError> {
+    connection.execute_batch(V95_CANVAS_INCREMENTAL_STAGING_SCHEMA_SQL)?;
+    let document_ids = connection
+        .prepare("SELECT document_id FROM canvas_scenes ORDER BY document_id")?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for document_id in &document_ids {
+        migrate_v95_canvas_scene(connection, document_id)?;
+    }
+    migrate_v95_canvas_receipts(connection)?;
+    connection.execute(
+        "UPDATE documents SET state_hash = (\
+           SELECT scene.scene_hash FROM canvas_scenes_v95 scene \
+           WHERE scene.document_id = documents.id\
+         ) WHERE sync_engine = 'canvas_scene'",
+        [],
+    )?;
+    connection.execute_batch(
+        "PRAGMA defer_foreign_keys = ON;
+         DROP INDEX idx_canvas_scene_elements_order;
+         DROP INDEX idx_canvas_scene_mutation_receipts_head;
+         DROP TRIGGER canvas_scene_mutation_receipts_immutable_update;
+         DROP TRIGGER canvas_scene_mutation_receipts_validate_result_hash_insert;
+         DROP TRIGGER canvas_scenes_require_scene_engine;
+
+         ALTER TABLE canvas_scenes RENAME TO canvas_scenes_v94;
+         ALTER TABLE canvas_scene_elements RENAME TO canvas_scene_elements_v94;
+         ALTER TABLE canvas_scene_files RENAME TO canvas_scene_files_v94;
+         ALTER TABLE canvas_scene_mutation_receipts RENAME TO canvas_scene_mutation_receipts_v94;
+
+         ALTER TABLE canvas_scenes_v95 RENAME TO canvas_scenes;
+         ALTER TABLE canvas_scene_elements_v95 RENAME TO canvas_scene_elements;
+         ALTER TABLE canvas_scene_files_v95 RENAME TO canvas_scene_files;
+         ALTER TABLE canvas_scene_hash_buckets_v95 RENAME TO canvas_scene_hash_buckets;
+         ALTER TABLE canvas_scene_projection_heads_v95 RENAME TO canvas_scene_projection_heads;
+         ALTER TABLE canvas_scene_mutation_receipts_v95 RENAME TO canvas_scene_mutation_receipts;
+
+         DROP TABLE canvas_scene_mutation_receipts_v94;
+         DROP TABLE canvas_scene_elements_v94;
+         DROP TABLE canvas_scene_files_v94;
+         DROP TABLE canvas_scenes_v94;
+
+         CREATE INDEX idx_canvas_scene_elements_order
+           ON canvas_scene_elements(document_id, order_key, element_id);
+         CREATE INDEX idx_canvas_scene_elements_bucket
+           ON canvas_scene_elements(document_id, hash_bucket, element_id);
+         CREATE INDEX idx_canvas_scene_elements_file_reference
+           ON canvas_scene_elements(document_id, referenced_file_id)
+           WHERE referenced_file_id IS NOT NULL AND is_deleted = 0;
+         CREATE INDEX idx_canvas_scene_files_bucket
+           ON canvas_scene_files(document_id, hash_bucket, file_id);
+         CREATE INDEX idx_canvas_scene_mutation_receipts_head
+           ON canvas_scene_mutation_receipts(document_id, generation, committed_head_seq);
+
+         CREATE TRIGGER canvas_scene_mutation_receipts_immutable_update
+           BEFORE UPDATE ON canvas_scene_mutation_receipts
+           BEGIN
+             SELECT RAISE(ABORT, 'Canvas scene mutation receipts are immutable');
+           END;
+         CREATE TRIGGER canvas_scene_mutation_receipts_immutable_delete
+           BEFORE DELETE ON canvas_scene_mutation_receipts
+           BEGIN
+             SELECT RAISE(ABORT, 'Canvas scene mutation receipts are immutable');
+           END;
+         CREATE TRIGGER canvas_scenes_require_scene_engine
+           BEFORE INSERT ON canvas_scenes
+           WHEN COALESCE((
+             SELECT sync_engine FROM documents WHERE id = NEW.document_id
+           ), '') <> 'canvas_scene'
+           BEGIN
+             SELECT RAISE(ABORT, 'Canvas scene authority requires canvas_scene sync engine');
+           END;",
+    )?;
+    let foreign_key_violation = connection
+        .prepare("PRAGMA foreign_key_check")?
+        .query_row([], |_| Ok(()))
+        .optional()?;
+    if foreign_key_violation.is_some() {
+        return Err(corrupt(
+            "v95 Canvas incremental migration produced a foreign-key violation",
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_v96_canvas_tombstone_bytes_schema(connection: &Connection) -> Result<(), StoreError> {
+    connection.execute_batch(V96_CANVAS_TOMBSTONE_BYTES_SQL)?;
+    Ok(())
+}
+
+fn migrate_v95_canvas_scene(connection: &Connection, document_id: &str) -> Result<(), StoreError> {
+    let authority = read_document_authority(connection, document_id)?
+        .ok_or_else(|| corrupt("v94 Canvas scene is missing its Document authority"))?;
+    let loaded = load_v94_canvas_scene(connection, &authority)?;
+    validate_v94_canvas_projections(connection, &authority, &loaded.scene)?;
+    let metadata = compute_canvas_scene_incremental_metadata(&loaded.scene)?;
+    connection.execute(
+        "INSERT INTO canvas_scenes_v95 (\
+           document_id, generation, head_seq, schema_version, scene_hash_version, \
+           app_state_json, app_state_hash, scene_hash, element_count, tombstone_count, \
+           file_count, element_json_bytes, file_json_bytes, scene_byte_length, updated_at\
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+        params![
+            document_id,
+            authority.head.generation,
+            authority.head.head_seq,
+            authority.head.schema_version,
+            CANVAS_SCENE_HASH_VERSION,
+            metadata.app_state_json,
+            metadata.app_state_hash,
+            metadata.scene_hash,
+            metadata.counters.element_count,
+            metadata.counters.tombstone_count,
+            metadata.counters.file_count,
+            metadata.counters.element_json_bytes,
+            metadata.counters.file_json_bytes,
+            metadata.counters.scene_byte_length,
+            loaded.updated_at,
+        ],
+    )?;
+    for element in &loaded.scene.elements {
+        let element_json = serde_json::to_string(&element.value)
+            .map_err(|_| corrupt("v94 Canvas element JSON cannot be canonicalized"))?;
+        let derived = derive_canvas_element(element)?;
+        connection.execute(
+            "INSERT INTO canvas_scene_elements_v95 (\
+               document_id, element_id, version, version_nonce, order_key, is_deleted, \
+               element_json, element_hash, hash_bucket, referenced_file_id, plain_text, updated_at\
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                document_id,
+                element.id,
+                element.version,
+                element.version_nonce,
+                element.order_key,
+                i64::from(element.is_deleted),
+                element_json,
+                sha256(element_json.as_bytes()),
+                i64::from(canvas_hash_bucket(CanvasHashItemKind::Element, &element.id)),
+                derived.referenced_file_id,
+                derived.plain_text,
+                loaded.updated_at,
+            ],
+        )?;
+    }
+    for (file_id, file) in &loaded.scene.files {
+        let file_json = serde_json::to_string(&file.value)
+            .map_err(|_| corrupt("v94 Canvas file JSON cannot be canonicalized"))?;
+        connection.execute(
+            "INSERT INTO canvas_scene_files_v95 (\
+               document_id, file_id, mime_type, asset_uri, created_ms, file_json, file_hash, \
+               hash_bucket, updated_at\
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                document_id,
+                file_id,
+                file.mime_type,
+                file.source,
+                file.created_ms,
+                file_json,
+                sha256(file_json.as_bytes()),
+                i64::from(canvas_hash_bucket(CanvasHashItemKind::File, file_id)),
+                loaded.updated_at,
+            ],
+        )?;
+    }
+    for (bucket_index, bucket) in &metadata.hash_buckets {
+        connection.execute(
+            "INSERT INTO canvas_scene_hash_buckets_v95 (\
+               document_id, bucket_index, item_count, bucket_hash\
+             ) VALUES (?1, ?2, ?3, ?4)",
+            params![
+                document_id,
+                i64::from(*bucket_index),
+                bucket.item_count,
+                bucket.bucket_hash
+            ],
+        )?;
+    }
+    connection.execute(
+        "INSERT INTO canvas_scene_projection_heads_v95 (\
+           document_id, generation, projected_head_seq, projection_version, updated_at\
+         ) VALUES (?1, ?2, ?3, 2, ?4)",
+        params![
+            document_id,
+            authority.head.generation,
+            authority.head.head_seq,
+            loaded.updated_at
+        ],
+    )?;
+    Ok(())
+}
+
+fn migrate_v95_canvas_receipts(connection: &Connection) -> Result<(), StoreError> {
+    type LegacyCanvasReceipt = (
+        String,
+        i64,
+        String,
+        i64,
+        i64,
+        String,
+        i64,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        Option<String>,
+        String,
+        String,
+        String,
+        String,
+    );
+    let legacy_count: i64 = connection.query_row(
+        "SELECT count(*) FROM canvas_scene_mutation_receipts",
+        [],
+        |row| row.get(0),
+    )?;
+    let rows = connection
+        .prepare(
+            "SELECT canvas.document_id, canvas.generation, canvas.mutation_id, \
+                    canvas.base_head_seq, canvas.committed_head_seq, canvas.request_hash, \
+                    canvas.request_byte_length, canvas.request_json, canvas.result_json, \
+                    canvas.result_hash, canvas.outcome, canvas.committed_at, \
+                    common.profile_id, common.project_id, common.store_epoch, \
+                    common.request_hash, common.result_json, common.operation_kind \
+             FROM canvas_scene_mutation_receipts canvas \
+             JOIN core_module_receipts common \
+               ON common.module_name = 'owned_document' \
+              AND common.operation_id = canvas.mutation_id \
+             ORDER BY canvas.document_id, canvas.generation, canvas.mutation_id",
+        )?
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+                row.get(7)?,
+                row.get(8)?,
+                row.get(9)?,
+                row.get(10)?,
+                row.get(11)?,
+                row.get(12)?,
+                row.get(13)?,
+                row.get(14)?,
+                row.get(15)?,
+                row.get(16)?,
+                row.get(17)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<LegacyCanvasReceipt>>>()?;
+    if i64::try_from(rows.len()).ok() != Some(legacy_count) {
+        return Err(corrupt(
+            "v94 Canvas receipt is missing its trusted Module receipt",
+        ));
+    }
+    for row in rows {
+        if !is_sha256(&row.5)
+            || row.5 != sha256(row.7.as_bytes())
+            || i64::try_from(row.7.len()).ok() != Some(row.6)
+            || !is_sha256(&row.9)
+            || row.9 != sha256(row.8.as_bytes())
+            || !is_sha256(&row.15)
+        {
+            return Err(corrupt("v94 Canvas receipt hash evidence is invalid"));
+        }
+        let request = serde_json::from_str::<serde_json::Value>(&row.7)
+            .map_err(|_| corrupt("v94 Canvas receipt request JSON is invalid"))?;
+        let request = request
+            .as_object()
+            .ok_or_else(|| corrupt("v94 Canvas receipt request must be an object"))?;
+        let mutation = serde_json::json!({
+            "elementCandidates": request.get("elementCandidates")
+                .ok_or_else(|| corrupt("v94 Canvas receipt is missing elementCandidates"))?,
+            "appStateIntents": request.get("appStateIntents")
+                .ok_or_else(|| corrupt("v94 Canvas receipt is missing appStateIntents"))?,
+            "fileAdditions": request.get("fileAdditions")
+                .ok_or_else(|| corrupt("v94 Canvas receipt is missing fileAdditions"))?,
+        });
+        let request_project_id = request.get("projectId").and_then(serde_json::Value::as_str);
+        if request_project_id != row.13.as_deref()
+            || request
+                .get("documentId")
+                .and_then(serde_json::Value::as_str)
+                != Some(row.0.as_str())
+            || request
+                .get("storeEpoch")
+                .and_then(serde_json::Value::as_str)
+                != Some(row.14.as_str())
+            || request
+                .get("generation")
+                .and_then(serde_json::Value::as_i64)
+                != Some(row.1)
+            || request
+                .get("baseHeadSeq")
+                .and_then(serde_json::Value::as_i64)
+                != Some(row.3)
+        {
+            return Err(corrupt(
+                "v94 Canvas receipt coordinates diverge from its Module receipt",
+            ));
+        }
+        let common_result = serde_json::from_str::<serde_json::Value>(&row.16)
+            .map_err(|_| corrupt("v94 Canvas Module result JSON is invalid"))?;
+        let canvas_result = serde_json::from_str::<serde_json::Value>(&row.8)
+            .map_err(|_| corrupt("v94 Canvas private result JSON is invalid"))?;
+        if common_result.pointer("/value/canvas") != Some(&canvas_result) {
+            return Err(corrupt(
+                "v94 Canvas private result diverges from its Module receipt",
+            ));
+        }
+        let library_id = connection
+            .query_row(
+                "SELECT id FROM libraries WHERE profile_id = ?1",
+                [&row.12],
+                |library| library.get::<_, String>(0),
+            )
+            .optional()?
+            .ok_or_else(|| corrupt("v94 Canvas receipt profile has no Library"))?;
+        let intent_hash = if row.17 == "apply_canvas_mutation" {
+            sha256(&canvas_semantic_intent_fingerprint(
+                &row.12,
+                &library_id,
+                row.13.as_deref(),
+                &row.14,
+                &row.0,
+                row.1,
+                row.3,
+                &row.2,
+                &mutation,
+            )?)
+        } else {
+            row.15.clone()
+        };
+        let intent_json = serde_json::to_string(&mutation)
+            .map_err(|_| corrupt("v94 Canvas intent cannot be canonicalized"))?;
+        connection.execute(
+            "INSERT INTO canvas_scene_mutation_receipts_v95 (\
+               document_id, generation, mutation_id, base_head_seq, committed_head_seq, \
+               intent_hash, intent_byte_length, outcome, committed_at\
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                row.0,
+                row.1,
+                row.2,
+                row.3,
+                row.4,
+                intent_hash,
+                i64::try_from(intent_json.len())
+                    .map_err(|_| corrupt("v94 Canvas intent length overflowed"))?,
+                row.10,
+                row.11,
+            ],
+        )?;
+        if row.17 == "apply_canvas_mutation" {
+            let changed = connection.execute(
+                "UPDATE core_module_receipts SET request_hash = ?1 \
+                 WHERE module_name = 'owned_document' AND operation_id = ?2 \
+                   AND request_hash = ?3",
+                params![intent_hash, row.2, row.15],
+            )?;
+            if changed != 1 {
+                return Err(corrupt(
+                    "v94 Canvas Module receipt changed during semantic migration",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_v94_canvas_projections(
+    connection: &Connection,
+    authority: &crate::document::DocumentAuthorityRow,
+    scene: &CanvasScene,
+) -> Result<(), StoreError> {
+    let mut expected_references = scene
+        .page_references
+        .iter()
+        .map(|reference| {
+            (
+                reference.source_element_id.clone(),
+                reference.target_block_id.clone(),
+                reference.title_hint.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    expected_references.sort();
+    let actual_references = connection
+        .prepare(
+            "SELECT source_element_id, target_block_id, title_hint \
+             FROM canvas_page_references \
+             WHERE document_id = ?1 AND owner_block_id = ?2 AND project_id = ?3 \
+               AND document_generation = ?4 AND projected_seq = ?5 \
+             ORDER BY source_element_id",
+        )?
+        .query_map(
+            params![
+                authority.head.id,
+                authority.owner_block_id,
+                authority.head.project_id,
+                authority.head.generation,
+                authority.head.head_seq
+            ],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if actual_references != expected_references {
+        return Err(corrupt(
+            "v94 Canvas Page-reference projection diverges from authority",
+        ));
+    }
+    let expected_files = scene
+        .files
+        .values()
+        .map(|file| {
+            (
+                file.id.clone(),
+                file.mime_type.clone(),
+                file.source.clone(),
+                file.managed_file_name.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let actual_files = connection
+        .prepare(
+            "SELECT file_id, mime_type, asset_uri, managed_file_name \
+             FROM canvas_scene_file_refs \
+             WHERE document_id = ?1 AND owner_block_id = ?2 AND project_id = ?3 \
+               AND document_generation = ?4 AND projected_seq = ?5 \
+             ORDER BY file_id",
+        )?
+        .query_map(
+            params![
+                authority.head.id,
+                authority.owner_block_id,
+                authority.head.project_id,
+                authority.head.generation,
+                authority.head.head_seq
+            ],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if actual_files != expected_files {
+        return Err(corrupt(
+            "v94 Canvas managed-file projection diverges from authority",
+        ));
+    }
+    let search_marker = connection
+        .query_row(
+            "SELECT text FROM block_search_units \
+             WHERE document_id = ?1 AND owner_block_id = ?2 AND project_id = ?3 \
+               AND document_generation = ?4 AND projected_seq = ?5 \
+               AND source_revision IS NULL AND source_kind = 'document_marker'",
+            params![
+                authority.head.id,
+                authority.owner_block_id,
+                authority.head.project_id,
+                authority.head.generation,
+                authority.head.head_seq
+            ],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if search_marker.as_deref() != Some(scene.plain_text.as_str()) {
+        return Err(corrupt(
+            "v94 Canvas search projection diverges from authority",
         ));
     }
     Ok(())
@@ -2125,6 +2753,14 @@ fn validate_exact_v93_schema(connection: &Connection) -> Result<(), StoreError> 
     validate_exact_core_schema(connection, true, true, true, true, true, true, false, 93)
 }
 
+fn validate_exact_v94_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 94)
+}
+
+fn validate_exact_v95_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 95)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -2177,6 +2813,12 @@ fn validate_exact_core_schema(
     }
     if include_project_appearance {
         ensure_v94_project_appearance_schema(&expected)?;
+    }
+    if schema_version >= 95 {
+        ensure_v95_canvas_incremental_schema(&expected)?;
+    }
+    if schema_version >= 96 {
+        ensure_v96_canvas_tombstone_bytes_schema(&expected)?;
     }
 
     let expected_inventory = read_schema_inventory(&expected)?;
@@ -2245,6 +2887,12 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     }
     if version >= 94 {
         ensure_v94_project_appearance_schema(&expected)?;
+    }
+    if version >= 95 {
+        ensure_v95_canvas_incremental_schema(&expected)?;
+    }
+    if version >= 96 {
+        ensure_v96_canvas_tombstone_bytes_schema(&expected)?;
     }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
@@ -3195,6 +3843,106 @@ mod tests {
         .expect("seed v93 Project appearances");
     }
 
+    fn seed_owned_v94_store_with_canvas(home: &Path) {
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v94 writer");
+        install_v84_schema(&connection).expect("v84 schema");
+        with_immediate_transaction(&mut connection, |transaction| {
+            transaction.execute_batch(V85_SCHEMA_SQL)?;
+            transaction.execute_batch(V85_EXECUTION_SCHEMA_SQL)?;
+            ensure_automation_definition_revision(transaction)?;
+            ensure_automation_run_revision(transaction)?;
+            ensure_v86_execution_profile_schema(transaction)?;
+            ensure_v87_project_session_tabs_schema(transaction)?;
+            ensure_v88_projection_impact_schema(transaction)?;
+            ensure_v90_window_owned_session_views_schema(transaction)?;
+            ensure_v91_workspace_sidebar_lanes_schema(transaction)?;
+            ensure_v93_database_starter_sessions_schema(transaction)?;
+            ensure_v94_project_appearance_schema(transaction)?;
+            transaction.execute(
+                "INSERT INTO core_store_metadata(\
+                   id, schema_owner, store_format_version, migrated_from_version, \
+                   migration_backup_name, migrated_at_unix_ms, projection_event_v2_floor\
+                 ) VALUES (1, ?1, 94, NULL, NULL, 1, 1)",
+                [CORE_SCHEMA_OWNER],
+            )?;
+            let now = "2026-07-29T00:00:00.000Z";
+            transaction.execute(
+                "INSERT INTO profiles(id, created_at, updated_at) \
+                 VALUES ('profile:canvas-v94', ?1, ?1)",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                 VALUES ('library:canvas-v94', 'profile:canvas-v94', ?1, ?1)",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO projects(id, library_id, name, created, updated) \
+                 VALUES ('project:canvas-v94', 'library:canvas-v94', 'Canvas v94', ?1, ?1)",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO blocks(\
+                   id, project_id, type, lifecycle, location_kind, containing_document_id, \
+                   containing_database_id, location_revision, metadata_revision, created_at, updated_at\
+                 ) VALUES (\
+                   'block:canvas-v94', 'project:canvas-v94', 'canvas', 'active', 'space', \
+                   NULL, NULL, 1, 1, ?1, ?1\
+                 )",
+                [now],
+            )?;
+            let legacy_hash = sha256(
+                serde_json::to_string(&serde_json::json!({
+                    "schemaVersion": 1,
+                    "elements": [],
+                    "appState": {},
+                    "files": {},
+                    "pageReferences": [],
+                }))
+                .map_err(internal_json)?
+                .as_bytes(),
+            );
+            transaction.execute(
+                "INSERT INTO documents(\
+                   id, project_id, generation, head_seq, schema_key, schema_version, \
+                   state_vector, state_hash, readiness, authority, created_at, updated_at, sync_engine\
+                 ) VALUES (\
+                   'document:canvas-v94', 'project:canvas-v94', 1, 0, 'nodex.canvas', 1, \
+                   X'', ?1, 'ready', 'ydoc_primary', ?2, ?2, 'canvas_scene'\
+                 )",
+                params![legacy_hash, now],
+            )?;
+            transaction.execute(
+                "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                 VALUES (\
+                   'block:canvas-v94', 'document:canvas-v94', 'project:canvas-v94', ?1\
+                 )",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO canvas_scenes(\
+                   document_id, generation, head_seq, schema_version, app_state_json, scene_hash, updated_at\
+                 ) VALUES ('document:canvas-v94', 1, 0, 1, '{}', ?1, ?2)",
+                params![legacy_hash, now],
+            )?;
+            transaction.execute(
+                "INSERT INTO block_search_units(\
+                   unit_key, project_id, block_id, owner_block_id, document_id, \
+                   document_generation, projected_seq, source_revision, projection_version, \
+                   source_kind, field_key, text, text_hash, updated_at\
+                 ) VALUES (\
+                   'canvas-v94-marker', 'project:canvas-v94', 'block:canvas-v94', \
+                   'block:canvas-v94', 'document:canvas-v94', 1, 0, NULL, 1, \
+                   'document_marker', 'marker', '', ?1, ?2\
+                 )",
+                params![sha256(b""), now],
+            )?;
+            transaction.pragma_update(None, "user_version", 94)?;
+            Ok(())
+        })
+        .expect("seed v94 Canvas");
+    }
+
     #[test]
     fn v92_upgrade_replaces_initial_view_pointer_with_database_starter_marker() {
         let directory = tempdir().expect("Profile");
@@ -3321,6 +4069,137 @@ mod tests {
 
         let reopened = SqliteStoreKernel::open(&home).expect("reopen current store");
         assert_eq!(reopened.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(reopened.preparation().migrated_from_version, None);
+    }
+
+    #[test]
+    fn v94_upgrade_backfills_exact_incremental_canvas_authority() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v94_store_with_canvas(&home);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v94 Canvas store");
+        assert_eq!(upgraded.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(94));
+        upgraded
+            .readers()
+            .read_default(|connection| {
+                let evidence = connection.query_row(
+                    "SELECT scene.scene_hash_version, scene.element_count, \
+                            scene.tombstone_count, scene.file_count, scene.scene_byte_length, \
+                            scene.scene_hash, document.state_hash, projection.generation, \
+                            projection.projected_head_seq, projection.projection_version \
+                     FROM canvas_scenes scene \
+                     JOIN documents document ON document.id = scene.document_id \
+                     JOIN canvas_scene_projection_heads projection \
+                       ON projection.document_id = scene.document_id \
+                     WHERE scene.document_id = 'document:canvas-v94'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, i64>(3)?,
+                            row.get::<_, i64>(4)?,
+                            row.get::<_, String>(5)?,
+                            row.get::<_, String>(6)?,
+                            row.get::<_, i64>(7)?,
+                            row.get::<_, i64>(8)?,
+                            row.get::<_, i64>(9)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(evidence.0, 2);
+                assert_eq!((evidence.1, evidence.2, evidence.3), (0, 0, 0));
+                assert!(evidence.4 > 0);
+                assert_eq!(evidence.5, evidence.6);
+                assert_eq!((evidence.7, evidence.8, evidence.9), (1, 0, 2));
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT tombstone_json_bytes FROM canvas_scenes \
+                         WHERE document_id = 'document:canvas-v94'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    0
+                );
+                assert_eq!(
+                    connection.query_row("PRAGMA integrity_check", [], |row| {
+                        row.get::<_, String>(0)
+                    })?,
+                    "ok"
+                );
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT count(*) FROM pragma_foreign_key_check",
+                        [],
+                        |row| { row.get::<_, i64>(0) }
+                    )?,
+                    0
+                );
+                Ok::<_, StoreError>(())
+            })
+            .expect("verify current Canvas authority");
+        drop(upgraded);
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen current Canvas store");
+        assert_eq!(reopened.preparation().migrated_from_version, None);
+    }
+
+    #[test]
+    fn v96_upgrade_adds_exact_canvas_tombstone_bytes() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v94_store_with_canvas(&home);
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v95 writer");
+        with_immediate_transaction(&mut connection, |transaction| {
+            ensure_v95_canvas_incremental_schema(transaction)?;
+            let updated = transaction.execute(
+                "UPDATE core_store_metadata SET store_format_version = 95 \
+                 WHERE id = 1 AND store_format_version = 94",
+                [],
+            )?;
+            assert_eq!(updated, 1);
+            transaction.pragma_update(None, "user_version", 95)?;
+            Ok(())
+        })
+        .expect("publish exact v95 store");
+        validate_exact_v95_schema(&connection).expect("validate exact v95 store");
+        drop(connection);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v95 Canvas store");
+        assert_eq!(upgraded.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(95));
+        let backup_path = upgraded
+            .preparation()
+            .migration_backup_path
+            .as_ref()
+            .expect("v95 migration backup");
+        assert_eq!(
+            open_immutable_reader(backup_path)
+                .expect("open v95 backup")
+                .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .expect("read backup version"),
+            95
+        );
+        upgraded
+            .readers()
+            .read_default(|connection| {
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT tombstone_json_bytes FROM canvas_scenes \
+                         WHERE document_id = 'document:canvas-v94'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    0
+                );
+                Ok::<_, StoreError>(())
+            })
+            .expect("read v96 tombstone bytes");
+        drop(upgraded);
+
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen v96 Canvas store");
         assert_eq!(reopened.preparation().migrated_from_version, None);
     }
 

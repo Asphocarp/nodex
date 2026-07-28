@@ -1,7 +1,9 @@
 import {
   CANVAS_SCENE_SYNC_VERSION,
   MAX_CANVAS_SCENE_MUTATION_BYTES,
+  MAX_CANVAS_SCENE_SNAPSHOT_BYTES,
   canonicalizeCanvasSceneMutationRequest,
+  canonicalizeCanvasSceneMutationResult,
   type CanvasSceneMutationCommandResult,
   type CanvasSceneMutationError,
   type CanvasSceneMutationRequest,
@@ -19,7 +21,8 @@ import {
 
 export const CANVAS_SCENE_HTTP_CONTENT_TYPE =
   "application/vnd.nodex.canvas-scene.v1+json";
-export const MAX_CANVAS_SCENE_HTTP_RESPONSE_BYTES = 16 * 1024 * 1024;
+export const MAX_CANVAS_SCENE_HTTP_RESPONSE_BYTES =
+  MAX_CANVAS_SCENE_SNAPSHOT_BYTES + 64 * 1024;
 
 const encoder = new TextEncoder();
 
@@ -166,8 +169,15 @@ export const decodeCanvasSceneSyncRequestHttp = (
   const knownStoreEpoch = value.knownStoreEpoch === undefined
     ? undefined
     : requireCanvasSceneIdentity(value.knownStoreEpoch, "knownStoreEpoch");
+  const knownSceneHash = value.knownSceneHash === undefined
+    ? undefined
+    : requireHash(value.knownSceneHash, "knownSceneHash");
   return {
     version: CANVAS_SCENE_SYNC_VERSION,
+    syncRequestId: requireCanvasSceneIdentity(
+      value.syncRequestId,
+      "syncRequestId",
+    ),
     projectId,
     documentId,
     clientSessionId,
@@ -178,6 +188,7 @@ export const decodeCanvasSceneSyncRequestHttp = (
     ...(optionalInteger("knownHeadSeq", 0) === undefined
       ? {}
       : { knownHeadSeq: optionalInteger("knownHeadSeq", 0) }),
+    ...(knownSceneHash ? { knownSceneHash } : {}),
   };
 };
 
@@ -221,16 +232,36 @@ export const decodeCanvasSceneSyncResultHttp = (
   if (envelope.value.version !== CANVAS_SCENE_SYNC_VERSION) {
     throw new TypeError("Canvas scene sync result version is invalid");
   }
-  return { ok: true, value: {
+  const common = {
     version: CANVAS_SCENE_SYNC_VERSION,
+    syncRequestId: requireCanvasSceneIdentity(
+      envelope.value.syncRequestId,
+      "syncRequestId",
+    ),
     projectId: requireCanvasSceneIdentity(envelope.value.projectId, "projectId"),
     documentId: requireCanvasSceneIdentity(envelope.value.documentId, "documentId"),
     storeEpoch: requireCanvasSceneIdentity(envelope.value.storeEpoch, "storeEpoch"),
     generation: requireInteger(envelope.value.generation, "generation", 1),
     headSeq: requireInteger(envelope.value.headSeq, "headSeq"),
     sceneHash: requireHash(envelope.value.sceneHash, "sceneHash"),
-    scene: parsePortableCanvasScene(envelope.value.scene),
-  } };
+  };
+  if (envelope.value.kind === "up_to_date") {
+    if (envelope.value.scene !== undefined) {
+      throw new TypeError("Canvas up-to-date sync result cannot contain a scene");
+    }
+    return { ok: true, value: { kind: "up_to_date", ...common } };
+  }
+  if (envelope.value.kind !== "snapshot") {
+    throw new TypeError("Canvas scene sync result kind is invalid");
+  }
+  return {
+    ok: true,
+    value: {
+      kind: "snapshot",
+      ...common,
+      scene: parsePortableCanvasScene(envelope.value.scene),
+    },
+  };
 };
 
 export const encodeCanvasSceneMutationResultHttp = (
@@ -245,31 +276,10 @@ export const decodeCanvasSceneMutationResultHttp = (
   );
   if (envelope.ok === false) return { ok: false, error: requireError(envelope.error) };
   if (!isRecord(envelope.value)) throw new TypeError("Canvas scene mutation result is invalid");
-  const value = envelope.value;
-  if (
-    value.version !== CANVAS_SCENE_SYNC_VERSION || typeof value.duplicate !== "boolean" ||
-    (value.outcome !== "committed" && value.outcome !== "no_change") ||
-    typeof value.committedAt !== "string"
-  ) throw new TypeError("Canvas scene mutation result is invalid");
-  const result: CanvasSceneMutationCommandResult = { ok: true, value: {
-    version: CANVAS_SCENE_SYNC_VERSION,
-    mutationId: requireCanvasSceneIdentity(value.mutationId, "mutationId"),
-    projectId: requireCanvasSceneIdentity(value.projectId, "projectId"),
-    documentId: requireCanvasSceneIdentity(value.documentId, "documentId"),
-    storeEpoch: requireCanvasSceneIdentity(value.storeEpoch, "storeEpoch"),
-    generation: requireInteger(value.generation, "generation", 1),
-    baseHeadSeq: requireInteger(value.baseHeadSeq, "baseHeadSeq"),
-    headSeq: requireInteger(value.headSeq, "headSeq"),
-    duplicate: value.duplicate,
-    outcome: value.outcome,
-    sceneHash: requireHash(value.sceneHash, "sceneHash"),
-    changedElementIds: requireStringArray(value.changedElementIds, "changedElementIds"),
-    appliedAppStateKeys: requireStringArray(value.appliedAppStateKeys, "appliedAppStateKeys"),
-    skippedAppStateKeys: requireStringArray(value.skippedAppStateKeys, "skippedAppStateKeys"),
-    addedFileIds: requireStringArray(value.addedFileIds, "addedFileIds"),
-    removedFileIds: requireStringArray(value.removedFileIds, "removedFileIds"),
-    committedAt: value.committedAt,
-  } };
+  const result: CanvasSceneMutationCommandResult = {
+    ok: true,
+    value: canonicalizeCanvasSceneMutationResult(envelope.value),
+  };
   if (envelope.event !== undefined) {
     const event = parseRealtimeValue(envelope.event);
     if (event.type !== "canvas_scene_committed") {

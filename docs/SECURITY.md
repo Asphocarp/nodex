@@ -112,6 +112,19 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   creates and exclusively locks a new Profile-family segment, refuses symlink
   segments, and removes only segments it can lock; an unsafe or failed file sink
   disables itself without weakening Core availability.
+- Canvas tombstone compaction accepts no caller-asserted authority or deletion
+  set. Core derives exact eligible rows from the current generation, requires
+  the inspected head plus a Host-issued all-subscriber write fence, validates
+  the bounded scene before and after removal, and publishes the next generation
+  atomically with its pinned safety revision, projections, receipt, and event.
+  A stale generation cannot submit or replay pre-compaction element intent.
+- Canvas presence accepts only a strict 64-KiB engine-discriminated payload,
+  finite coordinates, a safe monotonic clock, and at most 256 sorted unique
+  selection IDs. The renderer cannot assert collaborator identity: Main
+  requires the exact active Canvas subscription and synchronized generation,
+  then derives user identity/color from the trusted WebContents target.
+  Presence is memory-only, sender-excluded, TTL-bounded, and never reaches Core,
+  SQLite, diagnostics bodies, history, receipts, or the durable outbox.
 - Nodex resource consent exists only in main and is independent of Codex filesystem/command approval modes. One-call consent binds the exact call and prepared footprint. Task consent binds app session, verified root task, Project, Library, store epoch, and canonical resource roots; it is not owned by the renderer that presented it. Project consent is the only choice that persists `project_resource_grants`, and exact-Turn authority is revalidated before that write. Canonical conversation-state ownership and renderer fields cannot grant or elevate Nodex authority. Denial, timeout, task archive, Project/store change, shutdown, restart, or a headless first prompt withholds or invalidates transient authority without mutation.
 - Full-access Library authority is an ephemeral overlay and never creates or expands `project_resource_grants`. Cross-compatibility-owner structure writes validate actor/source/target in one Library, move the complete ownership closure in one deferred-FK transaction, rebuild derived projections, require a clean `foreign_key_check`, and publish immutable source/final owner members. Store restore changes the epoch and invalidates prior Turn authority and broker grants.
 - Authorization responses travel through the targeted active-view renderer route and use random occurrence identities, preventing another renderer or an equal app-server call ID from satisfying the request. The renderer validates the bound Project/task, presents the request as a local overlay, and cannot publish it into or elevate canonical owner/follower state. Exact durable call replay bypasses authorization only after its request fingerprint and prior compact result are verified; same-call/different-input collisions fail closed.

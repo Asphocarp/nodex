@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import {
   decodeOwnedDocumentDescriptorHttp,
+  decodeCanvasSceneSyncHttpRequest,
+  decodeCanvasSceneSyncHttpResponse,
   decodeLibraryOwnedDocumentDescriptorHttp,
   decodeDocumentApplyHttpAck,
   decodeDocumentApplyHttpRequest,
@@ -10,6 +12,8 @@ import {
   decodeDocumentSyncHttpRequest,
   decodeDocumentSyncHttpResponse,
   encodeDocumentApplyHttpAck,
+  encodeCanvasSceneSyncHttpRequest,
+  encodeCanvasSceneSyncHttpResponse,
   encodeDocumentApplyHttpRequest,
   encodeDocumentAwarenessHttpRequest,
   encodeDocumentHttpError,
@@ -19,6 +23,18 @@ import {
   encodeOwnedDocumentDescriptorHttp,
   encodeLibraryOwnedDocumentDescriptorHttp,
 } from "./http-contract";
+import {
+  CANVAS_SCENE_SYNC_VERSION,
+  MAX_CANVAS_SCENE_SNAPSHOT_BYTES,
+} from "./canvas-scene-sync";
+import {
+  canonicalStringifyCanvasScene,
+  materializePortableCanvasScene,
+} from "./canvas-scene";
+import {
+  decodeDocumentHttpEnvelope,
+  encodeDocumentHttpEnvelope,
+} from "./http-wire";
 import { PAGE_DOCUMENT_SCHEMA_VERSION } from "./page-document";
 
 const bytes = (...values: number[]): Uint8Array => Uint8Array.from(values);
@@ -171,6 +187,130 @@ describe("Document HTTP contract", () => {
     );
     expect(decodedAck.committedSeq).toBe(5);
     expect(Array.from(decodedAck.stateVector).join(",")).toBe("8,9");
+  });
+
+  test("round-trips discriminated Canvas sync with raw canonical snapshot bytes", () => {
+    const scene = materializePortableCanvasScene({ elements: [] });
+    const request = {
+      version: CANVAS_SCENE_SYNC_VERSION,
+      syncRequestId: "sync-1",
+      projectId: "project-1",
+      documentId: "canvas-1",
+      clientSessionId: "client-1",
+      knownStoreEpoch: "store-1",
+      knownGeneration: 1,
+      knownHeadSeq: 2,
+      knownSceneHash: "a".repeat(64),
+    } as const;
+    expect(
+      decodeCanvasSceneSyncHttpRequest(
+        request.documentId,
+        request.projectId,
+        encodeCanvasSceneSyncHttpRequest(request),
+      ),
+    ).toEqual(request);
+
+    const snapshot = encodeCanvasSceneSyncHttpResponse({
+      kind: "snapshot",
+      version: CANVAS_SCENE_SYNC_VERSION,
+      syncRequestId: request.syncRequestId,
+      projectId: request.projectId,
+      documentId: request.documentId,
+      storeEpoch: request.knownStoreEpoch,
+      generation: request.knownGeneration,
+      headSeq: request.knownHeadSeq,
+      sceneHash: request.knownSceneHash,
+      scene,
+    });
+    const raw = decodeDocumentHttpEnvelope(
+      snapshot,
+      (value) => value as Readonly<Record<string, unknown>>,
+      MAX_CANVAS_SCENE_SNAPSHOT_BYTES,
+    );
+    expect(new TextDecoder().decode(raw.payload)).toBe(
+      canonicalStringifyCanvasScene(scene),
+    );
+    expect(decodeCanvasSceneSyncHttpResponse(snapshot)).toEqual({
+      kind: "snapshot",
+      version: CANVAS_SCENE_SYNC_VERSION,
+      syncRequestId: request.syncRequestId,
+      projectId: request.projectId,
+      documentId: request.documentId,
+      storeEpoch: request.knownStoreEpoch,
+      generation: request.knownGeneration,
+      headSeq: request.knownHeadSeq,
+      sceneHash: request.knownSceneHash,
+      scene,
+    });
+
+    const current = encodeCanvasSceneSyncHttpResponse({
+      kind: "up_to_date",
+      version: CANVAS_SCENE_SYNC_VERSION,
+      syncRequestId: "sync-2",
+      projectId: request.projectId,
+      documentId: request.documentId,
+      storeEpoch: request.knownStoreEpoch,
+      generation: request.knownGeneration,
+      headSeq: request.knownHeadSeq,
+      sceneHash: request.knownSceneHash,
+    });
+    expect(
+      decodeDocumentHttpEnvelope(
+        current,
+        (value) => value as Readonly<Record<string, unknown>>,
+        MAX_CANVAS_SCENE_SNAPSHOT_BYTES,
+      ).payload,
+    ).toHaveLength(0);
+    expect(decodeCanvasSceneSyncHttpResponse(current).kind).toBe("up_to_date");
+  });
+
+  test("rejects malformed Canvas binary sync payloads and engine confusion", () => {
+    const metadata = {
+      version: 2,
+      engine: "canvas_scene",
+      kind: "snapshot",
+      syncRequestId: "sync-1",
+      projectId: "project-1",
+      documentId: "canvas-1",
+      storeEpoch: "store-1",
+      generation: 1,
+      headSeq: 0,
+      sceneHash: "a".repeat(64),
+    } as const;
+    expect(() =>
+      decodeCanvasSceneSyncHttpResponse(
+        encodeDocumentHttpEnvelope(metadata, bytes(0xff)),
+      )
+    ).toThrow("UTF-8 JSON");
+    expect(() =>
+      decodeCanvasSceneSyncHttpResponse(
+        encodeDocumentHttpEnvelope(
+          metadata,
+          new TextEncoder().encode(JSON.stringify(
+            materializePortableCanvasScene({ elements: [] }),
+          )),
+        ),
+      )
+    ).toThrow("canonical JSON");
+    expect(() =>
+      decodeCanvasSceneSyncHttpResponse(
+        encodeDocumentSyncHttpResponse({
+          documentId: "canvas-1",
+          storeEpoch: "store-1",
+          generation: 1,
+          headSeq: 0,
+          stateVector: bytes(),
+          update: bytes(),
+        }),
+      )
+    ).toThrow("wrong engine");
+    expect(() =>
+      decodeCanvasSceneSyncHttpResponse(
+        encodeDocumentHttpEnvelope(metadata, new Uint8Array(
+          MAX_CANVAS_SCENE_SNAPSHOT_BYTES + 1,
+        )),
+      )
+    ).toThrow("exceeds");
   });
 
   test("round-trips Awareness, realtime events, and typed errors", () => {

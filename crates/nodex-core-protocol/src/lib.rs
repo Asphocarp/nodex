@@ -32,9 +32,9 @@ pub const TRANSPORT_PROTOCOL_MIN: u32 = 4;
 pub const TRANSPORT_PROTOCOL_MAX: u32 = 4;
 pub const COMPATIBILITY_MANIFEST_VERSION: u32 = 1;
 pub const STORE_LINEAGE: &str = "nodex-rust-core";
-pub const CURRENT_STORE_VERSION: u32 = 94;
+pub const CURRENT_STORE_VERSION: u32 = 96;
 pub const CURRENT_STORE_SCHEMA_FINGERPRINT: &str =
-    "cb22ce09a3673bf14faf95d543f0208070b65a2d77be576a55295f4d5e649ae5";
+    "690e5e35242c18221571e261d4434a9a97c0262bc3e69791c27e07517077559f";
 pub const MAX_ORDINARY_JSON_REQUEST_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_ORDINARY_JSON_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_EVENT_FRAME_BYTES: usize = (2 * 1024 * 1024) + (256 * 1024);
@@ -75,7 +75,9 @@ pub fn store_format(version: u32) -> Option<StoreFormatIdentity> {
         90 => "5ed6a9baa72223aae5fae81c92b335f7df976cd6cc676a61d4416a636de362ce",
         91 | 92 => "c6cc471bbe04b3bcef872a921844561d8caf0e1b9faefaa6c592ca39ad35301d",
         93 => "2fa30de4e34ff3fa30e5ceeb8ed8bef39cbb716466ec32fa8460db32aaba3e60",
-        94 => CURRENT_STORE_SCHEMA_FINGERPRINT,
+        94 => "cb22ce09a3673bf14faf95d543f0208070b65a2d77be576a55295f4d5e649ae5",
+        95 => "31aa66b766d6144e38f7645d9226dca70dd22a7aea1cc8ade2bebd65acbe5f3d",
+        96 => CURRENT_STORE_SCHEMA_FINGERPRINT,
         _ => return None,
     };
     Some(StoreFormatIdentity {
@@ -567,6 +569,14 @@ pub struct CoreHealthMetrics {
     pub event_replay_lag_max: u64,
     pub wal_size_bytes: u64,
     pub backup_duration: HealthDurationMetric,
+    #[serde(default)]
+    pub canvas_sync_initial_snapshots: u64,
+    #[serde(default)]
+    pub canvas_sync_repair_snapshots: u64,
+    #[serde(default)]
+    pub canvas_sync_up_to_date: u64,
+    #[serde(default)]
+    pub canvas_sync_snapshot_bytes: u64,
     pub active_clients: u64,
     pub active_event_subscriptions: u64,
     pub active_document_subscriptions: u64,

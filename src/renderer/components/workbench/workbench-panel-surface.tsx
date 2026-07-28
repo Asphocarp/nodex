@@ -45,6 +45,7 @@ import { projectSessionThreadLinkToSummary } from "./thread-summary-projection";
 export function WorkbenchTabProjectionPanel({
   tab,
   activeSession,
+  windowSessionId,
   browserViewScopeId,
   projects,
   activeView,
@@ -78,6 +79,7 @@ export function WorkbenchTabProjectionPanel({
 }: {
   tab: WorkbenchTabProjectionPanelTab;
   activeSession: WorkbenchSessionRenderProjection;
+  windowSessionId: string;
   browserViewScopeId: string;
   projects: Project[];
   activeView: WorkbenchView;
@@ -150,6 +152,7 @@ export function WorkbenchTabProjectionPanel({
   if (tab.kind === "db_view" && "view" in tab.config) {
     return (
       <DbViewSessionTab
+        windowSessionId={windowSessionId}
         sessionId={activeSession.id}
         tab={tab}
         projects={projects}

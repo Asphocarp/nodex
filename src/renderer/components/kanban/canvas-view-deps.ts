@@ -1,7 +1,11 @@
 import { useKanban } from "@/lib/use-kanban";
 import { useTheme } from "@/lib/use-theme";
 import { RegisteredOwnedBlockDocumentBoundary } from "@/components/block-documents/owned-block-document-boundary";
-import { createCanvasSceneSyncAdapter } from "@/lib/api";
+import {
+  compactCanvasScene,
+  createCanvasSceneSyncAdapter,
+  readCanvasSceneCompaction,
+} from "@/lib/api";
 import { registerAppCloseFlushHandler } from "@/lib/app-close-flush";
 import { createDefaultCanvasSceneOutbox } from "@/lib/canvas-scene-outbox";
 
@@ -10,6 +14,8 @@ export {
   useKanban,
   useTheme,
   createCanvasSceneSyncAdapter,
+  readCanvasSceneCompaction,
+  compactCanvasScene,
   createDefaultCanvasSceneOutbox,
   registerAppCloseFlushHandler,
 };

@@ -1,7 +1,9 @@
 import { describe, expect, test } from "vitest";
 import {
   CANVAS_SCENE_SYNC_VERSION,
+  canonicalizeCanvasSceneMutationIntent,
   canonicalizeCanvasSceneMutationRequest,
+  encodeCanonicalCanvasSceneMutationIntent,
   encodeCanonicalCanvasSceneMutationRequest,
 } from "./canvas-scene-sync";
 
@@ -61,6 +63,23 @@ describe("Canvas scene sync contract", () => {
     expect(encodeCanonicalCanvasSceneMutationRequest(first)).toBe(
       encodeCanonicalCanvasSceneMutationRequest(second),
     );
+  });
+
+  test("keeps renderer delivery identity out of durable semantic intent", () => {
+    const rawIntent = Object.fromEntries(
+      Object.entries(request()).filter(([key]) => key !== "clientSessionId"),
+    );
+    const intent = canonicalizeCanvasSceneMutationIntent(rawIntent);
+
+    expect(encodeCanonicalCanvasSceneMutationIntent(intent))
+      .not.toContain("clientSessionId");
+    expect(canonicalizeCanvasSceneMutationRequest({
+      ...intent,
+      clientSessionId: "replacement-window",
+    })).toMatchObject({
+      mutationId: intent.mutationId,
+      clientSessionId: "replacement-window",
+    });
   });
 
   test("rejects duplicate candidates and non-durable app state", () => {

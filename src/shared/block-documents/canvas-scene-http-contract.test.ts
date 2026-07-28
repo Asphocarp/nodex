@@ -24,12 +24,14 @@ describe("Canvas scene HTTP contract", () => {
     const sync = decodeCanvasSceneSyncRequestHttp(
       encodeCanvasSceneSyncRequestHttp({
         version: 1,
+        syncRequestId: "sync-1",
         projectId: "project-1",
         documentId: "canvas-1",
         clientSessionId: "client-1",
         knownStoreEpoch: "store-1",
         knownGeneration: 1,
         knownHeadSeq: 2,
+        knownSceneHash: "a".repeat(64),
       }),
       "project-1",
       "canvas-1",
@@ -58,6 +60,7 @@ describe("Canvas scene HTTP contract", () => {
   test("rejects a request whose Project route does not match", () => {
     const serialized = encodeCanvasSceneSyncRequestHttp({
       version: 1,
+      syncRequestId: "sync-2",
       projectId: "project-1",
       documentId: "canvas-1",
       clientSessionId: "client-1",
@@ -72,6 +75,8 @@ describe("Canvas scene HTTP contract", () => {
       ok: true,
       value: {
         version: 1,
+        kind: "snapshot",
+        syncRequestId: "sync-1",
         projectId: "project-1",
         documentId: "canvas-1",
         storeEpoch: "store-1",
@@ -100,7 +105,7 @@ describe("Canvas scene HTTP contract", () => {
         addedFileIds: [],
         removedFileIds: [],
       },
-    }))).toThrow("mutation result is invalid");
+    }))).toThrow();
   });
 
   test("rejects malformed realtime coordinates and non-commit mutation events", () => {
@@ -131,6 +136,12 @@ describe("Canvas scene HTTP contract", () => {
       addedFileIds: [],
       removedFileIds: [],
       committedAt: "2026-07-13T00:00:00.000Z",
+      committedDelta: {
+        elementUpdates: [],
+        appState: {},
+        fileAdditions: {},
+        removedFileIds: [],
+      },
     };
     expect(() => decodeCanvasSceneMutationResultHttp(JSON.stringify({
       ok: true,

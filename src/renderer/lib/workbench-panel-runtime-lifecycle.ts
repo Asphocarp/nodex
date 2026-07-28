@@ -5,7 +5,7 @@ export type WorkbenchPanelCloseResult =
   | { readonly status: "closed" }
   | {
       readonly status: "vetoed";
-      readonly reason: "file-conflict";
+      readonly reason: "file-conflict" | "canvas-durability";
     };
 
 export interface DurablePanelTabCloseRuntime {
@@ -13,6 +13,7 @@ export interface DurablePanelTabCloseRuntime {
   readonly releaseTerminal: (terminalSessionId: string) => void;
   readonly removeDescriptor: () => void;
   readonly disposePageEditor: () => Promise<void>;
+  readonly disposeCanvas: (tab: WorkbenchTabProjection) => Promise<boolean>;
 }
 
 export async function closeDurablePanelTabWithRuntime(
@@ -23,6 +24,13 @@ export async function closeDurablePanelTabWithRuntime(
     return {
       status: "vetoed",
       reason: "file-conflict",
+    };
+  }
+
+  if (tab?.kind === "db_view" && !await runtime.disposeCanvas(tab)) {
+    return {
+      status: "vetoed",
+      reason: "canvas-durability",
     };
   }
 
@@ -68,4 +76,3 @@ export async function closePreviewPanelTabWithRuntime(
   runtime.removeDescriptor();
   return { status: "closed" };
 }
-

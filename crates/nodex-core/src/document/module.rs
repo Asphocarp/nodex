@@ -22,7 +22,7 @@ use nodex_core_contracts::document::{
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CommittedCoreModuleEvent, CommittedModuleValue, CoreError,
     CoreErrorCode, CoreErrorRecovery, ModuleApplyRequest, ModuleMutationReceipt, ModuleReadRequest,
-    ModuleReadSnapshot, OWNED_DOCUMENT_CONTRACT_VERSION, StoreEpoch,
+    ModuleReadSnapshot, OWNED_DOCUMENT_CONTRACT_VERSION, ProjectionImpact, StoreEpoch,
 };
 #[cfg(test)]
 use nodex_core_contracts::{CoreModuleEventPayload, document::OwnedDocumentEvent};
@@ -41,7 +41,9 @@ use crate::infrastructure::agent_operations::{
 use crate::infrastructure::document_repository::{
     DocumentAuthority, DocumentReadiness, DocumentSyncEngine,
 };
-use crate::infrastructure::event_log::load_committed_event_by_sequence;
+use crate::infrastructure::event_log::{
+    NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
+};
 use crate::infrastructure::metrics::DurationMetricSnapshot;
 use crate::infrastructure::module_receipts::{
     NewModuleReceipt, insert_module_receipt, read_module_receipt,
@@ -51,18 +53,24 @@ use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 
 use super::canvas::{
-    ensure_canvas_scene, load_canvas_scene, persist_canvas_mutation, validate_canvas_authority,
+    ensure_canvas_scene, load_canvas_scene, persist_canvas_compaction, persist_canvas_mutation,
+    persist_prepared_canvas_mutation, prepare_canvas_compaction,
+    prepare_incremental_canvas_mutation, read_canvas_compaction_stats, validate_canvas_authority,
 };
+#[cfg(test)]
+use super::canvas::{full_scene_load_count, reset_full_scene_load_count};
 use super::canvas_scene::{
-    apply_canvas_mutation as apply_canvas_candidate, parse_canvas_mutation, prepare_canvas_restore,
+    apply_canvas_mutation as apply_canvas_candidate, canvas_semantic_intent_fingerprint,
+    parse_canvas_mutation, prepare_canvas_restore,
 };
 use super::compaction::{DocumentCompactionResult, compact_yjs_document};
 use super::event_log::{DocumentEventReplay, replay_document_events};
 use super::genesis::{prepare_editable_root, prepare_yjs_genesis};
 use super::history::{
     NewDocumentCheckpoint, get_document_version, insert_canvas_checkpoint,
-    insert_document_checkpoint, list_document_versions, prepare_canvas_revision,
-    prepare_document_revision, prepare_version_restore, record_document_revision_edit,
+    insert_document_checkpoint, insert_prepared_canvas_revision, list_document_versions,
+    prepare_canvas_revision, prepare_document_revision, prepare_version_restore,
+    record_document_revision_edit,
 };
 use super::operations::{
     DocumentBlockOperation as EngineDocumentBlockOperation,
@@ -183,6 +191,32 @@ pub(crate) struct RealtimeDocumentBoundary {
     pub(crate) engine: DocumentSyncEngine,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CanvasSceneSyncSnapshot {
+    pub project_id: String,
+    pub document_id: String,
+    pub store_epoch: String,
+    pub generation: i64,
+    pub head_seq: i64,
+    pub scene_hash: String,
+    pub scene_json: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CanvasCompactionFingerprint<'a> {
+    version: u8,
+    profile_id: &'a str,
+    library_id: &'a str,
+    project_id: Option<&'a str>,
+    expected_store_epoch: &'a str,
+    document_id: &'a str,
+    generation: i64,
+    expected_head_seq: i64,
+    operation_id: &'a str,
+    actor: &'a Value,
+}
+
 #[derive(Clone)]
 pub struct OwnedDocumentModule {
     profile_id: String,
@@ -227,6 +261,30 @@ impl OwnedDocumentModule {
             .invalidate_all()
             .map_err(core_error)?;
         Ok(())
+    }
+
+    pub fn sync_canvas(
+        &self,
+        context: &BoundModuleContext,
+        document_id: &str,
+    ) -> Result<CanvasSceneSyncSnapshot, CoreError> {
+        self.readers
+            .read_default(|connection| {
+                let authority = read_document_authority(connection, document_id)?
+                    .ok_or_else(|| not_found("Owned Document was not found"))?;
+                authorize_canvas(connection, context, &authority, DocumentAccessKind::Read)?;
+                let loaded = load_canvas_scene(connection, &authority)?;
+                Ok(CanvasSceneSyncSnapshot {
+                    project_id: authority.head.project_id.clone(),
+                    document_id: authority.head.id.clone(),
+                    store_epoch: read_store_epoch(connection)?,
+                    generation: authority.head.generation,
+                    head_seq: authority.head.head_seq,
+                    scene_hash: loaded.scene_hash,
+                    scene_json: loaded.scene.canonical_json()?,
+                })
+            })
+            .map_err(core_error)
     }
 
     pub fn read(
@@ -352,23 +410,18 @@ impl OwnedDocumentModule {
                     })
                 })
                 .map_err(core_error),
-            OwnedDocumentRead::SyncCanvas { document_id } => self
+            OwnedDocumentRead::CanvasCompactionEligibility { document_id } => self
                 .readers
                 .read_default(|connection| {
                     let authority = read_document_authority(connection, &document_id)?
-                        .ok_or_else(|| not_found("Owned Document was not found"))?;
+                        .ok_or_else(|| not_found("Canvas Document was not found"))?;
                     authorize_canvas(connection, context, &authority, DocumentAccessKind::Read)?;
-                    let loaded = load_canvas_scene(connection, &authority)?;
-                    let store_epoch = read_store_epoch(connection)?;
+                    let stats = read_canvas_compaction_stats(connection, &authority)?;
                     Ok(ModuleReadSnapshot {
                         contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
-                        store_epoch: StoreEpoch(store_epoch.clone()),
+                        store_epoch: StoreEpoch(read_store_epoch(connection)?),
                         event_head: read_event_head(connection)?,
-                        value: OwnedDocumentReadValue::CanvasSync {
-                            descriptor: authority_descriptor(&authority, &store_epoch),
-                            scene_json: loaded.scene.canonical_json()?.into_bytes(),
-                            scene_hash: loaded.scene_hash,
-                        },
+                        value: OwnedDocumentReadValue::CanvasCompactionEligibility { stats },
                     })
                 })
                 .map_err(core_error),
@@ -526,6 +579,22 @@ impl OwnedDocumentModule {
                 generation,
                 expected_head_seq,
                 mutation,
+            ),
+            OwnedDocumentIntent::CompactCanvasTombstones {
+                document_id,
+                generation,
+                expected_head_seq,
+                actor,
+                write_fence_prepared,
+            } => self.compact_canvas_tombstones(
+                context,
+                request.operation_id,
+                request.store_epoch,
+                document_id,
+                generation,
+                expected_head_seq,
+                actor,
+                write_fence_prepared,
             ),
             OwnedDocumentIntent::CreateCheckpoint {
                 document_id,
@@ -1571,15 +1640,21 @@ impl OwnedDocumentModule {
         mutation_value: Value,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
         let mutation = parse_canvas_mutation(&mutation_value).map_err(core_error)?;
-        let fingerprint = serde_json::to_vec(&(
-            context,
-            expected_store_epoch.clone(),
+        let fingerprint = canvas_semantic_intent_fingerprint(
+            &self.profile_id,
+            &self.library_id,
+            context
+                .project_id
+                .as_ref()
+                .map(|project_id| project_id.0.as_str()),
+            &expected_store_epoch.0,
             &document_id,
             generation,
             base_head_seq,
+            &operation_id,
             &mutation.canonical_value,
-        ))
-        .map_err(|_| invalid("Canvas mutation cannot be fingerprinted"))?;
+        )
+        .map_err(core_error)?;
         let request_hash = sha256(&fingerprint);
         let context = context.clone();
         let fail_after_commit = Arc::clone(&self.fail_after_commit);
@@ -1636,27 +1711,33 @@ impl OwnedDocumentModule {
                         false,
                     ));
                 }
-                let loaded = load_canvas_scene(&transaction, &authority)?;
-                let applied = apply_canvas_candidate(&loaded.scene, &mutation)?;
-                if applied.changed() {
+                let prepared =
+                    prepare_incremental_canvas_mutation(&transaction, &authority, &mutation)?;
+                if prepared.changed() {
                     let revision_now = sqlite_now(&transaction)?;
-                    prepare_canvas_revision(
-                        &transaction,
-                        &authority,
-                        &loaded.scene,
-                        &context,
-                        &revision_now,
-                    )?;
+                    if let Some(revision) =
+                        prepare_canvas_revision(&transaction, &authority, &revision_now)?
+                    {
+                        let loaded = load_canvas_scene(&transaction, &authority)?;
+                        insert_prepared_canvas_revision(
+                            &transaction,
+                            &authority,
+                            &loaded.scene,
+                            &context,
+                            &revision_now,
+                            &revision,
+                        )?;
+                    }
                 }
-                let persisted = persist_canvas_mutation(
+                let persisted = persist_prepared_canvas_mutation(
                     &transaction,
                     &authority,
-                    &context,
                     &store_epoch,
                     &operation_id,
                     base_head_seq,
+                    &request_hash,
                     &mutation,
-                    &applied,
+                    &prepared,
                     &assets_root,
                     "canvas_scene_updated",
                 )?;
@@ -1709,6 +1790,258 @@ impl OwnedDocumentModule {
                     return Err(StoreError::new(
                         StoreErrorCode::Internal,
                         "Injected failure after durable Canvas commit",
+                        true,
+                    ));
+                }
+                Ok(OwnedDocumentApplyOutcome {
+                    committed,
+                    events: event.into_iter().collect(),
+                })
+            })
+            .map_err(core_error)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn compact_canvas_tombstones(
+        &self,
+        context: &BoundModuleContext,
+        operation_id: String,
+        expected_store_epoch: StoreEpoch,
+        document_id: String,
+        generation: i64,
+        expected_head_seq: i64,
+        actor: Value,
+        write_fence_prepared: bool,
+    ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
+        validate_document_actor(&actor)?;
+        let fingerprint = serde_json::to_vec(&CanvasCompactionFingerprint {
+            version: 1,
+            profile_id: &self.profile_id,
+            library_id: &self.library_id,
+            project_id: context
+                .project_id
+                .as_ref()
+                .map(|project_id| project_id.0.as_str()),
+            expected_store_epoch: &expected_store_epoch.0,
+            document_id: &document_id,
+            generation,
+            expected_head_seq,
+            operation_id: &operation_id,
+            actor: &actor,
+        })
+        .map_err(|_| invalid("Canvas compaction request cannot be fingerprinted"))?;
+        let request_hash = sha256(&fingerprint);
+        let context = context.clone();
+        let fail_after_commit = Arc::clone(&self.fail_after_commit);
+        let assets_root = self.assets_root.clone();
+        self.writer
+            .call(move |connection| {
+                let transaction =
+                    connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                let store_epoch = read_store_epoch(&transaction)?;
+                if store_epoch != expected_store_epoch.0 {
+                    return Err(StoreError::new(
+                        StoreErrorCode::StaleStoreEpoch,
+                        "Canvas compaction targets a stale store epoch",
+                        true,
+                    ));
+                }
+                if let Some(stored) = read_module_receipt(&transaction, MODULE_NAME, &operation_id)?
+                {
+                    if stored.request_hash != request_hash {
+                        return Err(StoreError::new(
+                            StoreErrorCode::IdempotencyKeyReused,
+                            "operation_id is already bound to another Owned Document intent",
+                            false,
+                        ));
+                    }
+                    let mut committed = serde_json::from_value::<
+                        CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
+                    >(stored.result)
+                    .map_err(|_| corrupt_receipt())?;
+                    committed.receipt.mutation.duplicate = true;
+                    if let Some(canvas) = committed.value.canvas.as_mut()
+                        && let Some(object) = canvas.as_object_mut()
+                    {
+                        object.insert("duplicate".to_owned(), Value::Bool(true));
+                    }
+                    transaction.commit()?;
+                    return Ok(OwnedDocumentApplyOutcome {
+                        committed,
+                        events: Vec::new(),
+                    });
+                }
+                let authority = read_document_authority(&transaction, &document_id)?
+                    .ok_or_else(|| not_found("Canvas Document was not found"))?;
+                authorize_canvas(
+                    &transaction,
+                    &context,
+                    &authority,
+                    DocumentAccessKind::Write,
+                )?;
+                if authority.head.generation != generation {
+                    return Err(StoreError::new(
+                        StoreErrorCode::GenerationConflict,
+                        "Canvas Document generation does not match",
+                        false,
+                    ));
+                }
+                if authority.head.head_seq != expected_head_seq {
+                    return Err(StoreError::new(
+                        StoreErrorCode::HeadConflict,
+                        "Canvas compaction requires the exact current head",
+                        true,
+                    ));
+                }
+                let prepared = prepare_canvas_compaction(&transaction, &authority)?;
+                if prepared.stats.tombstone_count > 0 {
+                    require_restore_write_fence(write_fence_prepared)?;
+                }
+                let now = sqlite_now(&transaction)?;
+                let changed = prepared.stats.tombstone_count > 0;
+                let (next_authority, checkpoint_version_id) = if changed {
+                    let checkpoint = insert_canvas_checkpoint(
+                        &transaction,
+                        &authority,
+                        &prepared.original_scene,
+                        NewDocumentCheckpoint {
+                            operation_id: &operation_id,
+                            cause: "canvas_tombstone_compaction",
+                            label: Some("Before Canvas compaction"),
+                            revision_kind: "safety",
+                            source_mutation_id: None,
+                            source_change_seq: None,
+                            actor: Some(&actor),
+                            context: &context,
+                            now: &now,
+                        },
+                    )?;
+                    let checkpoint_version_id = checkpoint
+                        .version
+                        .summary
+                        .get("versionId")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                        .ok_or_else(|| {
+                            internal("Canvas compaction checkpoint identity is missing")
+                        })?;
+                    let persisted = persist_canvas_compaction(
+                        &transaction,
+                        &authority,
+                        &prepared,
+                        &now,
+                        &assets_root,
+                    )?;
+                    let mut next_authority = authority.clone();
+                    next_authority.head.generation = persisted.generation;
+                    next_authority.head.head_seq = persisted.head_seq;
+                    next_authority.head.state_hash = persisted.scene_hash;
+                    (next_authority, Some(checkpoint_version_id))
+                } else {
+                    (authority.clone(), None)
+                };
+                let outcome = if changed { "committed" } else { "no_change" };
+                transaction.execute(
+                    "INSERT INTO canvas_scene_mutation_receipts (\
+                       document_id, generation, mutation_id, base_head_seq, committed_head_seq, \
+                       intent_hash, intent_byte_length, outcome, committed_at\
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    rusqlite::params![
+                        authority.head.id,
+                        next_authority.head.generation,
+                        operation_id,
+                        authority.head.head_seq,
+                        next_authority.head.head_seq,
+                        request_hash,
+                        i64::try_from(fingerprint.len())
+                            .map_err(|_| internal("Canvas compaction intent length"))?,
+                        outcome,
+                        now,
+                    ],
+                )?;
+                let event_sequence = if changed {
+                    let payload = json!({
+                        "module": "owned_document",
+                        "kind": "canvas_generation_changed",
+                        "documentId": authority.head.id,
+                        "previousGeneration": authority.head.generation,
+                        "previousHeadSeq": authority.head.head_seq,
+                        "generation": next_authority.head.generation,
+                        "headSeq": next_authority.head.head_seq,
+                        "sceneHash": next_authority.head.state_hash,
+                    });
+                    let block_ids = vec![authority.owner_block_id.clone()];
+                    let document_ids = vec![authority.head.id.clone()];
+                    let payload_json = serde_json::to_string(&payload)
+                        .map_err(|_| internal("Canvas compaction event payload"))?;
+                    append_change_log(
+                        &transaction,
+                        NewChangeLogEntry {
+                            project_id: &authority.head.project_id,
+                            store_epoch: &store_epoch,
+                            kind: "owned_document.canvas_generation_changed",
+                            operation_id: Some(&operation_id),
+                            block_ids: &block_ids,
+                            document_ids: &document_ids,
+                            database_block_ids: &[],
+                            payload_json: &payload_json,
+                            projection_impact: &ProjectionImpact::None,
+                            committed_at: &now,
+                        },
+                    )?
+                } else {
+                    read_event_head(&transaction)?
+                };
+                let result = json!({
+                    "version": 1,
+                    "kind": "tombstone_compaction",
+                    "operationId": operation_id,
+                    "projectId": authority.head.project_id,
+                    "documentId": authority.head.id,
+                    "storeEpoch": store_epoch,
+                    "previousGeneration": authority.head.generation,
+                    "previousHeadSeq": authority.head.head_seq,
+                    "generation": next_authority.head.generation,
+                    "headSeq": next_authority.head.head_seq,
+                    "duplicate": false,
+                    "outcome": outcome,
+                    "sceneHash": next_authority.head.state_hash,
+                    "removedTombstoneCount": prepared.stats.tombstone_count,
+                    "removedTombstoneBytes": prepared.stats.tombstone_bytes,
+                    "checkpointVersionId": checkpoint_version_id,
+                    "committedAt": now,
+                });
+                let committed = committed_canvas_value(
+                    &operation_id,
+                    &store_epoch,
+                    &next_authority,
+                    next_authority.head.head_seq,
+                    if changed {
+                        DocumentCommitOutcome::Committed
+                    } else {
+                        DocumentCommitOutcome::NoChange
+                    },
+                    event_sequence,
+                    result,
+                );
+                insert_typed_receipt(
+                    &transaction,
+                    &context,
+                    &operation_id,
+                    &request_hash,
+                    &store_epoch,
+                    "compact_canvas_tombstones",
+                    &committed,
+                    changed.then_some(event_sequence),
+                )?;
+                let event = changed
+                    .then(|| load_committed_event_by_sequence(&transaction, event_sequence))
+                    .transpose()?;
+                transaction.commit()?;
+                if fail_after_commit.swap(false, Ordering::AcqRel) {
+                    return Err(StoreError::new(
+                        StoreErrorCode::Internal,
+                        "Injected failure after durable Canvas compaction",
                         true,
                     ));
                 }
@@ -2603,10 +2936,10 @@ impl OwnedDocumentModule {
                 let persisted = persist_canvas_mutation(
                     &transaction,
                     &authority,
-                    &context,
                     &store_epoch,
                     &operation_id,
                     authority.head.head_seq,
+                    &request_hash,
                     &mutation,
                     &applied,
                     &assets_root,
@@ -5391,6 +5724,206 @@ mod tests {
         }
     }
 
+    fn canvas_geometry_mutation_request(
+        operation_id: String,
+        base_head_seq: i64,
+        elements: Vec<Value>,
+    ) -> ModuleApplyRequest<OwnedDocumentIntent> {
+        ModuleApplyRequest {
+            contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+            operation_id,
+            store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+            intent: OwnedDocumentIntent::ApplyCanvasMutation {
+                document_id: DOCUMENT_ID.to_owned(),
+                generation: 1,
+                expected_head_seq: base_head_seq,
+                mutation: json!({
+                    "elementCandidates": elements,
+                    "appStateIntents": {},
+                    "fileAdditions": {}
+                }),
+            },
+        }
+    }
+
+    #[test]
+    fn canvas_incremental_hot_path_stays_bounded_at_twenty_thousand_elements() {
+        const ELEMENT_COUNT: usize = 20_000;
+        const SEED_BATCH_SIZE: usize = 500;
+        const WARM_EDIT_COUNT: usize = 1_001;
+
+        let seeded = canvas_module();
+        seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "canvas:perf:prepare".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::PrepareOwner {
+                        owner_block_id: OWNER_BLOCK_ID.to_owned(),
+                    },
+                },
+            )
+            .expect("prepare performance Canvas");
+
+        let mut head_seq = 0_i64;
+        for (batch_index, start) in (0..ELEMENT_COUNT).step_by(SEED_BATCH_SIZE).enumerate() {
+            let end = (start + SEED_BATCH_SIZE).min(ELEMENT_COUNT);
+            let elements = (start..end)
+                .map(|index| {
+                    json!({
+                        "id": format!("element:perf:{index:05}"),
+                        "type": "rectangle",
+                        "version": 1,
+                        "versionNonce": index as i64 + 1,
+                        "index": format!("a{index:05}"),
+                        "isDeleted": false,
+                        "x": index,
+                        "y": index % 100
+                    })
+                })
+                .collect::<Vec<_>>();
+            let applied = seeded
+                .module
+                .apply(
+                    &context(),
+                    canvas_geometry_mutation_request(
+                        format!("canvas:perf:seed:{batch_index}"),
+                        head_seq,
+                        elements,
+                    ),
+                )
+                .expect("seed performance Canvas batch");
+            head_seq = applied.committed.value.head_seq;
+        }
+        assert_eq!(head_seq, (ELEMENT_COUNT / SEED_BATCH_SIZE) as i64);
+
+        let page_count_before_edits = seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row("PRAGMA page_count", [], |row| row.get::<_, i64>(0))
+                    .map_err(StoreError::from)
+            })
+            .expect("read pre-edit page count");
+        seeded
+            .kernel
+            .writer()
+            .call(|_| {
+                reset_full_scene_load_count();
+                Ok::<_, StoreError>(())
+            })
+            .expect("reset Canvas materialization counter");
+
+        let mut latest = None;
+        for edit_index in 0..WARM_EDIT_COUNT {
+            let version = i64::try_from(edit_index).expect("edit index") + 2;
+            let applied = seeded
+                .module
+                .apply(
+                    &context(),
+                    canvas_geometry_mutation_request(
+                        format!("canvas:perf:edit:{edit_index:04}"),
+                        head_seq,
+                        vec![json!({
+                            "id": "element:perf:00123",
+                            "type": "rectangle",
+                            "version": version,
+                            "versionNonce": 50_000 + version,
+                            "index": "a00123",
+                            "isDeleted": false,
+                            "x": 10_000 + version,
+                            "y": 23
+                        })],
+                    ),
+                )
+                .expect("apply warm Canvas edit");
+            head_seq = applied.committed.value.head_seq;
+            latest = Some(applied);
+        }
+        let full_loads = seeded
+            .kernel
+            .writer()
+            .call(|_| Ok::<_, StoreError>(full_scene_load_count()))
+            .expect("read Canvas materialization counter");
+        assert_eq!(
+            full_loads, 0,
+            "an active-session geometry edit must not materialize the full scene"
+        );
+
+        let latest = latest.expect("warm edit result");
+        let latest_canvas = latest
+            .committed
+            .value
+            .canvas
+            .as_ref()
+            .expect("Canvas commit result");
+        assert_eq!(
+            latest_canvas["changedElementIds"],
+            json!(["element:perf:00123"])
+        );
+        assert_eq!(
+            latest_canvas["committedDelta"]["elementUpdates"]
+                .as_array()
+                .map(Vec::len),
+            Some(1)
+        );
+
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence = connection.query_row(
+                    "SELECT scene.element_count, \
+                            json_extract(element.element_json, '$.version'), \
+                            (SELECT count(*) FROM canvas_scene_mutation_receipts \
+                             WHERE mutation_id GLOB 'canvas:perf:edit:*'), \
+                            (SELECT max(length(common.result_json)) FROM core_module_receipts common \
+                             WHERE common.operation_id GLOB 'canvas:perf:edit:*'), \
+                            (SELECT max(length(log.payload_json)) FROM change_log log \
+                             WHERE log.operation_id GLOB 'canvas:perf:edit:*'), \
+                            (SELECT coalesce(sum(receipt.intent_byte_length), 0) \
+                             FROM canvas_scene_mutation_receipts receipt \
+                             WHERE receipt.mutation_id GLOB 'canvas:perf:edit:*'), \
+                            (SELECT count(*) FROM pragma_table_info('canvas_scene_mutation_receipts') \
+                             WHERE name IN ('request_json', 'result_json')) \
+                     FROM canvas_scenes scene \
+                     JOIN canvas_scene_elements element ON element.document_id = scene.document_id \
+                     WHERE scene.document_id = ?1 AND element.element_id = 'element:perf:00123'",
+                    [DOCUMENT_ID],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, i64>(3)?,
+                            row.get::<_, i64>(4)?,
+                            row.get::<_, i64>(5)?,
+                            row.get::<_, i64>(6)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(evidence.0, ELEMENT_COUNT as i64);
+                assert_eq!(evidence.1, WARM_EDIT_COUNT as i64 + 1);
+                assert_eq!(evidence.2, WARM_EDIT_COUNT as i64);
+                assert!(evidence.3 < 64 * 1024);
+                assert!(evidence.4 < 64 * 1024);
+                assert!(evidence.5 < 2 * 1024 * 1024);
+                assert_eq!(evidence.6, 0);
+                let page_count_after =
+                    connection.query_row("PRAGMA page_count", [], |row| row.get::<_, i64>(0))?;
+                assert!(
+                    page_count_after - page_count_before_edits < 5_000,
+                    "one-element receipt/event growth exceeded the loose 20 MiB page ceiling"
+                );
+                Ok::<_, StoreError>(())
+            })
+            .expect("Canvas performance-contract evidence");
+    }
+
     #[test]
     fn canvas_prepare_sync_merge_and_exact_retry_share_scene_authority() {
         let seeded = canvas_module();
@@ -5417,27 +5950,11 @@ mod tests {
 
         let initial = seeded
             .module
-            .read(
-                &context(),
-                ModuleReadRequest {
-                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
-                    read: OwnedDocumentRead::SyncCanvas {
-                        document_id: DOCUMENT_ID.to_owned(),
-                    },
-                },
-            )
+            .sync_canvas(&context(), DOCUMENT_ID)
             .expect("initial Canvas sync");
-        let OwnedDocumentReadValue::CanvasSync {
-            scene_json,
-            scene_hash,
-            ..
-        } = initial.value
-        else {
-            panic!("expected Canvas sync")
-        };
-        let initial_scene: Value = serde_json::from_slice(&scene_json).expect("scene JSON");
+        let initial_scene: Value = serde_json::from_str(&initial.scene_json).expect("scene JSON");
         assert_eq!(initial_scene["elements"], json!([]));
-        assert_eq!(scene_hash.len(), 64);
+        assert_eq!(initial.scene_hash.len(), 64);
 
         let request = canvas_mutation_request("canvas:edit:1", 0, 1, "Native Canvas");
         let applied = seeded
@@ -5547,9 +6064,11 @@ mod tests {
             })
             .expect("Canvas durable evidence");
 
+        let mut retry_context = context_for("renderer-session:recovered");
+        retry_context.adapter = AdapterKind::NativeCli;
         let duplicate = seeded
             .module
-            .apply(&context(), request)
+            .apply(&retry_context, request)
             .expect("Canvas exact retry");
         assert!(duplicate.committed.receipt.mutation.duplicate);
         assert_eq!(
@@ -5776,20 +6295,10 @@ mod tests {
         ));
         let restored_scene = seeded
             .module
-            .read(
-                &context(),
-                ModuleReadRequest {
-                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
-                    read: OwnedDocumentRead::SyncCanvas {
-                        document_id: DOCUMENT_ID.to_owned(),
-                    },
-                },
-            )
+            .sync_canvas(&context(), DOCUMENT_ID)
             .expect("restored Canvas sync");
-        let OwnedDocumentReadValue::CanvasSync { scene_json, .. } = restored_scene.value else {
-            panic!("expected restored Canvas")
-        };
-        let restored_scene: Value = serde_json::from_slice(&scene_json).expect("restored scene");
+        let restored_scene: Value =
+            serde_json::from_str(&restored_scene.scene_json).expect("restored scene");
         assert_eq!(restored_scene["elements"][0]["text"], "Native Canvas");
         let version = seeded
             .module
@@ -5808,6 +6317,263 @@ mod tests {
             panic!("expected Canvas version detail")
         };
         assert_eq!(value["materialization"]["kind"], "canvas_scene");
+    }
+
+    #[test]
+    fn canvas_tombstone_compaction_rotates_generation_with_pinned_history_and_exact_replay() {
+        let seeded = canvas_module();
+        seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "canvas:compact:prepare".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::PrepareOwner {
+                        owner_block_id: OWNER_BLOCK_ID.to_owned(),
+                    },
+                },
+            )
+            .expect("prepare Canvas");
+        seeded
+            .module
+            .apply(
+                &context(),
+                canvas_mutation_request("canvas:compact:create", 0, 1, "Deleted later"),
+            )
+            .expect("create compacted element");
+        seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "canvas:compact:delete".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplyCanvasMutation {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 1,
+                        mutation: json!({
+                            "elementCandidates": [{
+                                "id": "element:page-ref",
+                                "type": "rectangle",
+                                "version": 2,
+                                "versionNonce": 7,
+                                "index": "a0",
+                                "isDeleted": true,
+                                "text": "Deleted later",
+                                "customData": {
+                                    "type": "nodex-card",
+                                    "cardId": TARGET_PAGE_BLOCK_ID,
+                                    "titleHint": "Target"
+                                }
+                            }],
+                            "appStateIntents": {},
+                            "fileAdditions": {}
+                        }),
+                    },
+                },
+            )
+            .expect("delete compacted element");
+        seeded
+            .kernel
+            .writer()
+            .call(|_| {
+                reset_full_scene_load_count();
+                Ok::<_, StoreError>(())
+            })
+            .expect("reset Canvas materialization counter");
+        let eligibility = seeded
+            .module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::CanvasCompactionEligibility {
+                        document_id: DOCUMENT_ID.to_owned(),
+                    },
+                },
+            )
+            .expect("read Canvas compaction eligibility");
+        let OwnedDocumentReadValue::CanvasCompactionEligibility { stats } = eligibility.value
+        else {
+            panic!("expected Canvas compaction eligibility")
+        };
+        assert_eq!(stats.generation, 1);
+        assert_eq!(stats.head_seq, 2);
+        assert_eq!(stats.tombstone_count, 1);
+        assert!(stats.tombstone_bytes > 0);
+        assert!(!stats.eligible);
+        let eligibility_full_loads = seeded
+            .kernel
+            .writer()
+            .call(|_| Ok::<_, StoreError>(full_scene_load_count()))
+            .expect("read Canvas materialization counter");
+        assert_eq!(
+            eligibility_full_loads, 0,
+            "maintenance eligibility must read only persisted Canvas counters"
+        );
+
+        let mut request = ModuleApplyRequest {
+            contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+            operation_id: "canvas:compact:apply".to_owned(),
+            store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+            intent: OwnedDocumentIntent::CompactCanvasTombstones {
+                document_id: DOCUMENT_ID.to_owned(),
+                generation: 1,
+                expected_head_seq: 2,
+                actor: json!({ "kind": "test" }),
+                write_fence_prepared: false,
+            },
+        };
+        let unfenced = seeded
+            .module
+            .apply(&context(), request.clone())
+            .expect_err("Canvas compaction must freeze mounted writers");
+        assert_eq!(unfenced.code, CoreErrorCode::RevisionConflict);
+        let OwnedDocumentIntent::CompactCanvasTombstones {
+            write_fence_prepared,
+            ..
+        } = &mut request.intent
+        else {
+            panic!("expected Canvas compaction request")
+        };
+        *write_fence_prepared = true;
+        let compacted = seeded
+            .module
+            .apply(&context(), request.clone())
+            .expect("compact Canvas tombstones");
+        assert_eq!(compacted.committed.value.generation, 2);
+        assert_eq!(compacted.committed.value.head_seq, 1);
+        assert_eq!(
+            compacted.committed.value.outcome,
+            DocumentCommitOutcome::Committed
+        );
+        assert!(matches!(
+            compacted.events.first().map(|event| &event.payload),
+            Some(CoreModuleEventPayload::OwnedDocument(
+                OwnedDocumentEvent::CanvasGenerationChanged {
+                    previous_generation: 1,
+                    previous_head_seq: 2,
+                    generation: 2,
+                    head_seq: 1,
+                    ..
+                }
+            ))
+        ));
+        let replay = seeded
+            .module
+            .apply(
+                &context_for_project("connection:compaction-retry", PROJECT_ID),
+                request,
+            )
+            .expect("replay committed Canvas compaction");
+        assert!(replay.committed.receipt.mutation.duplicate);
+        assert_eq!(replay.committed.value.generation, 2);
+        assert!(replay.events.is_empty());
+
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence = connection.query_row(
+                    "SELECT document.generation, document.head_seq, scene.generation, \
+                            scene.head_seq, scene.element_count, scene.tombstone_count, \
+                            projection.generation, projection.projected_head_seq, \
+                            (SELECT count(*) FROM canvas_scene_elements WHERE document_id = ?1), \
+                            (SELECT count(*) FROM document_versions \
+                             WHERE document_id = ?1 AND cause = 'canvas_tombstone_compaction' \
+                               AND revision_kind = 'safety' AND pinned = 1) \
+                     FROM documents document \
+                     JOIN canvas_scenes scene ON scene.document_id = document.id \
+                     JOIN canvas_scene_projection_heads projection \
+                       ON projection.document_id = document.id \
+                     WHERE document.id = ?1",
+                    [DOCUMENT_ID],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, i64>(3)?,
+                            row.get::<_, i64>(4)?,
+                            row.get::<_, i64>(5)?,
+                            row.get::<_, i64>(6)?,
+                            row.get::<_, i64>(7)?,
+                            row.get::<_, i64>(8)?,
+                            row.get::<_, i64>(9)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(evidence, (2, 1, 2, 1, 0, 0, 2, 1, 0, 1));
+                let checkpoint: Vec<u8> = connection.query_row(
+                    "SELECT full_update_blob FROM document_versions \
+                     WHERE document_id = ?1 AND cause = 'canvas_tombstone_compaction'",
+                    [DOCUMENT_ID],
+                    |row| row.get(0),
+                )?;
+                let checkpoint: Value =
+                    serde_json::from_slice(&checkpoint).expect("Canvas compaction checkpoint");
+                assert_eq!(checkpoint["elements"][0]["isDeleted"], true);
+                Ok::<_, StoreError>(())
+            })
+            .expect("validate compacted Canvas authority");
+        let synced = seeded
+            .module
+            .sync_canvas(&context(), DOCUMENT_ID)
+            .expect("sync compacted Canvas");
+        assert_eq!(synced.generation, 2);
+        assert_eq!(synced.head_seq, 1);
+        let scene: Value = serde_json::from_str(&synced.scene_json).expect("compacted scene");
+        assert_eq!(scene["elements"], json!([]));
+
+        let no_change = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "canvas:compact:no-change".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::CompactCanvasTombstones {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 2,
+                        expected_head_seq: 1,
+                        actor: json!({ "kind": "test" }),
+                        write_fence_prepared: true,
+                    },
+                },
+            )
+            .expect("no-op Canvas compaction");
+        assert_eq!(
+            no_change.committed.value.outcome,
+            DocumentCommitOutcome::NoChange
+        );
+        assert_eq!(no_change.committed.value.generation, 2);
+        assert_eq!(no_change.committed.value.head_seq, 1);
+        assert!(no_change.events.is_empty());
+
+        let stale = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "canvas:compact:stale".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::CompactCanvasTombstones {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 2,
+                        actor: json!({ "kind": "test" }),
+                        write_fence_prepared: true,
+                    },
+                },
+            )
+            .expect_err("old-generation compaction must fail");
+        assert_eq!(stale.code, CoreErrorCode::GenerationConflict);
     }
 
     #[test]

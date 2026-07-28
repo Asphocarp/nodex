@@ -2300,11 +2300,17 @@ describe("Electron native data authority", () => {
         (event) => secondCanvasEvents.push(event),
       );
       try {
-        const firstCanvasSync = await firstCanvas.sync(firstCanvasRequest);
+        const firstCanvasSync = await firstCanvas.sync({
+          ...firstCanvasRequest,
+          syncRequestId: "sync:electron:first",
+        });
         if (!firstCanvasSync.ok) {
           throw new Error(
             `Core Canvas sync failed: ${firstCanvasSync.error.code}: ${firstCanvasSync.error.message}`,
           );
+        }
+        if (firstCanvasSync.value.kind !== "snapshot") {
+          throw new Error("Initial Core Canvas sync did not return a snapshot");
         }
         const currentGridMode = firstCanvasSync.value.scene.appState
           .gridModeEnabled;
@@ -2341,15 +2347,49 @@ describe("Electron native data authority", () => {
             && event.mutationId === mutationId),
           "Second Canvas subscriber did not receive the durable mutation",
         );
-        const secondCanvasSync = await secondCanvas.sync(secondCanvasRequest);
+        const secondCanvasSync = await secondCanvas.sync({
+          ...secondCanvasRequest,
+          syncRequestId: "sync:electron:second",
+        });
         if (!secondCanvasSync.ok) {
           throw new Error(
             `Second Core Canvas sync failed: ${secondCanvasSync.error.code}: ${secondCanvasSync.error.message}`,
           );
         }
+        if (secondCanvasSync.value.kind !== "snapshot") {
+          throw new Error("Second Core Canvas sync did not return a snapshot");
+        }
         expect(
           secondCanvasSync.value.scene.appState.gridModeEnabled,
         ).toBe(nextGridMode);
+        const corruptCanvasSync = await secondCanvas.sync({
+          ...secondCanvasRequest,
+          syncRequestId: "sync:electron:wrong-hash",
+          knownStoreEpoch: secondCanvasSync.value.storeEpoch,
+          knownGeneration: secondCanvasSync.value.generation,
+          knownHeadSeq: secondCanvasSync.value.headSeq,
+          knownSceneHash: "0".repeat(64),
+        });
+        expect(corruptCanvasSync).toMatchObject({
+          ok: false,
+          error: { code: "canvas_scene_corrupt", retryable: false },
+        });
+        const currentCanvasSync = await secondCanvas.sync({
+          ...secondCanvasRequest,
+          syncRequestId: "sync:electron:current",
+          knownStoreEpoch: secondCanvasSync.value.storeEpoch,
+          knownGeneration: secondCanvasSync.value.generation,
+          knownHeadSeq: secondCanvasSync.value.headSeq,
+          knownSceneHash: secondCanvasSync.value.sceneHash,
+        });
+        expect(currentCanvasSync).toMatchObject({
+          ok: true,
+          value: {
+            kind: "up_to_date",
+            syncRequestId: "sync:electron:current",
+            headSeq: secondCanvasSync.value.headSeq,
+          },
+        });
         expect(listCurrentProcessFiles()).not.toContain(databasePath);
       } finally {
         closeFirstCanvas();

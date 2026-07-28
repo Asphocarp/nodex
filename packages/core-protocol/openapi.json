@@ -1815,6 +1815,45 @@
           "pre-restore"
         ]
       },
+      "CanvasCompactionStats": {
+        "type": "object",
+        "required": [
+          "document_id",
+          "generation",
+          "head_seq",
+          "scene_hash",
+          "tombstone_count",
+          "tombstone_bytes",
+          "eligible"
+        ],
+        "properties": {
+          "document_id": {
+            "type": "string"
+          },
+          "eligible": {
+            "type": "boolean"
+          },
+          "generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "scene_hash": {
+            "type": "string"
+          },
+          "tombstone_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "tombstone_count": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "ClientIdentity": {
         "type": "object",
         "required": [
@@ -4121,6 +4160,26 @@
           },
           "backup_duration": {
             "$ref": "#/components/schemas/HealthDurationMetric"
+          },
+          "canvas_sync_initial_snapshots": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "canvas_sync_repair_snapshots": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "canvas_sync_snapshot_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "canvas_sync_up_to_date": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           },
           "command_latency": {
             "$ref": "#/components/schemas/HealthDurationMetric"
@@ -13353,6 +13412,40 @@
                   "document_id",
                   "generation",
                   "expected_head_seq",
+                  "actor",
+                  "write_fence_prepared",
+                  "kind"
+                ],
+                "properties": {
+                  "actor": {},
+                  "document_id": {
+                    "type": "string"
+                  },
+                  "expected_head_seq": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "compact_canvas_tombstones"
+                    ]
+                  },
+                  "write_fence_prepared": {
+                    "type": "boolean"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "document_id",
+                  "generation",
+                  "expected_head_seq",
                   "cause",
                   "actor",
                   "kind"
@@ -16071,24 +16164,6 @@
                   "kind"
                 ],
                 "properties": {
-                  "document_id": {
-                    "type": "string"
-                  },
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "sync_canvas"
-                    ]
-                  }
-                }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "document_id",
-                  "kind"
-                ],
-                "properties": {
                   "before": {
                     "oneOf": [
                       {
@@ -16137,6 +16212,24 @@
                   },
                   "version_id": {
                     "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "document_id",
+                  "kind"
+                ],
+                "properties": {
+                  "document_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "canvas_compaction_eligibility"
+                    ]
                   }
                 }
               },
@@ -16697,6 +16790,48 @@
                 ]
               },
               "mutation": {},
+              "scene_hash": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "document_id",
+              "previous_generation",
+              "previous_head_seq",
+              "generation",
+              "head_seq",
+              "scene_hash",
+              "kind"
+            ],
+            "properties": {
+              "document_id": {
+                "type": "string"
+              },
+              "generation": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "head_seq": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "canvas_generation_changed"
+                ]
+              },
+              "previous_generation": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "previous_head_seq": {
+                "type": "integer",
+                "format": "int64"
+              },
               "scene_hash": {
                 "type": "string"
               }
@@ -21042,35 +21177,6 @@
                       {
                         "type": "object",
                         "required": [
-                          "descriptor",
-                          "scene_json",
-                          "scene_hash",
-                          "kind"
-                        ],
-                        "properties": {
-                          "descriptor": {},
-                          "kind": {
-                            "type": "string",
-                            "enum": [
-                              "canvas_sync"
-                            ]
-                          },
-                          "scene_hash": {
-                            "type": "string"
-                          },
-                          "scene_json": {
-                            "type": "array",
-                            "items": {
-                              "type": "integer",
-                              "format": "int32",
-                              "minimum": 0
-                            }
-                          }
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "required": [
                           "items",
                           "kind"
                         ],
@@ -21111,6 +21217,24 @@
                             ]
                           },
                           "value": {}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "stats",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "canvas_compaction_eligibility"
+                            ]
+                          },
+                          "stats": {
+                            "$ref": "#/components/schemas/CanvasCompactionStats"
+                          }
                         }
                       },
                       {

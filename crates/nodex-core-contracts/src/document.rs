@@ -11,7 +11,18 @@ use crate::{
     CommittedModuleValue, ModuleMutationReceipt, ModuleName, StoreEpoch, VersionedModuleContract,
 };
 
-pub const OWNED_DOCUMENT_CONTRACT_VERSION: u32 = 1;
+pub const OWNED_DOCUMENT_CONTRACT_VERSION: u32 = 3;
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct CanvasCompactionStats {
+    pub document_id: String,
+    pub generation: i64,
+    pub head_seq: i64,
+    pub scene_hash: String,
+    pub tombstone_count: i64,
+    pub tombstone_bytes: i64,
+    pub eligible: bool,
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct AgentDocumentSemanticMutation {
@@ -41,9 +52,6 @@ pub enum OwnedDocumentRead {
         document_id: String,
         state_vector: Vec<u8>,
     },
-    SyncCanvas {
-        document_id: String,
-    },
     ListVersions {
         document_id: String,
         before: Option<DocumentVersionCursor>,
@@ -52,6 +60,9 @@ pub enum OwnedDocumentRead {
     GetVersion {
         document_id: String,
         version_id: String,
+    },
+    CanvasCompactionEligibility {
+        document_id: String,
     },
     PrepareAgentSemanticMutation {
         operation_id: String,
@@ -83,17 +94,15 @@ pub enum OwnedDocumentReadValue {
         descriptor: Value,
         update: Vec<u8>,
     },
-    CanvasSync {
-        descriptor: Value,
-        scene_json: Vec<u8>,
-        scene_hash: String,
-    },
     Versions {
         items: Vec<Value>,
         next: Option<DocumentVersionCursor>,
     },
     Version {
         value: Value,
+    },
+    CanvasCompactionEligibility {
+        stats: CanvasCompactionStats,
     },
     AgentSemanticMutationPreparation {
         preparation: AgentOperationPreparation,
@@ -200,6 +209,13 @@ pub enum OwnedDocumentIntent {
         generation: i64,
         expected_head_seq: i64,
         mutation: Value,
+    },
+    CompactCanvasTombstones {
+        document_id: String,
+        generation: i64,
+        expected_head_seq: i64,
+        actor: Value,
+        write_fence_prepared: bool,
     },
     CreateCheckpoint {
         document_id: String,
@@ -524,6 +540,14 @@ pub enum OwnedDocumentEvent {
         head_seq: i64,
         scene_hash: String,
         mutation: Value,
+    },
+    CanvasGenerationChanged {
+        document_id: String,
+        previous_generation: i64,
+        previous_head_seq: i64,
+        generation: i64,
+        head_seq: i64,
+        scene_hash: String,
     },
     DocumentInvalidated {
         document_id: String,

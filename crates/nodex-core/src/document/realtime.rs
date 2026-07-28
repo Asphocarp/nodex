@@ -245,19 +245,13 @@ impl OwnedDocumentRealtimeAdapter {
         context: &BoundModuleContext,
         client_session_id: &str,
         document_id: String,
-    ) -> Result<ModuleReadSnapshot<OwnedDocumentReadValue>, CoreError> {
+    ) -> Result<super::CanvasSceneSyncSnapshot, CoreError> {
         let subscription =
             self.require_subscription(&context.connection_id, client_session_id, &document_id)?;
         if subscription.engine != DocumentSubscriptionEngine::CanvasScene {
             return Err(invalid("Canvas sync requires a Canvas subscription"));
         }
-        self.module.read(
-            context,
-            ModuleReadRequest {
-                contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
-                read: OwnedDocumentRead::SyncCanvas { document_id },
-            },
-        )
+        self.module.sync_canvas(context, &document_id)
     }
 
     pub fn apply(
@@ -635,6 +629,7 @@ fn intent_document_id(intent: &OwnedDocumentIntent) -> Option<&str> {
         | OwnedDocumentIntent::ApplyOperationBatch { document_id, .. }
         | OwnedDocumentIntent::ReplaceFromNfm { document_id, .. }
         | OwnedDocumentIntent::ApplyCanvasMutation { document_id, .. }
+        | OwnedDocumentIntent::CompactCanvasTombstones { document_id, .. }
         | OwnedDocumentIntent::CreateCheckpoint { document_id, .. }
         | OwnedDocumentIntent::RestoreVersion { document_id, .. } => Some(document_id),
         OwnedDocumentIntent::ExecutePreparedAgentSemanticMutation { mutation, .. } => {

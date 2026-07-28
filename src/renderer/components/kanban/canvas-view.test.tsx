@@ -7,12 +7,14 @@ import { render, settleAsyncRender, textContent } from "@/test/dom";
 import {
   CANVAS_SCENE_SYNC_VERSION,
   canonicalPortableCanvasSceneFingerprint,
+  chooseCanvasSceneElementWinner,
   materializePortableCanvasScene,
   primaryCanvasBlockId,
   primaryCanvasDocumentId,
   plainTextToPortableRichText,
   type CanvasSceneMutationRequest,
   type CanvasSceneRealtimeEvent,
+  type CanvasPresenceRealtimeEvent,
   type PortableCanvasScene,
 } from "../../../shared/block-documents";
 import { MemoryCanvasSceneOutbox } from "@/lib/canvas-scene-outbox";
@@ -26,6 +28,8 @@ type MockCanvasElement = Record<string, unknown> & {
 let serverScene: PortableCanvasScene;
 let serverHead = 1;
 let realtimeListener: ((event: CanvasSceneRealtimeEvent) => void) | null = null;
+let presenceListener: ((event: CanvasPresenceRealtimeEvent) => void) | null =
+  null;
 let appliedMutations: CanvasSceneMutationRequest[] = [];
 let closeFlushHandlers = new Set<() => void | Promise<void>>();
 let mockSceneElements: MockCanvasElement[] = [];
@@ -43,8 +47,12 @@ let toggleSidebarCalls = 0;
 let updateSceneCalls: Array<{
   readonly captureUpdate?: string;
   readonly elements?: readonly MockCanvasElement[];
+  readonly collaborators?: ReadonlyMap<string, unknown>;
 }> = [];
 let sidebarRenderCount = 0;
+let maintenanceEligible = false;
+let maintenanceReadCount = 0;
+let maintenanceApplyCount = 0;
 let openedCards: Array<{
   readonly projectId: string;
   readonly pageId: string;
@@ -113,8 +121,10 @@ function makePlacedElement(pageId: string, version = 1): MockCanvasElement {
   };
 }
 
-const syncResponse = () => ({
+const syncResponse = (syncRequestId: string) => ({
+  kind: "snapshot" as const,
   version: CANVAS_SCENE_SYNC_VERSION,
+  syncRequestId,
   projectId: "project-1",
   documentId: descriptor.documentId,
   storeEpoch: descriptor.storeEpoch,
@@ -127,13 +137,18 @@ const syncResponse = () => ({
 });
 
 const adapter: CanvasSceneSyncAdapter = {
-  subscribe: (_request, listener) => {
+  subscribe: (_request, listener, _leaseListener, nextPresenceListener) => {
     realtimeListener = listener;
+    presenceListener = nextPresenceListener ?? null;
     return () => {
       if (realtimeListener === listener) realtimeListener = null;
+      if (presenceListener === nextPresenceListener) presenceListener = null;
     };
   },
-  sync: async () => ({ ok: true, value: syncResponse() }),
+  sync: async (request) => ({
+    ok: true,
+    value: syncResponse(request.syncRequestId),
+  }),
   applyMutation: async (request) => {
     appliedMutations.push(request);
     const nextAppState = { ...serverScene.appState } as Record<string, unknown>;
@@ -143,8 +158,19 @@ const adapter: CanvasSceneSyncAdapter = {
       if (intent.value.kind === "value") nextAppState[key] = intent.value.value;
       else delete nextAppState[key];
     }
+    const elements = new Map(
+      serverScene.elements.map((element) => [element.id as string, element]),
+    );
+    for (const candidate of request.elementCandidates) {
+      const id = candidate.id as string;
+      const current = elements.get(id);
+      elements.set(
+        id,
+        current ? chooseCanvasSceneElementWinner(current, candidate) : candidate,
+      );
+    }
     serverScene = materializePortableCanvasScene({
-      elements: request.elementCandidates,
+      elements: [...elements.values()],
       appState: nextAppState,
       files: { ...serverScene.files, ...request.fileAdditions },
     });
@@ -172,9 +198,19 @@ const adapter: CanvasSceneSyncAdapter = {
         addedFileIds: Object.keys(request.fileAdditions),
         removedFileIds: [],
         committedAt: "2026-07-13T00:00:00.000Z",
+        committedDelta: {
+          elementUpdates: request.elementCandidates,
+          appState: serverScene.appState,
+          fileAdditions: request.fileAdditions,
+          removedFileIds: [],
+        },
       },
     };
   },
+  publishPresence: async () => ({
+    ok: true,
+    value: { accepted: true, applied: true },
+  }),
 };
 
 function MockExcalidraw(props: {
@@ -209,12 +245,13 @@ function MockExcalidraw(props: {
     addFiles: (files: readonly { id: string }[]) => {
       for (const file of files) mockFiles[file.id] = file;
     },
-    updateScene: ({ elements, appState, captureUpdate }: {
+    updateScene: ({ elements, appState, collaborators, captureUpdate }: {
       readonly elements?: readonly MockCanvasElement[];
       readonly appState?: Record<string, unknown>;
+      readonly collaborators?: ReadonlyMap<string, unknown>;
       readonly captureUpdate?: string;
     }) => {
-      updateSceneCalls.push({ captureUpdate, elements });
+      updateSceneCalls.push({ captureUpdate, elements, collaborators });
       if (elements) mockSceneElements = [...elements];
       if (appState) mockAppState = { ...mockAppState, ...appState };
     },
@@ -299,6 +336,33 @@ vi.mock("./canvas-view-deps", () => ({
   }, { reload: async () => undefined }),
   createCanvasSceneSyncAdapter: () => adapter,
   createDefaultCanvasSceneOutbox: () => new MemoryCanvasSceneOutbox(),
+  readCanvasSceneCompaction: async () => {
+    maintenanceReadCount += 1;
+    return {
+      ok: true,
+      value: {
+        documentId: descriptor.documentId,
+        generation: descriptor.generation,
+        headSeq: serverHead,
+        sceneHash: "a".repeat(64),
+        tombstoneCount: maintenanceEligible ? 5_000 : 0,
+        tombstoneBytes: 0,
+        eligible: maintenanceEligible,
+      },
+    };
+  },
+  compactCanvasScene: async () => {
+    maintenanceApplyCount += 1;
+    return {
+      ok: false,
+      error: {
+        code: "write_fence_required",
+        message: "deferred in renderer test",
+        retryable: true,
+        resetRequired: false,
+      },
+    };
+  },
   registerAppCloseFlushHandler: (handler: () => void | Promise<void>) => {
     closeFlushHandlers.add(handler);
     return () => closeFlushHandlers.delete(handler);
@@ -315,6 +379,7 @@ async function renderCanvas(strict = false) {
   const canvas = createElement(CanvasView, {
     projectId: "project-1",
     databaseViewId: "view-project-1-primary",
+    canvasSurfaceKey: "canvas:test",
     openPageStage: (projectId: string, pageId: string, title?: string) => {
       openedCards.push({ projectId, pageId, title });
     },
@@ -329,6 +394,7 @@ describe("CanvasView", () => {
     serverScene = materializePortableCanvasScene({ elements: [makePlacedElement("card-1")] });
     serverHead = 1;
     realtimeListener = null;
+    presenceListener = null;
     appliedMutations = [];
     closeFlushHandlers = new Set();
     mockSceneElements = [];
@@ -339,19 +405,20 @@ describe("CanvasView", () => {
     toggleSidebarCalls = 0;
     updateSceneCalls = [];
     sidebarRenderCount = 0;
+    maintenanceEligible = false;
+    maintenanceReadCount = 0;
+    maintenanceApplyCount = 0;
     openedCards = [];
   });
 
-  test("mounts one scene-native Canvas surface and registers close flush", async () => {
+  test("mounts one scene-native Canvas surface without a component close handler", async () => {
     const view = await renderCanvas(true);
     await view.findByTestId("excalidraw");
-    expect(closeFlushHandlers.size).toBe(1);
+    expect(closeFlushHandlers.size).toBe(0);
     mockSceneElements = [makePlacedElement("card-1", 2)];
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "emit change" }));
-      await Promise.all(
-        [...closeFlushHandlers].map((handler) => Promise.resolve(handler())),
-      );
+      await new Promise((resolve) => setTimeout(resolve, 180));
     });
     expect(appliedMutations).toHaveLength(1);
   });
@@ -360,6 +427,19 @@ describe("CanvasView", () => {
     const view = await renderCanvas();
     fireEvent.click(await view.findByRole("button", { name: "Pages" }));
     expect(toggleSidebarCalls).toBe(1);
+  });
+
+  test("keeps maintenance invisible and attempts it only after the surface closes", async () => {
+    maintenanceEligible = true;
+    const view = await renderCanvas();
+    await view.findByTestId("excalidraw");
+    expect(view.queryByRole("button", { name: "Optimize" })).toBeNull();
+    expect(maintenanceReadCount).toBe(0);
+
+    view.unmount();
+
+    await waitFor(() => expect(maintenanceReadCount).toBe(1));
+    expect(maintenanceApplyCount).toBe(1);
   });
 
   test("opens a referenced standalone Card by Block identity", async () => {
@@ -433,5 +513,45 @@ describe("CanvasView", () => {
     expect(latest?.captureUpdate).toBe("never");
     expect(mockSceneElements[0]?.x).toBe(240);
     expect(mockAppState.gridModeEnabled).toBe(true);
+  });
+
+  test("remote presence renders collaborators without durable scene mutations", async () => {
+    const view = await renderCanvas();
+    await view.findByTestId("excalidraw");
+    await settleAsyncRender();
+    const mutationCount = appliedMutations.length;
+    act(() => presenceListener?.({
+      type: "canvas_presence_updated",
+      version: 1,
+      projectId: "project-1",
+      presence: {
+        version: 1,
+        engine: "canvas_scene",
+        documentId: descriptor.documentId,
+        generation: descriptor.generation,
+        clock: 1,
+        state: {
+          pointer: {
+            x: 40,
+            y: 60,
+            button: "up",
+            tool: "pointer",
+          },
+          selectedElementIds: [],
+          idle: "active",
+        },
+        clientSessionId: "remote-session",
+        user: {
+          id: "window:2",
+          displayName: "Window 2",
+          color: "#1971c2",
+        },
+      },
+    }));
+    await waitFor(() =>
+      expect(updateSceneCalls.at(-1)?.collaborators?.size).toBe(1)
+    );
+    expect(updateSceneCalls.at(-1)?.captureUpdate).toBe("never");
+    expect(appliedMutations).toHaveLength(mutationCount);
   });
 });

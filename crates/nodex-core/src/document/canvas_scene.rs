@@ -1,7 +1,9 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use serde::Serialize;
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
@@ -15,6 +17,13 @@ const MAX_ORDER_KEY_LENGTH: usize = 256;
 const MAX_SHARED_TEXT_UTF16: usize = 4_000_000;
 const MAX_MUTATION_BYTES: usize = 2 * 1024 * 1024;
 const ASSET_SCHEME: &str = "nodex://assets/";
+pub(crate) const CANVAS_HASH_BUCKET_COUNT: usize = 1_024;
+pub(crate) const CANVAS_SCENE_HASH_VERSION: i64 = 2;
+pub(crate) const MAX_CANVAS_SCENE_BYTES: usize = 16 * 1024 * 1024;
+const CANVAS_BUCKET_INDEX_DOMAIN: &[u8] = b"nodex.canvas.bucket-index.v1\0";
+const CANVAS_LEAF_DOMAIN: &[u8] = b"nodex.canvas.leaf.v1\0";
+const CANVAS_BUCKET_DOMAIN: &[u8] = b"nodex.canvas.bucket.v1\0";
+const CANVAS_ROOT_DOMAIN: &[u8] = b"nodex.canvas.root.v2\0";
 const DURABLE_APP_STATE_KEYS: [&str; 4] = [
     "gridModeEnabled",
     "gridSize",
@@ -49,6 +58,76 @@ pub(crate) struct CanvasPageReference {
     pub(crate) title_hint: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DerivedCanvasElement {
+    pub(crate) referenced_file_id: Option<String>,
+    pub(crate) plain_text: String,
+    pub(crate) page_reference: Option<CanvasPageReference>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CanvasSceneCounters {
+    pub(crate) element_count: i64,
+    pub(crate) tombstone_count: i64,
+    pub(crate) tombstone_json_bytes: i64,
+    pub(crate) file_count: i64,
+    pub(crate) element_json_bytes: i64,
+    pub(crate) file_json_bytes: i64,
+    pub(crate) scene_byte_length: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanvasHashBucket {
+    pub(crate) item_count: i64,
+    pub(crate) bucket_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanvasSceneIncrementalMetadata {
+    pub(crate) app_state_json: String,
+    pub(crate) app_state_hash: String,
+    pub(crate) scene_hash: String,
+    pub(crate) counters: CanvasSceneCounters,
+    pub(crate) hash_buckets: BTreeMap<u16, CanvasHashBucket>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum CanvasHashItemKind {
+    Element,
+    File,
+}
+
+impl CanvasHashItemKind {
+    fn as_bytes(self) -> &'static [u8] {
+        match self {
+            Self::Element => b"element",
+            Self::File => b"file",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanvasHashItem {
+    pub(crate) kind: CanvasHashItemKind,
+    pub(crate) id: String,
+    pub(crate) canonical_hash: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CanvasSemanticIntentFingerprint<'a> {
+    version: u8,
+    profile_id: &'a str,
+    library_id: &'a str,
+    project_id: Option<&'a str>,
+    expected_store_epoch: &'a str,
+    document_id: &'a str,
+    generation: i64,
+    base_head_seq: i64,
+    mutation_id: &'a str,
+    mutation: &'a Value,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CanvasScene {
     pub(crate) elements: Vec<CanvasElement>,
@@ -69,12 +148,12 @@ pub(crate) struct CanvasMutation {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CanvasAppStateIntent {
-    expected: OptionalJson,
-    value: OptionalJson,
+    pub(crate) expected: OptionalJson,
+    pub(crate) value: OptionalJson,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-enum OptionalJson {
+pub(crate) enum OptionalJson {
     Absent,
     Value(Value),
 }
@@ -175,6 +254,317 @@ impl CanvasScene {
             "pageReferences": references,
         }))
     }
+}
+
+pub(crate) fn compact_canvas_tombstones(scene: &CanvasScene) -> Result<CanvasScene, StoreError> {
+    let elements = scene
+        .elements
+        .iter()
+        .filter(|element| !element.is_deleted)
+        .cloned()
+        .collect::<Vec<_>>();
+    let referenced_file_ids = elements
+        .iter()
+        .filter_map(|element| {
+            let object = element.value.as_object()?;
+            (object.get("type").and_then(Value::as_str) == Some("image"))
+                .then(|| object.get("fileId").and_then(Value::as_str))
+                .flatten()
+        })
+        .collect::<HashSet<_>>();
+    let files = scene
+        .files
+        .iter()
+        .filter(|(file_id, _)| referenced_file_ids.contains(file_id.as_str()))
+        .map(|(file_id, file)| (file_id.clone(), file.clone()))
+        .collect::<BTreeMap<_, _>>();
+    materialize_scene(elements, scene.app_state.clone(), files)
+}
+
+pub(crate) fn derive_canvas_element(
+    element: &CanvasElement,
+) -> Result<DerivedCanvasElement, StoreError> {
+    if element.is_deleted {
+        return Ok(DerivedCanvasElement {
+            referenced_file_id: None,
+            plain_text: String::new(),
+            page_reference: None,
+        });
+    }
+    let object = element
+        .value
+        .as_object()
+        .ok_or_else(|| invalid("Canvas element is not an object"))?;
+    let referenced_file_id = (object.get("type").and_then(Value::as_str) == Some("image"))
+        .then(|| {
+            object
+                .get("fileId")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .flatten();
+    Ok(DerivedCanvasElement {
+        referenced_file_id,
+        plain_text: element_plain_text(element).unwrap_or_default().to_owned(),
+        page_reference: read_page_reference(element).transpose()?,
+    })
+}
+
+pub(crate) fn canvas_hash_bucket(kind: CanvasHashItemKind, id: &str) -> u16 {
+    let mut hasher = Sha256::new();
+    hasher.update(CANVAS_BUCKET_INDEX_DOMAIN);
+    hasher.update(kind.as_bytes());
+    hasher.update([0]);
+    hasher.update(id.as_bytes());
+    let digest = hasher.finalize();
+    (u16::from_be_bytes([digest[0], digest[1]]) >> 6) & 0x03ff
+}
+
+pub(crate) fn canvas_leaf_hash(item: &CanvasHashItem) -> Result<[u8; 32], StoreError> {
+    let canonical_hash = decode_sha256(&item.canonical_hash)?;
+    let mut hasher = Sha256::new();
+    hasher.update(CANVAS_LEAF_DOMAIN);
+    hasher.update(item.kind.as_bytes());
+    hasher.update([0]);
+    update_length_prefixed(&mut hasher, item.id.as_bytes())?;
+    hasher.update(canonical_hash);
+    Ok(hasher.finalize().into())
+}
+
+pub(crate) fn canvas_bucket_hash(
+    bucket_index: u16,
+    items: &[CanvasHashItem],
+) -> Result<String, StoreError> {
+    if usize::from(bucket_index) >= CANVAS_HASH_BUCKET_COUNT {
+        return Err(internal("Canvas hash bucket index is out of range"));
+    }
+    let mut sorted = items.to_vec();
+    sorted.sort_by(|left, right| {
+        left.kind
+            .cmp(&right.kind)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    let mut hasher = Sha256::new();
+    hasher.update(CANVAS_BUCKET_DOMAIN);
+    hasher.update(bucket_index.to_be_bytes());
+    hasher.update(
+        u64::try_from(sorted.len())
+            .map_err(|_| internal("Canvas hash bucket item count overflowed"))?
+            .to_be_bytes(),
+    );
+    for item in &sorted {
+        hasher.update(canvas_leaf_hash(item)?);
+    }
+    Ok(hex_digest(hasher.finalize().into()))
+}
+
+pub(crate) fn canvas_scene_root_hash(
+    schema_version: i64,
+    app_state_hash: &str,
+    element_count: i64,
+    file_count: i64,
+    buckets: &BTreeMap<u16, CanvasHashBucket>,
+) -> Result<String, StoreError> {
+    if schema_version < 1 || element_count < 0 || file_count < 0 {
+        return Err(internal("Canvas root hash coordinates are invalid"));
+    }
+    let app_state_hash = decode_sha256(app_state_hash)?;
+    let mut hasher = Sha256::new();
+    hasher.update(CANVAS_ROOT_DOMAIN);
+    hasher.update(schema_version.to_be_bytes());
+    hasher.update(app_state_hash);
+    hasher.update(
+        u64::try_from(element_count)
+            .map_err(|_| internal("Canvas element count overflowed"))?
+            .to_be_bytes(),
+    );
+    hasher.update(
+        u64::try_from(file_count)
+            .map_err(|_| internal("Canvas file count overflowed"))?
+            .to_be_bytes(),
+    );
+    for bucket_index in 0..CANVAS_HASH_BUCKET_COUNT {
+        let bucket_index = u16::try_from(bucket_index)
+            .map_err(|_| internal("Canvas hash bucket index overflowed"))?;
+        let bucket_hash = if let Some(bucket) = buckets.get(&bucket_index) {
+            if bucket.item_count < 1 {
+                return Err(internal("Canvas sparse hash bucket is empty"));
+            }
+            decode_sha256(&bucket.bucket_hash)?
+        } else {
+            decode_sha256(&canvas_bucket_hash(bucket_index, &[])?)?
+        };
+        hasher.update(bucket_hash);
+    }
+    Ok(hex_digest(hasher.finalize().into()))
+}
+
+pub(crate) fn compute_canvas_scene_incremental_metadata(
+    scene: &CanvasScene,
+) -> Result<CanvasSceneIncrementalMetadata, StoreError> {
+    let app_state_json = canonical_json(&Value::Object(scene.app_state.clone()))?;
+    let app_state_hash = sha256_bytes(app_state_json.as_bytes());
+    let mut element_json_bytes = 0_i64;
+    let mut tombstone_json_bytes = 0_i64;
+    let mut file_json_bytes = 0_i64;
+    let mut tombstone_count = 0_i64;
+    let mut items = BTreeMap::<u16, Vec<CanvasHashItem>>::new();
+    for element in &scene.elements {
+        let element_json = canonical_json(&element.value)?;
+        element_json_bytes = checked_json_bytes(element_json_bytes, &element_json)?;
+        if element.is_deleted {
+            tombstone_json_bytes = checked_json_bytes(tombstone_json_bytes, &element_json)?;
+        }
+        tombstone_count += i64::from(element.is_deleted);
+        let item = CanvasHashItem {
+            kind: CanvasHashItemKind::Element,
+            id: element.id.clone(),
+            canonical_hash: sha256_bytes(element_json.as_bytes()),
+        };
+        items
+            .entry(canvas_hash_bucket(item.kind, &item.id))
+            .or_default()
+            .push(item);
+    }
+    for (id, file) in &scene.files {
+        let file_json = canonical_json(&file.value)?;
+        file_json_bytes = checked_json_bytes(file_json_bytes, &file_json)?;
+        let item = CanvasHashItem {
+            kind: CanvasHashItemKind::File,
+            id: id.clone(),
+            canonical_hash: sha256_bytes(file_json.as_bytes()),
+        };
+        items
+            .entry(canvas_hash_bucket(item.kind, &item.id))
+            .or_default()
+            .push(item);
+    }
+    let hash_buckets = items
+        .into_iter()
+        .map(|(bucket_index, items)| {
+            Ok((
+                bucket_index,
+                CanvasHashBucket {
+                    item_count: i64::try_from(items.len())
+                        .map_err(|_| internal("Canvas hash bucket item count overflowed"))?,
+                    bucket_hash: canvas_bucket_hash(bucket_index, &items)?,
+                },
+            ))
+        })
+        .collect::<Result<BTreeMap<_, _>, StoreError>>()?;
+    let element_count = i64::try_from(scene.elements.len())
+        .map_err(|_| internal("Canvas element count overflowed"))?;
+    let file_count =
+        i64::try_from(scene.files.len()).map_err(|_| internal("Canvas file count overflowed"))?;
+    let scene_json = scene.canonical_json()?;
+    if scene_json.len() > MAX_CANVAS_SCENE_BYTES {
+        return Err(invalid("Canvas scene exceeds its snapshot byte bound"));
+    }
+    let scene_byte_length = i64::try_from(scene_json.len())
+        .map_err(|_| internal("Canvas scene byte length overflowed"))?;
+    let scene_hash = canvas_scene_root_hash(
+        CANVAS_SCHEMA_VERSION,
+        &app_state_hash,
+        element_count,
+        file_count,
+        &hash_buckets,
+    )?;
+    Ok(CanvasSceneIncrementalMetadata {
+        app_state_json,
+        app_state_hash,
+        scene_hash,
+        counters: CanvasSceneCounters {
+            element_count,
+            tombstone_count,
+            tombstone_json_bytes,
+            file_count,
+            element_json_bytes,
+            file_json_bytes,
+            scene_byte_length,
+        },
+        hash_buckets,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn canvas_semantic_intent_fingerprint(
+    profile_id: &str,
+    library_id: &str,
+    project_id: Option<&str>,
+    expected_store_epoch: &str,
+    document_id: &str,
+    generation: i64,
+    base_head_seq: i64,
+    mutation_id: &str,
+    mutation: &Value,
+) -> Result<Vec<u8>, StoreError> {
+    serde_json::to_vec(&CanvasSemanticIntentFingerprint {
+        version: 2,
+        profile_id,
+        library_id,
+        project_id,
+        expected_store_epoch,
+        document_id,
+        generation,
+        base_head_seq,
+        mutation_id,
+        mutation,
+    })
+    .map_err(|_| internal("Canvas semantic intent cannot be fingerprinted"))
+}
+
+fn checked_json_bytes(current: i64, value: &str) -> Result<i64, StoreError> {
+    let length =
+        i64::try_from(value.len()).map_err(|_| internal("Canvas JSON byte length overflowed"))?;
+    current
+        .checked_add(length)
+        .ok_or_else(|| internal("Canvas JSON byte counter overflowed"))
+}
+
+fn update_length_prefixed(hasher: &mut Sha256, value: &[u8]) -> Result<(), StoreError> {
+    hasher.update(
+        u64::try_from(value.len())
+            .map_err(|_| internal("Canvas hash value length overflowed"))?
+            .to_be_bytes(),
+    );
+    hasher.update(value);
+    Ok(())
+}
+
+fn sha256_bytes(value: &[u8]) -> String {
+    let digest: [u8; 32] = Sha256::digest(value).into();
+    hex_digest(digest)
+}
+
+fn decode_sha256(value: &str) -> Result<[u8; 32], StoreError> {
+    if value.len() != 64 {
+        return Err(internal("Canvas SHA-256 evidence has invalid length"));
+    }
+    let mut decoded = [0_u8; 32];
+    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+        decoded[index] = decode_hex_nibble(pair[0])
+            .and_then(|high| decode_hex_nibble(pair[1]).map(|low| (high << 4) | low))
+            .ok_or_else(|| internal("Canvas SHA-256 evidence is not lowercase hexadecimal"))?;
+    }
+    Ok(decoded)
+}
+
+fn decode_hex_nibble(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        _ => None,
+    }
+}
+
+fn hex_digest(value: [u8; 32]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(64);
+    for byte in value {
+        output.push(char::from(HEX[usize::from(byte >> 4)]));
+        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    output
 }
 
 pub(crate) fn parse_canvas_mutation(value: &Value) -> Result<CanvasMutation, StoreError> {
@@ -735,7 +1125,7 @@ fn optional_value(value: &OptionalJson) -> Value {
     }
 }
 
-fn optional_matches(current: Option<&Value>, expected: &OptionalJson) -> bool {
+pub(crate) fn optional_matches(current: Option<&Value>, expected: &OptionalJson) -> bool {
     match expected {
         OptionalJson::Absent => current.is_none(),
         OptionalJson::Value(expected) => current == Some(expected),
@@ -755,7 +1145,7 @@ fn validate_app_state_value(key: &str, value: &Value) -> Result<(), StoreError> 
     }
 }
 
-fn choose_element_winner(
+pub(crate) fn choose_element_winner(
     left: &CanvasElement,
     right: &CanvasElement,
 ) -> Result<CanvasElement, StoreError> {
@@ -976,8 +1366,24 @@ fn managed_file_name(source: &str) -> Option<String> {
     (source == format!("{ASSET_SCHEME}{file_name}")).then(|| file_name.to_owned())
 }
 
-fn legacy_order_key(ordinal: usize) -> String {
+pub(crate) fn legacy_order_key(ordinal: usize) -> String {
     format!("legacy:{ordinal:016x}")
+}
+
+pub(crate) fn materialize_canvas_plain_text(values: &[String]) -> String {
+    truncate_utf16(
+        &values
+            .iter()
+            .filter(|value| !value.is_empty())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n"),
+        MAX_SHARED_TEXT_UTF16,
+    )
+}
+
+pub(crate) fn canvas_plain_text_preview(value: &str) -> String {
+    truncate_utf16(&value.split_whitespace().collect::<Vec<_>>().join(" "), 280)
 }
 
 fn truncate_utf16(value: &str, limit: usize) -> String {
@@ -1091,5 +1497,65 @@ mod tests {
             "nodex-card-reference"
         );
         assert_eq!(scene.canonical_value()["kind"], "canvas_scene");
+    }
+
+    #[test]
+    fn incremental_scene_metadata_is_exact_and_order_independent() {
+        let first = parse_element(
+            &json!({
+                "id": "first",
+                "type": "text",
+                "version": 1,
+                "versionNonce": 7,
+                "index": "a0",
+                "isDeleted": false,
+                "text": "First",
+            }),
+            None,
+            "a0".into(),
+        )
+        .expect("first");
+        let second = parse_element(
+            &json!({
+                "id": "second",
+                "type": "text",
+                "version": 2,
+                "versionNonce": 3,
+                "index": "a1",
+                "isDeleted": true,
+                "text": "Second",
+            }),
+            None,
+            "a1".into(),
+        )
+        .expect("second");
+        let ordered = materialize_scene(
+            vec![first.clone(), second.clone()],
+            Map::from_iter([("gridSize".to_owned(), json!(20))]),
+            BTreeMap::new(),
+        )
+        .expect("ordered");
+        let reversed = materialize_scene(
+            vec![second, first],
+            Map::from_iter([("gridSize".to_owned(), json!(20))]),
+            BTreeMap::new(),
+        )
+        .expect("reversed");
+        let ordered_metadata =
+            compute_canvas_scene_incremental_metadata(&ordered).expect("ordered metadata");
+        let reversed_metadata =
+            compute_canvas_scene_incremental_metadata(&reversed).expect("reversed metadata");
+        assert_eq!(
+            ordered_metadata.counters.scene_byte_length,
+            i64::try_from(ordered.canonical_json().expect("scene JSON").len())
+                .expect("scene byte length")
+        );
+        assert_eq!(ordered_metadata.counters.element_count, 2);
+        assert_eq!(ordered_metadata.counters.tombstone_count, 1);
+        assert_eq!(ordered_metadata.scene_hash, reversed_metadata.scene_hash);
+        assert_eq!(
+            ordered_metadata.hash_buckets,
+            reversed_metadata.hash_buckets
+        );
     }
 }

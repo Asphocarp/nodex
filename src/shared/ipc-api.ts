@@ -38,6 +38,16 @@ import type {
   CanvasSceneSyncRequest,
 } from "./block-documents/canvas-scene-sync";
 import type {
+  CanvasSceneCompactionCommandResult,
+  CanvasSceneCompactionReadCommandResult,
+  CanvasSceneCompactionReadRequest,
+  CanvasSceneCompactionRequest,
+} from "./block-documents/canvas-scene-maintenance";
+import type {
+  CanvasPresenceCommandResult,
+  CanvasPresencePublishRequest,
+} from "./block-documents/document-presence";
+import type {
   LibraryOwnedDocumentDescriptor,
   OwnedDocumentDescriptor,
 } from "./block-documents/contracts";
@@ -712,6 +722,18 @@ export interface IpcApi {
   "canvas-scene:apply": {
     args: [request: CanvasSceneMutationRequest];
     result: CanvasSceneMutationCommandResult;
+  };
+  "canvas-scene:presence:publish": {
+    args: [request: CanvasPresencePublishRequest];
+    result: CanvasPresenceCommandResult;
+  };
+  "canvas-scene:compaction:read": {
+    args: [request: CanvasSceneCompactionReadRequest];
+    result: CanvasSceneCompactionReadCommandResult;
+  };
+  "canvas-scene:compaction:apply": {
+    args: [request: CanvasSceneCompactionRequest];
+    result: CanvasSceneCompactionCommandResult;
   };
   "document-sync:awareness:publish": {
     args: [request: ProjectScopedDocumentAwarenessPublishRequest];

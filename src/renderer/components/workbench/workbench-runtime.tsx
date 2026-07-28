@@ -1397,6 +1397,7 @@ export function WorkbenchRuntime({
       activeSearchQuery,
       activeView,
       browserViewScopeId: windowSessionId,
+      windowSessionId,
       dbViewPrefsByProject,
       onLeavePageStage,
       onReminderHandled,

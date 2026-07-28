@@ -11,10 +11,17 @@ import {
   type CanvasSceneSyncRequest,
 } from "../../shared/block-documents/canvas-scene-sync";
 import {
+  parseCanvasSceneCompactionResult,
+  parseCanvasSceneCompactionStats,
+  type CanvasSceneCompactionCommandResult,
+  type CanvasSceneCompactionReadCommandResult,
+  type CanvasSceneCompactionReadRequest,
+  type CanvasSceneCompactionRequest,
+  type CanvasSceneCompactionStats,
+} from "../../shared/block-documents/canvas-scene-maintenance";
+import {
   decodeCanvasSceneSseEvent,
-  decodeCanvasSceneSyncResultHttp,
 } from "../../shared/block-documents/canvas-scene-http-contract";
-import { decodeOwnedDocumentDescriptorHttp } from "../../shared/block-documents/http-contract";
 import { CoreModuleResponseError } from "./core-client";
 import {
   isRetryableCoreEventStreamError,
@@ -54,6 +61,14 @@ export interface CoreCanvasSceneAdapter {
   applyMutation(
     request: CanvasSceneMutationRequest,
   ): Promise<CanvasSceneMutationCommandResult>;
+  readCompaction(
+    request: CanvasSceneCompactionReadRequest,
+  ): Promise<CanvasSceneCompactionReadCommandResult>;
+  compact(
+    request: CanvasSceneCompactionRequest,
+    stats: CanvasSceneCompactionStats,
+    writeFencePrepared: boolean,
+  ): Promise<CanvasSceneCompactionCommandResult>;
 }
 
 const subscriptionKey = (
@@ -143,51 +158,18 @@ export const createCoreCanvasSceneAdapter = (
       try {
         const key = subscriptionKey(request);
         const subscription = subscriptionFor(request);
-        const snapshot = await executeWithDocumentSubscription(
+        const response = await executeWithDocumentSubscription(
           subscription,
           () => subscriptions.get(key) === subscription,
-          async () => await client.documentRead(request.clientSessionId, {
-            kind: "sync_canvas",
-            document_id: request.documentId,
-          }),
-        );
-        if (snapshot.value.kind !== "canvas_sync") {
-          throw new Error("Core returned a non-Canvas Document sync value");
-        }
-        const descriptor = decodeOwnedDocumentDescriptorHttp(
-          JSON.stringify(snapshot.value.descriptor),
+          async () => await client.documentCanvasSync(request),
         );
         if (
-          descriptor.projectId !== request.projectId
-          || descriptor.documentId !== request.documentId
-          || descriptor.sync.kind !== "canvas_scene"
+          response.projectId !== request.projectId
+          || response.documentId !== request.documentId
         ) {
           throw new Error("Core Canvas sync escaped its Project or Document boundary");
         }
-        if (
-          request.knownStoreEpoch !== undefined
-          && request.knownStoreEpoch !== snapshot.store_epoch
-        ) {
-          return canvasFailure("store_epoch_mismatch", {
-            message: "Canvas scene sync belongs to another store epoch",
-            resetRequired: true,
-          });
-        }
-        return decodeCanvasSceneSyncResultHttp(JSON.stringify({
-          ok: true,
-          value: {
-            version: CANVAS_SCENE_SYNC_VERSION,
-            projectId: request.projectId,
-            documentId: request.documentId,
-            storeEpoch: snapshot.store_epoch,
-            generation: descriptor.generation,
-            headSeq: descriptor.headSeq,
-            sceneHash: snapshot.value.scene_hash,
-            scene: JSON.parse(
-              new TextDecoder().decode(Uint8Array.from(snapshot.value.scene_json)),
-            ) as unknown,
-          },
-        }));
+        return { ok: true, value: response };
       } catch (error) {
         return canvasErrorResult(error);
       }
@@ -234,6 +216,66 @@ export const createCoreCanvasSceneAdapter = (
         return canvasErrorResult(error, request.mutationId);
       }
     },
+    readCompaction: async (request) => {
+      try {
+        const key = subscriptionKey(request);
+        const subscription = subscriptionFor(request);
+        const snapshot = await executeWithDocumentSubscription(
+          subscription,
+          () => subscriptions.get(key) === subscription,
+          async () => await client.documentRead(request.clientSessionId, {
+            kind: "canvas_compaction_eligibility",
+            document_id: request.documentId,
+          }),
+        );
+        if (snapshot.value.kind !== "canvas_compaction_eligibility") {
+          throw new Error("Core returned the wrong Canvas maintenance read");
+        }
+        const value = parseCanvasSceneCompactionStats(snapshot.value.stats);
+        if (value.documentId !== request.documentId) {
+          throw new Error("Core Canvas maintenance read escaped its Document boundary");
+        }
+        return { ok: true, value };
+      } catch (error) {
+        return canvasErrorResult(error);
+      }
+    },
+    compact: async (request, stats, writeFencePrepared) => {
+      try {
+        const key = subscriptionKey(request);
+        const subscription = subscriptionFor(request);
+        const committed = await executeWithDocumentSubscription(
+          subscription,
+          () => subscriptions.get(key) === subscription,
+          async () => await client.documentApply({
+            operationId: request.mutationId,
+            clientSessionId: request.clientSessionId,
+            intent: {
+              kind: "compact_canvas_tombstones",
+              document_id: request.documentId,
+              generation: stats.generation,
+              expected_head_seq: stats.headSeq,
+              actor: { kind: "canvas_tombstone_compaction" },
+              write_fence_prepared: writeFencePrepared,
+            },
+          }),
+        );
+        if (committed.value.canvas === undefined) {
+          throw new Error("Core Canvas compaction response has no Canvas result");
+        }
+        const value = parseCanvasSceneCompactionResult(committed.value.canvas);
+        if (
+          value.projectId !== request.projectId
+          || value.documentId !== request.documentId
+          || value.operationId !== request.mutationId
+        ) {
+          throw new Error("Core Canvas compaction escaped its request boundary");
+        }
+        return { ok: true, value };
+      } catch (error) {
+        return canvasErrorResult(error, request.mutationId);
+      }
+    },
   };
 };
 
@@ -244,6 +286,20 @@ const canvasEvent = (
   const payload = envelope.event.payload;
   if (payload.module !== "owned_document") return null;
   const event = payload.event;
+  if (
+    event.kind === "canvas_generation_changed"
+    && event.document_id === request.documentId
+  ) {
+    return {
+      type: "canvas_scene_resync_required",
+      version: CANVAS_SCENE_SYNC_VERSION,
+      projectId: request.projectId,
+      documentId: event.document_id,
+      storeEpoch: envelope.event.store_epoch,
+      generation: event.generation,
+      headSeq: event.head_seq,
+    };
+  }
   if (event.kind !== "canvas_updated" || event.document_id !== request.documentId) {
     return null;
   }
@@ -274,25 +330,6 @@ const canvasErrorResult = (
 ): CanvasFailure => ({
   ok: false,
   error: canvasCommandError(error, mutationId),
-});
-
-const canvasFailure = (
-  code: CanvasSceneMutationError["code"],
-  input: {
-    readonly message: string;
-    readonly resetRequired?: boolean;
-    readonly retryable?: boolean;
-    readonly mutationId?: string;
-  },
-): CanvasFailure => ({
-  ok: false,
-  error: {
-    code,
-    message: input.message,
-    retryable: input.retryable ?? false,
-    resetRequired: input.resetRequired ?? false,
-    ...(input.mutationId ? { mutationId: input.mutationId } : {}),
-  },
 });
 
 const canvasCommandError = (
@@ -333,6 +370,8 @@ const mapCoreErrorCode = (
       return "document_generation_mismatch";
     case "head_conflict":
       return "future_base_head";
+    case "revision_conflict":
+      return "write_fence_required";
     case "idempotency_key_reused":
       return "mutation_id_collision";
     case "invalid_document_schema":

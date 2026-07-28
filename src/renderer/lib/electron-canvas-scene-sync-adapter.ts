@@ -1,10 +1,14 @@
-import type {
-  CanvasSceneMutationCommandResult,
-  CanvasSceneMutationError,
-  CanvasSceneRealtimeEvent,
-  CanvasSceneSubscribeRequest,
-  CanvasSceneSubscriptionCommandResult,
-  CanvasSceneSyncCommandResult,
+import {
+  canonicalizeCanvasPresenceRealtimeEvent,
+  type CanvasPresenceCommandResult,
+  type CanvasPresencePublishRequest,
+  type CanvasPresenceRealtimeEvent,
+  type CanvasSceneMutationCommandResult,
+  type CanvasSceneMutationError,
+  type CanvasSceneRealtimeEvent,
+  type CanvasSceneSubscribeRequest,
+  type CanvasSceneSubscriptionCommandResult,
+  type CanvasSceneSyncCommandResult,
 } from "../../shared/block-documents";
 import type { CanvasSceneSyncAdapter } from "./canvas-scene-provider";
 import type { ElectronRendererBridge } from "./electron-renderer-transport";
@@ -26,6 +30,9 @@ interface ElectronCanvasSubscriber {
   readonly leaseListener?: NonNullable<
     Parameters<CanvasSceneSyncAdapter["subscribe"]>[2]
   >;
+  readonly presenceListener?: (
+    event: CanvasPresenceRealtimeEvent,
+  ) => void;
 }
 
 interface ElectronCanvasSubscription {
@@ -57,7 +64,7 @@ export const createElectronCanvasSceneSyncAdapter = (
   ): Promise<CanvasSceneSubscriptionCommandResult> =>
     entry.lifecycle.ensure();
   return {
-    subscribe(request, listener, leaseListener) {
+    subscribe(request, listener, leaseListener, presenceListener) {
       if (request.projectId !== projectId) {
         throw new TypeError("Canvas subscription crossed its Project boundary");
       }
@@ -69,7 +76,37 @@ export const createElectronCanvasSceneSyncAdapter = (
         const removeBridgeListener = bridge.on(
           "document-sync:event",
           (...args: unknown[]) => {
-            const event = args[0] as CanvasSceneRealtimeEvent | import("./canvas-scene-provider").CanvasSceneRelocationLeaseEvent;
+            const event = args[0] as
+              | CanvasSceneRealtimeEvent
+              | CanvasPresenceRealtimeEvent
+              | import("./canvas-scene-provider").CanvasSceneRelocationLeaseEvent;
+            if (
+              event
+              && "type" in event
+              && (event.type === "canvas_presence_snapshot"
+                || event.type === "canvas_presence_updated")
+            ) {
+              try {
+                const presenceEvent = canonicalizeCanvasPresenceRealtimeEvent(
+                  event,
+                );
+                const documentId = presenceEvent.type ===
+                    "canvas_presence_snapshot"
+                  ? presenceEvent.documentId
+                  : presenceEvent.presence.documentId;
+                if (
+                  presenceEvent.projectId === projectId
+                  && documentId === request.documentId
+                ) {
+                  subscribers.forEach((subscriber) =>
+                    subscriber.presenceListener?.(presenceEvent)
+                  );
+                }
+              } catch {
+                // Invalid Host presence never crosses the adapter boundary.
+              }
+              return;
+            }
             if (event && "kind" in event) {
               try {
                 const leaseEvent = decodeDocumentRealtimeSseEvent(JSON.stringify(event));
@@ -143,6 +180,7 @@ export const createElectronCanvasSceneSyncAdapter = (
       const subscriber: ElectronCanvasSubscriber = {
         listener,
         leaseListener,
+        presenceListener,
       };
       entry.subscribers.add(subscriber);
       void ensureRemoteSubscription(entry);
@@ -188,6 +226,39 @@ export const createElectronCanvasSceneSyncAdapter = (
         return await invoke("canvas-scene:apply", request);
       } catch (error) {
         return { ok: false, error: { ...transportFailure(error), mutationId: request.mutationId } };
+      }
+    },
+    async publishPresence(
+      request: CanvasPresencePublishRequest,
+    ): Promise<CanvasPresenceCommandResult> {
+      try {
+        const entry = subscriptions.get(JSON.stringify([
+          request.publication.documentId,
+          request.clientSessionId,
+        ]));
+        const ready = entry ? await ensureRemoteSubscription(entry) : null;
+        if (!ready?.ok) {
+          return {
+            ok: false,
+            error: {
+              code: "unauthorized",
+              message: "Canvas scene subscription is not active",
+              retryable: false,
+              resetRequired: false,
+            },
+          };
+        }
+        return await invoke("canvas-scene:presence:publish", request);
+      } catch (error) {
+        return {
+          ok: false,
+          error: {
+            code: "transport_unavailable",
+            message: error instanceof Error ? error.message : String(error),
+            retryable: true,
+            resetRequired: false,
+          },
+        };
       }
     },
     async respondToRelocationLease(request) {

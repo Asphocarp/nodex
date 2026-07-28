@@ -9,6 +9,10 @@ struct ServerMetricsInner {
     event_replay_lag: AtomicU64,
     event_replay_lag_max: AtomicU64,
     backup_duration: DurationMetric,
+    canvas_sync_initial_snapshots: AtomicU64,
+    canvas_sync_repair_snapshots: AtomicU64,
+    canvas_sync_up_to_date: AtomicU64,
+    canvas_sync_snapshot_bytes: AtomicU64,
 }
 
 #[derive(Clone, Default)]
@@ -40,6 +44,42 @@ impl ServerMetrics {
     pub(crate) fn backup_duration(&self) -> DurationMetricSnapshot {
         self.inner.backup_duration.snapshot()
     }
+
+    pub(crate) fn record_canvas_sync(&self, initial_snapshot: bool, snapshot_bytes: Option<usize>) {
+        match snapshot_bytes {
+            Some(bytes) => {
+                let counter = if initial_snapshot {
+                    &self.inner.canvas_sync_initial_snapshots
+                } else {
+                    &self.inner.canvas_sync_repair_snapshots
+                };
+                counter.fetch_add(1, Ordering::Relaxed);
+                self.inner
+                    .canvas_sync_snapshot_bytes
+                    .fetch_add(u64::try_from(bytes).unwrap_or(u64::MAX), Ordering::Relaxed);
+            }
+            None => {
+                self.inner
+                    .canvas_sync_up_to_date
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    pub(crate) fn canvas_sync(&self) -> (u64, u64, u64, u64) {
+        (
+            self.inner
+                .canvas_sync_initial_snapshots
+                .load(Ordering::Relaxed),
+            self.inner
+                .canvas_sync_repair_snapshots
+                .load(Ordering::Relaxed),
+            self.inner.canvas_sync_up_to_date.load(Ordering::Relaxed),
+            self.inner
+                .canvas_sync_snapshot_bytes
+                .load(Ordering::Relaxed),
+        )
+    }
 }
 
 #[cfg(test)]
@@ -62,5 +102,9 @@ mod tests {
                 max_micros: 9,
             }
         );
+        metrics.record_canvas_sync(true, Some(12));
+        metrics.record_canvas_sync(false, Some(8));
+        metrics.record_canvas_sync(false, None);
+        assert_eq!(metrics.canvas_sync(), (1, 1, 1, 20));
     }
 }

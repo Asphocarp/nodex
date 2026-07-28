@@ -15,6 +15,7 @@ import { DatabaseViewSurface } from "./read-only-database-view";
 interface MainViewHostProps {
   projectId: string;
   databaseViewId: string;
+  canvasSurfaceKey: string;
   databaseView: DatabaseViewRenderModel | null;
   databaseViewPagination?: ReadonlyMap<string, ColumnPaginationState>;
   onLoadMoreDatabaseViewGroup?: (scopeKey: string) => Promise<void> | void;
@@ -53,6 +54,7 @@ interface MainViewHostProps {
 export function MainViewHost({
   projectId,
   databaseViewId,
+  canvasSurfaceKey,
   databaseView,
   databaseViewPagination,
   onLoadMoreDatabaseViewGroup,
@@ -125,6 +127,7 @@ export function MainViewHost({
       <CanvasView
         projectId={projectId}
         databaseViewId={databaseViewId}
+        canvasSurfaceKey={canvasSurfaceKey}
         openPageStage={openPageStage}
         pageStagePageId={pageStagePageId}
         pageStageCloseRef={pageStageCloseRef}
