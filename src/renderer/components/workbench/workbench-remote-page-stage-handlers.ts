@@ -1,6 +1,6 @@
 import { invoke } from "@/lib/api";
 import type { PageInput, PageUpdateMutationResult } from "@/lib/types";
-import type { PageStageHandlers } from "@/lib/use-page-stage";
+import type { PageStageHandlers } from "@/lib/page-stage-handlers";
 import { createUuidV7 } from "../../../shared/uuid-v7";
 import { isWorkflowStatus } from "../../../shared/workflow-status";
 import { commitPageLifecycleIntent } from "@/lib/page-lifecycle-runtime";

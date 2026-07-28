@@ -51,15 +51,8 @@ function makeTerminalTarget(): EventTarget {
 function makeActions(overrides: Partial<WorkbenchShortcutActions> = {}): WorkbenchShortcutActions {
   return {
     projectOrder: ["a", "b", "c"],
-    dbProjectId: "a",
-    focusedStage: "db",
-    focusAdjacentStage: () => {},
-    shiftSlidingWindow: () => {},
-    switchToStageIndex: () => {},
     switchToProjectIndex: () => {},
     onRequestCommandPalette: () => {},
-    onRequestProjectPicker: () => {},
-    onRequestTaskSearch: () => {},
     onRequestContentSearch: () => {},
     onRequestSettingsToggle: () => {},
     onRequestKeyboardShortcuts: () => {},
@@ -74,69 +67,6 @@ function ShortcutHarness({ actions }: { actions: WorkbenchShortcutActions }) {
 }
 
 describe("handleWorkbenchShortcut", () => {
-  test("Ctrl+Tab cycles stages forward", () => {
-    let direction: -1 | 1 | null = null;
-    const actions = makeActions({ focusAdjacentStage: (_, next) => (direction = next) });
-
-    const handled = handleWorkbenchShortcut(
-      {
-        key: "Tab",
-        ctrlKey: true,
-        metaKey: false,
-        shiftKey: false,
-        altKey: false,
-        target: null,
-      },
-      actions,
-      true,
-    );
-
-    expect(handled).toBe(true);
-    expect(direction).toBe(1);
-  });
-
-  test("Ctrl+Shift+Tab cycles stages backward", () => {
-    let direction: -1 | 1 | null = null;
-    const actions = makeActions({ focusAdjacentStage: (_, next) => (direction = next) });
-
-    const handled = handleWorkbenchShortcut(
-      {
-        key: "Tab",
-        ctrlKey: true,
-        metaKey: false,
-        shiftKey: true,
-        altKey: false,
-        target: null,
-      },
-      actions,
-      true,
-    );
-
-    expect(handled).toBe(true);
-    expect(direction).toBe(-1);
-  });
-
-  test("Cmd+number switches to stage index", () => {
-    let selectedIndex = -1;
-    const actions = makeActions({ switchToStageIndex: (_, index) => (selectedIndex = index) });
-
-    const handled = handleWorkbenchShortcut(
-      {
-        key: "3",
-        ctrlKey: false,
-        metaKey: true,
-        shiftKey: false,
-        altKey: false,
-        target: null,
-      },
-      actions,
-      true,
-    );
-
-    expect(handled).toBe(true);
-    expect(selectedIndex).toBe(2);
-  });
-
   test("Cmd+Alt+R requests chat rename", () => {
     let source = "";
     const actions = makeActions({
@@ -187,25 +117,21 @@ describe("handleWorkbenchShortcut", () => {
     expect(opened).toBe(false);
   });
 
-  test("Cmd+5 does not map to a stage index", () => {
-    let selectedIndex = -1;
-    const actions = makeActions({ switchToStageIndex: (_, index) => (selectedIndex = index) });
-
+  test("Cmd+number remains available to the selected surface", () => {
     const handled = handleWorkbenchShortcut(
       {
-        key: "5",
+        key: "3",
         ctrlKey: false,
         metaKey: true,
         shiftKey: false,
         altKey: false,
         target: null,
       },
-      actions,
+      makeActions(),
       true,
     );
 
     expect(handled).toBe(false);
-    expect(selectedIndex).toBe(-1);
   });
 
   test("Cmd+J requests the bottom-panel command from editable targets", () => {
@@ -220,7 +146,6 @@ describe("handleWorkbenchShortcut", () => {
         target: makeInputTarget(),
       },
       makeActions({
-        dbProjectId: "b",
         onRequestWorkbenchCommand: (commandId) => commands.push(commandId),
       }),
       true,
@@ -529,18 +454,13 @@ describe("handleWorkbenchShortcut", () => {
     expect(called).toBe(false);
   });
 
-  test("Cmd+F opens content search in conversation mode when the Threads stage is focused", () => {
-    let contentSearchProjectId: string | null = null;
+  test("Cmd+F opens the current Workbench content search", () => {
+    let contentSearchCalled = false;
     let contentSearchDomain: string | undefined;
-    let taskSearchCalled = false;
     const actions = makeActions({
-      focusedStage: "threads",
-      onRequestContentSearch: (projectId, preferredDomain) => {
-        contentSearchProjectId = projectId;
+      onRequestContentSearch: (preferredDomain) => {
+        contentSearchCalled = true;
         contentSearchDomain = preferredDomain;
-      },
-      onRequestTaskSearch: () => {
-        taskSearchCalled = true;
       },
     });
 
@@ -558,23 +478,15 @@ describe("handleWorkbenchShortcut", () => {
     );
 
     expect(handled).toBe(true);
-    expect(contentSearchProjectId).toBe("a");
-    expect(contentSearchDomain).toBe("conversation");
-    expect(taskSearchCalled).toBe(false);
+    expect(contentSearchCalled).toBe(true);
+    expect(contentSearchDomain).toBeUndefined();
   });
 
-  test("Cmd+F opens content search in diff mode when the Diffs stage is focused", () => {
-    let contentSearchProjectId: string | null = null;
-    let contentSearchDomain: string | undefined;
-    let taskSearchCalled = false;
+  test("Cmd+F can cycle content-search domains from its own input", () => {
+    let contentSearchCalled = false;
     const actions = makeActions({
-      focusedStage: "files",
-      onRequestContentSearch: (projectId, preferredDomain) => {
-        contentSearchProjectId = projectId;
-        contentSearchDomain = preferredDomain;
-      },
-      onRequestTaskSearch: () => {
-        taskSearchCalled = true;
+      onRequestContentSearch: () => {
+        contentSearchCalled = true;
       },
     });
 
@@ -592,35 +504,7 @@ describe("handleWorkbenchShortcut", () => {
     );
 
     expect(handled).toBe(true);
-    expect(contentSearchProjectId).toBe("a");
-    expect(contentSearchDomain).toBe("diff");
-    expect(taskSearchCalled).toBe(false);
-  });
-
-  test("Cmd+F keeps task search blocked inside editable inputs outside the Threads stage", () => {
-    let taskSearchCalled = false;
-    const actions = makeActions({
-      focusedStage: "db",
-      onRequestTaskSearch: () => {
-        taskSearchCalled = true;
-      },
-    });
-
-    const handled = handleWorkbenchShortcut(
-      {
-        key: "f",
-        ctrlKey: false,
-        metaKey: true,
-        shiftKey: false,
-        altKey: false,
-        target: makeInputTarget(),
-      },
-      actions,
-      true,
-    );
-
-    expect(handled).toBe(false);
-    expect(taskSearchCalled).toBe(false);
+    expect(contentSearchCalled).toBe(true);
   });
 
   test("Cmd+[ navigates back even inside inputs", () => {
@@ -804,10 +688,7 @@ describe("handleWorkbenchShortcut", () => {
     expect(opened).toBe(true);
   });
 
-  test("Cmd+H shifts the sliding window left", () => {
-    let direction: -1 | 1 | null = null;
-    const actions = makeActions({ shiftSlidingWindow: (_, next) => (direction = next) });
-
+  test("Cmd+H remains available to the selected surface", () => {
     const handled = handleWorkbenchShortcut(
       {
         key: "h",
@@ -817,18 +698,14 @@ describe("handleWorkbenchShortcut", () => {
         altKey: false,
         target: null,
       },
-      actions,
+      makeActions(),
       true,
     );
 
-    expect(handled).toBe(true);
-    expect(direction).toBe(-1);
+    expect(handled).toBe(false);
   });
 
   test("Cmd+L is reserved for browser address focus", () => {
-    let direction: -1 | 1 | null = null;
-    const actions = makeActions({ shiftSlidingWindow: (_, next) => (direction = next) });
-
     const handled = handleWorkbenchShortcut(
       {
         key: "l",
@@ -838,12 +715,11 @@ describe("handleWorkbenchShortcut", () => {
         altKey: false,
         target: null,
       },
-      actions,
+      makeActions(),
       true,
     );
 
     expect(handled).toBe(false);
-    expect(direction).toBe(null);
   });
 
   test("Cmd+Alt+number switches to project index", () => {
@@ -888,12 +764,11 @@ describe("handleWorkbenchShortcut", () => {
     expect(mode).toBe("root");
   });
 
-  test("Cmd+F opens task search for active project", () => {
-    let calledWithProjectId: string | null = null;
+  test("Cmd+F opens content search without requiring a Project", () => {
+    let called = false;
     const actions = makeActions({
-      dbProjectId: "c",
-      onRequestTaskSearch: (projectId) => {
-        calledWithProjectId = projectId;
+      onRequestContentSearch: () => {
+        called = true;
       },
     });
 
@@ -911,14 +786,14 @@ describe("handleWorkbenchShortcut", () => {
     );
 
     expect(handled).toBe(true);
-    expect(calledWithProjectId).toBe("c");
+    expect(called).toBe(true);
   });
 
-  test("Cmd+F ignores editable targets", () => {
+  test("Cmd+F opens content search from editable targets", () => {
     let called = false;
     const target = makeInputTarget();
     const actions = makeActions({
-      onRequestTaskSearch: () => {
+      onRequestContentSearch: () => {
         called = true;
       },
     });
@@ -936,52 +811,8 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBe(false);
-    expect(called).toBe(false);
-  });
-
-  test("Cmd+number switches stage inside NFM editor target", () => {
-    let selectedIndex = -1;
-    const target = makeNfmEditorTarget();
-    const actions = makeActions({ switchToStageIndex: (_, index) => (selectedIndex = index) });
-
-    const handled = handleWorkbenchShortcut(
-      {
-        key: "3",
-        ctrlKey: false,
-        metaKey: true,
-        shiftKey: false,
-        altKey: false,
-        target,
-      },
-      actions,
-      true,
-    );
-
     expect(handled).toBe(true);
-    expect(selectedIndex).toBe(2);
-  });
-
-  test("Ctrl+Tab cycles stages inside NFM editor target", () => {
-    let direction: -1 | 1 | null = null;
-    const target = makeNfmEditorTarget();
-    const actions = makeActions({ focusAdjacentStage: (_, next) => (direction = next) });
-
-    const handled = handleWorkbenchShortcut(
-      {
-        key: "Tab",
-        ctrlKey: true,
-        metaKey: false,
-        shiftKey: false,
-        altKey: false,
-        target,
-      },
-      actions,
-      true,
-    );
-
-    expect(handled).toBe(true);
-    expect(direction).toBe(1);
+    expect(called).toBe(true);
   });
 
   test("Cmd+Shift+P opens root command search inside NFM editor target", () => {
@@ -1037,10 +868,10 @@ describe("handleWorkbenchShortcut", () => {
     expect(calls).toBe(2);
   });
 
-  test("Cmd+F remains unhandled inside NFM editor target", () => {
+  test("Cmd+F opens content search inside NFM editor targets", () => {
     let called = false;
     const target = makeNfmEditorTarget();
-    const actions = makeActions({ onRequestTaskSearch: () => (called = true) });
+    const actions = makeActions({ onRequestContentSearch: () => (called = true) });
 
     const handled = handleWorkbenchShortcut(
       {
@@ -1055,8 +886,8 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBe(false);
-    expect(called).toBe(false);
+    expect(handled).toBe(true);
+    expect(called).toBe(true);
   });
 
   test("Cmd+Alt+number remains unhandled inside NFM editor target", () => {
@@ -1082,9 +913,7 @@ describe("handleWorkbenchShortcut", () => {
   });
 
   test("Cmd+number remains blocked for plain input targets", () => {
-    let selectedIndex = -1;
     const target = makeInputTarget();
-    const actions = makeActions({ switchToStageIndex: (_, index) => (selectedIndex = index) });
 
     const handled = handleWorkbenchShortcut(
       {
@@ -1095,12 +924,11 @@ describe("handleWorkbenchShortcut", () => {
         altKey: false,
         target,
       },
-      actions,
+      makeActions(),
       true,
     );
 
     expect(handled).toBe(false);
-    expect(selectedIndex).toBe(-1);
   });
 
   test("ignores editable targets", () => {
@@ -1124,9 +952,7 @@ describe("handleWorkbenchShortcut", () => {
   });
 
   test("Cmd+H remains blocked for plain input targets", () => {
-    let direction: -1 | 1 | null = null;
     const target = makeInputTarget();
-    const actions = makeActions({ shiftSlidingWindow: (_, next) => (direction = next) });
 
     const handled = handleWorkbenchShortcut(
       {
@@ -1137,12 +963,11 @@ describe("handleWorkbenchShortcut", () => {
         altKey: false,
         target,
       },
-      actions,
+      makeActions(),
       true,
     );
 
     expect(handled).toBe(false);
-    expect(direction).toBe(null);
   });
 });
 

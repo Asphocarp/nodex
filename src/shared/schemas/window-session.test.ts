@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 
-import { createDefaultWorkbenchLayoutSnapshot } from "../workbench-layout";
+import {
+  createDefaultWorkbenchLayoutSnapshot,
+  createDefaultWorkbenchLayoutSnapshotV3,
+} from "../workbench-layout";
 import {
   LegacyWindowSessionCatalogV1Schema,
   LegacyWindowSessionCatalogV2Schema,
@@ -39,7 +42,7 @@ describe("WindowSession schemas", () => {
     });
 
     expect(parsed.sessions[0]?.layoutRevision).toBe(3);
-    expect(parsed.sessions[0]?.layout.version).toBe(3);
+    expect(parsed.sessions[0]?.layout.version).toBe(4);
     expect(parsed.sessions[1]?.lifecycle).toEqual({
       state: "closed",
       closedAt: "2026-07-24T00:00:00.000Z",
@@ -113,9 +116,9 @@ describe("WindowSession schemas", () => {
     })).toThrow();
   });
 
-  test("decodes legacy catalog layouts through the Workbench v3 migration", () => {
+  test("decodes legacy catalog layouts into Workbench v4", () => {
     const legacyLayout: Record<string, unknown> = {
-      ...createDefaultWorkbenchLayoutSnapshot(),
+      ...createDefaultWorkbenchLayoutSnapshotV3(),
       version: 2,
     };
     delete legacyLayout.sessionViewsBySessionId;
@@ -132,7 +135,7 @@ describe("WindowSession schemas", () => {
       }],
     });
 
-    expect(parsed.sessions[0]?.layout.version).toBe(3);
+    expect(parsed.sessions[0]?.layout.version).toBe(4);
     expect(parsed.sessions[0]?.layout.sessionViewsBySessionId).toEqual({});
   });
 });

@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createDefaultWorkbenchLayoutSnapshot,
+  createDefaultWorkbenchLayoutSnapshotV3,
   type WorkbenchLayoutSnapshot,
 } from "../shared/workbench-layout";
 import {
@@ -43,15 +44,25 @@ function createClock(start = "2026-07-24T00:00:00.000Z") {
 }
 
 function makeLayout(
-  focusedStage: WorkbenchLayoutSnapshot["focusedStage"],
+  _legacyStage: string,
   dbProjectId: string,
 ): WorkbenchLayoutSnapshot {
   return {
     ...createDefaultWorkbenchLayoutSnapshot(),
-    dbProjectId,
-    threadsProjectId: dbProjectId,
-    focusedStage,
+    location: {
+      kind: "empty",
+      activeProjectId: dbProjectId,
+    },
   };
+}
+
+function getActiveProjectId(
+  layout: WorkbenchLayoutSnapshot,
+): string | null {
+  return layout.location.kind === "session"
+    || layout.location.kind === "empty"
+    ? layout.location.activeProjectId
+    : layout.location.returnTo.activeProjectId;
 }
 
 function saveLayout(
@@ -77,8 +88,8 @@ describe("WindowSessionState", () => {
 
       expect(session.lifecycle).toEqual({ state: "open" });
       expect(session.layoutRevision).toBe(0);
-      expect(session.layout.version).toBe(3);
-      expect(session.layout.dbProjectId).toBeNull();
+      expect(session.layout.version).toBe(4);
+      expect(getActiveProjectId(session.layout)).toBeNull();
       expect(catalog?.version).toBe(3);
       expect(catalog?.sessions).toHaveLength(1);
       expect(catalog?.lastActiveSessionId).toBe(session.id);
@@ -190,7 +201,11 @@ describe("WindowSessionState", () => {
       });
       const layout = {
         ...makeLayout("threads", "project-1"),
-        activeProjectSessionId: "project-session-1",
+        location: {
+          kind: "session" as const,
+          activeProjectId: "project-1",
+          sessionId: "project-session-1",
+        },
         sessionViewsBySessionId: {
           "project-session-1": sessionView,
         },
@@ -261,7 +276,7 @@ describe("WindowSessionState", () => {
 
       expect(acquired.kind).toBe("reopened");
       expect(acquired.session.id).toBe(second.id);
-      expect(acquired.session.layout.dbProjectId).toBe("project-2");
+      expect(getActiveProjectId(acquired.session.layout)).toBe("project-2");
       expect(state.readCatalog()?.sessions).toHaveLength(2);
     });
   });
@@ -278,9 +293,9 @@ describe("WindowSessionState", () => {
 
       expect(cloned.kind).toBe("cloned");
       expect(cloned.session.id).not.toBe(source.id);
-      expect(cloned.session.layout.dbProjectId).toBe("project-1");
+      expect(getActiveProjectId(cloned.session.layout)).toBe("project-1");
       expect(fresh.kind).toBe("fresh");
-      expect(fresh.session.layout.dbProjectId).toBeNull();
+      expect(getActiveProjectId(fresh.session.layout)).toBeNull();
     });
   });
 
@@ -346,7 +361,11 @@ describe("WindowSessionState", () => {
       });
       const sourceLayout = {
         ...makeLayout("threads", "project-1"),
-        activeProjectSessionId: "project-session-1",
+        location: {
+          kind: "session" as const,
+          activeProjectId: "project-1",
+          sessionId: "project-session-1",
+        },
         sessionViewsBySessionId: {
           "project-session-1": sessionView,
         },
@@ -355,6 +374,7 @@ describe("WindowSessionState", () => {
 
       const clone = state.cloneSessionForWindow(1, {
         activeProjectSessionId: "project-session-1",
+        activeProjectId: "project-1",
       });
       const sourceTabIds = Object.keys(
         sourceLayout.sessionViewsBySessionId["project-session-1"]!.tabsById,
@@ -364,7 +384,7 @@ describe("WindowSessionState", () => {
       );
       expect(clone.lifecycle).toEqual({ state: "open" });
       expect(cloneTabIds).not.toEqual(sourceTabIds);
-      expect(clone.layout.dbProjectId).toBe("project-1");
+      expect(getActiveProjectId(clone.layout)).toBe("project-1");
       expect(clone.layoutRevision).toBe(0);
 
       state.attachWindow(2, clone.id);
@@ -413,7 +433,7 @@ describe("WindowSessionState", () => {
 
       expect(accepted.layoutRevision).toBe(8);
       expect(stale.layoutRevision).toBe(8);
-      expect(stale.layout.dbProjectId).toBe("new");
+      expect(getActiveProjectId(stale.layout)).toBe("new");
       expect(() => saveLayout(state, 2, session.id, 9, makeLayout("files", "wrong")))
         .toThrow(/does not match/);
     });
@@ -431,7 +451,11 @@ describe("WindowSessionState", () => {
         sessions: [{
           id: "legacy-window",
           layoutRevision: 7,
-          layout: makeLayout("files", "legacy"),
+          layout: {
+            ...createDefaultWorkbenchLayoutSnapshotV3(),
+            dbProjectId: "legacy",
+            focusedStage: "files",
+          },
           createdAt: "2026-01-01T00:00:00.000Z",
           updatedAt: "2026-01-02T00:00:00.000Z",
           focusedAt: "2026-01-03T00:00:00.000Z",
@@ -452,7 +476,13 @@ describe("WindowSessionState", () => {
         id: "legacy-window",
         lifecycle: { state: "open" },
         layoutRevision: 7,
-        layout: { focusedStage: "files" },
+        layout: {
+          version: 4,
+          location: {
+            kind: "empty",
+            activeProjectId: "legacy",
+          },
+        },
         bounds: { x: 10, y: 20 },
       });
       expect(existsSync(legacyPath)).toBe(true);
@@ -465,7 +495,9 @@ describe("WindowSessionState", () => {
   test("migrates v1 layouts once and preserves them as recovery input", () => {
     withTempUserData((userDataPath) => {
       const legacyLayout: Record<string, unknown> = {
-        ...makeLayout("files", "legacy"),
+        ...createDefaultWorkbenchLayoutSnapshotV3(),
+        dbProjectId: "legacy",
+        focusedStage: "files",
         version: 2,
       };
       delete legacyLayout.sessionViewsBySessionId;
@@ -493,8 +525,11 @@ describe("WindowSessionState", () => {
         lifecycle: { state: "open" },
         layoutRevision: 0,
         layout: {
-          version: 3,
-          focusedStage: "files",
+          version: 4,
+          location: {
+            kind: "empty",
+            activeProjectId: "legacy",
+          },
           sessionViewsBySessionId: {},
         },
       });
@@ -554,7 +589,7 @@ describe("WindowSessionState", () => {
   test("evicts oldest closed history to keep an open catalog within its byte bound", () => {
     withTempUserData((userDataPath) => {
       const state = new WindowSessionState(userDataPath, {
-        maxFileBytes: 3_000,
+        maxFileBytes: 1_000,
       });
       const closed = state.createFreshSession();
       state.attachWindow(1, closed.id);
@@ -569,7 +604,7 @@ describe("WindowSessionState", () => {
 
       expect(catalog?.sessions.map((session) => session.id)).toEqual([open.id]);
       expect(catalog?.sessions[0]?.lifecycle).toEqual({ state: "open" });
-      expect(statSync(statePath).size).toBeLessThanOrEqual(3_000);
+      expect(statSync(statePath).size).toBeLessThanOrEqual(1_000);
     });
   });
 
@@ -602,7 +637,7 @@ describe("WindowSessionState", () => {
         width: 1000,
         height: 801,
       });
-      expect(saved.layout.focusedStage).toBe("files");
+      expect(getActiveProjectId(saved.layout)).toBe("bounded");
     });
   });
 

@@ -76,4 +76,41 @@ describe("resolvePanelTabCloseReplacement", () => {
 
     expect(next).toBe("one");
   });
+
+  test("returns null when no selectable replacement remains", () => {
+    expect(resolvePanelTabCloseReplacement({
+      tabs: [{ id: "one" }],
+      activeTabId: "one",
+      closingTabId: "one",
+      mruTabIds: ["one"],
+    })).toBeNull();
+    expect(resolvePanelTabCloseReplacement({
+      tabs: [
+        { id: "one" },
+        { id: "label", isLabel: true },
+        { id: "disabled", disabled: true },
+      ],
+      activeTabId: "one",
+      closingTabId: "one",
+      mruTabIds: ["label", "disabled"],
+    })).toBeNull();
+  });
+
+  test("ignores duplicate, missing, and closing MRU entries", () => {
+    expect(resolvePanelTabCloseReplacement({
+      tabs,
+      activeTabId: "two",
+      closingTabId: "two",
+      mruTabIds: ["two", "missing", "two", "four", "four"],
+    })).toBe("four");
+  });
+
+  test("keeps the active tab when the closing identity is absent", () => {
+    expect(resolvePanelTabCloseReplacement({
+      tabs,
+      activeTabId: "three",
+      closingTabId: "missing",
+      mruTabIds: ["one"],
+    })).toBe("three");
+  });
 });

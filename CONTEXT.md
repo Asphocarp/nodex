@@ -480,6 +480,10 @@ shared execution concepts. Tabs, panel trees, active leaves, geometry, and
 navigation history are Window Session view state; their descriptors may point
 to shared Page/Database resources or Main-owned Browser/Terminal runtimes
 without becoming another authority for those targets.
+The renderer has one discriminated Window Session location and one layout-v4
+writer. Per-Project view presentation, sidebar disclosure/width, and recent
+Pages are profile preferences, not Session domain state or alternate location
+owners.
 
 ## Naming rules
 

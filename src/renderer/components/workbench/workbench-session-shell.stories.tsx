@@ -1,5 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from "react";
 import type {
   BoardSummary,
   DatabasePage,
@@ -8,7 +13,7 @@ import type {
   WorkbenchTabProjection,
   WorkbenchProjectionTabConfiguration,
 } from "@/lib/types";
-import type { WorkbenchView } from "@/lib/use-workbench-state";
+import type { WorkbenchView } from "@/lib/use-workbench-profile-preferences";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import type {
   LibraryModuleReadRequest,
@@ -20,20 +25,19 @@ import type {
 } from "../../../shared/types";
 import { buildPageDetailStoryResult } from "../kanban/page-stage/page-stage-story-page-detail";
 import {
-  writeWorkbenchShellNavigationHistoryState,
-  type WorkbenchShellNavigationSnapshot,
-} from "@/lib/workbench-shell-navigation-history";
-import {
   makeWorkbenchPanelLayout,
 } from "../../../shared/workbench-panel-layout";
-import { WorkbenchShell } from "./workbench-shell";
+import { WorkbenchRuntime } from "./workbench-runtime";
 import {
   workbenchViewFromProjectSessionProjection,
-  type WindowLocalProjectSession,
 } from "@/lib/window-session-view-adapter";
+import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
 import type { WorkbenchSessionViewSnapshot } from "../../../shared/workbench-session-view";
 
-type ProjectSession = WindowLocalProjectSession;
+type ProjectSession = WorkbenchSessionRenderProjection;
+
+let activeStorySessionsByProject:
+  Record<string, ProjectSession[]> = {};
 
 type ShellStoryArgs = {
   workspace: "projects" | "projectless-only";
@@ -45,7 +49,6 @@ type ShellStoryArgs = {
   sidebar: "expanded" | "collapsed";
   sidebarReveal: "idle" | "edge" | "focus";
   sidebarWidth: 240 | 300 | 520;
-  navigationHistory: "disabled" | "back" | "forward" | "both";
   libraryWorkspace: boolean;
   longNames: boolean;
 };
@@ -70,7 +73,6 @@ const meta = {
     sidebar: "expanded",
     sidebarReveal: "idle",
     sidebarWidth: 300,
-    navigationHistory: "both",
     libraryWorkspace: false,
     longNames: false,
   },
@@ -110,10 +112,6 @@ const meta = {
     sidebarWidth: {
       control: "inline-radio",
       options: [240, 300, 520],
-    },
-    navigationHistory: {
-      control: "inline-radio",
-      options: ["disabled", "back", "forward", "both"],
     },
     libraryWorkspace: {
       control: "boolean",
@@ -610,51 +608,6 @@ function makeAttachedProjectlessSession(args: ShellStoryArgs): ProjectSession {
   };
 }
 
-function resolveStoryPanelActiveTabId(session: ProjectSession, panelId: "right" | "bottom"): string | null {
-  const panel = session.panels[panelId];
-  if (panel.layout.root.type !== "leaf") return null;
-  return panel.layout.root.activeTabId;
-}
-
-function makeStoryNavigationSnapshot(
-  session: ProjectSession,
-  projectId = session.projectId ?? "project-alpha",
-): WorkbenchShellNavigationSnapshot {
-  return {
-    activeProjectId: projectId,
-    activeSessionId: session.id,
-    activeView: "kanban",
-    rightActiveTabId: resolveStoryPanelActiveTabId(session, "right"),
-    bottomActiveTabId: resolveStoryPanelActiveTabId(session, "bottom"),
-    rightPanelCollapsed: session.panels.right.collapsed,
-    bottomPanelCollapsed: session.panels.bottom.collapsed,
-    rightPanelFullWidth: session.panels.right.size.fullWidth ?? false,
-    libraryRoute: null,
-  };
-}
-
-function writeStoryNavigationHistory(
-  navigationHistory: ShellStoryArgs["navigationHistory"],
-  sessionsByProject: Record<string, ProjectSession[]>,
-): void {
-  const currentSession = sessionsByProject.nodex?.[0] ?? null;
-  const backSession = sessionsByProject.nodex?.[1] ?? currentSession;
-  const forwardSession = sessionsByProject["codex-readable"]?.[0] ?? currentSession;
-  const backStack =
-    navigationHistory === "back" || navigationHistory === "both"
-      ? backSession
-        ? [makeStoryNavigationSnapshot(backSession)]
-        : []
-      : [];
-  const forwardStack =
-    navigationHistory === "forward" || navigationHistory === "both"
-      ? forwardSession
-        ? [makeStoryNavigationSnapshot(forwardSession, forwardSession.projectId ?? undefined)]
-        : []
-      : [];
-  writeWorkbenchShellNavigationHistoryState({ backStack, forwardStack });
-}
-
 function ProjectSessionShellStory(args: ShellStoryArgs) {
   const initialSessionsByProject = useMemo<Record<string, ProjectSession[]>>(
     () => {
@@ -704,6 +657,31 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
       workbenchViewFromProjectSessionProjection(session),
     ]),
   ));
+  const [initialWindowLayoutSnapshot] = useState(() => {
+    const activeSession = args.workspace === "projectless-only"
+      ? initialSessionsByProject.__projectless__?.[0] ?? null
+      : initialSessionsByProject.nodex?.[0] ?? null;
+    return {
+      version: 4 as const,
+      location: activeSession
+        ? {
+            kind: "session" as const,
+            activeProjectId:
+              args.workspace === "projectless-only" ? null : "nodex",
+            sessionId: activeSession.id,
+          }
+        : {
+            kind: "empty" as const,
+            activeProjectId:
+              args.workspace === "projectless-only" ? null : "nodex",
+          },
+      databaseSearchByProject:
+        args.workspace === "projectless-only"
+          ? {} as Record<string, string>
+          : { nodex: "" },
+      sessionViewsBySessionId,
+    };
+  });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(args.sidebar === "collapsed");
   const [sidebarWidth, setSidebarWidth] = useState<number>(args.sidebarWidth);
   const [sidebarCollapsibleSections, setSidebarCollapsibleSections] = useState({
@@ -713,12 +691,13 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
     chats: false,
   });
 
-  writeStoryNavigationHistory(
-    args.workspace === "projectless-only" ? "disabled" : args.navigationHistory,
-    initialSessionsByProject,
-  );
-
-  installStoryApi(sessionsByProject);
+  useLayoutEffect(() => {
+    activeStorySessionsByProject = sessionsByProject;
+    return () => {
+      if (activeStorySessionsByProject !== sessionsByProject) return;
+      activeStorySessionsByProject = {};
+    };
+  }, [sessionsByProject]);
 
   useEffect(() => {
     setSidebarCollapsed(args.sidebar === "collapsed");
@@ -771,13 +750,11 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
 
   return (
     <div className="h-screen">
-      <WorkbenchShell
+      <WorkbenchRuntime
         windowSessionId="window-session:storybook"
+        initialWindowLayoutSnapshot={initialWindowLayoutSnapshot}
         libraryWorkspaceEnabled={args.libraryWorkspace}
-        key={`${args.workspace}:${args.thread}:${args.rightPanel}:${args.rightPanelGroups}:${args.bottomPanel}:${args.activeTab}:${args.sidebar}:${args.sidebarReveal}:${args.sidebarWidth}:${args.navigationHistory}:${args.longNames ? "long" : "normal"}`}
         projects={args.workspace === "projectless-only" ? [] : PROJECTS}
-        dbProjectId={args.workspace === "projectless-only" ? "" : "nodex"}
-        sessionViewsBySessionId={sessionViewsBySessionId}
         setSessionView={(sessionId, update) => {
           setSessionViewsBySessionId((current) => ({
             ...current,
@@ -787,9 +764,7 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
           }));
         }}
         activeView={"kanban" as WorkbenchView}
-        activeSearchQuery=""
         activeDbViewPrefs={null}
-        searchByProject={args.workspace === "projectless-only" ? {} : { nodex: "" }}
         dbViewPrefsByProject={{}}
         sidebar={{
           collapsed: sidebarCollapsed,
@@ -805,8 +780,6 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
           }));
         }}
         pageStageCloseRef={{ current: null }}
-        setDbProject={() => undefined}
-        setSearchQuery={() => undefined}
         setDbViewPrefs={() => undefined}
         openPageStage={() => undefined}
         onLeavePageStage={() => undefined}
@@ -939,7 +912,8 @@ function buildStorySideChatStartResult(
 }
 
 function installStoryApi(
-  sessionsByProject: Record<string, ProjectSession[]>,
+  readSessionsByProject:
+    () => Record<string, ProjectSession[]>,
 ) {
   Object.defineProperty(window, "api", {
     configurable: true,
@@ -948,7 +922,7 @@ function installStoryApi(
         if (channel === "codex:thread:side-chat:start") {
           return buildStorySideChatStartResult(
             args[0] as CodexSideChatStartInput,
-            sessionsByProject,
+            readSessionsByProject(),
           );
         }
         if (channel === "codex:thread:side-chat:discard") {
@@ -956,7 +930,7 @@ function installStoryApi(
         }
         if (channel === "project-sessions:list" || channel === "project-sessions:list-summaries") {
           const scopeKey = args[0] === null ? "__projectless__" : String(args[0]);
-          return sessionsByProject[scopeKey] ?? [];
+          return readSessionsByProject()[scopeKey] ?? [];
         }
         if (channel === "database:view-window:get") {
           const projectId = String(args[0] ?? "nodex");
@@ -1132,11 +1106,62 @@ function installStoryApi(
   });
 }
 
+if (typeof window !== "undefined") {
+  installStoryApi(() => activeStorySessionsByProject);
+}
+
+function selectStorySession(label: string): void {
+  const candidate = Array.from(
+    document.querySelectorAll<HTMLButtonElement>("button"),
+  ).find((button) => button.textContent?.includes(label));
+  candidate?.click();
+}
+
+function LiveSessionTransitionStory(args: ShellStoryArgs) {
+  return (
+    <>
+      <div className="fixed right-4 top-14 z-[100] flex gap-2 rounded-lg border border-token-border bg-token-main-surface-primary p-2 shadow-lg">
+        <button
+          type="button"
+          className="rounded-md bg-token-foreground/8 px-3 py-1.5 text-xs"
+          onClick={() => selectStorySession("Database View")}
+        >
+          Select Database View
+        </button>
+        <button
+          type="button"
+          className="rounded-md bg-token-foreground/8 px-3 py-1.5 text-xs"
+          onClick={() => selectStorySession("Release run")}
+        >
+          Select Release run
+        </button>
+      </div>
+      <ProjectSessionShellStory {...args} />
+    </>
+  );
+}
+
 export const MixedRightTabs: Story = {
   parameters: {
     docs: {
       description: {
         story: "Regular 600px right panel with registry-backed global bottom/side panel toggles in the fixed toolbar, expand/restore in the panel tab header, and no empty toolbar row above the thread title.",
+      },
+    },
+  },
+};
+
+export const LiveSessionStatePreservation: Story = {
+  render: (args) => <LiveSessionTransitionStory {...args} />,
+  args: {
+    thread: "attached",
+    rightPanel: "regular",
+    bottomPanel: "terminal",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Switches between two live Session projections without remounting the Workbench runtime, so panel selection, Terminal state, and composer ownership can be inspected across the transition.",
       },
     },
   },
@@ -1192,7 +1217,6 @@ export const AttachedProjectlessChatTools: Story = {
     thread: "attached",
     rightPanel: "regular",
     bottomPanel: "collapsed",
-    navigationHistory: "disabled",
   },
   parameters: {
     docs: {
@@ -1304,7 +1328,6 @@ export const ProjectlessOnlyWorkspace: Story = {
     workspace: "projectless-only",
     thread: "empty",
     activeTab: "empty",
-    navigationHistory: "disabled",
   },
   parameters: {
     docs: {
@@ -1485,7 +1508,6 @@ export const DisabledNavigationChrome: Story = {
   args: {
     thread: "attached",
     sidebar: "collapsed",
-    navigationHistory: "disabled",
     rightPanel: "collapsed",
   },
   parameters: {

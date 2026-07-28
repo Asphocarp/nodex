@@ -12,11 +12,7 @@ The editable settings tab covers Nodex-supported command ids only. Editor-native
 
 | Shortcut | Action | Notes |
 |----------|--------|-------|
-| `Ctrl+Tab` | Legacy stage focus | Retained by the shortcut hook while project/session/tab shortcuts are rebuilt; no longer describes the primary shell hierarchy |
-| `Ctrl+Shift+Tab` | Legacy reverse stage focus | Retained by the shortcut hook while project/session/tab shortcuts are rebuilt |
-| `⌘/Ctrl+H` | Legacy stage-window shift | Retained by the shortcut hook; the new shell uses session tabs instead of a sliding stage rail |
 | `Shift+Wheel` | Native horizontal scrolling | Calendar view still claims this gesture for day navigation where applicable |
-| `⌘/Ctrl+1`–`4` | Legacy stage jump | Retained by the shortcut hook while project/session/tab shortcuts are rebuilt |
 | `⌘/Ctrl+Alt+1`–`9` | Jump to project by index | First 9 projects in shell/sidebar order (disabled while focus is in NFM editor because `⌘/Ctrl+Alt+1`–`4` are editor heading shortcuts) |
 | `⌘/Ctrl+Shift+P` | Search commands | Opens the global command palette in root command mode; works from editable surfaces too |
 | `⌘/Ctrl+K` | Search commands and chats | Opens the global command palette in root mode; chat metadata joins at two query characters and chat history at three; works from editable surfaces too |
@@ -36,7 +32,7 @@ The editable settings tab covers Nodex-supported command ids only. Editor-native
 | `⌘/Ctrl+,` | Toggle settings route | Opens/closes the full-window settings route shell |
 | `⌘/Ctrl+Shift+N` | Open new app window | Electron desktop only; restores the most recently closed Window Session, otherwise clones the active window |
 | `⌘/Ctrl+Shift+W` | Close app window | Electron desktop only; kept distinct from `⌘/Ctrl+W` close-panel-tab |
-| `⌘/Ctrl+F` | Content search or DB search | In Threads, opens the floating content search in chat mode; in Reviews, opens it in diff mode; with an active Browser tab it can search the page; in DB surfaces it keeps opening the DB task search. When the floating input is focused, repeating the shortcut cycles chat -> diff -> browser when available |
+| `⌘/Ctrl+F` | Content search | Opens the floating Workbench search for the mounted chat, review diff, or Browser page source. When the floating input is focused, repeating the shortcut cycles chat -> diff -> browser when available. Database task search remains a Database-view-local action |
 | `⌘/Ctrl+L` | Focus browser address bar | Focuses and selects the active Browser tab address field when one is mounted |
 
 ## Project Session Panels
@@ -151,6 +147,6 @@ Bottom-panel toggle is a shell-global command and remains available from editabl
 
 The editable command registry and accelerator helpers live in `src/shared/command-keybindings.ts`. Renderer query/mutation state uses `codex-command-keymap-state`, `set-codex-command-keybinding`, and `reset-codex-command-keybindings`; main-process persistence writes user overrides to `~/.nodex/config.toml`.
 
-Workbench navigation keyboard and mouse shortcuts are classified in `src/renderer/lib/use-workbench-shortcuts.ts`, then routed into the shell's shared panel-action dispatcher in `src/renderer/components/workbench/workbench-shell.tsx`. That dispatcher consumes `workbench-panel-capabilities.ts`, as do the bottom-panel toolbar, command palette, browser-runtime keyboard fallback, and typed desktop application-menu request. Electron owns its application-menu accelerator while the browser runtime owns the renderer key listener, preventing one keypress from toggling twice. Project-session panel tab cycling and close-tab remain owned by `WorkbenchShell` because they depend on the active session, focused panel leaf, renderer-local tab MRU, and tab registry. Legacy stage-focused shortcuts remain compatibility-only and should stay outside the command palette root mode while the shortcut model is rebuilt around sessions, panels, and tabs.
+Workbench navigation keyboard and mouse shortcuts are classified in `src/renderer/lib/use-workbench-shortcuts.ts`, then routed into the shell's shared panel-action dispatcher in `src/renderer/components/workbench/workbench-shell.tsx`. That dispatcher consumes `workbench-panel-capabilities.ts`, as do the bottom-panel toolbar, command palette, browser-runtime keyboard fallback, and typed desktop application-menu request. Electron owns its application-menu accelerator while the browser runtime owns the renderer key listener, preventing one keypress from toggling twice. Project-session panel tab cycling and close-tab remain owned by `WorkbenchShell` because they depend on the active session, focused panel leaf, renderer-local tab MRU, and tab registry. Retired stage/sliding-window shortcuts are deliberately left unhandled so the mounted editor or application surface can claim them.
 Collaborative title/body undo is owned by the mounted Block Document surface and its local Yjs transaction origins. Editor shortcuts are in `src/renderer/components/kanban/editor/nfm-editor-extensions.ts` and `nfm-editor.tsx`; there is no Workbench- or Project-wide undo shortcut owner.
 Terminal panel shortcut routing is in `src/renderer/lib/use-workbench-shortcuts.ts`.

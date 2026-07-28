@@ -72,7 +72,7 @@ import type {
   WorkbenchTabProjection,
   WorkbenchTabUpdateInput,
 } from "@/lib/types";
-import type { WindowLocalProjectSession } from "@/lib/window-session-view-adapter";
+import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
 import { invoke } from "@/lib/api";
 import { useRegisterContentSearchBrowserTarget } from "@/features/content-search/content-search-context";
 import {
@@ -163,11 +163,11 @@ export function BrowserSidebarPanel({
   activeForContentSearch = false,
 }: {
   tab: BrowserTab;
-  activeSession: WindowLocalProjectSession;
+  activeSession: WorkbenchSessionRenderProjection;
   browserViewScopeId: string;
   onRefreshSessions: (
     projectId: string | null,
-  ) => Promise<WindowLocalProjectSession[]>;
+  ) => Promise<WorkbenchSessionRenderProjection[]>;
   onUpdateTab?: (
     tabId: string,
     patch: WorkbenchTabUpdateInput,
@@ -1371,7 +1371,7 @@ export function BrowserUnavailableState() {
 
 function makeInitialSnapshot(
   tab: BrowserTab,
-  activeSession: WindowLocalProjectSession,
+  activeSession: WorkbenchSessionRenderProjection,
   browserViewScopeId = "unassigned-window-session",
 ): BrowserSidebarTabSnapshot {
   const url = normalizeBrowserNavigationUrl(readBrowserConfigUrl(tab));

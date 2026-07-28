@@ -15,7 +15,7 @@ import type { Project } from "@/lib/types";
 import { useCommandPalettePageSearchIndex } from "@/lib/use-command-palette-page-search-index";
 import { useCommandPaletteThreadItems } from "@/lib/command-palette-chat-search";
 import { useCommandPaletteThreadSearchIndex } from "@/lib/use-command-palette-thread-search-index";
-import type { RecentPageSession } from "@/lib/use-workbench-state";
+import type { RecentPageSession } from "@/lib/use-workbench-profile-preferences";
 import {
   buildCommandPaletteCommands,
   executeCommandPaletteShellCommand,

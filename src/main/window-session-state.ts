@@ -11,6 +11,7 @@ import type {
 } from "../shared/window-session";
 import {
   createDefaultWorkbenchLayoutSnapshot,
+  getWorkbenchSessionReturnLocation,
   type WorkbenchLayoutSnapshot,
 } from "../shared/workbench-layout";
 import {
@@ -182,11 +183,26 @@ export class WindowSessionState {
     }
 
     const layout = cloneWorkbenchLayoutForNewWindow(sourceSession.layout);
+    const returnLocation = getWorkbenchSessionReturnLocation(
+      layout.location,
+    );
+    const location = override.activeProjectSessionId === undefined
+      ? layout.location
+      : override.activeProjectSessionId === null
+        ? {
+            kind: "empty" as const,
+            activeProjectId:
+              override.activeProjectId ?? returnLocation.activeProjectId,
+          }
+        : {
+            kind: "session" as const,
+            activeProjectId:
+              override.activeProjectId ?? returnLocation.activeProjectId,
+            sessionId: override.activeProjectSessionId,
+          };
     const session = this.createSessionRecord({
       ...layout,
-      ...(override.activeProjectSessionId === undefined
-        ? {}
-        : { activeProjectSessionId: override.activeProjectSessionId }),
+      location,
     });
     const catalog = this.readOrCreateCatalog();
     const written = this.writeCatalog({

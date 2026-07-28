@@ -1,3 +1,873 @@
-import { registerWorkbenchShellTests } from "./workbench-shell.test-suite";
+import "./workbench-testkit/workbench-shell-harness";
+import { describe, test, expect } from "vitest";
+import { settleAsyncRender, textContent } from "../../test/dom";
+import { within, act, fireEvent, waitFor } from "@testing-library/react";
+import { type CodexSidebarSyncResult, type CodexSidebarThreadItem } from "@/lib/types";
+import { CODEX_NEW_CHAT_ICON_PREFIX, codexHostMessageListener, getSidebarProjectGroup, getSidebarSection, getThreadRow, getThreadRowTitles, invokeCalls, makeAttachedSession, makePanelLayout, makeProject, makeSession, makeSidebarSnapshotItemForSession, renderWorkbench } from "./workbench-testkit/workbench-shell-harness";
 
-registerWorkbenchShellTests("sidebar-projects");
+describe("workbench session shell / sidebar-projects", () => {
+  test("Projects header actions mirror Codex controls and reopen previous project folders", async () => {
+    const screen = renderWorkbench({
+      projects: [makeProject(), makeProject("beta", "Beta")],
+      sessionsByProject: {
+        alpha: [makeSession()],
+        beta: [makeSession({
+          id: "session:beta:database-view",
+          projectId: "beta",
+          title: "Beta Database",
+        })],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const section = getSidebarSection(screen.container, "Projects");
+    const options = within(section).getByRole("button", { name: "Project sidebar options" });
+    const addNewProject = within(section).getByRole("button", { name: "Add new project" });
+    const alphaRow = section.querySelector('[data-app-action-sidebar-project-id="alpha"]');
+    const betaRow = section.querySelector('[data-app-action-sidebar-project-id="beta"]');
+
+    if (!(alphaRow instanceof HTMLElement) || !(betaRow instanceof HTMLElement)) {
+      throw new Error("Expected Alpha and Beta project rows");
+    }
+
+    expect(options.getAttribute("aria-disabled")).toBe(null);
+    expect(addNewProject.getAttribute("aria-label")).toBe("Add new project");
+    expect(alphaRow.getAttribute("aria-expanded")).toBe("true");
+    expect(betaRow.getAttribute("aria-expanded")).toBe("false");
+    expect(within(section).queryByRole("button", { name: "Collapse all" }) === null).toBe(true);
+
+    await act(async () => {
+      fireEvent.click(betaRow);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(betaRow.getAttribute("aria-expanded")).toBe("true");
+    const collapseAll = within(section).getByRole("button", { name: "Collapse all" });
+
+    await act(async () => {
+      fireEvent.click(collapseAll);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(alphaRow.getAttribute("aria-expanded")).toBe("false");
+    expect(betaRow.getAttribute("aria-expanded")).toBe("false");
+    const reopenPrevious = within(section).getByRole("button", { name: "Reopen previous" });
+    expect(reopenPrevious.getAttribute("data-app-action-sidebar-projects-collapse-action")).toBe("reopen-previous");
+
+    await act(async () => {
+      fireEvent.click(reopenPrevious);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(alphaRow.getAttribute("aria-expanded")).toBe("true");
+    expect(betaRow.getAttribute("aria-expanded")).toBe("true");
+    expect(within(section).getByRole("button", { name: "Collapse all" }).getAttribute("data-app-action-sidebar-projects-collapse-action")).toBe("collapse-all");
+  });
+
+  test("clicking an active project row while focused on its child session keeps the folder collapsed", async () => {
+    const activeThread = makeAttachedSession({
+      id: "session:alpha:thread",
+      title: "Active thread",
+      order: 1,
+      rightCollapsed: true,
+      rightLayout: makePanelLayout([], null),
+      tabs: [],
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [makeSession(), activeThread],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Active thread"));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const projectRow = screen.container.querySelector('[data-app-action-sidebar-project-id="alpha"]');
+    if (!(projectRow instanceof HTMLElement)) {
+      throw new Error("Expected active project row");
+    }
+    expect(projectRow.getAttribute("data-active")).toBe(null);
+    expect(getThreadRow(screen.container, "Active thread").getAttribute("data-app-action-sidebar-thread-active")).toBe("true");
+    await act(async () => {
+      fireEvent.click(projectRow);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(projectRow.getAttribute("data-app-action-sidebar-project-collapsed")).toBe("true");
+    const exitingThreadRow = screen.container.querySelector('[data-app-action-sidebar-thread-title="Active thread"]');
+    expect(Boolean(exitingThreadRow?.closest("[data-app-action-sidebar-project-list-motion]"))).toBe(true);
+  });
+
+  test("top new-chat row reuses the Project's threadless starter Session", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(false);
+    expect(props?.isNewThreadTab).toBe(true);
+    expect(JSON.stringify(props?.newThreadTarget).includes('"sessionId":"session:alpha:database-view"')).toBe(true);
+    expect(screen.getByLabelText("Prompt").getAttribute("placeholder")).toBe("Write the first prompt for this new thread...");
+    expect(screen.queryByTestId("session-right-panel") !== null).toBe(true);
+  });
+
+  test("Chats section creates a projectless blank-session composer", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "New projectless chat" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const props = (globalThis as {
+      __lastConnectedThreadStageProps?: Record<string, unknown>;
+    }).__lastConnectedThreadStageProps;
+    expect(invokeCalls.some((call) => (
+      call[0] === "project-sessions:create"
+      && JSON.stringify(call[1]) === JSON.stringify({
+        projectId: null,
+        noThreadFallbackTitle: "New thread",
+      })
+    ))).toBe(true);
+    expect(props?.isNewThreadTab).toBe(true);
+    expect(props?.newThreadTarget).toMatchObject({
+      projectId: null,
+      projectName: "No project",
+      sessionId: "session:projectless:created",
+      runInTarget: "localProject",
+    });
+    expect(props?.newThreadProjectSelector).toMatchObject({
+      selectedProjectId: null,
+    });
+  });
+
+  test("new project chats render above older project chats", async () => {
+    const olderThread = makeAttachedSession({
+      id: "session:alpha:older",
+      title: "Older chat",
+      order: 1,
+      rightCollapsed: true,
+      rightLayout: makePanelLayout([], null),
+      tabs: [],
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [
+          makeAttachedSession({
+            id: "session:alpha:database-view",
+            threadId: "thread-alpha-database-view",
+            title: "Database View",
+            pinned: true,
+            pinnedOrder: 0,
+          }),
+          olderThread,
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const rowTitles = Array.from(
+      screen.container.querySelectorAll<HTMLElement>("[data-app-action-sidebar-thread-title]"),
+    ).map((row) => row.getAttribute("data-app-action-sidebar-thread-title") ?? "");
+    const overviewIndex = rowTitles.indexOf("Database View");
+    const newThreadIndex = rowTitles.indexOf("New thread");
+    const olderThreadIndex = rowTitles.indexOf("Older chat");
+
+    expect(overviewIndex >= 0).toBe(true);
+    expect(newThreadIndex >= 0).toBe(true);
+    expect(olderThreadIndex >= 0).toBe(true);
+    expect(overviewIndex < newThreadIndex).toBe(true);
+    expect(newThreadIndex < olderThreadIndex).toBe(true);
+  });
+
+  test("new blank project chats render above snapshot-backed older chats", async () => {
+    const olderThreadBase = makeAttachedSession({
+      id: "session:alpha:snapshot-older",
+      threadId: "thread-snapshot-older",
+      title: "Older snapshot chat",
+      order: 1,
+      rightCollapsed: true,
+      rightLayout: makePanelLayout([], null),
+      tabs: [],
+    });
+    if (!olderThreadBase.thread) throw new Error("Expected older thread");
+    const olderThread = {
+      ...olderThreadBase,
+      thread: {
+        ...olderThreadBase.thread,
+        threadName: "Older snapshot chat",
+        threadPreview: "Older snapshot chat",
+        createdAt: 100,
+        updatedAt: 100,
+      },
+    };
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [
+          makeAttachedSession({
+            id: "session:alpha:database-view",
+            threadId: "thread-alpha-database-view",
+            title: "Database View",
+            pinned: true,
+            pinnedOrder: 0,
+          }),
+          olderThread,
+        ],
+      },
+      sidebarSnapshotItems: [makeSidebarSnapshotItemForSession(olderThread)],
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const rowTitles = getThreadRowTitles(screen.container);
+    const databaseViewIndex = rowTitles.indexOf("Database View");
+    const newThreadIndex = rowTitles.indexOf("New thread");
+    const olderThreadIndex = rowTitles.indexOf("Older snapshot chat");
+
+    expect(databaseViewIndex >= 0).toBe(true);
+    expect(newThreadIndex >= 0).toBe(true);
+    expect(olderThreadIndex >= 0).toBe(true);
+    expect(databaseViewIndex < newThreadIndex).toBe(true);
+    expect(newThreadIndex < olderThreadIndex).toBe(true);
+  });
+
+  test("project chat list follows Codex Show more and Show less paging", async () => {
+    const projectChats = Array.from({ length: 16 }, (_, index) => makeAttachedSession({
+      id: `session:alpha:paged-${index + 1}`,
+      threadId: `thread-paged-${index + 1}`,
+      title: `Paged chat ${index + 1}`,
+      order: index + 1,
+      pinned: false,
+      pinnedOrder: null,
+      rightCollapsed: true,
+      rightLayout: makePanelLayout([], null),
+      tabs: [],
+    }));
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [makeSession(), ...projectChats],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 5"]') !== null).toBe(true);
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 6"]')).toBe(null);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 15"]') !== null).toBe(true);
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 16"]')).toBe(null);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Show less" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 5"]') !== null).toBe(true);
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 6"]')).toBe(null);
+  });
+
+  test("projectless Chats starts at fifty rows and expands through the pager", async () => {
+    const projectlessChats = Array.from({ length: 52 }, (_, index) => makeAttachedSession({
+      id: `session:projectless:paged-${index + 1}`,
+      projectId: null,
+      threadId: `thread-projectless-paged-${index + 1}`,
+      title: `Projectless chat ${index + 1}`,
+      order: index + 1,
+      pinned: false,
+      pinnedOrder: null,
+      rightCollapsed: true,
+      rightLayout: makePanelLayout([], null),
+      tabs: [],
+    }));
+    const screen = renderWorkbench({ projectlessSessions: projectlessChats });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const chatsSection = getSidebarSection(screen.container, "Chats");
+    expect(chatsSection.querySelectorAll("[data-app-action-sidebar-thread-row]").length).toBe(50);
+    expect(chatsSection.querySelector('[data-app-action-sidebar-thread-title="Projectless chat 50"]') !== null).toBe(true);
+    expect(chatsSection.querySelector('[data-app-action-sidebar-thread-title="Projectless chat 51"]')).toBe(null);
+
+    await act(async () => {
+      fireEvent.click(within(chatsSection).getByRole("button", { name: "Show more" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(chatsSection.querySelectorAll("[data-app-action-sidebar-thread-row]").length).toBe(52);
+    expect(chatsSection.querySelector('[data-app-action-sidebar-thread-title="Projectless chat 51"]') !== null).toBe(true);
+    expect(within(chatsSection).queryByRole("button", { name: "Show more" })).toBe(null);
+    expect(within(chatsSection).queryByRole("button", { name: "Show less" }) !== null).toBe(true);
+  });
+
+  test("Cmd+N reuses the project-scoped threadless starter Session", async () => {
+    renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.keyDown(document, { key: "n", metaKey: true, ctrlKey: true });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(false);
+    const props = (globalThis as {
+      __lastConnectedThreadStageProps?: Record<string, unknown>;
+    }).__lastConnectedThreadStageProps;
+    expect(JSON.stringify(props?.newThreadTarget).includes(
+      '"sessionId":"session:alpha:database-view"',
+    )).toBe(true);
+  });
+
+  test("project row new-chat button opens a project composer without prompting or toggling", async () => {
+    const promptCalls: string[] = [];
+    const originalPrompt = window.prompt;
+    window.prompt = ((message?: string) => {
+      promptCalls.push(String(message ?? ""));
+      return "Should not be used";
+    }) as typeof window.prompt;
+
+    try {
+      const screen = renderWorkbench({
+        projects: [makeProject(), makeProject("beta", "Beta")],
+        sessionsByProject: {
+          alpha: [makeSession()],
+          beta: [
+            makeSession({
+              id: "session:beta:database-view",
+              projectId: "beta",
+              title: "Database View",
+            }),
+          ],
+        },
+      });
+      await settleAsyncRender();
+      await settleAsyncRender();
+
+      const betaAction = screen.getByLabelText("Start new chat in Beta");
+      const iconPath = betaAction.querySelector("path")?.getAttribute("d") ?? "";
+      expect(iconPath.startsWith(CODEX_NEW_CHAT_ICON_PREFIX)).toBe(true);
+
+      await act(async () => {
+        fireEvent.click(betaAction);
+        await Promise.resolve();
+      });
+      await settleAsyncRender();
+
+      expect(promptCalls.length).toBe(0);
+      expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(false);
+      await waitFor(() => {
+        const latestProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+        expect(JSON.stringify(latestProps?.newThreadTarget).includes('"projectId":"beta"')).toBe(true);
+        expect(JSON.stringify(latestProps?.newThreadTarget).includes('"sessionId":"session:beta:database-view"')).toBe(true);
+      });
+    } finally {
+      window.prompt = originalPrompt;
+    }
+  });
+
+  test("sidebar sync does not hydrate an inactive collapsed Project lane", async () => {
+    const sidebarSyncResult: CodexSidebarSyncResult = {
+      snapshot: {
+        items: [],
+        pinnedThreadIds: [],
+        projectAssignments: {},
+        projectlessThreadIds: [],
+        projectThreadOrders: {},
+        projectlessThreadOrder: null,
+        generatedAt: 2,
+      },
+      source: "app-server",
+      refreshed: true,
+      refreshedAt: 2,
+      changedProjectIds: ["beta"],
+      projectlessChanged: false,
+      materializedSessionIds: [],
+      failedThreadIds: [],
+    };
+    renderWorkbench({
+      projects: [makeProject(), makeProject("beta", "Beta")],
+      sessionsByProject: {
+        alpha: [makeSession()],
+        beta: [
+          makeSession({
+            id: "session:beta:database-view",
+            projectId: "beta",
+            title: "Beta Database View",
+          }),
+        ],
+      },
+    });
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "codex:sidebar:sync"
+      && JSON.stringify(call[1]) === JSON.stringify({ policy: "force", reason: "mount" })
+    )).toBe(false);
+
+    await waitFor(() => {
+      if (codexHostMessageListener === null) {
+        throw new Error("missing host message listener");
+      }
+    });
+    const betaFullRefreshCountBefore = invokeCalls.filter((call) =>
+      call[0] === "project-sessions:list" && call[1] === "beta"
+    ).length;
+    const betaSummaryRefreshCountBefore = invokeCalls.filter((call) =>
+      call[0] === "workspace:tasks:list" && call[1] === "beta"
+    ).length;
+    await act(async () => {
+      codexHostMessageListener?.({
+        type: "sidebarSyncUpdated",
+        hostId: "local",
+        result: sidebarSyncResult,
+        reason: "host-message",
+      });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    await waitFor(() => {
+      const betaSummaryRefreshCount = invokeCalls.filter((call) =>
+        call[0] === "workspace:tasks:list" && call[1] === "beta"
+      ).length;
+      expect(betaSummaryRefreshCount).toBe(betaSummaryRefreshCountBefore);
+      const betaFullRefreshCountAfter = invokeCalls.filter((call) =>
+        call[0] === "project-sessions:list" && call[1] === "beta"
+      ).length;
+      expect(betaFullRefreshCountAfter).toBe(betaFullRefreshCountBefore);
+    });
+  });
+
+  test("project action menu opens without selecting the project row", async () => {
+    const beta = makeProject("beta", "Beta");
+    const screen = renderWorkbench({
+      projects: [makeProject(), beta],
+      sessionsByProject: {
+        alpha: [makeSession()],
+        beta: [
+          makeSession({
+            id: "session:beta:database-view",
+            projectId: "beta",
+            title: "Beta Database View",
+          }),
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByLabelText("Project actions for Beta"), { button: 0, ctrlKey: false });
+      await Promise.resolve();
+    });
+
+    expect(textContent(document.body).includes("Edit project")).toBe(true);
+    expect(textContent(document.body).includes("Archive chats")).toBe(true);
+    expect(textContent(document.body).includes("Add source folder")).toBe(false);
+    expect(textContent(document.body).includes("Edit sources")).toBe(false);
+  });
+
+  test("pinned project groups render above normal projects and are excluded from Projects", async () => {
+    const beta = {
+      ...makeProject("beta", "Beta"),
+      pinned: true,
+      pinnedOrder: 0,
+    };
+    const screen = renderWorkbench({
+      projects: [makeProject(), beta, makeProject("gamma", "Gamma")],
+      sessionsByProject: {
+        alpha: [makeSession()],
+        beta: [makeSession({
+          id: "session:beta:database-view",
+          projectId: "beta",
+          title: "Beta Database View",
+        })],
+        gamma: [makeSession({
+          id: "session:gamma:database-view",
+          projectId: "gamma",
+          title: "Gamma Database View",
+        })],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const pinnedSections = Array.from(screen.container.querySelectorAll('[data-app-action-sidebar-section-heading="Pinned"]'));
+    const projectsSection = screen.container.querySelector('[data-app-action-sidebar-section-heading="Projects"]');
+    expect(pinnedSections.length).toBe(1);
+    expect(pinnedSections[0]?.querySelector('[data-app-action-sidebar-project-id="beta"]') !== null).toBe(true);
+    expect(projectsSection?.querySelector('[data-app-action-sidebar-project-id="beta"]') === null).toBe(true);
+    expect(projectsSection?.querySelector('[data-app-action-sidebar-project-id="alpha"]') !== null).toBe(true);
+    expect(projectsSection?.querySelector('[data-app-action-sidebar-project-id="gamma"]') !== null).toBe(true);
+  });
+
+  test("keeps individually pinned chats at the top of their project subtree", async () => {
+    const pinnedAlpha = makeAttachedSession({
+      id: "session:alpha:pinned",
+      threadId: "thread-alpha-pinned",
+      title: "Pinned Alpha",
+      pinned: true,
+      pinnedOrder: 0,
+      order: 1,
+    });
+    const normalAlpha = makeAttachedSession({
+      id: "session:alpha:normal",
+      threadId: "thread-alpha-normal",
+      title: "Normal Alpha",
+      pinned: false,
+      pinnedOrder: null,
+      order: 2,
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [pinnedAlpha, normalAlpha] },
+      sidebarSnapshotItems: [
+        makeSidebarSnapshotItemForSession(pinnedAlpha),
+        makeSidebarSnapshotItemForSession(normalAlpha),
+      ],
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const projectsSection = getSidebarSection(screen.container, "Projects");
+    const alphaGroup = getSidebarProjectGroup(projectsSection, "alpha");
+
+    expect(screen.container.querySelector(
+      '[data-app-action-sidebar-section-heading="Pinned"]',
+    )).toBe(null);
+    expect(JSON.stringify(getThreadRowTitles(alphaGroup))).toBe(JSON.stringify([
+      "Pinned Alpha",
+      "Normal Alpha",
+    ]));
+  });
+
+  test("keeps projectless pinned chats in the Pinned section", async () => {
+    const projectlessPinnedItem: CodexSidebarThreadItem = {
+      key: "local:thread-projectless-pinned",
+      kind: "local",
+      hostId: "local",
+      threadId: "thread-projectless-pinned",
+      sessionId: null,
+      projectId: null,
+      title: "Pinned Projectless",
+      preview: "",
+      cwd: null,
+      updatedAt: 10,
+      createdAt: 1,
+      pinned: true,
+      pinnedOrder: 0,
+      unread: false,
+      archived: false,
+      statusType: "idle",
+      statusActiveFlags: [],
+      projectless: true,
+      disabled: false,
+    };
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeSession()] },
+      sidebarSnapshotItems: [projectlessPinnedItem],
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const pinnedSection = getSidebarSection(screen.container, "Pinned");
+    expect(pinnedSection.querySelector('[data-app-action-sidebar-thread-title="Pinned Projectless"]') !== null).toBe(true);
+  });
+
+  test("projects the global manual order onto Chats while leaving newly discovered rows in canonical slots", async () => {
+    const chatA = makeAttachedSession({
+      id: "session:chat:a",
+      projectId: null,
+      threadId: "thread-chat-a",
+      title: "Chat A",
+      order: 0,
+    });
+    const chatNew = makeAttachedSession({
+      id: "session:chat:new",
+      projectId: null,
+      threadId: "thread-chat-new",
+      title: "Chat New",
+      order: 1,
+    });
+    const chatB = makeAttachedSession({
+      id: "session:chat:b",
+      projectId: null,
+      threadId: "thread-chat-b",
+      title: "Chat B",
+      order: 2,
+    });
+    if (!chatA.thread || !chatNew.thread || !chatB.thread) {
+      throw new Error("Expected attached projectless sessions");
+    }
+    chatA.thread.updatedAt = 300;
+    chatNew.thread.updatedAt = 200;
+    chatB.thread.updatedAt = 100;
+    const projectlessSessions = [chatA, chatNew, chatB];
+    const screen = renderWorkbench({
+      projectlessSessions,
+      sidebarSnapshotItems: projectlessSessions.map(makeSidebarSnapshotItemForSession),
+      projectlessThreadOrder: ["thread-chat-b", "thread-chat-a"],
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const chatsSection = getSidebarSection(screen.container, "Chats");
+    expect(JSON.stringify(getThreadRowTitles(chatsSection))).toBe(JSON.stringify([
+      "Chat B",
+      "Chat New",
+      "Chat A",
+    ]));
+  });
+
+  test("keeps project manual slots stable across session selection while recency places new rows", async () => {
+    const pinned = makeAttachedSession({
+      id: "session:alpha:pinned",
+      threadId: "thread-alpha-pinned",
+      title: "Pinned Alpha",
+      pinned: true,
+      pinnedOrder: 0,
+    });
+    const chatA = makeAttachedSession({
+      id: "session:alpha:a",
+      threadId: "thread-alpha-a",
+      title: "Alpha A",
+      order: 0,
+    });
+    const chatNew = makeAttachedSession({
+      id: "session:alpha:new",
+      threadId: "thread-alpha-new",
+      title: "Alpha New",
+      order: 1,
+    });
+    const chatB = makeAttachedSession({
+      id: "session:alpha:b",
+      threadId: "thread-alpha-b",
+      title: "Alpha B",
+      order: 2,
+    });
+    if (!pinned.thread || !chatA.thread || !chatNew.thread || !chatB.thread) {
+      throw new Error("Expected attached project sessions");
+    }
+    pinned.thread.updatedAt = 400;
+    chatA.thread.updatedAt = 300;
+    chatNew.thread.updatedAt = 200;
+    chatB.thread.updatedAt = 100;
+    const sessions = [pinned, chatA, chatNew, chatB];
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: sessions },
+      sidebarSnapshotItems: sessions.map(makeSidebarSnapshotItemForSession),
+      projectThreadOrders: {
+        alpha: ["thread-alpha-b", "thread-alpha-a"],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const alphaGroup = getSidebarProjectGroup(
+      getSidebarSection(screen.container, "Projects"),
+      "alpha",
+    );
+    expect(JSON.stringify(getThreadRowTitles(alphaGroup))).toBe(JSON.stringify([
+      "Pinned Alpha",
+      "Alpha B",
+      "Alpha New",
+      "Alpha A",
+    ]));
+
+    await act(async () => {
+      fireEvent.click(getThreadRow(alphaGroup, "Alpha A"));
+      await Promise.resolve();
+    });
+
+    expect(JSON.stringify(getThreadRowTitles(alphaGroup))).toBe(JSON.stringify([
+      "Pinned Alpha",
+      "Alpha B",
+      "Alpha New",
+      "Alpha A",
+    ]));
+  });
+
+  test("keeps an individually pinned chat inside its pinned project group", async () => {
+    const beta = {
+      ...makeProject("beta", "Beta"),
+      pinned: true,
+      pinnedOrder: 0,
+    };
+    const pinnedBeta = makeAttachedSession({
+      id: "session:beta:pinned",
+      projectId: "beta",
+      threadId: "thread-beta-pinned",
+      title: "Pinned Beta",
+      pinned: true,
+      pinnedOrder: 0,
+      order: 1,
+    });
+    const normalBeta = makeAttachedSession({
+      id: "session:beta:normal",
+      projectId: "beta",
+      threadId: "thread-beta-normal",
+      title: "Normal Beta",
+      pinned: false,
+      pinnedOrder: null,
+      order: 2,
+    });
+    const pendingBeta: CodexSidebarThreadItem = {
+      key: "local:client-new-thread:beta-pending",
+      kind: "pending-worktree",
+      pendingWorktreeId: "pending-worktree:beta-pending",
+      clientThreadId: "client-new-thread:beta-pending",
+      pinnedBeforeThreadId: null,
+      hostId: "local",
+      threadId: "client-new-thread:beta-pending",
+      sessionId: null,
+      projectId: "beta",
+      title: "Pending Beta",
+      preview: "",
+      cwd: "/repo/beta",
+      updatedAt: 3,
+      createdAt: 3,
+      pinned: false,
+      pinnedOrder: null,
+      unread: false,
+      archived: false,
+      statusType: "active",
+      statusActiveFlags: [],
+      projectless: false,
+      disabled: false,
+    };
+    const screen = renderWorkbench({
+      projects: [beta, makeProject()],
+      sessionsByProject: {
+        beta: [pinnedBeta, normalBeta],
+        alpha: [makeSession()],
+      },
+      sidebarSnapshotItems: [
+        makeSidebarSnapshotItemForSession(pinnedBeta),
+        makeSidebarSnapshotItemForSession(normalBeta),
+        pendingBeta,
+      ],
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const pinnedSection = getSidebarSection(screen.container, "Pinned");
+    const betaGroup = getSidebarProjectGroup(pinnedSection, "beta");
+    const normalTitle = betaGroup.querySelector('[data-app-action-sidebar-thread-title="Normal Beta"]');
+    const pendingTitle = betaGroup.querySelector('[data-app-action-sidebar-thread-title="Pending Beta"]');
+    const normalSortableActivator = normalTitle?.closest('[aria-roledescription="sortable"]');
+    const pendingSortableActivator = pendingTitle?.closest('[aria-roledescription="sortable"]');
+
+    expect(JSON.stringify(getThreadRowTitles(betaGroup))).toBe(JSON.stringify([
+      "Pinned Beta",
+      "Normal Beta",
+      "Pending Beta",
+    ]));
+    expect(normalSortableActivator !== null).toBe(true);
+    expect(pendingSortableActivator == null).toBe(true);
+  });
+
+  test("projects options menu does not expose the non-reference Organize pins mode", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.queryByLabelText("Pinned section actions")).toBe(null);
+
+    const projectsSection = getSidebarSection(screen.container, "Projects");
+
+    await act(async () => {
+      fireEvent.pointerDown(within(projectsSection).getByLabelText("Project sidebar options"), { button: 0, ctrlKey: false });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(textContent(document.body).includes("Organize sidebar")).toBe(true);
+    });
+
+    expect(textContent(document.body).includes("Organize pins")).toBe(false);
+  });
+
+  test("project row new-chat button reuses an existing blank session", async () => {
+    const betaBlank = makeSession({
+      id: "session:beta:blank",
+      projectId: "beta",
+      title: "New thread",
+      thread: null,
+      tabs: [],
+    });
+    const screen = renderWorkbench({
+      projects: [makeProject(), makeProject("beta", "Beta")],
+      sessionsByProject: {
+        alpha: [makeSession()],
+        beta: [
+          makeAttachedSession({
+            id: "session:beta:database-view",
+            projectId: "beta",
+            threadId: "thread-beta-database-view",
+            title: "Database View",
+          }),
+          betaBlank,
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Start new chat in Beta"));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) => call[0] === "project-sessions:create" && JSON.stringify(call[1]).includes('"projectId":"beta"'))).toBe(false);
+    await waitFor(() => {
+      const latestProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+      expect(JSON.stringify(latestProps?.newThreadTarget).includes('"sessionId":"session:beta:blank"')).toBe(true);
+    });
+  });
+
+
+});

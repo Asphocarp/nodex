@@ -2,7 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, vi, test } from "vi
 import { act, fireEvent } from "@testing-library/react";
 import type { MotionValue } from "motion/react";
 import type { WorkbenchTabProjection } from "@/lib/types";
-import type { WindowLocalProjectSession } from "@/lib/window-session-view-adapter";
+import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
 import { render, settleAsyncRender } from "../../test/dom";
 import { browserSidebarRendererWebviewManager } from "./browser-sidebar-webview-manager";
 
@@ -248,7 +248,7 @@ const browserTab: WorkbenchTabProjection & { preview: true } = {
   preview: true,
 };
 
-const activeSession: WindowLocalProjectSession = {
+const activeSession: WorkbenchSessionRenderProjection = {
   id: "session-1",
   projectId: "alpha",
   databaseStarter: false,

@@ -61,6 +61,7 @@ import type {
   WindowSessionRecord,
   WindowSessionSaveLayoutInput,
 } from "../shared/window-session";
+import { getWorkbenchSessionReturnLocation } from "../shared/workbench-layout";
 import { getLogger, shutdownBackendLogger } from "./logging/logger";
 import { AppUpdateService } from "./app-update-service";
 import { resolveCodexTitleBarOptions } from "./window-navigation-chrome";
@@ -1863,9 +1864,13 @@ export async function runMainAppStartup(
     authority: dataAuthority,
     resolveProjectId: (rawEvent) => {
       const event = rawEvent as IpcMainInvokeEvent;
-      const projectId = windowSessionState
+      const layout = windowSessionState
         ?.getSessionForWindow(event.sender.id)
-        ?.layout.dbProjectId?.trim();
+        ?.layout;
+      const projectId = layout
+        ? getWorkbenchSessionReturnLocation(layout.location)
+          .activeProjectId?.trim()
+        : null;
       if (!projectId) return null;
       return projectId;
     },

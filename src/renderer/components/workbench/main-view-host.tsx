@@ -7,7 +7,7 @@ import type { OpenPageStageOptions } from "@/components/kanban/open-page-stage";
 import type { DbViewPrefs } from "../../lib/db-view-prefs";
 import type { CalendarViewState } from "@/lib/calendar-view-state";
 import type { Project } from "@/lib/types";
-import type { WorkbenchView } from "@/lib/use-workbench-state";
+import type { WorkbenchView } from "@/lib/use-workbench-profile-preferences";
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
 import type { ColumnPaginationState } from "@/lib/kanban-store";
 import { DatabaseViewSurface } from "./read-only-database-view";

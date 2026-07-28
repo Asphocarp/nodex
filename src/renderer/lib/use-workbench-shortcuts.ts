@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import type { StageId } from "./use-workbench-state";
 import {
   TOGGLE_BOTTOM_PANEL_COMMAND_ID,
   type WorkbenchCommandId,
@@ -21,17 +20,10 @@ import type { CommandMenuOpenRequest } from "./command-palette";
 
 export interface WorkbenchShortcutActions {
   projectOrder: string[];
-  dbProjectId: string | null;
-  focusedStage: StageId;
-  focusAdjacentStage: (projectId: string, direction: -1 | 1) => void;
-  shiftSlidingWindow: (projectId: string, direction: -1 | 1) => void;
-  switchToStageIndex: (projectId: string, index: number) => void;
   switchToProjectIndex: (index: number) => void;
   onRequestNewWindow?: () => void;
   onRequestCommandPalette?: (request?: CommandMenuOpenRequest) => void;
-  onRequestProjectPicker?: () => void;
-  onRequestTaskSearch?: (projectId: string) => void;
-  onRequestContentSearch?: (projectId: string, preferredDomain?: ContentSearchDomain) => void;
+  onRequestContentSearch?: (preferredDomain?: ContentSearchDomain) => void;
   onRequestSettingsToggle?: () => void;
   onRequestKeyboardShortcuts?: () => void;
   onRequestProcessManager?: () => void;
@@ -113,7 +105,6 @@ export function handleWorkbenchShortcut(
 ): boolean {
   const modifier = isMac ? e.metaKey : e.ctrlKey;
   const targetIsEditable = isEditableTarget(e.target);
-  const targetIsEditorSurface = isEditorSurfaceTarget(e.target);
   const targetIsComposerSurface = isComposerSurfaceTarget(e.target);
   if (isTerminalSurfaceTarget(e.target)) return false;
 
@@ -184,20 +175,6 @@ export function handleWorkbenchShortcut(
     return false;
   }
 
-  if (modifier && !e.altKey && !e.shiftKey && (e.key === "h" || e.key === "H" || e.key === "l" || e.key === "L")) {
-    if (targetIsEditable && !targetIsEditorSurface) return false;
-    if (!actions.dbProjectId) return false;
-    actions.shiftSlidingWindow(actions.dbProjectId, e.key === "h" || e.key === "H" ? -1 : 1);
-    return true;
-  }
-
-  if (e.ctrlKey && !e.metaKey && !e.altKey && e.key === "Tab") {
-    if (targetIsEditable && !targetIsEditorSurface) return false;
-    if (!actions.dbProjectId) return false;
-    actions.focusAdjacentStage(actions.dbProjectId, e.shiftKey ? -1 : 1);
-    return true;
-  }
-
   if (!modifier) return false;
 
   if (e.altKey && e.key >= "1" && e.key <= "9") {
@@ -209,33 +186,9 @@ export function handleWorkbenchShortcut(
     return true;
   }
 
-  if (!e.altKey && e.key >= "1" && e.key <= "4") {
-    if (targetIsEditable && !targetIsEditorSurface) return false;
-    if (!actions.dbProjectId) return false;
-    const index = Number.parseInt(e.key, 10) - 1;
-    actions.switchToStageIndex(actions.dbProjectId, index);
-    return true;
-  }
-
   if (matchesCommandShortcut(e, actions, "findInThread", isMac)) {
-    if (!actions.dbProjectId) return false;
-    if (actions.focusedStage === "threads" && actions.onRequestContentSearch) {
-      actions.onRequestContentSearch(actions.dbProjectId, "conversation");
-      return true;
-    }
-
-    if (actions.focusedStage === "files" && actions.onRequestContentSearch) {
-      actions.onRequestContentSearch(actions.dbProjectId, "diff");
-      return true;
-    }
-
-    if (actions.focusedStage === "pages" && actions.onRequestContentSearch) {
-      actions.onRequestContentSearch(actions.dbProjectId);
-      return true;
-    }
-
-    if (!actions.onRequestTaskSearch || targetIsEditable) return false;
-    actions.onRequestTaskSearch(actions.dbProjectId);
+    if (!actions.onRequestContentSearch) return false;
+    actions.onRequestContentSearch();
     return true;
   }
 

@@ -7,7 +7,6 @@ import type { CodexForkBrowserSidePanelSnapshot } from "../../shared/codex-fork-
 import type {
   PanelId,
   ProjectSession,
-  WorkbenchPanelState,
   ProjectSessionSummary,
   WorkbenchTabProjection,
   WorkbenchTabCreateInput,
@@ -21,11 +20,7 @@ import {
   type WorkbenchSessionViewSnapshot,
   type WorkbenchSessionViewTab,
 } from "../../shared/workbench-session-view";
-
-export type WindowLocalProjectSession = ProjectSession & {
-  panels: Record<PanelId, WorkbenchPanelState>;
-  tabs: WorkbenchTabProjection[];
-};
+import type { WorkbenchSessionRenderProjection } from "./workbench-session-presentation";
 
 function resourceProjectId(
   session: ProjectSession,
@@ -49,10 +44,10 @@ function projectTabConfig(
   };
 }
 
-export function projectSessionWithWorkbenchView(
+export function presentWorkbenchSessionDomainWithView(
   session: ProjectSession,
   view: WorkbenchSessionViewSnapshot,
-): WindowLocalProjectSession {
+): WorkbenchSessionRenderProjection {
   const timestamp = view.touchedAt;
   const tabs = (["right", "bottom"] as const).flatMap((panelId) =>
     listWorkbenchPanelLeaves(view.panels[panelId].layout)
@@ -88,7 +83,7 @@ export function projectSessionWithWorkbenchView(
 }
 
 export function workbenchViewFromProjectSessionProjection(
-  session: WindowLocalProjectSession,
+  session: WorkbenchSessionRenderProjection,
 ): WorkbenchSessionViewSnapshot {
   const tabsById = Object.fromEntries(session.tabs.map((tab) => {
     const common = {

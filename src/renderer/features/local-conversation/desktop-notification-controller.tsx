@@ -17,7 +17,6 @@ import type {
   DesktopNotificationPayload,
   ThreadNotificationTurnMode,
 } from "../../lib/types";
-import { NEW_THREAD_STAGE_TAB_ID, type StageId } from "../../lib/use-workbench-state";
 import {
   isCodexConversationDesktopNotificationEligible,
   normalizeDesktopNotificationText,
@@ -106,14 +105,10 @@ function probeNotificationPermission(): void {
 
 export function DesktopNotificationController({
   activeThreadId,
-  focusedStage,
-  threadsProjectId,
   onOpenThread,
 }: {
-  activeThreadId: string;
-  focusedStage: StageId;
-  threadsProjectId: string | null;
-  onOpenThread: (projectId: string, threadId: string) => void;
+  activeThreadId: string | null;
+  onOpenThread: (threadId: string) => void;
 }) {
   const manager = useDefaultCodexAppServerManager();
   const { settings } = useThreadNotificationSettings();
@@ -140,17 +135,13 @@ export function DesktopNotificationController({
   }, []);
 
   useEffect(() => {
-    if (activeThreadId === NEW_THREAD_STAGE_TAB_ID) {
-      return;
-    }
+    if (!activeThreadId) return;
     void invoke("desktop-notification:hide", activeThreadId);
   }, [activeThreadId]);
 
   const isSameFocusedConversation = useEffectEvent((conversationId: string): boolean => {
     return (
-      focusedStage === "threads"
-      && activeThreadId !== NEW_THREAD_STAGE_TAB_ID
-      && activeThreadId === conversationId
+      activeThreadId === conversationId
       && isWindowFocused
     );
   });
@@ -260,10 +251,7 @@ export function DesktopNotificationController({
   }, [manager, settings.permissionsEnabled, settings.questionsEnabled, settings.turnMode]);
 
   const handleOpenThread = useEffectEvent((threadId: string) => {
-    const summary = manager.readThreadSummary(threadId);
-    const projectId = summary?.projectId ?? threadsProjectId;
-    if (!projectId) return;
-    onOpenThread(projectId, threadId);
+    onOpenThread(threadId);
   });
 
   const handleAction = useEffectEvent(async (payload: {

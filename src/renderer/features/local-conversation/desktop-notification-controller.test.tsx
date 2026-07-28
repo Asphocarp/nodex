@@ -188,8 +188,6 @@ describe("DesktopNotificationController", () => {
 
     render(createElement(DesktopNotificationController, {
       activeThreadId: "thread-2",
-      focusedStage: "pages",
-      threadsProjectId: "project-default",
       onOpenThread: () => undefined,
     }));
     await settleAsyncRender();
@@ -236,8 +234,6 @@ describe("DesktopNotificationController", () => {
 
     render(createElement(DesktopNotificationController, {
       activeThreadId: "thread-1",
-      focusedStage: "threads",
-      threadsProjectId: "project-default",
       onOpenThread: () => undefined,
     }));
     await settleAsyncRender();
@@ -279,8 +275,6 @@ describe("DesktopNotificationController", () => {
 
     render(createElement(DesktopNotificationController, {
       activeThreadId: "thread-2",
-      focusedStage: "pages",
-      threadsProjectId: "project-default",
       onOpenThread: () => undefined,
     }));
     await settleAsyncRender();
@@ -333,8 +327,6 @@ describe("DesktopNotificationController", () => {
 
     render(createElement(DesktopNotificationController, {
       activeThreadId: "thread-2",
-      focusedStage: "pages",
-      threadsProjectId: "project-default",
       onOpenThread: () => undefined,
     }));
     await settleAsyncRender();
@@ -365,8 +357,6 @@ describe("DesktopNotificationController", () => {
 
     render(createElement(DesktopNotificationController, {
       activeThreadId: "thread-2",
-      focusedStage: "pages",
-      threadsProjectId: "project-default",
       onOpenThread: () => undefined,
     }));
     await settleAsyncRender();
@@ -397,15 +387,13 @@ describe("DesktopNotificationController", () => {
   test("routes reply and numeric-zero approval actions through thread navigation and manager methods", async () => {
     resetTestState();
     currentFocusState = false;
-    const openThreadCalls: Array<[string, string]> = [];
+    const openThreadCalls: string[] = [];
     const { DesktopNotificationController } = await import("./desktop-notification-controller");
 
     render(createElement(DesktopNotificationController, {
       activeThreadId: "thread-2",
-      focusedStage: "pages",
-      threadsProjectId: "project-default",
-      onOpenThread: (projectId: string, threadId: string) => {
-        openThreadCalls.push([projectId, threadId]);
+      onOpenThread: (threadId: string) => {
+        openThreadCalls.push(threadId);
       },
     }));
     await settleAsyncRender();
@@ -431,11 +419,10 @@ describe("DesktopNotificationController", () => {
     });
     await settleAsyncRender();
 
-    expect(openThreadCalls[0]?.[0]).toBe("project-1");
-    expect(openThreadCalls[0]?.[1]).toBe("thread-1");
+    expect(openThreadCalls[0]).toBe("thread-1");
     expect(startTurnCalls[0]?.[0]).toBe("thread-1");
     expect(startTurnCalls[0]?.[1]).toBe("Ship the change");
-    expect(openThreadCalls[1]?.[1]).toBe("thread-1");
+    expect(openThreadCalls[1]).toBe("thread-1");
     expect(respondApprovalCalls[0]?.[0]).toBe(0);
     expect(respondApprovalCalls[0]?.[1]).toEqual({
       kind: "command",

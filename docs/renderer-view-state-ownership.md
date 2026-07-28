@@ -18,35 +18,30 @@ writable owner.
 | TanStack Query | Main/server read models and request state | Query invalidation and garbage collection |
 | Runtime Module | Conversation, Browser, Terminal, editor, drag, and approval lifecycles | The Module's explicit lifecycle operation |
 
-## `useWorkbenchState` inventory
+## Workbench owner inventory
 
-The hook is the focused Workbench window-layout Module. One Maitai App atom owns
-its transactional aggregate; sessionStorage, localStorage, and explicit window
-layout snapshots are decode/write Adapters over that atom. These values are not
-Thread runtime or Query state. Session-local layout values do not live-apply
-across windows; profile preferences retain their existing durable scope unless
-a separate product change says otherwise.
+`useWorkbenchState` and its stage/sliding-window/dock aggregate are retired.
+Window layout and profile preferences now have different owners and codecs.
+Neither may mirror Query, Thread, Browser, Terminal, or editor authority.
 
-| Field or projection | Identity and lifetime | Persistence / cross-window | Target owner and disposition |
+| Field or projection | Identity and lifetime | Persistence / cross-window | Canonical owner |
 | --- | --- | --- | --- |
-| `dbProjectId`, `activeProjectId` | Current renderer-window database Project selection | Window layout/session; no live cross-window apply | Workbench window-layout App atom |
-| `threadsProjectId` | Current renderer-window Threads Project filter | Window layout/session; no live cross-window apply | Workbench window-layout App atom |
-| `projectRefs` | Derived from durable Project IDs and display hashing | None | Pure derived projection over Query/project order |
-| `activeView`, `viewsByProject` | Database view choice per Project | Window layout/session; no live cross-window apply | Workbench window-layout App atom, keyed fields |
-| `activeSearchQuery`, `searchByProject` | Database search text per Project | Window layout/session; no live cross-window apply | Workbench window-layout App atom, keyed fields |
-| `activeDbViewPrefs`, `dbViewPrefsByProject` | Renderer view preferences per Project/view | Profile localStorage; no live cross-window apply today | Workbench window-layout App atom plus same-window storage Adapter |
-| `sidebar` | Sidebar collapsed state, width, and section disclosure | Profile localStorage; no live cross-window apply today | Workbench window-layout App atom; live drag sample remains component-local |
-| `dock` | Window-local dock width and split tree | Profile localStorage plus window snapshot | Workbench window-layout App atom; separate from Session-specific panel trees |
-| `sessionViewsBySessionId` | One renderer window's tabs, panel trees, active leaves/tabs, MRU order, collapse, maximize, and size for each Project Session | Main-persisted Window Session snapshot; no live cross-window apply | Workbench window-layout App atom plus strict Window Session codec |
-| `recentPageSessions`, `activeRecentSessionId` | Renderer-window recent Page navigation | sessionStorage/window snapshot | Workbench window-layout App atom; explicit close/prune clears entries |
-| `focusedStage`, `stageNavDirection` | Current renderer navigation/presentation | Window layout/session | Workbench window-layout App atom; direction is navigation state |
-| `pagesTabs`, `activePagesTabId` | Page-stage projection and selection | Tabs derive from recent sessions; selection is window layout | Pure projection plus Workbench window-layout selection field |
-| `threadsTabs`, `activeThreadsTabId` | Legacy stage tabs and selection | Window layout/session | Workbench window-layout App atom; not durable Project Session threads |
-| `filesTabs`, `activeFilesTabId` | Files-stage projection and selection | Window layout/session | Workbench window-layout App atom |
-| `stagePanelWidths` | Renderer stage widths by stage | Window layout/session | Workbench window-layout App atom; live resize sample remains component-local |
-| `slidingWindowPaneCount` | Renderer stage composition preference | Window layout/session | Workbench window-layout App atom |
-| setter/navigation methods | Operations over the preceding state | None | Focused Workbench Module methods over the one aggregate atom |
-| `buildLayoutSnapshot`, `replaceLayoutSnapshot` | Window-session serialization Adapter | Main-owned window-session transport | Adapter over the canonical Workbench window-layout App atom |
+| `location` | One discriminated `empty | session | settings | automations | library | pending-worktree` location per renderer window | Main-owned Window Session layout v4; no live cross-window apply | `WorkbenchWindowState` App atom |
+| `activeProjectId`, `activeSessionId` | Pure projection of the current/return location | Included through `location` only | `getWorkbenchSessionReturnLocation`; never writable mirrors |
+| `databaseSearchByProject` | Database search text per Project in one Window Session | Layout v4 | `WorkbenchWindowState` App atom |
+| `sessionViewsBySessionId` | Per-window panel trees, durable tabs, selected leaves/tabs, MRU, collapse, full-width, and stable sizes | Layout v4 with revisioned compare-and-swap persistence | `WorkbenchWindowState` App atom plus pure Session view mutation kernel |
+| Back/Forward stacks | Renderer-lifetime location and complete view checkpoints | Not cold-restored | `WorkbenchWindowState` history |
+| `viewsByProject`, `dbViewPrefsByProject` | Profile-level Database presentation preferences | `nodex-workbench-profile-preferences-v1` | `useWorkbenchProfilePreferences` App atom |
+| Sidebar collapsed/width/disclosure | Profile presentation; pointer samples remain mounted-interaction state | Same focused preference record | `useWorkbenchProfilePreferences`; `useWorkbenchSidebarChrome` owns gesture/motion |
+| Recent Page sessions | Bounded profile convenience history | Same focused preference record | `useWorkbenchProfilePreferences` |
+| Session summary windows and selected detail | Query cache lifetime | Query invalidation/GC | `WorkbenchSessionCatalog`; never copied into a second cache |
+| Durable panel commands | Selected Session view identity | Commits through Window State | `WorkbenchPanelController.durable` |
+| Preview and auxiliary panel surfaces | Renderer lifetime, per Session/panel leaf | Never cold-restored | `workbench-ephemeral-panel-state` reducer |
+| DOM geometry and resize animation | Mounted Workbench runtime | None; only settled sizes enter Window State | `useWorkbenchChromeLayout` MotionValues plus Chrome commands |
+
+Layout v1-v3 remain decode-only Window Session inputs. Canonical writers emit
+v4 and never recreate stage, sliding-window, dock, pages/threads/files tab, or
+duplicate Project/Session selection fields.
 
 ## Root provider inventory
 
@@ -96,7 +91,7 @@ lifecycle; it is not task state.
 | Workspace Files navigator disclosure, selection, search, and scroll | Host + hidden-file policy + canonical workspace root | Renderer memory | Maitai App atom family; directory request data remains Query-owned | Renderer shutdown or explicit root cleanup |
 | Review diff preferences | Renderer application | Renderer memory | App atoms | Renderer shutdown |
 | Review source, tree, selection, expansion, and pending file reveal | Task Route identity | Renderer memory | Route atoms; source data stays in conversation/Query authorities | Successful reveal, explicit source change, or Route eviction |
-| Window-local Project Session panels and tabs | Window Session + Project Session ID | Window Session snapshot; cloned only as a new-window starting point and never live-applied cross-window | Workbench App atom and pure `WorkbenchSessionViewSnapshot` mutations | Explicit panel-tab close, hard Session reconciliation, or bounded closed-window history eviction |
+| Window-local Project Session panels and tabs | Window Session + Project Session ID | Window Session snapshot; cloned only as a new-window starting point and never live-applied cross-window | `WorkbenchWindowState`, `WorkbenchPanelController`, and pure `WorkbenchSessionViewSnapshot` mutations | Explicit panel-tab close, hard Session reconciliation, or bounded closed-window history eviction |
 
 One mounted `ComposerScope` represents one writable form owner. The primary Thread route derives that identity from its promoted session scope so pending-to-attached transitions preserve local composer state. Background-agent and Subagents detail routes are read-only transcript surfaces and must not mount a composer beneath the same route. A writable auxiliary thread surface, such as a side chat, must provide a stable surface-specific composer identity; sharing the primary identity across simultaneous forms is an ownership violation, not a recoverable render collision.
 

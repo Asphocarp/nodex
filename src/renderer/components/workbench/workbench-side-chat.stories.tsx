@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react";
 import {
   SideChatExpiredPanel,
   SideChatLoadingPanel,
-} from "./workbench-shell";
+} from "./workbench-side-chat-panels";
 
 function SideChatStoryFrame({
   children,

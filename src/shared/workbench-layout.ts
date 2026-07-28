@@ -1,4 +1,5 @@
 import type { WorkbenchSessionViewSnapshot } from "./workbench-session-view";
+import type { LibraryRouteTarget } from "./library-module";
 
 export type WorkbenchLayoutView = "kanban" | "list" | "toggle-list" | "canvas" | "calendar";
 export type WorkbenchLayoutStageId = "db" | "pages" | "threads" | "files";
@@ -40,7 +41,7 @@ export interface WorkbenchLayoutDockSnapshot {
   tree: unknown;
 }
 
-export interface WorkbenchLayoutSnapshot {
+export interface WorkbenchLayoutSnapshotV3 {
   version: 3;
   dbProjectId: string | null;
   activeProjectSessionId: string | null;
@@ -69,7 +70,66 @@ export interface WorkbenchLayoutSnapshot {
   sessionViewsBySessionId: Record<string, WorkbenchSessionViewSnapshot>;
 }
 
-function createDefaultDockTree(): WorkbenchLayoutSnapshot["dock"]["tree"] {
+export type WorkbenchSessionLocation =
+  | {
+      readonly kind: "session";
+      readonly activeProjectId: string | null;
+      readonly sessionId: string;
+    }
+  | {
+      readonly kind: "empty";
+      readonly activeProjectId: string | null;
+    };
+
+export type WorkbenchLibraryLocationTarget =
+  | { readonly kind: "home" }
+  | Extract<LibraryRouteTarget, { readonly kind: "page" }>
+  | (Extract<
+      LibraryRouteTarget,
+      { readonly kind: "database" | "view" }
+    > & {
+      readonly accessProjectId?: string;
+    });
+
+export type WorkbenchLocation =
+  | WorkbenchSessionLocation
+  | {
+      readonly kind: "library";
+      readonly target: WorkbenchLibraryLocationTarget;
+      readonly returnTo: WorkbenchSessionLocation;
+    }
+  | {
+      readonly kind: "settings";
+      readonly path: string;
+      readonly returnTo: WorkbenchSessionLocation;
+    }
+  | {
+      readonly kind: "automations";
+      readonly path: string;
+      readonly returnTo: WorkbenchSessionLocation;
+    }
+  | {
+      readonly kind: "pending-worktree";
+      readonly clientThreadId: string;
+      readonly returnTo: WorkbenchSessionLocation;
+    };
+
+export interface WorkbenchLayoutSnapshotV4 {
+  readonly version: 4;
+  readonly location: Exclude<
+    WorkbenchLocation,
+    { readonly kind: "pending-worktree" }
+  >;
+  readonly databaseSearchByProject: Record<string, string>;
+  readonly sessionViewsBySessionId: Record<
+    string,
+    WorkbenchSessionViewSnapshot
+  >;
+}
+
+export type WorkbenchLayoutSnapshot = WorkbenchLayoutSnapshotV4;
+
+function createDefaultDockTree(): WorkbenchLayoutSnapshotV3["dock"]["tree"] {
   return {
     type: "leaf",
     id: globalThis.crypto?.randomUUID?.() ?? "default-dock",
@@ -81,7 +141,7 @@ function createDefaultDockTree(): WorkbenchLayoutSnapshot["dock"]["tree"] {
   };
 }
 
-export function createDefaultWorkbenchLayoutSnapshot(): WorkbenchLayoutSnapshot {
+export function createDefaultWorkbenchLayoutSnapshotV3(): WorkbenchLayoutSnapshotV3 {
   return {
     version: 3,
     dbProjectId: null,
@@ -121,4 +181,36 @@ export function createDefaultWorkbenchLayoutSnapshot(): WorkbenchLayoutSnapshot 
     slidingWindowPaneCount: 2,
     sessionViewsBySessionId: {},
   };
+}
+
+export function createDefaultWorkbenchLayoutSnapshotV4(): WorkbenchLayoutSnapshotV4 {
+  return {
+    version: 4,
+    location: {
+      kind: "empty",
+      activeProjectId: null,
+    },
+    databaseSearchByProject: {},
+    sessionViewsBySessionId: {},
+  };
+}
+
+export function createDefaultWorkbenchLayoutSnapshot(): WorkbenchLayoutSnapshot {
+  return createDefaultWorkbenchLayoutSnapshotV4();
+}
+
+export function getWorkbenchSessionReturnLocation(
+  location: WorkbenchLocation,
+): WorkbenchSessionLocation {
+  if (location.kind === "session" || location.kind === "empty") {
+    return location;
+  }
+  return location.returnTo;
+}
+
+export function getRestorableWorkbenchLocation(
+  location: WorkbenchLocation,
+): WorkbenchLayoutSnapshotV4["location"] {
+  if (location.kind !== "pending-worktree") return location;
+  return location.returnTo;
 }
