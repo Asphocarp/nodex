@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { transcribeDictationBlob } from "./composer-dictation-transport";
+import {
+  COMPOSER_DICTATION_WAVEFORM_SAMPLE_FLOOR,
+  COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ,
+  consumeComposerDictationWaveformSamples,
+  normalizeComposerDictationWaveformSamples,
+  resolveComposerDictationWaveformGeometry,
+} from "./composer-dictation-waveform";
 
 type DictationStopMode = "insert" | "send";
 
 const MINIMUM_DICTATION_DURATION_MS = 250;
-const DICTATION_WAVEFORM_HEIGHT_DIVISOR = 4;
-const DICTATION_WAVEFORM_SAMPLE_THRESHOLD = 0.0025;
-const DICTATION_WAVEFORM_FLOOR = 0.0001;
 
 export interface ComposerDictationController {
   isDictating: boolean;
@@ -72,16 +76,23 @@ function useComposerDictationWaveform(): DictationWaveformController {
   const waveformLevelsRef = useRef<number[]>([]);
   const pendingSamplesRef = useRef<Float32Array>(new Float32Array());
   const waveformBucketSizeRef = useRef(1);
+  const waveformSampleRateRef = useRef(COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ);
   const lastDurationSecondRef = useRef(-1);
 
   const resetWaveformDimensions = useCallback((canvas: HTMLCanvasElement | null): boolean => {
-    if (!canvas) {
+    if (!canvas || canvas.clientWidth <= 0) {
       return false;
     }
 
-    const bucketCount = Math.max(1, Math.floor(canvas.clientWidth / DICTATION_WAVEFORM_HEIGHT_DIVISOR));
-    waveformLevelsRef.current = Array.from({ length: bucketCount }, () => 0);
-    waveformBucketSizeRef.current = Math.max(1, Math.floor(2048 / bucketCount));
+    const { bucketCount, bucketSize } = resolveComposerDictationWaveformGeometry(
+      canvas.clientWidth,
+      waveformSampleRateRef.current,
+    );
+    waveformLevelsRef.current = Array.from(
+      { length: bucketCount },
+      () => COMPOSER_DICTATION_WAVEFORM_SAMPLE_FLOOR,
+    );
+    waveformBucketSizeRef.current = bucketSize;
     pendingSamplesRef.current = new Float32Array();
     return true;
   }, []);
@@ -112,6 +123,7 @@ function useComposerDictationWaveform(): DictationWaveformController {
     waveformLevelsRef.current = [];
     pendingSamplesRef.current = new Float32Array();
     waveformBucketSizeRef.current = 1;
+    waveformSampleRateRef.current = COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ;
     lastDurationSecondRef.current = -1;
     clearWaveformCanvas();
   }, [clearWaveformCanvas]);
@@ -140,7 +152,10 @@ function useComposerDictationWaveform(): DictationWaveformController {
       return;
     }
 
-    const bucketCount = Math.max(1, Math.floor(clientWidth / DICTATION_WAVEFORM_HEIGHT_DIVISOR));
+    const { bucketCount } = resolveComposerDictationWaveformGeometry(
+      clientWidth,
+      waveformSampleRateRef.current,
+    );
     if (waveformLevelsRef.current.length !== bucketCount) {
       resetWaveformDimensions(canvas);
     }
@@ -152,7 +167,7 @@ function useComposerDictationWaveform(): DictationWaveformController {
 
     let firstActiveIndex = -1;
     for (let index = 0; index < waveformLevels.length; index += 1) {
-      if ((waveformLevels[index] ?? 0) > DICTATION_WAVEFORM_SAMPLE_THRESHOLD) {
+      if ((waveformLevels[index] ?? 0) > COMPOSER_DICTATION_WAVEFORM_SAMPLE_FLOOR) {
         firstActiveIndex = index;
         break;
       }
@@ -195,6 +210,10 @@ function useComposerDictationWaveform(): DictationWaveformController {
 
     const audioContext = new AudioContext();
     audioContextRef.current = audioContext;
+    waveformSampleRateRef.current = audioContext.sampleRate
+      || COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ;
+    resetWaveformDimensions(waveformCanvasRef.current);
+    drawWaveform();
 
     const mediaStreamSource = audioContext.createMediaStreamSource(stream);
     mediaStreamSourceRef.current = mediaStreamSource;
@@ -205,48 +224,27 @@ function useComposerDictationWaveform(): DictationWaveformController {
 
     scriptProcessor.onaudioprocess = (event) => {
       const input = event.inputBuffer.getChannelData(0);
-      for (let index = 0; index < input.length; index += 1) {
-        const sample = Math.abs(input[index] ?? 0);
-        input[index] = sample < DICTATION_WAVEFORM_SAMPLE_THRESHOLD
-          ? DICTATION_WAVEFORM_FLOOR
-          : sample;
-      }
+      normalizeComposerDictationWaveformSamples(input);
 
       if (waveformLevelsRef.current.length === 0) {
         resetWaveformDimensions(waveformCanvasRef.current);
       }
 
-      const pendingSamples = pendingSamplesRef.current;
-      const nextSamples = new Float32Array(pendingSamples.length + input.length);
-      nextSamples.set(pendingSamples, 0);
-      nextSamples.set(input, pendingSamples.length);
-
       const maxBuckets = waveformLevelsRef.current.length;
       const bucketSize = waveformBucketSizeRef.current;
-      let offset = 0;
-      let hasNewWaveformData = false;
+      if (maxBuckets > 0) {
+        const result = consumeComposerDictationWaveformSamples({
+          bucketSize,
+          levels: waveformLevelsRef.current,
+          maxLevelCount: maxBuckets,
+          pendingSamples: pendingSamplesRef.current,
+          samples: input,
+        });
+        pendingSamplesRef.current = result.pendingSamples;
 
-      if (maxBuckets > 0 && bucketSize > 0) {
-        while (offset + bucketSize <= nextSamples.length) {
-          const end = offset + bucketSize;
-          let total = 0;
-          for (let sampleIndex = offset; sampleIndex < end; sampleIndex += 1) {
-            total += nextSamples[sampleIndex] ?? 0;
-          }
-          const average = total / bucketSize;
-          waveformLevelsRef.current.push(average);
-          if (waveformLevelsRef.current.length > maxBuckets) {
-            waveformLevelsRef.current.shift();
-          }
-          offset = end;
-          hasNewWaveformData = true;
+        if (result.appendedLevelCount > 0) {
+          drawWaveform();
         }
-      }
-
-      pendingSamplesRef.current = nextSamples.slice(offset);
-
-      if (hasNewWaveformData) {
-        drawWaveform();
       }
 
       if (recordingStartedAtRef.current === null) {
@@ -296,6 +294,8 @@ export function useComposerDictation(input: UseComposerDictationInput): Composer
   const streamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const stopModeRef = useRef<DictationStopMode | null>(null);
+  const isMountedRef = useRef(true);
+  const startAttemptRef = useRef(0);
   const callbacksRef = useRef(input);
   const {
     getCurrentRecordingDurationMs,
@@ -387,11 +387,17 @@ export function useComposerDictation(input: UseComposerDictationInput): Composer
     stopWaveformCapture,
   ]);
 
-  useEffect(() => () => {
-    stopWaveformCapture();
-    cleanupRecorder();
-    cleanupStream();
-    audioChunksRef.current = [];
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+      startAttemptRef.current += 1;
+      stopWaveformCapture();
+      cleanupRecorder();
+      cleanupStream();
+      audioChunksRef.current = [];
+    };
   }, [cleanupRecorder, cleanupStream, stopWaveformCapture]);
 
   const startDictation = useCallback(async () => {
@@ -409,6 +415,9 @@ export function useComposerDictation(input: UseComposerDictationInput): Composer
       return;
     }
 
+    const startAttempt = startAttemptRef.current + 1;
+    startAttemptRef.current = startAttempt;
+
     try {
       stopWaveformCapture();
       stopModeRef.current = "insert";
@@ -419,6 +428,13 @@ export function useComposerDictation(input: UseComposerDictationInput): Composer
           channelCount: 1,
         },
       });
+      if (!isMountedRef.current || startAttempt !== startAttemptRef.current) {
+        for (const track of stream.getTracks()) {
+          track.stop();
+        }
+        return;
+      }
+
       streamRef.current = stream;
       startWaveformCapture(stream);
 
@@ -436,6 +452,10 @@ export function useComposerDictation(input: UseComposerDictationInput): Composer
       recorder.start();
       setIsDictating(true);
     } catch (error) {
+      if (!isMountedRef.current || startAttempt !== startAttemptRef.current) {
+        return;
+      }
+
       callbacksRef.current.onStartError(error);
       const recorder = recorderRef.current;
       if (recorder) {

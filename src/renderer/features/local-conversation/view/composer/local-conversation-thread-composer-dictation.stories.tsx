@@ -9,11 +9,27 @@ import {
 } from "../thread-stage-story-fixtures";
 import { ThreadComposer } from "./local-conversation-thread-composer";
 import { TestComposerScopePath } from "@/test/maitai-scope-harness";
+import { COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ } from "./composer-dictation-waveform";
+
+const STORY_AUDIO_BUFFER_SIZE = 2048;
 
 type DictationStoryState = "idle" | "unavailable" | "recording" | "transcribing" | "keyboardHold";
 
 interface ComposerDictationStoryProps {
   state: DictationStoryState;
+}
+
+function restoreProperty(
+  target: object,
+  property: PropertyKey,
+  descriptor: PropertyDescriptor | undefined,
+): void {
+  if (descriptor) {
+    Object.defineProperty(target, property, descriptor);
+    return;
+  }
+
+  Reflect.deleteProperty(target, property);
 }
 
 class StoryMediaRecorder {
@@ -35,7 +51,46 @@ class StoryMediaRecorder {
   }
 }
 
+interface StoryAudioProcessingEvent {
+  inputBuffer: {
+    getChannelData: () => Float32Array;
+  };
+}
+
+class StoryScriptProcessor {
+  public onaudioprocess: ((event: StoryAudioProcessingEvent) => void) | null = null;
+  private intervalId: number | null = null;
+  private sampleCursor = 0;
+
+  connect(): void {
+    if (this.intervalId !== null) return;
+
+    this.intervalId = window.setInterval(() => {
+      const samples = new Float32Array(STORY_AUDIO_BUFFER_SIZE);
+      const envelope = 0.035 + ((Math.sin(this.sampleCursor / 18_000) + 1) * 0.025);
+      for (let index = 0; index < samples.length; index += 1) {
+        const position = this.sampleCursor + index;
+        samples[index] = Math.sin(position * 0.025) * envelope;
+      }
+      this.sampleCursor += samples.length;
+      this.onaudioprocess?.({
+        inputBuffer: {
+          getChannelData: () => samples,
+        },
+      });
+    }, 1_000 * STORY_AUDIO_BUFFER_SIZE / COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ);
+  }
+
+  disconnect(): void {
+    if (this.intervalId === null) return;
+    window.clearInterval(this.intervalId);
+    this.intervalId = null;
+  }
+}
+
 class StoryAudioContext {
+  public sampleRate = COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ;
+
   createMediaStreamSource() {
     return {
       connect: () => {},
@@ -44,11 +99,7 @@ class StoryAudioContext {
   }
 
   createScriptProcessor() {
-    return {
-      onaudioprocess: null,
-      connect: () => {},
-      disconnect: () => {},
-    };
+    return new StoryScriptProcessor();
   }
 
   close(): Promise<void> {
@@ -106,6 +157,15 @@ function buildActions(): ThreadStageActions {
 
 function ComposerDictationStory({ state }: ComposerDictationStoryProps) {
   useEffect(() => {
+    const previousWindowType = document.documentElement.dataset.codexWindowType;
+    const apiDescriptor = Object.getOwnPropertyDescriptor(window, "api");
+    const mediaDevicesDescriptor = Object.getOwnPropertyDescriptor(navigator, "mediaDevices");
+    const mediaRecorderDescriptor = Object.getOwnPropertyDescriptor(window, "MediaRecorder");
+    const audioContextDescriptor = Object.getOwnPropertyDescriptor(window, "AudioContext");
+    const previousFetch = globalThis.fetch;
+    let startTimeout: number | null = null;
+    let stopTimeout: number | null = null;
+
     document.documentElement.dataset.codexWindowType = "electron";
     Object.defineProperty(window, "api", {
       configurable: true,
@@ -145,36 +205,47 @@ function ComposerDictationStory({ state }: ComposerDictationStoryProps) {
           }))) as typeof fetch;
 
     if (state === "recording" || state === "transcribing") {
-      const timeout = window.setTimeout(() => {
+      startTimeout = window.setTimeout(() => {
         (document.querySelector('[aria-label="Dictate"]') as HTMLButtonElement | null)?.click();
       }, 50);
-      if (state !== "transcribing") {
-        return () => {
-          window.clearTimeout(timeout);
-        };
-      }
 
-      const stopTimeout = window.setTimeout(() => {
-        (document.querySelector('[aria-label="Stop dictation"]') as HTMLButtonElement | null)?.click();
-      }, 400);
-      return () => {
-        window.clearTimeout(timeout);
-        window.clearTimeout(stopTimeout);
-      };
+      if (state === "transcribing") {
+        stopTimeout = window.setTimeout(() => {
+          (document.querySelector('[aria-label="Stop dictation"]') as HTMLButtonElement | null)?.click();
+        }, 400);
+      }
     }
 
     if (state === "keyboardHold") {
-      const timeout = window.setTimeout(() => {
+      startTimeout = window.setTimeout(() => {
         document.dispatchEvent(new KeyboardEvent("keydown", {
           key: "m",
           ctrlKey: true,
           bubbles: true,
         }));
       }, 50);
-      return () => {
-        window.clearTimeout(timeout);
-      };
     }
+
+    return () => {
+      if (startTimeout !== null) {
+        window.clearTimeout(startTimeout);
+      }
+      if (stopTimeout !== null) {
+        window.clearTimeout(stopTimeout);
+      }
+
+      restoreProperty(window, "api", apiDescriptor);
+      restoreProperty(navigator, "mediaDevices", mediaDevicesDescriptor);
+      restoreProperty(window, "MediaRecorder", mediaRecorderDescriptor);
+      restoreProperty(window, "AudioContext", audioContextDescriptor);
+      globalThis.fetch = previousFetch;
+
+      if (previousWindowType === undefined) {
+        delete document.documentElement.dataset.codexWindowType;
+      } else {
+        document.documentElement.dataset.codexWindowType = previousWindowType;
+      }
+    };
   }, [state]);
 
   return (
@@ -182,7 +253,7 @@ function ComposerDictationStory({ state }: ComposerDictationStoryProps) {
       <div className="mb-4 max-w-2xl">
         <div className="text-sm font-semibold text-(--foreground)">Composer Dictation</div>
         <div className="mt-1 text-sm/relaxed text-(--foreground-secondary)">
-          Codex-style dictation states reconstructed from the Electron dictation flow, keyboard hold path, and buffered IPC transport.
+          Electron dictation states with keyboard hold, buffered transcription, and a ten-second rolling waveform.
         </div>
       </div>
       <TooltipProvider>

@@ -3159,13 +3159,13 @@ function HydratedThreadComposer({
                 >
                   <PlusIcon className="size-4" />
                 </button>
-                <div className="flex h-7 min-w-0 flex-1 items-center">
+                <div className="flex h-token-button-composer min-w-0 flex-1 items-center">
                   <canvas
                     ref={waveformCanvasRef}
-                    className="h-7 w-full text-(--foreground)"
+                    className="h-token-button-composer w-full text-token-foreground"
                   />
                 </div>
-                <span className="text-sm tabular-nums text-(--foreground-secondary)">
+                <span className="text-sm text-token-foreground/70 tabular-nums">
                   {formatComposerDictationDuration(recordingDurationMs)}
                 </span>
                 <NodexTooltip tooltipContent={<span className="text-token-foreground">Stop dictation</span>} side="top" sideOffset={4}>

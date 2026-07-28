@@ -311,6 +311,40 @@ describe("ThreadComposer dictation", () => {
     });
   });
 
+  test("stops a microphone stream that resolves after the composer unmounts", async () => {
+    let resolveStream: ((stream: MediaStream) => void) | null = null;
+    let stoppedTrackCount = 0;
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: () => new Promise<MediaStream>((resolve) => {
+          resolveStream = resolve;
+        }),
+      },
+    });
+
+    const { getByLabelText, unmount } = await renderThreadComposer();
+
+    await act(async () => {
+      fireEvent.click(getByLabelText("Dictate"));
+      await Promise.resolve();
+    });
+    unmount();
+
+    await act(async () => {
+      resolveStream?.({
+        getTracks: () => [{
+          stop: () => {
+            stoppedTrackCount += 1;
+          },
+        }],
+      } as unknown as MediaStream);
+      await Promise.resolve();
+    });
+
+    expect(stoppedTrackCount).toBe(1);
+  });
+
   test("uses Ctrl+M hold to start and keyup to stop with insert", async () => {
     transcribeResult = "send me";
 
