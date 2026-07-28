@@ -95,6 +95,24 @@ The listener check should show no Nodex desktop process. The Browser sidebar is
 still supported, but it is a separate webview partition and cannot resolve the
 default-session-only `nodex-asset:` protocol.
 
+When `NODEX_HOME` is isolated, the runner holds an exclusive Profile lease,
+keeps the selected package script under a dedicated application process group,
+and gracefully stops the authenticated Core generation before it releases the
+lease or removes the run root. Terminal interrupts are forwarded to the whole
+application group with a bounded termination escalation so Electron/Vite
+descendants cannot be orphaned; the detached Core is never selected or stopped
+by a process signal. `--keep` therefore preserves Profile state, not background
+processes. A shutdown that cannot be proven preserves both the lease and run
+root and prints a diagnostic; verify that the recorded supervisor and exact
+Core generation have stopped before manually removing that validated lease.
+`--global-nodex` retains the normal detached Core lifetime because the runner
+does not own that Profile.
+
+`scripts/run.sh --dev` still runs the unchanged `pnpm run dev` command beneath
+the lifecycle supervisor. electron-vite continues to own its renderer dev
+server and Electron child, so CSS HMR and React Fast Refresh remain active
+until the app or launching terminal exits.
+
 Build the app:
 
 ```bash

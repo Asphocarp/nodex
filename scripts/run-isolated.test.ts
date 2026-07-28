@@ -1,0 +1,139 @@
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { afterEach, describe, expect, test } from "vitest";
+
+const createdSandboxes: string[] = [];
+
+const createSandbox = (): {
+  readonly fakeBin: string;
+  readonly invocationLog: string;
+  readonly runRoot: string;
+  readonly sandbox: string;
+} => {
+  const sandbox = mkdtempSync(path.join(tmpdir(), "nodex-run-script-test-"));
+  const fakeBin = path.join(sandbox, "bin");
+  const invocationLog = path.join(sandbox, "pnpm-argv.json");
+  const runRoot = path.join(sandbox, "run-root");
+  mkdirSync(fakeBin);
+  const fakePnpm = path.join(fakeBin, "pnpm");
+  const fakeNode = path.join(fakeBin, "node");
+  const fakeExecutable = `#!${process.execPath}
+const fs = require("node:fs");
+const path = require("node:path");
+fs.writeFileSync(process.env.FAKE_PNPM_LOG, JSON.stringify({
+  command: path.basename(process.argv[1]),
+  args: process.argv.slice(2),
+}));
+if (process.env.FAKE_PNPM_MODE === "leave-lease") {
+  fs.mkdirSync(
+    path.join(process.env.NODEX_HOME, "run/isolated-supervisor.lock"),
+    { recursive: true, mode: 0o700 },
+  );
+}
+process.exit(process.env.FAKE_PNPM_EXIT_CODE
+  ? Number(process.env.FAKE_PNPM_EXIT_CODE)
+  : 0);
+`;
+  writeFileSync(fakePnpm, fakeExecutable, { mode: 0o700 });
+  writeFileSync(fakeNode, fakeExecutable, { mode: 0o700 });
+  chmodSync(fakePnpm, 0o700);
+  chmodSync(fakeNode, 0o700);
+  createdSandboxes.push(sandbox);
+  return { fakeBin, invocationLog, runRoot, sandbox };
+};
+
+const runIsolatedScript = (
+  input: ReturnType<typeof createSandbox>,
+  options: {
+    readonly args?: readonly string[];
+    readonly mode?: string;
+    readonly exitCode?: number;
+  } = {},
+) =>
+  spawnSync(
+    "bash",
+    [
+      "scripts/run.sh",
+      "--root",
+      input.runRoot,
+      ...(options.args ?? []),
+    ],
+    {
+      cwd: path.resolve("."),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        FAKE_PNPM_EXIT_CODE: options.exitCode?.toString(),
+        FAKE_PNPM_LOG: input.invocationLog,
+        FAKE_PNPM_MODE: options.mode,
+        PATH: `${input.fakeBin}:${process.env.PATH ?? ""}`,
+      },
+    },
+  );
+
+afterEach(() => {
+  for (const sandbox of createdSandboxes.splice(0)) {
+    rmSync(sandbox, { force: true, recursive: true });
+  }
+});
+
+describe("isolated run shell integration", () => {
+  test("routes an isolated Nodex home through the supervisor and removes a safe root", () => {
+    const sandbox = createSandbox();
+    const result = runIsolatedScript(sandbox);
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(readFileSync(sandbox.invocationLog, "utf8"))).toEqual({
+      command: "node",
+      args: [
+        "--import",
+        "tsx",
+        "scripts/isolated-run-supervisor.ts",
+        "--",
+        "build:run",
+      ],
+    });
+    expect(existsSync(sandbox.runRoot)).toBe(false);
+  });
+
+  test("preserves the root when supervisor ownership evidence remains", () => {
+    const sandbox = createSandbox();
+    const result = runIsolatedScript(sandbox, {
+      mode: "leave-lease",
+      exitCode: 1,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      "isolated Core shutdown could not be confirmed",
+    );
+    expect(result.stderr).toContain(
+      "Preserved isolated run directory for safety",
+    );
+    expect(existsSync(sandbox.runRoot)).toBe(true);
+  });
+
+  test("keeps global Nodex runs on the direct package-script path", () => {
+    const sandbox = createSandbox();
+    const result = runIsolatedScript(sandbox, {
+      args: ["--global-nodex"],
+    });
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(readFileSync(sandbox.invocationLog, "utf8"))).toEqual({
+      command: "pnpm",
+      args: ["--silent", "run", "build:run"],
+    });
+    expect(existsSync(sandbox.runRoot)).toBe(false);
+  });
+});

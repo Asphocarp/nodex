@@ -161,11 +161,39 @@ cleanup() {
 
   if [[ "${keep_run_root}" == "true" ]]; then
     printf 'Preserved isolated run directory: %s\n' "${run_root}"
+  elif [[ "${use_nodex_home}" == "true" &&
+    -n "${isolated_nodex_home}" ]] &&
+    isolated_nodex_runtime_evidence_exists "${isolated_nodex_home}"; then
+    printf 'Warning: isolated Core shutdown could not be confirmed.\n' >&2
+    printf 'Preserved isolated run directory for safety: %s\n' "${run_root}" >&2
   else
     rm -rf -- "${run_root}"
   fi
 
   exit "${exit_code}"
+}
+
+isolated_nodex_runtime_evidence_exists() {
+  local nodex_home="$1"
+  local run_directory="${nodex_home}/run"
+  local core_directory="${run_directory}/core"
+  local entry
+
+  if [[ -L "${run_directory}" || -L "${core_directory}" ]]; then
+    return 0
+  fi
+
+  for entry in \
+    "${run_directory}/isolated-supervisor.lock" \
+    "${core_directory}/core.json" \
+    "${core_directory}/core.auth" \
+    "${core_directory}/core.sock"; do
+    if [[ -e "${entry}" || -L "${entry}" ]]; then
+      return 0
+    fi
+  done
+
+  return 1
 }
 
 if [[ "${use_codex_home}" == "true" || "${use_nodex_home}" == "true" ]]; then
@@ -246,5 +274,9 @@ fi
   fi
 
   cd "${REPO_ROOT}"
-  pnpm --silent run "${run_script}"
+  if [[ "${use_nodex_home}" == "true" ]]; then
+    node --import tsx scripts/isolated-run-supervisor.ts -- "${run_script}"
+  else
+    pnpm --silent run "${run_script}"
+  fi
 )

@@ -154,6 +154,22 @@
   idle expiry, SIGINT, and SIGTERM signal SSE streams to end, stop new socket
   acceptance, and then rely on Axum to wait for already admitted ordinary
   requests; an active transaction is never cancelled to accelerate exit.
+- Repository-owned isolated runs add a development-only lifetime supervisor
+  around the unchanged package script. It atomically leases the isolated
+  Profile before Electron starts, Electron publishes a `starting` claim after
+  acquiring its Profile-scoped single-instance lock and advances it to `ready`
+  after Core-backed runtime startup, and the supervisor retains that lease
+  through authenticated exact-generation shutdown. The selected package script
+  runs in a dedicated process group so terminal interrupts terminate its
+  Electron/Vite descendants without signaling the separately detached Core.
+  Every Electron bootstrap refuses an active isolated lease without its
+  matching run ID, closing the handoff interval between Electron exit and Core
+  teardown.
+  Successful drain removes Core runtime evidence before releasing the lease
+  last; an absent/mismatched claim, changed generation, unsafe runtime entry, or
+  timeout leaves the lease and Profile intact. Isolated runs inherit a
+  thirty-second idle period only as crash recovery when no caller value exists;
+  the production fifteen-minute contract and `--global-nodex` remain unchanged.
 - Core compatibility is an explicit offer/require comparison, not transport
   overlap or a build string. Transport 4 carries committed-event version 2,
   canonical per-Module ranges, exact normalized-schema Store fingerprints, and

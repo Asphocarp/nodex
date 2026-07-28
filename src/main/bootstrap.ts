@@ -17,6 +17,13 @@ import {
 import type { MainRuntimeController } from "./main-runtime";
 import { assertRustDataAuthorityEnvironment } from "./data-authority";
 import { MANAGED_ASSET_PROTOCOL_SCHEME } from "../shared/managed-assets";
+import {
+  ISOLATED_RUN_ID_ENV,
+  markIsolatedRunClaimReady,
+  publishIsolatedRunClaim,
+  resolveIsolatedRunBootstrapAccess,
+  type IsolatedRunBootstrapAccess,
+} from "./core-client/isolated-run-ownership";
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -32,8 +39,11 @@ process.env.NODEX_INTERNAL_APP_PACKAGED = app.isPackaged ? "true" : "false";
 
 const nodexHome = resolveBootstrapNodexHome();
 process.env.NODEX_HOME = nodexHome;
+const inheritedIsolatedRunId = process.env[ISOLATED_RUN_ID_ENV];
+delete process.env[ISOLATED_RUN_ID_ENV];
 configureInstanceScopePaths(app, nodexHome);
 const runtimeQueue = new BootstrapRuntimeEventQueue();
+let primaryIsolatedRunId: string | null = null;
 
 function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined) return fallback;
@@ -210,14 +220,16 @@ async function startRuntime(): Promise<void> {
     initialArgv: process.argv,
     startupEvents,
   });
+  if (primaryIsolatedRunId) {
+    markIsolatedRunClaimReady({
+      nodexHome,
+      runId: primaryIsolatedRunId,
+    });
+  }
   await runtimeQueue.attachController(controller);
 }
 
-const hasSingleInstanceLock = app.requestSingleInstanceLock();
-if (!hasSingleInstanceLock) {
-  logBootstrap("info", "Another Nodex instance already owns this profile");
-  app.quit();
-} else {
+function registerPrimaryInstance(): void {
   app.on("second-instance", (_event, argv) => {
     void runtimeQueue.enqueueSecondInstance(argv);
   });
@@ -247,3 +259,43 @@ if (!hasSingleInstanceLock) {
       void handleStartupFailure(error);
     });
 }
+
+function bootstrapApplication(): void {
+  let isolatedRunAccess: IsolatedRunBootstrapAccess;
+  try {
+    isolatedRunAccess = resolveIsolatedRunBootstrapAccess({
+      nodexHome,
+      inheritedRunId: inheritedIsolatedRunId,
+    });
+  } catch (error) {
+    logBootstrap("error", "Isolated run ownership validation failed", { error });
+    app.quit();
+    return;
+  }
+
+  const hasSingleInstanceLock = app.requestSingleInstanceLock();
+  if (!hasSingleInstanceLock) {
+    logBootstrap("info", "Another Nodex instance already owns this profile");
+    app.quit();
+    return;
+  }
+
+  if (isolatedRunAccess.kind === "supervised") {
+    try {
+      publishIsolatedRunClaim({
+        nodexHome,
+        runId: isolatedRunAccess.runId,
+        hostPid: process.pid,
+      });
+      primaryIsolatedRunId = isolatedRunAccess.runId;
+    } catch (error) {
+      logBootstrap("error", "Isolated run primary-host claim failed", { error });
+      app.quit();
+      return;
+    }
+  }
+
+  registerPrimaryInstance();
+}
+
+bootstrapApplication();
