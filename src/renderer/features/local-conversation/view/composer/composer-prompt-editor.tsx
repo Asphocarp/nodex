@@ -89,12 +89,35 @@ interface ComposerPromptEditorProps {
   value: string;
   placeholder: string;
   disabled: boolean;
+  singleLine?: boolean;
   onChange: (value: string) => void;
   onKeyDown: (event: KeyboardEvent) => boolean;
   onLargeTextPaste?: (text: string) => boolean;
   onSlashTriggerChange?: (state: ComposerSlashTriggerState) => void;
   "data-composer-prompt-frame"?: "true";
   className?: string;
+}
+
+function buildPromptEditorAttributes({
+  placeholder,
+  singleLine,
+}: {
+  placeholder: string;
+  singleLine: boolean;
+}) {
+  return {
+    "aria-label": placeholder,
+    "data-virtualkeyboard": "true",
+    "data-codex-composer": "true",
+    spellcheck: "true",
+    translate: "no",
+    style: [
+      "font-size: var(--codex-chat-font-size)",
+      "height: auto",
+      "resize: none",
+      `min-height: ${singleLine ? "1.25rem" : "2.75rem"}`,
+    ].join("; "),
+  };
 }
 
 export function buildPromptDoc(value: string): ProseMirrorNode {
@@ -207,6 +230,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
     value,
     placeholder,
     disabled,
+    singleLine = false,
     onChange,
     onKeyDown,
     onLargeTextPaste,
@@ -222,6 +246,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
     const onLargeTextPasteRef = useRef(onLargeTextPaste);
     const onSlashTriggerChangeRef = useRef(onSlashTriggerChange);
     const placeholderRef = useRef(placeholder);
+    const singleLineRef = useRef(singleLine);
     const disabledRef = useRef(disabled);
     valueRef.current = value;
     onChangeRef.current = onChange;
@@ -229,6 +254,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
     onLargeTextPasteRef.current = onLargeTextPaste;
     onSlashTriggerChangeRef.current = onSlashTriggerChange;
     placeholderRef.current = placeholder;
+    singleLineRef.current = singleLine;
     disabledRef.current = disabled;
 
     const emitSlashTriggerState = useCallback((view: EditorView | null) => {
@@ -357,13 +383,10 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
       const view = new EditorView(mount, {
         state: createPromptEditorState(valueRef.current, placeholderRef),
         editable: () => !disabledRef.current,
-        attributes: {
-          "data-virtualkeyboard": "true",
-          "data-codex-composer": "true",
-          spellcheck: "true",
-          translate: "no",
-          style: "font-size: var(--codex-chat-font-size); height: auto; resize: none; min-height: 2.75rem;",
-        },
+        attributes: buildPromptEditorAttributes({
+          placeholder: placeholderRef.current,
+          singleLine: singleLineRef.current,
+        }),
         handleKeyDown: (_view, event) => onKeyDownRef.current(event),
         handlePaste: (_view, event) => handleComposerLargeTextPaste(
           event,
@@ -408,6 +431,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
       if (!view) return;
       view.setProps({
         editable: () => !disabled,
+        attributes: buildPromptEditorAttributes({ placeholder, singleLine }),
         handleKeyDown: (_currentView, event) => onKeyDownRef.current(event),
         handlePaste: (_currentView, event) => handleComposerLargeTextPaste(
           event,
@@ -424,7 +448,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
           },
         },
       });
-    }, [disabled, emitSlashTriggerState]);
+    }, [disabled, emitSlashTriggerState, placeholder, singleLine]);
 
     useEffect(() => {
       const view = viewRef.current;
@@ -443,8 +467,12 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
     return (
       <div
         data-composer-prompt-frame={dataComposerPromptFrame}
+        data-single-line={singleLine ? "true" : "false"}
         className={[
-          "text-size-chat [&_.ProseMirror]:focus-visible:outline-none text-token-foreground h-auto max-h-[25dvh] overflow-y-auto [&_.ProseMirror]:h-auto [&_.ProseMirror]:min-h-[2rem] [&_.ProseMirror]:resize-none [&_.ProseMirror_p]:m-0 text-base [&_.ProseMirror]:leading-5",
+          "text-size-chat [&_.ProseMirror]:focus-visible:outline-none text-token-foreground h-auto [&_.ProseMirror]:h-auto [&_.ProseMirror]:resize-none [&_.ProseMirror_p]:m-0 text-base [&_.ProseMirror]:leading-5",
+          singleLine
+            ? "max-h-5 overflow-hidden [&_.ProseMirror]:min-h-5"
+            : "max-h-[25dvh] overflow-y-auto [&_.ProseMirror]:min-h-[2rem]",
           disabled ? "opacity-60" : null,
           className,
         ].filter(Boolean).join(" ")}

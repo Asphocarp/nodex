@@ -17,7 +17,6 @@ import {
 import { useLocalConversationThreadScrollController } from "./local-conversation-thread-scroll-controller";
 import {
   RightPanelComposerLatestTurnPreview,
-  type RightPanelLatestTurnPreviewState,
 } from "./right-panel-composer-latest-turn-preview";
 import { RightPanelComposerOverlay } from "./right-panel-composer-overlay";
 
@@ -30,6 +29,9 @@ interface LocalConversationFooterProps {
   rightPanelComposerOverlay?: {
     enabled: boolean;
     target: HTMLElement | null;
+    compact?: boolean;
+    documentBottomKey?: string | null;
+    isAtDocumentBottom?: boolean;
   };
   planSidePanelState?: ThreadPlanSidePanelState | null;
   turnDiffHoverPreviewDisabled?: boolean;
@@ -57,7 +59,7 @@ function LocalConversationFooterChrome({
   return (
     <div className="flex flex-col" data-thread-find-composer="true">
       {catchUpControl}
-      <div className="flex flex-col" data-thread-footer-stack="true">
+      <div className="relative flex flex-col" data-thread-footer-stack="true">
         <LocalConversationAboveComposerPortalHost
           conversationId={model.threadId}
           onContentPresenceChange={setHasFixedPortalContent}
@@ -100,8 +102,7 @@ function LocalConversationFooterComponent({
   const [scrollDistanceFromBottomPx, setScrollDistanceFromBottomPx] = useState(
     () => getLastScrollDistanceFromBottomPx(),
   );
-  const [latestTurnPreviewState, setLatestTurnPreviewState] =
-    useState<RightPanelLatestTurnPreviewState>("preview");
+  const [latestTurnExpanded, setLatestTurnExpanded] = useState(false);
   const isResumingActiveThread = !model.isNewThreadTab && model.resumeState !== null && model.resumeState !== "resumed";
   const rightPanelOverlayEnabled =
     variant === "thread" &&
@@ -130,7 +131,7 @@ function LocalConversationFooterComponent({
   useEffect(() => {
     if (!rightPanelOverlayEnabled || latestTurnKey === null) return;
 
-    setLatestTurnPreviewState("preview");
+    setLatestTurnExpanded(false);
   }, [latestTurnKey, rightPanelOverlayEnabled]);
   useEffect(
     () => addScrollListener(setScrollDistanceFromBottomPx),
@@ -246,10 +247,10 @@ function LocalConversationFooterComponent({
   const latestTurnPreview = rightPanelOverlayEnabled ? (
     <RightPanelComposerLatestTurnPreview
       turn={latestTurn}
-      state={latestTurnPreviewState}
+      expanded={latestTurnExpanded}
       projectWorkspacePath={model.projectWorkspacePath}
       threadCwd={model.cwd}
-      onStateChange={setLatestTurnPreviewState}
+      onExpandedChange={setLatestTurnExpanded}
       onEditLastUserTurn={actions.onEditLastUserTurn}
       onForkFromTurn={actions.onForkFromTurn}
       onOpenTurnDiffReview={actions.onOpenTurnDiffReview}
@@ -268,9 +269,13 @@ function LocalConversationFooterComponent({
     return (
       <RightPanelComposerOverlay
         target={rightPanelComposerOverlay?.target ?? null}
-        visible={rightPanelOverlayEnabled}
+        compact={rightPanelComposerOverlay?.compact === true}
+        documentBottomKey={rightPanelComposerOverlay?.documentBottomKey}
+        isAtDocumentBottom={
+          rightPanelComposerOverlay?.isAtDocumentBottom === true
+        }
         onPointerDownOutside={() => {
-          setLatestTurnPreviewState("collapsed");
+          setLatestTurnExpanded(false);
         }}
       >
         <LocalConversationFooterChrome

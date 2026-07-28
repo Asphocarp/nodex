@@ -58,6 +58,10 @@ import {
 import { BrowserSidebarHiddenWebviewHosts } from "@/features/browser-sidebar/browser-sidebar-hidden-webview-hosts";
 import { BrowserSidebarPanel } from "@/features/browser-sidebar/browser-sidebar-panel";
 import {
+  getBrowserDocumentBottomKey,
+  useBrowserDocumentBottom,
+} from "@/features/browser-sidebar/browser-document-bottom-store";
+import {
   readBrowserConfigFavicon,
   readBrowserConfigTitle,
   readBrowserConfigUrl,
@@ -3009,6 +3013,27 @@ export function WorkbenchShell({
     && rightPanelComposerOverlayTarget
     && isRootThreadRightPanelComposerOverlayEligibleTab(rightActiveRenderableTab),
   );
+  const rightPanelComposerOverlayCompact =
+    rightPanelComposerOverlayEnabled
+    && rightActiveRenderableTab !== null
+    && "kind" in rightActiveRenderableTab
+    && rightActiveRenderableTab.kind === "browser";
+  const rightPanelComposerOverlayBrowserTabId =
+    rightPanelComposerOverlayCompact && rightActiveRenderableTab
+      ? rightActiveRenderableTab.id
+      : null;
+  const rightPanelComposerOverlayBrowserIdentity =
+    rightPanelComposerOverlayBrowserTabId && activeSession
+      ? {
+          browserConversationId: activeSession.id,
+          browserViewScopeId: windowSessionId,
+          browserTabId: rightPanelComposerOverlayBrowserTabId,
+        }
+      : null;
+  const rightPanelComposerOverlayAtDocumentBottom =
+    useBrowserDocumentBottom(rightPanelComposerOverlayBrowserIdentity);
+  const rightPanelComposerOverlayDocumentBottomKey =
+    getBrowserDocumentBottomKey(rightPanelComposerOverlayBrowserIdentity);
   const shellCanNavigateBack = shellNavigationHistory.backStack.length > 0;
   const shellCanNavigateForward = shellNavigationHistory.forwardStack.length > 0;
   const currentShellNavigationSnapshot = useMemo<WorkbenchShellNavigationSnapshot | null>(() => {
@@ -9852,6 +9877,11 @@ export function WorkbenchShell({
     const sessionThreadSummaryPanelHideImmediately = threadSummaryPanelHideImmediately;
     const sessionThreadSummaryPanelContentShift = threadSummaryPanelContentShift;
     const sessionRightPanelComposerOverlayEnabled = rightPanelComposerOverlayEnabled;
+    const sessionRightPanelComposerOverlayCompact = rightPanelComposerOverlayCompact;
+    const sessionRightPanelComposerOverlayAtDocumentBottom =
+      rightPanelComposerOverlayAtDocumentBottom;
+    const sessionRightPanelComposerOverlayDocumentBottomKey =
+      rightPanelComposerOverlayDocumentBottomKey;
     const sessionThreadPlanSidePanelState = model.threadPlanSidePanelState;
     const sessionAvailableRightPanelActions = filterAvailablePanelActions(
       PANEL_NEW_TAB_ACTIONS,
@@ -9965,6 +9995,9 @@ export function WorkbenchShell({
                       onOpenBackgroundTerminalOutput={openSummaryBackgroundTerminalOutput}
                       onToggleSummaryComputerUsePip={remoteHostedPipSummaryControl.onToggleSummaryComputerUsePip}
                       rightPanelComposerOverlayEnabled={sessionRightPanelComposerOverlayEnabled}
+                      rightPanelComposerOverlayCompact={sessionRightPanelComposerOverlayCompact}
+                      rightPanelComposerOverlayAtDocumentBottom={sessionRightPanelComposerOverlayAtDocumentBottom}
+                      rightPanelComposerOverlayDocumentBottomKey={sessionRightPanelComposerOverlayDocumentBottomKey}
                       rightPanelComposerOverlayTarget={rightPanelComposerOverlayTarget}
                       onOpenSideChat={sessionAvailableRightPanelActions.some((action) => action.kind === "side_chat")
                         ? (input) => openSideChat({ ...input, targetPanelId: "right" })
@@ -13015,6 +13048,9 @@ function SessionThreadPage({
   onOpenBackgroundTerminalOutput,
   onToggleSummaryComputerUsePip,
   rightPanelComposerOverlayEnabled,
+  rightPanelComposerOverlayCompact,
+  rightPanelComposerOverlayAtDocumentBottom,
+  rightPanelComposerOverlayDocumentBottomKey,
   rightPanelComposerOverlayTarget,
   onOpenSideChat,
   onOpenMcpAppSidePanel,
@@ -13073,6 +13109,9 @@ function SessionThreadPage({
   onOpenBackgroundTerminalOutput?: ThreadStageActions["onOpenBackgroundTerminalOutput"];
   onToggleSummaryComputerUsePip: NonNullable<ThreadStageActions["onToggleSummaryComputerUsePip"]>;
   rightPanelComposerOverlayEnabled: boolean;
+  rightPanelComposerOverlayCompact: boolean;
+  rightPanelComposerOverlayAtDocumentBottom: boolean;
+  rightPanelComposerOverlayDocumentBottomKey: string | null;
   rightPanelComposerOverlayTarget: HTMLElement | null;
   onOpenSideChat?: (input?: ThreadOpenSideChatInput & {
     collaborationMode?: CodexCollaborationModeKind;
@@ -13374,6 +13413,9 @@ function SessionThreadPage({
         summaryComputerUsePip={summaryComputerUsePip}
         planSidePanelState={planSidePanelState}
         rightPanelComposerOverlayEnabled={rightPanelComposerOverlayEnabled}
+        rightPanelComposerOverlayCompact={rightPanelComposerOverlayCompact}
+        rightPanelComposerOverlayAtDocumentBottom={rightPanelComposerOverlayAtDocumentBottom}
+        rightPanelComposerOverlayDocumentBottomKey={rightPanelComposerOverlayDocumentBottomKey}
         rightPanelComposerOverlayTarget={rightPanelComposerOverlayTarget}
         turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
         routeActive={routeActive}

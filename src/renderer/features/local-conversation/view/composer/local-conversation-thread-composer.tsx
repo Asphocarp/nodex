@@ -191,6 +191,7 @@ import {
 import { openModal } from "@/lib/modal-registry";
 import { ComposerScope } from "@/lib/workbench-ui-scopes";
 import { ProviderCredentialDialog } from "./provider-credential-dialog";
+import { useRightPanelComposerPresentation } from "../right-panel-composer-presentation";
 
 interface ThreadComposerProps {
   model: ThreadFooterModel;
@@ -1575,6 +1576,8 @@ interface HydratedThreadComposerProps extends ThreadComposerProps {
 
 export function ThreadComposer(props: ThreadComposerProps) {
   const { model, actions, onErrorMessage } = props;
+  const { floating: isFloatingComposer } =
+    useRightPanelComposerPresentation();
   const composerThreadId = model.conversation?.threadId ?? model.threadId;
   const promptDraft = useComposerPromptDraft(composerThreadId);
   const [initialized, setInitialized] = useScopedAtom(composerDraftInitializedAtom);
@@ -1723,7 +1726,12 @@ export function ThreadComposer(props: ThreadComposerProps) {
     return (
       <div
         data-composer-draft-hydration="loading"
-        className="min-h-24 rounded-[20px] border border-token-border bg-token-main-surface-primary"
+        className={cn(
+          "border border-token-border bg-token-main-surface-primary",
+          isFloatingComposer
+            ? "h-11 rounded-full"
+            : "min-h-24 rounded-[20px]",
+        )}
       />
     );
   }
@@ -1748,6 +1756,7 @@ function HydratedThreadComposer({
   setPrompt,
   clearSubmittedDraft,
 }: HydratedThreadComposerProps) {
+  const { floating: isFloatingComposer } = useRightPanelComposerPresentation();
   const canStartNewThread = canStartNewThreadTarget(model);
   const [busyAction, setBusyAction] = useState<StageThreadsBusyAction>(null);
   const [permissionState, setPermissionState] = useState<CodexPermissionState | null>(null);
@@ -2883,6 +2892,12 @@ function HydratedThreadComposer({
   const hasDraftContent = prompt.trim().length > 0 || hasSubmittableAttachments || goalModeActive;
   const hasFooterGoalChip = goalModeActive || Boolean(model.conversation?.threadGoal && actions.onClearThreadGoal);
   const hasMultilinePrompt = prompt.includes("\n");
+  const floatingComposerSingleLine =
+    isFloatingComposer
+    && !hasAttachments
+    && !hasMultilinePrompt
+    && !errorMessage
+    && !isDictating;
   const isMacPlatform = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
 
   const composerActionState = resolveStageThreadsComposerActionState({
@@ -2915,6 +2930,8 @@ function HydratedThreadComposer({
   }, [busyAction, goalReplacementConfirmation, submitThreadGoalDraft]);
   const promptPlaceholder = goalModeActive
     ? getThreadGoalMessage("composer.placeholder.goal")
+    : isFloatingComposer
+    ? "Do anything"
     : model.selectedCollaborationMode === "plan"
     ? "Describe your task to generate a plan..."
     : model.conversation
@@ -2948,6 +2965,154 @@ function HydratedThreadComposer({
     primaryShortcutKeys,
     alternateShortcutKeys,
   });
+  const addContextControl = (
+    <ComposerAddContextDropdown
+      model={model}
+      actions={actions}
+      onPickFiles={handlePickComposerFiles}
+      onInsertPlugin={handleInsertPluginMention}
+    />
+  );
+  const intelligenceControls = (
+    <>
+      <ContextWindowIndicator
+        state={contextWindowIndicatorState}
+        account={model.account}
+        showFallbackLabel={false}
+      />
+      <ModelSelectorDropdown
+        model={model}
+        serviceTier={serviceTierSettings.serviceTier}
+        onServiceTierChange={(nextTier) => setServiceTier(nextTier, "composer_menu")}
+        actions={actions}
+      />
+    </>
+  );
+  const dictationControl = isDictationSupported ? (
+    <NodexTooltip
+      tooltipContent={<span className="text-token-foreground">Click to dictate or hold</span>}
+      shortcut={model.dictation.shortcutLabel}
+      side="top"
+      sideOffset={4}
+    >
+      <button
+        type="button"
+        className="border-token-border no-drag cursor-interaction flex h-token-button-composer aspect-square items-center justify-center gap-1 rounded-full border border-transparent px-0 py-0 text-sm leading-[18px] whitespace-nowrap text-token-text-tertiary select-none transition-colors duration-100 focus:outline-none enabled:hover:bg-token-list-hover-background enabled:hover:text-token-foreground disabled:cursor-not-allowed disabled:opacity-40 data-[state=open]:bg-token-list-hover-background"
+        aria-label="Dictate"
+        onClick={() => {
+          void startDictation();
+        }}
+        disabled={model.dictation.isRealtimeVoiceActive}
+      >
+        {isTranscribing ? (
+          <SpinnerIcon className="icon-xs" />
+        ) : (
+          <MicIcon className="icon-xs" />
+        )}
+      </button>
+    </NodexTooltip>
+  ) : null;
+  const primaryActionControl = (
+    <NodexTooltip
+      tooltipContent={composerActionTooltip}
+      side="top"
+      tooltipBodyClassName={cn(
+        composerActionState.action === "stop" || !model.isThreadRunning
+          ? "text-center text-pretty"
+          : "max-w-none",
+      )}
+    >
+      <span className="inline-flex">
+        <button
+          type="button"
+          className={cn(
+            "focus-visible:outline-token-button-background cursor-interaction flex h-token-button-composer aspect-square items-center justify-center rounded-full bg-token-foreground p-0.5 text-token-dropdown-background transition-opacity focus-visible:outline-2",
+            (composerActionState.disabled || (composerActionState.action !== "stop" && !canRunPrimaryAction)) && !isSendPending && "opacity-50",
+            isSendPending && "cursor-wait",
+          )}
+          onClick={composerActionState.action === "stop"
+            ? () => void handleInterrupt()
+            : () => void submitPrompt({
+                prompt,
+                submitAction: composerActionState.primarySubmitAction,
+              })}
+          disabled={composerActionState.action === "stop"
+            ? composerActionState.disabled
+            : composerActionState.disabled || !canRunPrimaryAction}
+          aria-label={composerActionState.label}
+        >
+          {isSendPending ? (
+            <SpinnerIcon className="icon-sm" />
+          ) : composerActionState.action === "stop" ? (
+            <StopIcon className="icon-xs" />
+          ) : (
+            <UpArrowIcon className="icon-sm" />
+          )}
+        </button>
+      </span>
+    </NodexTooltip>
+  );
+  const renderPromptEditor = (singleLine = false) => (
+    <ComposerPromptEditor
+      ref={promptEditorRef}
+      data-composer-prompt-frame="true"
+      value={prompt}
+      placeholder={promptPlaceholder}
+      disabled={isPromptEditorDisabled}
+      singleLine={singleLine}
+      onChange={setPrompt}
+      onKeyDown={handleKeyDown}
+      onLargeTextPaste={handleLargeTextPaste}
+      onSlashTriggerChange={handleSlashTriggerChange}
+    />
+  );
+  const dictationRowContent = (
+    <>
+      <button
+        type="button"
+        className="inline-flex size-7 items-center justify-center rounded-full border border-transparent px-0 text-(--foreground-tertiary) opacity-50"
+        aria-label={model.isCloudNewThreadTarget ? "Add photos and more" : "Add files and more"}
+        title={model.isCloudNewThreadTarget ? "Add photos and more" : "Add files and more"}
+        disabled
+      >
+        <PlusIcon className="size-4" />
+      </button>
+      <div className="flex h-token-button-composer min-w-0 flex-1 items-center">
+        <canvas
+          ref={waveformCanvasRef}
+          className="h-token-button-composer w-full text-token-foreground"
+        />
+      </div>
+      <span className="text-sm text-token-foreground/70 tabular-nums">
+        {formatComposerDictationDuration(recordingDurationMs)}
+      </span>
+      <NodexTooltip tooltipContent={<span className="text-token-foreground">Stop dictation</span>} side="top" sideOffset={4}>
+        <button
+          type="button"
+          className="inline-flex size-7 items-center justify-center rounded-full border border-transparent px-0 text-(--foreground-secondary) transition-colors duration-100 hover:bg-(--background-tertiary) hover:text-(--foreground)"
+          aria-label="Stop dictation"
+          onClick={() => stopDictation("insert")}
+          disabled={isTranscribing}
+        >
+          <StopIcon className="size-4" />
+        </button>
+      </NodexTooltip>
+      <NodexTooltip tooltipContent={<span className="text-token-foreground">Transcribe and send</span>} side="top" sideOffset={4}>
+        <button
+          type="button"
+          className={cn(
+            "inline-flex size-7 items-center justify-center rounded-full bg-(--foreground) p-0.5 text-(--background) focus-visible:outline-2 focus-visible:outline-(--ring)",
+            isTranscribing && "opacity-50",
+          )}
+          aria-label="Transcribe and send"
+          onClick={() => stopDictation("send")}
+          disabled={isTranscribing}
+        >
+          <UpArrowIcon className="size-5" />
+        </button>
+      </NodexTooltip>
+    </>
+  );
   return (
     <>
       <ThreadComposerExternalFooterSlot visible={showExternalFooter}>
@@ -2993,14 +3158,21 @@ function HydratedThreadComposer({
         ) : null}
         <div
           className={cn(
-            "composer-surface-chrome relative flex flex-col bg-token-input-background/90 backdrop-blur-lg electron:dark:bg-token-dropdown-background _multilineSurface_1u8sk_2",
+            "composer-surface-chrome relative flex flex-col bg-token-input-background/90 backdrop-blur-lg electron:dark:bg-token-dropdown-background",
+            floatingComposerSingleLine
+              ? "overflow-visible rounded-full"
+              : "_multilineSurface_1u8sk_2",
             showExternalFooter && "z-10",
           )}
         >
           <div className="relative z-10 flex min-h-0 flex-1 flex-col">
-            <div className="_attachmentsDefault_1u8sk_2" data-composer-attachments="true">
-              {hasAttachments ? (
-                <div className="composer-attachment-surface flex flex-wrap items-center gap-1">
+            {!floatingComposerSingleLine ? (
+              <div
+                className="_attachmentsDefault_1u8sk_2"
+                data-composer-attachments="true"
+              >
+                {hasAttachments ? (
+                  <div className="composer-attachment-surface flex flex-wrap items-center gap-1">
                   {imageAttachments.map((attachment) => (
                     <button
                       key={attachment.id}
@@ -3126,194 +3298,120 @@ function HydratedThreadComposer({
                       </button>
                     );
                   })}
-                </div>
-              ) : null}
-            </div>
-
-            <div className="contents">
-              <div className="mb-1 flex-grow overflow-y-auto px-3">
-                <ComposerPromptEditor
-                  ref={promptEditorRef}
-                  data-composer-prompt-frame="true"
-                  value={prompt}
-                  placeholder={promptPlaceholder}
-                  disabled={isPromptEditorDisabled}
-                  onChange={setPrompt}
-                  onKeyDown={handleKeyDown}
-                  onLargeTextPaste={handleLargeTextPaste}
-                  onSlashTriggerChange={handleSlashTriggerChange}
-                />
+                  </div>
+                ) : null}
               </div>
-            </div>
+            ) : null}
 
-            {errorMessage && <div className="px-3 pb-2 text-xs text-(--destructive)">{errorMessage}</div>}
-
-            {isDictating ? (
-              <div className="mb-2 flex items-center gap-2 px-2">
-                <button
-                  type="button"
-                  className="inline-flex size-7 items-center justify-center rounded-full border border-transparent px-0 text-(--foreground-tertiary) opacity-50"
-                  aria-label={model.isCloudNewThreadTarget ? "Add photos and more" : "Add files and more"}
-                  title={model.isCloudNewThreadTarget ? "Add photos and more" : "Add files and more"}
-                  disabled
-                >
-                  <PlusIcon className="size-4" />
-                </button>
-                <div className="flex h-token-button-composer min-w-0 flex-1 items-center">
-                  <canvas
-                    ref={waveformCanvasRef}
-                    className="h-token-button-composer w-full text-token-foreground"
-                  />
+            {isFloatingComposer ? (
+              isDictating ? (
+                <div className="grid min-h-11 grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] items-center gap-2 px-2 py-1">
+                  {dictationRowContent}
                 </div>
-                <span className="text-sm text-token-foreground/70 tabular-nums">
-                  {formatComposerDictationDuration(recordingDurationMs)}
-                </span>
-                <NodexTooltip tooltipContent={<span className="text-token-foreground">Stop dictation</span>} side="top" sideOffset={4}>
-                  <button
-                    type="button"
-                    className="inline-flex size-7 items-center justify-center rounded-full border border-transparent px-0 text-(--foreground-secondary) transition-colors duration-100 hover:bg-(--background-tertiary) hover:text-(--foreground)"
-                    aria-label="Stop dictation"
-                    onClick={() => stopDictation("insert")}
-                    disabled={isTranscribing}
-                  >
-                    <StopIcon className="size-4" />
-                  </button>
-                </NodexTooltip>
-                <NodexTooltip tooltipContent={<span className="text-token-foreground">Transcribe and send</span>} side="top" sideOffset={4}>
-                  <button
-                    type="button"
-                    className={cn(
-                      "inline-flex size-7 items-center justify-center rounded-full bg-(--foreground) p-0.5 text-(--background) focus-visible:outline-2 focus-visible:outline-(--ring)",
-                      isTranscribing && "opacity-50",
-                    )}
-                    aria-label="Transcribe and send"
-                    onClick={() => stopDictation("send")}
-                    disabled={isTranscribing}
-                  >
-                    <UpArrowIcon className="size-5" />
-                  </button>
-                </NodexTooltip>
-              </div>
-            ) : (
-              <div
-                data-composer-form-footer="true"
-                className="_footer_1u8sk_2 grid grid-cols-[minmax(0,auto)_auto_minmax(0,1fr)] items-center gap-[5px] select-none mb-2 px-2"
-              >
-                <div className="flex min-w-0 items-center gap-[5px]">
-                  <ComposerAddContextDropdown
-                    model={model}
-                    actions={actions}
-                    onPickFiles={handlePickComposerFiles}
-                    onInsertPlugin={handleInsertPluginMention}
-                  />
-
-                  <PermissionModeDropdown
-                    selectedMode={model.permissionMode}
-                    availableModes={permissionState?.availableModes}
-                    autoReviewAvailable={permissionState?.autoReviewAvailable ?? false}
-                    customDescription={permissionState?.customDescription ?? null}
-                    onSelect={actions.onPermissionModeChange}
-                  />
-
-                  {model.selectedCollaborationMode === "plan" || goalModeActive ? (
-                    <ComposerFooterAccessoryDivider />
+              ) : (
+                <>
+                  {errorMessage ? (
+                    <div className="px-3 pt-2 text-xs text-(--destructive)">
+                      {errorMessage}
+                    </div>
                   ) : null}
-
-                  <ActiveComposerModeChip
-                    model={model}
-                    onToggle={togglePlanMode}
-                  />
-                  <ActiveGoalModeChip
-                    active={hasFooterGoalChip}
-                    onClear={clearFooterGoal}
-                  />
-                </div>
-
-                <div className="flex items-center" />
-
-                <div className="flex min-w-0 items-center justify-end w-full">
-                  <div className="flex min-w-0 flex-1 justify-end">
-                    <div className="flex min-w-0 items-center gap-1">
-                      <ContextWindowIndicator
-                        state={contextWindowIndicatorState}
-                        account={model.account}
-                        showFallbackLabel={false}
-                      />
-                      <ModelSelectorDropdown
+                  <div
+                    data-composer-form-footer="true"
+                    className="grid min-h-11 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-2 py-1 select-none"
+                  >
+                    {addContextControl}
+                    <div className="min-w-0">
+                      {renderPromptEditor(floatingComposerSingleLine)}
+                    </div>
+                    <div className="flex min-w-0 shrink-0 items-center gap-2">
+                      {model.selectedCollaborationMode === "plan" || goalModeActive ? (
+                        <ComposerFooterAccessoryDivider />
+                      ) : null}
+                      <ActiveComposerModeChip
                         model={model}
-                        serviceTier={serviceTierSettings.serviceTier}
-                        onServiceTierChange={(nextTier) => setServiceTier(nextTier, "composer_menu")}
-                        actions={actions}
+                        onToggle={togglePlanMode}
                       />
+                      <ActiveGoalModeChip
+                        active={hasFooterGoalChip}
+                        onClear={clearFooterGoal}
+                      />
+                      <div className="flex min-w-0 items-center gap-1">
+                        {intelligenceControls}
+                      </div>
+                      <PermissionModeDropdown
+                        selectedMode={model.permissionMode}
+                        availableModes={permissionState?.availableModes}
+                        autoReviewAvailable={permissionState?.autoReviewAvailable ?? false}
+                        customDescription={permissionState?.customDescription ?? null}
+                        triggerVariant="icon"
+                        onSelect={actions.onPermissionModeChange}
+                      />
+                      {dictationControl}
+                      {primaryActionControl}
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    {isDictationSupported ? (
-                      <NodexTooltip
-                        tooltipContent={<span className="text-token-foreground">Click to dictate or hold</span>}
-                        shortcut={model.dictation.shortcutLabel}
-                        side="top"
-                        sideOffset={4}
-                      >
-                        <button
-                          type="button"
-                          className="border-token-border no-drag cursor-interaction flex h-token-button-composer aspect-square items-center justify-center gap-1 rounded-full border border-transparent px-0 py-0 text-sm leading-[18px] whitespace-nowrap text-token-text-tertiary select-none transition-colors duration-100 focus:outline-none enabled:hover:bg-token-list-hover-background enabled:hover:text-token-foreground disabled:cursor-not-allowed disabled:opacity-40 data-[state=open]:bg-token-list-hover-background"
-                          aria-label="Dictate"
-                          onClick={() => {
-                            void startDictation();
-                          }}
-                          disabled={model.dictation.isRealtimeVoiceActive}
-                        >
-                          {isTranscribing ? (
-                            <SpinnerIcon className="icon-xs" />
-                          ) : (
-                            <MicIcon className="icon-xs" />
-                          )}
-                        </button>
-                      </NodexTooltip>
-                    ) : null}
-
-                    <NodexTooltip
-                      tooltipContent={composerActionTooltip}
-                      side="top"
-                      tooltipBodyClassName={cn(
-                        composerActionState.action === "stop" || !model.isThreadRunning
-                          ? "text-center text-pretty"
-                          : "max-w-none",
-                      )}
-                    >
-                      <span className="inline-flex">
-                        <button
-                          type="button"
-                          className={cn(
-                            "focus-visible:outline-token-button-background cursor-interaction flex h-token-button-composer aspect-square items-center justify-center rounded-full bg-token-foreground p-0.5 text-token-dropdown-background transition-opacity focus-visible:outline-2",
-                            (composerActionState.disabled || (composerActionState.action !== "stop" && !canRunPrimaryAction)) && !isSendPending && "opacity-50",
-                            isSendPending && "cursor-wait",
-                          )}
-                          onClick={composerActionState.action === "stop"
-                            ? () => void handleInterrupt()
-                            : () => void submitPrompt({
-                                prompt,
-                                submitAction: composerActionState.primarySubmitAction,
-                              })}
-                          disabled={composerActionState.action === "stop"
-                            ? composerActionState.disabled
-                            : composerActionState.disabled || !canRunPrimaryAction}
-                          aria-label={composerActionState.label}
-                        >
-                          {isSendPending ? (
-                            <SpinnerIcon className="icon-sm" />
-                          ) : composerActionState.action === "stop" ? (
-                            <StopIcon className="icon-xs" />
-                          ) : (
-                            <UpArrowIcon className="icon-sm" />
-                          )}
-                        </button>
-                      </span>
-                    </NodexTooltip>
+                </>
+              )
+            ) : (
+              <>
+                <div className="contents">
+                  <div className="mb-1 flex-grow overflow-y-auto px-3">
+                    {renderPromptEditor()}
                   </div>
                 </div>
-              </div>
+
+                {errorMessage && <div className="px-3 pb-2 text-xs text-(--destructive)">{errorMessage}</div>}
+
+                {isDictating ? (
+                  <div className="mb-2 flex items-center gap-2 px-2">
+                    {dictationRowContent}
+                  </div>
+                ) : (
+                  <div
+                    data-composer-form-footer="true"
+                    className="_footer_1u8sk_2 grid grid-cols-[minmax(0,auto)_auto_minmax(0,1fr)] items-center gap-[5px] select-none mb-2 px-2"
+                  >
+                    <div className="flex min-w-0 items-center gap-[5px]">
+                      {addContextControl}
+
+                      <PermissionModeDropdown
+                        selectedMode={model.permissionMode}
+                        availableModes={permissionState?.availableModes}
+                        autoReviewAvailable={permissionState?.autoReviewAvailable ?? false}
+                        customDescription={permissionState?.customDescription ?? null}
+                        onSelect={actions.onPermissionModeChange}
+                      />
+
+                      {model.selectedCollaborationMode === "plan" || goalModeActive ? (
+                        <ComposerFooterAccessoryDivider />
+                      ) : null}
+
+                      <ActiveComposerModeChip
+                        model={model}
+                        onToggle={togglePlanMode}
+                      />
+                      <ActiveGoalModeChip
+                        active={hasFooterGoalChip}
+                        onClear={clearFooterGoal}
+                      />
+                    </div>
+
+                    <div className="flex items-center" />
+
+                    <div className="flex min-w-0 items-center justify-end w-full">
+                      <div className="flex min-w-0 flex-1 justify-end">
+                        <div className="flex min-w-0 items-center gap-1">
+                          {intelligenceControls}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        {dictationControl}
+                        {primaryActionControl}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>

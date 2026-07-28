@@ -15,6 +15,7 @@ export const BROWSER_SIDEBAR_WEBVIEW_LAYER_ROOT_Z_INDEX = APP_SHELL_BROWSER_WEBV
 const BROWSER_SIDEBAR_WEBVIEW_LAYER_ROOT_ATTRIBUTE = "data-browser-sidebar-webview-manager-layer-root";
 
 export type BrowserSidebarWebviewElement = HTMLElement & {
+  executeJavaScript?: (code: string, userGesture?: boolean) => Promise<unknown>;
   getWebContentsId?: () => number;
   getTitle?: () => string;
   getURL?: () => string;
@@ -330,6 +331,26 @@ export class BrowserSidebarRendererWebviewManager {
 
   getCursorOverlayHost(input: WebviewHostKey): HTMLElement | null {
     return this.hosts.get(makeHostKey(input))?.cursorOverlayHost ?? null;
+  }
+
+  async readIsAtDocumentBottom(
+    input: WebviewHostKey,
+  ): Promise<boolean | null> {
+    const host = this.hosts.get(makeHostKey(input));
+    if (!host || host.disposed || !host.isVisible) return null;
+
+    try {
+      const result = await host.webview.executeJavaScript?.(
+        `(() => {
+          const root = document.scrollingElement ?? document.documentElement;
+          const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+          return root.scrollHeight <= root.scrollTop + viewportHeight + 1;
+        })()`,
+      );
+      return typeof result === "boolean" ? result : null;
+    } catch {
+      return null;
+    }
   }
 
   disposeAll(): void {

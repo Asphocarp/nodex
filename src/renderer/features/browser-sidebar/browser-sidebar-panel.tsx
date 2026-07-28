@@ -43,6 +43,10 @@ import {
   browserSidebarRendererWebviewManager,
 } from "./browser-sidebar-webview-manager";
 import {
+  clearBrowserDocumentBottom,
+  publishBrowserDocumentBottom,
+} from "./browser-document-bottom-store";
+import {
   readBrowserConfigDeviceToolbarVisible,
   readBrowserConfigFavicon,
   readBrowserConfigTitle,
@@ -339,6 +343,43 @@ export function BrowserSidebarPanel({
     snapshot.viewport.width,
     snapshot.viewport.zoomPercent,
     tab.projectId,
+  ]);
+
+  useEffect(() => {
+    if (
+      !browserRuntimeAvailable
+      || !activeForContentSearch
+      || isBlank
+      || snapshot.deviceToolbarVisible
+    ) {
+      publishBrowserDocumentBottom(browserIdentity, false);
+      return;
+    }
+
+    let disposed = false;
+    const sampleDocumentBottom = async () => {
+      const isAtDocumentBottom =
+        await browserSidebarRendererWebviewManager.readIsAtDocumentBottom(
+          browserIdentity,
+        );
+      if (disposed || isAtDocumentBottom === null) return;
+      publishBrowserDocumentBottom(browserIdentity, isAtDocumentBottom);
+    };
+    void sampleDocumentBottom();
+    const timer = window.setInterval(() => {
+      void sampleDocumentBottom();
+    }, 200);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+      clearBrowserDocumentBottom(browserIdentity);
+    };
+  }, [
+    activeForContentSearch,
+    browserIdentity,
+    browserRuntimeAvailable,
+    isBlank,
+    snapshot.deviceToolbarVisible,
   ]);
 
   useEffect(() => {

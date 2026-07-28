@@ -1,0 +1,48 @@
+import { createContext, useContext, type ReactNode } from "react";
+
+export type RightPanelComposerPresentation =
+  | "default"
+  | "compact"
+  | "compact-hovered"
+  | "expanded";
+
+interface RightPanelComposerPresentationContextValue {
+  floating: boolean;
+  presentation: RightPanelComposerPresentation;
+}
+
+const DEFAULT_PRESENTATION: RightPanelComposerPresentationContextValue = {
+  floating: false,
+  presentation: "default",
+};
+
+const RightPanelComposerPresentationContext =
+  createContext<RightPanelComposerPresentationContextValue>(
+    DEFAULT_PRESENTATION,
+  );
+
+export function RightPanelComposerPresentationProvider({
+  children,
+  presentation,
+}: {
+  children: ReactNode;
+  presentation: RightPanelComposerPresentation;
+}) {
+  return (
+    <RightPanelComposerPresentationContext.Provider
+      value={{ floating: true, presentation }}
+    >
+      {children}
+    </RightPanelComposerPresentationContext.Provider>
+  );
+}
+
+export function useRightPanelComposerPresentation(): RightPanelComposerPresentationContextValue {
+  return useContext(RightPanelComposerPresentationContext);
+}
+
+export function isCompactRightPanelComposerPresentation(
+  presentation: RightPanelComposerPresentation,
+): boolean {
+  return presentation === "compact" || presentation === "compact-hovered";
+}

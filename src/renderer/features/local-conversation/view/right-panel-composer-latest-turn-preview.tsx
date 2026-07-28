@@ -1,4 +1,4 @@
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { ChevronRightIcon } from "@/components/shared/icons";
 import { cn } from "@/lib/utils";
 import type { ReviewOpenIntent } from "@/features/review/model/review-view-state";
@@ -8,20 +8,15 @@ import type {
   ThreadTurnModel,
 } from "../thread-stage-types";
 import { ThreadBlockRenderer } from "./blocks/local-conversation-block-renderer";
-import { CODEX_THREAD_ACCORDION_TRANSITION } from "./shared/thread-motion";
 import { useWorkedForLabelText } from "./shared/use-worked-for-label";
-
-export type RightPanelLatestTurnPreviewState =
-  | "preview"
-  | "expanded"
-  | "collapsed";
+import { useRightPanelComposerPresentation } from "./right-panel-composer-presentation";
 
 interface RightPanelComposerLatestTurnPreviewProps {
   turn: ThreadTurnModel | null;
-  state: RightPanelLatestTurnPreviewState;
+  expanded: boolean;
   projectWorkspacePath?: string | null;
   threadCwd?: string | null;
-  onStateChange: (state: RightPanelLatestTurnPreviewState) => void;
+  onExpandedChange: (expanded: boolean) => void;
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
   onOpenTurnDiffReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
@@ -35,21 +30,12 @@ interface RightPanelComposerLatestTurnPreviewProps {
   turnDiffHoverPreviewDisabled?: boolean;
 }
 
-const RIGHT_PANEL_LATEST_TURN_MAX_HEIGHT_BY_STATE: Record<
-  RightPanelLatestTurnPreviewState,
-  string
-> = {
-  preview: "18rem",
-  expanded: "18rem",
-  collapsed: "0px",
-};
-
 export function RightPanelComposerLatestTurnPreview({
   turn,
-  state,
+  expanded,
   projectWorkspacePath,
   threadCwd,
-  onStateChange,
+  onExpandedChange,
   onEditLastUserTurn,
   onForkFromTurn,
   onOpenTurnDiffReview,
@@ -62,6 +48,7 @@ export function RightPanelComposerLatestTurnPreview({
   planSidePanelState,
   turnDiffHoverPreviewDisabled = false,
 }: RightPanelComposerLatestTurnPreviewProps) {
+  const { presentation } = useRightPanelComposerPresentation();
   const workedForLabel = useWorkedForLabelText({
     timing: turn?.workedForTiming ?? null,
     durationMs: turn?.workedDurationMs ?? null,
@@ -69,71 +56,102 @@ export function RightPanelComposerLatestTurnPreview({
 
   if (!turn || turn.blocks.length === 0) return null;
 
-  const isCollapsed = state === "collapsed";
-  const headerText = turn.isStreamingTurn ? "Working" : "Latest turn";
-  const durationAdornment =
-    workedForLabel && workedForLabel !== headerText ? workedForLabel : null;
+  const previousMessagesLabel = turn.collapsedMessageCount > 0
+    ? `${turn.collapsedMessageCount} previous ${
+        turn.collapsedMessageCount === 1 ? "message" : "messages"
+      }`
+    : null;
+  const headerText = workedForLabel
+    ?? previousMessagesLabel
+    ?? (turn.isStreamingTurn ? "Working" : "Latest turn");
+  const isCompactPresentation = presentation !== "default";
+  const floatingTrayVisible =
+    presentation === "expanded"
+    || presentation === "compact-hovered"
+    || turn.isStreamingTurn;
 
   return (
     <div
       data-right-panel-latest-turn-preview="true"
-      className="bg-token-input-background/70 text-token-foreground border-token-border/80 relative mb-2 overflow-hidden rounded-2xl border backdrop-blur-sm"
+      className={cn(
+        "text-token-foreground border-token-border/80 min-w-0 overflow-clip rounded-t-2xl border-x border-t",
+        isCompactPresentation
+          ? "bg-token-input-background"
+          : "bg-token-input-background/70 backdrop-blur-sm",
+        isCompactPresentation
+          ? "absolute inset-x-10 bottom-0 z-0 mx-0 transition-[opacity,translate] duration-150 ease-out motion-reduce:transition-none"
+          : "relative mx-[13px]",
+        isCompactPresentation && (
+          floatingTrayVisible
+            ? "pointer-events-auto -translate-y-11 opacity-100"
+            : "pointer-events-none translate-y-0 opacity-0"
+        ),
+        isCompactPresentation
+          && presentation === "compact-hovered"
+          && "delay-150",
+        isCompactPresentation
+          && !floatingTrayVisible
+          && "delay-75",
+      )}
     >
       <button
         type="button"
-        aria-expanded={!isCollapsed}
-        className="flex w-full cursor-interaction items-center justify-between gap-2 px-3 py-row-y text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:ring-inset"
-        onClick={() => onStateChange(isCollapsed ? "expanded" : "collapsed")}
+        aria-expanded={expanded}
+        className="flex w-full cursor-interaction items-center justify-between gap-2 rounded-[inherit] px-3 py-row-y text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:ring-inset"
+        onClick={() => onExpandedChange(!expanded)}
       >
         <span className="text-size-chat min-w-0 truncate leading-4 text-token-description-foreground">
           {headerText}
         </span>
-        <span className="flex min-w-0 shrink-0 items-center gap-1">
-          {durationAdornment ? (
-            <span className="text-size-chat max-w-40 truncate leading-4 text-token-description-foreground">
-              {durationAdornment}
-            </span>
-          ) : null}
-          <span className="no-drag flex items-center justify-center gap-1 rounded-full border border-token-border border-transparent p-0.5 whitespace-nowrap text-token-description-foreground select-none electron:rounded-md electron:p-1">
-            <ChevronRightIcon className={cn("icon-2xs transition-transform duration-150", !isCollapsed && "rotate-90")} />
-          </span>
+        <span className="no-drag flex size-6 shrink-0 items-center justify-center rounded-full text-token-description-foreground select-none electron:rounded-md">
+          <ChevronRightIcon
+            className={cn(
+              "icon-2xs transition-transform duration-300",
+              expanded && "rotate-90",
+            )}
+          />
         </span>
       </button>
-      <motion.div
-        animate={{
-          maxHeight: RIGHT_PANEL_LATEST_TURN_MAX_HEIGHT_BY_STATE[state],
-          opacity: isCollapsed ? 0 : 1,
-        }}
-        initial={false}
-        transition={CODEX_THREAD_ACCORDION_TRANSITION}
-        className={isCollapsed ? "overflow-hidden" : "overflow-visible"}
-        style={{ pointerEvents: isCollapsed ? "none" : "auto" }}
-      >
-        <div className="vertical-scroll-fade-mask scrollbar-token flex max-h-[18rem] flex-col gap-0 overflow-y-auto px-3 pt-0.5 pb-3 [--edge-fade-distance:1rem]">
-          {turn.blocks.map((block) => (
-            <ThreadBlockRenderer
-              key={block.id}
-              block={block}
-              isLatestTurn={turn.isLatestTurn}
-              isStreamingTurn={turn.isStreamingTurn}
-              projectWorkspacePath={projectWorkspacePath}
-              threadCwd={threadCwd}
-              onEditLastUserTurn={onEditLastUserTurn}
-              onForkFromTurn={onForkFromTurn}
-              onOpenTurnDiffReview={onOpenTurnDiffReview}
-              onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
-              onOpenSideChat={onOpenSideChat}
-              onOpenThread={onOpenThread}
-              onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
-              onOpenPlanInSidePanel={onOpenPlanInSidePanel}
-              onClosePlanSidePanel={onClosePlanSidePanel}
-              planSidePanelState={planSidePanelState}
-              allowInProgressTurnDiff={true}
-              turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
-            />
-          ))}
-        </div>
-      </motion.div>
+      <AnimatePresence initial={false}>
+        {expanded ? (
+          <motion.div
+            tabIndex={-1}
+            initial={{ maxHeight: 0, opacity: 0 }}
+            animate={{ maxHeight: "22.5rem", opacity: 1 }}
+            exit={{ maxHeight: 0, opacity: 0, pointerEvents: "none" }}
+            transition={{ duration: 0.3, ease: [0.19, 1, 0.22, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="vertical-scroll-fade-mask flex max-h-[22.5rem] flex-col-reverse overflow-x-hidden overflow-y-auto px-3 pt-0.5 pb-3 [--edge-fade-distance:1rem] [animation-direction:reverse]">
+              <div className="flex flex-col">
+                {turn.blocks.map((block) => (
+                  <ThreadBlockRenderer
+                    key={block.id}
+                    block={block}
+                    isLatestTurn={turn.isLatestTurn}
+                    isStreamingTurn={turn.isStreamingTurn}
+                    projectWorkspacePath={projectWorkspacePath}
+                    threadCwd={threadCwd}
+                    onEditLastUserTurn={onEditLastUserTurn}
+                    onForkFromTurn={onForkFromTurn}
+                    onOpenTurnDiffReview={onOpenTurnDiffReview}
+                    onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
+                    onOpenSideChat={onOpenSideChat}
+                    onOpenThread={onOpenThread}
+                    onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+                    onOpenPlanInSidePanel={onOpenPlanInSidePanel}
+                    onClosePlanSidePanel={onClosePlanSidePanel}
+                    planSidePanelState={planSidePanelState}
+                    allowInProgressTurnDiff={true}
+                    turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
+                    alwaysShowAssistantMessageActions={true}
+                  />
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }

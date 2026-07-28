@@ -8194,7 +8194,46 @@ describe(`workbench session shell / ${scope}`, () => {
     const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     expect(host !== null).toBe(true);
     expect(props?.rightPanelComposerOverlayEnabled).toBe(true);
+    expect(props?.rightPanelComposerOverlayCompact).toBe(false);
+    expect(props?.rightPanelComposerOverlayAtDocumentBottom).toBe(false);
+    expect(props?.rightPanelComposerOverlayDocumentBottomKey).toBe(null);
     expect(props?.rightPanelComposerOverlayTarget).toBe(host);
+  });
+
+  test("limits compact composer presentation to a full-width Browser tab", async () => {
+    const browserTab = makeSessionTab({
+      id: "browser-tab",
+      sessionId: "session:alpha:database-view",
+      projectId: "alpha",
+      kind: "browser",
+      title: "Browser",
+      order: 0,
+      config: { projectId: "alpha" },
+    });
+    const attachedSession = makeAttachedSession({
+      tabs: [browserTab],
+      panels: makePanels({
+        rightTabIds: [browserTab.id],
+        rightActiveTabId: browserTab.id,
+        rightFullWidth: true,
+      }),
+    });
+    renderWorkbench({
+      sessionsByProject: { alpha: [attachedSession] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as {
+      __lastConnectedThreadStageProps?: Record<string, unknown>;
+    }).__lastConnectedThreadStageProps;
+    expect(props?.rightPanelComposerOverlayEnabled).toBe(true);
+    expect(props?.rightPanelComposerOverlayCompact).toBe(true);
+    expect(props?.rightPanelComposerOverlayAtDocumentBottom).toBe(false);
+    expect(props?.rightPanelComposerOverlayDocumentBottomKey).toContain(
+      "browser-tab",
+    );
   });
 
   test("full-width overlay state keeps the bottom-panel toggle clickable after pointerdown", async () => {

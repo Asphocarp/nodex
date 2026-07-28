@@ -268,6 +268,22 @@ function buildAssistantItem(overrides: Partial<CodexConversationItem> = {}): Cod
   };
 }
 
+function buildModelChangedItem(overrides: Partial<CodexConversationItem> = {}): CodexConversationItem {
+  return {
+    threadId: "thread_1",
+    turnId: "turn_1",
+    itemId: "model_changed_1",
+    entryId: "model_changed_1",
+    type: "model_changed",
+    kind: "systemEvent",
+    semanticKind: "modelChanged",
+    markdownText: "Model changed",
+    createdAt: 0,
+    updatedAt: 0,
+    ...overrides,
+  };
+}
+
 function buildPermissionRequest(completed = false): CodexPermissionRequest {
   return {
     type: "permissionRequest",
@@ -406,6 +422,68 @@ describe("buildTurnRenderModel", () => {
     const interactiveRead = selectModel({ entry, canEditTurnUserPrefix: true });
     expect(interactiveRead === bodyRead).toBe(false);
     expect(projectionCount).toBe(3);
+  });
+
+  test("starts the preview surface after the turn intro", () => {
+    const turn = buildTurn({
+      status: "completed",
+      itemIds: ["user_1", "assistant_1"],
+      items: [buildUserItem(), buildAssistantItem()],
+    });
+    const entry = buildVisibleEntry(turn);
+    const selectModel = createTurnRenderModelSelector();
+
+    const main = selectModel({ entry });
+    const preview = selectModel({ entry, surface: "preview" });
+
+    expect(main.leadingBlocks.map((block) => block.type)).toEqual(["userMessage"]);
+    expect(main.blocks.map((block) => block.type)).toEqual([
+      "userMessage",
+      "assistantMessage",
+    ]);
+    expect(preview.leadingBlocks).toEqual([]);
+    expect(preview.blocks.map((block) => block.type)).toEqual(["assistantMessage"]);
+  });
+
+  test("keeps a non-user item that precedes the user intro in the preview", () => {
+    const turn = buildTurn({
+      status: "completed",
+      itemIds: ["model_changed_1", "user_1", "assistant_1"],
+      items: [
+        buildModelChangedItem(),
+        buildUserItem(),
+        buildAssistantItem(),
+      ],
+    });
+
+    const preview = createTurnRenderModelSelector()({
+      entry: buildVisibleEntry(turn),
+      surface: "preview",
+    });
+
+    expect(preview.blocks.map((block) => block.type)).toEqual([
+      "modelChanged",
+      "userMessage",
+      "assistantMessage",
+    ]);
+  });
+
+  test("starts an active preview after its worked-for boundary", () => {
+    const turn = buildTurn({
+      itemIds: ["user_1", "exec_1"],
+      items: [buildUserItem(), buildExecItem()],
+      firstTurnWorkItemStartedAtMs: 1,
+    });
+
+    const preview = createTurnRenderModelSelector()({
+      entry: buildVisibleEntry(turn),
+      surface: "preview",
+    });
+
+    expect(preview.workedForItem?.type).toBe("workedFor");
+    expect(preview.blocks.some((block) => block.type === "userMessage")).toBe(false);
+    expect(preview.blocks.some((block) => block.type === "workedFor")).toBe(false);
+    expect(preview.blocks.some((block) => block.type === "agentActivityGroup")).toBe(true);
   });
 
   test("reprojects when canonical entry identity or recency changes", () => {

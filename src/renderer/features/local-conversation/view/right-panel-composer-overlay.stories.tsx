@@ -13,8 +13,8 @@ import {
 interface RightPanelComposerOverlayStoryProps {
   tabKind: "review" | "browser";
   bottomPanelOpen: boolean;
+  atDocumentBottom: boolean;
   running: boolean;
-  reducedMotionPreview: boolean;
 }
 
 function buildActions(): ThreadStageActions {
@@ -65,8 +65,8 @@ function buildStoryFooterModel(running: boolean) {
 function RightPanelComposerOverlayStory({
   tabKind,
   bottomPanelOpen,
+  atDocumentBottom,
   running,
-  reducedMotionPreview,
 }: RightPanelComposerOverlayStoryProps) {
   const [overlayHost, setOverlayHost] = useState<HTMLElement | null>(null);
   const footerModel = buildStoryFooterModel(running);
@@ -83,7 +83,6 @@ function RightPanelComposerOverlayStory({
           style={{
             "--app-shell-bottom-panel-height": bottomPanelOpen ? "220px" : "0px",
           } as CSSProperties}
-          data-reduced-motion-preview={reducedMotionPreview ? "true" : "false"}
         >
           <div
             ref={setOverlayHost}
@@ -99,7 +98,7 @@ function RightPanelComposerOverlayStory({
             <div className="absolute inset-x-0 top-[var(--height-toolbar)] bottom-0 overflow-auto px-toolbar py-4 text-sm text-token-description-foreground">
               <div className="flex min-h-[960px] flex-col gap-2 rounded-lg border border-dashed border-token-border/70 bg-token-foreground/3 p-3">
                 <span>{bodyLabel}</span>
-                <span>Scroll-padding consumes the overlay reserve variable.</span>
+                <span>The pane remains independently interactive beneath the floating composer.</span>
               </div>
             </div>
           </div>
@@ -111,6 +110,9 @@ function RightPanelComposerOverlayStory({
             rightPanelComposerOverlay={{
               enabled: overlayHost !== null,
               target: overlayHost,
+              compact: tabKind === "browser",
+              documentBottomKey: tabKind === "browser" ? "story-browser" : null,
+              isAtDocumentBottom: atDocumentBottom,
             }}
           />
           {bottomPanelOpen ? (
@@ -130,8 +132,8 @@ const meta = {
   args: {
     tabKind: "review",
     bottomPanelOpen: false,
+    atDocumentBottom: false,
     running: false,
-    reducedMotionPreview: false,
   },
   argTypes: {
     tabKind: {
@@ -145,11 +147,26 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-export const FullWidthReview: Story = {};
+export const FullWidthReview: Story = {
+  parameters: {
+    docs: {
+      description: {
+        story: "The latest-turn preview starts after the user intro, keeps completed assistant actions visible, and holds the attachment-free composer to one 44px control row.",
+      },
+    },
+  },
+};
 
 export const FullWidthBrowser: Story = {
   args: {
     tabKind: "browser",
+  },
+};
+
+export const BrowserAtDocumentBottom: Story = {
+  args: {
+    tabKind: "browser",
+    atDocumentBottom: true,
   },
 };
 
@@ -162,11 +179,5 @@ export const FullWidthWithBottomPanel: Story = {
 export const RunningThreadStop: Story = {
   args: {
     running: true,
-  },
-};
-
-export const ReducedMotionFullWidth: Story = {
-  args: {
-    reducedMotionPreview: true,
   },
 };

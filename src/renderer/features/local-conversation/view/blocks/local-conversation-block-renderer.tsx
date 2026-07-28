@@ -56,6 +56,7 @@ interface ThreadBlockRendererProps {
   planSidePanelState?: ThreadPlanSidePanelState | null;
   allowInProgressTurnDiff?: boolean;
   turnDiffHoverPreviewDisabled?: boolean;
+  alwaysShowAssistantMessageActions?: boolean;
 }
 
 export function ThreadBlockRenderer({
@@ -80,6 +81,7 @@ export function ThreadBlockRenderer({
   planSidePanelState,
   allowInProgressTurnDiff = false,
   turnDiffHoverPreviewDisabled = false,
+  alwaysShowAssistantMessageActions = false,
 }: ThreadBlockRendererProps) {
   if (block.type === "agentActivityGroup") {
     return (
@@ -260,6 +262,7 @@ export function ThreadBlockRenderer({
                   planSidePanelState={planSidePanelState}
                   allowInProgressTurnDiff={allowInProgressTurnDiff}
                   turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
+                  alwaysShowAssistantMessageActions={alwaysShowAssistantMessageActions}
                 />
               ))}
             </div>
@@ -275,6 +278,7 @@ export function ThreadBlockRenderer({
         onForkFromTurn={onForkFromTurn}
         onOpenSideChat={onOpenSideChat}
         assistantAfter={assistantAfter}
+        alwaysShowAssistantMessageActions={alwaysShowAssistantMessageActions}
       />
     );
 
@@ -297,6 +301,7 @@ export function ThreadBlockRenderer({
         isStreamingTurn={isStreamingTurn}
         onForkFromTurn={onForkFromTurn}
         onOpenSideChat={onOpenSideChat}
+        alwaysShowAssistantMessageActions={alwaysShowAssistantMessageActions}
       />
     );
   }

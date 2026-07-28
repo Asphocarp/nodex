@@ -212,6 +212,9 @@ interface ConnectedThreadStageProps extends ConnectedThreadStageInput {
   initialUiState?: ThreadBodyUiStateOverrides;
   backgroundAgentDetail?: boolean;
   rightPanelComposerOverlayEnabled?: boolean;
+  rightPanelComposerOverlayCompact?: boolean;
+  rightPanelComposerOverlayAtDocumentBottom?: boolean;
+  rightPanelComposerOverlayDocumentBottomKey?: string | null;
   rightPanelComposerOverlayTarget?: HTMLElement | null;
   turnDiffHoverPreviewDisabled?: boolean;
   summaryPanelMounted?: boolean;
@@ -453,6 +456,9 @@ function ConnectedThreadStageFooter({
   onErrorMessage,
   variant = "thread",
   rightPanelComposerOverlayEnabled = false,
+  rightPanelComposerOverlayCompact = false,
+  rightPanelComposerOverlayAtDocumentBottom = false,
+  rightPanelComposerOverlayDocumentBottomKey = null,
   rightPanelComposerOverlayTarget = null,
   turnDiffHoverPreviewDisabled = false,
 }: {
@@ -464,6 +470,9 @@ function ConnectedThreadStageFooter({
   onErrorMessage: (message: string | null) => void;
   variant?: "thread" | "newThreadHome";
   rightPanelComposerOverlayEnabled?: boolean;
+  rightPanelComposerOverlayCompact?: boolean;
+  rightPanelComposerOverlayAtDocumentBottom?: boolean;
+  rightPanelComposerOverlayDocumentBottomKey?: string | null;
   rightPanelComposerOverlayTarget?: HTMLElement | null;
   turnDiffHoverPreviewDisabled?: boolean;
 }) {
@@ -721,6 +730,9 @@ function ConnectedThreadStageFooter({
       variant={variant}
       rightPanelComposerOverlay={{
         enabled: rightPanelComposerOverlayEnabled,
+        compact: rightPanelComposerOverlayCompact,
+        documentBottomKey: rightPanelComposerOverlayDocumentBottomKey,
+        isAtDocumentBottom: rightPanelComposerOverlayAtDocumentBottom,
         target: rightPanelComposerOverlayTarget,
       }}
       planSidePanelState={input.planSidePanelState ?? null}
@@ -764,6 +776,9 @@ export function ConnectedThreadStage({
   initialUiState,
   backgroundAgentDetail = false,
   rightPanelComposerOverlayEnabled = false,
+  rightPanelComposerOverlayCompact = false,
+  rightPanelComposerOverlayAtDocumentBottom = false,
+  rightPanelComposerOverlayDocumentBottomKey = null,
   rightPanelComposerOverlayTarget = null,
   turnDiffHoverPreviewDisabled = false,
   summaryPanelMounted = false,
@@ -1065,6 +1080,9 @@ export function ConnectedThreadStage({
                 errorMessage={errorMessage}
                 onErrorMessage={setErrorMessage}
                 rightPanelComposerOverlayEnabled={rightPanelComposerOverlayEnabled && !isSideChat}
+                rightPanelComposerOverlayCompact={rightPanelComposerOverlayCompact}
+                rightPanelComposerOverlayAtDocumentBottom={rightPanelComposerOverlayAtDocumentBottom}
+                rightPanelComposerOverlayDocumentBottomKey={rightPanelComposerOverlayDocumentBottomKey}
                 rightPanelComposerOverlayTarget={rightPanelComposerOverlayTarget}
                 turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
               />

@@ -9,7 +9,10 @@ import {
 } from "@/components/shared/icons";
 import { NodexDropdownMenu } from "@/components/ui/dropdown";
 import { cn } from "@/lib/utils";
-import { COMPOSER_FOOTER_COMPACT_GHOST_BUTTON_CLASS_NAME } from "./composer-footer-controls";
+import {
+  COMPOSER_FOOTER_COMPACT_GHOST_BUTTON_CLASS_NAME,
+  COMPOSER_FOOTER_GHOST_ICON_BUTTON_CLASS_NAME,
+} from "./composer-footer-controls";
 
 type PermissionModeDropdownItem = {
   value: CodexPermissionMode;
@@ -162,12 +165,14 @@ export function PermissionModeDropdown({
   selectedMode,
   availableModes,
   autoReviewAvailable = false,
+  triggerVariant = "label",
   onSelect,
 }: {
   selectedMode: CodexPermissionMode;
   customDescription: string | null;
   availableModes?: CodexPermissionMode[];
   autoReviewAvailable?: boolean;
+  triggerVariant?: "label" | "icon";
   onSelect: (mode: CodexPermissionMode) => void;
 }) {
   const allowedModes = new Set(availableModes ?? ["auto", "full-access", "custom"]);
@@ -179,16 +184,22 @@ export function PermissionModeDropdown({
         <button
           type="button"
           aria-label="Permission mode"
-          className={COMPOSER_FOOTER_COMPACT_GHOST_BUTTON_CLASS_NAME}
+          className={triggerVariant === "icon"
+            ? COMPOSER_FOOTER_GHOST_ICON_BUTTON_CLASS_NAME
+            : COMPOSER_FOOTER_COMPACT_GHOST_BUTTON_CLASS_NAME}
         >
           <PermissionModeMenuIcon
             mode={selectedMode}
             className={cn("icon-xs shrink-0", currentModeAccentClass)}
           />
-          <span className={cn("max-w-40 truncate whitespace-nowrap text-left", currentModeAccentClass)}>
-            {formatPermissionModeLabel(selectedMode)}
-          </span>
-          <ChevronDownIcon className={cn("icon-2xs shrink-0", currentModeAccentClass ?? "text-token-input-placeholder-foreground")} />
+          {triggerVariant === "label" ? (
+            <>
+              <span className={cn("max-w-40 truncate whitespace-nowrap text-left", currentModeAccentClass)}>
+                {formatPermissionModeLabel(selectedMode)}
+              </span>
+              <ChevronDownIcon className={cn("icon-2xs shrink-0", currentModeAccentClass ?? "text-token-input-placeholder-foreground")} />
+            </>
+          ) : null}
         </button>
       )}
       side="top"

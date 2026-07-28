@@ -11,10 +11,12 @@ import {
 
 function renderPromptEditor({
   value,
+  singleLine = false,
   onKeyDown = vi.fn(() => false),
   onLargeTextPaste,
 }: {
   value: string;
+  singleLine?: boolean;
   onKeyDown?: (event: KeyboardEvent) => boolean;
   onLargeTextPaste?: (text: string) => boolean;
 }) {
@@ -26,6 +28,7 @@ function renderPromptEditor({
       value={value}
       placeholder="Ask Codex"
       disabled={false}
+      singleLine={singleLine}
       onChange={onChange}
       onKeyDown={onKeyDown}
       onLargeTextPaste={onLargeTextPaste}
@@ -59,6 +62,15 @@ function createClipboardData(initial: Record<string, string> = {}) {
 }
 
 describe("ComposerPromptEditor", () => {
+  test("keeps the compact editor in the keyboard tab order", () => {
+    const { editor } = renderPromptEditor({
+      value: "",
+      singleLine: true,
+    });
+
+    expect(editor.getAttribute("tabindex")).not.toBe("-1");
+  });
+
   test("classifies the inclusive large-paste boundary", () => {
     expect(classifyComposerPaste("x".repeat(4_999))).toBe("inline");
     expect(classifyComposerPaste("x".repeat(5_000))).toBe("attachment");

@@ -22,6 +22,7 @@ export interface BuildTurnRenderModelInput {
   requests: CodexTurnScopedConversationRequest[];
   isLatestTurn: boolean;
   isStreamingTurn: boolean;
+  surface?: TurnRenderSurface;
   canEditTurnUserPrefix?: boolean;
   canForkTurn?: boolean;
   backgroundAgents?: readonly ThreadComposerShellBackgroundAgentRowModel[];
@@ -219,6 +220,18 @@ function insertWorkedForItem(
   ];
 }
 
+function startAfterTurnIntro(
+  items: ThreadRendererItemModel[],
+): ThreadRendererItemModel[] {
+  const workedForIndex = items.findIndex((item) => item.type === "workedFor");
+  if (workedForIndex >= 0) return items.slice(workedForIndex + 1);
+
+  const firstNonUserIndex = findFirstNonUserIndex(items);
+  if (firstNonUserIndex < 0) return [];
+  if (firstNonUserIndex === 0) return items;
+  return items.slice(firstNonUserIndex);
+}
+
 export function buildTurnRenderModel(
   input: BuildTurnRenderModelInput,
 ): ThreadTurnModel {
@@ -244,7 +257,10 @@ export function buildTurnRenderModel(
         completedAtMs: workedForItem.completedAtMs,
       }
     : null;
-  const items = insertWorkedForItem(input.turn, baseItems, workedForItem);
+  const itemsWithTurnIntro = insertWorkedForItem(input.turn, baseItems, workedForItem);
+  const items = input.surface === "preview"
+    ? startAfterTurnIntro(itemsWithTurnIntro)
+    : itemsWithTurnIntro;
   const buckets = bucketizeTurnItems({
     items,
     turnStatus: input.turn.status,
@@ -306,6 +322,7 @@ export function createTurnRenderModelSelector(
       requests: input.entry.requests,
       isLatestTurn: input.entry.isMostRecentTurn,
       isStreamingTurn: input.entry.turn.status === "inProgress",
+      surface,
       canEditTurnUserPrefix,
       canForkTurn,
       backgroundAgents: input.backgroundAgents,

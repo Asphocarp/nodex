@@ -101,6 +101,7 @@ export interface ThreadLeafBlockProps {
   allowInProgressTurnDiff?: boolean;
   turnDiffHoverPreviewDisabled?: boolean;
   assistantAfter?: ReactNode;
+  alwaysShowAssistantMessageActions?: boolean;
 }
 
 export interface ThreadSpecialBlockProps {
@@ -1093,19 +1094,24 @@ function AssistantMessageActionsRow({
   turnId,
   isLatestTurn,
   onForkFromTurn,
+  alwaysShowActions = false,
 }: {
   actions: ThreadAssistantMessageActionsModel;
   threadId: string;
   turnId: string | null;
   isLatestTurn: boolean;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
+  alwaysShowActions?: boolean;
 }) {
   const [selectedRating, setSelectedRating] = useState<AssistantMessageRating | null>(null);
   const shouldShowActions = actions.copyText !== null || actions.canFork;
   if (!shouldShowActions) return null;
 
   return (
-    <ThreadMessageActionRow align="start">
+    <ThreadMessageActionRow
+      align="start"
+      className={alwaysShowActions ? "opacity-100" : undefined}
+    >
       {actions.copyText !== null ? (
         <>
           <CopyMessageActionButton
@@ -1159,6 +1165,7 @@ export function ThreadAssistantBodyBlock({
   isActiveSearchMatch = false,
   onForkFromTurn,
   assistantAfter,
+  alwaysShowAssistantMessageActions = false,
 }: ThreadLeafBlockProps) {
   const markdownText = stripCodexRemarkDirectiveLines(block.entry.markdownText);
   const isAssistantItemStreaming = isStreamingTurn && block.entry.status === "inProgress";
@@ -1224,6 +1231,7 @@ export function ThreadAssistantBodyBlock({
             turnId={block.turnId}
             isLatestTurn={isLatestTurn}
             onForkFromTurn={onForkFromTurn}
+            alwaysShowActions={alwaysShowAssistantMessageActions}
           />
         ) : null}
       </div>
@@ -1235,8 +1243,10 @@ export function ThreadAssistantActionsBlock({
   block,
   isLatestTurn,
   onForkFromTurn,
+  alwaysShowAssistantMessageActions = false,
 }: ThreadSpecialBlockProps & {
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
+  alwaysShowAssistantMessageActions?: boolean;
 }) {
   if (block.type !== "assistantActions") return null;
 
@@ -1248,6 +1258,7 @@ export function ThreadAssistantActionsBlock({
         turnId={block.turnId}
         isLatestTurn={isLatestTurn}
         onForkFromTurn={onForkFromTurn}
+        alwaysShowActions={alwaysShowAssistantMessageActions}
       />
     </div>
   );

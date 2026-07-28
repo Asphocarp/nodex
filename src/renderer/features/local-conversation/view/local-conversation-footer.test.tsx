@@ -145,13 +145,32 @@ function buildUserItem(overrides?: Partial<CodexConversationItem>): CodexConvers
   };
 }
 
+function buildAssistantItem(overrides?: Partial<CodexConversationItem>): CodexConversationItem {
+  return {
+    threadId: "thread_1",
+    turnId: "turn_1",
+    itemId: "assistant_1",
+    entryId: "assistant_1",
+    type: "assistant_message",
+    kind: "assistantMessage",
+    semanticKind: "assistantMessage",
+    assistantPhase: "final_answer",
+    role: "assistant",
+    markdownText: "Checks passed",
+    status: "completed",
+    createdAt: 2,
+    updatedAt: 2,
+    ...overrides,
+  };
+}
+
 function buildRenderableTurn(overrides?: Partial<CodexConversationTurn>): CodexConversationTurn {
   return {
     threadId: "thread_1",
     turnId: "turn_1",
     status: "completed",
-    itemIds: ["user_1"],
-    items: [buildUserItem()],
+    itemIds: ["user_1", "assistant_1"],
+    items: [buildUserItem(), buildAssistantItem()],
     ...overrides,
   };
 }
@@ -360,7 +379,7 @@ describe("LocalConversationFooter", () => {
     );
 
     await waitFor(() => {
-      const overlay = target.querySelector('[data-testid="right-panel-composer-overlay"]');
+      const overlay = document.body.querySelector('[data-testid="right-panel-composer-overlay"]');
       if (!overlay) throw new Error("Expected right-panel overlay");
       expect(overlay.querySelector('[data-thread-find-composer="true"]') !== null).toBe(true);
       expect(overlay.querySelector('[data-thread-catch-up-control="true"]') !== null).toBe(true);
@@ -371,7 +390,7 @@ describe("LocalConversationFooter", () => {
       expect(overlay.querySelector('[data-local-conversation-composer-shell="true"]') !== null).toBe(true);
     });
 
-    const overlay = target.querySelector('[data-testid="right-panel-composer-overlay"]') as HTMLElement;
+    const overlay = document.body.querySelector('[data-testid="right-panel-composer-overlay"]') as HTMLElement;
     const footerOwner = overlay.querySelector('[data-thread-find-composer="true"]');
     const catchUpSlot = footerOwner?.querySelector('[data-thread-catch-up-control="true"]');
     const footerStack = footerOwner?.querySelector('[data-thread-footer-stack="true"]');
@@ -388,9 +407,69 @@ describe("LocalConversationFooter", () => {
     expect(Boolean(queuePortal.compareDocumentPosition(latestTurnPreview) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(Boolean(latestTurnPreview.compareDocumentPosition(composerShell) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
 
-    fireEvent.animationEnd(overlay);
     await waitFor(() => {
       expect(overlay.getAttribute("aria-hidden")).toBe("false");
+      const prompt = overlay.querySelector('[data-codex-composer="true"]');
+      if (!prompt) throw new Error("Expected floating prompt editor");
+      expect(prompt.getAttribute("aria-label")).toBe("Do anything");
+    });
+    const addContext = overlay.querySelector(
+      'button[aria-label="Add files and more"]',
+    );
+    const prompt = overlay.querySelector('[data-codex-composer="true"]');
+    const permission = overlay.querySelector('button[aria-label="Permission mode"]');
+    expect(isBefore(addContext, prompt)).toBe(true);
+    expect(isBefore(prompt, permission)).toBe(true);
+    expect(permission?.textContent).toBe("");
+    expect(overlay.textContent?.includes("Run the checks") ?? false).toBe(false);
+    expect(overlay.querySelector('[data-composer-attachments="true"]')).toBeNull();
+
+    const previewToggle = latestTurnPreview.querySelector("button");
+    if (!previewToggle) throw new Error("Expected latest turn toggle");
+    await act(async () => {
+      fireEvent.click(previewToggle);
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(overlay.querySelector('button[aria-label="Copy"]') !== null).toBe(true);
+    });
+  });
+
+  test("floating multiline drafts retain the attachment tray layout", async () => {
+    const { LocalConversationFooter } = await import("./local-conversation-footer");
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+
+    render(
+      <TooltipProvider>
+        <EnsureLocalConversationThreadScrollController>
+          <LocalConversationFooter
+            model={{
+              ...buildModelWithRenderableLatestTurn(),
+              composerIntent: {
+                prompt: "First line\nSecond line",
+                focusNonce: 1,
+              },
+            }}
+            actions={buildActions()}
+            errorMessage={null}
+            onErrorMessage={() => {}}
+            rightPanelComposerOverlay={{ enabled: true, target }}
+          />
+        </EnsureLocalConversationThreadScrollController>
+      </TooltipProvider>,
+    );
+
+    await waitFor(() => {
+      const composer = document.body.querySelector(
+        '[data-testid="right-panel-composer-overlay"] [data-codex-composer="true"]',
+      );
+      const attachmentTray = document.body.querySelector(
+        '[data-testid="right-panel-composer-overlay"] [data-composer-attachments="true"]',
+      );
+      expect(composer?.textContent).toContain("First line");
+      expect(composer?.textContent).toContain("Second line");
+      expect(attachmentTray !== null).toBe(true);
     });
   });
 
@@ -463,16 +542,24 @@ describe("LocalConversationFooter", () => {
         </TooltipProvider>,
       );
 
-      const overlay = target.querySelector('[data-testid="right-panel-composer-overlay"]') as HTMLElement;
-      fireEvent.animationEnd(overlay);
-
-      await waitFor(() => {
-        expect(overlay.getAttribute("aria-hidden")).toBe("false");
+      const overlay = await waitFor(() => {
+        const element = document.body.querySelector(
+          '[data-testid="right-panel-composer-overlay"]',
+        ) as HTMLElement | null;
+        if (!element) throw new Error("Expected right-panel overlay");
+        expect(element.getAttribute("aria-hidden")).toBe("false");
+        return element;
       });
 
       const latestTurnPreview = overlay.querySelector('[data-right-panel-latest-turn-preview="true"]');
       const previewToggle = latestTurnPreview?.querySelector("button");
-      expect(previewToggle?.getAttribute("aria-expanded")).toBe("true");
+      expect(previewToggle?.getAttribute("aria-expanded")).toBe("false");
+
+      if (!previewToggle) throw new Error("Expected latest turn toggle");
+      await act(async () => {
+        fireEvent.click(previewToggle);
+      });
+      expect(previewToggle.getAttribute("aria-expanded")).toBe("true");
 
       await act(async () => {
         fireEvent.pointerDown(document.body);
@@ -507,7 +594,7 @@ describe("LocalConversationFooter", () => {
       </TooltipProvider>,
     );
 
-    expect(target.querySelector('[data-testid="right-panel-composer-overlay"]') === null).toBe(true);
+    expect(document.body.querySelector('[data-testid="right-panel-composer-overlay"]') === null).toBe(true);
     expect(container.querySelector('[data-local-conversation-composer-shell="true"]') === null).toBe(true);
     expect(container.querySelector('[data-thread-find-composer="true"]') !== null).toBe(true);
     expect(container.querySelector("#above-composer-portal") !== null).toBe(true);
