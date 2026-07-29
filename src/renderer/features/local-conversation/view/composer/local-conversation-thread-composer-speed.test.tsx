@@ -1332,6 +1332,7 @@ describe("ThreadComposer speed menu", () => {
         }],
         skillMentions: [{ id: "skill_1", name: "Computer Use", path: "/plugins/computer-use" }],
         commentAttachments: [],
+        browserAnnotationAttachments: [],
       },
     });
 

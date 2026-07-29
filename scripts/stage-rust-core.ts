@@ -125,6 +125,16 @@ const stage = ({ targetArch, outputRoot, signIdentity }: Arguments): void => {
         source: path.join(repositoryRoot, "target", target, "release", "nodex-core"),
       },
       {
+        name: "nodex-browser-profile-helper",
+        source: path.join(
+          repositoryRoot,
+          "target",
+          target,
+          "release",
+          "nodex-browser-profile-helper",
+        ),
+      },
+      {
         name: "nodex",
         source: path.join(repositoryRoot, "target", target, "release", "nodex"),
       },

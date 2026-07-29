@@ -802,7 +802,13 @@ const createTestAutomationModule = (): DesktopAutomationModulePort => ({
 
 describe("codex-service provider-backed scheduled automations", () => {
   test("resumes heartbeat targets with their persisted provider profile", async () => {
-    const service = createService();
+    const configCwds: Array<string | null> = [];
+    const service = createService({
+      threadCodexConfigBuilder: async (cwd) => {
+        configCwds.push(cwd);
+        return { "mcp.test_enabled": true };
+      },
+    });
     const client = Reflect.get(service as object, "client") as {
       request: (method: string, params?: unknown) => Promise<unknown>;
     };
@@ -856,6 +862,8 @@ describe("codex-service provider-backed scheduled automations", () => {
       expect(params.serviceTier).toBeNull();
       expect(params.config?.harness).toBe("kimi-code");
       expect(params.config?.model_reasoning_effort).toBe("Thinking");
+      expect(params.config?.["mcp.test_enabled"]).toBe(true);
+      expect(configCwds).toEqual(["/tmp/kimi"]);
     } finally {
       await service.shutdown();
     }
@@ -1206,6 +1214,13 @@ function createService(options?: {
   };
 }): TestableCodexService {
   const service = new CodexService({
+    browserPluginReconciler: {
+      ensureInstalled: async () => ({
+        message: "Browser plugin reconciliation is disabled in this fixture",
+        reason: "runtime-unavailable",
+        status: "unavailable",
+      }),
+    },
     rateLimitsPollIntervalMs: options?.rateLimitsPollIntervalMs,
     inactiveRendererOwnerRetentionMs: options?.inactiveRendererOwnerRetentionMs,
     inactiveRendererOwnerMaxRetained: options?.inactiveRendererOwnerMaxRetained,

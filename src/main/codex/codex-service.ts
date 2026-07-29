@@ -517,6 +517,10 @@ import {
   convertImmerPatchesToCodexConversationStateUpdates,
 } from "../../shared/codex-conversation-patches";
 import { resolveCodexRuntime, type ResolvedCodexRuntime } from "./codex-runtime";
+import { BrowserUseThreadConfigBuilder } from "./browser-use-thread-config";
+import { BrowserPluginReconciler } from "./browser-plugin-reconciler";
+import type { BrowserRuntimeBackend } from "../../shared/browser-runtime-metadata";
+import type { BrowserRuntimeAvailability } from "./browser-runtime-bundle";
 import { AGENT_RUNTIME_METADATA_FILENAME } from "../../shared/codex-runtime-metadata";
 import type {
   AgentExecutionProfile,
@@ -1376,6 +1380,7 @@ interface InternalThreadMetadata {
 }
 
 type CodexServiceOptions = {
+  browserPluginReconciler?: Pick<BrowserPluginReconciler, "ensureInstalled">;
   runtime?: ResolvedCodexRuntime;
   runtimeStateHome?: string;
   providerCredentialStore?: ProviderCredentialStore;
@@ -1406,6 +1411,18 @@ type CodexServiceOptions = {
   forkSidePanelTransferLifecycle?: CodexForkSidePanelTransferLifecycle;
   userInputAutoResolutionTimer?: CodexUserInputAutoResolutionTimerOptions;
 };
+
+export interface CodexBrowserUseTurnLifecyclePort {
+  releaseSession?(sessionId: string): Promise<void> | void;
+  turnEnded(input: {
+    sessionId: string;
+    turnId: string;
+  }): Promise<void> | void;
+  turnStarted(input: {
+    sessionId: string;
+    turnId: string;
+  }): Promise<void> | void;
+}
 
 type CodexConversationStreamRole = "owner" | "follower" | null;
 
@@ -2440,12 +2457,18 @@ function resolveDefaultCodexRuntime(): ResolvedCodexRuntime {
       return {
         source: "staged",
         binaryPath: path.join(runtimeRoot, "bin", "interpreter"),
+        browserRuntime: {
+          message: "Browser runtime bundle is unavailable until the Agent runtime is staged",
+          reason: "manifest-missing",
+          status: "unavailable",
+        },
         additionalSearchPaths: [path.join(runtimeRoot, "codex-path")],
         codexCompatibilityVersion: null,
         runtimeFamily: "open-interpreter",
         version: null,
         metadataPath: path.join(runtimeRoot, AGENT_RUNTIME_METADATA_FILENAME),
         missingBinaryMessage: "Pinned agent runtime is missing or incomplete. Run `pnpm run stage:codex-runtime:mac`.",
+        rootPath: runtimeRoot,
       };
     }
 
@@ -2458,12 +2481,18 @@ function resolveDefaultCodexRuntime(): ResolvedCodexRuntime {
     return {
       source: "bundled",
       binaryPath: path.join(runtimeRoot, "bin", "interpreter"),
+      browserRuntime: {
+        message: "Browser runtime bundle is unavailable until the Agent runtime is validated",
+        reason: "manifest-missing",
+        status: "unavailable",
+      },
       additionalSearchPaths: [path.join(runtimeRoot, "codex-path")],
       codexCompatibilityVersion: null,
       runtimeFamily: "open-interpreter",
       version: null,
       metadataPath: path.join(runtimeRoot, AGENT_RUNTIME_METADATA_FILENAME),
       missingBinaryMessage: "Bundled agent runtime is missing or corrupted. Reinstall Nodex.",
+      rootPath: runtimeRoot,
     };
   };
 
@@ -2856,6 +2885,12 @@ export class CodexService extends EventEmitter {
   private readonly client: CodexAppServerClient;
   private readonly agentImportCoordinator: AgentImportCoordinator;
   private readonly runtimeStateHome: string;
+  private readonly browserRuntime: BrowserRuntimeAvailability;
+  private readonly browserPluginReconciler: Pick<
+    BrowserPluginReconciler,
+    "ensureInstalled"
+  >;
+  private browserPluginReady = false;
   private readonly providerCredentialStore: ProviderCredentialStore;
   private readonly rateLimitsPollIntervalMs: number;
   private readonly inactiveRendererOwnerRetentionMs: number;
@@ -2874,6 +2909,9 @@ export class CodexService extends EventEmitter {
   private readonly threadCodexConfigBuilder: ((
     cwd: string | null,
   ) => Promise<NonNullable<ThreadStartParams["config"]> | null>) | null;
+  private browserUseAvailableBackends: () => readonly BrowserRuntimeBackend[] =
+    () => [];
+  private browserUseTurnLifecycle: CodexBrowserUseTurnLifecyclePort | null = null;
   private readonly projectlessHomeDirectory: () => string;
   private readonly resolveThreadGoalAttachmentsRoot: () => Promise<string>;
   private readonly pastedTextAttachmentManagersByRoot = new Map<
@@ -3043,6 +3081,7 @@ export class CodexService extends EventEmitter {
     super();
 
     const runtime = options?.runtime ?? resolveDefaultCodexRuntime();
+    this.browserRuntime = runtime.browserRuntime;
     this.runtimeStateHome = path.resolve(
       options?.runtimeStateHome
         ?? path.join(getNodexHome(), "agent"),
@@ -3069,7 +3108,15 @@ export class CodexService extends EventEmitter {
     this.gitSettingsResolver = options?.gitSettingsResolver ?? getCodexGitSettings;
     this.projectAwareDeveloperInstructionsResolver =
       options?.projectAwareDeveloperInstructionsResolver ?? null;
-    this.threadCodexConfigBuilder = options?.threadCodexConfigBuilder ?? null;
+    const browserUseThreadConfigBuilder = new BrowserUseThreadConfigBuilder({
+      availableBackends: () => (
+        this.browserPluginReady ? this.browserUseAvailableBackends() : []
+      ),
+      browserRuntime: runtime.browserRuntime,
+      runtimeStateHome: this.runtimeStateHome,
+    });
+    this.threadCodexConfigBuilder = options?.threadCodexConfigBuilder
+      ?? (async () => await browserUseThreadConfigBuilder.build());
     this.projectlessHomeDirectory = options?.projectlessHomeDirectory ?? homedir;
     this.resolveThreadGoalAttachmentsRoot = async () => {
       const configuredRoot = options?.resolveThreadGoalAttachmentsRoot?.();
@@ -3139,6 +3186,13 @@ export class CodexService extends EventEmitter {
         version: "0.5.0",
       },
     });
+    this.browserPluginReconciler =
+      options?.browserPluginReconciler
+      ?? new BrowserPluginReconciler({
+        availableBackends: () => this.browserUseAvailableBackends(),
+        browserRuntime: this.browserRuntime,
+        client: this.client,
+      });
 
     this.agentImportCoordinator = new AgentImportCoordinator({
       runtimeStateHome: this.runtimeStateHome,
@@ -4276,6 +4330,22 @@ export class CodexService extends EventEmitter {
   ): void {
     this.nodexAgentAuthorizationBroker?.revokeAll();
     this.nodexAgentAuthorizationBroker = broker;
+  }
+
+  getBrowserRuntimeAvailability(): BrowserRuntimeAvailability {
+    return this.browserRuntime;
+  }
+
+  setBrowserUseBackendAvailabilityResolver(
+    resolver: () => readonly BrowserRuntimeBackend[],
+  ): void {
+    this.browserUseAvailableBackends = resolver;
+  }
+
+  setBrowserUseTurnLifecycle(
+    lifecycle: CodexBrowserUseTurnLifecyclePort | null,
+  ): void {
+    this.browserUseTurnLifecycle = lifecycle;
   }
 
   setNodexAgentAuthorityPort(port: NodexAgentAuthorityPort): void {
@@ -7474,6 +7544,16 @@ export class CodexService extends EventEmitter {
 
   private async ensureClientReady(): Promise<void> {
     await this.client.start();
+    const pluginResult = await this.browserPluginReconciler.ensureInstalled();
+    this.browserPluginReady = pluginResult.status === "ready" && pluginResult.enabled;
+    if (
+      pluginResult.status === "unavailable"
+      && pluginResult.reason === "reconciliation-failed"
+    ) {
+      this.logger.warn("Browser plugin is unavailable after runtime verification", {
+        message: pluginResult.message,
+      });
+    }
   }
 
   async readAccountSnapshot(): Promise<CodexAccountSnapshot> {
@@ -10444,6 +10524,7 @@ export class CodexService extends EventEmitter {
     rolloutPath: string | null,
   ): Promise<{ threadId: string; cwd: string }> {
     const executionProfile = thread.executionProfile ?? null;
+    const browserUseConfig = await this.buildMcpCodexConfig(thread.cwd);
     const result = await this.client.request<"thread/resume", ThreadResumeResponse>("thread/resume", {
         threadId: thread.threadId,
         history: null,
@@ -10455,6 +10536,7 @@ export class CodexService extends EventEmitter {
         approvalPolicy: null,
         sandbox: null,
         config: {
+          ...(browserUseConfig ?? {}),
           ...buildCodexThreadConfigOverrides(),
           ...(executionProfile?.harnessId
             ? { harness: executionProfile.harnessId }
@@ -10935,8 +11017,6 @@ export class CodexService extends EventEmitter {
     if (this.threadCodexConfigBuilder) {
       return await this.threadCodexConfigBuilder(cwd);
     }
-    // The exact host returns null when browser/computer-use Node REPL capability
-    // is unavailable. Nodex currently packages only codex and rg.
     return null;
   }
 
@@ -11208,6 +11288,14 @@ export class CodexService extends EventEmitter {
     refreshToken: boolean;
   }): Promise<GetAuthStatusResponse> {
     return await this.client.request<"getAuthStatus", GetAuthStatusResponse>("getAuthStatus", input);
+  }
+
+  async readAuthStatusForDesktopService(input: {
+    includeToken: boolean;
+    refreshToken: boolean;
+  }): Promise<GetAuthStatusResponse> {
+    await this.ensureClientReady();
+    return await this.readAuthStatusForChatGptServices(input);
   }
 
   private async requestAuthenticatedChatGpt(input: Parameters<typeof requestChatGptDesktop>[1]): Promise<Response> {
@@ -24047,6 +24135,14 @@ export class CodexService extends EventEmitter {
       });
       this.forgetThreadLocalState(payload.threadId);
       this.deletedThreadIds.add(payload.threadId);
+      try {
+        await this.browserUseTurnLifecycle?.releaseSession?.(payload.threadId);
+      } catch (error) {
+        this.logger.warn("Browser Use session release failed after thread deletion", {
+          error: error instanceof Error ? error.message : String(error),
+          threadId: payload.threadId,
+        });
+      }
       if (existingThread?.parentThreadId) {
         this.syncParentChildMembershipMetadata(existingThread.parentThreadId, {
           repairMissing: false,
@@ -24248,6 +24344,26 @@ export class CodexService extends EventEmitter {
       if (!canonicalTurnId) return;
       const mergedTurn = this.getKnownTurn(threadId, canonicalTurnId);
       if (!mergedTurn || mergedTurn.turnId === null) return;
+      try {
+        if (method === "turn/started") {
+          await this.browserUseTurnLifecycle?.turnStarted({
+            sessionId: threadId,
+            turnId: mergedTurn.turnId,
+          });
+        } else {
+          await this.browserUseTurnLifecycle?.turnEnded({
+            sessionId: threadId,
+            turnId: mergedTurn.turnId,
+          });
+        }
+      } catch (error) {
+        this.logger.warn("Browser Use turn lifecycle synchronization failed", {
+          error: error instanceof Error ? error.message : String(error),
+          method,
+          threadId,
+          turnId: mergedTurn.turnId,
+        });
+      }
       if (mergedTurn.status !== "inProgress") {
         this.syncTurnDiffItem(threadId, mergedTurn.turnId, mergedTurn.diff, mergedTurn.status);
       }

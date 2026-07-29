@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import {
   lstatSync,
   readFileSync,
@@ -13,8 +14,12 @@ import { writePackagedBuildProvenance } from "./package-provenance.mjs";
 
 const nativeManifestRelativePath = "Contents/Resources/bin/rust-core-runtime.json";
 const agentManifestRelativePath = "Contents/Resources/agent-runtime.json";
+const browserManifestRelativePath =
+  "Contents/Resources/browser-runtime/browser-runtime-manifest.json";
+const browserRuntimeSchemaVersion = 3;
 const expectedBinaryPaths = new Map([
   ["nodex", "Resources/bin/nodex"],
+  ["nodex-browser-profile-helper", "Resources/bin/nodex-browser-profile-helper"],
   ["nodex-core", "Resources/bin/nodex-core"],
   ["nodex-service", "Helpers/Nodex Service.app/Contents/MacOS/nodex-service"],
 ]);
@@ -84,6 +89,24 @@ const requireSafeAgentArtifactPath = (artifactPath, manifestPath) => {
   return artifactPath;
 };
 
+const readMacosTeamIdentifier = (artifactPath) => {
+  const result = spawnSync("codesign", ["-dv", "--verbose=4", artifactPath], {
+    encoding: "utf8",
+  });
+  if (result.error) {
+    throw new Error(`Could not inspect Browser runtime signature: ${result.error.message}`);
+  }
+  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  if (result.status !== 0) {
+    throw new Error(`Could not inspect Browser runtime signature: ${output.trim()}`);
+  }
+  const teamIdentifier = /^TeamIdentifier=(.+)$/mu.exec(output)?.[1]?.trim();
+  if (!teamIdentifier || teamIdentifier === "not set") {
+    throw new Error("Browser runtime peer authorization has no Developer ID team");
+  }
+  return teamIdentifier;
+};
+
 export const refreshSignedAgentRuntimeMetadata = (appPath) => {
   const manifestPath = path.join(appPath, agentManifestRelativePath);
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
@@ -118,6 +141,93 @@ export const refreshSignedAgentRuntimeMetadata = (appPath) => {
   });
 
   writeManifestAtomically(manifestPath, { ...manifest, artifacts });
+};
+
+export const refreshSignedBrowserRuntimeManifest = (
+  appPath,
+  options = {},
+) => {
+  const manifestPath = path.join(appPath, browserManifestRelativePath);
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  } catch (error) {
+    if (error && typeof error === "object" && error.code === "ENOENT") return false;
+    throw error;
+  }
+  if (
+    manifest.schemaVersion !== browserRuntimeSchemaVersion
+    || manifest.contractVersion !== 1
+    || !Array.isArray(manifest.artifacts)
+  ) {
+    throw new Error(`Unsupported Browser runtime manifest: ${manifestPath}`);
+  }
+
+  const seenPaths = new Set();
+  const artifacts = manifest.artifacts.map((entry) => {
+    const artifactPath = requireSafeAgentArtifactPath(entry.path, manifestPath);
+    if (
+      seenPaths.has(artifactPath)
+      || typeof entry.executable !== "boolean"
+      || !["data", "executable", "native-addon"].includes(entry.kind)
+    ) {
+      throw new Error(`Invalid Browser runtime artifact entry in ${manifestPath}`);
+    }
+    seenPaths.add(artifactPath);
+
+    const bundledPath = path.join(
+      appPath,
+      "Contents",
+      "Resources",
+      "browser-runtime",
+      ...artifactPath.split("/"),
+    );
+    const metadata = lstatSync(bundledPath);
+    const executable = (metadata.mode & 0o111) !== 0;
+    if (metadata.isSymbolicLink() || !metadata.isFile() || executable !== entry.executable) {
+      throw new Error(`Browser runtime entry is not a regular artifact: ${bundledPath}`);
+    }
+    return {
+      ...entry,
+      sha256: sha256File(bundledPath),
+      size: metadata.size,
+    };
+  });
+
+  const peerAuthorizationPath = requireSafeAgentArtifactPath(
+    manifest.entrypoints?.peerAuthorization,
+    manifestPath,
+  );
+  const peerAuthorization = artifacts.find(
+    (artifact) => artifact.path === peerAuthorizationPath,
+  );
+  if (
+    !peerAuthorization
+    || peerAuthorization.kind !== "native-addon"
+    || !manifest.peerAuthorization
+  ) {
+    throw new Error(`Browser runtime peer authorization is invalid: ${manifestPath}`);
+  }
+  const bundledPeerAuthorizationPath = path.join(
+    appPath,
+    "Contents",
+    "Resources",
+    "browser-runtime",
+    ...peerAuthorizationPath.split("/"),
+  );
+  const signingTeamId = (
+    options.readSigningTeamIdentifier ?? readMacosTeamIdentifier
+  )(bundledPeerAuthorizationPath);
+
+  writeManifestAtomically(manifestPath, {
+    ...manifest,
+    artifacts,
+    peerAuthorization: {
+      ...manifest.peerAuthorization,
+      signingTeamId,
+    },
+  });
+  return true;
 };
 
 const signWithRetry = async (options) => {
@@ -167,6 +277,7 @@ export const sign = async (options) => {
 
   refreshSignedNativeRuntimeManifest(signOptions.app);
   refreshSignedAgentRuntimeMetadata(signOptions.app);
+  refreshSignedBrowserRuntimeManifest(signOptions.app);
   writePackagedBuildProvenance(signOptions.app);
 
   await signWithRetry({

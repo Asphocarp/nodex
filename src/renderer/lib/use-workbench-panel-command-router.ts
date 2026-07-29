@@ -49,6 +49,7 @@ import {
 } from "../../shared/workbench-panel-layout";
 import {
   requireWorkbenchBrowserTabProjectionId,
+  type BrowserSidebarOpenNewTabRequest,
 } from "../../shared/browser-sidebar";
 import type {
   WorkbenchPanelController,
@@ -214,7 +215,11 @@ export function useWorkbenchPanelCommandRouter({
     createManualTab,
   } = sessionCommands;
 
-const createBrowserTabToRight = useCallback(async (sourceTab: WorkbenchTabProjection, duplicate: boolean) => {
+  const createBrowserTabToRight = useCallback(async (
+    sourceTab: WorkbenchTabProjection,
+    duplicate: boolean,
+    openRequest?: BrowserSidebarOpenNewTabRequest,
+  ) => {
     if (!activeSession) return;
     const sessionProjectId = activeSession.projectId;
     const panelId = sourceTab.panelId;
@@ -227,7 +232,11 @@ const createBrowserTabToRight = useCallback(async (sourceTab: WorkbenchTabProjec
       sessionId: activeSession.id,
       panelId,
       kind: "browser",
-      title: duplicate ? sourceTab.title || "Browser" : "Browser",
+      title: duplicate
+        ? sourceTab.title || "Browser"
+        : openRequest?.url === "about:blank"
+          ? "Browser"
+          : openRequest?.url ?? "Browser",
       config: duplicate
         ? {
             projectId: sessionProjectId,
@@ -238,7 +247,10 @@ const createBrowserTabToRight = useCallback(async (sourceTab: WorkbenchTabProjec
               ? { deviceToolbarVisible: sourceConfig.deviceToolbarVisible }
               : {}),
           }
-        : { projectId: sessionProjectId },
+        : {
+            projectId: sessionProjectId,
+            ...(openRequest ? { url: openRequest.url } : {}),
+          },
     });
     if (!created) return;
 
@@ -252,7 +264,9 @@ const createBrowserTabToRight = useCallback(async (sourceTab: WorkbenchTabProjec
         },
       );
     }
-    await setActivePanelTab(panelId, created.id, { openPanel: true });
+    if (!openRequest?.background) {
+      await setActivePanelTab(panelId, created.id, { openPanel: true });
+    }
   }, [activeSession, createSessionViewTab, setActivePanelTab]);
 
   const reloadBrowserTab = useCallback((tab: WorkbenchTabProjection) => {

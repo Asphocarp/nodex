@@ -24,10 +24,17 @@ const manifest = {
       file: "Mach-O 64-bit executable arm64",
     },
     {
-      name: "nodex-service",
-      bundlePath: "Helpers/Nodex Service.app/Contents/MacOS/nodex-service",
+      name: "nodex-browser-profile-helper",
+      bundlePath: "Resources/bin/nodex-browser-profile-helper",
       sourceSha256: "c".repeat(64),
       sourceSize: 12,
+      file: "Mach-O 64-bit executable arm64",
+    },
+    {
+      name: "nodex-service",
+      bundlePath: "Helpers/Nodex Service.app/Contents/MacOS/nodex-service",
+      sourceSha256: "d".repeat(64),
+      sourceSize: 13,
       file: "Mach-O 64-bit executable arm64",
     },
   ],
@@ -43,7 +50,12 @@ describe("native runtime manifest", () => {
       .toThrow("Rust target");
     expect(() => parseNativeRuntimeManifest({
       ...manifest,
-      binaries: [manifest.binaries[0], manifest.binaries[0], manifest.binaries[1]],
+      binaries: [
+        manifest.binaries[0],
+        manifest.binaries[0],
+        manifest.binaries[1],
+        manifest.binaries[2],
+      ],
     })).toThrow("each required binary exactly once");
   });
 });

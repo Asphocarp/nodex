@@ -356,6 +356,52 @@ const smokeLegacyProfileMigration = async (
   }
 };
 
+const smokeBrowserProfileHelper = (appPath: string): void => {
+  const directory = mkdtempSync("/tmp/ndx-browser-profile-helper-");
+  try {
+    const helper = join(
+      appPath,
+      "Contents/Resources/bin/nodex-browser-profile-helper",
+    );
+    const result = spawnSync(helper, [], {
+      cwd: directory,
+      encoding: "utf8",
+      env: restrictedEnvironment(directory),
+      input: JSON.stringify({
+        schemaVersion: 1,
+        operation: "read-profile",
+        source: "chrome",
+        profilePath: join(directory, "missing-profile"),
+        includeCookies: true,
+        includePasswords: false,
+        cookieDomainAllowlist: [],
+      }),
+      timeout: 5_000,
+    });
+    if (result.error || result.status !== 0) {
+      throw new Error(
+        `Packaged Browser Profile helper failed to start: ${
+          result.error?.message ?? result.stderr.trim()
+        }`,
+      );
+    }
+    const response = JSON.parse(result.stdout) as {
+      readonly errorCode?: unknown;
+      readonly ok?: unknown;
+      readonly schemaVersion?: unknown;
+    };
+    if (
+      response.schemaVersion !== 1
+      || response.ok !== false
+      || response.errorCode !== "data_unavailable"
+    ) {
+      throw new Error("Packaged Browser Profile helper returned an invalid envelope");
+    }
+  } finally {
+    removePrivateTemporaryDirectory(directory);
+  }
+};
+
 const runWithEnvironment = (
   command: string,
   arguments_: readonly string[],
@@ -467,6 +513,7 @@ export async function verifyPackagedNativeRuntime(options: VerificationOptions):
     appPath,
     resolve(options.legacyProfileFixturePath ?? DEFAULT_LEGACY_PROFILE_FIXTURE),
   );
+  smokeBrowserProfileHelper(appPath);
   if (options.launchApp) await launchAppSmoke(appPath);
   process.stdout.write(`Verified packaged native runtime ${options.targetArch}\n`);
 }

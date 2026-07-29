@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "crates/nodex-browser-profile-helper",
   "crates/nodex-cli",
   "crates/nodex-core",
   "crates/nodex-core-contracts",
@@ -20,6 +21,8 @@ nodex-core-protocol = { path = "crates/nodex-core-protocol" }
 async-stream = "0.3.6"
 axum = "=0.8.4"
 base64 = "0.22.1"
+aes = "0.8.4"
+cbc = "0.1.2"
 chrono = "=0.4.42"
 chrono-tz = { version = "=0.10.4", default-features = false, features = ["std"] }
 clap = { version = "=4.6.3", features = ["derive"] }
@@ -27,6 +30,7 @@ fs2 = "0.4.3"
 futures-core = "0.3.31"
 getrandom = "0.3.4"
 hex = "0.4.3"
+pbkdf2 = "0.12.2"
 http-body-util = "0.1.3"
 hyper = { version = "1.10.1", features = ["http1", "server"] }
 hyper-util = { version = "0.1.20", features = ["tokio"] }
@@ -36,6 +40,7 @@ rusqlite = { version = "=0.40.1", default-features = false, features = ["backup"
 rustix = { version = "=1.1.4", features = ["fs", "process"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
+sha1 = "0.10.6"
 sha2 = "0.10.9"
 signal-hook = "=0.4.4"
 similar = "=3.1.1"

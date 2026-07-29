@@ -25,7 +25,13 @@ function makeMockServerScript(): { scriptPath: string; cleanup: () => void } {
       "rl.on('line', (line) => {",
       "  if (!line.trim()) return;",
       "  const msg = JSON.parse(line);",
-      "  if (msg.method === 'initialize') { send({ id: msg.id, result: { userAgent: process.env.NODEX_TEST_RUNTIME_ENV || 'mock/0.0.1', codexHome: '/tmp/mock-codex-home', platformFamily: 'unix', platformOs: 'macos' } }); return; }",
+      "  if (msg.method === 'initialize') {",
+      "    const userAgent = process.env.NODEX_TEST_CAPTURE_INITIALIZE === '1'",
+      "      ? JSON.stringify(msg.params?.capabilities ?? null)",
+      "      : process.env.NODEX_TEST_RUNTIME_ENV || 'mock/0.0.1';",
+      "    send({ id: msg.id, result: { userAgent, codexHome: '/tmp/mock-codex-home', platformFamily: 'unix', platformOs: 'macos' } });",
+      "    return;",
+      "  }",
       "  if (msg.method === 'initialized') { return; }",
       "  if (msg.method === 'echo') {",
       "    const delay = Number(msg.params?.delay ?? 0);",
@@ -154,6 +160,30 @@ describe("codex-app-server-client", () => {
     } finally {
       await client.stop();
       expect(client.getInitializeResponse()).toBeNull();
+      mock.cleanup();
+    }
+  });
+
+  test("advertises support for OpenAI form elicitations during initialize", async () => {
+    const mock = makeMockServerScript();
+    const client = new CodexAppServerClient({
+      binaryPath: process.execPath,
+      args: [mock.scriptPath],
+      env: {
+        ...process.env,
+        NODEX_TEST_CAPTURE_INITIALIZE: "1",
+      },
+    });
+
+    try {
+      await client.start();
+      expect(JSON.parse(client.getInitializeResponse()?.userAgent ?? "null")).toEqual({
+        experimentalApi: true,
+        mcpServerOpenaiFormElicitation: true,
+        requestAttestation: false,
+      });
+    } finally {
+      await client.stop();
       mock.cleanup();
     }
   });

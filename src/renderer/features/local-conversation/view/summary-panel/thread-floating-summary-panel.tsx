@@ -1276,7 +1276,7 @@ export function ThreadSummaryPanelSurface({
   }, [onOpenScheduledAutomation]);
   const handleOpenAuxiliaryRow = useCallback((
     row: Pick<ThreadSummaryPanelAuxiliaryRow, "id" | "panelId" | "leafId">,
-    open: ThreadStageActions["onOpenSummarySideChatRow"] | ThreadStageActions["onOpenSummaryBrowserRow"],
+    open: ThreadStageActions["onOpenSummarySideChatRow"],
   ) => {
     if (!open || !row.panelId) return;
     void open({
@@ -1285,6 +1285,16 @@ export function ThreadSummaryPanelSurface({
       leafId: row.leafId ?? null,
     });
   }, []);
+  const handleOpenBrowserRow = useCallback((
+    row: ThreadSummaryPanelBrowserRow,
+  ) => {
+    void actions?.onOpenSummaryBrowserRow?.({
+      browserTabId: row.browserTabId,
+      rowId: row.id,
+      ...(row.panelId ? { panelId: row.panelId } : {}),
+      leafId: row.leafId ?? null,
+    });
+  }, [actions]);
   const processManagerAction = actions?.onOpenProcessManager ? (
     <NodexTooltip tooltipContent="View all processes" side="top">
       <button
@@ -1684,9 +1694,9 @@ export function ThreadSummaryPanelSurface({
                     title="Browser"
                     titleSuffix={<SummaryCountBadge count={section.count ?? browserRows.length} />}
                   >
-                    {browserRows.slice(0, 4).map((row) => (
+                    {browserRows.map((row) => (
                       <ThreadSummaryPanelRow
-                        key={row.id}
+                        key={row.browserTabId}
                         label={<SummaryBrowserRowLabel row={row} />}
                         title={getBrowserRowTitle(row)}
                         aria-label={getBrowserRowAriaLabel(row)}
@@ -1695,9 +1705,9 @@ export function ThreadSummaryPanelSurface({
                           "min-w-0 flex-1",
                           !row.isAgentWorking && "flex items-baseline gap-2",
                         )}
-                        interactive={Boolean(actions?.onOpenSummaryBrowserRow && row.panelId)}
-                        onClick={actions?.onOpenSummaryBrowserRow && row.panelId
-                          ? () => handleOpenAuxiliaryRow(row, actions.onOpenSummaryBrowserRow)
+                        interactive={Boolean(actions?.onOpenSummaryBrowserRow)}
+                        onClick={actions?.onOpenSummaryBrowserRow
+                          ? () => handleOpenBrowserRow(row)
                           : undefined}
                       />
                     ))}

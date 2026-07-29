@@ -1,3 +1,6 @@
+import type { BrowserSidebarDeviceToolbarState } from "../../../shared/browser-sidebar";
+import { BrowserSidebarDeviceToolbarStateSchema } from "../../../shared/browser/browser-schemas";
+
 interface BrowserTabConfigCarrier {
   config: unknown;
 }
@@ -25,4 +28,22 @@ export function readBrowserConfigFavicon(tab: BrowserTabConfigCarrier): string |
 export function readBrowserConfigDeviceToolbarVisible(tab: BrowserTabConfigCarrier): boolean {
   const config = readBrowserConfig(tab);
   return config.deviceToolbarVisible === true;
+}
+
+export function readBrowserConfigDeviceToolbarState(
+  tab: BrowserTabConfigCarrier,
+): BrowserSidebarDeviceToolbarState | undefined {
+  const result = BrowserSidebarDeviceToolbarStateSchema.safeParse(
+    readBrowserConfig(tab).deviceToolbarState,
+  );
+  return result.success ? result.data : undefined;
+}
+
+export function readBrowserConfigStorageId(
+  tab: BrowserTabConfigCarrier,
+): string | undefined {
+  const value = readBrowserConfig(tab).browserStorageId;
+  return typeof value === "string" && value.trim().length > 0
+    ? value
+    : undefined;
 }

@@ -1,0 +1,266 @@
+import { createHash } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import {
+  BROWSER_RUNTIME_BUNDLE_DIRECTORY,
+  BROWSER_RUNTIME_MANIFEST_FILENAME,
+  parseBrowserRuntimeManifest,
+  type BrowserRuntimeArtifact,
+  type BrowserRuntimeManifest,
+} from "../../shared/browser-runtime-metadata";
+
+export type BrowserRuntimeUnavailableReason =
+  | "artifact-integrity"
+  | "artifact-invalid"
+  | "artifact-missing"
+  | "backend-unavailable"
+  | "incompatible-codex"
+  | "invalid-manifest"
+  | "manifest-missing"
+  | "module-directory-invalid"
+  | "platform-verification-failed"
+  | "target-mismatch";
+
+export type VerifiedBrowserRuntimeBundle = {
+  browserPluginClientSha256: string;
+  browserPluginMarketplaceRoot: string;
+  browserPluginRoot: string;
+  manifest: BrowserRuntimeManifest;
+  manifestPath: string;
+  nodeModuleDirs: string[];
+  paths: {
+    browserPluginClient: string;
+    browserPluginDocs: string;
+    browserPluginManifest: string;
+    codexCli: string;
+    node: string;
+    nodeRepl: string;
+    peerAuthorization: string;
+  };
+  rootPath: string;
+};
+
+export type BrowserRuntimeAvailability =
+  | {
+    message: string;
+    reason: BrowserRuntimeUnavailableReason;
+    status: "unavailable";
+  }
+  | {
+    bundle: VerifiedBrowserRuntimeBundle;
+    status: "available";
+  };
+
+type ResolveBrowserRuntimeBundleOptions = {
+  expectedCodexCompatibilityVersion: string;
+  platformArtifactVerifier?: BrowserRuntimePlatformArtifactVerifier;
+  runtimeRoot: string;
+  targetArch?: NodeJS.Architecture;
+  targetPlatform?: NodeJS.Platform;
+};
+
+export type BrowserRuntimePlatformArtifactVerifier = (input: {
+  artifact: BrowserRuntimeArtifact;
+  artifactPath: string;
+  manifest: BrowserRuntimeManifest;
+}) => string | null;
+
+function unavailable(
+  reason: BrowserRuntimeUnavailableReason,
+  message: string,
+): BrowserRuntimeAvailability {
+  return { message, reason, status: "unavailable" };
+}
+
+function resolveRelativePath(rootPath: string, relativePath: string): string {
+  return path.join(rootPath, ...relativePath.split("/"));
+}
+
+function readSha256(filePath: string): string {
+  const hash = createHash("sha256");
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  const fileDescriptor = fs.openSync(filePath, "r");
+  try {
+    for (;;) {
+      const bytesRead = fs.readSync(fileDescriptor, buffer, 0, buffer.length, null);
+      if (bytesRead === 0) return hash.digest("hex");
+      hash.update(buffer.subarray(0, bytesRead));
+    }
+  } finally {
+    fs.closeSync(fileDescriptor);
+  }
+}
+
+function validateDirectoryPath(rootPath: string, relativePath: string): boolean {
+  let currentPath = rootPath;
+  for (const segment of relativePath.split("/")) {
+    currentPath = path.join(currentPath, segment);
+    let stats: fs.Stats;
+    try {
+      stats = fs.lstatSync(currentPath);
+    } catch {
+      return false;
+    }
+    if (!stats.isDirectory() || stats.isSymbolicLink()) return false;
+  }
+  return true;
+}
+
+function validateArtifact(
+  rootPath: string,
+  artifact: BrowserRuntimeArtifact,
+): BrowserRuntimeAvailability | null {
+  const segments = artifact.path.split("/");
+  if (segments.length > 1 && !validateDirectoryPath(rootPath, segments.slice(0, -1).join("/"))) {
+    return unavailable(
+      "artifact-invalid",
+      `Browser runtime artifact has an invalid parent directory: ${artifact.path}`,
+    );
+  }
+
+  const artifactPath = resolveRelativePath(rootPath, artifact.path);
+  let stats: fs.Stats;
+  try {
+    stats = fs.lstatSync(artifactPath);
+  } catch {
+    return unavailable(
+      "artifact-missing",
+      `Browser runtime artifact is missing: ${artifact.path}`,
+    );
+  }
+  if (!stats.isFile() || stats.isSymbolicLink()) {
+    return unavailable(
+      "artifact-invalid",
+      `Browser runtime artifact is not a regular file: ${artifact.path}`,
+    );
+  }
+  if (artifact.executable && (stats.mode & 0o111) === 0) {
+    return unavailable(
+      "artifact-invalid",
+      `Browser runtime artifact is not executable: ${artifact.path}`,
+    );
+  }
+  if (stats.size !== artifact.size || readSha256(artifactPath) !== artifact.sha256) {
+    return unavailable(
+      "artifact-integrity",
+      `Browser runtime artifact does not match its manifest: ${artifact.path}`,
+    );
+  }
+  return null;
+}
+
+function readManifest(manifestPath: string): BrowserRuntimeManifest | null {
+  try {
+    return parseBrowserRuntimeManifest(JSON.parse(fs.readFileSync(manifestPath, "utf8")));
+  } catch {
+    return null;
+  }
+}
+
+export function resolveBrowserRuntimeBundle(
+  options: ResolveBrowserRuntimeBundleOptions,
+): BrowserRuntimeAvailability {
+  const rootPath = path.join(options.runtimeRoot, BROWSER_RUNTIME_BUNDLE_DIRECTORY);
+  const manifestPath = path.join(rootPath, BROWSER_RUNTIME_MANIFEST_FILENAME);
+  if (!fs.existsSync(manifestPath)) {
+    return unavailable(
+      "manifest-missing",
+      `Browser runtime bundle is unavailable: ${BROWSER_RUNTIME_MANIFEST_FILENAME} is missing`,
+    );
+  }
+
+  let rootStats: fs.Stats;
+  try {
+    rootStats = fs.lstatSync(rootPath);
+  } catch {
+    return unavailable("manifest-missing", "Browser runtime bundle directory is missing");
+  }
+  if (!rootStats.isDirectory() || rootStats.isSymbolicLink()) {
+    return unavailable("invalid-manifest", "Browser runtime bundle directory is invalid");
+  }
+  let manifestStats: fs.Stats;
+  try {
+    manifestStats = fs.lstatSync(manifestPath);
+  } catch {
+    return unavailable("manifest-missing", "Browser runtime bundle manifest is missing");
+  }
+  if (!manifestStats.isFile() || manifestStats.isSymbolicLink()) {
+    return unavailable("invalid-manifest", "Browser runtime bundle manifest is not a regular file");
+  }
+
+  const manifest = readManifest(manifestPath);
+  if (!manifest) {
+    return unavailable("invalid-manifest", "Browser runtime bundle manifest is invalid");
+  }
+  if (manifest.codexCompatibilityVersion !== options.expectedCodexCompatibilityVersion) {
+    return unavailable(
+      "incompatible-codex",
+      "Browser runtime bundle does not match the active Codex compatibility version",
+    );
+  }
+  if (
+    manifest.targetPlatform !== (options.targetPlatform ?? process.platform)
+    || manifest.targetArch !== (options.targetArch ?? process.arch)
+  ) {
+    return unavailable(
+      "target-mismatch",
+      "Browser runtime bundle does not match the active platform and architecture",
+    );
+  }
+
+  for (const artifact of manifest.artifacts) {
+    const failure = validateArtifact(rootPath, artifact);
+    if (failure) return failure;
+    if (artifact.kind === "data" || !options.platformArtifactVerifier) continue;
+    let verificationMessage: string | null;
+    try {
+      verificationMessage = options.platformArtifactVerifier({
+        artifact,
+        artifactPath: resolveRelativePath(rootPath, artifact.path),
+        manifest,
+      });
+    } catch (error) {
+      verificationMessage = error instanceof Error ? error.message : String(error);
+    }
+    if (verificationMessage) {
+      return unavailable(
+        "platform-verification-failed",
+        `Browser runtime platform verification failed for ${artifact.path}: ${verificationMessage}`,
+      );
+    }
+  }
+  for (const nodeModuleDir of manifest.browserPlugin.nodeModuleDirs) {
+    if (!validateDirectoryPath(rootPath, nodeModuleDir)) {
+      return unavailable(
+        "module-directory-invalid",
+        `Browser runtime Node module directory is invalid: ${nodeModuleDir}`,
+      );
+    }
+  }
+
+  const artifactByPath = new Map(
+    manifest.artifacts.map((artifact) => [artifact.path, artifact]),
+  );
+  const resolve = (relativePath: string): string => resolveRelativePath(rootPath, relativePath);
+  return {
+    status: "available",
+    bundle: {
+      browserPluginClientSha256: artifactByPath.get(manifest.browserPlugin.client)!.sha256,
+      browserPluginMarketplaceRoot: resolve(manifest.browserPlugin.marketplaceRoot),
+      browserPluginRoot: resolve(manifest.browserPlugin.root),
+      manifest,
+      manifestPath,
+      nodeModuleDirs: manifest.browserPlugin.nodeModuleDirs.map(resolve),
+      paths: {
+        browserPluginClient: resolve(manifest.browserPlugin.client),
+        browserPluginDocs: resolve(manifest.browserPlugin.docs),
+        browserPluginManifest: resolve(manifest.browserPlugin.manifest),
+        codexCli: resolve(manifest.entrypoints.codexCli),
+        node: resolve(manifest.entrypoints.node),
+        nodeRepl: resolve(manifest.entrypoints.nodeRepl),
+        peerAuthorization: resolve(manifest.entrypoints.peerAuthorization),
+      },
+      rootPath,
+    },
+  };
+}

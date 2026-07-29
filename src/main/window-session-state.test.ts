@@ -540,6 +540,74 @@ describe("WindowSessionState", () => {
     });
   });
 
+  test("migrates Browser storage identity once per Window Session", () => {
+    withTempUserData((userDataPath) => {
+      let view = materializeInitialWorkbenchSessionView({
+        id: "project-session-1",
+        projectId: "project-1",
+        databaseViewId: null,
+      });
+      view = createWorkbenchSessionViewTab(view, {
+        panelId: "right",
+        tab: {
+          id: "browser-tab",
+          kind: "browser",
+          titleSnapshot: "Browser",
+          config: {
+            browserTabId: "shared-browser-tab",
+            url: "https://example.com",
+          },
+          stateKey: 0,
+          state: null,
+        },
+      });
+      const legacyView = {
+        ...view,
+        version: 1,
+      };
+      const layout = {
+        ...createDefaultWorkbenchLayoutSnapshot(),
+        sessionViewsBySessionId: {
+          "project-session-1": legacyView,
+        },
+      };
+      const timestamp = "2026-07-29T00:00:00.000Z";
+      writeFileSync(
+        join(
+          userDataPath,
+          windowSessionStateTestHelpers.stateFileName,
+        ),
+        JSON.stringify({
+          version: 3,
+          lastActiveSessionId: "window-a",
+          sessions: ["window-a", "window-b"].map((id) => ({
+            id,
+            lifecycle: { state: "open" },
+            layoutRevision: 1,
+            layout,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            focusedAt: timestamp,
+          })),
+        }),
+      );
+
+      const migrated = new WindowSessionState(userDataPath).readCatalog();
+      const storageIds = migrated?.sessions.map((session) => {
+        const tab = session.layout.sessionViewsBySessionId[
+          "project-session-1"
+        ]?.tabsById["browser-tab"];
+        return tab?.kind === "browser"
+          ? tab.config.browserStorageId
+          : undefined;
+      });
+
+      expect(storageIds?.[0]).toMatch(/^browser:migrated:[a-f0-9]{64}$/u);
+      expect(storageIds?.[1]).toMatch(/^browser:migrated:[a-f0-9]{64}$/u);
+      expect(storageIds?.[0]).not.toBe(storageIds?.[1]);
+    });
+  });
+
   test("preserves a malformed v3 catalog and recovers with a fresh one", () => {
     withTempUserData((userDataPath) => {
       const statePath = join(

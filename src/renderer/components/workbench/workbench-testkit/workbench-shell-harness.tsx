@@ -95,9 +95,10 @@ import {
   listWorkbenchPanelLeaves,
 } from "../../../../shared/workbench-panel-layout";
 import { parseWorkbenchProjectionTabConfig } from "../../../../shared/schemas/project-sessions";
-import type {
-  WorkbenchSessionViewSnapshot,
-  WorkbenchSessionViewTab,
+import {
+  WORKBENCH_SESSION_VIEW_VERSION,
+  type WorkbenchSessionViewSnapshot,
+  type WorkbenchSessionViewTab,
 } from "../../../../shared/workbench-session-view";
 
 export let invokeCalls: unknown[][] = [];
@@ -1658,7 +1659,7 @@ export function makeSessionViewFixture(session: ProjectSession): WorkbenchSessio
     return [tab.id, viewTab as WorkbenchSessionViewTab];
   }));
   return {
-    version: 1,
+    version: WORKBENCH_SESSION_VIEW_VERSION,
     sessionId: session.id,
     tabsById,
     panels: session.panels,

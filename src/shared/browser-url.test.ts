@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { isBlankBrowserUrl, normalizeBrowserNavigationUrl } from "./browser-url";
+import {
+  isAllowedBrowserExternalUrl,
+  isAllowedBrowserNavigationUrl,
+  isBlankBrowserUrl,
+  normalizeBrowserNavigationUrl,
+} from "./browser-url";
 
 describe("browser URL helpers", () => {
   test("normalizes empty input to the blank browser page", () => {
@@ -20,5 +25,24 @@ describe("browser URL helpers", () => {
       "https://www.google.com/search?q=codex%20browser%20tab",
     );
   });
-});
 
+  test("allows only explicit Browser navigation and external URL schemes", () => {
+    expect(isAllowedBrowserNavigationUrl("about:blank")).toBe(true);
+    expect(isAllowedBrowserNavigationUrl("https://example.com/")).toBe(true);
+    expect(isAllowedBrowserNavigationUrl("chrome://extensions")).toBe(true);
+    expect(isAllowedBrowserNavigationUrl("chrome://flags")).toBe(false);
+    expect(isAllowedBrowserNavigationUrl("javascript:alert(1)")).toBe(false);
+    expect(isAllowedBrowserNavigationUrl("data:text/html,test")).toBe(false);
+    expect(isAllowedBrowserNavigationUrl("file:///tmp/secret")).toBe(false);
+    expect(
+      isAllowedBrowserNavigationUrl("https://user:secret@example.com/private"),
+    ).toBe(false);
+
+    expect(isAllowedBrowserExternalUrl("mailto:hello@example.com")).toBe(true);
+    expect(isAllowedBrowserExternalUrl("https://example.com/")).toBe(true);
+    expect(
+      isAllowedBrowserExternalUrl("https://user:secret@example.com/private"),
+    ).toBe(false);
+    expect(isAllowedBrowserExternalUrl("file:///tmp/secret")).toBe(false);
+  });
+});

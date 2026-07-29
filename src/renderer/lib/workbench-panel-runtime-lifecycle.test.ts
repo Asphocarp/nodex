@@ -45,6 +45,7 @@ describe("Workbench panel runtime lifecycle", () => {
         flushFile: async () => false,
         releaseTerminal: vi.fn(),
         removeDescriptor,
+        closeBrowserRuntime: vi.fn(),
         disposePageEditor: vi.fn(),
         disposeCanvas: async () => true,
       },
@@ -67,6 +68,7 @@ describe("Workbench panel runtime lifecycle", () => {
         flushFile: async () => true,
         releaseTerminal: () => calls.push("release"),
         removeDescriptor: () => calls.push("remove"),
+        closeBrowserRuntime: vi.fn(),
         disposePageEditor: vi.fn(),
         disposeCanvas: async () => true,
       },
@@ -86,6 +88,7 @@ describe("Workbench panel runtime lifecycle", () => {
         flushFile: async () => true,
         releaseTerminal: vi.fn(),
         removeDescriptor: () => calls.push("remove"),
+        closeBrowserRuntime: vi.fn(),
         disposePageEditor: async () => {
           calls.push("dispose");
         },
@@ -108,6 +111,7 @@ describe("Workbench panel runtime lifecycle", () => {
         flushFile: async () => true,
         releaseTerminal: vi.fn(),
         removeDescriptor,
+        closeBrowserRuntime: vi.fn(),
         disposePageEditor: vi.fn(),
         disposeCanvas: async () => false,
       },
@@ -118,6 +122,29 @@ describe("Workbench panel runtime lifecycle", () => {
       reason: "canvas-durability",
     });
     expect(removeDescriptor).not.toHaveBeenCalled();
+  });
+
+  test("Browser descriptor removal precedes the idempotent runtime close", async () => {
+    const calls: string[] = [];
+    const result = await closeDurablePanelTabWithRuntime(
+      makeTab("browser", {
+        projectId: "project:one",
+        url: "https://example.com",
+      }),
+      {
+        flushFile: async () => true,
+        releaseTerminal: vi.fn(),
+        removeDescriptor: () => calls.push("remove"),
+        closeBrowserRuntime: async (browserTabId) => {
+          calls.push(`close:${browserTabId}`);
+        },
+        disposePageEditor: vi.fn(),
+        disposeCanvas: async () => true,
+      },
+    );
+
+    expect(result).toEqual({ status: "closed" });
+    expect(calls).toEqual(["remove", "close:browser:one"]);
   });
 
   test("retained Browser preview does not close the shared runtime", async () => {

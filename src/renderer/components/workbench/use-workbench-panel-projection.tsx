@@ -164,6 +164,7 @@ interface WorkbenchPanelProjectionInput {
     | "activeSearchQuery"
     | "activeView"
     | "browserViewScopeId"
+    | "onOpenBrowserSettings"
     | "windowSessionId"
     | "dbViewPrefsByProject"
     | "onLeavePageStage"
@@ -683,6 +684,12 @@ export function useWorkbenchPanelProjection({
               onRefreshSessions={onRefreshSessions}
               onCloseTab={closeTab}
               onUpdateTab={onUpdateSessionViewTab}
+              {...(tab.kind === "browser"
+                ? {
+                    onOpenBrowserTab: (request) =>
+                      createBrowserTabToRight(tab, false, request),
+                  }
+                : {})}
               onCreateTerminalTab={(panelId, leafId) =>
                 createManualTab("terminal", panelId, leafId)}
               onOpenThread={openAttachedThreadSessionById}
@@ -692,7 +699,14 @@ export function useWorkbenchPanelProjection({
               browserBoundsSyncTrigger={
                 browserBoundsSyncTriggerByPanel[tab.panelId]
               }
-              isActivePanelTab={panelContext.active}
+              isActivePanelTab={
+                panelContext.active
+                && (
+                  tab.panelId === "right"
+                    ? model.sidePanelOpen
+                    : model.bottomPanelOpen
+                )
+              }
             />
           );
         },

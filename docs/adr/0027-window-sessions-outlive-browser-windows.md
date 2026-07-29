@@ -41,8 +41,8 @@ normal restart or crash recovery can restore the window.
 Generic New Window acquisition reattaches the most recently closed record
 before it considers cloning the active window. Repeated use follows reverse
 close order. Reattachment preserves the exact Window Session ID, Browser
-scope, Workbench tab and split-tree identities, layout revision, and saved
-bounds. It does not clone or synchronize another window. If native window
+scope, Workbench tab and split-tree identities, Browser storage identity,
+layout revision, and saved bounds. It does not clone or synchronize another window. If native window
 creation fails, Main rolls the catalog back to the exact closed record.
 
 When no closed record remains, a generic New Window request flushes and clones

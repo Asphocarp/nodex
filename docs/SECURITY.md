@@ -7,6 +7,56 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
 - Boundary validation for typed Core Module and IPC requests.
 - No arbitrary SQL inspection route in IPC or the public CLI.
 - Electron preload bridge limits renderer access to a typed API surface.
+- Built-in Browser guests are accepted only from a registered top-level app
+  window whose Window Session, complete Browser route, storage identity, renderer
+  instance, host generation, and mount generation all match. The partition
+  carries the untrusted route claim; Main matches it to its registered host and
+  takes the storage identity from that registration rather than trusting custom
+  DOM attributes, which Electron does not expose as attachment parameters. Main
+  strips renderer-authored preload/web preferences and forces sandboxing,
+  context isolation, no Node in frames/workers, no nested
+  webviews/plugins/insecure content, one fixed guest preload, and the shared
+  persistent Browser Profile in the effective `webPreferences.partition`.
+  Main correlates Electron's attach `instanceId`/`viewInstanceId` pair and
+  activates ownership during `did-attach-webview`, before accepting any
+  renderer host acknowledgement or guest preload message. Guest preload
+  messages are enumerated and rebound to that registered guest route; remote
+  pages receive no Node, filesystem, arbitrary IPC/invoke, or credential
+  capability.
+- Browser address, popup, external-protocol, page-context, and IPC navigation
+  all pass the same URL policy. `javascript:`, `data:`, credential-bearing URLs,
+  and unknown protocols never reach `loadURL`; external protocols require an
+  allowed scheme plus user-owned action. The Browser Profile grants only
+  top-frame sanitized clipboard writes by default. Permission check and request
+  handlers deny notifications, media, subframes, and all unrecognized
+  permissions; downloads require either a user action or an exact short-lived
+  Browser Use grant.
+- Browser credentials are encrypted synchronously with Electron `safeStorage`
+  in a private Main-owned vault. Renderer results contain summary identity only;
+  plaintext is decrypted only for an origin-matched one-use fill command to the
+  registered guest and is excluded from Browser snapshots, downloads, history,
+  logs, diagnostics, screenshots, and IPC responses. Password save/import is
+  disabled when platform encryption is unavailable. Profile import uses the
+  signed native helper, bounded read-only source/profile selection, temporary
+  copies, explicit data/domain choices, and no intermediate plaintext password
+  file.
+- Browser Use loads only a manifest-verified first-party runtime tuple and exact
+  trusted client hashes/paths. Its per-session native pipe is private and
+  frame-bounded; every command carries the current Codex session and turn.
+  Packaged macOS authorizes the socket peer, parent, and grandparent signing
+  chain before reading a frame. Unpackaged development keeps peer verification
+  separate from feature availability: its native-pipe directory is owned by the
+  current user with mode `0700`, each random per-session socket is mode `0600`,
+  and native development code-signing verification is only enabled by the
+  explicit `CODEX_BROWSER_USE_PEER_AUTHORIZATION=1` opt-in. Unsupported
+  platforms fail closed. The same resolved host capability gates plugin
+  installation, thread configuration, and pipe creation, so copied user
+  configuration cannot leave a privileged Browser skill enabled without a
+  verified host.
+  Plugin confirmation and origin policy do not replace Main's independent
+  route, navigation, permission, upload/download, and conditional full-CDP
+  checks. Site-status blocks only an explicit positive policy result; transport
+  failure does not authorize a forbidden scheme or capability.
 - Workspace-file IPC is available only to the top-level renderer frame of an owned app window. Directory browsing accepts canonical root-relative coordinates, verifies lexical and resolved-realpath containment, and omits directory symlinks that escape the selected root. Exact-file metadata/text/binary operations intentionally accept an absolute local path without a Project-root grant so user-visible agent outputs and patches remain openable outside the active source; this relies on the trusted-renderer boundary rather than path sandboxing. Write requests use an expected-modification-time CAS guard and never create missing parent directories implicitly.
 - Managed-asset mutation, byte reads, bounded previews, path resolution, and dictation IPC are likewise available only to the top-level frame of an owned app window and validate payload types and byte budgets again in Main. Persisted `nodex://assets/<safe-name>` identities do not expose filesystem roots. Raster display uses `nodex-asset://managed/<safe-name>` through a handler installed only on `session.defaultSession`; it accepts `GET`/`HEAD`, allowlisted raster extensions, and regular non-symlink files. SVG, text/script content, directories, traversal, and the Browser-sidebar partition are excluded.
 - Electron bootstrap fixes Rust Core as the only production authority before

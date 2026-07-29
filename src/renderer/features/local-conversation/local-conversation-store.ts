@@ -3540,6 +3540,7 @@ export class CodexAppServerManager {
   private readonly turnCompletedListeners = new Set<TurnCompletedListener>();
   private readonly approvalRequestListeners = new Set<ApprovalRequestListener>();
   private readonly userInputRequestListeners = new Set<UserInputRequestListener>();
+  private readonly deferredOwnerMessagesByRequestRecovery = new Map<string, Array<() => void>>();
   private readonly lastAnySnapshotById = new Map<string, ConversationAnyProjection>();
   private readonly lastMetaSnapshotById = new Map<string, ConversationMetaProjection>();
   private lastAnyOrderKey: string | null = null;
@@ -3628,6 +3629,7 @@ export class CodexAppServerManager {
     this.unclaimedOwnerNotificationSequencesByConversationId.clear();
     this.outputDeltaQueue.dispose();
     this.resumeInFlightByThreadId.clear();
+    this.deferredOwnerMessagesByRequestRecovery.clear();
     this.ownerHiddenLifecycleItemTypesByConversationId.clear();
     this.ownerRollbackTombstonesByConversationId.clear();
     this.cancelOwnerStreamPublishQueues();
@@ -6715,6 +6717,13 @@ export class CodexAppServerManager {
     if (typeof event.sequence !== "number") return;
 
     const eventConversationId = getOwnerNotificationConversationId(event.notification);
+    const deferredMessages = eventConversationId
+      ? this.deferredOwnerMessagesByRequestRecovery.get(eventConversationId)
+      : null;
+    if (deferredMessages) {
+      deferredMessages.push(() => this.handleThreadOwnerNotification(event));
+      return;
+    }
     if (eventConversationId) {
       this.beginOwnerNotificationHandling(eventConversationId, event.sequence);
     }
@@ -6865,6 +6874,11 @@ export class CodexAppServerManager {
     if (typeof event.sequence !== "number") return;
 
     const conversationId = event.request.params.threadId;
+    const deferredMessages = this.deferredOwnerMessagesByRequestRecovery.get(conversationId);
+    if (deferredMessages) {
+      deferredMessages.push(() => this.handleThreadOwnerRequest(event));
+      return;
+    }
     this.registerOwnerNotificationSequence(conversationId, event.sequence);
     if (!conversationId) {
       void this.ackOwnerNotification("", event.sequence);
@@ -6873,11 +6887,47 @@ export class CodexAppServerManager {
 
     const currentCanonical = this.conversationsById.get(conversationId)?.canonicalState;
     if (!currentCanonical || currentCanonical.protocol.id !== conversationId) {
-      this.handleOwnerReducerUnavailable(conversationId);
-      void this.ackOwnerNotification(conversationId, event.sequence);
+      void this.recoverThreadOwnerRequest(event, conversationId);
       return;
     }
 
+    this.applyThreadOwnerRequest(event, conversationId);
+  }
+
+  private async recoverThreadOwnerRequest(
+    event: CodexThreadOwnerRequestEvent,
+    conversationId: string,
+  ): Promise<void> {
+    const deferredMessages: Array<() => void> = [];
+    this.deferredOwnerMessagesByRequestRecovery.set(conversationId, deferredMessages);
+    let recovered = false;
+    try {
+      const conversation = await this.requestThreadStreamResume(conversationId);
+      const canonicalState = conversation?.canonicalState;
+      if (!canonicalState || canonicalState.protocol.id !== conversationId) {
+        return;
+      }
+
+      recovered = true;
+      this.applyThreadOwnerRequest(event, conversationId);
+    } catch {
+      // Recovery failure is handled by the fail-closed path below.
+    } finally {
+      this.deferredOwnerMessagesByRequestRecovery.delete(conversationId);
+      if (!recovered) {
+        this.handleOwnerReducerUnavailable(conversationId);
+        await this.ackOwnerNotification(conversationId, event.sequence);
+      }
+      for (const applyDeferredMessage of deferredMessages) {
+        applyDeferredMessage();
+      }
+    }
+  }
+
+  private applyThreadOwnerRequest(
+    event: CodexThreadOwnerRequestEvent,
+    conversationId: string,
+  ): void {
     if (event.request.method === "item/tool/call") {
       void this.handleOwnerDynamicToolCallRequest(event, conversationId);
       return;

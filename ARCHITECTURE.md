@@ -731,6 +731,104 @@ consumption are awaited so navigation cannot overtake the transfer; a failed
 apply retains the snapshot for retry. Canonical-to-client Thread aliases remain
 Host-owned and are not a second SQLite authority.
 
+The desktop Browser Platform is a Main-owned runtime aggregate. Window Session
+descriptors own only the durable tab shell and opaque `browserStorageId`; Main
+owns guest attachment, navigation, Profile session, persisted Chromium history,
+downloads, annotations, credentials, Browser Use, resource budgets, and
+generation-fenced teardown. Its route identity is the exact
+`(browserConversationId, browserViewScopeId, browserTabId)` tuple, with
+`browserViewScopeId` equal to the owning Window Session. Renderer hosts register
+their renderer, host, and mount generations before Electron may attach a guest.
+`will-attach-webview` parses only the exact partition route that Electron
+guarantees to expose, resolves the storage identity from the matching Main-owned
+host registration, validates both against the registered tab, strips caller
+preferences, and forces the fixed sandboxed preload plus the shared
+`persist:codex-browser-app` partition in both attachment parameters and effective
+web preferences. Custom renderer DOM attributes are presentation diagnostics,
+not attachment authority. Main correlates Electron's `instanceId` from
+`will-attach-webview` with the guest's `viewInstanceId` at
+`did-attach-webview`, activates guest ownership synchronously, and starts
+prepared history restoration before the guest's first load. Later preload and
+renderer acknowledgements complete presentation, but cannot create, transfer,
+or broaden ownership. Each renderer continuously publishes its resolved
+`light | dark` state for the owning Window Session even when the workbench route
+is not mounted; current hosts repeat that value alongside generation-bound
+logical `visible` / `presented` state. Main serializes device metrics and
+`prefers-color-scheme` CDP mutations per guest through one page-lifetime
+baseline debugger session. Browser Use borrows that session and releasing
+automation never tears down the emulation baseline; destroying the guest ends
+both. A closing panel host backgrounds its body-level fixed webview
+synchronously before paint but retains route ownership for the shell animation;
+the hidden retention host is eligible only after the panel host unmounts.
+
+Browser Use activity and Browser presentation are separate state dimensions.
+Main owns the active controlled page and any generation-bound presentation
+intent. The selected Workbench Session route determines whether an intent is
+current; a renderer-local coordinator owns right/bottom-panel placement and
+materializes the exact Main-owned `browserTabId` plus `browserStorageId` into
+the owning Window Session view. Cross-Session presentation opens that target
+view before selection so the panel snaps with the Session route rather than
+animating later. Renderer host bounds remain the only acknowledgement that a
+page is actually presented and visible. Hiding a Browser presentation never
+releases Browser Use control. Release transfers the existing page into an
+ordinary durable Browser shell, while close removes both runtime and shell.
+A renderer-wide immutable Browser projection bootstraps from a scoped Main
+snapshot and feeds hidden hosts, Browser Use presentation, and thread summary;
+it is a cache of Main state, not a second runtime authority.
+
+Browser automation remains a separate low-level Adapter over that aggregate.
+One verified Browser Runtime Bundle supplies the matching Codex CLI, Node,
+Node REPL, Browser plugin/client, and peer-authorizer closure. The public
+app-server config seam supplies the same exact trusted paths and hashes to
+start, resume, and fork. A per-Codex-session authenticated native pipe owns IAB
+session/turn routing, low-level tab/CDP/cursor/viewport/capture/download
+operations, and turn finalization; the first-party plugin retains the public
+Browser/Tab/Playwright/Locator/CUA API and its confirmation policy. Neither
+renderer state nor response metadata is a second Browser runtime authority.
+The bundle is a repository-controlled release input rather than an ambient
+desktop-app dependency. A committed dual-architecture lock selects immutable
+release archives by URL, byte size, archive SHA-256, inner manifest SHA-256,
+desktop build, Codex compatibility version, plugin version, and component
+versions. Development, CI, and packaging materialize that lock into the
+generated source closure before atomic staging. Reading an installed desktop
+application exists only in the explicit maintainer vendor workflow and is
+never part of application startup or a normal build.
+Each live renderer Browser host is appended to `document.body` exactly once and
+owns both the Electron webview and a sibling cursor overlay for its whole guest
+lifetime. `retained`, `background`, and `panel` are layout/presentation states,
+not DOM ownership states; changing them must not detach the custom element
+because detachment destroys Electron's guest WebContents. Browser Use cursor
+state includes whether movement may animate. The native-overlay controller
+owns clamping, motion, idle presentation, and arrival acknowledgement. Its
+coordinate bounds come from the currently presented webview surface, with the
+Browser Use viewport retained only as a pre-presentation fallback. Main waits
+for arrival only while the exact page is renderer-confirmed presented and
+visible.
+Main resolves one Browser Use host capability from the verified runtime and
+supported platform. That single result drives bundled-plugin eligibility,
+thread backend configuration, and native-pipe activation; an unavailable host
+removes the managed Browser plugin instead of exposing a skill without a
+provider. Peer verification is a separate transport policy: packaged macOS
+requires native code-signing verification, while unpackaged development uses
+the user-owned private socket unless native development verification is
+explicitly enabled.
+Before a new Codex Thread exists, a route may use its Project Session identity
+provisionally. When the canonical Codex session arrives, Main closes that
+provisional backend before creating the canonical one, including when both
+captures race. `projectId: null` is a valid projectless route and is not an
+availability failure.
+The Codex app-server initialize handshake advertises OpenAI form elicitation.
+Browser origin approval therefore travels through the normal
+`mcpServer/elicitation/request` request/response path; loading the plugin and
+opening its native pipe are not sufficient on their own. Full-page capture is
+also a coordinated host operation: Main applies the requested CDP clip size
+through the renderer's central webview manager to whichever Browser host
+currently owns the guest, polls `Page.getLayoutMetrics` until Chromium reports
+that surface (bounded to one second), runs `Page.captureScreenshot`, and always
+restores the ordinary viewport afterward. The native-pipe transport does not
+race operations with a second request deadline; Main owns the fixed 20-second
+CDP boundary and ignores plugin timing hints.
+
 The native Automation Module now owns Scheduled Automation definitions and due
 work leases in SQLite. v84 adds an optimistic definition revision, imports the
 former profile jitter salt once, and retains the old TOML tree only as legacy
@@ -1091,6 +1189,12 @@ Workbench reopen flow:
 ### Security
 - Renderer runs behind preload bridge; no direct Node API access in app code.
 - Privileged asset/dictation IPC validates the owned top-level renderer sender and bounded inputs; managed image URLs are raster-only and default-session-only.
+- Browser guests use one fixed sandboxed preload, no Node integration, no nested
+  webviews or caller-selected preload/preferences, and a Main-forced persistent
+  Profile. Browser IPC and guest messages validate the top-level owner, complete
+  route identity, storage identity, and current generations. Navigation,
+  permission, popup, download, credential, annotation, and CDP policies are
+  independently enforced at their Main-owned boundary.
 - Arbitrary SQL inspection is not exposed through IPC or the
   public CLI; diagnostic reads use typed Core Module contracts.
 - Codex approval requests are policy-controlled (`auto`/`manual` per project) before command/file-change execution proceeds.

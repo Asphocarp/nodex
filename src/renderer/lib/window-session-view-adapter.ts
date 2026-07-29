@@ -13,6 +13,7 @@ import type {
   WorkbenchTabUpdateInput,
 } from "../../shared/types";
 import {
+  WORKBENCH_SESSION_VIEW_VERSION,
   activateWorkbenchSessionViewTab,
   createWorkbenchSessionViewTab,
   materializeInitialWorkbenchSessionView,
@@ -29,18 +30,29 @@ function resourceProjectId(
   return "projectId" in tab.config ? tab.config.projectId : session.projectId;
 }
 
+function makeBrowserStorageId(): string {
+  return `browser:${globalThis.crypto?.randomUUID?.()
+    ?? `${Date.now()}-${Math.random()}`}`;
+}
+
 function projectTabConfig(
   tab: WorkbenchSessionViewTab,
 ): WorkbenchTabProjection["config"] {
   if (tab.kind !== "browser") return tab.config;
   return {
     projectId: null,
+    ...(tab.config.browserStorageId
+      ? { browserStorageId: tab.config.browserStorageId }
+      : {}),
     ...(tab.config.url ? { url: tab.config.url } : {}),
     ...(tab.config.title ? { title: tab.config.title } : {}),
     ...(tab.config.faviconUrl ? { faviconUrl: tab.config.faviconUrl } : {}),
     ...(tab.config.deviceToolbarVisible === undefined
       ? {}
       : { deviceToolbarVisible: tab.config.deviceToolbarVisible }),
+    ...(tab.config.deviceToolbarState === undefined
+      ? {}
+      : { deviceToolbarState: tab.config.deviceToolbarState }),
   };
 }
 
@@ -98,12 +110,19 @@ export function workbenchViewFromProjectSessionProjection(
         kind: tab.kind,
         config: {
           browserTabId: tab.browserTabId,
+          ...("browserStorageId" in tab.config && tab.config.browserStorageId
+            ? { browserStorageId: tab.config.browserStorageId }
+            : { browserStorageId: makeBrowserStorageId() }),
           ...(tab.config.url ? { url: tab.config.url } : {}),
           ...(tab.config.title ? { title: tab.config.title } : {}),
           ...(tab.config.faviconUrl ? { faviconUrl: tab.config.faviconUrl } : {}),
           ...(tab.config.deviceToolbarVisible === undefined
             ? {}
             : { deviceToolbarVisible: tab.config.deviceToolbarVisible }),
+          ...("deviceToolbarState" in tab.config
+            && tab.config.deviceToolbarState !== undefined
+            ? { deviceToolbarState: tab.config.deviceToolbarState }
+            : {}),
         },
       }];
     }
@@ -114,7 +133,7 @@ export function workbenchViewFromProjectSessionProjection(
     }];
   }));
   return {
-    version: 1,
+    version: WORKBENCH_SESSION_VIEW_VERSION,
     sessionId: session.id,
     tabsById,
     panels: session.panels,
@@ -152,12 +171,19 @@ export function workbenchViewTabFromCreateInput(
       config: {
         browserTabId: input.browserTabId
           ?? `browser:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`,
+        browserStorageId:
+          ("browserStorageId" in input.config && input.config.browserStorageId)
+          || makeBrowserStorageId(),
         ...(input.config.url ? { url: input.config.url } : {}),
         ...(input.config.title ? { title: input.config.title } : {}),
         ...(input.config.faviconUrl ? { faviconUrl: input.config.faviconUrl } : {}),
         ...(input.config.deviceToolbarVisible === undefined
           ? {}
           : { deviceToolbarVisible: input.config.deviceToolbarVisible }),
+        ...("deviceToolbarState" in input.config
+          && input.config.deviceToolbarState !== undefined
+          ? { deviceToolbarState: input.config.deviceToolbarState }
+          : {}),
       },
     };
   }
@@ -186,6 +212,10 @@ export function applyWorkbenchViewTabPatch(
       kind: "browser",
       config: {
         browserTabId: tab.config.browserTabId,
+        browserStorageId:
+          ("browserStorageId" in config && config.browserStorageId)
+          || tab.config.browserStorageId
+          || makeBrowserStorageId(),
         ...("url" in config && config.url ? { url: config.url } : {}),
         ...("title" in config && config.title ? { title: config.title } : {}),
         ...("faviconUrl" in config && config.faviconUrl
@@ -195,6 +225,12 @@ export function applyWorkbenchViewTabPatch(
           && config.deviceToolbarVisible !== undefined
           ? { deviceToolbarVisible: config.deviceToolbarVisible }
           : {}),
+        ...("deviceToolbarState" in config
+          && config.deviceToolbarState !== undefined
+          ? { deviceToolbarState: config.deviceToolbarState }
+          : tab.config.deviceToolbarState === undefined
+            ? {}
+            : { deviceToolbarState: tab.config.deviceToolbarState }),
       },
     };
   }
@@ -233,9 +269,11 @@ export function applyForkBrowserTransferToWorkbenchView(
         titleSnapshot: "Browser",
         config: {
           browserTabId: descriptor.browserTabId,
+          browserStorageId: makeBrowserStorageId(),
           ...(descriptor.initialUrl ? { url: descriptor.initialUrl } : {}),
           deviceToolbarVisible:
             descriptor.deviceToolbarState.toolbarState.isEnabled,
+          deviceToolbarState: descriptor.deviceToolbarState,
         },
         stateKey: 0,
         state: null,

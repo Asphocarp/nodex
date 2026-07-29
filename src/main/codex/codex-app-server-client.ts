@@ -553,6 +553,7 @@ export class CodexAppServerClient extends EventEmitter {
       clientInfo: this.clientInfo,
       capabilities: {
         experimentalApi: true,
+        mcpServerOpenaiFormElicitation: true,
         requestAttestation: false,
       },
     };

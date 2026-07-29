@@ -93,6 +93,37 @@ describe("packaged build provenance", () => {
     expect(verified.provenanceId).toBe(written.provenanceId);
   });
 
+  test("binds the optional Browser runtime manifest when one is packaged", () => {
+    const fixture = makeApp();
+    const browserManifestPath = path.join(
+      fixture.appPath,
+      "Contents/Resources/browser-runtime/browser-runtime-manifest.json",
+    );
+    const agentManifestPath = path.join(
+      fixture.appPath,
+      "Contents/Resources/agent-runtime.json",
+    );
+    writeJson(agentManifestPath, {
+      codexCompatibilityVersion: "0.144.6",
+      layoutVersion: 2,
+      targetArch: "arm64",
+      targetPlatform: "darwin",
+    });
+    writeJson(browserManifestPath, {
+      codexCompatibilityVersion: "0.144.6",
+      contractVersion: 1,
+      schemaVersion: 1,
+      targetArch: "arm64",
+      targetPlatform: "darwin",
+    });
+    writePackagedBuildProvenance(fixture.appPath);
+    fs.appendFileSync(browserManifestPath, "tampered\n");
+
+    expect(() => verifyPackagedBuildProvenance(fixture.appPath)).toThrow(
+      "does not match the packaged provenance",
+    );
+  });
+
   test("rejects a stale prepared source generation", () => {
     const fixture = makeApp();
     writePackagedBuildProvenance(fixture.appPath);

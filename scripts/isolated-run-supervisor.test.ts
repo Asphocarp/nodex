@@ -6,6 +6,7 @@ import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { components } from "@nodex/core-protocol";
+import { BROWSER_USE_PEER_AUTHORIZATION_ENV } from "../src/shared/browser-use-host-capability";
 import {
   acquireIsolatedRunLease,
   markIsolatedRunClaimReady,
@@ -323,6 +324,7 @@ describe("isolated run supervisor", () => {
     await expect(
       superviseIsolatedRun({
         environment: {
+          [BROWSER_USE_PEER_AUTHORIZATION_ENV]: "0",
           NODEX_CORE_IDLE_TIMEOUT_MS: "65432",
           NODEX_HOME: nodexHome,
         },
@@ -358,6 +360,7 @@ describe("isolated run supervisor", () => {
       }),
     );
     expect(observedOptions?.env).toMatchObject({
+      [BROWSER_USE_PEER_AUTHORIZATION_ENV]: "0",
       NODEX_CORE_IDLE_TIMEOUT_MS: "65432",
       NODEX_INTERNAL_ISOLATED_RUN_ID: RUN_A,
     });

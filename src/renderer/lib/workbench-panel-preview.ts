@@ -150,13 +150,19 @@ export function makePreviewWorkbenchTabProjection(
   } as const;
 
   switch (draft.kind) {
-    case "browser":
+    case "browser": {
+      const browserTabId = makeClientWorkbenchTabProjectionId();
       return {
         ...base,
         kind: draft.kind,
-        config: draft.config,
-        browserTabId: makeClientWorkbenchTabProjectionId(),
+        config: {
+          ...draft.config,
+          browserStorageId:
+            draft.config.browserStorageId ?? `browser:${browserTabId}`,
+        },
+        browserTabId,
       };
+    }
     case "db_view":
     case "page_stage":
     case "terminal":

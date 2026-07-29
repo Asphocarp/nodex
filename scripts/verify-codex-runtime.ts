@@ -48,6 +48,20 @@ function readMacosTeamIdentifier(artifactPath: string): string {
   return teamIdentifier;
 }
 
+function readMacosArchitectures(artifactPath: string): string[] {
+  const result = spawnSync("lipo", ["-archs", artifactPath], { encoding: "utf8" });
+  if (result.error) {
+    throw new Error(`Could not run lipo for ${artifactPath}: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `Could not inspect architectures for ${artifactPath}: `
+      + `${(result.stderr || result.stdout).trim()}`,
+    );
+  }
+  return result.stdout.trim().split(/\s+/u).filter((entry) => entry.length > 0);
+}
+
 function readRuntimeMetadata(metadataPath: string): BundledAgentRuntimeMetadata {
   let value: unknown;
   try {
@@ -63,6 +77,7 @@ function readRuntimeMetadata(metadataPath: string): BundledAgentRuntimeMetadata 
 }
 
 export function verifyCodexRuntime(input: {
+  requireBrowserRuntime?: boolean;
   resourcesPath: string;
   verifyMacosSignatures: boolean;
 }): void {
@@ -81,6 +96,9 @@ export function verifyCodexRuntime(input: {
     throw new Error(
       `Bundled agent runtime version ${versionResult.stdout.trim()} did not match runtime metadata ${runtime.version ?? "<missing>"}`,
     );
+  }
+  if (input.requireBrowserRuntime && runtime.browserRuntime.status === "unavailable") {
+    throw new Error(`Bundled Browser runtime is unavailable: ${runtime.browserRuntime.message}`);
   }
 
   if (input.verifyMacosSignatures) {
@@ -101,6 +119,36 @@ export function verifyCodexRuntime(input: {
         );
       }
     }
+    if (runtime.browserRuntime.status === "available") {
+      const { bundle } = runtime.browserRuntime;
+      if (bundle.manifest.peerAuthorization.signingTeamId !== appTeamIdentifier) {
+        throw new Error(
+          "Browser runtime peer authorization signing team does not match the enclosing app",
+        );
+      }
+      for (const artifact of bundle.manifest.artifacts) {
+        if (artifact.kind === "data" || artifact.architecture === "any") continue;
+        const artifactPath = join(bundle.rootPath, ...artifact.path.split("/"));
+        const expectedArchitecture =
+          bundle.manifest.targetArch === "x64" ? "x86_64" : "arm64";
+        const architectures = readMacosArchitectures(artifactPath);
+        const architectureMatches = artifact.architecture === "universal"
+          ? architectures.includes("arm64") && architectures.includes("x86_64")
+          : architectures.length === 1 && architectures[0] === expectedArchitecture;
+        if (!architectureMatches) {
+          throw new Error(
+            `Browser runtime artifact architecture does not match its manifest: ${artifactPath}`,
+          );
+        }
+        const artifactTeamIdentifier = readMacosTeamIdentifier(artifactPath);
+        if (artifactTeamIdentifier !== appTeamIdentifier) {
+          throw new Error(
+            `Expected ${artifactPath} to use the enclosing app team ${appTeamIdentifier}; `
+            + `found ${artifactTeamIdentifier}`,
+          );
+        }
+      }
+    }
   }
 
   process.stdout.write(`Verified Open Interpreter runtime ${runtime.version}\n`);
@@ -110,10 +158,14 @@ function main(): void {
   const argv = process.argv.slice(2);
   const resourcesPath = readOption(argv, "--resources-path");
   if (!resourcesPath) {
-    throw new Error("Usage: verify-codex-runtime.ts --resources-path <Electron Resources> [--verify-macos-signatures]");
+    throw new Error(
+      "Usage: verify-codex-runtime.ts --resources-path <Electron Resources> "
+      + "[--verify-macos-signatures] [--require-browser-runtime]",
+    );
   }
   verifyCodexRuntime({
     resourcesPath: resolve(resourcesPath),
+    requireBrowserRuntime: argv.includes("--require-browser-runtime"),
     verifyMacosSignatures: argv.includes("--verify-macos-signatures"),
   });
 }

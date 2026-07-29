@@ -2979,9 +2979,13 @@ describe("local-conversation-store", () => {
       expect(String(conversation?.turns[0]?.items.length ?? -1)).toBe("0");
       expect(conversation?.resumeState).toBe("needs_resume");
       expect(JSON.stringify(acknowledgements)).toBe(JSON.stringify([1, 2]));
-      expect(invokeRecords.some((record) =>
+      const ownerPublications = invokeRecords.filter((record) =>
         record.channel === "codex:thread-owner:stream-state:publish"
-      )).toBe(false);
+      );
+      expect(ownerPublications.length).toBeGreaterThan(0);
+      expect(ownerPublications.every((record) =>
+        (record.args[0] as { change?: { type?: string } }).change?.type === "snapshot"
+      )).toBe(true);
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -12507,6 +12511,96 @@ describe("local-conversation-store", () => {
         (publishRecords[publishRecords.length - 1]?.args[0] as { ownerNotificationSequence?: number } | undefined)
           ?.ownerNotificationSequence,
       ).toBe(2);
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("recovers an owner request that arrives before the canonical conversation is ready", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const unreadyConversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-owner-request-race", "project-1"),
+        canonicalState: null,
+        turns: [{
+          threadId: "thread-owner-request-race",
+          turnId: "turn-1",
+          status: "inProgress",
+          itemIds: [],
+          items: [],
+        }],
+      };
+      resumeThreadResult = unreadyConversation;
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-owner-request-race",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: unreadyConversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-owner-request-race");
+
+      resumeThreadResult = {
+        ...buildConversation("thread-owner-request-race", "project-1"),
+        turns: unreadyConversation.turns,
+      };
+      invokeRecords = [];
+      dispatchCodexAppServerMessage("thread-owner-request", {
+        hostId: "default",
+        sequence: 1,
+        request: {
+          id: "mcp-owner-request-race",
+          method: "mcpServer/elicitation/request",
+          params: {
+            threadId: "thread-owner-request-race",
+            turnId: "turn-1",
+            mode: "form",
+            serverName: "node_repl",
+            message: "Allow Browser use to access https://example.com?",
+            requestedSchema: { type: "object", properties: {} },
+            _meta: null,
+          },
+        },
+      });
+
+      await waitForCondition(
+        () =>
+          manager.readConversation("thread-owner-request-race")?.requests.some(
+            (request) => request.requestId === "mcp-owner-request-race",
+          ) === true,
+        500,
+      );
+
+      const conversation = manager.readConversation("thread-owner-request-race");
+      expect(conversation?.resumeState).toBe("resumed");
+      expect(conversation?.canonicalState?.protocol.id).toBe("thread-owner-request-race");
+      expect(conversation?.requests[0]?.type).toBe("mcpServerElicitation");
+      expect(conversation?.requests[0]?.requestId).toBe("mcp-owner-request-race");
+      expect(invokeRecords.some((record) =>
+        record.channel === "codex:thread:resume:request"
+      )).toBe(true);
+      expect(invokeRecords.some((record) =>
+        record.channel === "codex:thread-owner:stream-state:publish"
+      )).toBe(true);
     } finally {
       resumeThreadResult = null;
       manager.destroy();

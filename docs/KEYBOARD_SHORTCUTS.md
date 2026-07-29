@@ -51,6 +51,21 @@ The editable settings tab covers Nodex-supported command ids only. Editor-native
 
 Bottom-panel toggle is a shell-global command and remains available from editable targets. Other panel action shortcuts are ignored from editable targets and dialog surfaces. Side chat, Browser, Terminal, Files, and Review resolve availability through the same capability model as panel menus and the command palette. An unavailable action returns before suppressing the browser/editor key; in particular a blank projectless Session handles Browser only, and an attached projectless Session handles Side chat plus Terminal only when their thread/cwd requirements are satisfied. Focused panel tab cycling and close-tab shortcuts also work from NFM editor content inside a panel tab group, consume the shortcut as a no-op when the focused group has no matching action, still ignore input fields and dialogs, and leave plain `⌘/Ctrl+[` / `⌘/Ctrl+]` as app-window Back/Forward. Close-panel-tab routing is leaf-scoped for keyboard, menu, close-button, and middle-click single-tab closes: Nodex reveals the most recently active remaining tab, falling back to the right neighbor and then the left neighbor only when MRU cannot answer. Durable Card Stage tabs keep their description editor mounted across focused panel-tab cycling while the tab remains open, so returning to the tab restores the previous editor cursor. On macOS, `⌘⇧W` closes the app window.
 
+### Browser
+
+| Shortcut | Action | Notes |
+|----------|--------|-------|
+| `⌘/Ctrl+L` | Focus address | Selects the complete address of the active Browser tab |
+| `⌘/Ctrl+F` | Open Browser find | Opens Workbench content search in the Browser domain when Browser is the mounted target |
+| `Enter` / `Shift+Enter` | Next / previous match | While the Browser find input is focused |
+| `Escape` | Close or revert | Closes Browser find, exits annotation mode, or reverts an uncommitted address edit according to the focused Browser control |
+| `MouseBack` / `MouseForward` | Browser page back / forward | Mouse buttons pressed inside the remote page navigate that Browser tab; these are distinct from app-window mouse Back/Forward outside the guest |
+
+Browser zoom uses the complete options-menu ladder from 25% through 500% and
+Reset zoom. Reload, hard reload, print, screenshot, device emulation, Profile
+data clearing, downloads, and annotation actions use the Browser toolbar/menu
+unless a separately listed app command owns an accelerator.
+
 ### Workbench Panel Borders
 
 | Shortcut | Action | Scope |

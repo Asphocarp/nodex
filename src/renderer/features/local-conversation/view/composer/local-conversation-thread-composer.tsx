@@ -1,4 +1,14 @@
-import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type DragEvent,
+} from "react";
 import {
   formatCodexModelLabel,
   formatCodexReasoningEffortLabel,
@@ -197,6 +207,24 @@ import { openModal } from "@/lib/modal-registry";
 import { ComposerScope } from "@/lib/workbench-ui-scopes";
 import { ProviderCredentialDialog } from "./provider-credential-dialog";
 import { useRightPanelComposerPresentation } from "../right-panel-composer-presentation";
+import {
+  clearBrowserAnnotationAttachments,
+  getBrowserAnnotationAttachmentsSnapshot,
+  removeBrowserAnnotationAttachment,
+  replaceBrowserAnnotationAttachments,
+  subscribeBrowserAnnotationAttachments,
+  type BrowserAnnotationAttachment,
+} from "../../../browser-sidebar/browser-annotation-attachments";
+import {
+  consumeBrowserImageAttachments,
+  getBrowserImageAttachmentsSnapshot,
+  subscribeBrowserImageAttachments,
+} from "../../../browser-sidebar/browser-image-attachments";
+import {
+  clearBrowserImageDragState,
+  getBrowserImageDragSnapshot,
+  subscribeBrowserImageDragState,
+} from "../../../browser-sidebar/browser-image-drag-state";
 
 interface ThreadComposerProps {
   model: ThreadFooterModel;
@@ -260,6 +288,7 @@ interface ComposerAttachmentState {
   pastedTextAttachments: readonly ComposerPastedTextAttachment[];
   skillMentions: readonly ComposerSkillMentionAttachment[];
   commentAttachments: readonly CodexReviewDiffCommentAttachment[];
+  browserAnnotationAttachments: readonly BrowserAnnotationAttachment[];
 }
 
 interface ThreadGoalSubmissionDraft extends ComposerThreadGoalDraft {
@@ -311,6 +340,9 @@ function buildComposerPromptInput(input: {
     path: attachment.path,
   }));
   const commentAttachments = [...input.attachments.commentAttachments];
+  const browserAnnotationAttachments = [
+    ...input.attachments.browserAnnotationAttachments,
+  ];
 
   if (
     images.length === 0
@@ -319,6 +351,7 @@ function buildComposerPromptInput(input: {
     && addedFiles.length === 0
     && skills.length === 0
     && commentAttachments.length === 0
+    && browserAnnotationAttachments.length === 0
   ) {
     return undefined;
   }
@@ -331,6 +364,9 @@ function buildComposerPromptInput(input: {
     ...(addedFiles.length > 0 ? { addedFiles } : {}),
     ...(skills.length > 0 ? { skills } : {}),
     ...(commentAttachments.length > 0 ? { commentAttachments } : {}),
+    ...(browserAnnotationAttachments.length > 0
+      ? { browserAnnotationAttachments }
+      : {}),
   };
 }
 
@@ -412,6 +448,7 @@ function buildComposerAttachmentStateFromPromptInput(promptInput?: CodexPromptIn
       path: skill.path,
     })),
     commentAttachments: promptInput?.commentAttachments ?? [],
+    browserAnnotationAttachments: promptInput?.browserAnnotationAttachments ?? [],
   };
 }
 
@@ -430,7 +467,8 @@ function hasComposerAttachmentStateContent(attachments: ComposerAttachmentState)
     || attachments.imageAttachments.length > 0
     || attachments.pastedTextAttachments.length > 0
     || attachments.skillMentions.length > 0
-    || attachments.commentAttachments.length > 0;
+    || attachments.commentAttachments.length > 0
+    || attachments.browserAnnotationAttachments.length > 0;
 }
 
 function hasSubmittableComposerAttachmentState(attachments: ComposerAttachmentState): boolean {
@@ -439,7 +477,8 @@ function hasSubmittableComposerAttachmentState(attachments: ComposerAttachmentSt
     || attachments.imageAttachments.length > 0
     || attachments.pastedTextAttachments.some((attachment) => attachment.status === "ready")
     || attachments.skillMentions.length > 0
-    || attachments.commentAttachments.length > 0;
+    || attachments.commentAttachments.length > 0
+    || attachments.browserAnnotationAttachments.length > 0;
 }
 
 function summarizeComposerPastedText(text: string): string {
@@ -468,7 +507,8 @@ function buildThreadGoalSubmissionDraft(
     hasUnsupportedAttachments: attachments.fileAttachments.length > 0
       || attachments.addedFiles.length > 0
       || attachments.skillMentions.length > 0
-      || attachments.commentAttachments.length > 0,
+      || attachments.commentAttachments.length > 0
+      || attachments.browserAnnotationAttachments.length > 0,
   };
 }
 
@@ -1584,6 +1624,9 @@ export function ThreadComposer(props: ThreadComposerProps) {
   const { floating: isFloatingComposer } =
     useRightPanelComposerPresentation();
   const composerThreadId = model.conversation?.threadId ?? model.threadId;
+  const browserAnnotationConversationId = composerThreadId
+    ?? model.newThreadTarget?.sessionId
+    ?? null;
   const promptDraft = useComposerPromptDraft(composerThreadId);
   const [initialized, setInitialized] = useScopedAtom(composerDraftInitializedAtom);
   const [consumedIntentNonce, setConsumedIntentNonce] = useScopedAtom(
@@ -1667,6 +1710,18 @@ export function ThreadComposer(props: ThreadComposerProps) {
         for (const attachment of restored.commentAttachments) {
           addReviewDiffCommentAttachment(composerThreadId, attachment);
         }
+        if (browserAnnotationConversationId) {
+          replaceBrowserAnnotationAttachments(
+            browserAnnotationConversationId,
+            appendUniqueBy(
+              getBrowserAnnotationAttachmentsSnapshot(
+                browserAnnotationConversationId,
+              ),
+              restored.browserAnnotationAttachments,
+              (attachment) => attachment.id,
+            ),
+          );
+        }
       } else {
         setFileAttachments(restored.fileAttachments);
         setAddedFiles(restored.addedFiles);
@@ -1674,6 +1729,12 @@ export function ThreadComposer(props: ThreadComposerProps) {
         setPastedTextAttachments(restored.pastedTextAttachments);
         setSkillMentions(restored.skillMentions);
         replaceReviewCommentAttachments(composerThreadId, restored.commentAttachments);
+        if (browserAnnotationConversationId) {
+          replaceBrowserAnnotationAttachments(
+            browserAnnotationConversationId,
+            restored.browserAnnotationAttachments,
+          );
+        }
       }
 
       if (intent.prompt.length > 0 || intent.clearText === true) {
@@ -1696,6 +1757,7 @@ export function ThreadComposer(props: ThreadComposerProps) {
     if (!initialized) setInitialized(true);
   }, [
     actions,
+    browserAnnotationConversationId,
     composerThreadId,
     initialized,
     intent,
@@ -1795,6 +1857,59 @@ function HydratedThreadComposer({
   const composerMountedRef = useRef(true);
   const { serviceTierSettings, setServiceTier } = useCodexServiceTierSettings();
   const composerThreadId = model.conversation?.threadId ?? model.threadId;
+  const browserAnnotationConversationId = composerThreadId
+    ?? model.newThreadTarget?.sessionId
+    ?? "";
+  const getBrowserAnnotationsSnapshot = useCallback(
+    () => getBrowserAnnotationAttachmentsSnapshot(browserAnnotationConversationId),
+    [browserAnnotationConversationId],
+  );
+  const browserAnnotationAttachments = useSyncExternalStore(
+    subscribeBrowserAnnotationAttachments,
+    getBrowserAnnotationsSnapshot,
+    getBrowserAnnotationsSnapshot,
+  );
+  const getBrowserImagesSnapshot = useCallback(
+    () => getBrowserImageAttachmentsSnapshot(browserAnnotationConversationId),
+    [browserAnnotationConversationId],
+  );
+  const browserImageAttachments = useSyncExternalStore(
+    subscribeBrowserImageAttachments,
+    getBrowserImagesSnapshot,
+    getBrowserImagesSnapshot,
+  );
+  const getBrowserImageDrag = useCallback(
+    () => getBrowserImageDragSnapshot(browserAnnotationConversationId),
+    [browserAnnotationConversationId],
+  );
+  const browserImageDrag = useSyncExternalStore(
+    subscribeBrowserImageDragState,
+    getBrowserImageDrag,
+    getBrowserImageDrag,
+  );
+  useEffect(() => {
+    if (browserImageAttachments.length === 0) return;
+    const attachmentIds = browserImageAttachments.map((attachment) => attachment.id);
+    setImageAttachments((current) => {
+      const existing = new Set(
+        current.flatMap((attachment) => [attachment.id, attachment.path]),
+      );
+      return [
+        ...current,
+        ...browserImageAttachments.filter((attachment) =>
+          !existing.has(attachment.id) && !existing.has(attachment.path)
+        ),
+      ];
+    });
+    consumeBrowserImageAttachments(
+      browserAnnotationConversationId,
+      attachmentIds,
+    );
+  }, [
+    browserAnnotationConversationId,
+    browserImageAttachments,
+    setImageAttachments,
+  ]);
   const commentAttachments = useScopedAtomValue(
     composerReviewCommentAttachmentsFamily(composerThreadId),
   );
@@ -1805,7 +1920,16 @@ function HydratedThreadComposer({
     pastedTextAttachments,
     skillMentions,
     commentAttachments,
-  }), [addedFiles, commentAttachments, fileAttachments, imageAttachments, pastedTextAttachments, skillMentions]);
+    browserAnnotationAttachments,
+  }), [
+    addedFiles,
+    browserAnnotationAttachments,
+    commentAttachments,
+    fileAttachments,
+    imageAttachments,
+    pastedTextAttachments,
+    skillMentions,
+  ]);
   const hasAttachments = hasComposerAttachmentStateContent(attachmentState);
   const hasSubmittableAttachments = hasSubmittableComposerAttachmentState(attachmentState);
   const hasPendingPastedTextAttachments = pastedTextAttachments.some(
@@ -1941,8 +2065,14 @@ function HydratedThreadComposer({
   const completeSuccessfulSubmission = useCallback((text: string) => {
     recordSuccessfulPromptSubmit(text);
     incrementAttachmentGeneration();
+    clearBrowserAnnotationAttachments(browserAnnotationConversationId);
     clearSubmittedDraft();
-  }, [clearSubmittedDraft, incrementAttachmentGeneration, recordSuccessfulPromptSubmit]);
+  }, [
+    browserAnnotationConversationId,
+    clearSubmittedDraft,
+    incrementAttachmentGeneration,
+    recordSuccessfulPromptSubmit,
+  ]);
   const cleanupSubmittedPastedTextAttachments = useCallback(async () => {
     const readyAttachments = pastedTextAttachmentsRef.current.flatMap((attachment) => (
       attachment.status === "ready" ? [attachment.attachment.file] : []
@@ -2389,6 +2519,43 @@ function HydratedThreadComposer({
     }
   }, [model.isCloudNewThreadTarget, onErrorMessage, setFileAttachments, setImageAttachments]);
 
+  const handleBrowserImageDragOver = useCallback((
+    event: DragEvent<HTMLDivElement>,
+  ) => {
+    if (!browserImageDrag) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+  }, [browserImageDrag]);
+
+  const handleBrowserImageDrop = useCallback(async (
+    event: DragEvent<HTMLDivElement>,
+  ) => {
+    if (!browserImageDrag) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+    try {
+      const result = await invoke("browser-sidebar-command", {
+        type: "attach-dragged-image",
+        browserConversationId: browserImageDrag.browserConversationId,
+        browserViewScopeId: browserImageDrag.browserViewScopeId,
+        browserTabId: browserImageDrag.browserTabId,
+      });
+      if (!result.ok) onErrorMessage(result.message);
+    } catch (error) {
+      onErrorMessage(
+        error instanceof Error ? error.message : "Could not add Browser image",
+      );
+    } finally {
+      clearBrowserImageDragState(browserAnnotationConversationId);
+    }
+  }, [
+    browserAnnotationConversationId,
+    browserImageDrag,
+    onErrorMessage,
+  ]);
+
   const showDictationToast = useCallback((message: string) => {
     setDictationToastMessage(message);
   }, []);
@@ -2614,6 +2781,16 @@ function HydratedThreadComposer({
   const handleRemoveCommentAttachment = useCallback((attachmentId: string) => {
     removeReviewDiffCommentAttachment(composerThreadId, attachmentId);
   }, [composerThreadId]);
+
+  const handleRemoveBrowserAnnotationAttachment = useCallback(
+    (attachmentId: string) => {
+      removeBrowserAnnotationAttachment(
+        browserAnnotationConversationId,
+        attachmentId,
+      );
+    },
+    [browserAnnotationConversationId],
+  );
 
   const slashCommands = useMemo(() => buildComposerSlashCommands({
     model,
@@ -3196,7 +3373,18 @@ function HydratedThreadComposer({
           projectSelectorDisabled={busyAction !== null}
         />
       </ThreadComposerExternalFooterSlot>
-      <div className="relative">
+      <div
+        className={cn(
+          "relative",
+          browserImageDrag
+            && "rounded-[20px] ring-2 ring-token-focus-border ring-offset-2 ring-offset-transparent",
+        )}
+        data-browser-image-drop-active={browserImageDrag ? "true" : "false"}
+        onDragOver={handleBrowserImageDragOver}
+        onDrop={(event) => {
+          void handleBrowserImageDrop(event);
+        }}
+      >
         <InlineSlashCommandMenu
           open={slashMenuOpen}
           groups={slashGroups}
@@ -3344,6 +3532,27 @@ function HydratedThreadComposer({
                     >
                       <ComposerPluginsIcon className="size-3 text-token-description-foreground" />
                       <span className="min-w-0 truncate">{attachment.name}</span>
+                      <span className="text-token-description-foreground">x</span>
+                    </button>
+                  ))}
+                  {browserAnnotationAttachments.map((attachment) => (
+                    <button
+                      key={attachment.id}
+                      type="button"
+                      className="inline-flex max-w-72 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
+                      onClick={() =>
+                        handleRemoveBrowserAnnotationAttachment(attachment.id)
+                      }
+                      title={`Remove browser annotation on ${attachment.pageTitle || attachment.pageUrl}`}
+                    >
+                      <ReviewFileDocumentIcon className="size-3 text-token-description-foreground" />
+                      <span className="min-w-0 truncate">
+                        {attachment.pageTitle || "Browser annotation"}
+                      </span>
+                      <span className="shrink-0 text-token-description-foreground">
+                        {attachment.anchors.length}{" "}
+                        {attachment.anchors.length === 1 ? "anchor" : "anchors"}
+                      </span>
                       <span className="text-token-description-foreground">x</span>
                     </button>
                   ))}

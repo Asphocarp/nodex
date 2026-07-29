@@ -99,6 +99,11 @@ describe("codex-runtime", () => {
       ]);
       expect(runtime.version).toBe("0.0.34");
       expect(runtime.codexCompatibilityVersion).toBe("0.144.5");
+      expect(runtime.rootPath).toBe(fixture.resourcesPath);
+      expect(runtime.browserRuntime).toMatchObject({
+        reason: "manifest-missing",
+        status: "unavailable",
+      });
       expect(runtime.missingBinaryMessage).toBe("Bundled agent runtime is missing or corrupted. Reinstall Nodex.");
     } finally {
       fixture.cleanup();

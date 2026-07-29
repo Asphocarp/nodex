@@ -57,6 +57,7 @@ import type {
   ToolRequestUserInputOption as CodexAppServerUserInputOption,
   TurnStatus as CodexAppServerTurnStatus,
 } from "@nodex/codex-app-server-protocol/v2";
+import type { BrowserSidebarDeviceToolbarState } from "./browser-sidebar";
 import type {
   CollaborationMode as CodexAppServerCollaborationMode,
   ModeKind as CodexAppServerModeKind,
@@ -705,10 +706,12 @@ export interface WorkbenchProjectionFilesTabConfig {
 
 export interface WorkbenchProjectionBrowserTabConfig {
   projectId: string | null;
+  browserStorageId?: string;
   url?: string;
   title?: string;
   faviconUrl?: string;
   deviceToolbarVisible?: boolean;
+  deviceToolbarState?: BrowserSidebarDeviceToolbarState;
 }
 
 export interface WorkbenchProjectionTabConfigByKind {
@@ -2167,6 +2170,7 @@ export interface CodexPromptInput {
   mentions?: CodexPromptMentionInput[];
   skills?: CodexPromptSkillInput[];
   commentAttachments?: CodexReviewDiffCommentAttachment[];
+  browserAnnotationAttachments?: import("./browser-annotation").BrowserAnnotationAttachment[];
   agentConfigs?: CodexPromptAgentConfigInput[];
 }
 

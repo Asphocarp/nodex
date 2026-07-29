@@ -39,6 +39,8 @@ import {
   type OpenInterpreterReleaseLock,
 } from "./agent-runtime-release-lock";
 import { replaceOwnedDirectory } from "./replace-owned-directory";
+import { stageBrowserRuntime } from "./stage-browser-runtime";
+import type { BrowserRuntimePlatformArtifactVerifier } from "../src/main/codex/browser-runtime-bundle";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDir, "..");
@@ -50,6 +52,8 @@ const canonicalRuntimeMode = (executable: boolean): number => (
 
 type StageAgentRuntimeOptions = {
   archivePath?: string;
+  browserRuntimePlatformArtifactVerifier?: BrowserRuntimePlatformArtifactVerifier;
+  browserRuntimeSourceRoot?: string;
   cachePath?: string;
   lockPath?: string;
   outputPath: string;
@@ -244,7 +248,10 @@ function readReusableRuntime(input: {
   let actualArtifacts: AgentRuntimeArtifact[];
   try {
     actualArtifacts = listRuntimeArtifacts(runtimeRoot)
-      .filter(({ path }) => path !== AGENT_RUNTIME_METADATA_FILENAME);
+      .filter(({ path }) => (
+        path !== AGENT_RUNTIME_METADATA_FILENAME
+        && !path.startsWith("browser-runtime/")
+      ));
   } catch {
     return null;
   }
@@ -428,6 +435,16 @@ export async function stageCodexRuntime(
       target,
     });
     if (reusable) {
+      if (options.browserRuntimeSourceRoot) {
+        stageBrowserRuntime({
+          expectedCodexCompatibilityVersion: reusable.codexCompatibilityVersion,
+          platformArtifactVerifier: options.browserRuntimePlatformArtifactVerifier,
+          runtimeRoot: join(outputPath, "agent-runtime"),
+          sourceRoot: options.browserRuntimeSourceRoot,
+          targetArch: target.targetArch,
+          targetPlatform: target.targetPlatform,
+        });
+      }
       process.stderr.write("Reused verified staged agent runtime.\n");
       return reusable;
     }
@@ -526,6 +543,16 @@ export async function stageCodexRuntime(
       "utf8",
     );
     chmodSync(metadataPath, REGULAR_RUNTIME_MODE);
+    if (options.browserRuntimeSourceRoot) {
+      stageBrowserRuntime({
+        expectedCodexCompatibilityVersion: metadata.codexCompatibilityVersion,
+        platformArtifactVerifier: options.browserRuntimePlatformArtifactVerifier,
+        runtimeRoot: tempRuntimeRoot,
+        sourceRoot: options.browserRuntimeSourceRoot,
+        targetArch: target.targetArch,
+        targetPlatform: target.targetPlatform,
+      });
+    }
     replaceOwnedDirectory(tempRuntimeRoot, join(outputPath, "agent-runtime"));
     return metadata;
   } finally {
@@ -540,6 +567,7 @@ function parseCliOptions(argv: string[]): CliOptions {
   let targetArch: AgentRuntimeTargetArch | null = null;
   let outputPath: string | null = null;
   let archivePath: string | undefined;
+  let browserRuntimeSourceRoot: string | undefined;
   let reuseExisting = false;
 
   for (let index = 0; index < args.length; index += 1) {
@@ -574,6 +602,12 @@ function parseCliOptions(argv: string[]): CliOptions {
       index += 1;
       continue;
     }
+    if (arg === "--browser-runtime-source") {
+      if (!nextValue) throw new Error("Missing value for --browser-runtime-source");
+      browserRuntimeSourceRoot = nextValue;
+      index += 1;
+      continue;
+    }
     if (arg === "--reuse-existing") {
       reuseExisting = true;
       continue;
@@ -583,11 +617,14 @@ function parseCliOptions(argv: string[]): CliOptions {
 
   if (!targetPlatform || !targetArch || !outputPath) {
     throw new Error(
-      "Usage: stage-codex-runtime.ts --target-platform darwin --target-arch <arm64|x64> --out <dir> [--archive <tar.gz>] [--reuse-existing]",
+      "Usage: stage-codex-runtime.ts --target-platform darwin --target-arch <arm64|x64> "
+      + "--out <dir> [--archive <tar.gz>] [--browser-runtime-source <dir>] "
+      + "[--reuse-existing]",
     );
   }
   return {
     archivePath,
+    browserRuntimeSourceRoot,
     targetPlatform,
     targetArch,
     outputPath: resolve(projectRoot, outputPath),

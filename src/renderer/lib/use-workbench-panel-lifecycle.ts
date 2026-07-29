@@ -372,6 +372,18 @@ const updateSessionPanel = useCallback(async (
     await setActivePanelTab(panelId, tabId, { leafId });
   }, [activeSession, previewTabsByPanel, setActivePanelTab]);
 
+  const closeActiveSessionBrowserRuntime = useCallback(async (
+    browserTabId: string,
+  ) => {
+    if (!activeSession) return;
+    await invoke("browser-sidebar-command", {
+      type: "close-tab",
+      browserConversationId: activeSession.id,
+      browserViewScopeId: windowSessionId,
+      browserTabId,
+    }).catch(() => undefined);
+  }, [activeSession, windowSessionId]);
+
   const closeTab = useCallback(async (tabId: string, options: {
     preserveEmptyLeafIds?: string[];
     preferredActiveLeafId?: string | null;
@@ -413,6 +425,7 @@ const updateSessionPanel = useCallback(async (
             },
           );
         },
+        closeBrowserRuntime: closeActiveSessionBrowserRuntime,
         disposePageEditor: async () => {
           if (!closingPageEditorSessionKey) return;
           await pageEditorSessionRegistry.dispose(
@@ -447,7 +460,11 @@ const updateSessionPanel = useCallback(async (
     } else if (result.status === "vetoed") {
       toast.danger("Canvas changes could not be saved locally");
     }
-  }, [activeSession, windowSessionId]);
+  }, [
+    activeSession,
+    closeActiveSessionBrowserRuntime,
+    windowSessionId,
+  ]);
 
   const closeExitedTerminalTab = useEffectEvent(async (terminalSessionId: string) => {
     if (!activeSession) return;
@@ -489,14 +506,7 @@ const updateSessionPanel = useCallback(async (
             && requireWorkbenchBrowserTabProjectionId(tab)
               === browserTabId
           ),
-        closeBrowserRuntime: async (browserTabId) => {
-          await invoke("browser-sidebar-command", {
-            type: "close-tab",
-            browserConversationId: activeSession.id,
-            browserViewScopeId: windowSessionId,
-            browserTabId,
-          });
-        },
+        closeBrowserRuntime: closeActiveSessionBrowserRuntime,
         removeDescriptor: () => {
           clearPanelPreviewTab(
             activeSession.id,
@@ -520,12 +530,12 @@ const updateSessionPanel = useCallback(async (
     activeSession,
     activatePanelTabAfterClose,
     clearPanelPreviewTab,
+    closeActiveSessionBrowserRuntime,
     getPanelVisibleLeafTabCount,
     getPanelVisibleTabCount,
     previewTabsByPanel,
     removeEmptyVisiblePanelLeaf,
     updateActivePanel,
-    windowSessionId,
   ]);
 
   const closeEphemeralPanelTab = useCallback(async (

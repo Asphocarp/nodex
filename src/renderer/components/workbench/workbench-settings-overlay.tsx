@@ -61,6 +61,13 @@ import { KeyboardShortcutsSettingsPage } from "./keyboard-shortcuts-settings-pag
 import { LocalEnvironmentsSettingsPage } from "./local-environments-settings-page";
 import { WorkbenchHooksSettingsPage } from "./workbench-hooks-settings-page";
 import {
+  BrowserContactInfoSettingsPage,
+  BrowserExtensionsSettingsPage,
+  BrowserHistorySettingsPage,
+  BrowserPasswordsSettingsPage,
+  BrowserSettingsPage,
+} from "@/features/browser-sidebar/browser-settings-pages";
+import {
   DEFAULT_DESCRIPTION_SOFT_LIMIT,
   DEFAULT_TEXT_PROMPT_CHAR_THRESHOLD,
   MAX_DESCRIPTION_SOFT_LIMIT,
@@ -2653,6 +2660,11 @@ function SettingsPlaceholderPage({
 const SETTINGS_SECTION_COMPONENTS: Record<SettingsSectionId, ComponentType<SettingsSectionPageProps>> = {
   "general-settings": GeneralSettingsPage,
   appearance: AppearanceSettingsPage,
+  "browser-settings": BrowserSettingsPage,
+  "browser-passwords": BrowserPasswordsSettingsPage,
+  "browser-contact-info": BrowserContactInfoSettingsPage,
+  "browser-history": BrowserHistorySettingsPage,
+  "browser-extensions": BrowserExtensionsSettingsPage,
   "keyboard-shortcuts": KeyboardShortcutsSettingsPage,
   agent: AgentSettingsPage,
   "agent-import": AgentImportSettingsPage,

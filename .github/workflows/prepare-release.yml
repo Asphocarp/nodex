@@ -199,6 +199,10 @@ jobs:
       working-directory: ${{ env.RELEASE_WORKDIR }}
       run: pnpm install --frozen-lockfile
 
+    - name: Verify Browser runtime conformance
+      working-directory: ${{ env.RELEASE_WORKDIR }}
+      run: pnpm run test:browser-runtime-conformance
+
     - name: Materialize App Store Connect API key
       env:
         APPLE_API_KEY_B64: ${{ secrets.APPLE_API_KEY_B64 }}
@@ -250,6 +254,7 @@ jobs:
       run: |
         pnpm exec tsx scripts/verify-codex-runtime.ts \
           --resources-path "${{ steps.artifact_paths.outputs.app_path }}/Contents/Resources" \
+          --require-browser-runtime \
           --verify-macos-signatures
 
     - name: Verify packaged native runtime
@@ -312,6 +317,10 @@ jobs:
       working-directory: ${{ env.RELEASE_WORKDIR }}
       run: pnpm install --frozen-lockfile
 
+    - name: Verify Browser runtime conformance
+      working-directory: ${{ env.RELEASE_WORKDIR }}
+      run: pnpm run test:browser-runtime-conformance
+
     - name: Materialize App Store Connect API key
       env:
         APPLE_API_KEY_B64: ${{ secrets.APPLE_API_KEY_B64 }}
@@ -363,6 +372,7 @@ jobs:
       run: |
         pnpm exec tsx scripts/verify-codex-runtime.ts \
           --resources-path "${{ steps.artifact_paths.outputs.app_path }}/Contents/Resources" \
+          --require-browser-runtime \
           --verify-macos-signatures
 
     - name: Verify packaged native runtime

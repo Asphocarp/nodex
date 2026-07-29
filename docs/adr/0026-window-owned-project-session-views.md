@@ -37,7 +37,7 @@ Rust Core owns only Project Session domain data and Thread links. The
 - the optional Thread link and timestamps.
 
 Each Main-persisted Window Session owns a
-`WorkbenchSessionViewSnapshot` per Project Session ID. The snapshot contains
+`WorkbenchSessionViewSnapshot` v2 per Project Session ID. The snapshot contains
 strict window-local tab descriptors, the right and bottom split trees,
 selection/MRU state, collapse, maximize, size, and a touched timestamp. Panel
 trees are the only source of tab placement and order. Shared Core events may
@@ -61,7 +61,12 @@ closed-history acquisition that precedes this fallback clone.
 Browser runtime identity is scoped by Window Session. A cloned Browser
 descriptor receives a new Browser runtime initialized from the source URL and
 presentation metadata while the Profile browser partition continues to share
-cookies and storage.
+cookies and storage. Each durable Browser descriptor also receives an opaque
+`browserStorageId`; Main uses it to bind the shell to the separate bounded
+Browser page/history store. Existing v1 view envelopes migrate once, deriving
+missing storage identity from Window Session, Project Session, and Browser tab
+identity so equal legacy tab IDs in two windows cannot collide. Ordinary reopen
+retains that identity; clone and fork remint it.
 
 A Terminal descriptor may reference the same PTY from more than one Window
 Session, but Main grants one explicit interactive view lease at a time. Closing

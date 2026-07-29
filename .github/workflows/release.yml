@@ -96,6 +96,9 @@ jobs:
         chmod 600 "${key_path}"
         echo "APPLE_API_KEY=${key_path}" >> "${GITHUB_ENV}"
 
+    - name: Verify Browser runtime conformance
+      run: pnpm run test:browser-runtime-conformance
+
     - name: Package app
       env:
         NODE_OPTIONS: --max-old-space-size=6144
@@ -149,6 +152,7 @@ jobs:
       run: |
         pnpm exec tsx scripts/verify-codex-runtime.ts \
           --resources-path "${{ steps.fresh_install.outputs.app_path }}/Contents/Resources" \
+          --require-browser-runtime \
           --verify-macos-signatures
 
     - name: Verify native runtime, fresh launch, signing, and notarization
@@ -227,6 +231,9 @@ jobs:
         chmod 600 "${key_path}"
         echo "APPLE_API_KEY=${key_path}" >> "${GITHUB_ENV}"
 
+    - name: Verify Browser runtime conformance
+      run: pnpm run test:browser-runtime-conformance
+
     - name: Package app
       env:
         NODE_OPTIONS: --max-old-space-size=6144
@@ -280,6 +287,7 @@ jobs:
       run: |
         pnpm exec tsx scripts/verify-codex-runtime.ts \
           --resources-path "${{ steps.fresh_install.outputs.app_path }}/Contents/Resources" \
+          --require-browser-runtime \
           --verify-macos-signatures
 
     - name: Verify native runtime, fresh launch, signing, and notarization

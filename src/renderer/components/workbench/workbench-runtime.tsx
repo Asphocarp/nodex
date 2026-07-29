@@ -47,6 +47,7 @@ import {
 } from "@/features/content-search/content-search-context";
 import { ContentSearchSurface } from "@/features/content-search/content-search-surface";
 import { buildSettingsPath } from "./workbench-settings-routes";
+import type { BrowserSettingsDestination } from "@/features/browser-sidebar/browser-settings-pages";
 import {
   buildCodexHooksSettingsPath,
   type CodexHooksSettingsTarget,
@@ -132,6 +133,8 @@ import {
   type WorkbenchSessionRenderProjection,
 } from "@/lib/workbench-session-presentation";
 import type { CodexPendingWorktreeEntry } from "../../../shared/codex-pending-worktree";
+import { buildBrowserUseRouteCaptureCommand } from "@/lib/browser-use-route-capture";
+import { useBrowserUsePresentationCoordinator } from "@/lib/use-browser-use-presentation-coordinator";
 import { useWorkbenchPreferences } from "./use-workbench-preferences";
 import {
   useWorkbenchWindowState,
@@ -201,6 +204,7 @@ import {
 } from "@/lib/workbench-panel-tab-model";
 import {
   buildSessionPanelRenderModel,
+  collectMountedBrowserTabIds,
 } from "@/lib/workbench-panel-projection";
 import {
   makeWorkbenchPanelSlotKey,
@@ -739,6 +743,25 @@ export function WorkbenchRuntime({
       .find((candidate) => candidate.id === tabId) ?? null;
   }, [activeSession, resolveSessionView]);
   const activeRenderSession = activeSession;
+  const activeBrowserRouteConversationId = activeRenderSession?.id ?? null;
+  const activeBrowserRouteCodexSessionId =
+    activeRenderSession?.thread?.threadId ?? activeBrowserRouteConversationId;
+  const activeBrowserRouteProjectId = activeRenderSession?.projectId ?? null;
+  useEffect(() => {
+    const command = buildBrowserUseRouteCaptureCommand({
+      browserConversationId: activeBrowserRouteConversationId,
+      browserViewScopeId: windowSessionId,
+      codexSessionId: activeBrowserRouteCodexSessionId,
+      projectId: activeBrowserRouteProjectId,
+    });
+    if (!command) return;
+    void invoke("browser-sidebar-command", command);
+  }, [
+    activeBrowserRouteCodexSessionId,
+    activeBrowserRouteConversationId,
+    activeBrowserRouteProjectId,
+    windowSessionId,
+  ]);
   const forkTransferTargetConversationId = activeRenderSession?.thread?.threadId ?? null;
   const forkTransferTargetSessionId = activeRenderSession?.id ?? null;
   const consumedForkTransferTargetsRef = useRef(new Set<string>());
@@ -1017,6 +1040,16 @@ export function WorkbenchRuntime({
     setSettingsPath(buildSettingsPath("general-settings"));
   }, [closePendingWorktreeRoute, setAutomationsPath, setLibraryRoute, setSettingsPath]);
 
+  const openBrowserSettings = useCallback((sectionId: BrowserSettingsDestination) => {
+    closePendingWorktreeRoute();
+    setAutomationsPath(null);
+    setLibraryRoute(null);
+    setReopenStableWorktreeAfterSettingsId(null);
+    setReopenPendingWorktreeAfterSettingsClientThreadId(null);
+    setLocalEnvironmentSettingsInitial(null);
+    setSettingsPath(buildSettingsPath(sectionId));
+  }, [closePendingWorktreeRoute, setAutomationsPath, setLibraryRoute, setSettingsPath]);
+
   const openKeyboardShortcutsSettings = useCallback(() => {
     closePendingWorktreeRoute();
     setAutomationsPath(null);
@@ -1232,10 +1265,23 @@ export function WorkbenchRuntime({
   const {
     updateActivePanel,
     setActivePanelCollapsed,
+    setActivePanelTab,
+    pinPreviewTab,
     selectPanelTab,
     closePlanSidePanel,
     activatePanelGroup,
   } = panelLifecycle;
+  const browserUsePresentation =
+    useBrowserUsePresentationCoordinator({
+      activeSession,
+      catalog: sessionCatalog,
+      controller: panelController,
+      createSessionViewTab,
+      pinPreviewTab,
+      setActivePanelCollapsed,
+      setActivePanelTab,
+      windowSessionId,
+    });
 
   const panelOpeners = useWorkbenchPanelOpeners({
     activeProjectId,
@@ -1397,6 +1443,7 @@ export function WorkbenchRuntime({
       activeSearchQuery,
       activeView,
       browserViewScopeId: windowSessionId,
+      onOpenBrowserSettings: openBrowserSettings,
       windowSessionId,
       dbViewPrefsByProject,
       onLeavePageStage,
@@ -1425,6 +1472,26 @@ export function WorkbenchRuntime({
     onTogglePageStageHistoryModal: togglePageStageHistoryModal,
     onUpdateSessionViewTab: updateSessionViewTab,
   });
+  const mountedBrowserTabIds = useMemo(
+    () => (
+      activeRenderSession && activeSessionPanelModel
+        ? collectMountedBrowserTabIds(
+            activeRenderSession,
+            activeSessionPanelModel,
+            {
+              right: rightPanelMotion.mounted,
+              bottom: bottomPanelMotion.mounted,
+            },
+          )
+        : new Set<string>()
+    ),
+    [
+      activeRenderSession,
+      activeSessionPanelModel,
+      bottomPanelMotion.mounted,
+      rightPanelMotion.mounted,
+    ],
+  );
 
   useEffect(() => {
     const atMediumWidth = shellWidthClass !== "wide";
@@ -1494,12 +1561,14 @@ export function WorkbenchRuntime({
       openProcessManager: () => {
         setProcessManagerOpen(true);
       },
+      presentBrowserTab: browserUsePresentation.presentBrowserTab,
     }),
     [
       openAutomationSidePanel,
       openAutomations,
       openProcessOutputInCurrentSession,
       openSummaryOutputInSidePanel,
+      browserUsePresentation.presentBrowserTab,
       selectPanelTab,
       setActivePanelCollapsed,
     ],
@@ -2319,8 +2388,12 @@ export function WorkbenchRuntime({
             {activeRenderSession ? (
               <BrowserSidebarHiddenWebviewHosts
                 sessionId={activeRenderSession.id}
+                codexSessionId={
+                  activeRenderSession.thread?.threadId ?? activeRenderSession.id
+                }
                 browserViewScopeId={windowSessionId}
                 tabs={browserRetentionTabs}
+                mountedTabIds={mountedBrowserTabIds}
                 visibleTabIds={visibleBrowserTabIds}
               />
             ) : null}

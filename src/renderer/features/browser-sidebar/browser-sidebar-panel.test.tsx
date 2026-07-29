@@ -1,6 +1,13 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, vi, test } from "vitest";
 import { act, fireEvent } from "@testing-library/react";
 import type { MotionValue } from "motion/react";
+import type {
+  BrowserSidebarBrowserUseStateSnapshot,
+  BrowserSidebarBrowserUseViewportEvent,
+  BrowserSidebarTabSnapshot,
+  BrowserUseCursorState,
+  BrowserUseTabState,
+} from "../../../shared/browser-sidebar";
 import type { WorkbenchTabProjection } from "@/lib/types";
 import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
 import { render, settleAsyncRender } from "../../test/dom";
@@ -8,10 +15,12 @@ import { browserSidebarRendererWebviewManager } from "./browser-sidebar-webview-
 
 let BrowserSidebarPanel: typeof import("./browser-sidebar-panel")["BrowserSidebarPanel"];
 let invokeCalls: unknown[][] = [];
+let apiListeners = new Map<string, Set<(payload: unknown) => void>>();
 
 vi.mock("@/lib/api", () => ({
   invoke: async (channel: string, ...args: unknown[]) => {
     invokeCalls.push([channel, ...args]);
+    if (channel === "browser-downloads-list") return { downloads: [] };
     return { ok: true };
   },
   subscribeBoardChanges: () => () => undefined,
@@ -25,6 +34,14 @@ vi.mock("@/lib/api", () => ({
   subscribeWindowFocusChanges: () => () => undefined,
 }));
 
+vi.mock("@/lib/use-theme", () => ({
+  useTheme: () => ({
+    theme: "dark",
+    resolved: "dark",
+    setTheme: () => undefined,
+  }),
+}));
+
 beforeAll(async () => {
   const module = await import("./browser-sidebar-panel");
   BrowserSidebarPanel = module.BrowserSidebarPanel;
@@ -32,16 +49,27 @@ beforeAll(async () => {
 
 beforeEach(() => {
   invokeCalls = [];
+  apiListeners = new Map();
   Object.defineProperty(window, "api", {
     configurable: true,
     value: {
-      on: () => () => undefined,
+      on: (channel: string, listener: (payload: unknown) => void) => {
+        const listeners = apiListeners.get(channel) ?? new Set();
+        listeners.add(listener);
+        apiListeners.set(channel, listeners);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
     },
   });
 });
 
-afterEach(() => {
-  browserSidebarRendererWebviewManager.disposeAll();
+afterEach(async () => {
+  await act(async () => {
+    browserSidebarRendererWebviewManager.disposeAll();
+    await Promise.resolve();
+  });
 });
 
 describe("BrowserSidebarPanel chrome", () => {
@@ -51,6 +79,7 @@ describe("BrowserSidebarPanel chrome", () => {
         tab={browserTab}
         activeSession={activeSession}
         browserViewScopeId="window-session-1"
+        isVisible
         onRefreshSessions={async () => [activeSession]}
       />,
     );
@@ -74,6 +103,7 @@ describe("BrowserSidebarPanel chrome", () => {
         tab={loadedBrowserTab}
         activeSession={{ ...activeSession, tabs: [loadedBrowserTab] }}
         browserViewScopeId="window-session-1"
+        isVisible
         onRefreshSessions={async () => [{ ...activeSession, tabs: [loadedBrowserTab] }]}
       />,
     );
@@ -90,12 +120,160 @@ describe("BrowserSidebarPanel chrome", () => {
     expect(commandTypes.includes("close-tab")).toBe(false);
   });
 
+  test("reveals active Profile downloads and opens their management page", async () => {
+    const view = render(
+      <BrowserSidebarPanel
+        tab={loadedBrowserTab}
+        activeSession={{ ...activeSession, tabs: [loadedBrowserTab] }}
+        browserViewScopeId="window-session-1"
+        isVisible
+        onRefreshSessions={async () => [{
+          ...activeSession,
+          tabs: [loadedBrowserTab],
+        }]}
+      />,
+    );
+    await settleAsyncRender();
+
+    await emitApiEvent("browser-downloads-state", {
+      downloads: [{
+        id: "download-1",
+        browserConversationId: "session-1",
+        browserViewScopeId: "window-session-1",
+        browserTabId: "tab-browser",
+        fileName: "artifact.zip",
+        savePath: "/tmp/artifact.zip",
+        sourceOrigin: "https://example.com",
+        status: "progressing",
+        receivedBytes: 512,
+        totalBytes: 1_024,
+        startedAt: 1,
+        updatedAt: 2,
+      }],
+    });
+
+    const indicator = view.getByLabelText("1 active download");
+    fireEvent.click(indicator);
+    expect(view.getByText("Downloads") === null).toBe(false);
+    expect(view.getByText("artifact.zip") === null).toBe(false);
+  });
+
+  test("accepts browser events only for the complete Window Session tab identity", async () => {
+    const view = render(
+      <BrowserSidebarPanel
+        tab={loadedBrowserTab}
+        activeSession={{ ...activeSession, tabs: [loadedBrowserTab] }}
+        browserViewScopeId="window-session-1"
+        isVisible
+        onRefreshSessions={async () => [{ ...activeSession, tabs: [loadedBrowserTab] }]}
+      />,
+    );
+    await settleAsyncRender();
+
+    const addressInput = view.container.querySelector<HTMLInputElement>(
+      "[data-browser-sidebar-address-input='true']",
+    );
+    if (!addressInput) throw new Error("Expected Browser address input");
+    const initialAddress = addressInput.value;
+
+    await emitApiEvent("browser-sidebar-state", {
+      tabs: [
+        makeBrowserSnapshot("window-session-2", {
+          url: "https://wrong-window.example/",
+          isLoading: true,
+        }),
+      ],
+    });
+
+    expect(addressInput.value).toBe(initialAddress);
+    expect(view.queryByLabelText("Stop") === null).toBe(true);
+
+    await emitApiEvent("browser-sidebar-state", {
+      tabs: [
+        makeBrowserSnapshot("window-session-1", {
+          url: "https://exact-window.example/",
+          isLoading: true,
+        }),
+      ],
+    });
+
+    expect(addressInput.value).toBe("exact-window.example");
+    expect(view.queryByLabelText("Stop") === null).toBe(false);
+
+    await emitApiEvent(
+      "browser-sidebar-browser-use-state",
+      makeBrowserUseStateSnapshot({
+        scopeId: "window-session-2",
+        activeScopeId: "window-session-1",
+        title: "Wrong window agent",
+        cursorVisible: true,
+      }),
+    );
+    await emitApiEvent(
+      "browser-sidebar-browser-use-cursor-state",
+      makeBrowserUseCursor("window-session-2", { visible: true }),
+    );
+    await emitApiEvent(
+      "browser-sidebar-browser-use-viewport",
+      makeBrowserUseViewport("window-session-2", {
+        viewportSize: { width: 777, height: 333 },
+      }),
+    );
+
+    expect(view.queryByTestId("browser-agent-cursor-overlay") === null).toBe(true);
+    expect(view.queryByText("Wrong window agent") === null).toBe(true);
+    expect(view.queryByText("777x333") === null).toBe(true);
+
+    await emitApiEvent(
+      "browser-sidebar-browser-use-state",
+      makeBrowserUseStateSnapshot({
+        scopeId: "window-session-1",
+        activeScopeId: "window-session-1",
+        title: "Exact window agent",
+        cursorVisible: true,
+      }),
+    );
+
+    expect(view.queryByTestId("browser-agent-cursor-overlay") === null).toBe(false);
+    expect(view.queryByTestId("browser-agent-cursor-asset") === null).toBe(false);
+    expect(view.queryByText("Exact window agent") === null).toBe(true);
+
+    await emitApiEvent("browser-sidebar-browser-use-state", {
+      tabs: [],
+      activeBrowserTabIdsByConversationScope: {
+        "session-1\0window-session-1": "tab-browser",
+      },
+      cursors: [],
+    } satisfies BrowserSidebarBrowserUseStateSnapshot);
+
+    expect(view.queryByTestId("browser-agent-cursor-overlay") === null).toBe(true);
+
+    await emitApiEvent(
+      "browser-sidebar-browser-use-cursor-state",
+      makeBrowserUseCursor("window-session-1", { visible: true }),
+    );
+
+    expect(view.queryByTestId("browser-agent-cursor-overlay") === null).toBe(true);
+    expect(view.queryByText("777x333") === null).toBe(true);
+
+    await emitApiEvent(
+      "browser-sidebar-browser-use-viewport",
+      makeBrowserUseViewport("window-session-1", {
+        viewportSize: { width: 800, height: 600 },
+      }),
+    );
+
+    expect(view.queryByTestId("browser-agent-cursor-overlay") === null).toBe(false);
+    expect(view.queryByText("800x600") === null).toBe(true);
+  });
+
   test("remounts the visible panel without recreating or reparenting the webview", async () => {
     const first = render(
       <BrowserSidebarPanel
         tab={loadedBrowserTab}
         activeSession={{ ...activeSession, tabs: [loadedBrowserTab] }}
         browserViewScopeId="window-session-1"
+        isVisible
         onRefreshSessions={async () => [{ ...activeSession, tabs: [loadedBrowserTab] }]}
       />,
     );
@@ -112,6 +290,7 @@ describe("BrowserSidebarPanel chrome", () => {
         tab={loadedBrowserTab}
         activeSession={{ ...activeSession, tabs: [loadedBrowserTab] }}
         browserViewScopeId="window-session-1"
+        isVisible
         onRefreshSessions={async () => [{ ...activeSession, tabs: [loadedBrowserTab] }]}
       />,
     );
@@ -126,6 +305,84 @@ describe("BrowserSidebarPanel chrome", () => {
     second.unmount();
   });
 
+  test("registers an auto-materialized tab once when persisted viewport state exists", async () => {
+    const autoMaterializedTab = {
+      ...loadedBrowserTab,
+      id: "tab:browser-use:runtime-page",
+      browserTabId: "browser-use:runtime-page",
+      config: {
+        ...loadedBrowserTab.config,
+        browserStorageId: "browser:use:runtime-page",
+        deviceToolbarVisible: false,
+        deviceToolbarState:
+          makeBrowserSnapshot("window-session-1").deviceToolbarState,
+      },
+    } satisfies WorkbenchTabProjection;
+    const loadedSession = {
+      ...activeSession,
+      tabs: [autoMaterializedTab],
+    };
+    const view = render(
+      <BrowserSidebarPanel
+        tab={autoMaterializedTab}
+        activeSession={loadedSession}
+        browserViewScopeId="window-session-1"
+        isVisible
+        onRefreshSessions={async () => [loadedSession]}
+      />,
+    );
+    await settleAsyncRender();
+
+    expect(readBrowserCommandCalls("register-tab")).toHaveLength(1);
+    expect(
+      document.body
+        .querySelector("[data-browser-sidebar-webview-manager-root]")
+        ?.getAttribute("data-browser-sidebar-webview-host-kind"),
+    ).toBe("panel");
+    view.unmount();
+  });
+
+  test("mounts an about:blank guest when Browser Use presents a tab before navigation", async () => {
+    const view = render(
+      <BrowserSidebarPanel
+        tab={browserTab}
+        activeSession={activeSession}
+        browserViewScopeId="window-session-1"
+        isVisible
+        onRefreshSessions={async () => [activeSession]}
+      />,
+    );
+    await settleAsyncRender();
+    expect(
+      document.body.querySelector("[data-browser-sidebar-webview-manager-root]"),
+    ).toBe(null);
+
+    await emitApiEvent("browser-sidebar-browser-use-state", {
+      tabs: [makeBrowserUseTab("window-session-1", {
+        title: "New tab",
+        url: "about:blank",
+        webContentsId: null,
+      })],
+      activeBrowserTabIdsByConversationScope: {
+        "session-1\0window-session-1": "tab-browser",
+      },
+      cursors: [],
+    } satisfies BrowserSidebarBrowserUseStateSnapshot);
+    await settleAsyncRender();
+
+    const root = document.body.querySelector(
+      "[data-browser-sidebar-webview-manager-root]",
+    );
+    expect(root?.getAttribute("data-browser-sidebar-webview-host-kind")).toBe(
+      "panel",
+    );
+    expect(root?.querySelector("webview")?.getAttribute("src")).toBe(
+      "about:blank",
+    );
+    expect(readBrowserCommandCalls("register-host")).toHaveLength(1);
+    view.unmount();
+  });
+
   test("resyncs the body-attached webview bounds from panel motion ticks", async () => {
     const boundsSyncTrigger = createBoundsSyncTrigger();
     const view = render(
@@ -133,6 +390,7 @@ describe("BrowserSidebarPanel chrome", () => {
         tab={loadedBrowserTab}
         activeSession={{ ...activeSession, tabs: [loadedBrowserTab] }}
         browserViewScopeId="window-session-1"
+        isVisible
         onRefreshSessions={async () => [{ ...activeSession, tabs: [loadedBrowserTab] }]}
         boundsSyncTrigger={boundsSyncTrigger}
       />,
@@ -161,12 +419,70 @@ describe("BrowserSidebarPanel chrome", () => {
     view.unmount();
   });
 
+  test("hides the guest immediately when the animated panel becomes logically closed", async () => {
+    const boundsSyncTrigger = createBoundsSyncTrigger();
+    const loadedSession = {
+      ...activeSession,
+      tabs: [loadedBrowserTab],
+    };
+    const onRefreshSessions = async () => [loadedSession];
+    const renderPanel = (isVisible: boolean) => (
+      <BrowserSidebarPanel
+        tab={loadedBrowserTab}
+        activeSession={loadedSession}
+        browserViewScopeId="window-session-1"
+        isVisible={isVisible}
+        onRefreshSessions={onRefreshSessions}
+        boundsSyncTrigger={boundsSyncTrigger}
+      />
+    );
+    const view = render(renderPanel(true));
+    await settleAsyncRender();
+
+    const reactHost = view.container.querySelector<HTMLElement>(
+      "[data-browser-sidebar-webview-host-root]",
+    );
+    if (!reactHost) throw new Error("Expected Browser webview host");
+    setElementRect(reactHost, {
+      left: 24,
+      top: 48,
+      width: 320,
+      height: 240,
+    });
+    await emitBoundsSync(boundsSyncTrigger);
+
+    const managerRoot = document.body.querySelector<HTMLElement>(
+      "[data-browser-sidebar-webview-manager-root]",
+    );
+    expect(
+      managerRoot?.getAttribute("data-browser-sidebar-webview-visible"),
+    ).toBe("true");
+    const registerHostCount = readBrowserCommandCalls("register-host").length;
+
+    view.rerender(renderPanel(false));
+    await settleAsyncRender();
+
+    expect(
+      managerRoot?.getAttribute("data-browser-sidebar-webview-visible"),
+    ).toBe("false");
+    expect(managerRoot?.style.left).toBe("-10000px");
+    expect(managerRoot?.style.visibility).toBe("hidden");
+    expect(readBrowserCommandCalls("register-host")).toHaveLength(
+      registerHostCount,
+    );
+    expect(readBrowserCommandCalls("sync-host").at(-1)).toMatchObject({
+      presented: false,
+      visible: false,
+    });
+  });
+
   test("renders browser options above the body-attached webview layer", async () => {
     const view = render(
       <BrowserSidebarPanel
         tab={loadedBrowserTab}
         activeSession={{ ...activeSession, tabs: [loadedBrowserTab] }}
         browserViewScopeId="window-session-1"
+        isVisible
         onRefreshSessions={async () => [{ ...activeSession, tabs: [loadedBrowserTab] }]}
       />,
     );
@@ -205,6 +521,23 @@ async function emitBoundsSync(boundsSyncTrigger: TestBoundsSyncTrigger) {
     boundsSyncTrigger.emit();
     await Promise.resolve();
     await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+}
+
+async function emitApiEvent(channel: string, payload: unknown) {
+  await act(async () => {
+    for (const listener of apiListeners.get(channel) ?? []) {
+      listener(payload);
+    }
+    await Promise.resolve();
+  });
+}
+
+function readBrowserCommandCalls(type: string): Array<Record<string, unknown>> {
+  return invokeCalls.flatMap((call) => {
+    if (call[0] !== "browser-sidebar-command") return [];
+    const command = call[1] as Record<string, unknown> | undefined;
+    return command?.type === type ? [command] : [];
   });
 }
 
@@ -294,7 +627,7 @@ const activeSession: WorkbenchSessionRenderProjection = {
   updatedAt: "2026-06-09T00:00:00.000Z",
 };
 
-const loadedBrowserTab: WorkbenchTabProjection = {
+const loadedBrowserTab = {
   id: browserTab.id,
   sessionId: browserTab.sessionId,
   browserTabId: browserTab.browserTabId,
@@ -312,4 +645,129 @@ const loadedBrowserTab: WorkbenchTabProjection = {
   state: browserTab.state,
   createdAt: browserTab.createdAt,
   updatedAt: browserTab.updatedAt,
-};
+} satisfies WorkbenchTabProjection;
+
+function makeBrowserSnapshot(
+  browserViewScopeId: string,
+  overrides: Partial<BrowserSidebarTabSnapshot> = {},
+): BrowserSidebarTabSnapshot {
+  return {
+    browserConversationId: "session-1",
+    browserViewScopeId,
+    browserTabId: "tab-browser",
+    projectId: "alpha",
+    webContentsId: 42,
+    mountGeneration: 1,
+    url: "https://www.google.com/",
+    title: "Google",
+    isLoading: false,
+    canGoBack: false,
+    canGoForward: false,
+    zoomPercent: 100,
+    deviceToolbarVisible: false,
+    viewport: {
+      width: 390,
+      height: 844,
+      zoomPercent: 100,
+      presetId: "responsive",
+    },
+    deviceToolbarState: {
+      responsiveViewportSize: null,
+      toolbarState: {
+        isEnabled: false,
+        presetId: "responsive",
+        width: 390,
+        height: 844,
+      },
+    },
+    interactionMode: "browse",
+    findState: {
+      open: false,
+      query: "",
+      activeMatchOrdinal: null,
+      matchCount: null,
+      caseSensitive: false,
+    },
+    hasBrowserPage: true,
+    pageActionsDisabled: false,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
+
+function makeBrowserUseStateSnapshot({
+  scopeId,
+  activeScopeId,
+  title,
+  cursorVisible,
+}: {
+  scopeId: string;
+  activeScopeId: string;
+  title: string;
+  cursorVisible: boolean;
+}): BrowserSidebarBrowserUseStateSnapshot {
+  return {
+    tabs: [makeBrowserUseTab(scopeId, { title })],
+    activeBrowserTabIdsByConversationScope: {
+      [`session-1\0${activeScopeId}`]: "tab-browser",
+    },
+    cursors: [
+      makeBrowserUseCursor(scopeId, { visible: cursorVisible }),
+    ],
+  };
+}
+
+function makeBrowserUseTab(
+  browserViewScopeId: string,
+  overrides: Partial<BrowserUseTabState> = {},
+): BrowserUseTabState {
+  return {
+    browserConversationId: "session-1",
+    browserViewScopeId,
+    browserTabId: "tab-browser",
+    projectId: "alpha",
+    title: "Browser agent",
+    url: "https://www.google.com/",
+    webContentsId: 42,
+    viewport: {
+      width: 390,
+      height: 844,
+      zoomPercent: 100,
+      presetId: "responsive",
+    },
+    captureActive: true,
+    released: false,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
+
+function makeBrowserUseCursor(
+  browserViewScopeId: string,
+  overrides: Partial<BrowserUseCursorState> = {},
+): BrowserUseCursorState {
+  return {
+    browserConversationId: "session-1",
+    browserViewScopeId,
+    browserTabId: "tab-browser",
+    moveSequence: 1,
+    x: 20,
+    y: 30,
+    visible: false,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
+
+function makeBrowserUseViewport(
+  browserViewScopeId: string,
+  overrides: Partial<BrowserSidebarBrowserUseViewportEvent> = {},
+): BrowserSidebarBrowserUseViewportEvent {
+  return {
+    browserConversationId: "session-1",
+    browserViewScopeId,
+    browserTabId: "tab-browser",
+    viewportSize: null,
+    ...overrides,
+  };
+}

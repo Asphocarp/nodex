@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
 import type { BundledAgentRuntimeMetadata } from "../src/shared/codex-runtime-metadata";
+import { writeBrowserRuntimeFixture } from "../src/main/codex/browser-runtime-test-fixture";
+import { resolveCodexRuntime } from "../src/main/codex/codex-runtime";
 import {
   bundledAgentRuntimeMetadataSha256,
   resolveCodexRuntimeTarget,
@@ -282,6 +284,53 @@ describe("stage-codex-runtime", () => {
         expect(fs.statSync(artifactPath).mode & 0o777).toBe(artifact.executable ? 0o755 : 0o644);
       }
       expect(fs.statSync(path.join(runtimeRoot, "agent-runtime.json")).mode & 0o777).toBe(0o644);
+    } finally {
+      fixture.cleanup();
+      fs.rmSync(outputRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("activates a verified Browser bundle inside the same runtime replacement", async () => {
+    const fixture = makeFakeOpenInterpreterRelease();
+    const outputRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-stage-agent-runtime-out-"));
+    const outputPath = path.join(outputRoot, "codex-runtime");
+    const browserRuntimeSourceRoot = path.join(outputRoot, "browser-source");
+    writeBrowserRuntimeFixture(browserRuntimeSourceRoot, {
+      codexCompatibilityVersion: "0.144.5",
+    });
+
+    try {
+      await stageCodexRuntime({
+        browserRuntimeSourceRoot,
+        targetPlatform: "darwin",
+        targetArch: "arm64",
+        outputPath,
+        sourceRoot: fixture.sourceRoot,
+        lockPath: fixture.lockPath,
+        projectRootPath: fixture.projectRoot,
+      });
+
+      const runtime = resolveCodexRuntime({
+        browserRuntimePlatformArtifactVerifier: () => null,
+        isPackaged: true,
+        resourcesPath: path.join(outputPath, "agent-runtime"),
+      });
+      expect(runtime.browserRuntime.status).toBe("available");
+
+      await stageCodexRuntime({
+        reuseExisting: true,
+        targetPlatform: "darwin",
+        targetArch: "arm64",
+        outputPath,
+        sourceRoot: fixture.sourceRoot,
+        lockPath: fixture.lockPath,
+        projectRootPath: fixture.projectRoot,
+      });
+      expect(resolveCodexRuntime({
+        browserRuntimePlatformArtifactVerifier: () => null,
+        isPackaged: true,
+        resourcesPath: path.join(outputPath, "agent-runtime"),
+      }).browserRuntime.status).toBe("available");
     } finally {
       fixture.cleanup();
       fs.rmSync(outputRoot, { recursive: true, force: true });

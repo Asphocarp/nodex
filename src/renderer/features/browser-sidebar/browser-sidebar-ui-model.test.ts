@@ -9,7 +9,6 @@ import {
   shouldCommitBrowserAddressEdit,
   shouldSkipBrowserAddressCommit,
   updateBrowserViewportDimension,
-  writeBrowserLocalServerExpandedProjects,
 } from "./browser-sidebar-ui-model";
 
 describe("browser-sidebar-ui-model", () => {
@@ -81,17 +80,24 @@ describe("browser-sidebar-ui-model", () => {
     expect(hidden.hiddenServers[0]?.origin).toBe("http://localhost:5003");
   });
 
-  test("persists expanded local server projects with Codex storage key", () => {
-    window.localStorage.clear();
-    writeBrowserLocalServerExpandedProjects(window.localStorage, new Set(["alpha", "beta"]));
-
-    const settings = resolveBrowserLocalServerSettings(window.localStorage);
+  test("projects Profile-owned local server preferences into the view model", () => {
+    const settings = resolveBrowserLocalServerSettings({
+      showMode: "all",
+      sortMode: "origin",
+      expandedProjectIds: ["alpha", "beta"],
+    });
     expect(settings.expandedProjectIds.has("alpha")).toBe(true);
     expect(settings.expandedProjectIds.has("beta")).toBe(true);
+    expect(settings.showMode).toBe("all");
+    expect(settings.sortMode).toBe("origin");
   });
 
   test("resolves custom zoom options and viewport math", () => {
-    expect(resolveBrowserZoomOptions(110).join(",")).toBe("50,75,100,110,125,150,200");
+    expect(resolveBrowserZoomOptions(115)).toContain(115);
+    expect(resolveBrowserZoomOptions(100)).toEqual([
+      25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250,
+      300, 400, 500,
+    ]);
 
     const viewport: BrowserSidebarViewport = {
       width: 390,

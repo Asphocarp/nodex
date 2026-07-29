@@ -7,8 +7,10 @@ import {
 import {
   useConversationSubset,
 } from "@/features/local-conversation";
-import { buildThreadSummaryPanelBrowserRow } from "@/features/local-conversation/projection/thread-summary-panel-browser-row-model";
-import { isThreadSummaryBrowserRowAgentWorking } from "@/features/local-conversation/projection/thread-summary-panel-browser-row-model";
+import {
+  buildThreadSummaryPanelBrowserRows,
+  type ThreadSummaryPanelWorkbenchBrowserSource,
+} from "@/features/local-conversation/projection/thread-summary-panel-browser-row-model";
 import { buildThreadSummaryPanelSideChatRow } from "@/features/local-conversation/projection/thread-summary-panel-side-chat-row-model";
 import { buildThreadSummaryPanelScheduledAutomationRow } from "@/features/local-conversation/projection/thread-summary-panel-scheduled-automation-model";
 import { useRemoteHostedPipSummaryControl } from "@/features/local-conversation/view/use-remote-hosted-pip-summary-control";
@@ -24,15 +26,17 @@ import {
   readBrowserConfigTitle,
   readBrowserConfigUrl,
 } from "@/features/browser-sidebar/browser-sidebar-tab-config";
-import type {
-  BrowserSidebarBrowserUseStateSnapshot,
-} from "../../shared/browser-sidebar";
 import {
+  makeBrowserSidebarConversationScopeKey,
   requireWorkbenchBrowserTabProjectionId,
 } from "../../shared/browser-sidebar";
+import {
+  useBrowserSidebarRendererState,
+} from "@/features/browser-sidebar/browser-sidebar-renderer-state-store";
 import type {
   CodexScheduledAutomation,
   PanelId,
+  WorkbenchTabProjection,
 } from "./types";
 import type {
   SideChatPanelTab,
@@ -74,6 +78,7 @@ export interface WorkbenchThreadSummaryCommands {
     target: ReturnType<typeof buildProcessOutputTargetFromSummaryRow>,
   ) => Promise<boolean>;
   readonly openProcessManager: () => void;
+  readonly presentBrowserTab: (browserTabId: string) => Promise<void>;
 }
 
 interface WorkbenchThreadSummaryInput {
@@ -157,21 +162,7 @@ export function useWorkbenchThreadSummary({
     setPopoverOpen(false);
   }, [mode]);
 
-  const [browserUseState, setBrowserUseState] =
-    useState<BrowserSidebarBrowserUseStateSnapshot | null>(null);
-  useEffect(() => {
-    const unsubscribe = window.api?.on(
-      "browser-sidebar-browser-use-state",
-      (payload) => {
-        setBrowserUseState(
-          payload as BrowserSidebarBrowserUseStateSnapshot,
-        );
-      },
-    );
-    return () => {
-      unsubscribe?.();
-    };
-  }, []);
+  const browserRuntime = useBrowserSidebarRendererState();
 
   const sideChatThreadIds = useMemo(
     () => sideChatTabs.flatMap((tab) =>
@@ -193,53 +184,80 @@ export function useWorkbenchThreadSummary({
   const browserRows = useMemo<ThreadSummaryPanelBrowserRow[]>(() => {
     if (!activeSession) return [];
     const activeBrowserUseTabId =
-      browserUseState?.activeBrowserTabIdsByConversationScope[
-        `${activeSession.id}\0${windowSessionId}`
+      browserRuntime.browserUseState
+        .activeBrowserTabIdsByConversationScope[
+        makeBrowserSidebarConversationScopeKey({
+          browserConversationId: activeSession.id,
+          browserViewScopeId: windowSessionId,
+        })
       ] ?? null;
-    const browserTabs = activeSession.tabs
-      .filter((tab) => tab.kind === "browser")
-      .map((tab) => buildThreadSummaryPanelBrowserRow({
-        id: tab.id,
+    const toSource = (
+      tab: Extract<WorkbenchTabProjection, { kind: "browser" }>,
+      leafId: string | null,
+    ): ThreadSummaryPanelWorkbenchBrowserSource => ({
+        browserTabId: requireWorkbenchBrowserTabProjectionId(tab),
+        workbenchTabId: tab.id,
         tabTitle: tab.title,
         configTitle: readBrowserConfigTitle(tab),
         url: readBrowserConfigUrl(tab),
         faviconUrl: readBrowserConfigFavicon(tab),
-        isAgentWorking: isThreadSummaryBrowserRowAgentWorking(
-          activeBrowserUseTabId,
-          requireWorkbenchBrowserTabProjectionId(tab),
-        ),
         panelId: tab.panelId,
-        leafId: resolveLeafIdForPanelTab(
-          activeSession,
-          tab.panelId,
-          tab.id,
-        ),
-      }));
+        leafId,
+      });
+    const durableBrowserTabs = activeSession.tabs.filter(
+      (tab): tab is Extract<WorkbenchTabProjection, { kind: "browser" }> =>
+        tab.kind === "browser",
+    );
     const browserPreviewTabs = Object.entries(previewTabsByPanel)
       .filter(([, tab]) =>
         tab.sessionId === activeSession.id
         && tab.kind === "browser")
-      .map(([key, tab]) => buildThreadSummaryPanelBrowserRow({
-        id: tab.id,
-        tabTitle: tab.title,
-        configTitle: readBrowserConfigTitle(tab),
-        url: readBrowserConfigUrl(tab),
-        faviconUrl: readBrowserConfigFavicon(tab),
-        isAgentWorking: isThreadSummaryBrowserRowAgentWorking(
-          activeBrowserUseTabId,
-          requireWorkbenchBrowserTabProjectionId(tab),
-        ),
-        panelId: tab.panelId,
-        leafId: resolveWorkbenchPanelSlotLeafId(
+      .map(([key, tab]) => toSource(
+        tab as Extract<WorkbenchTabProjection, { kind: "browser" }>,
+        resolveWorkbenchPanelSlotLeafId(
           key,
           activeSession.id,
           tab.panelId,
         ),
-      }));
-    return [...browserTabs, ...browserPreviewTabs];
+      ));
+    const scopedRuntimeTabs = browserRuntime.browserUseState.tabs.filter(
+      (tab) =>
+        tab.browserConversationId === activeSession.id
+        && tab.browserViewScopeId === windowSessionId,
+    );
+    const scopedSnapshots = browserRuntime.state.tabs.filter((tab) =>
+      tab.browserConversationId === activeSession.id
+      && tab.browserViewScopeId === windowSessionId
+    );
+    return buildThreadSummaryPanelBrowserRows({
+      rightTabs: durableBrowserTabs
+        .filter((tab) => tab.panelId === "right")
+        .map((tab) => toSource(
+          tab,
+          resolveLeafIdForPanelTab(
+            activeSession,
+            tab.panelId,
+            tab.id,
+          ),
+        )),
+      bottomTabs: durableBrowserTabs
+        .filter((tab) => tab.panelId === "bottom")
+        .map((tab) => toSource(
+          tab,
+          resolveLeafIdForPanelTab(
+            activeSession,
+            tab.panelId,
+            tab.id,
+          ),
+        )),
+      pendingTabs: browserPreviewTabs,
+      runtimeTabs: scopedRuntimeTabs,
+      snapshots: scopedSnapshots,
+      activeBrowserUseTabId,
+    });
   }, [
     activeSession,
-    browserUseState,
+    browserRuntime,
     previewTabsByPanel,
     windowSessionId,
   ]);
@@ -267,14 +285,9 @@ export function useWorkbenchThreadSummary({
   }, [activeSession, commands]);
   const onOpenBrowserRow = useCallback<
     NonNullable<ThreadStageActions["onOpenSummaryBrowserRow"]>
-  >(async ({ rowId, panelId, leafId }) => {
+  >(async ({ browserTabId }) => {
     if (!activeSession) return;
-    await commands.setPanelCollapsed(panelId, false);
-    await commands.selectPanelTab(
-      panelId,
-      rowId,
-      leafId ?? undefined,
-    );
+    await commands.presentBrowserTab(browserTabId);
   }, [activeSession, commands]);
   const onOpenScheduledAutomation = useCallback<
     NonNullable<ThreadStageActions["onOpenSummaryScheduledAutomation"]>

@@ -3,7 +3,11 @@ import { readFileSync } from "node:fs";
 
 export type NativeRuntimeArchitecture = "arm64" | "x64";
 
-export type NativeRuntimeBinaryName = "nodex" | "nodex-core" | "nodex-service";
+export type NativeRuntimeBinaryName =
+  | "nodex"
+  | "nodex-browser-profile-helper"
+  | "nodex-core"
+  | "nodex-service";
 
 export interface NativeRuntimeBinaryManifest {
   readonly bundlePath: string;
@@ -26,12 +30,14 @@ export const NATIVE_RUNTIME_BINARY_PATHS: Readonly<
   Record<NativeRuntimeBinaryName, string>
 > = {
   nodex: "Resources/bin/nodex",
+  "nodex-browser-profile-helper": "Resources/bin/nodex-browser-profile-helper",
   "nodex-core": "Resources/bin/nodex-core",
   "nodex-service": "Helpers/Nodex Service.app/Contents/MacOS/nodex-service",
 };
 
 const EXPECTED_BINARY_NAMES = new Set<NativeRuntimeBinaryName>([
   "nodex",
+  "nodex-browser-profile-helper",
   "nodex-core",
   "nodex-service",
 ]);

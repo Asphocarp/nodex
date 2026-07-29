@@ -614,6 +614,53 @@ export const SETTINGS_SEARCH_CATALOG = {
   appearance: {
     messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS.appearance),
   },
+  "browser-settings": {
+    messages: [
+      "Browser",
+      "Built-in Browser Profile",
+      "Import browser data",
+      "Cookies",
+      "Site data",
+      "Cache",
+      "Download history",
+      "Provider availability",
+    ],
+  },
+  "browser-passwords": {
+    messages: [
+      "Passwords",
+      "Saved passwords",
+      "Credential storage",
+      "Import from your browser",
+      "Remove password",
+    ],
+  },
+  "browser-contact-info": {
+    messages: [
+      "Contact info",
+      "Autofill",
+      "Name",
+      "Email",
+      "Phone",
+      "Address",
+    ],
+  },
+  "browser-history": {
+    messages: [
+      "History",
+      "Search history",
+      "Clear Browser history",
+      "Visited pages",
+    ],
+  },
+  "browser-extensions": {
+    messages: [
+      "Extensions",
+      "Load unpacked",
+      "Remove extension",
+      "Shared Browser Profile",
+    ],
+  },
   agent: {
     messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS.agent),
     searchTerms: ({ activeProjectName }: SettingsSearchContext) =>

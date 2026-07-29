@@ -44,6 +44,7 @@ extraResources:
   to: bin
   filter:
   - nodex
+  - nodex-browser-profile-helper
   - nodex-core
   - rust-core-runtime.json
 - from: .generated/codex-runtime/agent-runtime
@@ -77,11 +78,15 @@ mac:
   hardenedRuntime: true
   binaries:
   - Contents/Resources/bin/nodex
+  - Contents/Resources/bin/nodex-browser-profile-helper
   - Contents/Resources/bin/nodex-core
   - Contents/Resources/bin/interpreter
   - Contents/Resources/bin/codex-code-mode-host
   - Contents/Resources/codex-path/rg
   - Contents/Resources/codex-resources/zsh/bin/zsh
+  - Contents/Resources/browser-runtime/bin/codex
+  - Contents/Resources/browser-runtime/bin/node
+  - Contents/Resources/browser-runtime/bin/node_repl
   - Contents/Helpers/Nodex Service.app/Contents/MacOS/nodex-service
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist

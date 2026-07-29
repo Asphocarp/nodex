@@ -400,6 +400,33 @@ export function buildSessionPanelRenderModel(
   };
 }
 
+export function collectMountedBrowserTabIds(
+  session: WorkbenchSessionRenderProjection,
+  model: SessionPanelRenderModel,
+  mountedPanels: Readonly<Record<PanelId, boolean>>,
+): ReadonlySet<string> {
+  const browserTabIds = new Set(
+    model.browserRetentionTabs.map((tab) => tab.id),
+  );
+  const mountedBrowserTabIds = new Set<string>();
+
+  for (const panelId of ["right", "bottom"] as const) {
+    if (!mountedPanels[panelId]) continue;
+    const layout = session.panels[panelId].layout;
+    const leafIds = layout.maximizedLeafId
+      ? [layout.maximizedLeafId]
+      : listWorkbenchPanelLeaves(layout).map((leaf) => leaf.id);
+    for (const leafId of leafIds) {
+      const tabId = model.activeTabIdsByPanelLeaf[panelId][leafId];
+      if (tabId && browserTabIds.has(tabId)) {
+        mountedBrowserTabIds.add(tabId);
+      }
+    }
+  }
+
+  return mountedBrowserTabIds;
+}
+
 export function collectPanelPageStagePageIdsByProject(
   session: WorkbenchSessionRenderProjection,
   model: SessionPanelRenderModel,

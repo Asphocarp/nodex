@@ -7,6 +7,7 @@ import { LazySourceViewer } from "@/components/ui/lazy-source-viewer";
 import { WorkspaceFilesPanel } from "@/features/workspace-files/workspace-files-panel";
 import { ThreadStartProgressPanel } from "@/features/local-conversation/view/local-conversation-thread-body-owner";
 import { ToolCallRawDialog } from "@/features/local-conversation/view/shared/tools/tool-call-inspection";
+import { createMaitaiStore, MaitaiProvider } from "@/lib/maitai";
 import type { Project, ProjectSession } from "@/lib/types";
 import { createLargeContentFixtures } from "../../../src/main/performance/large-content-fixtures";
 import { makeWorkbenchPanelLayout } from "../../../src/shared/workbench-panel-layout";
@@ -19,6 +20,7 @@ const fixtures = createLargeContentFixtures();
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
 });
+const maitaiStore = createMaitaiStore({ queryClient });
 const workspaceRoot = "/performance/workspace";
 const plainPath = `${workspaceRoot}/large-source.txt`;
 const markdownPath = `${workspaceRoot}/large-source.md`;
@@ -124,7 +126,7 @@ function WorkspaceScenario({ markdown }: { readonly markdown: boolean }) {
           path,
         },
         stateKey: 0,
-        state: {},
+        state: markdown ? { markdownMode: "rendered" } : {},
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
       }}
@@ -187,41 +189,43 @@ function FixtureApp() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <NodexTooltipProvider>
-        <main className="h-screen min-h-0 bg-token-main-surface-primary text-token-foreground">
-          {running ? (
-            <div data-performance-surface={scenario} className="h-full min-h-0">
-              <ScenarioSurface scenario={scenario} />
-            </div>
-          ) : (
-            <div className="flex h-full min-h-0 flex-col">
+      <MaitaiProvider store={maitaiStore}>
+        <NodexTooltipProvider>
+          <main className="h-screen min-h-0 bg-token-main-surface-primary text-token-foreground">
+            {running ? (
+              <div data-performance-surface={scenario} className="h-full min-h-0">
+                <ScenarioSurface scenario={scenario} />
+              </div>
+            ) : (
+              <div className="flex h-full min-h-0 flex-col">
+                <button
+                  type="button"
+                  data-run-scenario={scenario}
+                  className="m-2 w-fit rounded-md border border-token-border px-3 py-1.5 text-sm"
+                  onClick={() => setRunning(true)}
+                >
+                  Run {scenario}
+                </button>
+                <LazySourceViewer
+                  value={"warm viewport reader\n".repeat(100)}
+                  ariaLabel="Warm viewport reader"
+                  className="min-h-0 flex-1"
+                />
+              </div>
+            )}
+            {running ? (
               <button
                 type="button"
-                data-run-scenario={scenario}
-                className="m-2 w-fit rounded-md border border-token-border px-3 py-1.5 text-sm"
-                onClick={() => setRunning(true)}
+                data-reset-scenario
+                className="fixed bottom-2 right-2 z-100 rounded-md bg-token-background-secondary px-2 py-1 text-xs"
+                onClick={() => setRunning(false)}
               >
-                Run {scenario}
+                Reset
               </button>
-              <LazySourceViewer
-                value={"warm viewport reader\n".repeat(100)}
-                ariaLabel="Warm viewport reader"
-                className="min-h-0 flex-1"
-              />
-            </div>
-          )}
-          {running ? (
-            <button
-              type="button"
-              data-reset-scenario
-              className="fixed bottom-2 right-2 z-100 rounded-md bg-token-background-secondary px-2 py-1 text-xs"
-              onClick={() => setRunning(false)}
-            >
-              Reset
-            </button>
-          ) : null}
-        </main>
-      </NodexTooltipProvider>
+            ) : null}
+          </main>
+        </NodexTooltipProvider>
+      </MaitaiProvider>
     </QueryClientProvider>
   );
 }

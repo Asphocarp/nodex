@@ -7,7 +7,9 @@ import {
   ipcMain,
   nativeImage,
   nativeTheme,
+  net,
   powerMonitor,
+  safeStorage,
   screen,
   session as electronSession,
   shell,
@@ -33,6 +35,25 @@ import {
 import type { ReminderNotificationPayload } from "./reminder-notification";
 import { terminalManager } from "./terminal-manager";
 import { browserSidebarService } from "./browser-sidebar-service";
+import { FileBrowserPageSnapshotStore } from "./browser/browser-page-store";
+import { FileBrowserHistoryStore } from "./browser/browser-history-store";
+import type { BrowserAuthorizedAttachment } from "./browser/browser-runtime-registry";
+import { FileBrowserDownloadStore } from "./browser/browser-download-store";
+import {
+  BrowserDownloadService,
+  configureBrowserDownloadService,
+} from "./browser/browser-download-service";
+import { BrowserCredentialVault } from "./browser/browser-credential-vault";
+import { BrowserCredentialService } from "./browser/browser-credential-service";
+import {
+  BrowserProfileHelperClient,
+  resolveBrowserProfileHelperExecutable,
+} from "./browser/browser-profile-helper-client";
+import { BrowserProfileImporter } from "./browser/browser-profile-importer";
+import { BrowserSiteInfoProvider } from "./browser/browser-site-info-provider";
+import { BrowserExtensionsProvider } from "./browser/browser-extensions-provider";
+import { BrowserLocalServerPreferencesStore } from "./browser/browser-local-server-preferences";
+import { configureBrowserProfileServices } from "./browser/browser-profile-services";
 import {
   getAppUpdateSettings,
   getBackupSettings,
@@ -42,6 +63,11 @@ import {
   getWindowRestoreSettings,
 } from "./local-store/config";
 import { codexService } from "./codex/codex-service";
+import { createBrowserUsePeerAuthorizer } from "./browser-use/browser-use-peer-authorizer";
+import { BrowserUseSessionRegistry } from "./browser-use/browser-use-session-registry";
+import { BrowserUsePolicyStore } from "./browser-use/browser-use-policy-store";
+import { BrowserUseSiteStatusPolicyService } from "./browser-use/site-status-policy-service";
+import { DEFAULT_CHATGPT_BASE_URL } from "./codex/chatgpt-base-url";
 import { NodexAgentAuthorizationBroker } from "./agent-tools/authorization-broker";
 import {
   startCodexScheduledAutomationScheduler,
@@ -88,8 +114,19 @@ import {
 } from "../shared/workbench-commands";
 import {
   BROWSER_SIDEBAR_PARTITION,
-  parseBrowserSidebarRoutePartition,
 } from "../shared/browser-sidebar";
+import { resolveBrowserUseHostCapability } from "../shared/browser-use-host-capability";
+import {
+  isAllowedBrowserExternalUrl,
+  isAllowedBrowserNavigationUrl,
+} from "../shared/browser-url";
+import { shouldGrantBrowserPermission } from "./browser/browser-session-permissions";
+import {
+  consumePendingBrowserWebviewAttachment,
+  decideBrowserWebviewAttachment,
+  parseBrowserWebviewInstanceId,
+  registerPendingBrowserWebviewAttachment,
+} from "./browser/browser-webview-attachment-policy";
 import type { BootstrapRuntimeEvent } from "./bootstrap-events";
 import {
   collectSecondInstancesForStartupReplay,
@@ -198,8 +235,11 @@ let appInitializationStepChangedAt = performance.now();
 let appInitializationPromise: Promise<void> = Promise.resolve();
 const rendererInitializationReports = new Set<number>();
 let appUpdateService: AppUpdateService | null = null;
+let browserUseSessionRegistry: BrowserUseSessionRegistry | null = null;
+let disposeBrowserUseSessionRegistryBridge: (() => void) | null = null;
 let scheduledAutomationScheduler: CodexScheduledAutomationScheduler | null = null;
 let appPermissionHandlersRegistered = false;
+let browserPermissionHandlersRegistered = false;
 let rendererClientRouter: RendererClientRouter | null = null;
 let desktopDataAuthorityRuntime: DesktopDataAuthorityRuntime | null = null;
 let desktopAutomationModule: DesktopAutomationModulePort | null = null;
@@ -1008,7 +1048,8 @@ function createWindow(
       ],
     },
   });
-
+  const pendingBrowserWebviewAttachments =
+    new Map<number, BrowserAuthorizedAttachment>();
   if (!appPermissionHandlersRegistered) {
     const electronSession = window.webContents.session;
     electronSession.setPermissionCheckHandler((webContents, permission, _origin, details) => {
@@ -1027,47 +1068,175 @@ function createWindow(
     });
     appPermissionHandlersRegistered = true;
   }
+  if (!browserPermissionHandlersRegistered) {
+    const browserSession = electronSession.fromPartition(BROWSER_SIDEBAR_PARTITION);
+    browserSession.setPermissionCheckHandler(
+      (_webContents, permission, _origin, details) =>
+        shouldGrantBrowserPermission({
+          permission,
+          isMainFrame: details.isMainFrame,
+        }),
+    );
+    browserSession.setPermissionRequestHandler(
+      (_webContents, permission, callback, details) => {
+        callback(shouldGrantBrowserPermission({
+          permission,
+          isMainFrame: details.isMainFrame,
+        }));
+      },
+    );
+    browserSession.webRequest.onBeforeRequest((details, callback) => {
+      const shouldBlockTopFrame =
+        details.resourceType === "mainFrame"
+        && !isAllowedBrowserNavigationUrl(details.url);
+      callback({ cancel: shouldBlockTopFrame });
+    });
+    browserPermissionHandlersRegistered = true;
+  }
 
   // Open external links in the system browser
   window.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (isAllowedBrowserExternalUrl(url)) {
+      void shell.openExternal(url);
+    }
     return { action: "deny" };
   });
   window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
     const webviewParams = params as typeof params & {
-      "data-browser-sidebar-browser-tab-id"?: string;
-      "data-browser-sidebar-conversation-id"?: string;
-      "data-browser-sidebar-view-scope-id"?: string;
+      instanceId?: number | string;
       nodeintegration?: string;
       preload?: string;
       webpreferences?: string;
     };
-    const routeIdentity = parseBrowserSidebarRoutePartition(params.partition);
+    const instanceId = parseBrowserWebviewInstanceId(
+      webviewParams.instanceId,
+    );
     if (
-      routeIdentity === null
-      || webviewParams["data-browser-sidebar-conversation-id"]
-        !== routeIdentity.browserConversationId
-      || webviewParams["data-browser-sidebar-view-scope-id"]
-        !== routeIdentity.browserViewScopeId
-      || webviewParams["data-browser-sidebar-browser-tab-id"]
-        !== routeIdentity.browserTabId
-      || windowSessionState?.getSessionIdForWindow(window.webContents.id)
-        !== routeIdentity.browserViewScopeId
+      instanceId === null
+      || pendingBrowserWebviewAttachments.has(instanceId)
     ) {
+      logger.warn("Rejected Browser webview attachment", {
+        reason: instanceId === null
+          ? "invalid-instance-id"
+          : "duplicate-instance-id",
+        webContentsId: window.webContents.id,
+      });
       event.preventDefault();
       return;
     }
+    const decision = decideBrowserWebviewAttachment({
+      authorizeAttachment: (route) =>
+        browserSidebarService.authorizeWebviewAttachment(
+          window.webContents.id,
+          route,
+        ),
+      isRegisteredBrowserStorage: (identity, browserStorageId) =>
+        browserSidebarService.isRegisteredBrowserStorage(
+          identity,
+          browserStorageId,
+        ),
+      ownerBrowserViewScopeId:
+        windowSessionState?.getSessionIdForWindow(window.webContents.id) ?? null,
+      partition: params.partition,
+      revokeAuthorizedAttachment: (attachToken) =>
+        browserSidebarService.revokeAuthorizedWebviewAttachment(attachToken),
+      src: params.src,
+    });
+    if (!decision.ok) {
+      logger.warn("Rejected Browser webview attachment", {
+        reason: decision.reason,
+        browserConversationId: decision.route?.browserConversationId,
+        browserViewScopeId: decision.route?.browserViewScopeId,
+        browserTabId: decision.route?.browserTabId,
+        webContentsId: window.webContents.id,
+      });
+      event.preventDefault();
+      return;
+    }
+    const registration = registerPendingBrowserWebviewAttachment(
+      pendingBrowserWebviewAttachments,
+      instanceId,
+      decision.authorization,
+    );
+    if (!registration.ok) {
+      browserSidebarService.revokeAuthorizedWebviewAttachment(
+        decision.authorization.attachToken,
+      );
+      logger.warn("Rejected Browser webview attachment", {
+        reason: registration.reason,
+        browserConversationId:
+          decision.authorization.browserConversationId,
+        browserViewScopeId: decision.authorization.browserViewScopeId,
+        browserTabId: decision.authorization.browserTabId,
+        webContentsId: window.webContents.id,
+      });
+      event.preventDefault();
+      return;
+    }
+    Object.assign(webPreferences, {
+      allowRunningInsecureContent: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+      nodeIntegrationInSubFrames: false,
+      nodeIntegrationInWorker: false,
+      preload: join(__dirname, "../preload/browser-guest.js"),
+      plugins: false,
+      partition: BROWSER_SIDEBAR_PARTITION,
+      sandbox: true,
+      webSecurity: true,
+      webviewTag: false,
+    });
     params.partition = BROWSER_SIDEBAR_PARTITION;
     delete webviewParams.nodeintegration;
     delete webviewParams.preload;
     delete webviewParams.webpreferences;
-    delete webPreferences.preload;
     delete (webPreferences as typeof webPreferences & { preloadURL?: string }).preloadURL;
-    webPreferences.nodeIntegration = false;
-    webPreferences.contextIsolation = true;
-    webPreferences.sandbox = true;
-    webPreferences.webSecurity = true;
-    webPreferences.allowRunningInsecureContent = false;
+  });
+  window.webContents.on("did-attach-webview", (_event, guestWebContents) => {
+    const guestWebContentsId = guestWebContents.id;
+    const pendingAttachment = consumePendingBrowserWebviewAttachment(
+      pendingBrowserWebviewAttachments,
+      (
+        guestWebContents as typeof guestWebContents & {
+          viewInstanceId?: number | string;
+        }
+      ).viewInstanceId,
+    );
+    if (!pendingAttachment) {
+      logger.warn("Rejected unmatched Browser webview attachment", {
+        guestWebContentsId,
+        ownerWebContentsId: window.webContents.id,
+      });
+      guestWebContents.close();
+      return;
+    }
+    const ownership =
+      browserSidebarService.consumeAuthorizedWebviewAttachment(
+        pendingAttachment.attachToken,
+        window.webContents.id,
+        guestWebContentsId,
+      );
+    if (!ownership) {
+      logger.warn("Rejected unauthorized Browser webview attachment", {
+        browserConversationId: pendingAttachment.browserConversationId,
+        browserViewScopeId: pendingAttachment.browserViewScopeId,
+        browserTabId: pendingAttachment.browserTabId,
+        guestWebContentsId,
+        ownerWebContentsId: window.webContents.id,
+      });
+      guestWebContents.close();
+      return;
+    }
+    browserSidebarService.registerAttachedWebviewOwnership(
+      window.webContents.id,
+      guestWebContentsId,
+      ownership,
+      ownership.browserStorageId,
+    );
+    browserSidebarService.prepareAttachedWebviewHistoryRestore(
+      ownership,
+      guestWebContentsId,
+    );
   });
 
   // In dev mode, load the vite dev server URL
@@ -1206,6 +1375,7 @@ function createWindow(
     });
   });
   window.on("closed", () => {
+    browserSidebarService.releaseRendererOwner(webContentsId);
     codexService.setRendererClientForegrounded(
       rendererClientRegistration?.clientId,
       false,
@@ -1699,6 +1869,18 @@ function shutdownMainRuntime(): Promise<void> {
       RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
     );
     await settleRuntimeShutdownStep(
+      "Browser Use session registry",
+      async () => {
+        disposeBrowserUseSessionRegistryBridge?.();
+        disposeBrowserUseSessionRegistryBridge = null;
+        await browserUseSessionRegistry?.dispose();
+        browserUseSessionRegistry = null;
+        codexService.setBrowserUseTurnLifecycle(null);
+        codexService.setBrowserUseBackendAvailabilityResolver(() => []);
+      },
+      RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
+    );
+    await settleRuntimeShutdownStep(
       "Main diagnostics",
       () => shutdownMainSentry(),
       RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
@@ -1786,6 +1968,243 @@ export async function runMainAppStartup(
     app.dock?.setIcon(appDockIcon);
   }
   windowSessionState = new WindowSessionState(app.getPath("userData"));
+  browserSidebarService.setPageStore(new FileBrowserPageSnapshotStore({
+    filePath: join(
+      app.getPath("userData"),
+      "browser-sidebar-page-states.json",
+    ),
+  }));
+  browserSidebarService.setHistoryStore(new FileBrowserHistoryStore({
+    filePath: join(
+      app.getPath("userData"),
+      "browser-history.json",
+    ),
+  }));
+  const browserSession = electronSession.fromPartition(BROWSER_SIDEBAR_PARTITION);
+  const browserUsePolicyStore = new BrowserUsePolicyStore(
+    join(getNodexHome(), "agent", "browser", "config.toml"),
+  );
+  await browserUsePolicyStore.initialize();
+  browserSidebarService.setSiteStatusPolicy(
+    new BrowserUseSiteStatusPolicyService({
+      apiBaseUrl: DEFAULT_CHATGPT_BASE_URL,
+      fetchImpl: async (url, init) => await net.fetch(url, init),
+      getAppVersion: () => app.getVersion(),
+      logger,
+      readAuthStatus: async (input) =>
+        await codexService.readAuthStatusForDesktopService(input),
+    }),
+  );
+  const browserCredentialVault = new BrowserCredentialVault({
+    filePath: join(
+      getNodexHome(),
+      "secrets",
+      "browser-credentials.v1.json",
+    ),
+    encryption: {
+      isAvailable: () => safeStorage.isEncryptionAvailable(),
+      encryptString: (plaintext) => safeStorage.encryptString(plaintext),
+      decryptString: (ciphertext) => safeStorage.decryptString(ciphertext),
+    },
+  });
+  const browserCredentialService = new BrowserCredentialService({
+    vault: browserCredentialVault,
+    resolveGuest: (identity) => browserSidebarService.getWebContentsForTab(identity),
+    resolveGuestIdentity: (webContentsId) =>
+      browserSidebarService.getIdentityForWebContents(webContentsId),
+    resolveGuestOwner: (webContentsId) =>
+      browserSidebarService.getOwnerWebContentsIdForGuest(webContentsId),
+  });
+  configureBrowserProfileServices({
+    credentialService: browserCredentialService,
+    extensionsProvider: new BrowserExtensionsProvider(
+      browserSession.extensions ?? null,
+    ),
+    localServerPreferencesStore: new BrowserLocalServerPreferencesStore(
+      join(
+        app.getPath("userData"),
+        "browser-local-server-preferences.json",
+      ),
+    ),
+    profileImporter: new BrowserProfileImporter({
+      cookieStore: browserSession.cookies,
+      credentialVault: browserCredentialVault,
+      helper: new BrowserProfileHelperClient({
+        executablePath: resolveBrowserProfileHelperExecutable({
+          isPackaged: app.isPackaged,
+          resourcesPath: process.resourcesPath,
+          repositoryRoot: app.getAppPath(),
+        }),
+      }),
+    }),
+    siteInfoProvider: new BrowserSiteInfoProvider(
+      browserSidebarService,
+      browserSession.cookies,
+    ),
+    usePolicyStore: browserUsePolicyStore,
+  });
+  const browserRuntime = codexService.getBrowserRuntimeAvailability();
+  const browserUseHostCapability = resolveBrowserUseHostCapability({
+    browserRuntimeStatus: browserRuntime.status,
+    environment: process.env,
+    isPackaged: app.isPackaged,
+    platform: process.platform,
+  });
+  logger.info("Browser Use host capability resolved", {
+    availableBackends: browserUseHostCapability.availableBackends,
+    peerVerificationMode: browserUseHostCapability.peerAuthorizationMode,
+    reason: browserUseHostCapability.status === "unavailable"
+      ? browserUseHostCapability.reason
+      : null,
+    runtimeStatus: browserRuntime.status,
+    status: browserUseHostCapability.status,
+  });
+  const browserUsePeerAuthorizer = createBrowserUsePeerAuthorizer({
+    addonPath:
+      browserUseHostCapability.status === "available"
+        && browserRuntime.status === "available"
+      ? browserRuntime.bundle.paths.peerAuthorization
+      : null,
+    mode: browserUseHostCapability.peerAuthorizationMode,
+  });
+  browserUseSessionRegistry = new BrowserUseSessionRegistry({
+    appVersion: app.getVersion(),
+    browserService: browserSidebarService,
+    buildFlavor: browserRuntime.status === "available"
+      ? browserRuntime.bundle.manifest.buildFlavor
+      : "unavailable",
+    enabled: browserUseHostCapability.status === "available",
+    nativePipeEvents: {
+      onAuthorizationError: (error) => {
+        logger.warn("Browser Use native pipe peer authorization failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      },
+      onInvalidMessage: (error) => {
+        logger.warn("Browser Use native pipe received an invalid message", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      },
+      onListening: () => {
+        logger.info("Browser Use native pipe listening");
+      },
+      onRejectedSocket: (result) => {
+        logger.warn("Browser Use native pipe rejected a socket peer", {
+          reason: result.reason ?? "unauthorized",
+        });
+      },
+      onRequestCompleted: (event) => {
+        logger.debug("Browser Use native pipe request completed", event);
+      },
+      onRequestStarted: (event) => {
+        logger.debug("Browser Use native pipe request started", event);
+      },
+      onSocketError: (error) => {
+        logger.warn("Browser Use native pipe socket failed", {
+          error: error.message,
+        });
+      },
+    },
+    policyStore: browserUsePolicyStore,
+    socketPeerAuthorizer: browserUsePeerAuthorizer,
+  });
+  const capturedRouteListener = (event: {
+    browserConversationId: string;
+    browserViewScopeId: string;
+    codexSessionId: string;
+    ownerWebContentsId: number;
+    projectId: string | null;
+  }) => {
+    const registry = browserUseSessionRegistry;
+    if (!registry || registry.availableBackends().length === 0) return;
+    void registry.captureRoute({
+      browserConversationId: event.browserConversationId,
+      browserViewScopeId: event.browserViewScopeId,
+      codexSessionId: event.codexSessionId,
+      ownerWebContentsId: event.ownerWebContentsId,
+      projectId: event.projectId,
+    }).catch((error) => {
+      logger.warn("Could not capture Browser Use route", {
+        error: error instanceof Error ? error.message : String(error),
+        ownerWebContentsId: event.ownerWebContentsId,
+      });
+    });
+  };
+  const ownerReleasedListener = (event: { ownerWebContentsId: number }) => {
+    browserCredentialService.releaseOwner(event.ownerWebContentsId);
+    void browserUseSessionRegistry?.releaseOwner(event.ownerWebContentsId);
+  };
+  const cursorArrivedListener = (event: {
+    browserConversationId: string;
+    browserViewScopeId: string;
+    browserTabId: string;
+    moveSequence: number;
+    ownerWebContentsId: number | null;
+  }) => {
+    if (event.ownerWebContentsId === null) return;
+    browserUseSessionRegistry?.notifyCursorArrived({
+      ...event,
+      ownerWebContentsId: event.ownerWebContentsId,
+    });
+  };
+  browserSidebarService.on("browserUseRouteCaptured", capturedRouteListener);
+  browserSidebarService.on("browserUseOwnerReleased", ownerReleasedListener);
+  browserSidebarService.on("browserUseCursorArrived", cursorArrivedListener);
+  disposeBrowserUseSessionRegistryBridge = () => {
+    browserSidebarService.off("browserUseRouteCaptured", capturedRouteListener);
+    browserSidebarService.off("browserUseOwnerReleased", ownerReleasedListener);
+    browserSidebarService.off("browserUseCursorArrived", cursorArrivedListener);
+  };
+  codexService.setBrowserUseBackendAvailabilityResolver(
+    () => browserUseSessionRegistry?.availableBackends() ?? [],
+  );
+  codexService.setBrowserUseTurnLifecycle(browserUseSessionRegistry);
+  const browserDownloadService = new BrowserDownloadService({
+    downloadsDirectory: app.getPath("downloads"),
+    isAgentControlled: (identity) =>
+      browserSidebarService.isBrowserUseIdentity(identity),
+    onSnapshot: (snapshot) => {
+      const activeDownloadKeys = new Set(
+        snapshot.downloads
+          .filter((download) =>
+            download.status === "starting"
+            || download.status === "progressing"
+            || download.status === "paused"
+          )
+          .map((download) =>
+            `${download.browserConversationId}\0${download.browserViewScopeId}`
+            + `\0${download.browserTabId}`
+          ),
+      );
+      for (const tab of browserSidebarService.getStateSnapshot().tabs) {
+        browserSidebarService.setDownloadActive(
+          tab,
+          activeDownloadKeys.has(
+            `${tab.browserConversationId}\0${tab.browserViewScopeId}`
+            + `\0${tab.browserTabId}`,
+          ),
+        );
+      }
+      for (const browserWindow of BrowserWindow.getAllWindows()) {
+        safeSendToWindow(browserWindow, "browser-downloads-state", [snapshot]);
+      }
+    },
+    resolveIdentity: (webContentsId) =>
+      browserSidebarService.getIdentityForWebContents(webContentsId),
+    shell,
+    store: new FileBrowserDownloadStore(join(
+      app.getPath("userData"),
+      "browser-downloads.json",
+    )),
+  });
+  configureBrowserDownloadService(browserDownloadService);
+  void browserDownloadService.initialize(
+    browserSession,
+  ).catch((error) => {
+    logger.error("Could not initialize Browser download history", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
   appUpdateService = new AppUpdateService({
     currentVersion: app.getVersion(),
     isInApplicationsFolder: process.platform !== "darwin"

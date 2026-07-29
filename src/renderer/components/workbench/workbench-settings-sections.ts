@@ -1,8 +1,13 @@
 import type { ComponentType } from "react";
 import {
+  ContactRound,
   Download,
   GitBranch,
+  Globe2,
+  History,
+  KeyRound,
   LayoutTemplate,
+  Puzzle,
   Shield,
   Type,
 } from "lucide-react";
@@ -22,6 +27,11 @@ export type SettingsSectionId =
   | "general-settings"
   | "appearance"
   | "keyboard-shortcuts"
+  | "browser-settings"
+  | "browser-passwords"
+  | "browser-contact-info"
+  | "browser-history"
+  | "browser-extensions"
   | "agent"
   | "agent-import"
   | "editor"
@@ -79,6 +89,41 @@ export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     icon: CodexSettingsAppearanceIcon,
     groupKey: "personal",
     searchMessages: SETTINGS_SEARCH_CATALOG.appearance.messages,
+  },
+  {
+    id: "browser-settings",
+    label: "Browser",
+    icon: Globe2,
+    groupKey: "personal",
+    searchMessages: SETTINGS_SEARCH_CATALOG["browser-settings"].messages,
+  },
+  {
+    id: "browser-passwords",
+    label: "Passwords",
+    icon: KeyRound,
+    groupKey: "personal",
+    searchMessages: SETTINGS_SEARCH_CATALOG["browser-passwords"].messages,
+  },
+  {
+    id: "browser-contact-info",
+    label: "Contact info",
+    icon: ContactRound,
+    groupKey: "personal",
+    searchMessages: SETTINGS_SEARCH_CATALOG["browser-contact-info"].messages,
+  },
+  {
+    id: "browser-history",
+    label: "History",
+    icon: History,
+    groupKey: "personal",
+    searchMessages: SETTINGS_SEARCH_CATALOG["browser-history"].messages,
+  },
+  {
+    id: "browser-extensions",
+    label: "Extensions",
+    icon: Puzzle,
+    groupKey: "integrations",
+    searchMessages: SETTINGS_SEARCH_CATALOG["browser-extensions"].messages,
   },
   {
     id: "agent",

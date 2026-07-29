@@ -10,6 +10,7 @@ import type {
 import type { ProjectSessionPreviewTab } from "./workbench-panel-preview";
 import {
   buildSessionPanelRenderModel,
+  collectMountedBrowserTabIds,
   collectPanelPageStagePageIdsByProject,
   getRenderablePanelPreviewTab,
   type SessionPanelRenderModelInput,
@@ -342,6 +343,34 @@ describe("workbench panel projection", () => {
     expect(model.browserRetentionTabs.map((tab) => tab.id))
       .toEqual(["right-browser", "bottom-browser"]);
     expect([...model.visibleBrowserTabIds]).toEqual(["right-browser"]);
+  });
+
+  test("retains the active Browser owner until its panel animation unmounts", () => {
+    const browser = makeTestWorkbenchTab({
+      id: "right-browser",
+      kind: "browser",
+    });
+    const session = makeTestWorkbenchSession({
+      tabs: [browser],
+      rightCollapsed: true,
+    });
+    const model = buildSessionPanelRenderModel(
+      durableOnlyInput(session),
+    );
+
+    expect([...model.visibleBrowserTabIds]).toEqual([]);
+    expect([
+      ...collectMountedBrowserTabIds(session, model, {
+        right: true,
+        bottom: false,
+      }),
+    ]).toEqual(["right-browser"]);
+    expect([
+      ...collectMountedBrowserTabIds(session, model, {
+        right: false,
+        bottom: false,
+      }),
+    ]).toEqual([]);
   });
 
   test("collects only Page IDs visible in open panel leaves", () => {

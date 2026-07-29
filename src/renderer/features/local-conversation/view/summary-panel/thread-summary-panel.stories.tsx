@@ -378,11 +378,13 @@ function FloatingSummaryPanelStory({
   reducedMotion = false,
   mode = "shift",
   stageWidth = 1180,
+  browserWorking = false,
 }: {
   open?: boolean;
   reducedMotion?: boolean;
   mode?: "gutter" | "shift" | "overlay";
   stageWidth?: number;
+  browserWorking?: boolean;
 }) {
   const content = (
     <div className="flex min-h-screen items-start justify-end overflow-x-auto bg-token-main-surface-primary p-10 text-token-text-primary">
@@ -424,13 +426,17 @@ function FloatingSummaryPanelStory({
           computerUsePip={{ visible: false }}
           browserRows={[{
             id: "browser",
+            browserTabId: "browser-runtime",
+            workbenchTabId: null,
             title: "Release notes",
             displayUrl: "example.com",
             url: "https://example.com/release-notes",
             faviconUrl: null,
-            isAgentWorking: false,
+            isAgentWorking: browserWorking,
+            isMaterialized: false,
           }]}
           actions={{
+            onOpenSummaryBrowserRow: () => undefined,
             onToggleSummaryComputerUsePip: () => undefined,
           }}
           onErrorMessage={() => undefined}
@@ -494,6 +500,17 @@ export const FloatingPinnedGutterOpen: StoryObj<typeof FloatingSummaryPanelStory
     docs: {
       description: {
         story: "Pinned floating summary body in gutter mode, where the panel is visible without shifting thread content.",
+      },
+    },
+  },
+};
+
+export const FloatingBrowserUseWorking: StoryObj<typeof FloatingSummaryPanelStory> = {
+  render: () => <FloatingSummaryPanelStory browserWorking open />,
+  parameters: {
+    docs: {
+      description: {
+        story: "A runtime-only Browser Use page projected into the floating Environment surface while the agent is controlling it.",
       },
     },
   },

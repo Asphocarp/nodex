@@ -11,6 +11,7 @@ import {
   WORKBENCH_SESSION_VIEW_VERSION,
 } from "../workbench-session-view";
 import { WorkbenchViewSchema } from "./workbench";
+import { BrowserSidebarDeviceToolbarStateSchema } from "../browser/browser-schemas";
 
 export const MAX_WORKBENCH_SESSION_VIEW_JSON_BYTES = 2 * 1024 * 1024;
 export const MAX_WORKBENCH_PANEL_NODE_DEPTH = 32;
@@ -117,10 +118,12 @@ const WorkbenchTerminalTabConfigSchema = z.object({
 
 const WorkbenchBrowserTabConfigSchema = z.object({
   browserTabId: z.string().min(1),
+  browserStorageId: z.string().min(1).optional(),
   url: z.string().optional(),
   title: z.string().optional(),
   faviconUrl: z.string().optional(),
   deviceToolbarVisible: z.boolean().optional(),
+  deviceToolbarState: BrowserSidebarDeviceToolbarStateSchema.optional(),
 }).strict();
 
 const WorkbenchReviewTabConfigSchema = z.object({
@@ -188,30 +191,45 @@ export const WorkbenchSessionViewTabSchema = z.discriminatedUnion("kind", [
   }
 }) satisfies z.ZodType<WorkbenchSessionViewTab>;
 
-export const WorkbenchSessionViewSnapshotSchema = z.object({
-  version: z.literal(WORKBENCH_SESSION_VIEW_VERSION),
-  sessionId: z.string().min(1),
-  tabsById: z.record(tabIdSchema, WorkbenchSessionViewTabSchema),
-  panels: z.object({
-    right: WorkbenchPanelStateSchema,
-    bottom: WorkbenchPanelStateSchema,
-  }).strict(),
-  lastFocusedPanelId: z.enum(["right", "bottom"]).nullable(),
-  touchedAt: z.iso.datetime(),
-}).strict().superRefine((view, context) => {
-  const entries = Object.entries(view.tabsById);
-  if (entries.length > WORKBENCH_SESSION_VIEW_MAX_TABS) {
-    context.addIssue({
-      code: "custom",
-      message: `Session view contains more than ${WORKBENCH_SESSION_VIEW_MAX_TABS} tabs`,
-    });
+function migrateWorkbenchSessionView(value: unknown): unknown {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return value;
   }
-  for (const [tabId, tab] of entries) {
-    if (tabId === tab.id) continue;
-    context.addIssue({
-      code: "custom",
-      path: ["tabsById", tabId, "id"],
-      message: "Tab map key must match tab.id",
-    });
-  }
-}) satisfies z.ZodType<WorkbenchSessionViewSnapshot>;
+  const record = value as Record<string, unknown>;
+  if (record.version !== 1) return value;
+  return {
+    ...record,
+    version: WORKBENCH_SESSION_VIEW_VERSION,
+  };
+}
+
+export const WorkbenchSessionViewSnapshotSchema = z.preprocess(
+  migrateWorkbenchSessionView,
+  z.object({
+    version: z.literal(WORKBENCH_SESSION_VIEW_VERSION),
+    sessionId: z.string().min(1),
+    tabsById: z.record(tabIdSchema, WorkbenchSessionViewTabSchema),
+    panels: z.object({
+      right: WorkbenchPanelStateSchema,
+      bottom: WorkbenchPanelStateSchema,
+    }).strict(),
+    lastFocusedPanelId: z.enum(["right", "bottom"]).nullable(),
+    touchedAt: z.iso.datetime(),
+  }).strict().superRefine((view, context) => {
+    const entries = Object.entries(view.tabsById);
+    if (entries.length > WORKBENCH_SESSION_VIEW_MAX_TABS) {
+      context.addIssue({
+        code: "custom",
+        message: `Session view contains more than ${WORKBENCH_SESSION_VIEW_MAX_TABS} tabs`,
+      });
+    }
+    for (const [tabId, tab] of entries) {
+      if (tabId === tab.id) continue;
+      context.addIssue({
+        code: "custom",
+        path: ["tabsById", tabId, "id"],
+        message: "Tab map key must match tab.id",
+      });
+    }
+  }),
+) satisfies z.ZodType<WorkbenchSessionViewSnapshot>;

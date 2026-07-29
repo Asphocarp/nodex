@@ -32,12 +32,40 @@ describe("Codex prompt preparation", () => {
         position: { side: "right", path: "src/store.ts", line: 42 },
         createdAt: 1,
       }],
+      browserAnnotationAttachments: [{
+        schemaVersion: 1,
+        id: "browser-comment-1",
+        browserTabId: "browser-tab-1",
+        createdAt: 2,
+        note: "Make this action more prominent",
+        pageTitle: "Checkout",
+        pageUrl: "https://example.com/checkout",
+        anchors: [{
+          id: "anchor-1",
+          kind: "element",
+          pageUrl: "https://example.com/checkout",
+          selector: "main > button",
+          rect: { x: 40, y: 80, width: 120, height: 32 },
+        }],
+        evidence: {
+          attachmentId: "browser-evidence.png",
+          source: "nodex://assets/browser-evidence.png",
+          mimeType: "image/png",
+          width: 168,
+          height: 80,
+        },
+      }],
     }, { resolveImageInput });
 
     expect(resolveImageInput).toHaveBeenCalledWith("nodex://assets/diagram.png");
+    expect(resolveImageInput).toHaveBeenCalledWith(
+      "nodex://assets/browser-evidence.png",
+    );
     expect(prepared.inputItems.map((item) => item.type)).toEqual([
       "text",
       "text",
+      "text",
+      "localImage",
       "localImage",
       "mention",
       "skill",
@@ -48,9 +76,12 @@ describe("Codex prompt preparation", () => {
       path: "src/store.ts",
     }]);
     expect(prepared.additionalContext?.["review-diff-comments"]?.kind).toBe("application");
+    expect(prepared.additionalContext?.["browser-annotations"]?.kind).toBe("application");
     expect(prepared.pendingInputItems.map((item) => item.type)).toEqual([
       "text",
       "text",
+      "text",
+      "localImage",
       "localImage",
       "skill",
     ]);

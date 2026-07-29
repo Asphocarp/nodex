@@ -437,20 +437,66 @@ import type {
 import type {
   BrowserBrowsingDataClearResult,
   BrowserBrowsingDataKind,
+  BrowserLocalServerPreferences,
+  BrowserLocalServerPreferencesUpdate,
   BrowserSidebarBrowserUseCaptureSurfaceEvent,
   BrowserSidebarBrowserUseViewportEvent,
+  BrowserSidebarRuntimeSnapshot,
+  BrowserSidebarContextMenuActionEvent,
+  BrowserSidebarImageDragStateEvent,
   BrowserSidebarDestroyWebviewRequest,
   BrowserSidebarBrowserUseStateSnapshot,
   BrowserSidebarCommand,
   BrowserSidebarCommandResult,
   BrowserSidebarLocalServersSnapshot,
+  BrowserSidebarLocalServerThumbnailRequest,
+  BrowserSidebarLocalServerThumbnailResult,
+  BrowserSidebarOpenNewTabRequest,
   BrowserSidebarStateSnapshot,
   BrowserSidebarTabIdentity,
+  BrowserUsePageClosedEvent,
+  BrowserUsePresentationRequest,
   BrowserSidebarWebviewAttached,
   BrowserSidebarWebviewDestroyed,
   BrowserSidebarWebviewHostCreated,
   BrowserUseCursorState,
 } from "./browser-sidebar";
+import type {
+  BrowserDownloadActionRequest,
+  BrowserDownloadActionResult,
+  BrowserDownloadsSnapshot,
+} from "./browser-download";
+import type {
+  BrowserContactInfo,
+  BrowserContactInfoFillInput,
+  BrowserContactInfoUpsertInput,
+  BrowserCredentialActionResult,
+  BrowserCredentialCandidateActionInput,
+  BrowserCredentialFillInput,
+  BrowserCredentialGenerateInput,
+  BrowserCredentialListInput,
+  BrowserCredentialSaveCandidate,
+  BrowserCredentialSummary,
+  BrowserExtensionSummary,
+  BrowserExtensionsSnapshot,
+  BrowserHistoryListInput,
+  BrowserHistorySnapshot,
+  BrowserProfileCapabilities,
+  BrowserProfileImportInput,
+  BrowserProfileImportResult,
+  BrowserSiteInfo,
+  ImportableBrowserProfile,
+} from "./browser-profile";
+import type {
+  BrowserAnnotationAttachmentEvidence,
+  BrowserAnnotationRoutedAnchorUpdateEvent,
+  BrowserAnnotationRoutedSelectionEvent,
+} from "./browser-annotation";
+import type {
+  BrowserUseOriginRuleUpdate,
+  BrowserUsePolicyModesUpdate,
+  BrowserUsePolicySnapshot,
+} from "./browser-use-policy";
 import type {
   FeedbackUploadParams,
   FeedbackUploadResponse,
@@ -1136,6 +1182,10 @@ export interface IpcApi {
     args: [command: BrowserSidebarCommand];
     result: BrowserSidebarCommandResult;
   };
+  "browser-sidebar-runtime-snapshot": {
+    args: [];
+    result: BrowserSidebarRuntimeSnapshot;
+  };
   "browser-browsing-data-clear": {
     args: [kind: BrowserBrowsingDataKind];
     result: BrowserBrowsingDataClearResult;
@@ -1147,6 +1197,122 @@ export interface IpcApi {
   "browser-sidebar-webview-destroyed": {
     args: [event: BrowserSidebarWebviewDestroyed];
     result: BrowserSidebarCommandResult;
+  };
+  "browser-downloads-list": {
+    args: [];
+    result: BrowserDownloadsSnapshot;
+  };
+  "browser-download-action": {
+    args: [request: BrowserDownloadActionRequest];
+    result: BrowserDownloadActionResult;
+  };
+  "browser-download-history-clear": {
+    args: [];
+    result: BrowserDownloadActionResult;
+  };
+  "browser-profile-capabilities": {
+    args: [];
+    result: BrowserProfileCapabilities;
+  };
+  "browser-profile-import-profiles": {
+    args: [];
+    result: ImportableBrowserProfile[];
+  };
+  "browser-profile-import": {
+    args: [input: BrowserProfileImportInput];
+    result: BrowserProfileImportResult;
+  };
+  "browser-credentials-list": {
+    args: [input: BrowserCredentialListInput];
+    result: BrowserCredentialSummary[];
+  };
+  "browser-credentials-list-all": {
+    args: [];
+    result: BrowserCredentialSummary[];
+  };
+  "browser-credential-fill": {
+    args: [input: BrowserCredentialFillInput];
+    result: BrowserCredentialActionResult;
+  };
+  "browser-credential-generate-fill": {
+    args: [input: BrowserCredentialGenerateInput];
+    result: BrowserCredentialActionResult;
+  };
+  "browser-credential-candidate-action": {
+    args: [input: BrowserCredentialCandidateActionInput];
+    result: BrowserCredentialActionResult;
+  };
+  "browser-credential-remove": {
+    args: [credentialId: string];
+    result: BrowserCredentialActionResult;
+  };
+  "browser-contact-info-list": {
+    args: [];
+    result: BrowserContactInfo[];
+  };
+  "browser-contact-info-upsert": {
+    args: [input: BrowserContactInfoUpsertInput];
+    result: BrowserContactInfo;
+  };
+  "browser-contact-info-remove": {
+    args: [contactInfoId: string];
+    result: BrowserCredentialActionResult;
+  };
+  "browser-contact-info-fill": {
+    args: [input: BrowserContactInfoFillInput];
+    result: BrowserCredentialActionResult;
+  };
+  "browser-history-list": {
+    args: [input?: BrowserHistoryListInput];
+    result: BrowserHistorySnapshot;
+  };
+  "browser-history-delete": {
+    args: [historyId: string];
+    result: BrowserCredentialActionResult;
+  };
+  "browser-site-info": {
+    args: [input: BrowserSidebarTabIdentity];
+    result: BrowserSiteInfo;
+  };
+  "browser-extensions-list": {
+    args: [];
+    result: BrowserExtensionsSnapshot;
+  };
+  "browser-extension-load": {
+    args: [];
+    result: BrowserExtensionSummary | null;
+  };
+  "browser-extension-remove": {
+    args: [extensionId: string];
+    result: BrowserCredentialActionResult;
+  };
+  "browser-use-policy-get": {
+    args: [];
+    result: BrowserUsePolicySnapshot;
+  };
+  "browser-use-policy-update-modes": {
+    args: [input: BrowserUsePolicyModesUpdate];
+    result: BrowserUsePolicySnapshot;
+  };
+  "browser-use-policy-update-origin-rule": {
+    args: [input: BrowserUseOriginRuleUpdate];
+    result: BrowserUsePolicySnapshot;
+  };
+  "browser-annotation-capture-evidence": {
+    args: [input: import("./browser-annotation").BrowserAnnotationEvidenceCaptureInput];
+    result: BrowserAnnotationAttachmentEvidence;
+  };
+  "browser-local-server-thumbnail": {
+    args: [input: BrowserSidebarLocalServerThumbnailRequest];
+    result: BrowserSidebarLocalServerThumbnailResult;
+  };
+  "browser-local-server-preferences-get": {
+    args: [];
+    result: BrowserLocalServerPreferences;
+  };
+  "browser-local-server-preferences-update": {
+    args: [input: BrowserLocalServerPreferencesUpdate];
+    result: BrowserLocalServerPreferences;
   };
 
   // Git branch state
@@ -1960,8 +2126,18 @@ export interface IpcEvents {
   "browser-sidebar-browser-use-capture-surface": BrowserSidebarBrowserUseCaptureSurfaceEvent;
   "browser-sidebar-browser-use-cursor-state": BrowserUseCursorState;
   "browser-sidebar-browser-use-page-released": BrowserSidebarTabIdentity;
+  "browser-sidebar-browser-use-page-closed": BrowserUsePageClosedEvent;
+  "browser-sidebar-browser-use-presentation-request": BrowserUsePresentationRequest;
+  "browser-sidebar-open-new-tab": BrowserSidebarOpenNewTabRequest;
+  "browser-sidebar-context-menu-action": BrowserSidebarContextMenuActionEvent;
+  "browser-sidebar-image-drag-state": BrowserSidebarImageDragStateEvent;
   "browser-sidebar-webview-attached": BrowserSidebarWebviewAttached;
   "browser-sidebar-destroy-webview": BrowserSidebarDestroyWebviewRequest;
+  "browser-downloads-state": BrowserDownloadsSnapshot;
+  "browser-credential-save-candidate": BrowserCredentialSaveCandidate;
+  "browser-annotation-selection": BrowserAnnotationRoutedSelectionEvent;
+  "browser-annotation-anchor-update": BrowserAnnotationRoutedAnchorUpdateEvent;
+  "browser-local-server-preferences-changed": BrowserLocalServerPreferences;
   "remote-hosted-pip-stream-state-changed": RemoteHostedPipStreamStateChangedMessage;
   "remote-hosted-pip-visibility-requested": RemoteHostedPipVisibilityRequestedMessage;
   "desktop-notification:action": DesktopNotificationActionPayload & {

@@ -41,6 +41,10 @@ Options:
   -r, --root DIR    Use DIR as the run root. DIR may already exist with --keep.
   -h, --help        Show this help message.
 
+Environment:
+  NODEX_REMOTE_DEBUGGING_PORT
+                    Electron CDP port for built runs (default: 9333).
+
 Short options without values may be combined, for example: -ac or -dak.
 
 Examples:

@@ -56,6 +56,18 @@ function materializedView(): WorkbenchSessionViewSnapshot {
 }
 
 describe("WorkbenchSessionView", () => {
+  test("migrates the v1 view envelope to the Browser-storage-aware v2 envelope", () => {
+    const current = materializedView();
+    const migrated = WorkbenchSessionViewSnapshotSchema.parse({
+      ...current,
+      version: 1,
+    });
+
+    expect(migrated.version).toBe(2);
+    expect(migrated.sessionId).toBe(current.sessionId);
+    expect(migrated.tabsById).toEqual(current.tabsById);
+  });
+
   test("materializes one initial Database view as a local right-panel tab", () => {
     const view = materializedView();
     const tab = Object.values(view.tabsById)[0];
@@ -168,7 +180,17 @@ describe("WorkbenchSessionView", () => {
         titleSnapshot: "Example",
         config: {
           browserTabId: "browser-runtime",
+          browserStorageId: "browser:storage-source",
           url: "https://example.com",
+          deviceToolbarState: {
+            responsiveViewportSize: { width: 430, height: 932 },
+            toolbarState: {
+              isEnabled: true,
+              presetId: "iphone-15-pro-max",
+              width: 430,
+              height: 932,
+            },
+          },
         },
         stateKey: 0,
         state: null,
@@ -197,9 +219,19 @@ describe("WorkbenchSessionView", () => {
     expect(clonedTabs.find((tab) => tab.kind === "terminal")?.config)
       .toEqual({ terminalSessionId: "pty-1" });
     expect(clonedTabs.find((tab) => tab.kind === "browser")?.config)
-      .toMatchObject({ url: "https://example.com" });
+      .toMatchObject({
+        url: "https://example.com",
+        deviceToolbarState: {
+          toolbarState: {
+            isEnabled: true,
+            presetId: "iphone-15-pro-max",
+          },
+        },
+      });
     expect(clonedTabs.find((tab) => tab.kind === "browser")?.config)
       .not.toMatchObject({ browserTabId: "browser-runtime" });
+    expect(clonedTabs.find((tab) => tab.kind === "browser")?.config)
+      .not.toMatchObject({ browserStorageId: "browser:storage-source" });
   });
 
   test("two windows over one shared Session diverge without changing the other", () => {

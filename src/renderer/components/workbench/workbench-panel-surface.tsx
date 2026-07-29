@@ -9,6 +9,8 @@ import {
   type WorkspaceFilesTab,
 } from "@/features/workspace-files";
 import { BrowserSidebarPanel } from "@/features/browser-sidebar/browser-sidebar-panel";
+import type { BrowserSettingsDestination } from "@/features/browser-sidebar/browser-settings-pages";
+import type { BrowserSidebarOpenNewTabRequest } from "../../../shared/browser-sidebar";
 import { ConnectedReviewDiffPanel } from "@/features/local-conversation";
 import type {
   DbViewPrefs,
@@ -70,11 +72,13 @@ export function WorkbenchTabProjectionPanel({
   onRefreshSessions,
   onCloseTab,
   onUpdateTab,
+  onOpenBrowserTab,
   onCreateTerminalTab,
   onOpenThread,
   pageStageHistoryModal,
   onTogglePageStageHistoryModal,
   browserBoundsSyncTrigger,
+  onOpenBrowserSettings,
   isActivePanelTab,
 }: {
   tab: WorkbenchTabProjectionPanelTab;
@@ -137,6 +141,9 @@ export function WorkbenchTabProjectionPanel({
     tabId: string,
     patch: Parameters<typeof applyWorkbenchViewTabPatch>[1],
   ) => WorkbenchTabProjection | null;
+  onOpenBrowserTab?: (
+    request: BrowserSidebarOpenNewTabRequest,
+  ) => void | Promise<void>;
   onCreateTerminalTab: (
     panelId: PanelId,
     leafId: string,
@@ -147,6 +154,7 @@ export function WorkbenchTabProjectionPanel({
     context: PageStageHistoryModalContext,
   ) => void;
   browserBoundsSyncTrigger?: MotionValue<number>;
+  onOpenBrowserSettings: (sectionId: BrowserSettingsDestination) => void;
   isActivePanelTab: boolean;
 }) {
   if (tab.kind === "db_view" && "view" in tab.config) {
@@ -283,8 +291,11 @@ export function WorkbenchTabProjectionPanel({
         browserViewScopeId={browserViewScopeId}
         onRefreshSessions={onRefreshSessions}
         onUpdateTab={onUpdateTab}
+        onOpenNewTab={onOpenBrowserTab}
         boundsSyncTrigger={browserBoundsSyncTrigger}
+        onOpenBrowserSettings={onOpenBrowserSettings}
         activeForContentSearch={isActivePanelTab}
+        isVisible={isActivePanelTab}
       />
     );
   }

@@ -58,6 +58,7 @@ export default defineConfig({
       sourcemap: sentrySourcemapSetting,
       rollupOptions: {
         input: {
+          "browser-guest": resolve(__dirname, "src/preload/browser-guest.ts"),
           index: resolve(__dirname, "src/preload/index.ts"),
         },
       },

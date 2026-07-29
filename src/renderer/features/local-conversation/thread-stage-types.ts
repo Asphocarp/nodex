@@ -94,11 +94,21 @@ export interface ThreadSummaryPanelAuxiliaryRow {
 
 export interface ThreadSummaryPanelBrowserRow {
   id: string;
+  browserTabId: string;
+  workbenchTabId: string | null;
   title: string;
   displayUrl: string | null;
   url: string;
   faviconUrl: string | null;
   isAgentWorking: boolean;
+  isMaterialized: boolean;
+  panelId?: PanelId;
+  leafId?: string | null;
+}
+
+export interface ThreadSummaryPanelBrowserRowOpenInput {
+  browserTabId: string;
+  rowId: string;
   panelId?: PanelId;
   leafId?: string | null;
 }
@@ -290,7 +300,7 @@ export interface ThreadStageActions {
   onOpenPlanInSidePanel?: (input: ThreadPlanSidePanelTarget) => void | Promise<void>;
   onClosePlanSidePanel?: (input: { planKey: string }) => void | Promise<void>;
   onOpenSummarySideChatRow?: (input: ThreadSummaryPanelAuxiliaryRowOpenInput) => void | Promise<void>;
-  onOpenSummaryBrowserRow?: (input: ThreadSummaryPanelAuxiliaryRowOpenInput) => void | Promise<void>;
+  onOpenSummaryBrowserRow?: (input: ThreadSummaryPanelBrowserRowOpenInput) => void | Promise<void>;
   onOpenSummaryScheduledAutomation?: (input: ThreadSummaryPanelScheduledAutomationOpenInput) => void | Promise<void>;
   onOpenSummaryOutputInSidePanel?: (target: ThreadSummaryPanelOutputSidePanelTarget) => boolean | Promise<boolean>;
   onOpenSummaryGitReview?: (input: ThreadSummaryPanelGitReviewOpenInput) => void | Promise<void>;

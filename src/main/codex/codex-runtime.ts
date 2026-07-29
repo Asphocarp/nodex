@@ -6,15 +6,23 @@ import {
   parseBundledAgentRuntimeMetadata,
   type BundledAgentRuntimeMetadata,
 } from "../../shared/codex-runtime-metadata";
+import {
+  resolveBrowserRuntimeBundle,
+  type BrowserRuntimeAvailability,
+  type BrowserRuntimePlatformArtifactVerifier,
+} from "./browser-runtime-bundle";
+import { createBrowserRuntimePlatformArtifactVerifier } from "./browser-runtime-platform-verifier";
 
 export type CodexRuntimeSource = "bundled" | "staged";
 
 export type ResolvedCodexRuntime = {
   additionalSearchPaths: string[];
   binaryPath: string;
+  browserRuntime: BrowserRuntimeAvailability;
   codexCompatibilityVersion: string | null;
   metadataPath: string | null;
   missingBinaryMessage: string;
+  rootPath: string;
   runtimeFamily: "open-interpreter";
   source: CodexRuntimeSource;
   version: string | null;
@@ -78,12 +86,14 @@ function validateRuntimeSearchPaths(
 }
 
 type ResolveCodexRuntimeOptions = {
+  browserRuntimePlatformArtifactVerifier?: BrowserRuntimePlatformArtifactVerifier;
   isPackaged: boolean;
   projectRootPath?: string;
   resourcesPath?: string;
 };
 
 function resolveRuntimeFromRoot(input: {
+  browserRuntimePlatformArtifactVerifier?: BrowserRuntimePlatformArtifactVerifier;
   missingBinaryMessage: string;
   runtimeRoot: string;
   source: CodexRuntimeSource;
@@ -97,10 +107,22 @@ function resolveRuntimeFromRoot(input: {
   const metadata = parseBundledRuntimeMetadata(metadataPath);
   validateRuntimeArtifacts(input.runtimeRoot, metadata);
   validateRuntimeSearchPaths(input.runtimeRoot, metadata);
+  const browserRuntime = resolveBrowserRuntimeBundle({
+    expectedCodexCompatibilityVersion: metadata.codexCompatibilityVersion,
+    platformArtifactVerifier:
+      input.browserRuntimePlatformArtifactVerifier
+      ?? createBrowserRuntimePlatformArtifactVerifier({
+        platform: metadata.targetPlatform as NodeJS.Platform,
+      }),
+    runtimeRoot: input.runtimeRoot,
+    targetArch: metadata.targetArch as NodeJS.Architecture,
+    targetPlatform: metadata.targetPlatform as NodeJS.Platform,
+  });
 
   return {
     source: input.source,
     binaryPath: path.join(input.runtimeRoot, ...metadata.entrypoint.split("/")),
+    browserRuntime,
     additionalSearchPaths: metadata.searchPaths.map((searchPath) => (
       path.join(input.runtimeRoot, ...searchPath.split("/"))
     )),
@@ -109,6 +131,7 @@ function resolveRuntimeFromRoot(input: {
     version: metadata.runtimeVersion,
     metadataPath,
     missingBinaryMessage: input.missingBinaryMessage,
+    rootPath: input.runtimeRoot,
   };
 }
 
@@ -134,6 +157,8 @@ export function resolveCodexRuntime(options: ResolveCodexRuntimeOptions): Resolv
     }
 
     return resolveRuntimeFromRoot({
+      browserRuntimePlatformArtifactVerifier:
+        options.browserRuntimePlatformArtifactVerifier,
       source: "staged",
       runtimeRoot: path.join(projectRootPath, ".generated", "codex-runtime", "agent-runtime"),
       missingBinaryMessage: "Pinned agent runtime is missing or incomplete. Run `pnpm run stage:codex-runtime:mac`.",
@@ -146,6 +171,8 @@ export function resolveCodexRuntime(options: ResolveCodexRuntimeOptions): Resolv
   }
 
   return resolveRuntimeFromRoot({
+    browserRuntimePlatformArtifactVerifier:
+      options.browserRuntimePlatformArtifactVerifier,
     source: "bundled",
     runtimeRoot: resourcesPath,
     missingBinaryMessage: "Bundled agent runtime is missing or corrupted. Reinstall Nodex.",

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
+  existsSync,
   lstatSync,
   openSync,
   readFileSync,
@@ -11,7 +12,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 
-const PROVENANCE_SCHEMA_VERSION = 1;
+const PROVENANCE_SCHEMA_VERSION = 2;
 const PREPARED_SCHEMA_VERSION = 2;
 const resourcesRelativePath = "Contents/Resources";
 const provenanceRelativePath = `${resourcesRelativePath}/nodex-build-provenance.json`;
@@ -20,6 +21,8 @@ const appAsarRelativePath = `${resourcesRelativePath}/app.asar`;
 const appUpdateRelativePath = `${resourcesRelativePath}/app-update.yml`;
 const nativeManifestRelativePath = `${resourcesRelativePath}/bin/rust-core-runtime.json`;
 const agentManifestRelativePath = `${resourcesRelativePath}/agent-runtime.json`;
+const browserManifestRelativePath =
+  `${resourcesRelativePath}/browser-runtime/browser-runtime-manifest.json`;
 
 const isObject = (value) =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -119,6 +122,12 @@ const fileIdentity = (appPath, relativePath) => {
   };
 };
 
+const optionalFileIdentity = (appPath, relativePath) => (
+  existsSync(path.join(appPath, ...relativePath.split("/")))
+    ? fileIdentity(appPath, relativePath)
+    : null
+);
+
 const parseFileIdentity = (value, expectedPath, label) => {
   assertExactKeys(value, ["path", "sha256", "size"], label);
   if (value.path !== expectedPath) throw new Error(`${label} path is invalid`);
@@ -154,12 +163,24 @@ export const writePackagedBuildProvenance = (appPath) => {
     path.join(resolvedAppPath, ...agentManifestRelativePath.split("/")),
     "Packaged Agent runtime manifest",
   );
+  const browserManifestPath = path.join(
+    resolvedAppPath,
+    ...browserManifestRelativePath.split("/"),
+  );
+  const browserManifest = existsSync(browserManifestPath)
+    ? readJson(browserManifestPath, "Packaged Browser runtime manifest")
+    : null;
   const targetArch = nativeManifest.targetArch;
   if (
     nativeManifest.targetPlatform !== "darwin"
     || (targetArch !== "arm64" && targetArch !== "x64")
     || agentManifest.targetPlatform !== "darwin"
     || agentManifest.targetArch !== targetArch
+    || (browserManifest !== null && (
+      browserManifest.targetPlatform !== "darwin"
+      || browserManifest.targetArch !== targetArch
+      || browserManifest.codexCompatibilityVersion !== agentManifest.codexCompatibilityVersion
+    ))
   ) {
     throw new Error("Packaged runtime targets do not agree");
   }
@@ -183,6 +204,10 @@ export const writePackagedBuildProvenance = (appPath) => {
       appUpdate: fileIdentity(resolvedAppPath, appUpdateRelativePath),
       nativeRuntimeManifest: fileIdentity(resolvedAppPath, nativeManifestRelativePath),
       agentRuntimeManifest: fileIdentity(resolvedAppPath, agentManifestRelativePath),
+      browserRuntimeManifest: optionalFileIdentity(
+        resolvedAppPath,
+        browserManifestRelativePath,
+      ),
     },
   };
   const manifest = {
@@ -264,7 +289,13 @@ export const verifyPackagedBuildProvenance = (
   );
   assertExactKeys(
     value.payload,
-    ["appAsar", "appUpdate", "nativeRuntimeManifest", "agentRuntimeManifest"],
+    [
+      "appAsar",
+      "appUpdate",
+      "nativeRuntimeManifest",
+      "agentRuntimeManifest",
+      "browserRuntimeManifest",
+    ],
     "Packaged payload",
   );
   const appAsar = parseFileIdentity(value.payload.appAsar, "app.asar", "Packaged app.asar");
@@ -283,6 +314,13 @@ export const verifyPackagedBuildProvenance = (
     "agent-runtime.json",
     "Packaged Agent runtime manifest",
   );
+  const browserRuntimeManifest = value.payload.browserRuntimeManifest === null
+    ? null
+    : parseFileIdentity(
+        value.payload.browserRuntimeManifest,
+        "browser-runtime/browser-runtime-manifest.json",
+        "Packaged Browser runtime manifest",
+      );
 
   const preparedPath = path.join(resolvedAppPath, ...preparedRelativePath.split("/"));
   const prepared = parsePreparedManifest(
@@ -328,6 +366,16 @@ export const verifyPackagedBuildProvenance = (
     agentManifestRelativePath,
     "Packaged Agent runtime manifest",
   );
+  if (browserRuntimeManifest) {
+    verifyFileIdentity(
+      resolvedAppPath,
+      browserRuntimeManifest,
+      browserManifestRelativePath,
+      "Packaged Browser runtime manifest",
+    );
+  } else if (existsSync(path.join(resolvedAppPath, ...browserManifestRelativePath.split("/")))) {
+    throw new Error("Packaged Browser runtime manifest is not bound by provenance");
+  }
   const nativeManifest = readJson(
     path.join(resolvedAppPath, ...nativeManifestRelativePath.split("/")),
     "Packaged native runtime manifest",
@@ -336,11 +384,22 @@ export const verifyPackagedBuildProvenance = (
     path.join(resolvedAppPath, ...agentManifestRelativePath.split("/")),
     "Packaged Agent runtime manifest",
   );
+  const browserManifest = browserRuntimeManifest
+    ? readJson(
+        path.join(resolvedAppPath, ...browserManifestRelativePath.split("/")),
+        "Packaged Browser runtime manifest",
+      )
+    : null;
   if (
     nativeManifest.targetPlatform !== value.target.platform
     || nativeManifest.targetArch !== value.target.arch
     || agentManifest.targetPlatform !== value.target.platform
     || agentManifest.targetArch !== value.target.arch
+    || (browserManifest !== null && (
+      browserManifest.targetPlatform !== value.target.platform
+      || browserManifest.targetArch !== value.target.arch
+      || browserManifest.codexCompatibilityVersion !== agentManifest.codexCompatibilityVersion
+    ))
   ) {
     throw new Error("Packaged runtime target does not match provenance");
   }

@@ -2183,11 +2183,14 @@ describe("ThreadFloatingSummaryPanel", () => {
         browserRows={[
           {
             id: "browser-1",
+            browserTabId: "browser-runtime-1",
+            workbenchTabId: null,
             title: "Release notes",
             displayUrl: "example.com",
             url: "https://example.com/release-notes",
             faviconUrl: null,
             isAgentWorking: false,
+            isMaterialized: false,
           },
         ]}
         onErrorMessage={() => undefined}
@@ -2330,11 +2333,14 @@ describe("ThreadFloatingSummaryPanel", () => {
         browserRows={[
           {
             id: "browser-1",
+            browserTabId: "browser-runtime-1",
+            workbenchTabId: "browser-1",
             title: "Release notes",
             displayUrl: "example.com",
             url: "https://example.com/release-notes",
             faviconUrl: null,
             isAgentWorking: false,
+            isMaterialized: true,
             panelId: "bottom",
             leafId: null,
           },
@@ -2357,7 +2363,12 @@ describe("ThreadFloatingSummaryPanel", () => {
     const sideChatCall = openedSideChats[0] as
       { rowId?: string; panelId?: string; leafId?: string | null } | undefined;
     const browserCall = openedBrowsers[0] as
-      { rowId?: string; panelId?: string; leafId?: string | null } | undefined;
+      {
+        browserTabId?: string;
+        rowId?: string;
+        panelId?: string;
+        leafId?: string | null;
+      } | undefined;
     const terminalCall = openedTerminals[0] as
       { id?: string; turnId?: string; command?: string } | undefined;
     expect(openedSideChats.length).toBe(1);
@@ -2365,6 +2376,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(sideChatCall?.panelId).toBe("right");
     expect(sideChatCall?.leafId).toBe("leaf-a");
     expect(openedBrowsers.length).toBe(1);
+    expect(browserCall?.browserTabId).toBe("browser-runtime-1");
     expect(browserCall?.rowId).toBe("browser-1");
     expect(browserCall?.panelId).toBe("bottom");
     expect(browserCall?.leafId).toBe(null);
@@ -2451,11 +2463,14 @@ describe("ThreadFloatingSummaryPanel", () => {
         browserRows={[
           {
             id: "browser-1",
+            browserTabId: "browser-runtime-1",
+            workbenchTabId: "browser-1",
             title: "Release notes",
             displayUrl: "example.com",
             url: "https://example.com/release-notes",
             faviconUrl: null,
             isAgentWorking: false,
+            isMaterialized: true,
             panelId: "bottom",
             leafId: null,
           },
@@ -2520,11 +2535,14 @@ describe("ThreadFloatingSummaryPanel", () => {
         browserRows={[
           {
             id: "browser-1",
+            browserTabId: "browser-runtime-1",
+            workbenchTabId: "browser-1",
             title: "Release notes",
             displayUrl: "example.com",
             url: "https://www.example.com/release-notes",
             faviconUrl: "https://www.example.com/favicon.ico",
             isAgentWorking: true,
+            isMaterialized: true,
             panelId: "right",
             leafId: "leaf-browser",
           },
@@ -2556,6 +2574,50 @@ describe("ThreadFloatingSummaryPanel", () => {
     ).toBe(true);
     expect(Boolean(browserButton.querySelector("svg.animate-spin"))).toBe(true);
     expect(textContent(view.container).includes("Right panel")).toBe(false);
+  });
+
+  test("opens a runtime-only Browser row by logical Browser identity", async () => {
+    const opened: string[] = [];
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd={null}
+        projectWorkspacePath={null}
+        turns={[]}
+        browserRows={[
+          {
+            id: "browser-use:runtime-only",
+            browserTabId: "runtime-only",
+            workbenchTabId: null,
+            title: "Runtime page",
+            displayUrl: "example.com",
+            url: "https://example.com",
+            faviconUrl: null,
+            isAgentWorking: true,
+            isMaterialized: false,
+            leafId: null,
+          },
+        ]}
+        actions={{
+          onOpenSummaryBrowserRow: ({ browserTabId }) => {
+            opened.push(browserTabId);
+          },
+        } as Partial<ThreadStageActions> as ThreadStageActions}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(
+        view.getByRole("button", { name: "Runtime page example.com" }),
+      );
+      await settleAsyncRender();
+    });
+    expect(opened).toEqual(["runtime-only"]);
   });
 
   test("renders the start-in row as a summary-panel dropdown trigger", async () => {

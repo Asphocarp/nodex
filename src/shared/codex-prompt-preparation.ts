@@ -6,6 +6,12 @@ import {
   serializeReviewDiffCommentAttachmentForPrompt,
   serializeReviewDiffCommentAttachmentsForAdditionalContext,
 } from "./review-diff-comments";
+import {
+  BROWSER_ANNOTATIONS_ADDITIONAL_CONTEXT_KEY,
+  BrowserAnnotationAttachmentSchema,
+  serializeBrowserAnnotationAttachmentForPrompt,
+  serializeBrowserAnnotationAttachmentsForAdditionalContext,
+} from "./browser-annotation";
 import type {
   CodexPreparedPrompt,
   CodexPromptAgentConfigInput,
@@ -96,6 +102,24 @@ function buildReviewDiffCommentAdditionalContext(
   };
 }
 
+function buildApplicationAdditionalContext(input: {
+  readonly commentAttachments: readonly CodexReviewDiffCommentAttachment[];
+  readonly browserAnnotationAttachments: NonNullable<CodexPromptInput["browserAnnotationAttachments"]>;
+}): NonNullable<CodexPreparedPrompt["additionalContext"]> {
+  const reviewContext = buildReviewDiffCommentAdditionalContext(input.commentAttachments) ?? {};
+  if (input.browserAnnotationAttachments.length === 0) return reviewContext;
+
+  return {
+    ...reviewContext,
+    [BROWSER_ANNOTATIONS_ADDITIONAL_CONTEXT_KEY]: {
+      kind: "application",
+      value: serializeBrowserAnnotationAttachmentsForAdditionalContext(
+        input.browserAnnotationAttachments,
+      ),
+    },
+  };
+}
+
 /**
  * Compiles one app-owned prompt into the exact app-server input used by both the
  * optimistic mutation and the transport request. Environment and permission
@@ -149,11 +173,29 @@ export async function prepareCodexPrompt(
   const commentItems = commentAttachments.map((attachment) =>
     createCodexTextUserInput(serializeReviewDiffCommentAttachmentForPrompt(attachment))
   );
-  const additionalContext = buildReviewDiffCommentAdditionalContext(commentAttachments);
+  const browserAnnotationAttachments = (
+    promptInput?.browserAnnotationAttachments ?? []
+  ).map((attachment) => BrowserAnnotationAttachmentSchema.parse(attachment));
+  const browserAnnotationItems = browserAnnotationAttachments.map((attachment) =>
+    createCodexTextUserInput(serializeBrowserAnnotationAttachmentForPrompt(attachment))
+  );
+  const browserAnnotationEvidenceItems = await Promise.all(
+    browserAnnotationAttachments.flatMap((attachment) =>
+      attachment.evidence
+        ? [options.resolveImageInput(attachment.evidence.source)]
+        : []
+    ),
+  );
+  const additionalContext = buildApplicationAdditionalContext({
+    commentAttachments,
+    browserAnnotationAttachments,
+  });
   const primaryTextItems = promptText ? [createCodexTextUserInput(promptText)] : [];
   const inputItems: UserInput[] = [
     ...primaryTextItems,
     ...commentItems,
+    ...browserAnnotationItems,
+    ...browserAnnotationEvidenceItems,
     ...imageItems,
     ...mentionItems,
     ...skillItems,
@@ -161,6 +203,8 @@ export async function prepareCodexPrompt(
   const pendingInputItems: UserInput[] = [
     ...primaryTextItems,
     ...commentItems,
+    ...browserAnnotationItems,
+    ...browserAnnotationEvidenceItems,
     ...imageItems,
     ...skillItems,
   ];
@@ -180,7 +224,7 @@ export async function prepareCodexPrompt(
     fileAttachments,
     addedFiles,
     pastedTextAttachments,
-    ...(additionalContext ? { additionalContext } : {}),
+    ...(Object.keys(additionalContext).length > 0 ? { additionalContext } : {}),
     commentAttachments,
     agentConfigs: [...parsedPrompt.agentConfigs],
   };

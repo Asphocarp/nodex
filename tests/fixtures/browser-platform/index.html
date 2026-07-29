@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'"
+    />
+    <title>Browser platform integration host</title>
+  </head>
+  <body>
+    <main id="guests"></main>
+    <script>
+      window.browserPlatformFixture = {
+        async createGuest(id, url) {
+          const guest = document.createElement("webview");
+          guest.id = id;
+          guest.setAttribute("src", url);
+          guest.setAttribute("partition", "persist:untrusted-route-claim");
+          guest.setAttribute(
+            "webpreferences",
+            "nodeIntegration=yes,contextIsolation=no,sandbox=no",
+          );
+          const ready = new Promise((resolve, reject) => {
+            const timeout = setTimeout(
+              () => reject(new Error(`Timed out attaching ${id}`)),
+              10000,
+            );
+            guest.addEventListener("dom-ready", () => {
+              clearTimeout(timeout);
+              resolve();
+            }, { once: true });
+          });
+          document.querySelector("#guests").append(guest);
+          await ready;
+          return guest.getWebContentsId();
+        },
+        async execute(id, expression) {
+          const guest = document.getElementById(id);
+          if (!guest) throw new Error(`Missing guest ${id}`);
+          return await guest.executeJavaScript(expression);
+        },
+        async load(id, url) {
+          const guest = document.getElementById(id);
+          if (!guest) throw new Error(`Missing guest ${id}`);
+          const ready = new Promise((resolve, reject) => {
+            const timeout = setTimeout(
+              () => reject(new Error(`Timed out loading ${url}`)),
+              10000,
+            );
+            guest.addEventListener("did-finish-load", () => {
+              clearTimeout(timeout);
+              resolve();
+            }, { once: true });
+          });
+          await guest.loadURL(url);
+          await ready;
+        },
+        remove(id) {
+          document.getElementById(id)?.remove();
+        },
+      };
+    </script>
+  </body>
+</html>

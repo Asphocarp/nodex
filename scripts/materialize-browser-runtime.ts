@@ -1,0 +1,393 @@
+import { execFileSync } from "node:child_process";
+import {
+  createWriteStream,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+} from "node:fs";
+import path from "node:path";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { ReadableStream as WebReadableStream } from "node:stream/web";
+import { fileURLToPath } from "node:url";
+import {
+  BROWSER_RUNTIME_MANIFEST_FILENAME,
+  type BrowserRuntimeManifest,
+} from "../src/shared/browser-runtime-metadata";
+import {
+  readBrowserRuntimeReleaseLock,
+  resolveBrowserRuntimeReleaseLockPath,
+  type BrowserRuntimeReleaseAsset,
+  type BrowserRuntimeReleaseLock,
+  type BrowserRuntimeTargetArch,
+  type BrowserRuntimeTargetKey,
+  type BrowserRuntimeTargetPlatform,
+} from "./browser-runtime-release-lock";
+import { replaceOwnedDirectory } from "./replace-owned-directory";
+import {
+  assertBrowserRuntimeSourceClosure,
+  readBrowserRuntimeFileSha256,
+  readBrowserRuntimeSourceManifest,
+} from "./stage-browser-runtime";
+
+const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
+const repositoryRoot = path.resolve(scriptDirectory, "..");
+
+export type MaterializeBrowserRuntimeOptions = {
+  archivePath?: string;
+  cachePath?: string;
+  lockPath?: string;
+  outputPath: string;
+  projectRootPath?: string;
+  targetArch: BrowserRuntimeTargetArch;
+  targetPlatform: BrowserRuntimeTargetPlatform;
+};
+
+function targetKeyFor(
+  targetPlatform: BrowserRuntimeTargetPlatform,
+  targetArch: BrowserRuntimeTargetArch,
+): BrowserRuntimeTargetKey {
+  return `${targetPlatform}-${targetArch}`;
+}
+
+function assertNoLinksOrSpecialFiles(rootPath: string, currentPath = rootPath): void {
+  for (const entry of readdirSync(currentPath, { withFileTypes: true })) {
+    const entryPath = path.join(currentPath, entry.name);
+    const stats = lstatSync(entryPath);
+    const relativePath = path.relative(rootPath, entryPath);
+    if (stats.isSymbolicLink()) {
+      throw new Error(`Browser runtime archive contains a symlink: ${relativePath}`);
+    }
+    if (stats.isDirectory()) {
+      assertNoLinksOrSpecialFiles(rootPath, entryPath);
+      continue;
+    }
+    if (!stats.isFile()) {
+      throw new Error(
+        `Browser runtime archive contains an unsupported entry: ${relativePath}`,
+      );
+    }
+  }
+}
+
+function assertManifestMatchesLock(input: {
+  asset: BrowserRuntimeReleaseAsset;
+  lock: BrowserRuntimeReleaseLock;
+  manifest: BrowserRuntimeManifest;
+  manifestPath: string;
+  targetArch: BrowserRuntimeTargetArch;
+  targetPlatform: BrowserRuntimeTargetPlatform;
+}): void {
+  const {
+    asset,
+    lock,
+    manifest,
+    manifestPath,
+    targetArch,
+    targetPlatform,
+  } = input;
+  const manifestSha256 = readBrowserRuntimeFileSha256(manifestPath);
+  if (manifestSha256 !== asset.manifestSha256) {
+    throw new Error(
+      `Browser runtime manifest checksum mismatch: expected ${asset.manifestSha256}, `
+      + `found ${manifestSha256}`,
+    );
+  }
+  if (
+    manifest.browserPlugin.version !== lock.browserPluginVersion
+    || manifest.codexCompatibilityVersion !== lock.codexCompatibilityVersion
+    || manifest.desktopBuild !== lock.source.desktopBuild
+    || manifest.desktopBuildNumber !== lock.source.buildNumber
+    || manifest.targetArch !== targetArch
+    || manifest.targetPlatform !== targetPlatform
+    || JSON.stringify(manifest.runtimeVersions) !== JSON.stringify(asset.runtimeVersions)
+  ) {
+    throw new Error("Browser runtime manifest does not match the release lock");
+  }
+}
+
+function readVerifiedSource(input: {
+  asset: BrowserRuntimeReleaseAsset;
+  lock: BrowserRuntimeReleaseLock;
+  sourceRoot: string;
+  targetArch: BrowserRuntimeTargetArch;
+  targetPlatform: BrowserRuntimeTargetPlatform;
+}): BrowserRuntimeManifest {
+  const sourceRoot = path.resolve(input.sourceRoot);
+  const stats = lstatSync(sourceRoot);
+  if (!stats.isDirectory() || stats.isSymbolicLink()) {
+    throw new Error(`Browser runtime source must be a real directory: ${sourceRoot}`);
+  }
+  assertNoLinksOrSpecialFiles(sourceRoot);
+  const manifest = readBrowserRuntimeSourceManifest(sourceRoot);
+  assertManifestMatchesLock({
+    ...input,
+    manifest,
+    manifestPath: path.join(sourceRoot, BROWSER_RUNTIME_MANIFEST_FILENAME),
+  });
+  assertBrowserRuntimeSourceClosure(sourceRoot, manifest);
+  return manifest;
+}
+
+function readReusableSource(input: {
+  asset: BrowserRuntimeReleaseAsset;
+  lock: BrowserRuntimeReleaseLock;
+  outputPath: string;
+  targetArch: BrowserRuntimeTargetArch;
+  targetPlatform: BrowserRuntimeTargetPlatform;
+}): BrowserRuntimeManifest | null {
+  try {
+    return readVerifiedSource({
+      ...input,
+      sourceRoot: input.outputPath,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function assertArchivePathsAreSafe(archivePath: string): void {
+  const entries = execFileSync("tar", ["-tzf", archivePath], {
+    encoding: "utf8",
+    env: { ...process.env, LANG: "C" },
+  })
+    .split("\n")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  if (entries.length === 0) {
+    throw new Error("Browser runtime archive is empty");
+  }
+  for (const entry of entries) {
+    const withoutPrefix = entry.replace(/^(?:\.\/)+/u, "");
+    const normalized = withoutPrefix.endsWith("/")
+      ? withoutPrefix.slice(0, -1)
+      : withoutPrefix;
+    if (normalized.length === 0) continue;
+    if (normalized.startsWith("/") || normalized.includes("\\")) {
+      throw new Error(`Browser runtime archive contains an unsafe path: ${entry}`);
+    }
+    const segments = normalized.split("/");
+    if (
+      segments.some(
+        (segment) => segment.length === 0 || segment === "." || segment === "..",
+      )
+    ) {
+      throw new Error(`Browser runtime archive contains an unsafe path: ${entry}`);
+    }
+  }
+
+  const verboseEntries = execFileSync("tar", ["-tvzf", archivePath], {
+    encoding: "utf8",
+    env: { ...process.env, LANG: "C" },
+  })
+    .split("\n")
+    .filter((entry) => entry.length > 0);
+  for (const entry of verboseEntries) {
+    const entryKind = entry[0];
+    if (entryKind !== "-" && entryKind !== "d") {
+      throw new Error("Browser runtime archive may contain only regular files and directories");
+    }
+  }
+}
+
+function assertArchiveMatches(
+  archivePath: string,
+  asset: BrowserRuntimeReleaseAsset,
+): void {
+  const stats = lstatSync(archivePath);
+  if (!stats.isFile() || stats.isSymbolicLink()) {
+    throw new Error(`Browser runtime archive must be a regular file: ${archivePath}`);
+  }
+  if (stats.size !== asset.archiveSize) {
+    throw new Error(
+      `Browser runtime archive size mismatch: expected ${asset.archiveSize}, `
+      + `found ${stats.size}`,
+    );
+  }
+  const sha256 = readBrowserRuntimeFileSha256(archivePath);
+  if (sha256 !== asset.archiveSha256) {
+    throw new Error(
+      `Browser runtime archive checksum mismatch: expected ${asset.archiveSha256}, `
+      + `found ${sha256}`,
+    );
+  }
+  assertArchivePathsAreSafe(archivePath);
+}
+
+async function downloadArchive(
+  url: string,
+  destinationPath: string,
+  expectedSize: number,
+): Promise<void> {
+  const response = await fetch(url, { redirect: "follow" });
+  if (!response.ok || !response.body) {
+    throw new Error(`Failed to download Browser runtime: HTTP ${response.status}`);
+  }
+  const contentLength = response.headers.get("content-length");
+  if (contentLength && Number(contentLength) !== expectedSize) {
+    throw new Error(
+      `Browser runtime download size mismatch: expected ${expectedSize}, `
+      + `server reported ${contentLength}`,
+    );
+  }
+  mkdirSync(path.dirname(destinationPath), { recursive: true });
+  const temporaryPath = `${destinationPath}.part-${process.pid}`;
+  let downloadedSize = 0;
+  const sizeLimiter = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      downloadedSize += chunk.length;
+      if (downloadedSize > expectedSize) {
+        callback(new Error("Browser runtime download exceeded its locked size"));
+        return;
+      }
+      callback(null, chunk);
+    },
+  });
+  try {
+    const body = Readable.fromWeb(response.body as WebReadableStream<Uint8Array>);
+    await pipeline(
+      body,
+      sizeLimiter,
+      createWriteStream(temporaryPath, { flags: "wx", mode: 0o600 }),
+    );
+    if (downloadedSize !== expectedSize) {
+      throw new Error(
+        `Browser runtime download size mismatch: expected ${expectedSize}, `
+        + `received ${downloadedSize}`,
+      );
+    }
+    if (existsSync(destinationPath)) {
+      rmSync(temporaryPath, { force: true });
+      return;
+    }
+    renameSync(temporaryPath, destinationPath);
+  } finally {
+    rmSync(temporaryPath, { force: true });
+  }
+}
+
+export async function materializeBrowserRuntime(
+  options: MaterializeBrowserRuntimeOptions,
+): Promise<BrowserRuntimeManifest> {
+  const projectRoot = path.resolve(options.projectRootPath ?? repositoryRoot);
+  const lockPath = path.resolve(
+    options.lockPath ?? resolveBrowserRuntimeReleaseLockPath(projectRoot),
+  );
+  const lock = readBrowserRuntimeReleaseLock(lockPath);
+  const targetKey = targetKeyFor(options.targetPlatform, options.targetArch);
+  const asset = lock.assets[targetKey];
+  const outputPath = path.resolve(options.outputPath);
+  const reusable = readReusableSource({
+    asset,
+    lock,
+    outputPath,
+    targetArch: options.targetArch,
+    targetPlatform: options.targetPlatform,
+  });
+  if (reusable) {
+    process.stderr.write("Reused verified Browser runtime source.\n");
+    return reusable;
+  }
+
+  const cachePath = path.resolve(
+    options.cachePath
+      ?? path.join(projectRoot, ".generated", "browser-runtime-cache"),
+  );
+  const archivePath = path.resolve(
+    options.archivePath
+      ?? path.join(cachePath, asset.archiveSha256, asset.assetName),
+  );
+  if (existsSync(archivePath)) {
+    try {
+      assertArchiveMatches(archivePath, asset);
+    } catch (error) {
+      if (options.archivePath) throw error;
+      rmSync(archivePath, { force: true });
+    }
+  }
+  if (!existsSync(archivePath)) {
+    await downloadArchive(asset.url, archivePath, asset.archiveSize);
+  }
+  assertArchiveMatches(archivePath, asset);
+
+  mkdirSync(path.dirname(outputPath), { recursive: true });
+  const extractionParent = mkdtempSync(
+    path.join(path.dirname(outputPath), ".browser-runtime-materialize-"),
+  );
+  const extractedRoot = path.join(extractionParent, "source");
+  mkdirSync(extractedRoot);
+  try {
+    execFileSync("tar", ["-xzf", archivePath, "-C", extractedRoot]);
+    const manifest = readVerifiedSource({
+      asset,
+      lock,
+      sourceRoot: extractedRoot,
+      targetArch: options.targetArch,
+      targetPlatform: options.targetPlatform,
+    });
+    replaceOwnedDirectory(extractedRoot, outputPath);
+    return manifest;
+  } finally {
+    rmSync(extractionParent, { force: true, recursive: true });
+  }
+}
+
+function parseCliOptions(argv: string[]): MaterializeBrowserRuntimeOptions {
+  const args = argv.filter((value) => value !== "--");
+  const values = new Map<string, string>();
+  for (let index = 0; index < args.length; index += 2) {
+    const key = args[index];
+    const value = args[index + 1];
+    if (!key?.startsWith("--") || !value) {
+      throw new Error("Browser runtime materialization arguments must be --key value pairs");
+    }
+    values.set(key, value);
+  }
+
+  const outputPath = values.get("--out");
+  const targetArch = values.get("--target-arch");
+  const targetPlatform = values.get("--target-platform");
+  if (
+    !outputPath
+    || (targetArch !== "arm64" && targetArch !== "x64")
+    || targetPlatform !== "darwin"
+  ) {
+    throw new Error(
+      "Usage: materialize-browser-runtime.ts --target-platform darwin "
+      + "--target-arch <arm64|x64> --out <directory> [--lock <lock.json>] "
+      + "[--cache <directory>] [--archive <tar.gz>]",
+    );
+  }
+  return {
+    archivePath: values.get("--archive"),
+    cachePath: values.get("--cache"),
+    lockPath: values.get("--lock"),
+    outputPath,
+    targetArch,
+    targetPlatform,
+  };
+}
+
+async function main(): Promise<void> {
+  const manifest = await materializeBrowserRuntime(
+    parseCliOptions(process.argv.slice(2)),
+  );
+  process.stdout.write(`${JSON.stringify({
+    artifacts: manifest.artifacts.length,
+    desktopBuild: manifest.desktopBuild,
+    pluginVersion: manifest.browserPlugin.version,
+    targetArch: manifest.targetArch,
+  })}\n`);
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  void main().catch((error: unknown) => {
+    const message = error instanceof Error ? error.stack ?? error.message : String(error);
+    process.stderr.write(`${message}\n`);
+    process.exitCode = 1;
+  });
+}

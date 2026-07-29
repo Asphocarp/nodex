@@ -7,6 +7,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import {
   applyMacSigningMode,
   refreshSignedAgentRuntimeMetadata,
+  refreshSignedBrowserRuntimeManifest,
 } from "./sign-macos-runtime.mjs";
 
 const temporaryRoots: string[] = [];
@@ -92,5 +93,75 @@ describe("refreshSignedAgentRuntimeMetadata", () => {
         .digest("hex"),
       size: Buffer.byteLength("developer-id-signed-interpreter"),
     }]);
+  });
+});
+
+describe("refreshSignedBrowserRuntimeManifest", () => {
+  test("reseals signed Browser executables without requiring a proprietary fixture", () => {
+    const appPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-browser-signing-"));
+    temporaryRoots.push(appPath);
+    const browserRoot = path.join(appPath, "Contents", "Resources", "browser-runtime");
+    const executablePath = path.join(browserRoot, "bin", "node_repl");
+    const peerAuthorizationPath = path.join(browserRoot, "peer", "authorize.node");
+    fs.mkdirSync(path.dirname(executablePath), { recursive: true });
+    fs.writeFileSync(executablePath, "developer-id-signed-node-repl", { mode: 0o755 });
+    fs.mkdirSync(path.dirname(peerAuthorizationPath), { recursive: true });
+    fs.writeFileSync(peerAuthorizationPath, "developer-id-signed-peer");
+    const manifestPath = path.join(browserRoot, "browser-runtime-manifest.json");
+    fs.writeFileSync(manifestPath, JSON.stringify({
+      contractVersion: 1,
+      schemaVersion: 3,
+      artifacts: [
+        {
+          architecture: "arm64",
+          executable: true,
+          kind: "executable",
+          path: "bin/node_repl",
+          sha256: "0".repeat(64),
+          size: 1,
+        },
+        {
+          architecture: "arm64",
+          executable: false,
+          kind: "native-addon",
+          path: "peer/authorize.node",
+          sha256: "0".repeat(64),
+          size: 1,
+        },
+      ],
+      entrypoints: {
+        peerAuthorization: "peer/authorize.node",
+      },
+      peerAuthorization: {
+        nodeApiVersion: "127",
+        signingTeamId: "UPSTREAM",
+      },
+    }));
+
+    expect(refreshSignedBrowserRuntimeManifest(appPath, {
+      readSigningTeamIdentifier: (artifactPath: string) => {
+        expect(artifactPath).toBe(peerAuthorizationPath);
+        return "TESTTEAM";
+      },
+    })).toBe(true);
+
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as {
+      artifacts: Array<{ sha256: string; size: number }>;
+      peerAuthorization: { signingTeamId: string };
+    };
+    expect(manifest.artifacts[0]).toMatchObject({
+      sha256: createHash("sha256")
+        .update("developer-id-signed-node-repl")
+        .digest("hex"),
+      size: Buffer.byteLength("developer-id-signed-node-repl"),
+    });
+    expect(manifest.peerAuthorization.signingTeamId).toBe("TESTTEAM");
+  });
+
+  test("is a no-op while the optional Browser bundle is absent", () => {
+    const appPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-browser-signing-"));
+    temporaryRoots.push(appPath);
+
+    expect(refreshSignedBrowserRuntimeManifest(appPath)).toBe(false);
   });
 });

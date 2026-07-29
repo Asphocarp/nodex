@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -13,42 +14,91 @@ import {
 import type { MotionValue } from "motion/react";
 import {
   Check,
+  AlertTriangle,
+  ContactRound,
+  Download,
+  FolderOpen,
+  History,
+  Info,
+  KeyRound,
+  LockKeyhole,
   Maximize2,
   Minus,
-  MousePointer2,
+  Pause,
+  Play,
   Plus,
+  Printer,
+  Puzzle,
   RotateCcw,
+  Settings2,
   Smartphone,
+  Trash2,
+  WifiOff,
   X,
 } from "lucide-react";
 import {
   BROWSER_SIDEBAR_DEVICE_PRESETS,
+  DEFAULT_BROWSER_LOCAL_SERVER_PREFERENCES,
   DEFAULT_BROWSER_SIDEBAR_FIND_STATE,
+  makeBrowserSidebarTabKey,
+  matchesBrowserSidebarTabIdentity,
   requireWorkbenchBrowserTabProjectionId,
   type BrowserBrowsingDataKind,
+  type BrowserLocalServerPreferences,
+  type BrowserLocalServerPreferencesUpdate,
+  type BrowserLocalServerShowMode,
+  type BrowserLocalServerSortMode,
   type BrowserSidebarBrowserUseViewportEvent,
   type BrowserSidebarBrowserUseStateSnapshot,
   type BrowserSidebarCommand,
   type BrowserSidebarCommandResult,
+  type BrowserSidebarContextMenuActionEvent,
+  type BrowserSidebarImageDragStateEvent,
   type BrowserSidebarLocalServer,
+  type BrowserSidebarLocalServerThumbnailResult,
   type BrowserSidebarLocalServersSnapshot,
+  type BrowserSidebarOpenNewTabRequest,
+  type BrowserPageFailure,
   type BrowserSidebarTabSnapshot,
   type BrowserSidebarViewport,
   type BrowserSidebarWebviewHostCreated,
   type BrowserUseCursorState,
 } from "../../../shared/browser-sidebar";
+import type {
+  BrowserDownloadAction,
+  BrowserDownloadRecord,
+  BrowserDownloadsSnapshot,
+} from "../../../shared/browser-download";
+import type {
+  BrowserAnnotationAnchor,
+  BrowserAnnotationDesignChange,
+  BrowserAnnotationRoutedAnchorUpdateEvent,
+  BrowserAnnotationRoutedSelectionEvent,
+} from "../../../shared/browser-annotation";
+import type {
+  BrowserContactInfo,
+  BrowserCredentialSaveCandidate,
+  BrowserCredentialSummary,
+  BrowserSiteInfo,
+} from "../../../shared/browser-profile";
 import { isBlankBrowserUrl, normalizeBrowserNavigationUrl } from "../../../shared/browser-url";
+import { useTheme } from "@/lib/use-theme";
 import {
   BROWSER_SIDEBAR_VISIBLE_WEBVIEW_Z_INDEX,
   browserSidebarRendererWebviewManager,
 } from "./browser-sidebar-webview-manager";
+import { BrowserUseCursorPortal } from "./browser-use-cursor-portal";
+import { useBrowserSidebarRendererState } from "./browser-sidebar-renderer-state-store";
+import { computeBrowserViewportLayout } from "./browser-viewport-layout";
 import {
   clearBrowserDocumentBottom,
   publishBrowserDocumentBottom,
 } from "./browser-document-bottom-store";
 import {
+  readBrowserConfigDeviceToolbarState,
   readBrowserConfigDeviceToolbarVisible,
   readBrowserConfigFavicon,
+  readBrowserConfigStorageId,
   readBrowserConfigTitle,
   readBrowserConfigUrl,
 } from "./browser-sidebar-tab-config";
@@ -61,12 +111,7 @@ import {
   shouldCommitBrowserAddressEdit,
   shouldSkipBrowserAddressCommit,
   updateBrowserViewportDimension,
-  writeBrowserLocalServerExpandedProjects,
-  writeBrowserLocalServerShowMode,
-  writeBrowserLocalServerSortMode,
   type BrowserLocalServerSettings,
-  type BrowserLocalServerShowMode,
-  type BrowserLocalServerSortMode,
 } from "./browser-sidebar-ui-model";
 import type {
   WorkbenchTabProjection,
@@ -80,6 +125,18 @@ import {
   RIGHT_PANEL_COMPOSER_OVERLAY_ZERO_RESERVE_VALUE,
 } from "@/lib/right-panel-composer-overlay-reserve";
 import { cn } from "@/lib/utils";
+import { publishBrowserAnnotationAttachment } from "./browser-annotation-attachments";
+import {
+  applyBrowserAnnotationAnchorUpdate,
+  applyBrowserAnnotationSelection,
+  createBrowserAnnotationDraftState,
+  navigateBrowserAnnotationDraft,
+  removeBrowserAnnotationAnchor,
+  resetBrowserAnnotationDraft,
+  updateBrowserAnnotationDesignChange,
+} from "./browser-annotation-state";
+import { publishBrowserImageAttachment } from "./browser-image-attachments";
+import { publishBrowserImageDragState } from "./browser-image-drag-state";
 import {
   CodexBrowserAnnotateIcon,
   CodexBrowserBackIcon,
@@ -97,6 +154,8 @@ import {
   NodexDropdownMenu,
   NodexDropdownSeparator,
 } from "@/components/ui/dropdown";
+import { BrowserProfileImportDialog } from "./browser-profile-import-dialog";
+import type { BrowserSettingsDestination } from "./browser-settings-pages";
 
 type BrowserTab = WorkbenchTabProjection & { preview?: true };
 
@@ -113,8 +172,6 @@ const BROWSER_COLLAPSIBLE_ACTION_CLASS =
 const BROWSER_DROPDOWN_CONTENT_STYLE: CSSProperties = {
   zIndex: BROWSER_SIDEBAR_VISIBLE_WEBVIEW_Z_INDEX,
 };
-const LOCAL_SERVER_THUMBNAIL_DATA_URI =
-  "data:image/svg+xml,%3Csvg width='84' height='52' viewBox='0 0 84 52' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='84' height='52' rx='10' fill='%231B1D21'/%3E%3Crect x='10' y='10' width='64' height='7' rx='3.5' fill='%2330363D'/%3E%3Crect x='10' y='23' width='42' height='6' rx='3' fill='%23282D34'/%3E%3Crect x='10' y='34' width='55' height='6' rx='3' fill='%23282D34'/%3E%3Ccircle cx='69' cy='38' r='4' fill='%2316A34A'/%3E%3C/svg%3E";
 const DEFAULT_BROWSER_SNAPSHOT: Omit<
   BrowserSidebarTabSnapshot,
   | "browserConversationId"
@@ -159,8 +216,11 @@ export function BrowserSidebarPanel({
   browserViewScopeId,
   onRefreshSessions,
   onUpdateTab = () => null,
+  onOpenNewTab,
+  onOpenBrowserSettings,
   boundsSyncTrigger,
   activeForContentSearch = false,
+  isVisible,
 }: {
   tab: BrowserTab;
   activeSession: WorkbenchSessionRenderProjection;
@@ -172,21 +232,62 @@ export function BrowserSidebarPanel({
     tabId: string,
     patch: WorkbenchTabUpdateInput,
   ) => WorkbenchTabProjection | null;
+  onOpenNewTab?: (
+    request: BrowserSidebarOpenNewTabRequest,
+  ) => void | Promise<void>;
+  onOpenBrowserSettings?: (sectionId: BrowserSettingsDestination) => void;
   boundsSyncTrigger?: MotionValue<number>;
   activeForContentSearch?: boolean;
+  isVisible: boolean;
 }) {
   const browserRuntimeAvailable = typeof window !== "undefined" && Boolean(window.api);
+  const browserRuntime = useBrowserSidebarRendererState();
+  const { resolved: themeVariant } = useTheme();
   const webviewHostRef = useRef<HTMLDivElement | null>(null);
+  const syncWebviewPresentationRef = useRef<(() => void) | null>(null);
+  const isVisibleRef = useRef(isVisible);
+  const themeVariantRef = useRef(themeVariant);
+  isVisibleRef.current = isVisible;
+  themeVariantRef.current = themeVariant;
   const [snapshot, setSnapshot] = useState<BrowserSidebarTabSnapshot>(() =>
     makeInitialSnapshot(tab, activeSession, browserViewScopeId)
   );
   const [addressValue, setAddressValue] = useState(readBrowserAddressValue(snapshot.url));
   const [addressFocused, setAddressFocused] = useState(false);
   const [localServers, setLocalServers] = useState<BrowserSidebarLocalServersSnapshot | null>(null);
-  const [browserUseState, setBrowserUseState] = useState<BrowserSidebarBrowserUseStateSnapshot | null>(null);
+  const [localServerPreferences, setLocalServerPreferences] =
+    useState<BrowserLocalServerPreferences>(() => ({
+      ...DEFAULT_BROWSER_LOCAL_SERVER_PREFERENCES,
+      expandedProjectIds: [],
+    }));
+  const [eventBrowserUseState, setEventBrowserUseState] =
+    useState<BrowserSidebarBrowserUseStateSnapshot | null>(null);
   const [browserUseCursor, setBrowserUseCursor] = useState<BrowserUseCursorState | null>(null);
   const [browserUseViewport, setBrowserUseViewport] = useState<BrowserSidebarBrowserUseViewportEvent | null>(null);
+  const [registeredBrowserKey, setRegisteredBrowserKey] = useState<string | null>(null);
   const [clearDataStatus, setClearDataStatus] = useState<string | null>(null);
+  const [downloadsOpen, setDownloadsOpen] = useState(false);
+  const [profileImportOpen, setProfileImportOpen] = useState(false);
+  const [siteInfo, setSiteInfo] = useState<BrowserSiteInfo | null>(null);
+  const [credentialCandidate, setCredentialCandidate] =
+    useState<BrowserCredentialSaveCandidate | null>(null);
+  const [downloadsSnapshot, setDownloadsSnapshot] =
+    useState<BrowserDownloadsSnapshot>({ downloads: [] });
+  const annotationSessionIdRef = useRef(
+    globalThis.crypto?.randomUUID?.()
+      ?? `browser-annotation-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
+  const [annotationDraft, setAnnotationDraft] = useState(() =>
+    createBrowserAnnotationDraftState(snapshot.url)
+  );
+  const {
+    anchors: annotationAnchors,
+    designChange: annotationDesignChange,
+    intent: annotationIntent,
+    note: annotationNote,
+    originalView: annotationOriginalView,
+    selectionMode: annotationSelectionMode,
+  } = annotationDraft;
   const isBlank = !snapshot.hasBrowserPage || isBlankBrowserUrl(snapshot.url);
   const commentMode = snapshot.interactionMode === "comment";
   const pageActionsDisabled = snapshot.pageActionsDisabled || isBlank;
@@ -200,10 +301,27 @@ export function BrowserSidebarPanel({
   const command = useCallback(async (input: BrowserSidebarCommand): Promise<BrowserSidebarCommandResult> => {
     return invoke("browser-sidebar-command", input) as Promise<BrowserSidebarCommandResult>;
   }, []);
+  const updateLocalServerPreferences = useCallback(async (
+    update: BrowserLocalServerPreferencesUpdate,
+  ) => {
+    const preferences = await invoke(
+      "browser-local-server-preferences-update",
+      update,
+    );
+    setLocalServerPreferences(preferences);
+  }, []);
   const browserTabId = requireWorkbenchBrowserTabProjectionId(tab);
   const tabInitialUrl = readBrowserConfigUrl(tab);
   const tabFaviconUrl = readBrowserConfigFavicon(tab);
   const tabDeviceToolbarVisible = readBrowserConfigDeviceToolbarVisible(tab);
+  const tabDeviceToolbarState = readBrowserConfigDeviceToolbarState(tab);
+  const tabDeviceToolbarStateRef = useRef(tabDeviceToolbarState);
+  tabDeviceToolbarStateRef.current = tabDeviceToolbarState;
+  const tabDeviceToolbarStateKey = JSON.stringify(
+    tabDeviceToolbarState ?? null,
+  );
+  const browserStorageId = readBrowserConfigStorageId(tab)
+    ?? `browser:legacy:${browserTabId}`;
   const tabProjectId = tab.projectId;
   const tabTitle = tab.title;
   const browserIdentity = useMemo(() => ({
@@ -211,6 +329,90 @@ export function BrowserSidebarPanel({
     browserViewScopeId,
     browserTabId,
   }), [activeSession.id, browserTabId, browserViewScopeId]);
+  const browserIdentityKey = makeBrowserSidebarTabKey(browserIdentity);
+  const browserUseState =
+    eventBrowserUseState ?? browserRuntime.browserUseState;
+  const activeBrowserUseTabId = browserUseState
+    .activeBrowserTabIdsByConversationScope[
+      `${browserIdentity.browserConversationId}\0${browserIdentity.browserViewScopeId}`
+    ] ?? null;
+  const activeBrowserUseTab = activeBrowserUseTabId === browserIdentity.browserTabId
+    ? browserUseState.tabs.find((item) =>
+        matchesBrowserSidebarTabIdentity(item, browserIdentity)
+      ) ?? null
+    : null;
+  const shouldMountWebview = !isBlank || activeBrowserUseTab !== null;
+  const handleOpenNewTab = useEffectEvent((
+    request: BrowserSidebarOpenNewTabRequest,
+  ) => {
+    void onOpenNewTab?.(request);
+  });
+
+  useEffect(() => {
+    if (
+      !browserRuntimeAvailable
+      || isBlank
+      || registeredBrowserKey !== browserIdentityKey
+    ) {
+      setSiteInfo(null);
+      return;
+    }
+    let cancelled = false;
+    void invoke("browser-site-info", browserIdentity).then((nextSiteInfo) => {
+      if (!cancelled) setSiteInfo(nextSiteInfo);
+    }).catch(() => {
+      if (!cancelled) setSiteInfo(null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    browserIdentity,
+    browserIdentityKey,
+    browserRuntimeAvailable,
+    isBlank,
+    registeredBrowserKey,
+    snapshot.url,
+  ]);
+
+  useEffect(() => {
+    if (!browserRuntimeAvailable) return undefined;
+    const unsubscribe = window.api?.on(
+      "browser-credential-save-candidate",
+      (payload) => {
+        const candidate = payload as BrowserCredentialSaveCandidate | undefined;
+        if (!matchesBrowserSidebarTabIdentity(candidate, browserIdentity)) return;
+        setCredentialCandidate(candidate);
+      },
+    );
+    return () => unsubscribe?.();
+  }, [browserIdentity, browserRuntimeAvailable]);
+
+  useEffect(() => {
+    if (!credentialCandidate) return undefined;
+    const remaining = credentialCandidate.expiresAt - Date.now();
+    if (remaining <= 0) {
+      setCredentialCandidate(null);
+      return undefined;
+    }
+    const timeout = window.setTimeout(
+      () => setCredentialCandidate(null),
+      remaining,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [credentialCandidate]);
+
+  const actOnCredentialCandidate = useCallback(async (
+    action: "dismiss" | "save",
+  ) => {
+    if (!credentialCandidate) return;
+    const result = await invoke("browser-credential-candidate-action", {
+      candidateId: credentialCandidate.candidateId,
+      action,
+    });
+    setCredentialCandidate(null);
+    if (!result.ok) setClearDataStatus(result.message ?? "Unable to save password");
+  }, [credentialCandidate]);
   const contentSearchBrowserTarget = useMemo(() => {
     if (!activeForContentSearch || pageActionsDisabled) return null;
     return {
@@ -224,27 +426,270 @@ export function BrowserSidebarPanel({
 
   useEffect(() => {
     if (!browserRuntimeAvailable) return undefined;
+    void invoke("browser-local-server-preferences-get")
+      .then((preferences) => {
+        if (preferences) setLocalServerPreferences(preferences);
+      })
+      .catch(() => undefined);
+    return window.api?.on(
+      "browser-local-server-preferences-changed",
+      (preferences) => {
+        setLocalServerPreferences(preferences as BrowserLocalServerPreferences);
+      },
+    );
+  }, [browserRuntimeAvailable]);
 
-    void command({
-      type: "register-tab",
-      ...browserIdentity,
-      projectId: tabProjectId,
-      initialUrl: tabInitialUrl,
-      title: tabTitle,
-      faviconUrl: tabFaviconUrl,
-      deviceToolbarVisible: tabDeviceToolbarVisible,
-    }).then((result) => {
-      if (result.ok && result.snapshot) setSnapshot(result.snapshot);
+  useEffect(() => {
+    if (!browserRuntimeAvailable) return undefined;
+    void invoke("browser-downloads-list").then((snapshot) => {
+      if (snapshot && Array.isArray(snapshot.downloads)) {
+        setDownloadsSnapshot(snapshot);
+      }
     });
+    return window.api?.on("browser-downloads-state", (payload) => {
+      const snapshot = payload as BrowserDownloadsSnapshot | null | undefined;
+      if (snapshot && Array.isArray(snapshot.downloads)) {
+        setDownloadsSnapshot(snapshot);
+      }
+    });
+  }, [browserRuntimeAvailable]);
+
+  useEffect(() => {
+    if (!browserRuntimeAvailable || isBlank) return undefined;
+    const annotationSessionId = annotationSessionIdRef.current;
+    browserSidebarRendererWebviewManager.setAnnotationMode(
+      browserIdentity,
+      commentMode,
+      annotationSessionId,
+      annotationSelectionMode,
+    );
+    return () => {
+      browserSidebarRendererWebviewManager.setAnnotationMode(
+        browserIdentity,
+        false,
+        annotationSessionId,
+        annotationSelectionMode,
+      );
+    };
+  }, [
+    annotationSelectionMode,
+    browserIdentity,
+    browserRuntimeAvailable,
+    commentMode,
+    isBlank,
+  ]);
+
+  useEffect(() => {
+    if (!browserRuntimeAvailable) return undefined;
+    return window.api?.on("browser-annotation-selection", (payload) => {
+      const event = payload as BrowserAnnotationRoutedSelectionEvent;
+      if (!matchesBrowserSidebarTabIdentity(event, browserIdentity)) return;
+      if (event.selection.sessionId !== annotationSessionIdRef.current) return;
+      setAnnotationDraft((current) =>
+        applyBrowserAnnotationSelection(current, event.selection)
+      );
+    });
+  }, [browserIdentity, browserRuntimeAvailable]);
+
+  useEffect(() => {
+    if (!browserRuntimeAvailable) return undefined;
+    return window.api?.on("browser-annotation-anchor-update", (payload) => {
+      const event = payload as BrowserAnnotationRoutedAnchorUpdateEvent;
+      if (!matchesBrowserSidebarTabIdentity(event, browserIdentity)) return;
+      if (event.update.sessionId !== annotationSessionIdRef.current) return;
+      setAnnotationDraft((current) =>
+        applyBrowserAnnotationAnchorUpdate(current, event.update.anchor)
+      );
+    });
+  }, [browserIdentity, browserRuntimeAvailable]);
+
+  useEffect(() => {
+    if (!browserRuntimeAvailable || isBlank) return undefined;
+    const annotationSessionId = annotationSessionIdRef.current;
+    browserSidebarRendererWebviewManager.setAnnotationDesignPreview(
+      browserIdentity,
+      annotationSessionId,
+      commentMode && annotationIntent === "designChange"
+        ? annotationDesignChange
+        : null,
+      annotationOriginalView,
+    );
+    return () => {
+      browserSidebarRendererWebviewManager.setAnnotationDesignPreview(
+        browserIdentity,
+        annotationSessionId,
+        null,
+        true,
+      );
+    };
+  }, [
+    annotationDesignChange,
+    annotationIntent,
+    annotationOriginalView,
+    browserIdentity,
+    browserRuntimeAvailable,
+    commentMode,
+    isBlank,
+  ]);
+
+  useEffect(() => {
+    if (!browserRuntimeAvailable) return undefined;
+    return window.api?.on("browser-sidebar-image-drag-state", (payload) => {
+      const event = payload as BrowserSidebarImageDragStateEvent;
+      if (!matchesBrowserSidebarTabIdentity(event, browserIdentity)) return;
+      publishBrowserImageDragState(
+        activeSession.thread?.threadId ?? activeSession.id,
+        event,
+      );
+    });
+  }, [
+    activeSession.id,
+    activeSession.thread?.threadId,
+    browserIdentity,
+    browserRuntimeAvailable,
+  ]);
+
+  useEffect(() => {
+    if (!browserRuntimeAvailable) return undefined;
+    return window.api?.on("browser-sidebar-context-menu-action", (payload) => {
+      const event = payload as BrowserSidebarContextMenuActionEvent;
+      if (!matchesBrowserSidebarTabIdentity(event, browserIdentity)) return;
+      if (event.action === "image-attached") {
+        publishBrowserImageAttachment(
+          activeSession.thread?.threadId ?? activeSession.id,
+          {
+            id: event.attachment.id,
+            filename: event.attachment.fileName,
+            path: event.attachment.source,
+            dataUrl: event.attachment.source,
+          },
+        );
+        setClearDataStatus("Browser image added to composer");
+        return;
+      }
+      if (event.action === "error") {
+        setClearDataStatus(event.message);
+        return;
+      }
+
+      setAnnotationDraft((current) => ({
+        ...current,
+        selectionMode: "inspect",
+      }));
+      void command(
+        event.action === "quick-annotate"
+          ? {
+              type: "quick-annotate",
+              ...browserIdentity,
+              sessionId: annotationSessionIdRef.current,
+              point: event.point,
+            }
+          : {
+              type: "set-interaction-mode",
+              ...browserIdentity,
+              mode: "comment",
+            },
+      ).then((result) => {
+        if (!result.ok) setClearDataStatus(result.message);
+      });
+    });
+  }, [
+    activeSession.id,
+    activeSession.thread?.threadId,
+    browserIdentity,
+    browserRuntimeAvailable,
+    command,
+  ]);
+
+  useEffect(() => {
+    setAnnotationDraft((current) =>
+      navigateBrowserAnnotationDraft(current, snapshot.url)
+    );
+  }, [snapshot.url]);
+
+  useEffect(() => {
+    if (!commentMode) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (annotationAnchors.length > 0) {
+        setAnnotationDraft((current) => resetBrowserAnnotationDraft(current));
+        return;
+      }
+      void command({
+        type: "set-interaction-mode",
+        ...browserIdentity,
+        mode: "browse",
+      });
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [
+    annotationAnchors.length,
+    browserIdentity,
+    command,
+    commentMode,
+  ]);
+
+  useEffect(() => {
+    if (!browserRuntimeAvailable) return undefined;
+
+    let cancelled = false;
+    void (async () => {
+      const rendererResult = await command({
+        type: "register-renderer-session",
+        browserViewScopeId,
+        rendererInstanceId:
+          browserSidebarRendererWebviewManager.getRendererInstanceId(),
+      });
+      if (!rendererResult.ok || cancelled) return;
+      const result = await command({
+        type: "register-tab",
+        ...browserIdentity,
+        codexSessionId: activeSession.thread?.threadId ?? activeSession.id,
+        projectId: tabProjectId,
+        initialUrl: tabInitialUrl,
+        title: tabTitle,
+        faviconUrl: tabFaviconUrl,
+        deviceToolbarVisible: tabDeviceToolbarVisible,
+        deviceToolbarState: tabDeviceToolbarStateRef.current,
+        browserStorageId,
+      });
+      if (!result.ok || cancelled) return;
+      setRegisteredBrowserKey(browserIdentityKey);
+      if (result.snapshot) setSnapshot(result.snapshot);
+    })();
     if (tabProjectId !== null) {
       void command({ type: "local-servers-refresh", projectId: tabProjectId });
     }
 
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeSession.id,
+    activeSession.thread?.threadId,
+    browserIdentity,
+    browserIdentityKey,
+    browserRuntimeAvailable,
+    browserStorageId,
+    browserViewScopeId,
+    command,
+    tabDeviceToolbarStateKey,
+    tabDeviceToolbarVisible,
+    tabFaviconUrl,
+    tabInitialUrl,
+    tabProjectId,
+    tabTitle,
+  ]);
+
+  useEffect(() => {
+    if (!browserRuntimeAvailable) return undefined;
     const unsubscribeState = window.api?.on("browser-sidebar-state", (payload) => {
       const state = payload as { tabs?: BrowserSidebarTabSnapshot[] } | undefined;
       const next = state?.tabs?.find((item) =>
-        item.browserConversationId === browserIdentity.browserConversationId
-        && item.browserTabId === browserIdentity.browserTabId
+        matchesBrowserSidebarTabIdentity(item, browserIdentity)
       );
       if (!next) return;
       setSnapshot(next);
@@ -255,72 +700,164 @@ export function BrowserSidebarPanel({
       setLocalServers(next);
     });
     const unsubscribeBrowserUse = window.api?.on("browser-sidebar-browser-use-state", (payload) => {
-      setBrowserUseState(payload as BrowserSidebarBrowserUseStateSnapshot);
+      const next = payload as BrowserSidebarBrowserUseStateSnapshot;
+      setEventBrowserUseState(next);
+      if (
+        next.cursors.some((candidate) =>
+          matchesBrowserSidebarTabIdentity(candidate, browserIdentity)
+        )
+      ) {
+        return;
+      }
+      setBrowserUseCursor((current) =>
+        matchesBrowserSidebarTabIdentity(current, browserIdentity)
+          ? null
+          : current
+      );
     });
     const unsubscribeBrowserUseViewport = window.api?.on("browser-sidebar-browser-use-viewport", (payload) => {
-      setBrowserUseViewport(payload as BrowserSidebarBrowserUseViewportEvent);
+      const next = payload as BrowserSidebarBrowserUseViewportEvent | undefined;
+      if (!matchesBrowserSidebarTabIdentity(next, browserIdentity)) return;
+      setBrowserUseViewport(next);
     });
     const unsubscribeBrowserUseCursor = window.api?.on("browser-sidebar-browser-use-cursor-state", (payload) => {
-      setBrowserUseCursor(payload as BrowserUseCursorState);
+      const next = payload as BrowserUseCursorState | undefined;
+      if (!matchesBrowserSidebarTabIdentity(next, browserIdentity)) return;
+      setBrowserUseCursor(next);
     });
+    const unsubscribeOpenNewTab = window.api?.on(
+      "browser-sidebar-open-new-tab",
+      (payload) => {
+        const request = payload as BrowserSidebarOpenNewTabRequest;
+        if (!matchesBrowserSidebarTabIdentity(request, browserIdentity)) return;
+        handleOpenNewTab(request);
+      },
+    );
     return () => {
       unsubscribeState?.();
       unsubscribeLocalServers?.();
       unsubscribeBrowserUse?.();
       unsubscribeBrowserUseViewport?.();
       unsubscribeBrowserUseCursor?.();
+      unsubscribeOpenNewTab?.();
     };
   }, [
     browserIdentity,
     browserRuntimeAvailable,
-    command,
-    tabDeviceToolbarVisible,
-    tabFaviconUrl,
-    tabInitialUrl,
     tabProjectId,
-    tabTitle,
   ]);
 
   useLayoutEffect(() => {
-    if (!browserRuntimeAvailable || isBlank) return undefined;
+    if (
+      !browserRuntimeAvailable
+      || registeredBrowserKey !== browserIdentityKey
+      || !shouldMountWebview
+      || downloadsOpen
+      || profileImportOpen
+      || snapshot.failure !== undefined
+    ) {
+      return undefined;
+    }
     const container = webviewHostRef.current;
     if (!container) return undefined;
 
     const mountGeneration = browserSidebarRendererWebviewManager.claimMountGeneration({
       ...browserIdentity,
     });
-    const syncCurrentBounds = () => browserSidebarRendererWebviewManager.syncWebview({
+    const hostGeneration = browserSidebarRendererWebviewManager.claimHostGeneration({
       ...browserIdentity,
-      projectId: tab.projectId,
-      hostKind: "panel",
-      initialUrl: initialWebviewUrlRef.current,
-      bounds: readWebviewHostBounds(container),
-      mountGeneration,
-      isVisible: true,
-      shouldPaint: true,
-      onHostCreated: (event: BrowserSidebarWebviewHostCreated) => {
-        void invoke("browser-sidebar-webview-host-created", event);
-      },
     });
-    syncCurrentBounds();
-
+    const rendererInstanceId =
+      browserSidebarRendererWebviewManager.getRendererInstanceId();
+    let disposed = false;
+    let started = false;
+    let lastHostStateKey: string | null = null;
     let animationFrame: number | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+    let unsubscribeBoundsSyncTrigger: (() => void) | undefined;
+    const syncCurrentPresentation = () => {
+      if (!started || disposed) return;
+      const visible = isVisibleRef.current;
+      const bounds = visible ? readWebviewHostBounds(container) : null;
+      const presented = Boolean(
+        visible
+        && bounds
+        && bounds.width > 0
+        && bounds.height > 0,
+      );
+      browserSidebarRendererWebviewManager.syncWebview({
+        ...browserIdentity,
+        browserStorageId,
+        projectId: tab.projectId,
+        hostKind: "panel",
+        initialUrl: initialWebviewUrlRef.current,
+        bounds,
+        mountGeneration,
+        isVisible: visible,
+        shouldPaint: visible,
+        onHostCreated: (event: BrowserSidebarWebviewHostCreated) => {
+          void invoke("browser-sidebar-webview-host-created", event);
+        },
+      });
+      const nextHostStateKey =
+        `${visible}:${presented}:${themeVariantRef.current}`;
+      if (lastHostStateKey === nextHostStateKey) return;
+      lastHostStateKey = nextHostStateKey;
+      void command({
+        type: "sync-host",
+        ...browserIdentity,
+        rendererInstanceId,
+        hostGeneration,
+        mountGeneration,
+        hostKind: "panel",
+        presented,
+        themeVariant: themeVariantRef.current,
+        visible,
+      });
+    };
+    syncWebviewPresentationRef.current = syncCurrentPresentation;
     const syncBounds = () => {
       animationFrame = null;
-      syncCurrentBounds();
+      syncCurrentPresentation();
     };
     const scheduleSyncBounds = () => {
       if (animationFrame !== null) return;
       animationFrame = window.requestAnimationFrame(syncBounds);
     };
-    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleSyncBounds);
-    resizeObserver?.observe(container);
-    const unsubscribeBoundsSyncTrigger = boundsSyncTrigger?.on("change", scheduleSyncBounds);
-    window.addEventListener("resize", scheduleSyncBounds);
-    window.addEventListener("scroll", scheduleSyncBounds, true);
-    scheduleSyncBounds();
+    void command({
+      type: "register-host",
+      ...browserIdentity,
+      browserStorageId,
+      rendererInstanceId,
+      hostGeneration,
+      mountGeneration,
+      hostKind: "panel",
+      pagePersistence: "durable",
+      themeVariant: themeVariantRef.current,
+    }).then((result) => {
+      if (!result.ok || disposed) return;
+      started = true;
+      syncCurrentPresentation();
+      resizeObserver = typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(scheduleSyncBounds);
+      resizeObserver?.observe(container);
+      unsubscribeBoundsSyncTrigger = boundsSyncTrigger?.on(
+        "change",
+        scheduleSyncBounds,
+      );
+      window.addEventListener("resize", scheduleSyncBounds);
+      window.addEventListener("scroll", scheduleSyncBounds, true);
+      scheduleSyncBounds();
+    });
 
     return () => {
+      disposed = true;
+      if (
+        syncWebviewPresentationRef.current === syncCurrentPresentation
+      ) {
+        syncWebviewPresentationRef.current = null;
+      }
       if (animationFrame !== null) {
         window.cancelAnimationFrame(animationFrame);
       }
@@ -328,22 +865,45 @@ export function BrowserSidebarPanel({
       resizeObserver?.disconnect();
       window.removeEventListener("resize", scheduleSyncBounds);
       window.removeEventListener("scroll", scheduleSyncBounds, true);
+      if (!started) return;
+      void command({
+        type: "sync-host",
+        ...browserIdentity,
+        rendererInstanceId,
+        hostGeneration,
+        mountGeneration,
+        hostKind: "panel",
+        presented: false,
+        themeVariant: themeVariantRef.current,
+        visible: false,
+      });
       browserSidebarRendererWebviewManager.detachWebview({
         ...browserIdentity,
       }, mountGeneration);
     };
   }, [
     browserIdentity,
+    browserIdentityKey,
+    browserStorageId,
     boundsSyncTrigger,
     browserRuntimeAvailable,
-    isBlank,
+    command,
+    downloadsOpen,
+    profileImportOpen,
+    registeredBrowserKey,
+    shouldMountWebview,
     snapshot.deviceToolbarVisible,
+    snapshot.failure,
     snapshot.viewport.height,
     snapshot.viewport.presetId,
     snapshot.viewport.width,
     snapshot.viewport.zoomPercent,
     tab.projectId,
   ]);
+
+  useLayoutEffect(() => {
+    syncWebviewPresentationRef.current?.();
+  }, [isVisible, themeVariant]);
 
   useEffect(() => {
     if (
@@ -396,10 +956,12 @@ export function BrowserSidebarPanel({
         title,
         config: {
           projectId: tab.projectId,
+          browserStorageId,
           ...(url ? { url } : {}),
           ...(title ? { title } : {}),
           ...(snapshot.faviconUrl ? { faviconUrl: snapshot.faviconUrl } : {}),
           deviceToolbarVisible: snapshot.deviceToolbarVisible,
+          deviceToolbarState: snapshot.deviceToolbarState,
         },
       });
     }, 650);
@@ -407,7 +969,9 @@ export function BrowserSidebarPanel({
   }, [
     onRefreshSessions,
     onUpdateTab,
+    browserStorageId,
     snapshot.deviceToolbarVisible,
+    snapshot.deviceToolbarState,
     snapshot.faviconUrl,
     snapshot.title,
     snapshot.url,
@@ -481,7 +1045,14 @@ export function BrowserSidebarPanel({
     setClearDataStatus(null);
     const result = await invoke("browser-browsing-data-clear", kind) as { ok: boolean; message?: string };
     if (result.ok) {
-      setClearDataStatus(kind === "cookies" ? "Cookies cleared" : "Cache cleared");
+      const labels: Record<BrowserBrowsingDataKind, string> = {
+        cookies: "Cookies cleared",
+        cache: "Cache cleared",
+        "site-data": "Site data cleared",
+        history: "Browser history cleared",
+        downloads: "Download history cleared",
+      };
+      setClearDataStatus(labels[kind]);
       return;
     }
     setClearDataStatus(result.message ?? `Failed to clear ${kind}`);
@@ -489,37 +1060,44 @@ export function BrowserSidebarPanel({
 
   const captureScreenshot = async () => {
     const result = await command({ type: "capture-screenshot", ...browserIdentity });
-    if (result.ok && result.dataUrl) {
-      await navigator.clipboard?.writeText(result.dataUrl).catch(() => undefined);
+    if (result.ok) {
       setClearDataStatus("Screenshot copied");
       return;
     }
-    if (!result.ok) {
-      setClearDataStatus(result.message);
-      return;
-    }
-    setClearDataStatus("Screenshot captured");
+    setClearDataStatus(result.message);
   };
 
-  const viewportStyle = resolveViewportStyle(snapshot);
   const cursor = (
-    browserUseCursor?.browserConversationId === browserIdentity.browserConversationId
-    && browserUseCursor.browserTabId === browserIdentity.browserTabId
+    matchesBrowserSidebarTabIdentity(browserUseCursor, browserIdentity)
       ? browserUseCursor
-      : browserUseState?.cursors.find((candidate) =>
-          candidate.browserConversationId === browserIdentity.browserConversationId
-          && candidate.browserTabId === browserIdentity.browserTabId
+      : browserUseState.cursors.find((candidate) =>
+          matchesBrowserSidebarTabIdentity(candidate, browserIdentity)
         )
   ) ?? null;
-  const showBrowserUseCursor = cursor?.visible === true;
-  const activeBrowserUseTabId = browserUseState
-    ?.activeBrowserTabIdsByConversationScope[
-      `${browserIdentity.browserConversationId}\0${browserIdentity.browserViewScopeId}`
-    ] ?? null;
-  const activeBrowserUseTab = browserUseState?.tabs.find((item) =>
-    item.browserConversationId === browserIdentity.browserConversationId
-    && item.browserTabId === activeBrowserUseTabId
-  ) ?? null;
+  const reportedBrowserUseViewportSize =
+    matchesBrowserSidebarTabIdentity(browserUseViewport, browserIdentity)
+      ? browserUseViewport.viewportSize
+      : null;
+  const browserUseViewportSize = reportedBrowserUseViewportSize
+    ?? (activeBrowserUseTab
+      ? {
+          width: activeBrowserUseTab.viewport.width,
+          height: activeBrowserUseTab.viewport.height,
+        }
+      : null);
+  const activeDownloadCount = downloadsSnapshot.downloads.filter(
+    (download) =>
+      download.status === "progressing"
+      || download.status === "paused",
+  ).length;
+
+  const handleBrowserUseCursorArrived = useCallback((moveSequence: number) => {
+    void command({
+      type: "browser-use-cursor-arrived",
+      ...browserIdentity,
+      moveSequence,
+    });
+  }, [browserIdentity, command]);
 
   if (!browserRuntimeAvailable) {
     return <BrowserUnavailableState />;
@@ -565,10 +1143,19 @@ export function BrowserSidebarPanel({
             onSubmit={submitAddress}
           >
             <div className={BROWSER_ADDRESS_BAR_CLASS}>
-              <span
-                aria-hidden="true"
-                className={cn("shrink-0 overflow-hidden transition-[width] duration-150", addressFocused ? "w-0" : "w-7")}
-              />
+              <div
+                className={cn(
+                  "shrink-0 overflow-hidden transition-[width,opacity] duration-150",
+                  addressFocused ? "w-0 opacity-0" : "w-7 opacity-100",
+                )}
+              >
+                <BrowserSiteInfoMenu
+                  url={snapshot.url}
+                  siteInfo={siteInfo}
+                  disabled={pageActionsDisabled}
+                  onClearSiteData={() => clearBrowsingData("site-data")}
+                />
+              </div>
               <input
                 data-browser-sidebar-address-input="true"
                 className={cn(
@@ -619,6 +1206,14 @@ export function BrowserSidebarPanel({
               </button>
             </div>
           </form>
+          <div className={cn(BROWSER_COLLAPSIBLE_ACTION_CLASS, pageActionsDisabled ? "pointer-events-none max-w-0 opacity-0" : "max-w-7 opacity-100")}>
+            <BrowserCredentialMenu
+              identity={browserIdentity}
+              disabled={pageActionsDisabled}
+              onOpenPasswords={() => onOpenBrowserSettings?.("browser-passwords")}
+              onOpenContactInfo={() => onOpenBrowserSettings?.("browser-contact-info")}
+            />
+          </div>
           <div className={cn(BROWSER_COLLAPSIBLE_ACTION_CLASS, pageActionsDisabled ? "pointer-events-none max-w-0 opacity-0 -translate-y-0.5" : "max-w-7 opacity-100 translate-y-0")}>
             <BrowserToolbarButton label="Capture screenshot" disabled={pageActionsDisabled} onClick={() => void captureScreenshot()}>
               <CodexBrowserScreenshotIcon className="icon-sm" />
@@ -635,12 +1230,38 @@ export function BrowserSidebarPanel({
                   type: "set-interaction-mode",
                   ...browserIdentity,
                   mode: commentMode ? "browse" : "comment",
+                }).then((result) => {
+                  if (result.ok) return;
+                  setClearDataStatus(
+                    result.message ?? "Comment mode is unavailable for this site.",
+                  );
                 });
               }}
             >
               <CodexBrowserAnnotateIcon className="icon-sm shrink-0" />
               <span className={cn("overflow-hidden whitespace-nowrap text-sm transition-[max-width,opacity] duration-150", commentMode ? "max-w-20 opacity-100" : "max-w-0 opacity-0")}>
                 Annotating
+              </span>
+            </BrowserToolbarButton>
+          </div>
+          <div
+            className={cn(
+              BROWSER_COLLAPSIBLE_ACTION_CLASS,
+              activeDownloadCount > 0
+                ? "max-w-7 opacity-100"
+                : "pointer-events-none max-w-0 opacity-0",
+            )}
+          >
+            <BrowserToolbarButton
+              label={`${activeDownloadCount} active ${
+                activeDownloadCount === 1 ? "download" : "downloads"
+              }`}
+              active
+              onClick={() => setDownloadsOpen(true)}
+            >
+              <span className="relative">
+                <Download className="icon-sm" />
+                <span className="absolute -right-1 -bottom-1 size-1.5 rounded-full bg-token-text-link-foreground ring-2 ring-token-main-surface-primary" />
               </span>
             </BrowserToolbarButton>
           </div>
@@ -655,8 +1276,21 @@ export function BrowserSidebarPanel({
             onStepZoom={stepZoom}
             onResetZoom={resetZoom}
             onClearBrowsingData={clearBrowsingData}
+            onOpenDownloads={() => setDownloadsOpen(true)}
+            onOpenProfileImport={() => setProfileImportOpen(true)}
+            onOpenSettings={(sectionId) => onOpenBrowserSettings?.(sectionId)}
+            onPrint={() => {
+              void command({ type: "print", ...browserIdentity });
+            }}
           />
         </div>
+        {credentialCandidate ? (
+          <BrowserCredentialSavePrompt
+            candidate={credentialCandidate}
+            onDismiss={() => void actOnCredentialCandidate("dismiss")}
+            onSave={() => void actOnCredentialCandidate("save")}
+          />
+        ) : null}
         <div
           className={cn(
             "pointer-events-none absolute inset-x-0 bottom-0 h-0.5 overflow-hidden transition-opacity",
@@ -674,16 +1308,65 @@ export function BrowserSidebarPanel({
           scrollPaddingBottom: RIGHT_PANEL_COMPOSER_OVERLAY_ZERO_RESERVE_VALUE,
         }}
       >
-        {isBlank ? (
+        {downloadsOpen ? (
+          <BrowserDownloadsPage
+            snapshot={downloadsSnapshot}
+            onClose={() => setDownloadsOpen(false)}
+            onAction={async (downloadId, action) => {
+              const result = await invoke("browser-download-action", {
+                downloadId,
+                action,
+              });
+              if (!result.ok) setClearDataStatus(result.message);
+            }}
+            onClearHistory={async () => {
+              const result = await invoke("browser-download-history-clear");
+              if (!result.ok) setClearDataStatus(result.message);
+            }}
+          />
+        ) : snapshot.failure ? (
+          <BrowserPageFailureState
+            failure={snapshot.failure}
+            onBack={() => {
+              void command({ type: "go-back", ...browserIdentity });
+            }}
+            onRetry={() => {
+              void command({ type: "reload", ...browserIdentity });
+            }}
+          />
+        ) : !shouldMountWebview ? (
           <BrowserNewTabState
             projectId={tab.projectId}
             localServers={localServers}
+            preferences={localServerPreferences}
+            onPreferencesChange={(update) => {
+              void updateLocalServerPreferences(update).catch((error) => {
+                setClearDataStatus(
+                  error instanceof Error
+                    ? error.message
+                    : "Could not save local server preferences",
+                );
+              });
+            }}
             onRefresh={() => {
               if (tab.projectId !== null) {
                 void command({ type: "local-servers-refresh", projectId: tab.projectId });
               }
             }}
             onOpen={navigateTo}
+            onRequestThumbnail={async (url) => {
+              if (tab.projectId === null) {
+                return {
+                  status: "unavailable",
+                  message: "Local server preview has no project",
+                };
+              }
+              return await invoke("browser-local-server-thumbnail", {
+                ...browserIdentity,
+                projectId: tab.projectId,
+                url,
+              });
+            }}
             onHideServer={(server) => {
               if (tab.projectId !== null) {
                 void command({ type: "hide-local-server", projectId: tab.projectId, server });
@@ -706,20 +1389,118 @@ export function BrowserSidebarPanel({
             tabId={tab.id}
             deviceToolbarVisible={snapshot.deviceToolbarVisible}
             viewport={snapshot.viewport}
-            viewportStyle={viewportStyle}
             webviewHostRef={webviewHostRef}
             onViewportChange={updateViewport}
             onCloseDeviceToolbar={toggleDeviceToolbar}
           >
-            {commentMode ? <BrowserCommentOverlay /> : null}
-            {showBrowserUseCursor ? (
-              <BrowserUseCursorOverlay
-                x={cursor?.x ?? 0}
-                y={cursor?.y ?? 0}
-                label={activeBrowserUseTab?.title}
-                viewportSize={browserUseViewport?.viewportSize ?? null}
-              />
+            {commentMode ? (
+              <BrowserCommentOverlay>
+                <BrowserAnnotationComposer
+                  anchors={annotationAnchors}
+                  designChange={annotationDesignChange}
+                  intent={annotationIntent}
+                  note={annotationNote}
+                  originalView={annotationOriginalView}
+                  selectionMode={annotationSelectionMode}
+                  onDesignChange={(input) => {
+                    setAnnotationDraft((current) =>
+                      updateBrowserAnnotationDesignChange(current, input)
+                    );
+                  }}
+                  onIntentChange={(intent) => {
+                    setAnnotationDraft((current) => ({
+                      ...current,
+                      intent,
+                      originalView: false,
+                    }));
+                  }}
+                  onNoteChange={(note) => {
+                    setAnnotationDraft((current) => ({ ...current, note }));
+                  }}
+                  onOriginalViewChange={(originalView) => {
+                    setAnnotationDraft((current) => ({
+                      ...current,
+                      originalView,
+                    }));
+                  }}
+                  onSelectionModeChange={(selectionMode) => {
+                    setAnnotationDraft((current) => ({
+                      ...current,
+                      selectionMode,
+                    }));
+                  }}
+                  onRemoveAnchor={(anchorId) => {
+                    setAnnotationDraft((current) =>
+                      removeBrowserAnnotationAnchor(current, anchorId)
+                    );
+                  }}
+                  onDiscard={() => {
+                    setAnnotationDraft((current) =>
+                      resetBrowserAnnotationDraft(current)
+                    );
+                  }}
+                  onAddToComposer={() => {
+                    if (annotationAnchors.length === 0) return;
+                    if (
+                      annotationIntent === "designChange"
+                      && (!annotationDesignChange?.after.trim()
+                        || !annotationAnchors.some((anchor) =>
+                          anchor.id === annotationDesignChange.anchorId
+                        ))
+                    ) {
+                      setClearDataStatus("Choose a design property and value");
+                      return;
+                    }
+                    void invoke("browser-annotation-capture-evidence", {
+                      ...browserIdentity,
+                      anchors: annotationAnchors,
+                    }).then((evidence) => {
+                      publishBrowserAnnotationAttachment(
+                        activeSession.thread?.threadId ?? activeSession.id,
+                        {
+                          schemaVersion: 1,
+                          id: globalThis.crypto?.randomUUID?.()
+                            ?? `browser-annotation-${Date.now()}`,
+                          browserTabId,
+                          createdAt: Date.now(),
+                          intent: annotationIntent,
+                          ...(annotationIntent === "designChange"
+                            && annotationDesignChange
+                            ? { designChange: annotationDesignChange }
+                            : {}),
+                          note: annotationNote.trim(),
+                          pageTitle: snapshot.title,
+                          pageUrl: snapshot.url,
+                          anchors: annotationAnchors,
+                          evidence,
+                        },
+                      );
+                      setAnnotationDraft((current) =>
+                        resetBrowserAnnotationDraft(current)
+                      );
+                      setClearDataStatus(
+                        annotationIntent === "designChange"
+                          ? "Browser design change added to composer"
+                          : "Browser annotation added to composer",
+                      );
+                    }).catch((error) => {
+                      setClearDataStatus(
+                        error instanceof Error
+                          ? error.message
+                          : "Could not capture Browser annotation evidence",
+                      );
+                    });
+                  }}
+                />
+              </BrowserCommentOverlay>
             ) : null}
+            <BrowserUseCursorPortal
+              cursor={cursor}
+              fallbackViewportSize={browserUseViewportSize}
+              identity={browserIdentity}
+              isVisible={isVisible && activeBrowserUseTab !== null}
+              onArrived={handleBrowserUseCursorArrived}
+            />
           </BrowserWebviewStage>
         )}
       </div>
@@ -731,6 +1512,10 @@ export function BrowserSidebarPanel({
           {clearDataStatus}
         </div>
       ) : null}
+      <BrowserProfileImportDialog
+        open={profileImportOpen}
+        onOpenChange={setProfileImportOpen}
+      />
     </div>
   );
 }
@@ -768,6 +1553,270 @@ function BrowserToolbarButton({
   );
 }
 
+function BrowserSiteInfoMenu({
+  url,
+  siteInfo,
+  disabled,
+  onClearSiteData,
+}: {
+  url: string;
+  siteInfo: BrowserSiteInfo | null;
+  disabled: boolean;
+  onClearSiteData: () => void;
+}) {
+  const fallbackOrigin = readBrowserOriginLabel(url);
+  const origin = siteInfo?.origin ?? fallbackOrigin;
+  const secure = siteInfo?.connection === "secure";
+  const connectionLabel = siteInfo?.connection
+    ? browserConnectionLabel(siteInfo.connection)
+    : "Checking connection…";
+  const allowedPermissions = siteInfo?.permissions
+    ?.filter((permission) => permission.state === "allow")
+    .map((permission) => permission.permission) ?? [];
+  return (
+    <NodexDropdownMenu
+      align="start"
+      contentWidth="menuWide"
+      contentStyle={BROWSER_DROPDOWN_CONTENT_STYLE}
+      triggerButton={(
+        <button
+          type="button"
+          data-browser-sidebar-skip-address-commit
+          className="inline-flex size-7 items-center justify-center rounded-lg text-token-text-tertiary hover:bg-token-foreground/5 hover:text-token-text-primary disabled:pointer-events-none disabled:opacity-0"
+          aria-label="Site information"
+          disabled={disabled}
+          onMouseDown={(event) => event.preventDefault()}
+        >
+          {secure
+            ? <LockKeyhole className="icon-xs" />
+            : <Info className="icon-xs" />}
+        </button>
+      )}
+    >
+      <div className="px-[var(--padding-row-x)] py-2">
+        <div className="truncate text-sm font-medium text-token-text-primary">
+          {origin}
+        </div>
+        <div className="mt-1 text-xs text-token-text-secondary">
+          {connectionLabel}
+        </div>
+      </div>
+      <NodexDropdownSeparator />
+      <div className="px-[var(--padding-row-x)] py-2 text-xs leading-5 text-token-text-secondary">
+        {siteInfo && typeof siteInfo.cookieCount === "number"
+          ? `${siteInfo.cookieCount} cookie${siteInfo.cookieCount === 1 ? "" : "s"} · ${
+              allowedPermissions.length > 0
+                ? `Allowed: ${allowedPermissions.join(", ")}`
+                : "Sensitive permissions are blocked by default"
+            }.`
+          : "Sensitive permissions are blocked by default."}
+      </div>
+      <NodexDropdownSeparator />
+      <NodexDropdownItem onSelect={onClearSiteData}>
+        Clear built-in Browser site data
+      </NodexDropdownItem>
+    </NodexDropdownMenu>
+  );
+}
+
+function readBrowserOriginLabel(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return parsed.origin === "null" ? parsed.href : parsed.origin;
+  } catch {
+    return "New tab";
+  }
+}
+
+function browserConnectionLabel(
+  connection: BrowserSiteInfo["connection"],
+): string {
+  if (connection === "secure") return "Connection is secure";
+  if (connection === "local") return "Local connection";
+  if (connection === "insecure") return "Connection is not secure";
+  return "No site connection";
+}
+
+function BrowserCredentialMenu({
+  identity,
+  disabled,
+  onOpenContactInfo,
+  onOpenPasswords,
+}: {
+  identity: {
+    browserConversationId: string;
+    browserViewScopeId: string;
+    browserTabId: string;
+  };
+  disabled: boolean;
+  onOpenContactInfo: () => void;
+  onOpenPasswords: () => void;
+}) {
+  const [credentials, setCredentials] = useState<BrowserCredentialSummary[]>([]);
+  const [contacts, setContacts] = useState<BrowserContactInfo[]>([]);
+  const [open, setOpen] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const refresh = useCallback(async () => {
+    try {
+      const [nextCredentials, nextContacts] = await Promise.all([
+        invoke("browser-credentials-list", identity),
+        invoke("browser-contact-info-list"),
+      ]);
+      setCredentials(nextCredentials);
+      setContacts(nextContacts);
+      setMessage(null);
+    } catch (error) {
+      setCredentials([]);
+      setContacts([]);
+      setMessage(error instanceof Error ? error.message : "Passwords unavailable");
+    }
+  }, [identity]);
+  useEffect(() => {
+    if (open && !disabled) void refresh();
+  }, [disabled, open, refresh]);
+
+  return (
+    <NodexDropdownMenu
+      align="end"
+      contentWidth="panel"
+      contentStyle={BROWSER_DROPDOWN_CONTENT_STYLE}
+      disabled={disabled}
+      open={open}
+      onOpenChange={setOpen}
+      triggerButton={(
+        <button
+          type="button"
+          data-browser-sidebar-skip-address-commit
+          className={BROWSER_TOOL_BUTTON_CLASS}
+          aria-label="Passwords and autofill"
+        >
+          <KeyRound className="icon-sm" />
+        </button>
+      )}
+    >
+      <div className="px-[var(--padding-row-x)] py-2">
+        <div className="text-sm font-medium text-token-text-primary">Passwords and autofill</div>
+        <div className="mt-1 text-xs text-token-text-secondary">
+          Fill only into the current site.
+        </div>
+      </div>
+      <NodexDropdownSeparator />
+      {credentials.length === 0 ? (
+        <div className="px-[var(--padding-row-x)] py-2 text-xs text-token-text-secondary">
+          {message ?? "No saved password for this site."}
+        </div>
+      ) : credentials.map((credential) => (
+        <NodexDropdownItem
+          key={credential.id}
+          leftSlot={<KeyRound className="icon-xs" />}
+          onSelect={() => {
+            void invoke("browser-credential-fill", {
+              ...identity,
+              credentialId: credential.id,
+            }).then((result) => {
+              if (!result.ok) setMessage(result.message ?? "Unable to fill password");
+            });
+          }}
+        >
+          <span className="flex min-w-0 flex-col">
+            <span className="truncate">{credential.label}</span>
+            <span className="truncate text-xs text-token-text-secondary">
+              {credential.username || "No username"}
+            </span>
+          </span>
+        </NodexDropdownItem>
+      ))}
+      <NodexDropdownItem
+        leftSlot={<KeyRound className="icon-xs" />}
+        onSelect={() => {
+          void invoke<"browser-credential-generate-fill">(
+            "browser-credential-generate-fill",
+            identity,
+          ).then((result) => {
+            if (!result.ok) setMessage(result.message ?? "Unable to generate password");
+          });
+        }}
+      >
+        Generate strong password
+      </NodexDropdownItem>
+      {contacts.length > 0 ? <NodexDropdownSeparator /> : null}
+      {contacts.map((contact) => (
+        <NodexDropdownItem
+          key={contact.id}
+          leftSlot={<ContactRound className="icon-xs" />}
+          onSelect={() => {
+            void invoke("browser-contact-info-fill", {
+              ...identity,
+              contactInfoId: contact.id,
+            }).then((result) => {
+              if (!result.ok) setMessage(result.message ?? "Unable to fill contact info");
+            });
+          }}
+        >
+          <span className="flex min-w-0 flex-col">
+            <span className="truncate">{contact.label}</span>
+            <span className="truncate text-xs text-token-text-secondary">
+              {[contact.fullName, contact.email, contact.phone].filter(Boolean).join(" · ")}
+            </span>
+          </span>
+        </NodexDropdownItem>
+      ))}
+      <NodexDropdownSeparator />
+      <NodexDropdownItem leftSlot={<KeyRound className="icon-xs" />} onSelect={onOpenPasswords}>
+        Manage passwords
+      </NodexDropdownItem>
+      <NodexDropdownItem leftSlot={<ContactRound className="icon-xs" />} onSelect={onOpenContactInfo}>
+        Contact info
+      </NodexDropdownItem>
+    </NodexDropdownMenu>
+  );
+}
+
+function BrowserCredentialSavePrompt({
+  candidate,
+  onDismiss,
+  onSave,
+}: {
+  candidate: BrowserCredentialSaveCandidate;
+  onDismiss: () => void;
+  onSave: () => void;
+}) {
+  return (
+    <div
+      className="no-drag absolute right-2 top-[calc(var(--height-toolbar-pane)+6px)] w-[300px] rounded-xl bg-token-dropdown-background/95 p-3 shadow-xl-spread ring-[0.5px] ring-token-border backdrop-blur-xl"
+      style={BROWSER_DROPDOWN_CONTENT_STYLE}
+      role="dialog"
+      aria-label="Save password"
+    >
+      <div className="flex items-start gap-2">
+        <KeyRound className="mt-0.5 size-4 shrink-0 text-token-text-secondary" />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-token-text-primary">Save password?</div>
+          <div className="mt-1 truncate text-xs text-token-text-secondary">
+            {candidate.username || "No username"} · {candidate.origin}
+          </div>
+        </div>
+      </div>
+      <div className="mt-3 flex justify-end gap-2">
+        <button
+          type="button"
+          className="rounded-lg px-3 py-1.5 text-sm text-token-text-secondary hover:bg-token-list-hover-background"
+          onClick={onDismiss}
+        >
+          Not now
+        </button>
+        <button
+          type="button"
+          className="rounded-lg bg-token-foreground px-3 py-1.5 text-sm text-token-background hover:opacity-90"
+          onClick={onSave}
+        >
+          Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function BrowserOverflowMenu({
   snapshot,
   disabled,
@@ -777,6 +1826,10 @@ function BrowserOverflowMenu({
   onStepZoom,
   onResetZoom,
   onClearBrowsingData,
+  onOpenDownloads,
+  onOpenProfileImport,
+  onOpenSettings,
+  onPrint,
 }: {
   snapshot: BrowserSidebarTabSnapshot;
   disabled: boolean;
@@ -786,6 +1839,10 @@ function BrowserOverflowMenu({
   onStepZoom: (delta: number) => void;
   onResetZoom: () => void;
   onClearBrowsingData: (kind: BrowserBrowsingDataKind) => void;
+  onOpenDownloads: () => void;
+  onOpenProfileImport: () => void;
+  onOpenSettings: (sectionId: BrowserSettingsDestination) => void;
+  onPrint: () => void;
 }) {
   const zoomOptions = resolveBrowserZoomOptions(snapshot.zoomPercent);
   return (
@@ -799,7 +1856,6 @@ function BrowserOverflowMenu({
           data-browser-sidebar-skip-address-commit
           className={cn(BROWSER_TOOL_BUTTON_CLASS, disabled && "cursor-default opacity-40")}
           aria-label="Browser options"
-          disabled={disabled}
         >
           <CodexBrowserMoreIcon className="icon-sm" />
         </button>
@@ -810,6 +1866,13 @@ function BrowserOverflowMenu({
       </NodexDropdownItem>
       <NodexDropdownItem disabled={disabled} leftSlot={<Smartphone className="icon-xs" />} onSelect={onToggleDeviceToolbar}>
         {snapshot.deviceToolbarVisible ? "Hide device toolbar" : "Show device toolbar"}
+      </NodexDropdownItem>
+      <NodexDropdownItem
+        disabled={disabled}
+        leftSlot={<Printer className="icon-xs" />}
+        onSelect={onPrint}
+      >
+        Print
       </NodexDropdownItem>
       <NodexDropdownSeparator />
       <div
@@ -860,10 +1923,348 @@ function BrowserOverflowMenu({
         </button>
       </div>
       <NodexDropdownSeparator />
+      <NodexDropdownItem
+        leftSlot={<Download className="icon-xs" />}
+        onSelect={onOpenDownloads}
+      >
+        Downloads
+      </NodexDropdownItem>
+      <NodexDropdownItem
+        leftSlot={<Download className="icon-xs" />}
+        onSelect={onOpenProfileImport}
+      >
+        Import browser data
+      </NodexDropdownItem>
+      <NodexDropdownSeparator />
+      <NodexDropdownItem
+        leftSlot={<KeyRound className="icon-xs" />}
+        onSelect={() => onOpenSettings("browser-passwords")}
+      >
+        Passwords
+      </NodexDropdownItem>
+      <NodexDropdownItem
+        leftSlot={<ContactRound className="icon-xs" />}
+        onSelect={() => onOpenSettings("browser-contact-info")}
+      >
+        Contact info
+      </NodexDropdownItem>
+      <NodexDropdownItem
+        leftSlot={<History className="icon-xs" />}
+        onSelect={() => onOpenSettings("browser-history")}
+      >
+        History
+      </NodexDropdownItem>
+      <NodexDropdownItem
+        leftSlot={<Puzzle className="icon-xs" />}
+        onSelect={() => onOpenSettings("browser-extensions")}
+      >
+        Extensions
+      </NodexDropdownItem>
+      <NodexDropdownItem
+        leftSlot={<Settings2 className="icon-xs" />}
+        onSelect={() => onOpenSettings("browser-settings")}
+      >
+        Browser settings
+      </NodexDropdownItem>
+      <NodexDropdownSeparator />
       <NodexDropdownItem disabled={disabled} onSelect={() => onClearBrowsingData("cookies")}>Clear cookies</NodexDropdownItem>
       <NodexDropdownItem disabled={disabled} onSelect={() => onClearBrowsingData("cache")}>Clear cache</NodexDropdownItem>
+      <NodexDropdownItem onSelect={() => onClearBrowsingData("site-data")}>Clear site data</NodexDropdownItem>
+      <NodexDropdownItem onSelect={() => onClearBrowsingData("history")}>Clear history</NodexDropdownItem>
+      <NodexDropdownItem onSelect={() => onClearBrowsingData("downloads")}>Clear download history</NodexDropdownItem>
     </NodexDropdownMenu>
   );
+}
+
+export function BrowserPageFailureState({
+  failure,
+  onRetry,
+  onBack,
+}: {
+  failure: BrowserPageFailure;
+  onRetry: () => void;
+  onBack: () => void;
+}) {
+  const content = browserFailureContent(failure);
+  const Icon = failure.kind === "offline" ? WifiOff : AlertTriangle;
+  return (
+    <section className="grid h-full place-items-center bg-token-main-surface-primary px-6 py-10">
+      <div className="w-full max-w-md text-center">
+        <Icon className="mx-auto size-8 text-token-text-tertiary" />
+        <h2 className="mt-4 text-lg font-semibold text-token-text-primary">
+          {content.title}
+        </h2>
+        <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-token-text-secondary">
+          {content.description}
+        </p>
+        <div className="mt-5 flex items-center justify-center gap-2">
+          <button
+            type="button"
+            className="rounded-lg border border-token-border px-3 py-1.5 text-sm text-token-text-secondary hover:bg-token-list-hover-background hover:text-token-text-primary"
+            onClick={onBack}
+          >
+            Go back
+          </button>
+          <button
+            type="button"
+            className="rounded-lg bg-token-foreground px-3 py-1.5 text-sm font-medium text-token-background hover:opacity-90"
+            onClick={onRetry}
+          >
+            Try again
+          </button>
+        </div>
+        <div className="mt-5 truncate font-mono text-[11px] text-token-text-tertiary">
+          {failure.failedUrl}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function browserFailureContent(failure: BrowserPageFailure): {
+  title: string;
+  description: string;
+} {
+  if (failure.kind === "dns") {
+    return {
+      title: "This site can’t be reached",
+      description: "Check the address for typing errors, then try again.",
+    };
+  }
+  if (failure.kind === "offline") {
+    return {
+      title: "You’re offline",
+      description: "Reconnect to the internet and try loading this page again.",
+    };
+  }
+  if (failure.kind === "refused") {
+    return {
+      title: "The connection was refused",
+      description: "The site or local server is not accepting connections.",
+    };
+  }
+  if (failure.kind === "timeout") {
+    return {
+      title: "The site took too long to respond",
+      description: "The server may be unavailable or your connection may be slow.",
+    };
+  }
+  if (failure.kind === "certificate") {
+    return {
+      title: "Your connection isn’t private",
+      description: "Nodex stopped this page because its certificate could not be verified.",
+    };
+  }
+  if (failure.kind === "blocked") {
+    return {
+      title: "Navigation blocked",
+      description: "A Browser security or organization policy blocked this page.",
+    };
+  }
+  if (failure.kind === "crashed") {
+    return {
+      title: "This page stopped working",
+      description: "Reload the page to start it in a fresh Browser process.",
+    };
+  }
+  return {
+    title: "This page couldn’t be loaded",
+    description: failure.description,
+  };
+}
+
+export function BrowserDownloadsPage({
+  snapshot,
+  onClose,
+  onAction,
+  onClearHistory,
+}: {
+  snapshot: BrowserDownloadsSnapshot;
+  onClose: () => void;
+  onAction: (
+    downloadId: string,
+    action: BrowserDownloadAction,
+  ) => Promise<void>;
+  onClearHistory: () => Promise<void>;
+}) {
+  return (
+    <section className="flex h-full min-h-0 flex-col bg-token-main-surface-primary">
+      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-token-border px-4">
+        <Download className="icon-sm text-token-text-tertiary" />
+        <h2 className="min-w-0 flex-1 text-sm font-semibold text-token-text-primary">
+          Downloads
+        </h2>
+        <button
+          type="button"
+          className="rounded-md px-2 py-1 text-xs text-token-text-secondary hover:bg-token-list-hover-background hover:text-token-text-primary"
+          disabled={snapshot.downloads.length === 0}
+          onClick={() => void onClearHistory()}
+        >
+          Clear history
+        </button>
+        <button
+          type="button"
+          className="inline-flex size-7 items-center justify-center rounded-lg text-token-text-tertiary hover:bg-token-list-hover-background hover:text-token-text-primary"
+          aria-label="Close downloads"
+          onClick={onClose}
+        >
+          <X className="icon-sm" />
+        </button>
+      </header>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {snapshot.downloads.length === 0 ? (
+          <div className="grid h-full place-items-center px-6 text-center text-sm text-token-text-secondary">
+            Downloaded files will appear here.
+          </div>
+        ) : (
+          <div className="divide-y divide-token-border">
+            {snapshot.downloads.map((download) => (
+              <BrowserDownloadRow
+                key={download.id}
+                download={download}
+                onAction={onAction}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function BrowserDownloadRow({
+  download,
+  onAction,
+}: {
+  download: BrowserDownloadRecord;
+  onAction: (
+    downloadId: string,
+    action: BrowserDownloadAction,
+  ) => Promise<void>;
+}) {
+  const active = download.status === "starting"
+    || download.status === "progressing"
+    || download.status === "paused";
+  const progress = download.totalBytes > 0
+    ? Math.min(100, download.receivedBytes / download.totalBytes * 100)
+    : 0;
+  const action = (nextAction: BrowserDownloadAction) => {
+    void onAction(download.id, nextAction);
+  };
+  return (
+    <article className="flex min-w-0 items-center gap-3 px-4 py-3">
+      <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-token-foreground/5 text-token-text-tertiary">
+        <Download className="icon-sm" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium text-token-text-primary">
+          {download.fileName}
+        </div>
+        <div className="mt-0.5 flex min-w-0 items-center gap-2 text-xs text-token-text-tertiary">
+          <span className="truncate">{download.sourceOrigin}</span>
+          <span aria-hidden>·</span>
+          <span className="shrink-0">
+            {formatDownloadProgress(download)}
+          </span>
+        </div>
+        {active ? (
+          <div className="mt-2 h-1 overflow-hidden rounded-full bg-token-foreground/10">
+            <div
+              className="h-full rounded-full bg-token-text-primary/55 transition-[width]"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        ) : null}
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        {active ? (
+          <>
+            <BrowserDownloadActionButton
+              label={download.status === "paused" ? "Resume" : "Pause"}
+              onClick={() => action(
+                download.status === "paused" ? "resume" : "pause",
+              )}
+            >
+              {download.status === "paused"
+                ? <Play className="icon-xs" />
+                : <Pause className="icon-xs" />}
+            </BrowserDownloadActionButton>
+            <BrowserDownloadActionButton
+              label="Cancel"
+              onClick={() => action("cancel")}
+            >
+              <X className="icon-xs" />
+            </BrowserDownloadActionButton>
+          </>
+        ) : (
+          <>
+            {download.status === "completed" ? (
+              <>
+                <BrowserDownloadActionButton
+                  label="Open"
+                  onClick={() => action("open")}
+                >
+                  <Play className="icon-xs" />
+                </BrowserDownloadActionButton>
+                <BrowserDownloadActionButton
+                  label="Show in folder"
+                  onClick={() => action("show-in-folder")}
+                >
+                  <FolderOpen className="icon-xs" />
+                </BrowserDownloadActionButton>
+              </>
+            ) : null}
+            <BrowserDownloadActionButton
+              label="Remove from history"
+              onClick={() => action("remove")}
+            >
+              <Trash2 className="icon-xs" />
+            </BrowserDownloadActionButton>
+          </>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function BrowserDownloadActionButton({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className="inline-flex size-7 items-center justify-center rounded-lg text-token-text-tertiary hover:bg-token-list-hover-background hover:text-token-text-primary"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+function formatDownloadProgress(download: BrowserDownloadRecord): string {
+  if (download.status === "completed") return formatBytes(download.totalBytes);
+  if (download.status === "cancelled") return "Cancelled";
+  if (download.status === "interrupted") return "Interrupted";
+  if (download.status === "paused") return `Paused · ${formatBytes(download.receivedBytes)}`;
+  if (download.totalBytes <= 0) return formatBytes(download.receivedBytes);
+  return `${formatBytes(download.receivedBytes)} of ${formatBytes(download.totalBytes)}`;
+}
+
+function formatBytes(value: number): string {
+  if (value < 1_024) return `${Math.round(value)} B`;
+  if (value < 1_048_576) return `${(value / 1_024).toFixed(1)} KB`;
+  if (value < 1_073_741_824) {
+    return `${(value / 1_048_576).toFixed(1)} MB`;
+  }
+  return `${(value / 1_073_741_824).toFixed(1)} GB`;
 }
 
 export function BrowserDeviceToolbar({
@@ -990,7 +2391,6 @@ export function BrowserWebviewStage({
   tabId,
   deviceToolbarVisible,
   viewport,
-  viewportStyle,
   webviewHostRef,
   onViewportChange,
   onCloseDeviceToolbar,
@@ -1000,13 +2400,54 @@ export function BrowserWebviewStage({
   tabId: string;
   deviceToolbarVisible: boolean;
   viewport: BrowserSidebarViewport;
-  viewportStyle: CSSProperties;
   webviewHostRef: RefObject<HTMLDivElement | null>;
   onViewportChange: (viewport: BrowserSidebarViewport) => void;
   onCloseDeviceToolbar: () => void;
   children: ReactNode;
 }) {
-  const fixedViewport = deviceToolbarVisible && viewport.presetId !== "responsive";
+  const viewportAreaRef = useRef<HTMLDivElement | null>(null);
+  const [viewportAreaSize, setViewportAreaSize] = useState({
+    width: 0,
+    height: 0,
+  });
+  useLayoutEffect(() => {
+    const element = viewportAreaRef.current;
+    if (!element) return undefined;
+    const update = () => {
+      const rect = element.getBoundingClientRect();
+      setViewportAreaSize({ width: rect.width, height: rect.height });
+    };
+    update();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const viewportLayout = computeBrowserViewportLayout({
+    containerWidth: viewportAreaSize.width,
+    containerHeight: viewportAreaSize.height,
+    deviceToolbarVisible,
+    composerReserve: 0,
+    viewport,
+    windowZoom: 1,
+  });
+  const showDeviceFrame = deviceToolbarVisible
+    && viewportAreaSize.width > 0
+    && viewportAreaSize.height > 0;
+  const visualFrameStyle: CSSProperties | undefined = showDeviceFrame
+    ? {
+        width: viewportLayout.visualWidth,
+        height: viewportLayout.visualHeight,
+      }
+    : undefined;
+  const logicalFrameStyle: CSSProperties | undefined = showDeviceFrame
+    ? {
+        width: viewportLayout.logicalWidth,
+        height: viewportLayout.logicalHeight,
+        transform: `scale(${viewportLayout.scale})`,
+        transformOrigin: "top left",
+      }
+    : undefined;
 
   return (
     <div className="absolute inset-0 min-h-0 min-w-0 overflow-hidden bg-token-main-surface-primary">
@@ -1021,34 +2462,45 @@ export function BrowserWebviewStage({
         className={cn(
           "relative h-full min-h-0 min-w-0 overflow-hidden",
           deviceToolbarVisible && "pt-[34px]",
-          fixedViewport && "bg-token-bg-secondary/40",
+          deviceToolbarVisible && "bg-token-bg-secondary/40",
         )}
       >
         <div
+          ref={viewportAreaRef}
           className={cn(
             "relative h-full w-full overflow-hidden",
-            fixedViewport && "flex items-center justify-center overflow-auto p-6",
+            deviceToolbarVisible && "flex items-center justify-center overflow-auto p-6",
           )}
-          style={fixedViewport ? RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE : undefined}
+          style={deviceToolbarVisible ? RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE : undefined}
         >
           <div
             className={cn(
-              "relative overflow-hidden bg-token-main-surface-primary",
-              fixedViewport ? "shadow-sm ring-[0.5px] ring-token-border" : "h-full w-full",
+              "relative shrink-0 overflow-hidden bg-token-main-surface-primary",
+              deviceToolbarVisible
+                ? "shadow-sm ring-[0.5px] ring-token-border"
+                : "h-full w-full",
             )}
-            style={viewportStyle}
+            style={visualFrameStyle}
           >
             <div
-              ref={webviewHostRef}
-              className="absolute inset-0 overflow-hidden"
-              data-browser-sidebar-webview-host-root
-              data-browser-sidebar-conversation-id={activeSessionId}
-              data-browser-sidebar-browser-tab-id={tabId}
-            />
-            {children}
-            {deviceToolbarVisible && viewport.presetId === "responsive" ? (
-              <BrowserViewportResizeHandles viewport={viewport} onViewportChange={onViewportChange} />
-            ) : null}
+              className={cn(
+                "relative h-full w-full overflow-hidden",
+                showDeviceFrame && "absolute left-0 top-0",
+              )}
+              style={logicalFrameStyle}
+            >
+              <div
+                ref={webviewHostRef}
+                className="absolute inset-0 overflow-hidden"
+                data-browser-sidebar-webview-host-root
+                data-browser-sidebar-conversation-id={activeSessionId}
+                data-browser-sidebar-browser-tab-id={tabId}
+              />
+              {children}
+              {deviceToolbarVisible && viewport.presetId === "responsive" ? (
+                <BrowserViewportResizeHandles viewport={viewport} onViewportChange={onViewportChange} />
+              ) : null}
+            </div>
           </div>
         </div>
       </div>
@@ -1063,9 +2515,80 @@ function BrowserViewportResizeHandles({
   viewport: BrowserSidebarViewport;
   onViewportChange: (viewport: BrowserSidebarViewport) => void;
 }) {
+  const activeCleanupRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => activeCleanupRef.current?.(), []);
   const bump = (dimension: "width" | "height", delta: number) => {
     const current = dimension === "width" ? viewport.width || 1024 : viewport.height || 768;
     onViewportChange(updateBrowserViewportDimension(viewport, dimension, current + delta));
+  };
+  const beginDrag = (
+    dimension: "width" | "height",
+    direction: -1 | 1,
+  ) => (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    activeCleanupRef.current?.();
+    const target = event.currentTarget;
+    const pointerId = event.pointerId;
+    const startPointer = dimension === "width" ? event.clientX : event.clientY;
+    const startValue = dimension === "width" ? viewport.width : viewport.height;
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = dimension === "width" ? "ew-resize" : "ns-resize";
+    document.body.style.userSelect = "none";
+    target.setPointerCapture?.(pointerId);
+    let latestPointer = startPointer;
+    let frame: number | null = null;
+    const commit = () => {
+      frame = null;
+      const delta = (latestPointer - startPointer) * direction;
+      onViewportChange(
+        updateBrowserViewportDimension(
+          viewport,
+          dimension,
+          startValue + delta,
+        ),
+      );
+    };
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== pointerId) return;
+      latestPointer = dimension === "width"
+        ? moveEvent.clientX
+        : moveEvent.clientY;
+      if (frame === null) frame = window.requestAnimationFrame(commit);
+    };
+    const cleanup = () => {
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      target.removeEventListener("pointermove", onPointerMove);
+      target.removeEventListener("pointerup", cleanup);
+      target.removeEventListener("pointercancel", cleanup);
+      if (target.hasPointerCapture?.(pointerId)) {
+        target.releasePointerCapture?.(pointerId);
+      }
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      if (activeCleanupRef.current === cleanup) {
+        activeCleanupRef.current = null;
+      }
+    };
+    activeCleanupRef.current = cleanup;
+    target.addEventListener("pointermove", onPointerMove);
+    target.addEventListener("pointerup", cleanup);
+    target.addEventListener("pointercancel", cleanup);
+  };
+  const onResizeKeyDown = (
+    dimension: "width" | "height",
+    direction: -1 | 1,
+  ) => (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (
+      event.key !== "ArrowLeft"
+      && event.key !== "ArrowRight"
+      && event.key !== "ArrowUp"
+      && event.key !== "ArrowDown"
+    ) {
+      return;
+    }
+    event.preventDefault();
+    bump(dimension, direction * 10);
   };
 
   return (
@@ -1074,19 +2597,22 @@ function BrowserViewportResizeHandles({
         type="button"
         className="absolute inset-y-8 left-0 z-20 w-1 cursor-ew-resize opacity-0 focus-visible:opacity-100"
         aria-label="Narrow viewport"
-        onClick={() => bump("width", -80)}
+        onPointerDown={beginDrag("width", -1)}
+        onKeyDown={onResizeKeyDown("width", -1)}
       />
       <button
         type="button"
         className="absolute inset-y-8 right-0 z-20 w-1 cursor-ew-resize opacity-0 focus-visible:opacity-100"
         aria-label="Widen viewport"
-        onClick={() => bump("width", 80)}
+        onPointerDown={beginDrag("width", 1)}
+        onKeyDown={onResizeKeyDown("width", 1)}
       />
       <button
         type="button"
         className="absolute inset-x-8 bottom-0 z-20 h-1 cursor-ns-resize opacity-0 focus-visible:opacity-100"
         aria-label="Taller viewport"
-        onClick={() => bump("height", 80)}
+        onPointerDown={beginDrag("height", 1)}
+        onKeyDown={onResizeKeyDown("height", 1)}
       />
     </>
   );
@@ -1095,23 +2621,52 @@ function BrowserViewportResizeHandles({
 export function BrowserNewTabState({
   projectId,
   localServers,
+  preferences,
+  onPreferencesChange,
   onRefresh,
   onOpen,
+  onRequestThumbnail,
   onHideServer,
   onUnhideServer,
   onRemoveRoute,
 }: {
   projectId: string | null;
   localServers: BrowserSidebarLocalServersSnapshot | null;
+  preferences?: BrowserLocalServerPreferences;
+  onPreferencesChange?: (
+    update: BrowserLocalServerPreferencesUpdate,
+  ) => void;
   onRefresh: () => void;
   onOpen: (url: string) => void;
+  onRequestThumbnail?: (
+    url: string,
+  ) => Promise<BrowserSidebarLocalServerThumbnailResult>;
   onHideServer: (server: BrowserSidebarLocalServer) => void;
   onUnhideServer: (url: string) => void;
   onRemoveRoute: (serverUrl: string, routeUrl: string) => void;
 }) {
-  const [settings, setSettings] = useState<BrowserLocalServerSettings>(() =>
-    resolveBrowserLocalServerSettings(typeof window === "undefined" ? null : window.localStorage)
-  );
+  const [fallbackPreferences, setFallbackPreferences] =
+    useState<BrowserLocalServerPreferences>(() => ({
+      ...DEFAULT_BROWSER_LOCAL_SERVER_PREFERENCES,
+      expandedProjectIds: [],
+    }));
+  const resolvedPreferences = preferences ?? fallbackPreferences;
+  const settings: BrowserLocalServerSettings =
+    resolveBrowserLocalServerSettings(resolvedPreferences);
+  const updatePreferences = (
+    update: BrowserLocalServerPreferencesUpdate,
+  ) => {
+    if (onPreferencesChange) {
+      onPreferencesChange(update);
+      return;
+    }
+    setFallbackPreferences((current) => ({
+      ...current,
+      ...update,
+      expandedProjectIds:
+        update.expandedProjectIds ?? current.expandedProjectIds,
+    }));
+  };
   const visible = useMemo(
     () => resolveVisibleLocalServers(localServers, settings),
     [localServers, settings],
@@ -1123,22 +2678,17 @@ export function BrowserNewTabState({
       ? "Hidden"
       : "All";
   const setShowMode = (showMode: BrowserLocalServerShowMode) => {
-    writeBrowserLocalServerShowMode(typeof window === "undefined" ? null : window.localStorage, showMode);
-    setSettings((current) => ({ ...current, showMode }));
+    updatePreferences({ showMode });
   };
   const setSortMode = (sortMode: BrowserLocalServerSortMode) => {
-    writeBrowserLocalServerSortMode(typeof window === "undefined" ? null : window.localStorage, sortMode);
-    setSettings((current) => ({ ...current, sortMode }));
+    updatePreferences({ sortMode });
   };
   const expandProject = () => {
     if (projectId === null) return;
-    setSettings((current) => {
-      const expandedProjectIds = new Set([...current.expandedProjectIds, projectId]);
-      writeBrowserLocalServerExpandedProjects(
-        typeof window === "undefined" ? null : window.localStorage,
-        expandedProjectIds,
-      );
-      return { ...current, expandedProjectIds };
+    updatePreferences({
+      expandedProjectIds: [
+        ...new Set([...resolvedPreferences.expandedProjectIds, projectId]),
+      ],
     });
   };
 
@@ -1220,6 +2770,7 @@ export function BrowserNewTabState({
               server={server}
               hiddenMode={settings.showMode === "hidden"}
               onOpen={onOpen}
+              onRequestThumbnail={onRequestThumbnail}
               onHide={() => onHideServer(server)}
               onUnhide={() => onUnhideServer(server.origin)}
               onRemoveRoute={(routePath) => onRemoveRoute(server.origin, routePath)}
@@ -1240,10 +2791,77 @@ export function BrowserNewTabState({
   );
 }
 
+function LocalServerThumbnail({
+  origin,
+  online,
+  lastSeenAt,
+  onRequest,
+}: {
+  origin: string;
+  online: boolean;
+  lastSeenAt: number;
+  onRequest?: (
+    url: string,
+  ) => Promise<BrowserSidebarLocalServerThumbnailResult>;
+}) {
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!online || !onRequest) {
+      setDataUrl(null);
+      setLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setLoading(true);
+    void onRequest(origin).then((result) => {
+      if (cancelled) return;
+      setDataUrl(result.status === "ready" ? result.dataUrl : null);
+      setLoading(false);
+    }).catch(() => {
+      if (cancelled) return;
+      setDataUrl(null);
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [lastSeenAt, onRequest, online, origin]);
+
+  if (dataUrl) {
+    return (
+      <img
+        alt={`Preview of ${origin}`}
+        draggable={false}
+        src={dataUrl}
+        className="h-[52px] w-[84px] shrink-0 rounded-[10px] border border-token-border object-cover"
+      />
+    );
+  }
+
+  return (
+    <span
+      aria-label={online ? `Preview unavailable for ${origin}` : `${origin} is offline`}
+      className="flex h-[52px] w-[84px] shrink-0 items-center justify-center rounded-[10px] border border-token-border bg-[radial-gradient(circle_at_35%_25%,var(--color-token-list-hover-background),transparent_70%)] text-token-text-tertiary"
+      role="img"
+    >
+      {loading ? (
+        <CodexBrowserReloadIcon className="icon-xs animate-spin motion-reduce:animate-none" />
+      ) : online ? (
+        <span className="size-1.5 rounded-full bg-token-text-tertiary/50" />
+      ) : (
+        <WifiOff className="icon-xs" />
+      )}
+    </span>
+  );
+}
+
 function LocalServerCard({
   server,
   hiddenMode,
   onOpen,
+  onRequestThumbnail,
   onHide,
   onUnhide,
   onRemoveRoute,
@@ -1251,6 +2869,9 @@ function LocalServerCard({
   server: BrowserSidebarLocalServer;
   hiddenMode: boolean;
   onOpen: (url: string) => void;
+  onRequestThumbnail?: (
+    url: string,
+  ) => Promise<BrowserSidebarLocalServerThumbnailResult>;
   onHide: () => void;
   onUnhide: () => void;
   onRemoveRoute: (routePath: string) => void;
@@ -1263,11 +2884,11 @@ function LocalServerCard({
         className="flex w-full min-w-0 items-center gap-3 px-3 py-2 text-left"
         onClick={() => onOpen(server.origin)}
       >
-        <img
-          alt=""
-          draggable={false}
-          src={LOCAL_SERVER_THUMBNAIL_DATA_URI}
-          className="h-[52px] w-[84px] shrink-0 rounded-[10px] border border-token-border object-cover"
+        <LocalServerThumbnail
+          origin={server.origin}
+          online={server.online}
+          lastSeenAt={server.lastSeenAt}
+          onRequest={onRequestThumbnail}
         />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
@@ -1323,38 +2944,272 @@ function formatLocalServerTitle(origin: string): string {
   }
 }
 
-export function BrowserCommentOverlay() {
+export function BrowserCommentOverlay({
+  children,
+}: {
+  children?: ReactNode;
+}) {
   return (
-    <div className="pointer-events-none absolute inset-0 z-20 cursor-crosshair bg-token-foreground/5">
-      <div id="browser-sidebar-comment-popup-root" className="pointer-events-auto absolute inset-0" />
+    <div className="pointer-events-none absolute inset-0 z-20 cursor-crosshair">
+      <div id="browser-sidebar-comment-popup-root" className="absolute inset-0">
+        {children}
+      </div>
     </div>
   );
 }
 
-export function BrowserUseCursorOverlay({
-  x,
-  y,
-  label,
-  viewportSize,
+export function BrowserAnnotationComposer({
+  anchors,
+  designChange,
+  intent,
+  note,
+  originalView,
+  selectionMode,
+  onDesignChange,
+  onIntentChange,
+  onNoteChange,
+  onOriginalViewChange,
+  onSelectionModeChange,
+  onRemoveAnchor,
+  onDiscard,
+  onAddToComposer,
 }: {
-  x: number;
-  y: number;
-  label?: string;
-  viewportSize: { width: number; height: number } | null;
+  anchors: BrowserAnnotationAnchor[];
+  designChange: BrowserAnnotationDesignChange | null;
+  intent: "comment" | "designChange";
+  note: string;
+  originalView: boolean;
+  selectionMode: "inspect" | "region";
+  onDesignChange: (input: {
+    anchorId: string;
+    property: BrowserAnnotationDesignChange["property"];
+    after: string;
+  }) => void;
+  onIntentChange: (intent: "comment" | "designChange") => void;
+  onNoteChange: (note: string) => void;
+  onOriginalViewChange: (originalView: boolean) => void;
+  onSelectionModeChange: (mode: "inspect" | "region") => void;
+  onRemoveAnchor: (anchorId: string) => void;
+  onDiscard: () => void;
+  onAddToComposer: () => void;
+}) {
+  if (anchors.length === 0) {
+    return (
+      <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center">
+        <div className="pointer-events-auto flex items-center gap-1 rounded-full bg-token-dropdown-background/90 p-1 text-xs text-token-text-secondary shadow-xl-spread ring-[0.5px] ring-token-border backdrop-blur-sm">
+          <AnnotationModeButton
+            active={selectionMode === "inspect"}
+            onClick={() => onSelectionModeChange("inspect")}
+          >
+            Element or text
+          </AnnotationModeButton>
+          <AnnotationModeButton
+            active={selectionMode === "region"}
+            onClick={() => onSelectionModeChange("region")}
+          >
+            Region
+          </AnnotationModeButton>
+          <span className="px-2">Hold Shift for multiple.</span>
+        </div>
+      </div>
+    );
+  }
+  const designableAnchors = anchors.filter((anchor) =>
+    anchor.kind === "element"
+  );
+  const designAnchor = designableAnchors.find((anchor) =>
+    anchor.id === designChange?.anchorId
+  ) ?? designableAnchors[0] ?? null;
+  const designProperty = designChange?.property ?? "color";
+  const designBefore = designAnchor?.computedStyle?.[designProperty] ?? "";
+  const designAfter = designChange?.after ?? "";
+  return (
+    <div className="pointer-events-auto absolute inset-x-3 bottom-3 mx-auto max-w-lg rounded-xl bg-token-dropdown-background/95 p-3 shadow-xl-spread ring-[0.5px] ring-token-border backdrop-blur-md">
+      <div className="mb-2 flex items-center gap-1">
+        <AnnotationModeButton
+          active={intent === "comment"}
+          onClick={() => onIntentChange("comment")}
+        >
+          Comment
+        </AnnotationModeButton>
+        <AnnotationModeButton
+          active={intent === "designChange"}
+          onClick={() => onIntentChange("designChange")}
+        >
+          Design change
+        </AnnotationModeButton>
+        <div className="flex-1" />
+        <AnnotationModeButton
+          active={selectionMode === "inspect"}
+          onClick={() => onSelectionModeChange("inspect")}
+        >
+          Inspect
+        </AnnotationModeButton>
+        <AnnotationModeButton
+          active={selectionMode === "region"}
+          onClick={() => onSelectionModeChange("region")}
+        >
+          Region
+        </AnnotationModeButton>
+      </div>
+      <div className="flex max-h-24 flex-wrap gap-1 overflow-y-auto">
+        {anchors.map((anchor, index) => (
+          <button
+            key={anchor.id}
+            type="button"
+            className="inline-flex max-w-full items-center gap-1 rounded-md bg-token-foreground/5 px-2 py-1 text-xs text-token-text-secondary hover:bg-token-list-hover-background"
+            title={anchor.selector ?? anchor.textExcerpt}
+            onClick={() => onRemoveAnchor(anchor.id)}
+          >
+            <span className="truncate">
+              {anchor.kind === "text"
+                ? anchor.textExcerpt || `Text ${index + 1}`
+                : anchor.kind === "region"
+                  ? `Region ${index + 1}`
+                  : anchor.selector || `Element ${index + 1}`}
+            </span>
+            <X className="icon-xs shrink-0" />
+          </button>
+        ))}
+      </div>
+      {intent === "designChange" ? (
+        <div className="mt-2 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2 rounded-lg bg-token-foreground/5 p-2">
+          {designableAnchors.length > 1 ? (
+            <label className="col-span-2 grid grid-cols-[76px_minmax(0,1fr)] items-center gap-2 text-xs text-token-text-secondary">
+              <span>Target</span>
+              <select
+                className="h-7 min-w-0 rounded-md border border-token-border bg-token-main-surface-primary px-2 text-xs text-token-text-primary outline-none focus:border-token-focus-border"
+                value={designAnchor?.id ?? ""}
+                onChange={(event) => {
+                  onDesignChange({
+                    anchorId: event.target.value,
+                    property: designProperty,
+                    after: designAfter,
+                  });
+                }}
+              >
+                {designableAnchors.map((anchor, index) => (
+                  <option key={anchor.id} value={anchor.id}>
+                    {anchor.selector || `Element ${index + 1}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <label className="flex min-w-0 flex-col gap-1 text-[11px] text-token-text-tertiary">
+            Property
+            <select
+              className="h-7 min-w-0 rounded-md border border-token-border bg-token-main-surface-primary px-2 text-xs text-token-text-primary outline-none focus:border-token-focus-border"
+              value={designProperty}
+              disabled={!designAnchor}
+              onChange={(event) => {
+                if (!designAnchor) return;
+                const property = event.target.value as BrowserAnnotationDesignChange["property"];
+                onDesignChange({
+                  anchorId: designAnchor.id,
+                  property,
+                  after: designAnchor.computedStyle?.[property] ?? "",
+                });
+              }}
+            >
+              <option value="color">Text color</option>
+              <option value="backgroundColor">Background</option>
+              <option value="fontSize">Font size</option>
+              <option value="borderRadius">Corner radius</option>
+              <option value="opacity">Opacity</option>
+            </select>
+          </label>
+          <label className="flex min-w-0 flex-col gap-1 text-[11px] text-token-text-tertiary">
+            After
+            <input
+              className="h-7 min-w-0 rounded-md border border-token-border bg-token-main-surface-primary px-2 text-xs text-token-text-primary outline-none placeholder:text-token-text-tertiary focus:border-token-focus-border"
+              value={designAfter}
+              disabled={!designAnchor}
+              maxLength={512}
+              placeholder={designBefore || "New value"}
+              onChange={(event) => {
+                if (!designAnchor) return;
+                onDesignChange({
+                  anchorId: designAnchor.id,
+                  property: designProperty,
+                  after: event.target.value,
+                });
+              }}
+            />
+          </label>
+          <div className="col-span-2 flex min-w-0 items-center justify-between gap-2 text-[11px] text-token-text-tertiary">
+            <span className="truncate" title={designBefore}>
+              Before: {designBefore || "Unavailable"}
+            </span>
+            <button
+              type="button"
+              className={cn(
+                "shrink-0 rounded-md px-2 py-1 text-xs",
+                originalView
+                  ? "bg-token-foreground text-token-background"
+                  : "text-token-text-secondary hover:bg-token-list-hover-background",
+              )}
+              disabled={!designChange?.after.trim()}
+              onClick={() => onOriginalViewChange(!originalView)}
+            >
+              {originalView ? "Show change" : "Original view"}
+            </button>
+          </div>
+        </div>
+      ) : null}
+      <textarea
+        className="mt-2 min-h-16 w-full resize-none rounded-lg border border-token-border bg-token-main-surface-primary px-2.5 py-2 text-sm text-token-text-primary outline-none placeholder:text-token-text-tertiary focus:border-token-focus-border"
+        value={note}
+        maxLength={8_192}
+        placeholder={
+          intent === "designChange"
+            ? "Describe the design change…"
+            : "Leave a comment…"
+        }
+        onChange={(event) => onNoteChange(event.target.value)}
+      />
+      <div className="mt-2 flex items-center justify-end gap-2">
+        <button
+          type="button"
+          className="rounded-lg px-2.5 py-1.5 text-xs text-token-text-secondary hover:bg-token-list-hover-background hover:text-token-text-primary"
+          onClick={onDiscard}
+        >
+          Discard
+        </button>
+        <button
+          type="button"
+          className="rounded-lg bg-token-foreground px-2.5 py-1.5 text-xs font-medium text-token-background hover:opacity-90"
+          onClick={onAddToComposer}
+        >
+          Add to composer
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AnnotationModeButton({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean;
+  children: ReactNode;
+  onClick: () => void;
 }) {
   return (
-    <div
-      data-testid="browser-agent-cursor-overlay"
-      className="pointer-events-none absolute z-30 -translate-x-1 -translate-y-1 text-token-text-primary drop-shadow"
-      style={{ left: x, top: y }}
+    <button
+      type="button"
+      className={cn(
+        "rounded-full px-2 py-1 text-xs transition-colors",
+        active
+          ? "bg-token-foreground text-token-background"
+          : "text-token-text-secondary hover:bg-token-list-hover-background",
+      )}
+      onClick={onClick}
     >
-      <MousePointer2 className="icon-sm" />
-      {label || viewportSize ? (
-        <span className="ml-2 inline-flex rounded-md bg-token-dropdown-background/90 px-1.5 py-0.5 text-[11px] text-token-text-secondary shadow-xl-spread ring-[0.5px] ring-token-border">
-          {label ?? `${viewportSize?.width ?? 0}x${viewportSize?.height ?? 0}`}
-        </span>
-      ) : null}
-    </div>
+      {children}
+    </button>
   );
 }
 
@@ -1375,6 +3230,9 @@ function makeInitialSnapshot(
   browserViewScopeId = "unassigned-window-session",
 ): BrowserSidebarTabSnapshot {
   const url = normalizeBrowserNavigationUrl(readBrowserConfigUrl(tab));
+  const persistedDeviceToolbarState = readBrowserConfigDeviceToolbarState(tab);
+  const deviceToolbarVisible = persistedDeviceToolbarState?.toolbarState.isEnabled
+    ?? readBrowserConfigDeviceToolbarVisible(tab);
   return {
     ...DEFAULT_BROWSER_SNAPSHOT,
     browserConversationId: activeSession.id,
@@ -1384,14 +3242,28 @@ function makeInitialSnapshot(
     url,
     title: readBrowserConfigTitle(tab) || tab.title || "New tab",
     faviconUrl: readBrowserConfigFavicon(tab),
-    deviceToolbarVisible: readBrowserConfigDeviceToolbarVisible(tab),
-    deviceToolbarState: {
+    deviceToolbarVisible,
+    deviceToolbarState: persistedDeviceToolbarState ?? {
       ...DEFAULT_BROWSER_SNAPSHOT.deviceToolbarState,
       toolbarState: {
         ...DEFAULT_BROWSER_SNAPSHOT.deviceToolbarState.toolbarState,
-        isEnabled: readBrowserConfigDeviceToolbarVisible(tab),
+        isEnabled: deviceToolbarVisible,
       },
     },
+    viewport: persistedDeviceToolbarState
+      ? {
+          width: persistedDeviceToolbarState.toolbarState.presetId === "responsive"
+            ? persistedDeviceToolbarState.responsiveViewportSize?.width
+              ?? persistedDeviceToolbarState.toolbarState.width
+            : persistedDeviceToolbarState.toolbarState.width,
+          height: persistedDeviceToolbarState.toolbarState.presetId === "responsive"
+            ? persistedDeviceToolbarState.responsiveViewportSize?.height
+              ?? persistedDeviceToolbarState.toolbarState.height
+            : persistedDeviceToolbarState.toolbarState.height,
+          presetId: persistedDeviceToolbarState.toolbarState.presetId,
+          zoomPercent: 100,
+        }
+      : DEFAULT_BROWSER_SNAPSHOT.viewport,
     hasBrowserPage: !isBlankBrowserUrl(url),
     pageActionsDisabled: isBlankBrowserUrl(url),
     updatedAt: Date.now(),
@@ -1405,21 +3277,5 @@ function readWebviewHostBounds(element: HTMLElement) {
     y: rect.top,
     width: rect.width,
     height: rect.height,
-  };
-}
-
-function resolveViewportStyle(snapshot: BrowserSidebarTabSnapshot): CSSProperties {
-  if (!snapshot.deviceToolbarVisible || snapshot.viewport.presetId === "responsive") {
-    return { width: "100%", height: "100%" };
-  }
-
-  const width = Math.max(240, snapshot.viewport.width);
-  const height = Math.max(160, snapshot.viewport.height);
-  const scale = Math.max(0.25, Math.min(1, snapshot.viewport.zoomPercent / 100));
-  return {
-    width,
-    height,
-    transform: `scale(${scale})`,
-    transformOrigin: "center center",
   };
 }

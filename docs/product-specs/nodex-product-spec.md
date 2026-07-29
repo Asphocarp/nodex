@@ -45,6 +45,70 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Window Session view tabs support `db_view`, `page_stage`, `terminal`, `browser`, `review`, and `files`. Create, update, and restore use one strict kind-discriminated descriptor contract, so a Browser identity cannot appear on another kind and malformed kind/config combinations fail before Window Session persistence. Page descriptors retain Page identity plus the Project access context used for authorization; Project never becomes the Page owner. Terminal descriptors retain only a nonblank terminal runtime identity and are valid in both Project and projectless Sessions without a `projectId`.
 - Empty panels and each panel-group tab strip use the same target-aware new-tab action registry. Each group's plus button sits immediately after that group's tabs and creates or previews content in that leaf. The standard thread-panel chooser order is Review, Terminal, Browser, Files, and Side chat, filtered by target panel and singleton availability. Right-panel choosers then append a separated Nodex-only section for DB View and Page Stage when eligible. DB View creates or focuses the active Session Project's DB tab directly until that Window Session view already has one, then opens the move-to-style DB destination picker so another Project DB can be selected. Direct creation targets the Project's current default View; when the Project has no active default View the action reports that explicitly instead of silently doing nothing. Page Stage's empty picker shows the active Session Project's bounded first Page window; typing searches all accessible Projects through the bounded native Page-search projection and groups current-Project hits before other Projects. Timeline remains hidden until Nodex has a first-class tab kind and eligibility model for it. Review is a singleton tab per Window Session view across both right and bottom panels. DB View is one tab per target Project, while Browser is multi-tab and supports New tab to the right, Reload, and Duplicate before generic close actions from the tab context menu.
 - Browser and selected Files can open as preview tabs in either right or bottom panel, and single-clicking a Kanban DB-view card opens its Page in Page Stage as a right-panel preview in the nearest right leaf, creating a right-side group first when the right panel is full-width with only the DB group. A Window Session panel leaf owns at most one italic preview at a time; opening a second preview in the same leaf replaces the first, and the preview is ephemeral until the user interacts with the preview body, pins it, or double-clicks its tab label. A newly opened empty Files tab is durable and shows `Open file` / `Select a file from the workspace tree`; its first file selection creates and activates a normal durable file tab, then closes the empty navigator through the ordinary same-leaf close path. Later tree single-clicks use the leaf's replaceable preview, while double-click and Enter promote the matching preview in place or open durably. Focusing an already durable matching file leaves any unrelated preview open. Preview replacement and promotion preserve the visible tab presentation rather than replaying tab entry/exit motion. Files navigation, search, splitter, and toolbar interactions are exempt from generic preview auto-pinning.
+- The built-in Browser uses one Profile across Nodex windows while every live
+  page belongs to one exact Window Session-scoped route. Main owns sandboxed
+  guest attachment, navigation, permissions, popup policy, persisted Chromium
+  history, page suspension/restoration, downloads, annotations, device metrics,
+  the app-resolved page color scheme, site information, Profile import, and
+  credential operations. Color-scheme changes reach the guest through
+  Main-owned CDP emulation and update `prefers-color-scheme` without navigating
+  or recreating the page, including while Settings or another route temporarily
+  replaces the workbench. Window Session files retain only the Browser tab shell
+  and opaque storage identity. A Browser
+  preview allocates that identity before Main registration and promotion keeps
+  it unchanged; a provisional legacy identity may migrate only while the tab is
+  cold and has no attached guest. Guest attachment resolves the opaque storage
+  identity from the Main-owned registered host; it does not depend on custom
+  renderer DOM attributes being forwarded by Electron. Electron's attach
+  instance identity binds the accepted request to the resulting guest in Main
+  before renderer registration or guest messages can use it. Runtime messages
+  that require guest methods wait for `dom-ready`, so opening a restored or
+  newly navigated page cannot fail because annotation state arrived before
+  attachment. Profile data clearing is explicitly global to the built-in
+  Browser; tab close is not. Browser guest presentation follows logical panel
+  visibility rather than the panel shell's animation lifetime: closing a panel
+  hides and disables its fixed guest before the shell spring begins, while that
+  mounted panel keeps host ownership until the spring unmounts. Only then may
+  the background retention host take over, and stale presentation updates are
+  rejected by renderer, host, and mount generation.
+- Browser Use controls its presentation explicitly. When the agent requests a
+  visible Browser, Nodex selects the owning task when necessary, materializes
+  the exact controlled page as a Browser tab if no shell exists, and opens its
+  existing right or bottom panel placement. A cross-task request arrives with
+  the target Session already open, so panel width does not animate after route
+  navigation. Hiding the Browser collapses its selected panel without stopping
+  Browser Use or destroying the page. Browser activity, a pending presentation
+  request, and actual renderer-confirmed visibility are distinct states;
+  `Browser visibility` reports true only for the owning active task while its
+  current request is pending or its host has visible bounds.
+- A controlled Browser page keeps one body-level guest host for its complete
+  live lifetime. Moving between retained, background, and visible panel
+  presentation updates only that host's layout and presentation metadata; it
+  never reparents or recreates the Electron guest. While Browser Use is active,
+  its cursor is composited through the host's dedicated overlay above the
+  native page. The cursor appears at a stable idle position before the first
+  movement, derives its visible bounds from the presented webview surface,
+  clamps movement within those bounds, and reports arrival only after visible
+  motion has completed. A non-presented page snaps cursor state without waiting
+  for a renderer animation.
+- The thread floating Environment surface includes a `Browser` section built
+  from right-panel, bottom-panel, preview, and Browser Use runtime pages,
+  deduplicated by logical `browserTabId`. Runtime-only pages therefore appear
+  before a Workbench shell exists and are still clickable; clicking one uses
+  the same materialization path as an agent visibility request. The current
+  Browser Use page shows its live title, host, favicon, spinner, and working
+  shimmer. Releasing a handoff or deliverable page retains it as an ordinary
+  Browser tab, while closing an agent-only page removes its shell and summary
+  row.
+- Browser settings expose searchable history, durable download history,
+  password/contact summaries, Profile import, and extension capability through
+  product-owned providers. Password material is encrypted with the platform
+  storage facility, never returned to the app renderer, and may be filled into
+  only the currently owned origin through the restricted guest preload. Cookie
+  import targets the shared Profile. Password import/save is unavailable when
+  platform encryption is unavailable; an unattached page has no current-site
+  credential results rather than producing a lifecycle error. Extension
+  management is shown as unavailable when Electron exposes no supported provider.
 - A Files tab identifies an exact local file by host and absolute path independently of its optional navigation root: files produced or changed in worktrees and other directories remain previewable and pinnable even when they are outside the Project source, while the tree and breadcrumb browse only within an explicitly selected canonical root. The Files tree uses the virtualized Pierre tree runtime with 28px rows, disclosure-only folders, colored file-type icons, sticky folders, keyboard navigation, and hidden/generated entries included. Directory browsing remains lazy; the 150ms-debounced filter uses a bounded root-wide main-process search so it can find files under directories that have not been expanded. Directory requests and search use root-relative coordinates, hide directory symlinks whose resolved target escapes that root, and may traverse directory symlinks that resolve inside it.
 - Exact-file metadata, text, and binary reads do not require a workspace-root grant; the main process accepts them only from the top-level renderer of an owned app window. File routing is metadata-first: sampled text always receives a source surface even when its filename has no extension, so files such as `LICENSE` remain readable. The renderer uses Pierre for all read-only and editable source, wraps source by default with a per-tab toggle, syntax-highlights recognized languages, and lets Markdown switch between editable source and rendered presentation. Text under 10 MiB is editable, text from 10 MiB through 20 MiB is read-only, and larger text is rejected before a full read. Editable files persist a recoverable draft after 550ms and compare-and-swap autosave after 3 seconds. Exact-path watchers are shared per renderer and refresh clean documents after external changes; dirty external changes retain both versions in a split conflict diff. Close, preview replacement, panel movement, and app-window close wait for saving, while an unresolved conflict retains its draft and blocks destructive tab transitions. Page Stage preview promotion reuses the preview tab id so the editor body does not remount. Page Stage close/delete controls do not pin an unpinned preview before closing/deleting. Side chat uses a separate renderer-local leaf-scoped tab lifecycle: the empty-panel action, panel menu, thread overflow action, `/side`, and the thread selected-text `Ask in side chat` overlay create `sidechat-loading:<parentThreadId>:<index>` tabs, replace them with closable `sidechat:<threadId>` tabs after the temporary fork starts, and never pin or persist those tabs.
 - DB view tabs keep the DB view selector pinned above board, list, toggle-list, canvas, and calendar content, with task search and supported view-local filter/sort/display controls inside that tab body
@@ -479,6 +543,46 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - File-change projection keeps ordinary files in a path-keyed patch map and tracks Codex visualization HTML as separate create/update activities; visualization files are not rendered as ordinary patch files. In-progress and completed visualization activity is retained, while failed/declined activity is omitted. A non-failed patch also contributes to the turn-level diff batch using the latest preceding exec cwd. The patch activity and turn-diff row coexist; explicit turn diffs win after visualization-only diff blocks are removed.
 - File-change activity renders visualization status before insertion-ordered file rows. Patch lifecycle comes from its nullable success plus approval/cancellation state. Detailed mode gives each path an independently expandable diff with line stats, review details, copy action, and semantic add/update/delete fallback; prose detail mode keeps the same status/path rows static without diff disclosure. File links prefer the granted root, open in the side panel normally, and use the configured external opener for modified clicks.
 - Special tool projection preserves family-specific protocol state instead of wrapping everything as a generic tool call. MCP retains app/resource/source/result/error metadata and becomes complete when its item or turn is terminal. Its visible source identity is resolved late from stable projected source/invocation metadata: browser/computer/native tool surfaces take precedence, then a trimmed server name supplies the fallback. The projection can consume normalized app metadata once Nodex supports ChatGPT Apps/Connectors, but that capability is currently disabled and production must not send `app/list`; existing and imported tool calls therefore degrade to source/server fallback identity. Chrome browser-use uses its bundled Chrome asset, while native Chrome remains a host-native app reference. Grouped facts, standalone icons, and summary sources consume that same identity; incidental raw item/app/logo fields never override it. Successful item-level app URIs still participate in the rendered resource scope. Ordinary dynamic calls omit result/success except for create-thread and handoff-thread; dependency loading is hidden, and successful automation updates route to the scheduled-task model while failed/invalid updates stay hidden. Registered Codex-app task controls, settings reads/writes, and Chrome tab-context calls select their renderer by the exact `(namespace, tool)` pair. Their labels use task terminology, task reads/messages can navigate to their target, successful task creation becomes an openable resource card, and only registered activity flags may affect grouping or continuation. Collaboration `wait` is hidden, other collaboration activity respects the background-subagent gate, and web search retains its generated action and stays active only when it is the final non-user work item of an in-progress turn.
+- Built-in Browser Use is supplied as one verified runtime closure containing the
+  matching Codex CLI, Node, Node REPL, Browser plugin/client, and native peer
+  authorizer. Nodex development and release builds materialize that closure from
+  one repository-controlled, dual-architecture release lock; ordinary startup
+  never reads another installed desktop application. Thread start, resume, and
+  fork receive the same trusted paths,
+  hashes, backend list, and socket-directory allowlist through the public
+  app-server config field. One authenticated native-pipe backend is created per
+  Codex session and requires the current session and turn on every request.
+  Artifact verification, backend `getInfo`, and plugin policy jointly determine
+  the effective Browser API; an absent or unknown capability stays unavailable.
+  The reserved bundled marketplace is reconciled to the verified local runtime
+  source before plugin version checks; a stale source registration is removed
+  through the app-server marketplace API and replaced within the same
+  reconciliation before the next verification pass. Runtime verification and
+  the supported platform resolve one host capability used by plugin eligibility,
+  thread configuration, and native-pipe activation. Peer verification remains a
+  separate transport policy so unpackaged development can use its private
+  current-user socket without masquerading as a packaged build. When the host
+  capability is unavailable, Nodex removes the managed Browser plugin and
+  refreshes skills instead of offering an action that cannot discover a browser.
+  A new task may have a provisional Project-Session pipe before its Codex session
+  is known; Nodex closes that pipe before publishing the canonical session pipe,
+  even when both captures overlap. Projectless tasks use the same flow with
+  `projectId: null`; a Project is not required for Browser discovery.
+- Browser origin approval uses the app-server's negotiated form-elicitation
+  channel. Selecting Browser from the composer therefore supports the complete
+  first-use flow—tool discovery, per-origin confirmation, native Browser
+  navigation, and response—without asking the user to connect a separate
+  browser. Full-page screenshots temporarily resize the current Browser guest
+  through the shared webview manager, whether visible or retained, wait until
+  Chromium reports the requested clip dimensions, and restore the ordinary
+  viewport after capture.
+- The Browser plugin owns its high-level Browser, Tab, Playwright, Locator, and
+  CUA wrappers plus action-time confirmation. Main owns route claims, guest/CDP
+  access, cursor, viewport and capture intents, one-use download grants, and
+  deterministic turn teardown. A tab mention must match its Browser session,
+  provider tab identity, title, and URL snapshot. Turn finalization distinguishes
+  handoff, user deliverable, claimed user tabs, and unretained agent-created tabs;
+  stale turns and owner/process teardown cannot affect the next turn.
 - Multi-agent actions are standalone transcript activity. Their rich header starts collapsed even while an action is running, uses the action lifecycle and unique target count for its summary, shimmers only while work is in progress, and remains user-expandable. Expanded rows preserve per-agent lifecycle copy, prompt truncation/tooltips, model tooltips, friendly names, roles, and background-agent navigation context. Consecutive subagent activity is summarized as at most three inline identicon chips followed by any hidden-agent count and a shared `started working`, `updated`, `interrupted`, or `finished` status; selecting a chip opens that child with inline-activity context.
 - Modern inline child agents use one root-scoped `Subagents` right-panel tab rather than one tab per child. Composer and floating-summary surfaces show one compact avatar/count action; the panel root groups active and completed descendants with lazy assistant-message previews, and selecting a row routes inside the same tab to the child's read-only transcript with a back header and no composer. Relationship discovery uses app-server source ancestry so nested descendants remain visible even when the root transcript has not been hydrated. Legacy non-inline collaboration agents remain individually listed and keep dedicated read-only child tabs.
 - Renderable web searches remain individual leaves inside mixed activity groups. Each row shows its normalized action/query detail and uses the deterministic semantic web-search globe rather than depending on remote favicon discovery. Searches with a blank top-level query are hidden before grouping, even if secondary action metadata contains displayable text.

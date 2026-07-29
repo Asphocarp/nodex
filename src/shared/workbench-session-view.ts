@@ -16,8 +16,9 @@ import {
   setWorkbenchPanelMaximizedLeaf,
   splitWorkbenchPanelLeaf,
 } from "./workbench-panel-layout";
+import type { BrowserSidebarDeviceToolbarState } from "./browser-sidebar";
 
-export const WORKBENCH_SESSION_VIEW_VERSION = 1 as const;
+export const WORKBENCH_SESSION_VIEW_VERSION = 2 as const;
 export const WORKBENCH_SESSION_VIEW_MAX_TABS = 2_048;
 
 export type WorkbenchPanelId = "right" | "bottom";
@@ -91,10 +92,12 @@ export interface WorkbenchTerminalTabConfig {
 
 export interface WorkbenchBrowserTabConfig {
   browserTabId: string;
+  browserStorageId?: string;
   url?: string;
   title?: string;
   faviconUrl?: string;
   deviceToolbarVisible?: boolean;
+  deviceToolbarState?: BrowserSidebarDeviceToolbarState;
 }
 
 export interface WorkbenchReviewTabConfig {
@@ -133,7 +136,7 @@ export type WorkbenchSessionViewTab = {
 } & WorkbenchSessionViewTabVariant;
 
 export interface WorkbenchSessionViewSnapshot {
-  version: 1;
+  version: typeof WORKBENCH_SESSION_VIEW_VERSION;
   sessionId: string;
   tabsById: Record<string, WorkbenchSessionViewTab>;
   panels: Record<WorkbenchPanelId, WorkbenchPanelState>;
@@ -790,6 +793,7 @@ function cloneSessionView(
             config: {
               ...tab.config,
               browserTabId: identityFactory.createId("browser"),
+              browserStorageId: identityFactory.createId("browser"),
             },
           }
         : { ...tab, id };

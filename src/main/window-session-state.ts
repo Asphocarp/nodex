@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type {
@@ -68,6 +68,61 @@ function normalizeLayout(
 ): WorkbenchLayoutSnapshot {
   const parsed = WorkbenchLayoutSnapshotSchema.safeParse(value);
   return parsed.success ? parsed.data : fallback;
+}
+
+function browserStorageIdForLegacyTab(
+  windowSessionId: string,
+  projectSessionId: string,
+  browserTabId: string,
+): string {
+  const digest = createHash("sha256")
+    .update(windowSessionId)
+    .update("\0")
+    .update(projectSessionId)
+    .update("\0")
+    .update(browserTabId)
+    .digest("hex");
+  return `browser:migrated:${digest}`;
+}
+
+function ensureBrowserStorageIdentities(
+  layout: WorkbenchLayoutSnapshot,
+  windowSessionId: string,
+): WorkbenchLayoutSnapshot {
+  return {
+    ...layout,
+    sessionViewsBySessionId: Object.fromEntries(
+      Object.entries(layout.sessionViewsBySessionId).map(
+        ([projectSessionId, view]) => [
+          projectSessionId,
+          {
+            ...view,
+            tabsById: Object.fromEntries(
+              Object.entries(view.tabsById).map(([tabId, tab]) => {
+                if (tab.kind !== "browser" || tab.config.browserStorageId) {
+                  return [tabId, tab];
+                }
+                return [
+                  tabId,
+                  {
+                    ...tab,
+                    config: {
+                      ...tab.config,
+                      browserStorageId: browserStorageIdForLegacyTab(
+                        windowSessionId,
+                        projectSessionId,
+                        tab.config.browserTabId,
+                      ),
+                    },
+                  },
+                ];
+              }),
+            ),
+          },
+        ],
+      ),
+    ),
+  };
 }
 
 function normalizeSessionBounds(
@@ -687,7 +742,10 @@ export class WindowSessionState {
       })
       .map((session) => ({
         ...session,
-        layout: normalizeLayout(session.layout, fallbackLayout),
+        layout: ensureBrowserStorageIdentities(
+          normalizeLayout(session.layout, fallbackLayout),
+          session.id,
+        ),
         bounds: normalizeSessionBounds(session.bounds),
       }));
     return {

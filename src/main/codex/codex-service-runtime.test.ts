@@ -10,11 +10,17 @@ describe("codex-service runtime bootstrap", () => {
     const runtime: ResolvedCodexRuntime = {
       source: "bundled",
       binaryPath: "/tmp/nodex/codex",
+      browserRuntime: {
+        message: "Browser runtime is not installed",
+        reason: "manifest-missing",
+        status: "unavailable",
+      },
       additionalSearchPaths: ["/tmp/nodex/path"],
       codexCompatibilityVersion: "0.144.5",
       metadataPath: "/tmp/nodex/agent-runtime.json",
       missingBinaryMessage: "Bundled agent runtime is missing or corrupted. Reinstall Nodex.",
       runtimeFamily: "open-interpreter",
+      rootPath: "/tmp/nodex",
       version: "0.115.0",
     };
     const service = new CodexService({ runtime }) as unknown as {

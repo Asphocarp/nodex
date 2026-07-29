@@ -22,6 +22,14 @@ vi.mock("@/lib/api", () => ({
   subscribeWindowFocusChanges: () => () => undefined,
 }));
 
+vi.mock("@/lib/use-theme", () => ({
+  useTheme: () => ({
+    theme: "dark",
+    resolved: "dark",
+    setTheme: () => undefined,
+  }),
+}));
+
 beforeEach(async () => {
   invokeCalls = [];
   Object.defineProperty(window, "api", {
@@ -44,8 +52,10 @@ describe("BrowserSidebarHiddenWebviewHosts", () => {
     render(
       <BrowserSidebarHiddenWebviewHosts
         sessionId="session-1"
+        codexSessionId="thread-1"
         browserViewScopeId="window-session-1"
         tabs={[{ ...browserTab, config: { projectId: "alpha", url: "about:blank" } }]}
+        mountedTabIds={new Set()}
         visibleTabIds={new Set()}
       />,
     );
@@ -59,8 +69,10 @@ describe("BrowserSidebarHiddenWebviewHosts", () => {
     render(
       <BrowserSidebarHiddenWebviewHosts
         sessionId="session-1"
+        codexSessionId="thread-1"
         browserViewScopeId="window-session-1"
         tabs={[browserTab]}
+        mountedTabIds={new Set()}
         visibleTabIds={new Set()}
       />,
     );
@@ -84,6 +96,28 @@ describe("BrowserSidebarHiddenWebviewHosts", () => {
     expect(webview === null).toBe(false);
     expect(webview?.getAttribute("data-browser-sidebar-webview-host-kind")).toBe("background");
     expect(registerCommand !== undefined).toBe(true);
+  });
+
+  test("does not claim a tab while its closing panel host is still mounted", async () => {
+    render(
+      <BrowserSidebarHiddenWebviewHosts
+        sessionId="session-1"
+        codexSessionId="thread-1"
+        browserViewScopeId="window-session-1"
+        tabs={[browserTab]}
+        mountedTabIds={new Set(["tab-browser"])}
+        visibleTabIds={new Set()}
+      />,
+    );
+    await settleAsyncRender();
+
+    expect(document.body.querySelector("webview")).toBeNull();
+    expect(
+      invokeCalls.some((call) =>
+        call[0] === "browser-sidebar-command"
+        && (call[1] as { type?: string } | undefined)?.type === "register-host"
+      ),
+    ).toBe(false);
   });
 });
 

@@ -149,6 +149,9 @@ describe("workbench panel preview", () => {
       browser,
     )).toMatchObject({
       browserTabId: browser.browserTabId,
+      config: {
+        browserStorageId: `browser:${browser.browserTabId}`,
+      },
       kind: "browser",
     });
 

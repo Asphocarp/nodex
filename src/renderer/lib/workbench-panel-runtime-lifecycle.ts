@@ -1,4 +1,5 @@
 import type { WorkbenchTabProjection } from "../../shared/types";
+import { requireWorkbenchBrowserTabProjectionId } from "../../shared/browser-sidebar";
 import type { ProjectSessionPreviewTab } from "./workbench-panel-preview";
 
 export type WorkbenchPanelCloseResult =
@@ -12,6 +13,7 @@ export interface DurablePanelTabCloseRuntime {
   readonly flushFile: (tabId: string) => Promise<boolean>;
   readonly releaseTerminal: (terminalSessionId: string) => void;
   readonly removeDescriptor: () => void;
+  readonly closeBrowserRuntime: (browserTabId: string) => Promise<void>;
   readonly disposePageEditor: () => Promise<void>;
   readonly disposeCanvas: (tab: WorkbenchTabProjection) => Promise<boolean>;
 }
@@ -42,6 +44,11 @@ export async function closeDurablePanelTabWithRuntime(
   }
 
   runtime.removeDescriptor();
+  if (tab?.kind === "browser") {
+    await runtime.closeBrowserRuntime(
+      requireWorkbenchBrowserTabProjectionId(tab),
+    );
+  }
   if (tab?.kind === "page_stage") {
     await runtime.disposePageEditor();
   }

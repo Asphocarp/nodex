@@ -1,18 +1,19 @@
 import {
   BROWSER_SIDEBAR_ZOOM_OPTIONS,
+  DEFAULT_BROWSER_LOCAL_SERVER_PREFERENCES,
+  type BrowserLocalServerPreferences,
+  type BrowserLocalServerShowMode,
+  type BrowserLocalServerSortMode,
   type BrowserSidebarLocalServer,
   type BrowserSidebarLocalServersSnapshot,
   type BrowserSidebarViewport,
 } from "../../../shared/browser-sidebar";
 import { isBlankBrowserUrl, normalizeBrowserNavigationUrl } from "../../../shared/browser-url";
 
-export const BROWSER_LOCAL_SERVER_SHOW_MODE_STORAGE_KEY = "browser-sidebar-local-server-show-mode";
-export const BROWSER_LOCAL_SERVER_SORT_MODE_STORAGE_KEY = "browser-sidebar-local-server-sort-mode";
-export const BROWSER_LOCAL_SERVER_ROUTES_EXPANDED_STORAGE_KEY =
-  "browser-sidebar-local-server-routes-expanded-by-conversation";
-
-export type BrowserLocalServerShowMode = "online" | "all" | "hidden";
-export type BrowserLocalServerSortMode = "recently-used" | "origin";
+export type {
+  BrowserLocalServerShowMode,
+  BrowserLocalServerSortMode,
+};
 
 export interface BrowserLocalServerSettings {
   showMode: BrowserLocalServerShowMode;
@@ -53,28 +54,15 @@ export function shouldCommitBrowserAddressEdit(currentUrl: string, draft: string
   return normalizeBrowserNavigationUrl(trimmed) !== normalizeBrowserNavigationUrl(currentUrl);
 }
 
-export function resolveBrowserLocalServerSettings(storage: Storage | null | undefined): BrowserLocalServerSettings {
+export function resolveBrowserLocalServerSettings(
+  preferences: BrowserLocalServerPreferences | null | undefined,
+): BrowserLocalServerSettings {
+  const resolved = preferences ?? DEFAULT_BROWSER_LOCAL_SERVER_PREFERENCES;
   return {
-    showMode: parseShowMode(storage?.getItem(BROWSER_LOCAL_SERVER_SHOW_MODE_STORAGE_KEY)),
-    sortMode: parseSortMode(storage?.getItem(BROWSER_LOCAL_SERVER_SORT_MODE_STORAGE_KEY)),
-    expandedProjectIds: parseExpandedProjectIds(storage?.getItem(BROWSER_LOCAL_SERVER_ROUTES_EXPANDED_STORAGE_KEY)),
+    showMode: resolved.showMode,
+    sortMode: resolved.sortMode,
+    expandedProjectIds: new Set(resolved.expandedProjectIds),
   };
-}
-
-export function writeBrowserLocalServerShowMode(storage: Storage | null | undefined, showMode: BrowserLocalServerShowMode): void {
-  storage?.setItem(BROWSER_LOCAL_SERVER_SHOW_MODE_STORAGE_KEY, showMode);
-}
-
-export function writeBrowserLocalServerSortMode(storage: Storage | null | undefined, sortMode: BrowserLocalServerSortMode): void {
-  storage?.setItem(BROWSER_LOCAL_SERVER_SORT_MODE_STORAGE_KEY, sortMode);
-}
-
-export function writeBrowserLocalServerExpandedProjects(
-  storage: Storage | null | undefined,
-  expandedProjectIds: ReadonlySet<string>,
-): void {
-  const value = Object.fromEntries([...expandedProjectIds].map((projectId) => [projectId, true]));
-  storage?.setItem(BROWSER_LOCAL_SERVER_ROUTES_EXPANDED_STORAGE_KEY, JSON.stringify(value));
 }
 
 export function resolveVisibleLocalServers(
@@ -100,12 +88,23 @@ export function resolveVisibleLocalServers(
 }
 
 export function stepBrowserZoomPercent(current: number, delta: number): number {
-  return clampBrowserZoomPercent(current + delta);
+  const clamped = clampBrowserZoomPercent(current);
+  if (delta === 0) return clamped;
+  if (delta > 0) {
+    return BROWSER_SIDEBAR_ZOOM_OPTIONS.find((option) => option > clamped)
+      ?? BROWSER_SIDEBAR_ZOOM_OPTIONS.at(-1)
+      ?? clamped;
+  }
+  return [...BROWSER_SIDEBAR_ZOOM_OPTIONS]
+    .reverse()
+    .find((option) => option < clamped)
+    ?? BROWSER_SIDEBAR_ZOOM_OPTIONS[0]
+    ?? clamped;
 }
 
 export function clampBrowserZoomPercent(value: number): number {
   if (!Number.isFinite(value)) return 100;
-  return Math.min(300, Math.max(25, Math.round(value)));
+  return Math.min(500, Math.max(25, Math.round(value)));
 }
 
 export function resolveBrowserZoomOptions(current: number): number[] {
@@ -143,27 +142,4 @@ function sortLocalServers(
   const next = [...servers];
   if (sortMode === "origin") return next.sort((a, b) => a.origin.localeCompare(b.origin));
   return next.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
-}
-
-function parseShowMode(value: string | null | undefined): BrowserLocalServerShowMode {
-  if (value === "all" || value === "hidden") return value;
-  return "online";
-}
-
-function parseSortMode(value: string | null | undefined): BrowserLocalServerSortMode {
-  if (value === "origin") return "origin";
-  return "recently-used";
-}
-
-function parseExpandedProjectIds(value: string | null | undefined): ReadonlySet<string> {
-  if (!value) return new Set();
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (!parsed || typeof parsed !== "object") return new Set();
-    return new Set(Object.entries(parsed)
-      .filter(([, isExpanded]) => isExpanded === true)
-      .map(([projectId]) => projectId));
-  } catch {
-    return new Set();
-  }
 }

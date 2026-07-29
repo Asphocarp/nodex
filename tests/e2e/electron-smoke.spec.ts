@@ -347,7 +347,7 @@ test("persists a project across a full Electron restart", async () => {
     const firstRead = await firstWindow.evaluate(async () => {
       return window.api?.invoke("projects:list");
     });
-    expect(firstRead).toEqual(expect.arrayContaining([
+    expect((firstRead as { items?: unknown[] } | undefined)?.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "Electron persistence smoke" }),
     ]));
 
@@ -360,7 +360,7 @@ test("persists a project across a full Electron restart", async () => {
     const persisted = await restartedWindow.evaluate(async () => {
       return window.api?.invoke("projects:list");
     });
-    expect(persisted).toEqual(expect.arrayContaining([
+    expect((persisted as { items?: unknown[] } | undefined)?.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "Electron persistence smoke" }),
     ]));
   } finally {
