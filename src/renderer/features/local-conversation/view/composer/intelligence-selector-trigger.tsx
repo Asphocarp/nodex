@@ -271,7 +271,7 @@ export const IntelligenceSelectorTrigger = forwardRef<
       <span
         ref={geometry.measurementRef}
         aria-hidden="true"
-        className="pointer-events-none absolute start-0 top-0 invisible flex w-max flex-col whitespace-nowrap text-sm"
+        className="pointer-events-none absolute start-0 top-0 invisible grid w-max whitespace-nowrap text-sm [&>*]:col-start-1 [&>*]:row-start-1"
         data-intelligence-selector-label-measurement="true"
       >
         {labelCandidates.map((candidate) => (

@@ -12,6 +12,7 @@ import {
 
 interface RightPanelComposerOverlayStoryProps {
   tabKind: "review" | "browser";
+  draft: "empty" | "multiline";
   bottomPanelOpen: boolean;
   atDocumentBottom: boolean;
   running: boolean;
@@ -64,12 +65,25 @@ function buildStoryFooterModel(running: boolean) {
 
 function RightPanelComposerOverlayStory({
   tabKind,
+  draft,
   bottomPanelOpen,
   atDocumentBottom,
   running,
 }: RightPanelComposerOverlayStoryProps) {
   const [overlayHost, setOverlayHost] = useState<HTMLElement | null>(null);
-  const footerModel = buildStoryFooterModel(running);
+  const baseFooterModel = buildStoryFooterModel(running);
+  const footerModel = draft === "multiline"
+    ? {
+        ...baseFooterModel,
+        composerIntent: {
+          prompt: Array.from(
+            { length: 24 },
+            (_, index) => `Multiline composer regression line ${index + 1}`,
+          ).join("\n"),
+          focusNonce: 1,
+        },
+      }
+    : baseFooterModel;
   const title = tabKind === "review" ? "Review" : "Browser";
   const bodyLabel = tabKind === "review"
     ? "Diff and source scroll surface"
@@ -131,6 +145,7 @@ const meta = {
   component: RightPanelComposerOverlayStory,
   args: {
     tabKind: "review",
+    draft: "empty",
     bottomPanelOpen: false,
     atDocumentBottom: false,
     running: false,
@@ -139,6 +154,10 @@ const meta = {
     tabKind: {
       control: "inline-radio",
       options: ["review", "browser"],
+    },
+    draft: {
+      control: "inline-radio",
+      options: ["empty", "multiline"],
     },
   },
 } satisfies Meta<typeof RightPanelComposerOverlayStory>;
@@ -160,6 +179,19 @@ export const FullWidthReview: Story = {
 export const FullWidthBrowser: Story = {
   args: {
     tabKind: "browser",
+  },
+};
+
+export const FullWidthMultilineDraft: Story = {
+  args: {
+    draft: "multiline",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "A long draft uses the prompt row as the only overflowing region while the control row stays fixed inside the composer surface.",
+      },
+    },
   },
 };
 

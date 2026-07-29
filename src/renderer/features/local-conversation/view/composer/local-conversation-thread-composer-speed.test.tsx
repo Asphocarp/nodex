@@ -2412,6 +2412,15 @@ describe("ThreadComposer speed menu", () => {
     const editorScrollContainer = composer?.parentElement;
     const attachmentStrip = view.container.querySelector<HTMLElement>('[data-composer-attachments="true"]');
     const formFooter = view.container.querySelector<HTMLElement>('[data-composer-form-footer="true"]');
+    const inputSlot = formFooter?.querySelector<HTMLElement>(
+      '[data-composer-input-slot="true"]',
+    );
+    const leadingSlot = formFooter?.querySelector<HTMLElement>(
+      '[data-composer-footer-leading="true"]',
+    );
+    const trailingSlot = formFooter?.querySelector<HTMLElement>(
+      '[data-composer-footer-trailing="true"]',
+    );
 
     expect(composer !== null).toBe(true);
     expect(composer?.classList.contains("ProseMirror") ?? false).toBe(true);
@@ -2430,7 +2439,14 @@ describe("ThreadComposer speed menu", () => {
     expect(attachmentStrip?.classList.contains("_attachmentsDefault_1u8sk_2") ?? false).toBe(true);
     expect(attachmentStrip?.classList.contains("empty:hidden") ?? true).toBe(false);
     expect(formFooter?.classList.contains("_footer_1u8sk_2") ?? false).toBe(true);
-    expect(editorScrollContainer?.contains(composer)).toBe(true);
+    expect(formFooter?.getAttribute("data-composer-layout")).toBe("multiline");
+    expect(inputSlot?.getAttribute("data-composer-footer-row")).toBe("prompt");
+    expect(inputSlot?.contains(promptFrame ?? null)).toBe(true);
+    expect(leadingSlot?.getAttribute("data-composer-footer-row")).toBe("controls");
+    expect(trailingSlot?.getAttribute("data-composer-footer-row")).toBe("controls");
+    expect(editorScrollContainer).toBe(promptFrame);
+    expect(promptFrame?.contains(leadingSlot ?? null)).toBe(false);
+    expect(promptFrame?.contains(trailingSlot ?? null)).toBe(false);
   });
 
   test("renders the Codex new-chat placeholder inside the ProseMirror document", async () => {

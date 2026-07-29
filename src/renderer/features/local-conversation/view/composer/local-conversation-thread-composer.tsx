@@ -109,6 +109,11 @@ import {
   type ComposerPromptEditorHandle,
   type ComposerPromptEditorKeyboardEvent,
 } from "./composer-prompt-editor";
+import {
+  ComposerAdaptiveFooter,
+  ComposerInput,
+  type ComposerAdaptiveLayout,
+} from "./composer-adaptive-footer";
 import { useThreadComposerPromptHistoryRecall } from "./thread-composer-prompt-history";
 import { InlineSlashCommandMenu } from "./slash-command-menu/inline-slash-command-menu";
 import { ExpandedSlashCommandDialog } from "./slash-command-menu/expanded-slash-command-dialog";
@@ -3066,6 +3071,74 @@ function HydratedThreadComposer({
       onSlashTriggerChange={handleSlashTriggerChange}
     />
   );
+  const composerLayout: ComposerAdaptiveLayout = floatingComposerSingleLine
+    ? "single-line"
+    : "multiline";
+  const floatingLeadingControls = addContextControl;
+  const floatingTrailingControls = (
+    <div className="flex min-w-0 shrink-0 items-center gap-2">
+      {model.selectedCollaborationMode === "plan" || goalModeActive ? (
+        <ComposerFooterAccessoryDivider />
+      ) : null}
+      <ActiveComposerModeChip
+        model={model}
+        onToggle={togglePlanMode}
+      />
+      <ActiveGoalModeChip
+        active={hasFooterGoalChip}
+        onClear={clearFooterGoal}
+      />
+      <div className="flex min-w-0 items-center gap-1">
+        {intelligenceControls}
+      </div>
+      <PermissionModeDropdown
+        selectedMode={model.permissionMode}
+        availableModes={permissionState?.availableModes}
+        autoReviewAvailable={permissionState?.autoReviewAvailable ?? false}
+        customDescription={permissionState?.customDescription ?? null}
+        triggerVariant="icon"
+        onSelect={actions.onPermissionModeChange}
+      />
+      {dictationControl}
+      {primaryActionControl}
+    </div>
+  );
+  const standardLeadingControls = (
+    <div className="flex min-w-0 items-center gap-[5px]">
+      {addContextControl}
+      <PermissionModeDropdown
+        selectedMode={model.permissionMode}
+        availableModes={permissionState?.availableModes}
+        autoReviewAvailable={permissionState?.autoReviewAvailable ?? false}
+        customDescription={permissionState?.customDescription ?? null}
+        onSelect={actions.onPermissionModeChange}
+      />
+      {model.selectedCollaborationMode === "plan" || goalModeActive ? (
+        <ComposerFooterAccessoryDivider />
+      ) : null}
+      <ActiveComposerModeChip
+        model={model}
+        onToggle={togglePlanMode}
+      />
+      <ActiveGoalModeChip
+        active={hasFooterGoalChip}
+        onClear={clearFooterGoal}
+      />
+    </div>
+  );
+  const standardTrailingControls = (
+    <div className="flex min-w-0 items-center justify-end w-full">
+      <div className="flex min-w-0 flex-1 justify-end">
+        <div className="flex min-w-0 items-center gap-1">
+          {intelligenceControls}
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {dictationControl}
+        {primaryActionControl}
+      </div>
+    </div>
+  );
   const dictationRowContent = (
     <>
       <button
@@ -3161,7 +3234,7 @@ function HydratedThreadComposer({
             "composer-surface-chrome relative flex flex-col bg-token-input-background/90 backdrop-blur-lg electron:dark:bg-token-dropdown-background",
             floatingComposerSingleLine
               ? "overflow-visible rounded-full"
-              : "_multilineSurface_1u8sk_2",
+              : "overflow-y-auto _multilineSurface_1u8sk_2",
             showExternalFooter && "z-10",
           )}
         >
@@ -3303,114 +3376,58 @@ function HydratedThreadComposer({
               </div>
             ) : null}
 
-            {isFloatingComposer ? (
-              isDictating ? (
+            {isDictating ? (
+              isFloatingComposer ? (
                 <div className="grid min-h-11 grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] items-center gap-2 px-2 py-1">
                   {dictationRowContent}
                 </div>
               ) : (
                 <>
+                  <ComposerInput layout="multiline">
+                    {renderPromptEditor()}
+                  </ComposerInput>
                   {errorMessage ? (
-                    <div className="px-3 pt-2 text-xs text-(--destructive)">
+                    <div className="px-3 pb-2 text-xs text-(--destructive)">
                       {errorMessage}
                     </div>
                   ) : null}
-                  <div
-                    data-composer-form-footer="true"
-                    className="grid min-h-11 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-2 py-1 select-none"
-                  >
-                    {addContextControl}
-                    <div className="min-w-0">
-                      {renderPromptEditor(floatingComposerSingleLine)}
-                    </div>
-                    <div className="flex min-w-0 shrink-0 items-center gap-2">
-                      {model.selectedCollaborationMode === "plan" || goalModeActive ? (
-                        <ComposerFooterAccessoryDivider />
-                      ) : null}
-                      <ActiveComposerModeChip
-                        model={model}
-                        onToggle={togglePlanMode}
-                      />
-                      <ActiveGoalModeChip
-                        active={hasFooterGoalChip}
-                        onClear={clearFooterGoal}
-                      />
-                      <div className="flex min-w-0 items-center gap-1">
-                        {intelligenceControls}
-                      </div>
-                      <PermissionModeDropdown
-                        selectedMode={model.permissionMode}
-                        availableModes={permissionState?.availableModes}
-                        autoReviewAvailable={permissionState?.autoReviewAvailable ?? false}
-                        customDescription={permissionState?.customDescription ?? null}
-                        triggerVariant="icon"
-                        onSelect={actions.onPermissionModeChange}
-                      />
-                      {dictationControl}
-                      {primaryActionControl}
-                    </div>
+                  <div className="mb-2 flex items-center gap-2 px-2">
+                    {dictationRowContent}
                   </div>
                 </>
               )
             ) : (
               <>
-                <div className="contents">
-                  <div className="mb-1 flex-grow overflow-y-auto px-3">
-                    {renderPromptEditor()}
+                {errorMessage && isFloatingComposer ? (
+                  <div className="px-3 pt-2 text-xs text-(--destructive)">
+                    {errorMessage}
                   </div>
-                </div>
-
-                {errorMessage && <div className="px-3 pb-2 text-xs text-(--destructive)">{errorMessage}</div>}
-
-                {isDictating ? (
-                  <div className="mb-2 flex items-center gap-2 px-2">
-                    {dictationRowContent}
-                  </div>
-                ) : (
-                  <div
-                    data-composer-form-footer="true"
-                    className="_footer_1u8sk_2 grid grid-cols-[minmax(0,auto)_auto_minmax(0,1fr)] items-center gap-[5px] select-none mb-2 px-2"
-                  >
-                    <div className="flex min-w-0 items-center gap-[5px]">
-                      {addContextControl}
-
-                      <PermissionModeDropdown
-                        selectedMode={model.permissionMode}
-                        availableModes={permissionState?.availableModes}
-                        autoReviewAvailable={permissionState?.autoReviewAvailable ?? false}
-                        customDescription={permissionState?.customDescription ?? null}
-                        onSelect={actions.onPermissionModeChange}
-                      />
-
-                      {model.selectedCollaborationMode === "plan" || goalModeActive ? (
-                        <ComposerFooterAccessoryDivider />
-                      ) : null}
-
-                      <ActiveComposerModeChip
-                        model={model}
-                        onToggle={togglePlanMode}
-                      />
-                      <ActiveGoalModeChip
-                        active={hasFooterGoalChip}
-                        onClear={clearFooterGoal}
-                      />
-                    </div>
-
-                    <div className="flex items-center" />
-
-                    <div className="flex min-w-0 items-center justify-end w-full">
-                      <div className="flex min-w-0 flex-1 justify-end">
-                        <div className="flex min-w-0 items-center gap-1">
-                          {intelligenceControls}
+                ) : null}
+                <ComposerAdaptiveFooter
+                  layout={composerLayout}
+                  input={(
+                    <>
+                      <ComposerInput layout={composerLayout}>
+                        {renderPromptEditor(floatingComposerSingleLine)}
+                      </ComposerInput>
+                      {errorMessage && !isFloatingComposer ? (
+                        <div className="px-3 pb-2 text-xs text-(--destructive)">
+                          {errorMessage}
                         </div>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        {dictationControl}
-                        {primaryActionControl}
-                      </div>
-                    </div>
-                  </div>
-                )}
+                      ) : null}
+                    </>
+                  )}
+                  leadingControls={
+                    isFloatingComposer
+                      ? floatingLeadingControls
+                      : standardLeadingControls
+                  }
+                  trailingControls={
+                    isFloatingComposer
+                      ? floatingTrailingControls
+                      : standardTrailingControls
+                  }
+                />
               </>
             )}
           </div>

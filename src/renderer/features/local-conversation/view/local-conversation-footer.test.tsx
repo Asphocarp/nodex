@@ -418,9 +418,18 @@ describe("LocalConversationFooter", () => {
     );
     const prompt = overlay.querySelector('[data-codex-composer="true"]');
     const permission = overlay.querySelector('button[aria-label="Permission mode"]');
+    const formFooter = overlay.querySelector(
+      '[data-composer-form-footer="true"]',
+    );
+    const inputSlot = formFooter?.querySelector(
+      '[data-composer-input-slot="true"]',
+    );
     expect(isBefore(addContext, prompt)).toBe(true);
     expect(isBefore(prompt, permission)).toBe(true);
     expect(permission?.textContent).toBe("");
+    expect(formFooter?.getAttribute("data-composer-layout")).toBe("single-line");
+    expect(inputSlot?.getAttribute("data-composer-footer-row")).toBe("single-line");
+    expect(inputSlot?.contains(prompt)).toBe(true);
     expect(overlay.textContent?.includes("Run the checks") ?? false).toBe(false);
     expect(overlay.querySelector('[data-composer-attachments="true"]')).toBeNull();
 
@@ -467,9 +476,26 @@ describe("LocalConversationFooter", () => {
       const attachmentTray = document.body.querySelector(
         '[data-testid="right-panel-composer-overlay"] [data-composer-attachments="true"]',
       );
+      const formFooter = document.body.querySelector(
+        '[data-testid="right-panel-composer-overlay"] [data-composer-form-footer="true"]',
+      );
+      const inputSlot = formFooter?.querySelector(
+        '[data-composer-input-slot="true"]',
+      );
+      const leadingSlot = formFooter?.querySelector(
+        '[data-composer-footer-leading="true"]',
+      );
+      const trailingSlot = formFooter?.querySelector(
+        '[data-composer-footer-trailing="true"]',
+      );
       expect(composer?.textContent).toContain("First line");
       expect(composer?.textContent).toContain("Second line");
       expect(attachmentTray !== null).toBe(true);
+      expect(formFooter?.getAttribute("data-composer-layout")).toBe("multiline");
+      expect(inputSlot?.getAttribute("data-composer-footer-row")).toBe("prompt");
+      expect(inputSlot?.contains(composer ?? null)).toBe(true);
+      expect(leadingSlot?.getAttribute("data-composer-footer-row")).toBe("controls");
+      expect(trailingSlot?.getAttribute("data-composer-footer-row")).toBe("controls");
     });
   });
 
