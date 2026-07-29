@@ -1,4 +1,12 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { RefObject } from "react";
 import type {
   AppState,
@@ -49,6 +57,11 @@ import {
   createCanvasPresenceController,
   type CanvasPresenceController,
 } from "@/lib/canvas-presence-controller";
+import {
+  createCanvasViewportPersistence,
+  readCanvasViewportPreference,
+  type CanvasViewportPersistence,
+} from "@/lib/canvas-viewport-preference";
 
 const ExcalidrawLazy = lazy(async () => {
   const mod = await loadExcalidraw();
@@ -115,7 +128,10 @@ export function CanvasView({ projectId, databaseViewId, canvasSurfaceKey, openPa
         }
         return (
           <CanvasEditor
-            key={model.descriptor.documentId}
+            key={JSON.stringify([
+              model.descriptor.storeEpoch,
+              model.descriptor.documentId,
+            ])}
             projectId={projectId}
             databaseViewId={databaseViewId}
             canvasSurfaceKey={canvasSurfaceKey}
@@ -156,9 +172,15 @@ function CanvasEditor({
   const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const bindingRef = useRef<CanvasSceneBinding | null>(null);
   const presenceRef = useRef<CanvasPresenceController | null>(null);
+  const viewportPersistenceRef = useRef<CanvasViewportPersistence | null>(null);
   const clientSessionIdRef = useRef(
     `canvas:${globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)}`,
   );
+  const [restoredViewport] = useState(() =>
+    readCanvasViewportPreference({
+      storeEpoch: descriptor.storeEpoch,
+      documentId: descriptor.documentId,
+    }));
   const [resolvedScene, setResolvedScene] = useState<{
     readonly materialization: PortableCanvasScene;
     readonly files: CanvasBinaryFiles;
@@ -183,6 +205,46 @@ function CanvasEditor({
       });
     });
   }, []);
+
+  const handleViewportChange = useCallback((
+    scrollX: number,
+    scrollY: number,
+    zoom: AppState["zoom"],
+  ) => {
+    viewportPersistenceRef.current?.observe({
+      scrollX,
+      scrollY,
+      zoom: zoom.value,
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    const persistence = createCanvasViewportPersistence({
+      storeEpoch: descriptor.storeEpoch,
+      documentId: descriptor.documentId,
+    });
+    viewportPersistenceRef.current = persistence;
+    const flushCurrentViewport = (): void => {
+      const appState = excalidrawApiRef.current?.getAppState();
+      if (appState) {
+        persistence.observe({
+          scrollX: appState.scrollX,
+          scrollY: appState.scrollY,
+          zoom: appState.zoom.value,
+        });
+      }
+      persistence.flush();
+    };
+    window.addEventListener("beforeunload", flushCurrentViewport);
+    return () => {
+      window.removeEventListener("beforeunload", flushCurrentViewport);
+      flushCurrentViewport();
+      persistence.dispose();
+      if (viewportPersistenceRef.current === persistence) {
+        viewportPersistenceRef.current = null;
+      }
+    };
+  }, [descriptor.documentId, descriptor.storeEpoch]);
 
   useEffect(() => {
     let active = true;
@@ -613,14 +675,25 @@ function CanvasEditor({
               elements: resolvedScene.materialization.elements as unknown as readonly OrderedExcalidrawElement[],
               appState: {
                 ...resolvedScene.materialization.appState,
+                ...(restoredViewport
+                  ? {
+                      scrollX: restoredViewport.scrollX,
+                      scrollY: restoredViewport.scrollY,
+                      zoom: {
+                        value: restoredViewport.zoom,
+                      } as AppState["zoom"],
+                    }
+                  : {}),
                 theme: themeResolved,
               },
               files: resolvedScene.files as unknown as BinaryFiles,
+              scrollToContent: restoredViewport ? false : undefined,
             }}
             theme={themeResolved}
             isCollaborating
             viewModeEnabled={writeFrozen}
             onChange={handleChange}
+            onScrollChange={handleViewportChange}
             onPointerUpdate={handlePointerUpdate}
             onLinkOpen={handleLinkOpen}
             renderTopRightUI={renderTopRightUI}

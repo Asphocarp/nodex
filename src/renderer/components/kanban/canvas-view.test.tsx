@@ -19,6 +19,10 @@ import {
 } from "../../../shared/block-documents";
 import { MemoryCanvasSceneOutbox } from "@/lib/canvas-scene-outbox";
 import type { CanvasSceneSyncAdapter } from "@/lib/canvas-scene-provider";
+import {
+  readCanvasViewportPreference,
+  writeCanvasViewportPreference,
+} from "@/lib/canvas-viewport-preference";
 
 type MockCanvasElement = Record<string, unknown> & {
   readonly id: string;
@@ -43,6 +47,14 @@ let latestOnChange:
       files: Record<string, unknown>,
     ) => void)
   | null = null;
+let latestOnScrollChange:
+  | ((
+      scrollX: number,
+      scrollY: number,
+      zoom: { readonly value: number },
+    ) => void)
+  | null = null;
+let mockInitialScrollToContent: boolean | undefined;
 let toggleSidebarCalls = 0;
 let updateSceneCalls: Array<{
   readonly captureUpdate?: string;
@@ -219,11 +231,17 @@ function MockExcalidraw(props: {
     readonly elements?: readonly MockCanvasElement[];
     readonly appState?: Record<string, unknown>;
     readonly files?: Record<string, unknown>;
+    readonly scrollToContent?: boolean;
   };
   readonly onChange?: (
     elements: readonly MockCanvasElement[],
     appState: Record<string, unknown>,
     files: Record<string, unknown>,
+  ) => void;
+  readonly onScrollChange?: (
+    scrollX: number,
+    scrollY: number,
+    zoom: { readonly value: number },
   ) => void;
   readonly renderTopRightUI?: () => ReactNode;
   readonly onLinkOpen?: (
@@ -235,8 +253,14 @@ function MockExcalidraw(props: {
   if (!mockApiInitialized) {
     mockApiInitialized = true;
     mockSceneElements = [...(props.initialData?.elements ?? [])];
-    mockAppState = { ...(props.initialData?.appState ?? {}) };
+    mockAppState = {
+      scrollX: 0,
+      scrollY: 0,
+      zoom: { value: 1 },
+      ...(props.initialData?.appState ?? {}),
+    };
     mockFiles = { ...(props.initialData?.files ?? {}) };
+    mockInitialScrollToContent = props.initialData?.scrollToContent;
   }
   props.excalidrawAPI?.({
     getSceneElementsIncludingDeleted: () => mockSceneElements,
@@ -260,6 +284,7 @@ function MockExcalidraw(props: {
     },
   });
   latestOnChange = props.onChange ?? null;
+  latestOnScrollChange = props.onScrollChange ?? null;
   return createElement(
     "div",
     { "data-testid": "excalidraw" },
@@ -402,6 +427,8 @@ describe("CanvasView", () => {
     mockFiles = {};
     mockApiInitialized = false;
     latestOnChange = null;
+    latestOnScrollChange = null;
+    mockInitialScrollToContent = undefined;
     toggleSidebarCalls = 0;
     updateSceneCalls = [];
     sidebarRenderCount = 0;
@@ -409,6 +436,7 @@ describe("CanvasView", () => {
     maintenanceReadCount = 0;
     maintenanceApplyCount = 0;
     openedCards = [];
+    localStorage.clear();
   });
 
   test("mounts one scene-native Canvas surface without a component close handler", async () => {
@@ -427,6 +455,46 @@ describe("CanvasView", () => {
     const view = await renderCanvas();
     fireEvent.click(await view.findByRole("button", { name: "Pages" }));
     expect(toggleSidebarCalls).toBe(1);
+  });
+
+  test("restores and flushes the last profile-local Document viewport", async () => {
+    writeCanvasViewportPreference({
+      storeEpoch: descriptor.storeEpoch,
+      documentId: descriptor.documentId,
+    }, {
+      scrollX: -320,
+      scrollY: 180,
+      zoom: 1.75,
+    });
+    const view = await renderCanvas();
+    await view.findByTestId("excalidraw");
+
+    expect(mockAppState).toMatchObject({
+      scrollX: -320,
+      scrollY: 180,
+      zoom: { value: 1.75 },
+    });
+    expect(mockInitialScrollToContent).toBe(false);
+
+    mockAppState = {
+      ...mockAppState,
+      scrollX: 640,
+      scrollY: -80,
+      zoom: { value: 2.25 },
+    };
+    act(() => latestOnScrollChange?.(640, -80, { value: 2.25 }));
+    const mutationCount = appliedMutations.length;
+    view.unmount();
+
+    expect(readCanvasViewportPreference({
+      storeEpoch: descriptor.storeEpoch,
+      documentId: descriptor.documentId,
+    })).toEqual({
+      scrollX: 640,
+      scrollY: -80,
+      zoom: 2.25,
+    });
+    expect(appliedMutations).toHaveLength(mutationCount);
   });
 
   test("keeps maintenance invisible and attempts it only after the surface closes", async () => {
@@ -493,6 +561,12 @@ describe("CanvasView", () => {
   test("remote canonical scenes reconcile without entering local undo", async () => {
     const view = await renderCanvas();
     await view.findByTestId("excalidraw");
+    mockAppState = {
+      ...mockAppState,
+      scrollX: 220,
+      scrollY: -140,
+      zoom: { value: 1.5 },
+    };
     const callsBeforeRemote = updateSceneCalls.length;
     serverScene = materializePortableCanvasScene({
       elements: [{ ...makePlacedElement("card-1", 2), x: 240 }],
@@ -513,6 +587,11 @@ describe("CanvasView", () => {
     expect(latest?.captureUpdate).toBe("never");
     expect(mockSceneElements[0]?.x).toBe(240);
     expect(mockAppState.gridModeEnabled).toBe(true);
+    expect(mockAppState).toMatchObject({
+      scrollX: 220,
+      scrollY: -140,
+      zoom: { value: 1.5 },
+    });
   });
 
   test("remote presence renders collaborators without durable scene mutations", async () => {
