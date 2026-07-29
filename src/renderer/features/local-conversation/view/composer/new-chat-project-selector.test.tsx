@@ -128,7 +128,7 @@ describe("NewChatProjectSelector", () => {
   });
 
   test("emits project selection", async () => {
-    const selected: string[] = [];
+    const selected: Array<string | null> = [];
     const view = await renderSelector(
       buildModel(),
       buildActions({
@@ -152,7 +152,7 @@ describe("NewChatProjectSelector", () => {
   });
 
   test("emits project selection from the heading variant", async () => {
-    const selected: string[] = [];
+    const selected: Array<string | null> = [];
     const view = await renderSelector(
       buildModel(),
       buildActions({

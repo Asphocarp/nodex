@@ -12,6 +12,10 @@ import {
   serializeBrowserAnnotationAttachmentForPrompt,
   serializeBrowserAnnotationAttachmentsForAdditionalContext,
 } from "./browser-annotation";
+import {
+  CODEX_APPSHOTS_ADDITIONAL_CONTEXT_KEY,
+  serializeCodexAppshotContextsForPrompt,
+} from "./codex-appshot";
 import type {
   CodexPreparedPrompt,
   CodexPromptAgentConfigInput,
@@ -89,6 +93,19 @@ function resolveSkillInput(input: { readonly name: string; readonly path: string
   return { type: "skill", name, path: skillPath };
 }
 
+function resolveDocumentInput(
+  input: NonNullable<CodexPromptInput["documentItems"]>[number],
+): UserInput {
+  switch (input.type) {
+    case "text":
+      return createCodexTextUserInput(input.text);
+    case "mention":
+      return resolveMentionInput(input);
+    case "skill":
+      return resolveSkillInput(input);
+  }
+}
+
 function buildReviewDiffCommentAdditionalContext(
   commentAttachments: readonly CodexReviewDiffCommentAttachment[],
 ): CodexPreparedPrompt["additionalContext"] {
@@ -105,19 +122,26 @@ function buildReviewDiffCommentAdditionalContext(
 function buildApplicationAdditionalContext(input: {
   readonly commentAttachments: readonly CodexReviewDiffCommentAttachment[];
   readonly browserAnnotationAttachments: NonNullable<CodexPromptInput["browserAnnotationAttachments"]>;
+  readonly appshots: NonNullable<CodexPromptInput["appshots"]>;
 }): NonNullable<CodexPreparedPrompt["additionalContext"]> {
-  const reviewContext = buildReviewDiffCommentAdditionalContext(input.commentAttachments) ?? {};
-  if (input.browserAnnotationAttachments.length === 0) return reviewContext;
-
-  return {
-    ...reviewContext,
-    [BROWSER_ANNOTATIONS_ADDITIONAL_CONTEXT_KEY]: {
+  const context: NonNullable<CodexPreparedPrompt["additionalContext"]> = {
+    ...(buildReviewDiffCommentAdditionalContext(input.commentAttachments) ?? {}),
+  };
+  if (input.browserAnnotationAttachments.length > 0) {
+    context[BROWSER_ANNOTATIONS_ADDITIONAL_CONTEXT_KEY] = {
       kind: "application",
       value: serializeBrowserAnnotationAttachmentsForAdditionalContext(
         input.browserAnnotationAttachments,
       ),
-    },
-  };
+    };
+  }
+  if (input.appshots.length > 0) {
+    context[CODEX_APPSHOTS_ADDITIONAL_CONTEXT_KEY] = {
+      kind: "application",
+      value: serializeCodexAppshotContextsForPrompt(input.appshots),
+    };
+  }
+  return context;
 }
 
 /**
@@ -147,17 +171,20 @@ export async function prepareCodexPrompt(
   const imageItems = await Promise.all(
     (promptInput?.images ?? []).map((image) => options.resolveImageInput(image.source)),
   );
+  const appshots = (promptInput?.appshots ?? []).map((appshot) => ({
+    ...appshot,
+  }));
+  const appshotImageItems = await Promise.all(
+    appshots.map((appshot) => options.resolveImageInput(appshot.imageDataUrl)),
+  );
   const skillItems = (promptInput?.skills ?? []).map(resolveSkillInput);
+  const explicitMentionItems = (promptInput?.mentions ?? [])
+    .map(resolveMentionInput);
+  const documentItems = promptInput?.documentItems?.map(resolveDocumentInput);
   const explicitFileAttachments = dedupeCodexLiveFileAttachments(
     promptInput?.fileAttachments ?? [],
   );
-  const fileAttachments = promptInput?.fileAttachments === undefined
-    ? dedupeCodexLiveFileAttachments((promptInput?.mentions ?? []).map((mention) => ({
-        label: mention.name,
-        path: mention.path,
-        fsPath: mention.path,
-      })))
-    : explicitFileAttachments;
+  const fileAttachments = explicitFileAttachments;
   const addedFiles = dedupeCodexLiveFileAttachments(promptInput?.addedFiles ?? []);
   const ordinaryMentionPaths = new Set<string>();
   const mentionItems = [...fileAttachments, ...addedFiles].flatMap((attachment) => {
@@ -189,24 +216,30 @@ export async function prepareCodexPrompt(
   const additionalContext = buildApplicationAdditionalContext({
     commentAttachments,
     browserAnnotationAttachments,
+    appshots,
   });
   const primaryTextItems = promptText ? [createCodexTextUserInput(promptText)] : [];
+  const primaryDocumentItems = documentItems ?? primaryTextItems;
   const inputItems: UserInput[] = [
-    ...primaryTextItems,
+    ...primaryDocumentItems,
     ...commentItems,
     ...browserAnnotationItems,
     ...browserAnnotationEvidenceItems,
+    ...appshotImageItems,
     ...imageItems,
+    ...(documentItems === undefined ? explicitMentionItems : []),
     ...mentionItems,
-    ...skillItems,
+    ...(documentItems === undefined ? skillItems : []),
   ];
   const pendingInputItems: UserInput[] = [
-    ...primaryTextItems,
+    ...primaryDocumentItems,
     ...commentItems,
     ...browserAnnotationItems,
     ...browserAnnotationEvidenceItems,
+    ...appshotImageItems,
     ...imageItems,
-    ...skillItems,
+    ...(documentItems === undefined ? explicitMentionItems : []),
+    ...(documentItems === undefined ? skillItems : []),
   ];
 
   if (options.allowEmptyTextPlaceholder === true && promptText.length === 0) {

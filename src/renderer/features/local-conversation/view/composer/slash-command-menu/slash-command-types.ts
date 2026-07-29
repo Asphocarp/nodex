@@ -41,6 +41,7 @@ export interface ComposerSlashCommand {
   isEnabled?: boolean;
   isVisible?: boolean;
   telemetryName?: string;
+  dismissOnInput?: boolean;
   Content?: (props: ComposerSlashCommandContentProps) => ReactNode;
   onSelect?: (selection: ComposerSlashCommandSelection) => void | Promise<void>;
   onSelectFromInlineSlash?: (selection: ComposerSlashInlineSelection) => void | Promise<void>;

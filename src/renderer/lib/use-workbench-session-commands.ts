@@ -252,30 +252,59 @@ const ensureBlankSessionForProject = useCallback(async (
     );
   }, [ensureBlankSessionForProject]);
 
-  const openScheduledAutomationChatCreate = useCallback(async (prompt: string) => {
-    const targetProject = activeProject ?? projects.find((project) => project.id === activeProjectId) ?? null;
-    if (!targetProject) {
-      throw new Error("No project is available for scheduled task chat.");
-    }
-
-    const session = await ensureBlankSessionForProject(targetProject.id);
+  const prefillNewChat = useCallback(async (input: {
+    projectId: string | null;
+    prompt: string;
+  }) => {
+    const session = await ensureBlankSessionForProject(input.projectId);
     setSettingsPath(null);
     setAutomationsPath(null);
     setNewThreadComposerIntentsBySessionId((current) => ({
       ...current,
       [session.id]: {
-        prompt,
+        prompt: input.prompt,
         focusNonce: Date.now(),
       },
     }));
+    return session;
   }, [
-    activeProject,
-    activeProjectId,
     ensureBlankSessionForProject,
-    projects,
     setAutomationsPath,
     setNewThreadComposerIntentsBySessionId,
     setSettingsPath,
+  ]);
+
+  const startNewChatWithPrompt = useCallback(async (input: {
+    projectId: string | null;
+    prompt: string;
+  }) => {
+    const session = await prefillNewChat(input);
+    panelControllerRef.current.durable.patchPanel(
+      session,
+      "right",
+      {
+        size: {
+          ...session.panels.right.size,
+          fullWidth: false,
+        },
+      },
+    );
+  }, [prefillNewChat]);
+
+  const openScheduledAutomationChatCreate = useCallback(async (prompt: string) => {
+    const targetProject = activeProject ?? projects.find((project) => project.id === activeProjectId) ?? null;
+    if (!targetProject) {
+      throw new Error("No project is available for scheduled task chat.");
+    }
+    await prefillNewChat({
+      projectId: targetProject.id,
+      prompt,
+    });
+  }, [
+    activeProject,
+    activeProjectId,
+    prefillNewChat,
+    projects,
   ]);
 
   const startScheduledAutomationTemplateChat = useCallback(async (prompt: string) => {
@@ -773,6 +802,7 @@ const ensureBlankSessionForProject = useCallback(async (
   return {
     ensureBlankSessionForProject,
     startNewChatInProject,
+    startNewChatWithPrompt,
     openScheduledAutomationChatCreate,
     startScheduledAutomationTemplateChat,
     openSidebarCommandPalette,

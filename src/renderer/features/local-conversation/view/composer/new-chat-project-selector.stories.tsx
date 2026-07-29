@@ -6,7 +6,7 @@ import { ThreadComposerExternalFooterSlot } from "./local-conversation-thread-co
 import { NewChatProjectSelector } from "./new-chat-project-selector";
 
 function buildActions(input: {
-  onSelect: (projectId: string) => void;
+  onSelect: (projectId: string | null) => void;
 }): ThreadStageActions {
   const noopAsync = async () => undefined;
   return {

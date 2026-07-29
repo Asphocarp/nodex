@@ -1343,6 +1343,7 @@ export function WorkbenchRuntime({
   const {
     ensureBlankSessionForProject,
     startNewChatInProject,
+    startNewChatWithPrompt,
     openScheduledAutomationChatCreate,
     startScheduledAutomationTemplateChat,
     openSidebarCommandPalette,
@@ -2160,6 +2161,7 @@ export function WorkbenchRuntime({
           onRefreshProjectSessions: refreshProjectSessions,
           onEnsureBlankSessionForProject:
             ensureBlankSessionForProject,
+          onStartNewChatWithPrompt: startNewChatWithPrompt,
           onOpenPendingWorktree:
             setPendingWorktreeClientThreadId,
           newThreadComposerIntent:

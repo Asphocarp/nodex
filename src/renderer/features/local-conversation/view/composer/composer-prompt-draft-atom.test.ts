@@ -117,6 +117,18 @@ describe("composer prompt draft atom", () => {
     };
 
     expect(deserializeComposerPromptDraft(serializeComposerPromptDraft(document))).toEqual(document);
+    expect(deserializeComposerPromptDraft(serializeComposerPromptDraft({
+      text: "@Plugin Management",
+      links: [],
+      mentions: [{
+        from: 0,
+        to: 18,
+        kind: "app",
+        id: "app:plugin-management",
+        label: "Plugin Management",
+        path: "app://plugin-management",
+      }],
+    })).mentions[0]?.kind).toBe("app");
     expect(deserializeComposerPromptDraft("legacy plain text").text).toBe("legacy plain text");
   });
 

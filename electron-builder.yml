@@ -44,6 +44,7 @@ extraResources:
   to: bin
   filter:
   - nodex
+  - nodex-appshot-helper
   - nodex-browser-profile-helper
   - nodex-core
   - rust-core-runtime.json
@@ -78,6 +79,7 @@ mac:
   hardenedRuntime: true
   binaries:
   - Contents/Resources/bin/nodex
+  - Contents/Resources/bin/nodex-appshot-helper
   - Contents/Resources/bin/nodex-browser-profile-helper
   - Contents/Resources/bin/nodex-core
   - Contents/Resources/bin/interpreter

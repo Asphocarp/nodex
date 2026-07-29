@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { AppShellHeaderContentRegistrar } from "@/lib/workbench-ui-scopes";
 import { resolveCodexElectronDisplayThreadTitle } from "../../../../shared/codex-thread-title";
 import { buildCodexTurnOccurrenceKey } from "../../../../shared/codex-turn-identity";
@@ -76,6 +77,13 @@ import {
 } from "./summary-panel";
 import { resolveEffectiveAgentExecutionProfile } from "@/lib/agent-execution-profile";
 import type { AgentExecutionProfile } from "../../../../shared/agent-runtime";
+import {
+  codexComposerChatGptConversationsListQueryOptions,
+  codexComposerPluginsListQueryOptions,
+  codexComposerSitesListQueryOptions,
+  codexComposerSkillsListQueryOptions,
+  mcpAppsQueryOptions,
+} from "@/lib/query-options";
 
 type ConnectedThreadStageInput = Omit<
   ThreadStageRouteInput,
@@ -497,6 +505,39 @@ function ConnectedThreadStageFooter({
   const account = useLocalConversationAccount();
   const dictation = useCodexDictationState();
   const permissionState = useCodexPermissionState(input.projectId);
+  const composerPluginCwds = useMemo(
+    () => Array.from(new Set(
+      [cwd, input.projectWorkspacePath]
+        .flatMap((candidate) => candidate?.trim() ? [candidate.trim()] : []),
+    )),
+    [cwd, input.projectWorkspacePath],
+  );
+  const composerPluginsQuery = useQuery(
+    codexComposerPluginsListQueryOptions(composerPluginCwds),
+  );
+  const composerSkillsQuery = useQuery(
+    codexComposerSkillsListQueryOptions(composerPluginCwds),
+  );
+  const composerAppsQuery = useQuery(mcpAppsQueryOptions());
+  const composerSitesQuery = useQuery(codexComposerSitesListQueryOptions());
+  const composerChatGptConversationsQuery = useQuery(
+    codexComposerChatGptConversationsListQueryOptions(""),
+  );
+  const { refetch: refetchComposerPlugins } = composerPluginsQuery;
+  const { refetch: refetchComposerSkills } = composerSkillsQuery;
+  const refreshComposerCapabilities = useCallback(async () => {
+    await Promise.all([
+      refetchComposerPlugins(),
+      refetchComposerSkills(),
+    ]);
+  }, [refetchComposerPlugins, refetchComposerSkills]);
+  const actionsWithComposerCapabilityRefresh = useMemo<ThreadStageActions>(
+    () => ({
+      ...actions,
+      onComposerCapabilitiesChanged: refreshComposerCapabilities,
+    }),
+    [actions, refreshComposerCapabilities],
+  );
   const childThreadIds = useMemo(
     () => resolveChildConversationIds(activeThreadId, childMemberships),
     [activeThreadId, childMemberships],
@@ -672,6 +713,21 @@ function ConnectedThreadStageFooter({
       newThreadComposerIntent: input.newThreadComposerIntent ?? null,
       composerScopeIdentity,
       dictation,
+      composerPlugins: composerPluginsQuery.data ?? [],
+      composerPluginsLoading: composerPluginsQuery.isPending,
+      composerSkills: composerSkillsQuery.data ?? [],
+      composerSkillsLoading: composerSkillsQuery.isPending,
+      composerApps: composerAppsQuery.data ?? [],
+      composerAppsLoading: composerAppsQuery.isPending,
+      composerSites: composerSitesQuery.data?.sites ?? [],
+      composerSitesAvailable: composerSitesQuery.data?.available === true,
+      composerSitesLoading: composerSitesQuery.isPending,
+      composerChatGptConversations:
+        composerChatGptConversationsQuery.data?.conversations ?? [],
+      composerChatGptConversationsAvailable:
+        composerChatGptConversationsQuery.data?.available === true,
+      composerChatGptConversationsLoading:
+        composerChatGptConversationsQuery.isPending,
     }),
     [
       activeThreadId,
@@ -684,6 +740,16 @@ function ConnectedThreadStageFooter({
       conversationSnapshot,
       composerIntent,
       composerScopeIdentity,
+      composerAppsQuery.data,
+      composerAppsQuery.isPending,
+      composerPluginsQuery.data,
+      composerPluginsQuery.isPending,
+      composerSkillsQuery.data,
+      composerSkillsQuery.isPending,
+      composerSitesQuery.data,
+      composerSitesQuery.isPending,
+      composerChatGptConversationsQuery.data,
+      composerChatGptConversationsQuery.isPending,
       input.newThreadComposerIntent,
       dictation,
       composerShell,
@@ -724,7 +790,7 @@ function ConnectedThreadStageFooter({
   return (
     <LocalConversationFooter
       model={model}
-      actions={actions}
+      actions={actionsWithComposerCapabilityRefresh}
       errorMessage={errorMessage}
       onErrorMessage={onErrorMessage}
       variant={variant}

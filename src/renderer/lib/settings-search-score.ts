@@ -557,7 +557,7 @@ class PatternMatcher {
   }
 }
 
-export function scoreSettingsQueryMatch(candidate: string, query: string): number {
+export function scoreFuzzyQueryMatch(candidate: string, query: string): number {
   const trimmedQuery = query.trim();
   if (trimmedQuery.length === 0) return 0;
 
@@ -572,6 +572,8 @@ export function scoreSettingsQueryMatch(candidate: string, query: string): numbe
   const score = degree * 10 - candidate.length;
   return score <= 0 ? 1 : score;
 }
+
+export const scoreSettingsQueryMatch = scoreFuzzyQueryMatch;
 
 function createMatcher(query: string): CombinedMatcher {
   const hasPathSeparators = containsPathSeparator(query);

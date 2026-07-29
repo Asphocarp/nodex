@@ -74,6 +74,7 @@ import {
   type CodexScheduledAutomationScheduler,
 } from "./codex-scheduled-automation-scheduler";
 import { DesktopNotificationManager } from "./desktop-notification-manager";
+import { composerAppshotService } from "./composer-appshot-service";
 import { parsePageDeepLink, parseSessionDeepLink } from "../shared/page-deeplink";
 import {
   isWindowSessionBoundsVisible,
@@ -1048,6 +1049,7 @@ function createWindow(
       ],
     },
   });
+  composerAppshotService.observeWindow(window);
   const pendingBrowserWebviewAttachments =
     new Map<number, BrowserAuthorizedAttachment>();
   if (!appPermissionHandlersRegistered) {

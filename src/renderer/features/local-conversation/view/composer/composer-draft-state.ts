@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useMemo } from "react";
 import type {
+  CodexComposerAppshotContext,
   CodexLiveFileAttachment,
   CodexPastedTextAttachment,
   CodexReviewDiffCommentAttachment,
@@ -59,19 +60,13 @@ export type ComposerPastedTextAttachment =
       readonly error: string;
     };
 
-export interface ComposerSkillMentionAttachment {
-  readonly id: string;
-  readonly name: string;
-  readonly path: string;
-}
-
 export interface ComposerCompletedDraftSnapshot {
   readonly prompt: string;
   readonly fileAttachments: readonly ComposerFileAttachment[];
   readonly addedFiles: readonly ComposerFileAttachment[];
   readonly imageAttachments: readonly ComposerImageAttachment[];
+  readonly appshotContexts: readonly CodexComposerAppshotContext[];
   readonly pastedTextAttachments: readonly ComposerPastedTextAttachment[];
-  readonly skillMentions: readonly ComposerSkillMentionAttachment[];
   readonly commentAttachments: readonly CodexReviewDiffCommentAttachment[];
   readonly goalModeActive: boolean;
 }
@@ -92,7 +87,15 @@ export interface ComposerPromptLinkMark {
 export interface ComposerPromptMention {
   readonly from: number;
   readonly to: number;
-  readonly kind: "skill" | "plugin" | "agent" | "thread";
+  readonly kind:
+    | "skill"
+    | "plugin"
+    | "app"
+    | "agent"
+    | "chatgpt-conversation"
+    | "file"
+    | "site"
+    | "thread";
   readonly id: string;
   readonly label: string;
   readonly path?: string;
@@ -162,16 +165,18 @@ export const composerImageAttachmentsAtom = scopedAtom<readonly ComposerImageAtt
   { debugLabel: "composer-image-attachments" },
 );
 
+export const composerAppshotContextsAtom = scopedAtom<
+  readonly CodexComposerAppshotContext[]
+>(
+  ComposerScope,
+  [],
+  { debugLabel: "composer-appshot-contexts" },
+);
+
 export const composerPastedTextAttachmentsAtom = scopedAtom<readonly ComposerPastedTextAttachment[]>(
   ComposerScope,
   [],
   { debugLabel: "composer-pasted-text-attachments" },
-);
-
-export const composerSkillMentionsAtom = scopedAtom<readonly ComposerSkillMentionAttachment[]>(
-  ComposerScope,
-  [],
-  { debugLabel: "composer-skill-mentions" },
 );
 
 export const composerGoalModeActiveAtom = scopedAtom(
@@ -193,8 +198,8 @@ export const clearComposerCompletedDraftAtom = scopedWritableAtom(
     set(composerFileAttachmentsAtom, []);
     set(composerAddedFilesAtom, []);
     set(composerImageAttachmentsAtom, []);
+    set(composerAppshotContextsAtom, []);
     set(composerPastedTextAttachmentsAtom, []);
-    set(composerSkillMentionsAtom, []);
     set(composerGoalModeActiveAtom, false);
     set(composerResetGenerationAtom, get(composerResetGenerationAtom) + 1);
   },
@@ -416,7 +421,11 @@ function decodePromptMention(
   if (
     value.kind !== "skill"
     && value.kind !== "plugin"
+    && value.kind !== "app"
     && value.kind !== "agent"
+    && value.kind !== "chatgpt-conversation"
+    && value.kind !== "file"
+    && value.kind !== "site"
     && value.kind !== "thread"
   ) return [];
   if (typeof value.id !== "string" || !value.id.trim()) return [];

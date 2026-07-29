@@ -61,6 +61,35 @@ function buildActions(): ThreadStageActions {
 }
 
 describe("buildComposerSlashCommands", () => {
+  test("keeps capabilities in the context provider instead of duplicating plugin slash commands", () => {
+    const commands = buildComposerSlashCommands({
+      model: {
+        ...buildModel(),
+        composerPlugins: [{
+          id: "browser@openai-bundled",
+          name: "Browser",
+          displayName: "Browser",
+          description: "Control the in-app browser",
+          defaultPrompt: null,
+          installed: true,
+          enabled: true,
+          path: "plugin://browser@openai-bundled",
+          iconUrl: null,
+          iconUrlDark: null,
+          brandColor: null,
+        }],
+      },
+      actions: buildActions(),
+      serviceTier: null,
+      setServiceTier: () => undefined,
+      openExpandedDialog: () => undefined,
+      onPetToggle: () => undefined,
+      activateGoalMode: () => undefined,
+    });
+
+    expect(commands.some((command) => command.id.startsWith("plugin:"))).toBe(false);
+  });
+
   test("selects the exact friendly and pragmatic personality values", async () => {
     const selected: string[] = [];
     let closeCount = 0;
@@ -75,7 +104,6 @@ describe("buildComposerSlashCommands", () => {
       },
       serviceTier: null,
       setServiceTier: () => undefined,
-      insertPluginMention: () => undefined,
       openExpandedDialog: () => undefined,
       onPetToggle: () => undefined,
       activateGoalMode: () => undefined,
@@ -129,7 +157,6 @@ describe("buildComposerSlashCommands", () => {
       actions: buildActions(),
       serviceTier: null,
       setServiceTier: () => undefined,
-      insertPluginMention: () => undefined,
       openExpandedDialog: () => undefined,
       onPetToggle: () => undefined,
       activateGoalMode: () => undefined,
@@ -171,7 +198,6 @@ describe("buildComposerSlashCommands", () => {
       actions: buildActions(),
       serviceTier: null,
       setServiceTier: () => undefined,
-      insertPluginMention: () => undefined,
       openExpandedDialog: () => undefined,
       onPetToggle: () => undefined,
       activateGoalMode: () => {
@@ -189,7 +215,7 @@ describe("buildComposerSlashCommands", () => {
     expect(Boolean(goalCommand.Content)).toBe(false);
     expect(goalCommand.isVisible).toBe(true);
     expect(goalCommand.requiresEmptyComposer).toBe(false);
-    expect(JSON.stringify(goalCommand.triggers)).toBe("[\"/\",\"@\"]");
+    expect(goalCommand.triggers).toBeUndefined();
 
     await goalCommand.onSelect({ source: "dialog" });
     await goalCommand.onSelectFromInlineSlash({
@@ -222,7 +248,6 @@ describe("buildComposerSlashCommands", () => {
       actions,
       serviceTier: null,
       setServiceTier: () => undefined,
-      insertPluginMention: () => undefined,
       openExpandedDialog: () => undefined,
       onPetToggle: () => undefined,
       activateGoalMode: () => {
@@ -250,7 +275,6 @@ describe("buildComposerSlashCommands", () => {
       } as unknown as ThreadStageActions,
       serviceTier: null,
       setServiceTier: () => undefined,
-      insertPluginMention: () => undefined,
       openExpandedDialog: () => undefined,
       onPetToggle: () => undefined,
       activateGoalMode: () => undefined,

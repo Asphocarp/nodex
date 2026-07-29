@@ -31,6 +31,13 @@ const manifest = {
       file: "Mach-O 64-bit executable arm64",
     },
     {
+      name: "nodex-appshot-helper",
+      bundlePath: "Resources/bin/nodex-appshot-helper",
+      sourceSha256: "e".repeat(64),
+      sourceSize: 14,
+      file: "Mach-O 64-bit executable arm64",
+    },
+    {
       name: "nodex-service",
       bundlePath: "Helpers/Nodex Service.app/Contents/MacOS/nodex-service",
       sourceSha256: "d".repeat(64),
@@ -55,6 +62,7 @@ describe("native runtime manifest", () => {
         manifest.binaries[0],
         manifest.binaries[1],
         manifest.binaries[2],
+        manifest.binaries[3],
       ],
     })).toThrow("each required binary exactly once");
   });

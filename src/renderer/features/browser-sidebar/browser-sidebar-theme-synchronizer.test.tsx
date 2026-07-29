@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { BrowserSidebarThemeSynchronizer } from "./browser-sidebar-theme-synchronizer";
 
 let resolvedTheme: "light" | "dark" = "light";
-const invoke = vi.fn(async () => ({ ok: true }));
+const invoke = vi.fn(async (...args: unknown[]) => {
+  void args;
+  return { ok: true };
+});
 
 vi.mock("@/lib/api", () => ({
   invoke: (...args: unknown[]) => invoke(...args),

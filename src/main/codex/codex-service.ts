@@ -48,6 +48,10 @@ import type { McpResourceReadParams } from "@nodex/codex-app-server-protocol/v2/
 import type { McpResourceReadResponse } from "@nodex/codex-app-server-protocol/v2/McpResourceReadResponse";
 import type { ModelListResponse } from "@nodex/codex-app-server-protocol/v2/ModelListResponse";
 import type { PermissionsRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/PermissionsRequestApprovalResponse";
+import type { PluginInstalledResponse } from "@nodex/codex-app-server-protocol/v2/PluginInstalledResponse";
+import type { PluginInstallResponse } from "@nodex/codex-app-server-protocol/v2/PluginInstallResponse";
+import type { SkillsListParams } from "@nodex/codex-app-server-protocol/v2/SkillsListParams";
+import type { SkillsListResponse } from "@nodex/codex-app-server-protocol/v2/SkillsListResponse";
 import type { ThreadListResponse } from "@nodex/codex-app-server-protocol/v2/ThreadListResponse";
 import type { ThreadReadResponse } from "@nodex/codex-app-server-protocol/v2/ThreadReadResponse";
 import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminal";
@@ -121,6 +125,11 @@ import type {
   CodexConversationServerRequest,
   CodexConversationSnapshot,
   CodexConversationTurnPagination,
+  CodexComposerChatGptConversationListResult,
+  CodexComposerPlugin,
+  CodexComposerPluginActivateInput,
+  CodexComposerSiteListResult,
+  CodexComposerSkill,
   CodexCollaborationModeKind,
   CodexCollaborationModeState,
   CodexCollaborationModePreset,
@@ -226,6 +235,17 @@ import type {
   WorktreeEnvironmentSettingsSnapshot,
   WorktreeStartMode,
 } from "../../shared/types";
+import {
+  buildComposerPluginInventory,
+  COMPOSER_INSTALL_SUGGESTION_PLUGIN_NAMES,
+  hydrateComposerPluginInventoryIcons,
+  resolveComposerPluginActivation,
+} from "./composer-plugin-inventory";
+import {
+  buildComposerSkillInventory,
+  hydrateComposerSkillInventoryIcons,
+} from "./composer-skill-inventory";
+import { CodexComposerExternalSuggestionService } from "./composer-external-suggestion-service";
 import {
   getCodexThreadOwnerNotificationThreadId,
   isCodexThreadOwnerNotification,
@@ -3035,6 +3055,18 @@ export class CodexService extends EventEmitter {
       return await electron.net.fetch(url, init);
     },
   });
+  private readonly composerExternalSuggestionService =
+    new CodexComposerExternalSuggestionService({
+      readAuthMethod: async () => (
+        await this.readAuthStatusForChatGptServices({
+          includeToken: false,
+          refreshToken: false,
+        })
+      ).authMethod ?? null,
+      readConfig: async () => await this.readConfigForChatGptServices(),
+      requestChatGptDesktop: async (input) =>
+        await this.requestAuthenticatedChatGpt(input),
+    });
 
   private accountSnapshot: CodexAccountSnapshot = emptyAccountSnapshot();
   private lastConnectionStatus: CodexConnectionState["status"] = "disconnected";
@@ -9796,6 +9828,110 @@ export class CodexService extends EventEmitter {
     return result.data
       .map(parseModelOption)
       .filter((option): option is CodexModelOption => option !== null);
+  }
+
+  async listComposerPlugins(cwds: readonly string[]): Promise<CodexComposerPlugin[]> {
+    await this.ensureClientReady();
+
+    const normalizedCwds = Array.from(new Set(
+      cwds.map((cwd) => cwd.trim()).filter(Boolean),
+    ));
+    const response = await this.client.request<"plugin/installed", PluginInstalledResponse>(
+      "plugin/installed",
+      {
+        cwds: normalizedCwds.length > 0 ? normalizedCwds : null,
+        installSuggestionPluginNames: [
+          ...COMPOSER_INSTALL_SUGGESTION_PLUGIN_NAMES,
+        ],
+      },
+    );
+
+    return hydrateComposerPluginInventoryIcons(
+      response,
+      buildComposerPluginInventory(response, {
+        installSuggestionPluginNames:
+          COMPOSER_INSTALL_SUGGESTION_PLUGIN_NAMES,
+      }),
+    );
+  }
+
+  async activateComposerPlugin(
+    input: CodexComposerPluginActivateInput,
+  ): Promise<void> {
+    await this.ensureClientReady();
+
+    const id = input.id.trim();
+    if (!id) throw new Error("Composer plugin id is required");
+    const normalizedCwds = Array.from(new Set(
+      input.cwds.map((cwd) => cwd.trim()).filter(Boolean),
+    ));
+    const readInstalled = () =>
+      this.client.request<"plugin/installed", PluginInstalledResponse>(
+        "plugin/installed",
+        {
+          cwds: normalizedCwds.length > 0 ? normalizedCwds : null,
+          installSuggestionPluginNames: [
+            ...COMPOSER_INSTALL_SUGGESTION_PLUGIN_NAMES,
+          ],
+        },
+      );
+    const response = await readInstalled();
+    const activation = resolveComposerPluginActivation(response, id);
+    if (activation.kind === "active") return;
+    if (activation.kind === "enable") {
+      await this.client.request("config/batchWrite", activation.params);
+    } else {
+      await this.client.request<"plugin/install", PluginInstallResponse>(
+        "plugin/install",
+        activation.params,
+      );
+    }
+    await this.client.request<"skills/list", SkillsListResponse>(
+      "skills/list",
+      {
+        cwds: normalizedCwds,
+        forceReload: true,
+      } satisfies SkillsListParams,
+    );
+
+    const verified = (await readInstalled()).marketplaces
+      .flatMap((marketplace) => marketplace.plugins)
+      .find((plugin) => plugin.id.trim() === id);
+    if (!verified?.installed || !verified.enabled) {
+      throw new Error("Composer plugin activation did not become active");
+    }
+  }
+
+  async listComposerSkills(cwds: readonly string[]): Promise<CodexComposerSkill[]> {
+    await this.ensureClientReady();
+
+    const normalizedCwds = Array.from(new Set(
+      cwds.map((cwd) => cwd.trim()).filter(Boolean),
+    ));
+    const response = await this.client.request<"skills/list", SkillsListResponse>(
+      "skills/list",
+      {
+        cwds: normalizedCwds.length > 0 ? normalizedCwds : undefined,
+        forceReload: false,
+      },
+    );
+    return hydrateComposerSkillInventoryIcons(
+      response,
+      buildComposerSkillInventory(response),
+    );
+  }
+
+  async listComposerSites(): Promise<CodexComposerSiteListResult> {
+    await this.ensureClientReady();
+    return await this.composerExternalSuggestionService.listSites();
+  }
+
+  async listComposerChatGptConversations(
+    query: string,
+  ): Promise<CodexComposerChatGptConversationListResult> {
+    await this.ensureClientReady();
+    return await this.composerExternalSuggestionService
+      .listChatGptConversations(query);
   }
 
   async listAgentProviderCatalog(options?: { refresh?: boolean }): Promise<AgentProviderCatalog> {

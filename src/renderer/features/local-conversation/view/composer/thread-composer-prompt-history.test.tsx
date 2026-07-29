@@ -97,6 +97,7 @@ function PromptHistoryHarness({
       setText,
       setPromptText: setText,
       insertText: (text) => setText(`${textRef.current}${text}`),
+      insertMention: () => textRef.current,
       replaceTextRange: ({ from, to, text }) => {
         const current = textRef.current;
         return setText(`${current.slice(0, from)}${text}${current.slice(to)}`);
@@ -105,10 +106,26 @@ function PromptHistoryHarness({
         const current = textRef.current;
         return setText(`${current.slice(0, from)}${current.slice(to)}`);
       },
+      toggleContextSuggestions: () => {},
+      openSlashSubmenu: () => {},
+      closeSuggestions: () => {},
+      dismissSuggestions: () => {},
       getSelection: () => null,
+      getSuggestionState: () => ({
+        active: false,
+        activation: null,
+        anchorPos: textRef.current.length,
+        dismissedMatch: null,
+        kind: null,
+        query: "",
+        range: null,
+        source: null,
+        trigger: null,
+      }),
       getText: () => textRef.current,
       getPersistedText: () => textRef.current,
       isCursorAtEnd: () => cursorAtEndRef.current,
+      syncMentionMetadata: () => {},
     };
   }
 

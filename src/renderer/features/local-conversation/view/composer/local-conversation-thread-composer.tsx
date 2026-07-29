@@ -16,7 +16,10 @@ import {
 } from "@/lib/codex-thread-settings";
 import { resolveContextWindowIndicatorState } from "@/lib/codex-context-window";
 import type {
+  CodexComposerAppshotContext,
+  CodexComposerAppshotTarget,
   CodexPermissionState,
+  CodexPromptDocumentInput,
   CodexPromptInput,
   CodexReasoningEffort,
   CodexReviewDiffCommentAttachment,
@@ -58,12 +61,9 @@ import {
   CodexFastModeIcon,
   CodexGoalClearIcon,
   CodexGoalTargetIcon,
-  ChevronRightIcon,
   ComposerAddFilesIcon,
-  ComposerIdeContextIcon,
   ComposerPlanModeCloseIcon,
   ComposerPlanModeIcon,
-  ComposerPluginsIcon,
   MicIcon,
   PlusIcon,
   ReviewFileDocumentIcon,
@@ -95,7 +95,6 @@ import {
 import {
   ContextWindowIndicator,
   invoke,
-  NodexDropdownFlyoutSubmenuItem,
   NodexDropdownItem,
   NodexDropdownMenu,
   NodexDropdownMessage,
@@ -116,9 +115,17 @@ import {
 import {
   COMPOSER_LARGE_PASTE_CHAR_THRESHOLD,
   ComposerPromptEditor,
+  parseComposerPromptMentionLink,
+  serializeComposerPromptMentionLink,
+  type ComposerPromptMentionInput,
   type ComposerPromptEditorHandle,
   type ComposerPromptEditorKeyboardEvent,
+  type ComposerSuggestionAction,
 } from "./composer-prompt-editor";
+import {
+  inactiveComposerSuggestionState,
+  type ComposerSuggestionState,
+} from "./composer-suggestion-state";
 import {
   ComposerAdaptiveFooter,
   ComposerInput,
@@ -127,11 +134,13 @@ import {
 import { useThreadComposerPromptHistoryRecall } from "./thread-composer-prompt-history";
 import { InlineSlashCommandMenu } from "./slash-command-menu/inline-slash-command-menu";
 import { ExpandedSlashCommandDialog } from "./slash-command-menu/expanded-slash-command-dialog";
-import { buildComposerSlashCommands } from "./slash-command-menu/slash-command-registry";
+import {
+  buildComposerSlashCommands,
+  canUseComposerGoal,
+} from "./slash-command-menu/slash-command-registry";
 import {
   filterComposerSlashCommands,
   groupComposerSlashCommandMatches,
-  inactiveSlashTrigger,
   resolveComposerSlashHighlight,
   resolveNextSlashHighlight,
 } from "./slash-command-menu/slash-command-filter";
@@ -164,7 +173,6 @@ import {
   materializeThreadGoalDraft,
 } from "../../thread-goal-materialization";
 import {
-  COMPOSER_FOOTER_GHOST_ICON_BUTTON_CLASS_NAME,
   COMPOSER_FOOTER_LABEL_NARROW_CLASS_NAME,
   COMPOSER_FOOTER_LABEL_WIDE_CLASS_NAME,
   COMPOSER_FOOTER_PLAN_ACCESSORY_BUTTON_CLASS_NAME,
@@ -179,6 +187,7 @@ import {
 import {
   clearComposerCompletedDraftAtom,
   composerAddedFilesAtom,
+  composerAppshotContextsAtom,
   composerConsumedIntentNonceAtom,
   composerDraftInitializedAtom,
   composerDraftTransferFamily,
@@ -188,13 +197,11 @@ import {
   composerPastedTextAttachmentsAtom,
   composerResetGenerationAtom,
   composerReviewCommentAttachmentsFamily,
-  composerSkillMentionsAtom,
   useComposerPromptDraft,
   type ComposerCompletedDraftSnapshot,
   type ComposerFileAttachment,
   type ComposerImageAttachment,
   type ComposerPastedTextAttachment,
-  type ComposerSkillMentionAttachment,
 } from "./composer-draft-state";
 import {
   useScopedAtom,
@@ -206,6 +213,11 @@ import {
 import { openModal } from "@/lib/modal-registry";
 import { ComposerScope } from "@/lib/workbench-ui-scopes";
 import { ProviderCredentialDialog } from "./provider-credential-dialog";
+import {
+  ComposerAddContextMenu,
+  type ComposerAddContextMenuHandle,
+  ComposerAddContextTrigger,
+} from "./composer-add-context-menu";
 import { useRightPanelComposerPresentation } from "../right-panel-composer-presentation";
 import {
   clearBrowserAnnotationAttachments,
@@ -285,8 +297,8 @@ interface ComposerAttachmentState {
   fileAttachments: readonly ComposerFileAttachment[];
   addedFiles: readonly ComposerFileAttachment[];
   imageAttachments: readonly ComposerImageAttachment[];
+  appshotContexts: readonly CodexComposerAppshotContext[];
   pastedTextAttachments: readonly ComposerPastedTextAttachment[];
-  skillMentions: readonly ComposerSkillMentionAttachment[];
   commentAttachments: readonly CodexReviewDiffCommentAttachment[];
   browserAnnotationAttachments: readonly BrowserAnnotationAttachment[];
 }
@@ -315,14 +327,68 @@ function isComposerImageFile(file: ComposerPickedFile): boolean {
   return COMPOSER_IMAGE_FILE_EXTENSIONS.has(extension);
 }
 
+function extractComposerPromptMentions(prompt: string): {
+  readonly text: string;
+  readonly documentItems: readonly CodexPromptDocumentInput[];
+  readonly mentions: NonNullable<CodexPromptInput["mentions"]>;
+  readonly skills: NonNullable<CodexPromptInput["skills"]>;
+} {
+  const documentItems: CodexPromptDocumentInput[] = [];
+  const mentions: NonNullable<CodexPromptInput["mentions"]> = [];
+  const skills: NonNullable<CodexPromptInput["skills"]> = [];
+  const textParts: string[] = [];
+  const mentionPattern = /\[([^\]\n]+)\]\(([^)\n]+)\)/gu;
+  let cursor = 0;
+
+  for (const match of prompt.matchAll(mentionPattern)) {
+    const rawLabel = match[1] ?? "";
+    const rawPath = match[2] ?? "";
+    const mention = parseComposerPromptMentionLink(rawLabel, rawPath);
+    if (!mention) continue;
+
+    const precedingText = prompt.slice(cursor, match.index);
+    if (precedingText) {
+      textParts.push(precedingText);
+      documentItems.push({ type: "text", text: precedingText });
+    }
+    if (mention.kind === "skill") {
+      const skill = { name: mention.name, path: mention.path };
+      skills.push(skill);
+      documentItems.push({ type: "skill", ...skill });
+    } else {
+      const promptMention = { name: mention.name, path: mention.path };
+      mentions.push(promptMention);
+      documentItems.push({ type: "mention", ...promptMention });
+    }
+    cursor = match.index + match[0].length;
+  }
+
+  const trailingText = prompt.slice(cursor);
+  if (trailingText) {
+    textParts.push(trailingText);
+    documentItems.push({ type: "text", text: trailingText });
+  }
+
+  return {
+    text: textParts.join(""),
+    documentItems,
+    mentions,
+    skills,
+  };
+}
+
 function buildComposerPromptInput(input: {
   prompt: string;
   attachments: ComposerAttachmentState;
 }): CodexPromptInput | undefined {
-  const text = input.prompt;
+  const parsedPrompt = extractComposerPromptMentions(input.prompt);
+  const text = parsedPrompt.text;
   const images = input.attachments.imageAttachments.map((attachment) => ({
     source: attachment.dataUrl,
     caption: attachment.filename,
+  }));
+  const appshots = input.attachments.appshotContexts.map((context) => ({
+    ...context,
   }));
   const textAttachments = input.attachments.pastedTextAttachments.flatMap((attachment) => (
     attachment.status === "ready"
@@ -335,10 +401,8 @@ function buildComposerPromptInput(input: {
   const addedFiles = dedupeCodexLiveFileAttachments(
     input.attachments.addedFiles.map((item) => item.attachment),
   ).map((attachment) => ({ ...attachment }));
-  const skills = input.attachments.skillMentions.map((attachment) => ({
-    name: attachment.name,
-    path: attachment.path,
-  }));
+  const mentions = parsedPrompt.mentions;
+  const skills = parsedPrompt.skills;
   const commentAttachments = [...input.attachments.commentAttachments];
   const browserAnnotationAttachments = [
     ...input.attachments.browserAnnotationAttachments,
@@ -346,9 +410,11 @@ function buildComposerPromptInput(input: {
 
   if (
     images.length === 0
+    && appshots.length === 0
     && textAttachments.length === 0
     && fileAttachments.length === 0
     && addedFiles.length === 0
+    && mentions.length === 0
     && skills.length === 0
     && commentAttachments.length === 0
     && browserAnnotationAttachments.length === 0
@@ -358,10 +424,15 @@ function buildComposerPromptInput(input: {
 
   return {
     text,
+    ...(parsedPrompt.documentItems.length > 0
+      ? { documentItems: [...parsedPrompt.documentItems] }
+      : {}),
     ...(images.length > 0 ? { images } : {}),
+    ...(appshots.length > 0 ? { appshots } : {}),
     ...(textAttachments.length > 0 ? { textAttachments } : {}),
     ...(fileAttachments.length > 0 ? { fileAttachments } : {}),
     ...(addedFiles.length > 0 ? { addedFiles } : {}),
+    ...(mentions.length > 0 ? { mentions } : {}),
     ...(skills.length > 0 ? { skills } : {}),
     ...(commentAttachments.length > 0 ? { commentAttachments } : {}),
     ...(browserAnnotationAttachments.length > 0
@@ -374,21 +445,97 @@ function getComposerAttachmentNameFromPath(path: string, fallback: string): stri
   return path.split(/[\\/]/u).filter(Boolean).at(-1) ?? fallback;
 }
 
+function serializePersistedPromptMention(
+  mention: { readonly name: string; readonly path: string },
+): string {
+  const parsed = parseComposerPromptMentionLink(
+    `@${mention.name}`,
+    mention.path,
+  );
+  return serializeComposerPromptMentionLink(parsed ?? {
+    kind: "file",
+    name: mention.name,
+    displayName: mention.name,
+    path: mention.path,
+  });
+}
+
+function buildPersistedMentionPrompt(promptInput?: CodexPromptInput): string {
+  return [
+    ...(promptInput?.mentions ?? [])
+      .map(serializePersistedPromptMention),
+    ...(promptInput?.skills ?? [])
+      .map((skill) => serializeComposerPromptMentionLink({
+        kind: "skill",
+        name: skill.name,
+        displayName: skill.name,
+        path: skill.path,
+      })),
+  ].join(" ");
+}
+
+function buildPersistedPromptDocument(
+  promptInput?: CodexPromptInput,
+): string | null {
+  if (!promptInput?.documentItems) return null;
+  return promptInput.documentItems.map((item) => {
+    switch (item.type) {
+      case "text":
+        return item.text;
+      case "mention":
+        return serializePersistedPromptMention(item);
+      case "skill":
+        return serializeComposerPromptMentionLink({
+          kind: "skill",
+          name: item.name,
+          displayName: item.name,
+          path: item.path,
+        });
+    }
+  }).join("");
+}
+
+function mergePersistedMentionPrompt(
+  prompt: string,
+  mentionPrompt: string,
+): string {
+  if (!mentionPrompt) return prompt;
+  if (!prompt) return `${mentionPrompt} `;
+  const separator = /\s$/u.test(prompt) ? "" : " ";
+  return `${prompt}${separator}${mentionPrompt} `;
+}
+
+function appendPersistedPromptDocument(
+  prompt: string,
+  documentPrompt: string,
+): string {
+  if (!documentPrompt) return prompt;
+  if (!prompt) return documentPrompt;
+  const separator = /\s$/u.test(prompt) || /^\s/u.test(documentPrompt)
+    ? ""
+    : " ";
+  return `${prompt}${separator}${documentPrompt}`;
+}
+
+function removePersistedMentionPrompt(prompt: string): string {
+  return prompt
+    .replace(
+      /\[([^\]\n]+)\]\(([^)\n]+)\)/gu,
+      (serialized, rawLabel: string, rawPath: string) => {
+        const mention = parseComposerPromptMentionLink(rawLabel, rawPath);
+        return mention ? "" : serialized;
+      },
+    )
+    .trimEnd();
+}
+
 function buildComposerAttachmentStateFromPromptInput(promptInput?: CodexPromptInput): ComposerAttachmentState {
-  const fileAttachments = promptInput?.fileAttachments !== undefined
-    ? dedupeCodexLiveFileAttachments(promptInput.fileAttachments).map((attachment) => ({
-        uiId: createComposerAttachmentId("file"),
-        attachment: { ...attachment },
-      }))
-    : (promptInput?.mentions ?? []).map((mention) => ({
-        uiId: createComposerAttachmentId("file"),
-        attachment: {
-          label: mention.name.trim()
-            || getComposerAttachmentNameFromPath(mention.path, "Attachment"),
-          path: mention.path,
-          fsPath: mention.path,
-        },
-      }));
+  const fileAttachments = dedupeCodexLiveFileAttachments(
+    promptInput?.fileAttachments ?? [],
+  ).map((attachment) => ({
+    uiId: createComposerAttachmentId("file"),
+    attachment: { ...attachment },
+  }));
   const addedFiles = dedupeCodexLiveFileAttachments(
     promptInput?.addedFiles ?? [],
   ).map((attachment) => ({
@@ -401,6 +548,9 @@ function buildComposerAttachmentStateFromPromptInput(promptInput?: CodexPromptIn
       filename: image.caption?.trim() || getComposerAttachmentNameFromPath(image.source, "Image"),
       path: image.source,
       dataUrl: image.source,
+    })),
+    appshotContexts: (promptInput?.appshots ?? []).map((context) => ({
+      ...context,
     })),
     pastedTextAttachments: (promptInput?.textAttachments ?? []).map((attachment) => {
       const id = createComposerAttachmentId("pasted_text");
@@ -442,11 +592,6 @@ function buildComposerAttachmentStateFromPromptInput(promptInput?: CodexPromptIn
     }),
     fileAttachments,
     addedFiles,
-    skillMentions: (promptInput?.skills ?? []).map((skill) => ({
-      id: createComposerAttachmentId("skill"),
-      name: skill.name.trim() || getComposerAttachmentNameFromPath(skill.path, "Skill"),
-      path: skill.path,
-    })),
     commentAttachments: promptInput?.commentAttachments ?? [],
     browserAnnotationAttachments: promptInput?.browserAnnotationAttachments ?? [],
   };
@@ -465,8 +610,8 @@ function hasComposerAttachmentStateContent(attachments: ComposerAttachmentState)
   return attachments.fileAttachments.length > 0
     || attachments.addedFiles.length > 0
     || attachments.imageAttachments.length > 0
+    || attachments.appshotContexts.length > 0
     || attachments.pastedTextAttachments.length > 0
-    || attachments.skillMentions.length > 0
     || attachments.commentAttachments.length > 0
     || attachments.browserAnnotationAttachments.length > 0;
 }
@@ -475,8 +620,8 @@ function hasSubmittableComposerAttachmentState(attachments: ComposerAttachmentSt
   return attachments.fileAttachments.length > 0
     || attachments.addedFiles.length > 0
     || attachments.imageAttachments.length > 0
+    || attachments.appshotContexts.length > 0
     || attachments.pastedTextAttachments.some((attachment) => attachment.status === "ready")
-    || attachments.skillMentions.length > 0
     || attachments.commentAttachments.length > 0
     || attachments.browserAnnotationAttachments.length > 0;
 }
@@ -506,7 +651,7 @@ function buildThreadGoalSubmissionDraft(
     )),
     hasUnsupportedAttachments: attachments.fileAttachments.length > 0
       || attachments.addedFiles.length > 0
-      || attachments.skillMentions.length > 0
+      || attachments.appshotContexts.length > 0
       || attachments.commentAttachments.length > 0
       || attachments.browserAnnotationAttachments.length > 0,
   };
@@ -521,155 +666,11 @@ function parseSideChatCommand(prompt: string): string | null {
 export const __composerAddContextTestUtils = {
   buildComposerAttachmentStateFromPromptInput,
   buildComposerPromptInput,
+  buildPersistedMentionPrompt,
+  buildPersistedPromptDocument,
   isComposerImageFile,
+  removePersistedMentionPrompt,
 };
-
-function ComposerMenuSwitch({ checked }: { checked: boolean }) {
-  return (
-    <span
-      aria-hidden="true"
-      data-state={checked ? "checked" : "unchecked"}
-      className={cn(
-        "relative inline-flex h-4 w-7 shrink-0 items-center rounded-full",
-        checked ? "bg-token-text-link-foreground" : "bg-token-foreground/10",
-      )}
-    >
-      <span
-        data-state={checked ? "checked" : "unchecked"}
-        className={cn(
-          "h-3 w-3 rounded-full border border-[color:var(--gray-0)] bg-[color:var(--gray-0)] shadow-sm",
-          checked ? "translate-x-[14px]" : "translate-x-[2px]",
-        )}
-      />
-    </span>
-  );
-}
-
-function ComposerAddContextDropdown({
-  model,
-  actions,
-  disabled,
-  onPickFiles,
-  onInsertPlugin,
-}: {
-  model: ThreadFooterModel;
-  actions: ThreadStageActions;
-  disabled?: boolean;
-  onPickFiles: () => Promise<void>;
-  onInsertPlugin: (plugin: NonNullable<ThreadFooterModel["composerPlugins"]>[number]) => void;
-}) {
-  const isImagesOnly = model.isCloudNewThreadTarget;
-  const triggerLabel = isImagesOnly ? "Add photos and more" : "Add files and more";
-  const primaryLabel = isImagesOnly ? "Add photos" : "Add photos & files";
-  const ideContext = model.composerIdeContext;
-  const showIdeContext = ideContext?.isConnected === true;
-  const plugins = model.composerPlugins ?? [];
-  const hasPlugins = plugins.length > 0;
-  const planModeAvailable = hasPlanMode(model.collaborationModes);
-  const togglePlanMode = () => {
-    const nextMode = resolveNextComposerPlanMode({
-      currentMode: model.selectedCollaborationMode,
-      modes: model.collaborationModes,
-    });
-    if (!nextMode) return;
-    void actions.onCollaborationModeChange(nextMode);
-  };
-
-  return (
-    <NodexDropdownMenu
-      disabled={disabled}
-      triggerButton={(
-        <button
-          type="button"
-          className={COMPOSER_FOOTER_GHOST_ICON_BUTTON_CLASS_NAME}
-          aria-label={triggerLabel}
-          title={triggerLabel}
-          disabled={disabled}
-        >
-          <PlusIcon className="icon-sm" />
-        </button>
-      )}
-      side="top"
-      align="start"
-      contentWidth="icon"
-    >
-      <NodexDropdownItem
-        leftSlot={<ComposerAddFilesIcon className="opacity-75 group-focus:opacity-100 group-hover:opacity-100" />}
-        onSelect={() => {
-          void onPickFiles();
-        }}
-        data-add-context-row="picker"
-      >
-        {primaryLabel}
-      </NodexDropdownItem>
-
-      {(showIdeContext || planModeAvailable) ? (
-        <NodexDropdownSeparator />
-      ) : null}
-
-      {showIdeContext ? (
-        <NodexDropdownItem
-          leftSlot={<ComposerIdeContextIcon className="opacity-75 group-focus:opacity-100 group-hover:opacity-100" />}
-          rightSlot={<ComposerMenuSwitch checked={ideContext.isEnabled} />}
-          onSelect={() => {
-            actions.onComposerIdeContextEnabledChange?.(!ideContext.isEnabled);
-          }}
-          data-add-context-row="ide-context"
-        >
-          Include IDE context
-        </NodexDropdownItem>
-      ) : null}
-
-      {planModeAvailable ? (
-        <NodexDropdownItem
-          leftSlot={<ComposerPlanModeIcon className="opacity-75 group-focus:opacity-100 group-hover:opacity-100" />}
-          rightSlot={<ComposerMenuSwitch checked={model.selectedCollaborationMode === "plan"} />}
-          onSelect={togglePlanMode}
-          data-add-context-row="plan-mode"
-        >
-          Plan mode
-        </NodexDropdownItem>
-      ) : null}
-
-      {hasPlugins ? (
-        <>
-          <NodexDropdownSeparator />
-          <NodexDropdownFlyoutSubmenuItem
-            label="Plugins"
-            contentClassName="min-w-[160px]"
-            triggerContent={(
-              <div className="flex w-full items-center gap-1.5">
-                <ComposerPluginsIcon className="opacity-75 group-focus:opacity-100 group-hover:opacity-100" />
-                <span className="min-w-0 flex-1 truncate">Plugins</span>
-                <ChevronRightIcon className="icon-xs shrink-0 text-token-input-placeholder-foreground opacity-75 group-focus:opacity-100 group-hover:opacity-100" />
-              </div>
-            )}
-          >
-            <NodexDropdownSection className="flex min-w-[160px] flex-col overflow-hidden">
-              <NodexDropdownTitle>
-                {plugins.length === 1 ? "1 installed plugin" : `${plugins.length} installed plugins`}
-              </NodexDropdownTitle>
-              <div className="flex max-h-80 flex-col overflow-y-auto">
-                {plugins.map((plugin) => (
-                  <NodexDropdownItem
-                    key={`${plugin.path}:${plugin.name}`}
-                    onSelect={() => onInsertPlugin(plugin)}
-                    data-add-context-plugin={plugin.name}
-                  >
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <span className="size-4 shrink-0 rounded bg-token-foreground/10" />
-                      <span className="min-w-0 truncate">{plugin.name}</span>
-                    </span>
-                  </NodexDropdownItem>
-                ))}
-              </div>
-            </NodexDropdownSection>
-          </NodexDropdownFlyoutSubmenuItem>
-        </>
-      ) : null}
-    </NodexDropdownMenu>
-  );
-}
 
 function ActiveComposerModeChip({
   model,
@@ -1599,16 +1600,18 @@ function applyCompletedDraftSnapshot(input: {
   setFileAttachments: (value: readonly ComposerFileAttachment[]) => void;
   setAddedFiles: (value: readonly ComposerFileAttachment[]) => void;
   setImageAttachments: (value: readonly ComposerImageAttachment[]) => void;
+  setAppshotContexts: (
+    value: readonly CodexComposerAppshotContext[],
+  ) => void;
   setPastedTextAttachments: (value: readonly ComposerPastedTextAttachment[]) => void;
-  setSkillMentions: (value: readonly ComposerSkillMentionAttachment[]) => void;
   setGoalModeActive: (value: boolean) => void;
   threadId: string | null;
 }): void {
   input.setFileAttachments(input.snapshot.fileAttachments);
   input.setAddedFiles(input.snapshot.addedFiles);
   input.setImageAttachments(input.snapshot.imageAttachments);
+  input.setAppshotContexts(input.snapshot.appshotContexts);
   input.setPastedTextAttachments(input.snapshot.pastedTextAttachments);
-  input.setSkillMentions(input.snapshot.skillMentions);
   input.setGoalModeActive(input.snapshot.goalModeActive);
   replaceReviewCommentAttachments(input.threadId, input.snapshot.commentAttachments);
 }
@@ -1635,10 +1638,10 @@ export function ThreadComposer(props: ThreadComposerProps) {
   const [, setFileAttachments] = useScopedAtom(composerFileAttachmentsAtom);
   const [, setAddedFiles] = useScopedAtom(composerAddedFilesAtom);
   const [, setImageAttachments] = useScopedAtom(composerImageAttachmentsAtom);
+  const [, setAppshotContexts] = useScopedAtom(composerAppshotContextsAtom);
   const [, setPastedTextAttachments] = useScopedAtom(
     composerPastedTextAttachmentsAtom,
   );
-  const [, setSkillMentions] = useScopedAtom(composerSkillMentionsAtom);
   const [, setGoalModeActive] = useScopedAtom(composerGoalModeActiveAtom);
   const resetGeneration = useScopedAtomValue(composerResetGenerationAtom);
   const clearCompletedDraft = useSetScopedAtom(clearComposerCompletedDraftAtom);
@@ -1666,8 +1669,8 @@ export function ThreadComposer(props: ThreadComposerProps) {
         setFileAttachments,
         setAddedFiles,
         setImageAttachments,
+        setAppshotContexts,
         setPastedTextAttachments,
-        setSkillMentions,
         setGoalModeActive,
         threadId: composerThreadId,
       });
@@ -1680,6 +1683,8 @@ export function ThreadComposer(props: ThreadComposerProps) {
     if (intent && consumedIntentNonceRef.current !== intent.focusNonce) {
       consumedIntentNonceRef.current = intent.focusNonce;
       const restored = buildComposerAttachmentStateFromPromptInput(intent.promptInput);
+      const mentionPrompt = buildPersistedMentionPrompt(intent.promptInput);
+      const documentPrompt = buildPersistedPromptDocument(intent.promptInput);
       const append = intent.attachmentMode === "append";
       if (append) {
         setFileAttachments((current) => appendUniqueBy(
@@ -1697,15 +1702,15 @@ export function ThreadComposer(props: ThreadComposerProps) {
           restored.imageAttachments,
           (attachment) => attachment.path || attachment.dataUrl,
         ));
+        setAppshotContexts((current) => appendUniqueBy(
+          current,
+          restored.appshotContexts,
+          (context) => context.id,
+        ));
         setPastedTextAttachments((current) => appendUniqueBy(
           current,
           restored.pastedTextAttachments,
           (attachment) => attachment.id,
-        ));
-        setSkillMentions((current) => appendUniqueBy(
-          current,
-          restored.skillMentions,
-          (attachment) => attachment.path,
         ));
         for (const attachment of restored.commentAttachments) {
           addReviewDiffCommentAttachment(composerThreadId, attachment);
@@ -1726,8 +1731,8 @@ export function ThreadComposer(props: ThreadComposerProps) {
         setFileAttachments(restored.fileAttachments);
         setAddedFiles(restored.addedFiles);
         setImageAttachments(restored.imageAttachments);
+        setAppshotContexts(restored.appshotContexts);
         setPastedTextAttachments(restored.pastedTextAttachments);
-        setSkillMentions(restored.skillMentions);
         replaceReviewCommentAttachments(composerThreadId, restored.commentAttachments);
         if (browserAnnotationConversationId) {
           replaceBrowserAnnotationAttachments(
@@ -1737,8 +1742,30 @@ export function ThreadComposer(props: ThreadComposerProps) {
         }
       }
 
-      if (intent.prompt.length > 0 || intent.clearText === true) {
-        void promptDraft.setPrompt(intent.clearText === true ? "" : intent.prompt)
+      if (
+        intent.prompt.length > 0
+        || intent.clearText === true
+        || mentionPrompt.length > 0
+        || documentPrompt !== null
+      ) {
+        const nextPrompt = intent.clearText === true
+          ? ""
+          : documentPrompt !== null
+            ? append
+              ? appendPersistedPromptDocument(
+                  promptDraft.prompt,
+                  documentPrompt,
+                )
+              : documentPrompt
+            : mergePersistedMentionPrompt(
+                append
+                  ? intent.prompt || promptDraft.prompt
+                  : removePersistedMentionPrompt(
+                      intent.prompt || promptDraft.prompt,
+                    ),
+                mentionPrompt,
+              );
+        void promptDraft.setPrompt(nextPrompt)
           .catch((error: unknown) => {
             onErrorMessage(error instanceof Error ? error.message : "Could not apply composer intent");
           });
@@ -1765,13 +1792,13 @@ export function ThreadComposer(props: ThreadComposerProps) {
     onErrorMessage,
     promptDraft,
     setAddedFiles,
+    setAppshotContexts,
     setConsumedIntentNonce,
     setFileAttachments,
     setGoalModeActive,
     setImageAttachments,
     setInitialized,
     setPastedTextAttachments,
-    setSkillMentions,
     setTransfer,
     transfer,
   ]);
@@ -1831,11 +1858,15 @@ function HydratedThreadComposer({
   const [fileAttachments, setFileAttachments] = useScopedAtom(composerFileAttachmentsAtom);
   const [addedFiles, setAddedFiles] = useScopedAtom(composerAddedFilesAtom);
   const [imageAttachments, setImageAttachments] = useScopedAtom(composerImageAttachmentsAtom);
+  const [appshotContexts, setAppshotContexts] = useScopedAtom(
+    composerAppshotContextsAtom,
+  );
   const [pastedTextAttachments, setPastedTextAttachments] = useScopedAtom(
     composerPastedTextAttachmentsAtom,
   );
-  const [skillMentions, setSkillMentions] = useScopedAtom(composerSkillMentionsAtom);
-  const [slashTrigger, setSlashTrigger] = useState<ComposerSlashTriggerState>(() => inactiveSlashTrigger());
+  const [suggestionState, setSuggestionState] = useState<ComposerSuggestionState>(
+    () => inactiveComposerSuggestionState(),
+  );
   const [inlineSlashHighlightIntent, setInlineSlashHighlightIntent] = useState<ComposerSlashCommandHighlightIntent>({
     commandId: null,
     source: "programmatic",
@@ -1847,6 +1878,7 @@ function HydratedThreadComposer({
   const [goalModeActive, setGoalModeActive] = useScopedAtom(composerGoalModeActiveAtom);
   const [goalReplacementConfirmation, setGoalReplacementConfirmation] = useState<ThreadGoalReplacementConfirmationState | null>(null);
   const promptEditorRef = useRef<ComposerPromptEditorHandle>(null);
+  const addContextMenuRef = useRef<ComposerAddContextMenuHandle>(null);
   const appendPromptToHistoryRef = useRef<(text: string) => void>(() => {});
   const resetPromptHistorySelectionRef = useRef<() => void>(() => {});
   const dictationShortcutActiveRef = useRef(false);
@@ -1857,6 +1889,17 @@ function HydratedThreadComposer({
   const composerMountedRef = useRef(true);
   const { serviceTierSettings, setServiceTier } = useCodexServiceTierSettings();
   const composerThreadId = model.conversation?.threadId ?? model.threadId;
+  useEffect(() => {
+    promptEditorRef.current?.syncMentionMetadata({
+      apps: model.composerApps ?? [],
+      plugins: model.composerPlugins ?? [],
+      skills: model.composerSkills ?? [],
+    });
+  }, [
+    model.composerApps,
+    model.composerPlugins,
+    model.composerSkills,
+  ]);
   const browserAnnotationConversationId = composerThreadId
     ?? model.newThreadTarget?.sessionId
     ?? "";
@@ -1917,18 +1960,18 @@ function HydratedThreadComposer({
     fileAttachments,
     addedFiles,
     imageAttachments,
+    appshotContexts,
     pastedTextAttachments,
-    skillMentions,
     commentAttachments,
     browserAnnotationAttachments,
   }), [
     addedFiles,
+    appshotContexts,
     browserAnnotationAttachments,
     commentAttachments,
     fileAttachments,
     imageAttachments,
     pastedTextAttachments,
-    skillMentions,
   ]);
   const hasAttachments = hasComposerAttachmentStateContent(attachmentState);
   const hasSubmittableAttachments = hasSubmittableComposerAttachmentState(attachmentState);
@@ -2267,14 +2310,13 @@ function HydratedThreadComposer({
       setBusyAction("send");
       onErrorMessage(null);
       try {
+        const sideChatPromptInput = buildComposerPromptInput({
+          prompt: sideChatPrompt,
+          attachments: attachmentState,
+        });
         await actions.onOpenSideChat({
           prompt: sideChatPrompt,
-          promptInput: promptInput
-            ? {
-                ...promptInput,
-                text: sideChatPrompt,
-              }
-            : undefined,
+          promptInput: sideChatPromptInput,
         });
         await cleanupSubmittedPastedTextAttachments();
         completeSuccessfulSubmission(sideChatPrompt);
@@ -2393,31 +2435,11 @@ function HydratedThreadComposer({
     return nextPrompt;
   }, [prompt, setPrompt]);
 
-  const insertComposerTextAtSelection = useCallback((text: string) => {
-    const editor = promptEditorRef.current;
-    if (!editor) {
-      setPrompt(`${prompt}${text}`);
-      return;
-    }
-
-    editor.insertText(text);
-  }, [prompt, setPrompt]);
-
-  const handleInsertPluginMention = useCallback((plugin: NonNullable<ThreadFooterModel["composerPlugins"]>[number]) => {
-    const pluginName = plugin.name.trim();
-    const pluginPath = plugin.path.trim();
-    if (!pluginName || !pluginPath) return;
-    incrementAttachmentGeneration();
-    setSkillMentions((current) => [
-      ...current,
-      {
-        id: createComposerAttachmentId("skill"),
-        name: pluginName,
-        path: pluginPath,
-      },
-    ]);
-    insertComposerTextAtSelection(`${prompt.trim().length === 0 ? "" : " "}@${pluginName} `);
-  }, [incrementAttachmentGeneration, insertComposerTextAtSelection, prompt, setSkillMentions]);
+  const handleInsertPromptMention = useCallback((
+    mention: ComposerPromptMentionInput,
+  ) => {
+    promptEditorRef.current?.insertMention(mention);
+  }, []);
 
   const handleToggleDesktopPet = useCallback(() => {
     setDesktopPetVisible((current) => !current);
@@ -2518,6 +2540,30 @@ function HydratedThreadComposer({
       onErrorMessage(error instanceof Error ? error.message : "Could not add files");
     }
   }, [model.isCloudNewThreadTarget, onErrorMessage, setFileAttachments, setImageAttachments]);
+
+  const handleCaptureAppshot = useCallback(async (
+    target: CodexComposerAppshotTarget,
+  ): Promise<void> => {
+    attachmentGenerationRef.current += 1;
+    const generation = attachmentGenerationRef.current;
+    try {
+      const context = await invoke("codex:composer-appshot:capture", {
+        targetId: target.id,
+      });
+      if (attachmentGenerationRef.current !== generation) return;
+      setAppshotContexts((current) => appendUniqueBy(
+        current,
+        [context],
+        (item) => item.id,
+      ));
+    } catch (error) {
+      toast.danger("Unable to attach Appshot", {
+        description: error instanceof Error
+          ? error.message
+          : `Could not capture ${target.appName}`,
+      });
+    }
+  }, [setAppshotContexts]);
 
   const handleBrowserImageDragOver = useCallback((
     event: DragEvent<HTMLDivElement>,
@@ -2729,6 +2775,13 @@ function HydratedThreadComposer({
     setImageAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId));
   }, [incrementAttachmentGeneration, setImageAttachments]);
 
+  const handleRemoveAppshotContext = useCallback((contextId: string) => {
+    incrementAttachmentGeneration();
+    setAppshotContexts((current) => current.filter(
+      (context) => context.id !== contextId,
+    ));
+  }, [incrementAttachmentGeneration, setAppshotContexts]);
+
   const handleRemovePastedTextAttachment = useCallback((attachmentId: string) => {
     const attachment = pastedTextAttachmentsRef.current.find((item) => item.id === attachmentId);
     if (!attachment) return;
@@ -2773,11 +2826,6 @@ function HydratedThreadComposer({
       });
   }, [onErrorMessage, setPastedTextAttachments, setPrompt]);
 
-  const handleRemoveSkillMention = useCallback((attachmentId: string) => {
-    incrementAttachmentGeneration();
-    setSkillMentions((current) => current.filter((attachment) => attachment.id !== attachmentId));
-  }, [incrementAttachmentGeneration, setSkillMentions]);
-
   const handleRemoveCommentAttachment = useCallback((attachmentId: string) => {
     removeReviewDiffCommentAttachment(composerThreadId, attachmentId);
   }, [composerThreadId]);
@@ -2797,19 +2845,41 @@ function HydratedThreadComposer({
     actions,
     serviceTier: serviceTierSettings.serviceTier,
     setServiceTier,
-    insertPluginMention: handleInsertPluginMention,
     openExpandedDialog: () => setSlashDialogOpen(true),
     onPetToggle: handleToggleDesktopPet,
     activateGoalMode,
   }), [
     activateGoalMode,
     actions,
-    handleInsertPluginMention,
     handleToggleDesktopPet,
     model,
     serviceTierSettings.serviceTier,
     setServiceTier,
   ]);
+  const slashTrigger = useMemo<ComposerSlashTriggerState>(() => {
+    if (
+      suggestionState.active
+      && suggestionState.kind === "slash-command"
+      && suggestionState.trigger === "/"
+      && suggestionState.range
+    ) {
+      return {
+        active: true,
+        trigger: "/",
+        query: suggestionState.query,
+        from: suggestionState.range.from,
+        to: suggestionState.range.to,
+      };
+    }
+    const cursor = suggestionState.anchorPos ?? 0;
+    return {
+      active: false,
+      trigger: "/",
+      query: "",
+      from: cursor,
+      to: cursor,
+    };
+  }, [suggestionState]);
   const slashMatches = useMemo(() => filterComposerSlashCommands({
     commands: slashCommands,
     query: slashTrigger.active ? slashTrigger.query : "",
@@ -2902,23 +2972,43 @@ function HydratedThreadComposer({
   }, [model.selectedCollaborationMode, prompt]);
 
   const closeSlashMenu = useCallback(() => {
-    setSlashTrigger(inactiveSlashTrigger());
+    promptEditorRef.current?.closeSuggestions();
     setNestedSlashCommand(null);
     setInlineSlashHighlightIntent({ commandId: null, source: "programmatic" });
   }, []);
+  const closeAddContextMenu = useCallback(() => {
+    const editor = promptEditorRef.current;
+    if (!editor) return;
+    const suggestion = editor.getSuggestionState();
+    if (suggestion.active && suggestion.range) {
+      editor.clearRange(suggestion.range);
+    }
+    editor.closeSuggestions();
+  }, []);
+  const dismissAddContextMenu = useCallback(() => {
+    promptEditorRef.current?.dismissSuggestions();
+  }, []);
 
-  const handleSlashTriggerChange = useCallback((nextTrigger: ComposerSlashTriggerState) => {
-    setSlashTrigger(nextTrigger);
-    if (nextTrigger.active) {
-      setNestedSlashCommand(null);
+  const handleSuggestionStateChange = useCallback((
+    nextSuggestion: ComposerSuggestionState,
+  ) => {
+    setSuggestionState(nextSuggestion);
+    if (nextSuggestion.active) {
+      if (
+        nextSuggestion.kind !== "slash-command"
+        || nextSuggestion.source === null
+      ) {
+        setNestedSlashCommand(null);
+      }
       return;
     }
+    setNestedSlashCommand(null);
     setInlineSlashHighlightIntent({ commandId: null, source: "programmatic" });
   }, []);
 
   const clearInlineSlashTrigger = useCallback((trigger: ComposerSlashTriggerState) => {
     promptEditorRef.current?.clearRange({ from: trigger.from, to: trigger.to });
-    setSlashTrigger(inactiveSlashTrigger());
+    promptEditorRef.current?.closeSuggestions();
   }, []);
 
   const selectSlashCommand = useCallback((command: ComposerSlashCommand, source: "inline" | "dialog") => {
@@ -2933,7 +3023,7 @@ function HydratedThreadComposer({
           clearTrigger: () => clearInlineSlashTrigger(trigger),
           replaceTrigger: (text) => {
             promptEditorRef.current?.replaceTextRange({ from: trigger.from, to: trigger.to, text });
-            setSlashTrigger(inactiveSlashTrigger());
+            promptEditorRef.current?.closeSuggestions();
           },
         });
         closeSlashMenu();
@@ -2941,7 +3031,11 @@ function HydratedThreadComposer({
       }
 
       if (command.Content) {
-        clearInlineSlashTrigger(trigger);
+        promptEditorRef.current?.openSlashSubmenu({
+          kind: "slash-command",
+          commandId: command.id,
+          ...(command.dismissOnInput === true ? { dismissOnInput: true } : {}),
+        });
         setNestedSlashCommand(command);
         return;
       }
@@ -2961,37 +3055,110 @@ function HydratedThreadComposer({
     setSlashDialogOpen(false);
   }, [clearInlineSlashTrigger, closeSlashMenu, slashTrigger]);
 
-  const handleKeyDown = useCallback((event: ComposerPromptEditorKeyboardEvent): boolean => {
-    if (slashMenuOpen) {
-      if (event.key === "Escape") {
-        event.preventDefault();
+  const backFromNestedSlashMenu = useCallback(() => {
+    promptEditorRef.current?.openSlashSubmenu(null);
+    setNestedSlashCommand(null);
+  }, []);
+
+  const handleSuggestionAction = useCallback((
+    action: ComposerSuggestionAction,
+  ): boolean => {
+    if (
+      suggestionState.active
+      && (
+        suggestionState.kind === "at-mention"
+        || suggestionState.kind === "skill-mention"
+      )
+    ) {
+      if (action === "next" || action === "previous") {
+        return addContextMenuRef.current?.moveHighlight(action) ?? false;
+      }
+      if (action === "complete-query" || action === "insert-mention") {
+        const didSubmit = addContextMenuRef.current
+          ?.submitHighlighted(action) ?? false;
+        if (!didSubmit && action === "insert-mention") {
+          promptEditorRef.current?.closeSuggestions();
+        }
+        return true;
+      }
+      return true;
+    }
+
+    if (
+      !suggestionState.active
+      || suggestionState.kind !== "slash-command"
+    ) {
+      return false;
+    }
+    if (nestedSlashCommand) {
+      if (action === "insert-mention") {
         closeSlashMenu();
         return true;
       }
-
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        event.preventDefault();
-        setInlineSlashHighlightIntent({
-          commandId: resolveNextSlashHighlight({
-            matches: slashMatches,
-            currentCommandId: highlightedInlineSlashCommandId,
-            direction: event.key === "ArrowDown" ? "next" : "previous",
-          }),
-          source: "keyboard",
-        });
+      if (
+        action === "complete-query"
+        || action === "next"
+        || action === "previous"
+      ) {
         return true;
       }
-
-      if (event.key === "Enter" && !nestedSlashCommand) {
-        const highlighted = slashMatches.find((match) => match.command.id === highlightedInlineSlashCommandId)?.command
-          ?? slashMatches[0]?.command
-          ?? null;
-        if (highlighted) {
-          event.preventDefault();
-          selectSlashCommand(highlighted, "inline");
-          return true;
-        }
+      if (action === "dismiss") {
+        setNestedSlashCommand(null);
+        return true;
       }
+      return action === "backspace";
+    }
+    if (action === "next" || action === "previous") {
+      setInlineSlashHighlightIntent({
+        commandId: resolveNextSlashHighlight({
+          matches: slashMatches,
+          currentCommandId: highlightedInlineSlashCommandId,
+          direction: action,
+        }),
+        source: "keyboard",
+      });
+      return slashMatches.length > 0;
+    }
+    if (
+      (action === "complete-query" || action === "insert-mention")
+      && !nestedSlashCommand
+    ) {
+      const highlighted = slashMatches.find((match) =>
+        match.command.id === highlightedInlineSlashCommandId
+      )?.command ?? slashMatches[0]?.command ?? null;
+      if (!highlighted) {
+        if (action === "insert-mention") {
+          promptEditorRef.current?.closeSuggestions();
+        }
+        return true;
+      }
+      selectSlashCommand(highlighted, "inline");
+      return true;
+    }
+    if (action === "dismiss") {
+      setNestedSlashCommand(null);
+      setInlineSlashHighlightIntent({
+        commandId: null,
+        source: "programmatic",
+      });
+      return true;
+    }
+    return action === "backspace";
+  }, [
+    highlightedInlineSlashCommandId,
+    closeSlashMenu,
+    nestedSlashCommand,
+    selectSlashCommand,
+    slashMatches,
+    suggestionState.active,
+    suggestionState.kind,
+  ]);
+
+  const handleKeyDown = useCallback((event: ComposerPromptEditorKeyboardEvent): boolean => {
+    if (nestedSlashCommand && event.key === "Escape") {
+      event.preventDefault();
+      closeSlashMenu();
+      return true;
     }
 
     if (
@@ -3055,7 +3222,6 @@ function HydratedThreadComposer({
     closeSlashMenu,
     goalModeActive,
     hasSubmittableAttachments,
-    highlightedInlineSlashCommandId,
     model.composerEnterBehavior,
     model.conversation,
     model.isQueueingEnabled,
@@ -3064,8 +3230,6 @@ function HydratedThreadComposer({
     handlePromptHistoryKeyDown,
     planModeAvailable,
     prompt,
-    selectSlashCommand,
-    slashMatches,
     slashMenuOpen,
     submitPrompt,
     togglePlanMode,
@@ -3147,12 +3311,25 @@ function HydratedThreadComposer({
     primaryShortcutKeys,
     alternateShortcutKeys,
   });
+  const contextSuggestionOpen = suggestionState.active
+    && suggestionState.kind === "at-mention";
+  const composerPluginCwds = useMemo(
+    () => Array.from(new Set(
+      [model.cwd, model.projectWorkspacePath]
+        .flatMap((candidate) =>
+          candidate?.trim() ? [candidate.trim()] : []
+        ),
+    )),
+    [model.cwd, model.projectWorkspacePath],
+  );
   const addContextControl = (
-    <ComposerAddContextDropdown
-      model={model}
-      actions={actions}
-      onPickFiles={handlePickComposerFiles}
-      onInsertPlugin={handleInsertPluginMention}
+    <ComposerAddContextTrigger
+      open={contextSuggestionOpen}
+      imagesOnly={model.isCloudNewThreadTarget}
+      disabled={isPromptEditorDisabled}
+      onToggle={() => {
+        promptEditorRef.current?.toggleContextSuggestions();
+      }}
     />
   );
   const intelligenceControls = (
@@ -3242,10 +3419,13 @@ function HydratedThreadComposer({
       placeholder={promptPlaceholder}
       disabled={isPromptEditorDisabled}
       singleLine={singleLine}
-      onChange={setPrompt}
+      onChange={(nextPrompt) => {
+        setPrompt(nextPrompt);
+      }}
       onKeyDown={handleKeyDown}
       onLargeTextPaste={handleLargeTextPaste}
-      onSlashTriggerChange={handleSlashTriggerChange}
+      onSuggestionStateChange={handleSuggestionStateChange}
+      onSuggestionAction={handleSuggestionAction}
     />
   );
   const composerLayout: ComposerAdaptiveLayout = floatingComposerSingleLine
@@ -3385,8 +3565,62 @@ function HydratedThreadComposer({
           void handleBrowserImageDrop(event);
         }}
       >
+        <ComposerAddContextMenu
+          ref={addContextMenuRef}
+          suggestion={suggestionState}
+          isHomeMenu={model.isNewThreadTab}
+          imagesOnly={model.isCloudNewThreadTarget}
+          plugins={model.composerPlugins ?? []}
+          pluginsLoading={model.composerPluginsLoading}
+          skills={model.composerSkills ?? []}
+          skillsLoading={model.composerSkillsLoading}
+          apps={model.composerApps ?? []}
+          appsLoading={model.composerAppsLoading}
+          sites={model.composerSites ?? []}
+          sitesAvailable={model.composerSitesAvailable === true}
+          sitesLoading={model.composerSitesLoading}
+          chatGptConversations={model.composerChatGptConversations ?? []}
+          chatGptConversationsAvailable={
+            model.composerChatGptConversationsAvailable === true
+          }
+          chatGptConversationsLoading={
+            model.composerChatGptConversationsLoading
+          }
+          workspaceRoot={model.cwd ?? model.projectWorkspacePath ?? null}
+          pluginCwds={composerPluginCwds}
+          projectId={model.projectId}
+          projectSelector={
+            model.isNewThreadTab
+              ? model.newThreadProjectSelector ?? null
+              : null
+          }
+          goalAvailable={canUseComposerGoal(model, actions)}
+          planModeAvailable={planModeAvailable}
+          planModeActive={model.selectedCollaborationMode === "plan"}
+          onClose={closeAddContextMenu}
+          onDismiss={dismissAddContextMenu}
+          onPickFiles={handlePickComposerFiles}
+          onActivateGoal={activateGoalMode}
+          onTogglePlanMode={() => {
+            togglePlanMode();
+          }}
+          onCaptureAppshot={handleCaptureAppshot}
+          onProjectChange={(projectId) => {
+            actions.onNewThreadProjectChange?.(projectId);
+          }}
+          onStartNewChatWithPrompt={actions.onStartNewChatWithPrompt}
+          onCapabilitiesChanged={actions.onComposerCapabilitiesChanged}
+          onPrefillPrompt={(nextPrompt) => {
+            setPrompt(nextPrompt);
+            window.requestAnimationFrame(() => {
+              promptEditorRef.current?.focus();
+            });
+          }}
+          onInsertMention={handleInsertPromptMention}
+        />
         <InlineSlashCommandMenu
           open={slashMenuOpen}
+          isHomeMenu={model.isNewThreadTab}
           groups={slashGroups}
           matches={slashMatches}
           highlightedCommandId={highlightedInlineSlashCommandId}
@@ -3395,7 +3629,7 @@ function HydratedThreadComposer({
           onHighlight={(commandId, source) => setInlineSlashHighlightIntent({ commandId, source })}
           onSelect={(command) => selectSlashCommand(command, "inline")}
           onClose={closeSlashMenu}
-          onBack={closeSlashMenu}
+          onBack={backFromNestedSlashMenu}
         />
         {dictationToastMessage ? (
           <button
@@ -3446,6 +3680,45 @@ function HydratedThreadComposer({
                       <span className="min-w-0 truncate">{attachment.filename}</span>
                       <span className="text-token-description-foreground">x</span>
                     </button>
+                  ))}
+                  {appshotContexts.map((context) => (
+                    <div
+                      key={context.id}
+                      className="group relative h-24 w-36 shrink-0 overflow-hidden rounded-xl border border-token-border bg-token-main-surface-secondary"
+                      data-composer-appshot="true"
+                      title={context.windowTitle
+                        ? `${context.appName} — ${context.windowTitle}`
+                        : context.appName}
+                    >
+                      <img
+                        src={context.imageDataUrl}
+                        alt={`${context.appName} Appshot`}
+                        draggable={false}
+                        className="size-full object-cover"
+                      />
+                      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-linear-to-t from-black/75 to-transparent px-2 pt-5 pb-1.5 text-[11px] text-white">
+                        {context.appIconDataUrl ? (
+                          <img
+                            src={context.appIconDataUrl}
+                            alt=""
+                            aria-hidden="true"
+                            draggable={false}
+                            className="size-3.5 shrink-0 object-contain"
+                          />
+                        ) : null}
+                        <span className="min-w-0 truncate">
+                          {context.appName}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="absolute top-1 right-1 inline-flex size-5 items-center justify-center rounded-full bg-black/60 text-white opacity-80 backdrop-blur-sm transition-opacity hover:opacity-100 focus-visible:outline-2 focus-visible:outline-token-focus-border"
+                        onClick={() => handleRemoveAppshotContext(context.id)}
+                        aria-label={`Remove ${context.appName} Appshot`}
+                      >
+                        <CodexCloseIcon className="size-3" />
+                      </button>
+                    </div>
                   ))}
                   {pastedTextAttachments.map((attachment, index) => (
                     <div
@@ -3519,19 +3792,6 @@ function HydratedThreadComposer({
                     >
                       <ComposerAddFilesIcon className="size-3 text-token-description-foreground" />
                       <span className="min-w-0 truncate">{attachment.attachment.label}</span>
-                      <span className="text-token-description-foreground">x</span>
-                    </button>
-                  ))}
-                  {skillMentions.map((attachment) => (
-                    <button
-                      key={attachment.id}
-                      type="button"
-                      className="inline-flex max-w-48 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
-                      onClick={() => handleRemoveSkillMention(attachment.id)}
-                      title={`Remove ${attachment.name}`}
-                    >
-                      <ComposerPluginsIcon className="size-3 text-token-description-foreground" />
-                      <span className="min-w-0 truncate">{attachment.name}</span>
                       <span className="text-token-description-foreground">x</span>
                     </button>
                   ))}

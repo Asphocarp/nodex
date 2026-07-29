@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
+import { ComposerSuggestionRow } from "../composer-suggestion-surface";
 import type {
   ComposerSlashCommand,
   ComposerSlashCommandGroup,
@@ -26,7 +27,7 @@ export function SlashCommandList({
 }: SlashCommandListProps) {
   if (matches.length === 0) {
     return (
-      <div className="px-2 py-row-y text-sm text-token-description-foreground">
+      <div className="px-row-x py-row-y text-sm text-token-input-placeholder-foreground">
         No commands
       </div>
     );
@@ -74,7 +75,7 @@ function SlashCommandGroup({
   return (
     <div className="flex flex-col">
       {showLabel ? (
-        <div className="block px-2 pt-2 text-sm text-token-description-foreground">
+        <div className="text-token-description-foreground sticky top-0 z-10 bg-token-dropdown-background/95 px-row-x py-1 pt-2 text-sm backdrop-blur-sm">
           {group.label}
         </div>
       ) : null}
@@ -107,12 +108,6 @@ function SlashCommandRow({
 }) {
   const rowRef = useRef<HTMLButtonElement | null>(null);
   const disabled = command.isEnabled === false;
-  const rowClassName = [
-    "text-token-foreground outline-hidden opacity-75 focus:bg-token-list-hover-background cursor-interaction w-full shrink-0 overflow-hidden rounded-lg px-row-x py-row-y text-left text-sm",
-    "disabled:cursor-not-allowed disabled:opacity-45",
-    selected ? "bg-token-list-hover-background opacity-100" : "hover:bg-token-list-hover-background hover:opacity-100",
-  ].join(" ");
-
   useEffect(() => {
     if (!selected) return;
     if (!shouldScrollIntoView) return;
@@ -120,15 +115,13 @@ function SlashCommandRow({
   }, [selected, shouldScrollIntoView]);
 
   return (
-    <button
+    <ComposerSuggestionRow
       ref={rowRef}
-      type="button"
-      aria-selected={selected}
+      highlighted={selected}
       disabled={disabled}
-      data-list-navigation-item="true"
       data-slash-command-row={command.id}
-      className={rowClassName}
-      onMouseEnter={() => onHighlight(command.id, "pointer")}
+      className="disabled:cursor-not-allowed disabled:opacity-45"
+      onHighlight={() => onHighlight(command.id, "pointer")}
       onClick={() => {
         if (disabled) return;
         onSelect(command);
@@ -139,7 +132,7 @@ function SlashCommandRow({
         <div
           className={cn(
             command.description
-              ? "max-w-[60%] flex-none truncate"
+              ? "flex-shrink-0 truncate"
               : "min-w-0 flex-1 truncate",
           )}
         >
@@ -151,6 +144,6 @@ function SlashCommandRow({
           </span>
         ) : null}
       </div>
-    </button>
+    </ComposerSuggestionRow>
   );
 }

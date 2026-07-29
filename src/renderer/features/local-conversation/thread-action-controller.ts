@@ -41,6 +41,7 @@ export interface ThreadActionControllerInput {
   onQueueingEnabledChange: ThreadStageActions["onQueueingEnabledChange"];
   onNewThreadProjectChange: NonNullable<ThreadStageActions["onNewThreadProjectChange"]>;
   onRequestNewChatProjectCreate: NonNullable<ThreadStageActions["onRequestNewChatProjectCreate"]>;
+  onStartNewChatWithPrompt?: ThreadStageActions["onStartNewChatWithPrompt"];
   onNewThreadStartInTargetChange: NonNullable<ThreadStageActions["onNewThreadStartInTargetChange"]>;
   onNewThreadStartInEnvironmentChange: NonNullable<ThreadStageActions["onNewThreadStartInEnvironmentChange"]>;
   onRefreshNewThreadStartInEnvironments: NonNullable<ThreadStageActions["onRefreshNewThreadStartInEnvironments"]>;
@@ -191,6 +192,9 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     },
     onNewThreadProjectChange: input.onNewThreadProjectChange,
     onRequestNewChatProjectCreate: input.onRequestNewChatProjectCreate,
+    ...(input.onStartNewChatWithPrompt
+      ? { onStartNewChatWithPrompt: input.onStartNewChatWithPrompt }
+      : {}),
     onNewThreadStartInTargetChange: input.onNewThreadStartInTargetChange,
     onNewThreadStartInEnvironmentChange: input.onNewThreadStartInEnvironmentChange,
     onRefreshNewThreadStartInEnvironments: input.onRefreshNewThreadStartInEnvironments,

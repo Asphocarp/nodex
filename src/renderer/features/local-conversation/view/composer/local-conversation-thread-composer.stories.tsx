@@ -26,9 +26,9 @@ import {
 } from "../thread-stage-story-fixtures";
 import { ThreadComposer } from "./local-conversation-thread-composer";
 import {
+  composerAppshotContextsAtom,
   composerFileAttachmentsAtom,
   composerPastedTextAttachmentsAtom,
-  composerSkillMentionsAtom,
 } from "./composer-draft-state";
 import { PROMPT_HISTORY_ATOM_KEY } from "./thread-composer-prompt-history";
 import { TestComposerScopePath } from "@/test/maitai-scope-harness";
@@ -46,10 +46,11 @@ interface ComposerSendButtonStoryProps {
   selectedCollaborationMode: CodexCollaborationModeKind;
   threadState: "existingThread" | "newChat";
   surfaceWidth: "normal" | "narrow";
-  addContextState: "default" | "ideConnected" | "plugins";
+  addContextState: "default" | "plugins";
   savedGoalState: "none" | "active";
   seedPromptHistory: boolean;
   seedCompletedContext: boolean;
+  seedAppshot: boolean;
   pastedTextState: "none" | "pending" | "ready" | "failed";
   multiProviderCatalog: boolean;
 }
@@ -389,20 +390,111 @@ function buildModel(args: ComposerSendButtonStoryProps): ThreadFooterModel {
           },
         }
       : {}),
-    ...(args.addContextState === "ideConnected"
-      ? {
-          composerIdeContext: {
-            isConnected: true,
-            isEnabled: false,
-          },
-        }
-      : {}),
     ...(args.addContextState === "plugins"
       ? {
           composerPlugins: [
-            { name: "Computer Use", path: "/plugins/computer-use" },
-            { name: "Browser Use", path: "/plugins/browser-use" },
+            {
+              id: "browser@openai-bundled",
+              name: "Browser",
+              displayName: "Browser",
+              description: "Control the in-app browser with ChatGPT",
+              defaultPrompt: null,
+              installed: true,
+              enabled: true,
+              path: "plugin://browser@openai-bundled",
+              iconUrl: null,
+              iconUrlDark: null,
+              brandColor: "#4b8df8",
+            },
+            {
+              id: "computer-use@openai-bundled",
+              name: "Computer",
+              displayName: "Computer",
+              description: "Control Mac apps from ChatGPT",
+              defaultPrompt: null,
+              installed: true,
+              enabled: true,
+              path: "plugin://computer-use@openai-bundled",
+              iconUrl: null,
+              iconUrlDark: null,
+              brandColor: null,
+            },
+            {
+              id: "record-and-replay@openai-bundled",
+              name: "record-and-replay",
+              displayName: "Record and Replay",
+              description: "Turn a workflow into a reusable skill",
+              defaultPrompt:
+                "Record this workflow as a reusable skill.",
+              installed: false,
+              enabled: false,
+              path:
+                "plugin://record-and-replay@openai-bundled",
+              iconUrl: null,
+              iconUrlDark: null,
+              brandColor: null,
+            },
           ],
+          composerApps: [{
+            id: "plugin-management",
+            name: "Plugin Management",
+            description: "Manage plugins, permissions, and connections",
+            logoUrl: null,
+            logoUrlDark: null,
+            iconAssets: null,
+            iconDarkAssets: null,
+            distributionChannel: null,
+            branding: null,
+            appMetadata: null,
+            labels: null,
+            installUrl: null,
+            isAccessible: true,
+            isEnabled: true,
+            pluginDisplayNames: [],
+          }],
+          composerSkills: [{
+            name: "plugin-creator",
+            displayName: "Plugin Creator",
+            description: "Create and scaffold Codex plugins",
+            iconUrl: null,
+            brandColor: null,
+            path: "/skills/plugin-creator/SKILL.md",
+            scope: "system",
+          }, {
+            name: "pdf",
+            displayName: "PDF",
+            description: "Read, create, and verify PDF files",
+            iconUrl: null,
+            brandColor: null,
+            path: "/skills/pdf/SKILL.md",
+            scope: "user",
+          }],
+          composerSitesAvailable: true,
+          composerSites: [{
+            id: "appgprj_pals",
+            title: "Pals Board",
+            slug: "pals-board",
+            currentLiveUrl: "https://pals-board.chatgpt.site",
+            path: "sites-project://appgprj_pals",
+          }, {
+            id: "appgprj_feels",
+            title: "Feels right",
+            slug: "feels-right",
+            currentLiveUrl: "https://feels-right.chatgpt.site",
+            path: "sites-project://appgprj_feels",
+          }],
+          composerChatGptConversationsAvailable: true,
+          composerChatGptConversations: [{
+            conversationId: "conversation-hangzhou",
+            title: "Hangzhou Weekend Picks",
+            path:
+              "chatgpt-conversation://conversation-hangzhou",
+          }, {
+            conversationId: "conversation-research",
+            title: "Browser parity research",
+            path:
+              "chatgpt-conversation://conversation-research",
+          }],
         }
       : {}),
     composerEnterBehavior: args.composerEnterBehavior,
@@ -462,20 +554,22 @@ function buildActions(): ThreadStageActions {
 
 function ComposerCompletedContextSeeder({
   enabled,
+  seedAppshot,
   pastedTextState,
 }: {
   enabled: boolean;
+  seedAppshot: boolean;
   pastedTextState: ComposerSendButtonStoryProps["pastedTextState"];
 }) {
+  const setAppshotContexts = useSetScopedAtom(composerAppshotContextsAtom);
   const setFileAttachments = useSetScopedAtom(composerFileAttachmentsAtom);
   const setPastedTextAttachments = useSetScopedAtom(composerPastedTextAttachmentsAtom);
-  const setSkillMentions = useSetScopedAtom(composerSkillMentionsAtom);
 
   useLayoutEffect(() => {
-    if (!enabled && pastedTextState === "none") {
+    if (!enabled && !seedAppshot && pastedTextState === "none") {
+      setAppshotContexts([]);
       setFileAttachments([]);
       setPastedTextAttachments([]);
-      setSkillMentions([]);
       return;
     }
 
@@ -486,6 +580,16 @@ function ComposerCompletedContextSeeder({
         path: "docs/renderer-view-state-ownership.md",
         fsPath: "/workspace/nodex/docs/renderer-view-state-ownership.md",
       },
+    }] : []);
+    setAppshotContexts(seedAppshot ? [{
+      id: "story-appshot-safari",
+      appName: "Safari",
+      bundleIdentifier: "com.apple.Safari",
+      windowTitle: "Nodex implementation plan",
+      axTree: "AXWindow title=Nodex implementation plan",
+      imageName: "Safari Appshot.png",
+      imageDataUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='720' height='480'%3E%3Crect width='720' height='480' fill='%23e8edf3'/%3E%3Crect x='24' y='24' width='672' height='48' rx='12' fill='%23ffffff'/%3E%3Crect x='24' y='96' width='672' height='360' rx='12' fill='%23ffffff'/%3E%3Cpath d='M72 150h440M72 196h520M72 242h360' stroke='%239aa6b2' stroke-width='16' stroke-linecap='round'/%3E%3C/svg%3E",
+      appIconDataUrl: null,
     }] : []);
 
     const resolvedPastedTextState = pastedTextState === "none" && enabled
@@ -523,18 +627,19 @@ function ComposerCompletedContextSeeder({
       setPastedTextAttachments([]);
     }
 
-    setSkillMentions(enabled ? [{
-      id: "story-skill-feature-dev",
-      name: "feature-dev",
-      path: "/workspace/.agents/skills/feature-dev/SKILL.md",
-    }] : []);
-
     return () => {
+      setAppshotContexts([]);
       setFileAttachments([]);
       setPastedTextAttachments([]);
-      setSkillMentions([]);
     };
-  }, [enabled, pastedTextState, setFileAttachments, setPastedTextAttachments, setSkillMentions]);
+  }, [
+    enabled,
+    pastedTextState,
+    seedAppshot,
+    setAppshotContexts,
+    setFileAttachments,
+    setPastedTextAttachments,
+  ]);
 
   return null;
 }
@@ -577,6 +682,7 @@ function ComposerSendButtonStory(args: ComposerSendButtonStoryProps) {
           <TestComposerScopePath>
             <ComposerCompletedContextSeeder
               enabled={args.seedCompletedContext}
+              seedAppshot={args.seedAppshot}
               pastedTextState={args.pastedTextState}
             />
             <ThreadComposer
@@ -613,6 +719,7 @@ const meta = {
     savedGoalState: "none",
     seedPromptHistory: false,
     seedCompletedContext: false,
+    seedAppshot: false,
     pastedTextState: "none",
     multiProviderCatalog: false,
   },
@@ -663,7 +770,7 @@ const meta = {
     },
     addContextState: {
       control: "radio",
-      options: ["default", "ideConnected", "plugins"],
+      options: ["default", "plugins"],
     },
     savedGoalState: {
       control: "radio",
@@ -673,6 +780,9 @@ const meta = {
       control: "boolean",
     },
     seedCompletedContext: {
+      control: "boolean",
+    },
+    seedAppshot: {
       control: "boolean",
     },
     pastedTextState: {
@@ -813,7 +923,20 @@ export const RestoredDraftAndCompletedContext: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Composer restoration acceptance state with authored prompt text plus completed file, pasted-text, and skill context owned by the current ComposerScope.",
+        story: "Composer restoration acceptance state with authored prompt text plus completed file, pasted-text, and capability context owned by the current ComposerScope.",
+      },
+    },
+  },
+};
+
+export const AppshotAttachment: Story = {
+  args: {
+    seedAppshot: true,
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "A captured foreground macOS application, including its screenshot and accessibility context, attached above the composer.",
       },
     },
   },
@@ -980,15 +1103,57 @@ export const NewThreadDraftPlanMode: Story = {
   },
 };
 
-export const AddContextIdeConnected: Story = {
-  args: {
-    addContextState: "ideConnected",
-  },
-};
-
 export const AddContextPlugins: Story = {
   args: {
     addContextState: "plugins",
+  },
+  play: async ({ canvasElement }) => {
+    const trigger = getByRole(canvasElement, "button", { name: "Add files and more" });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(trigger);
+    await waitFor(() => {
+      const menu = canvasElement.querySelector("[data-add-context-menu='true']");
+      if (!menu) throw new Error("Add-context suggestions did not open");
+      return menu;
+    });
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Editor-owned composer suggestion surface with direct actions and atomic plugin mentions.",
+      },
+    },
+  },
+};
+
+export const AddContextSearch: Story = {
+  args: {
+    addContextState: "plugins",
+    draftPrompt: "@bro",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Typed at-mention query state remains in the focused editor and collapses providers into one globally ranked result list.",
+      },
+    },
+  },
+};
+
+export const SkillAndAppMentions: Story = {
+  args: {
+    addContextState: "plugins",
+    draftPrompt: "$",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Typed dollar suggestions share editor-owned keyboard state and combine enabled skills with accessible apps.",
+      },
+    },
   },
 };
 

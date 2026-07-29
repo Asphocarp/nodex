@@ -453,6 +453,37 @@ async function renderNewThreadHome(overrides?: {
           customDescription: null,
         };
       }
+      if (channel === "codex:composer-plugins:list") {
+        return [{
+          id: "browser@openai-bundled",
+          name: "Browser",
+          displayName: "Browser",
+          description: "Control the in-app browser with ChatGPT",
+          path: "plugin://browser@openai-bundled",
+          iconUrl: null,
+          iconUrlDark: null,
+          brandColor: "#4b8df8",
+        }];
+      }
+      if (channel === "codex:mcp-apps:list") {
+        return [{
+          id: "plugin-management",
+          name: "Plugin Management",
+          description: "Manage installed plugins",
+          logoUrl: null,
+          logoUrlDark: null,
+          iconAssets: null,
+          iconDarkAssets: null,
+          distributionChannel: null,
+          branding: null,
+          appMetadata: null,
+          labels: null,
+          installUrl: null,
+          isAccessible: true,
+          isEnabled: true,
+          pluginDisplayNames: [],
+        }];
+      }
       if (channel === "git:branch:watch:start" || channel === "git:branch:watch:stop") {
         return true;
       }
@@ -1115,6 +1146,29 @@ describe("ConnectedThreadStage new-chat home", () => {
     expect(renderedText.includes("Start a new thread")).toBe(false);
     expect(renderedText.includes("Connect Codex web")).toBe(false);
     expect(renderedText.includes("Send to cloud")).toBe(false);
+  });
+
+  test("projects installed app-server plugins into the production composer menu", async () => {
+    installAsyncRequestAnimationFrame();
+    const view = await renderNewThreadHome();
+    const trigger = view.getByRole("button", { name: "Add files and more" });
+
+    await act(async () => {
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      const browserRow = view.container.querySelector(
+        '[data-add-context-plugin="Browser"]',
+      );
+      expect(browserRow).not.toBeNull();
+      const pluginManagementRow = view.container.querySelector(
+        '[data-add-context-app="Plugin Management"]',
+      );
+      expect(pluginManagementRow).not.toBeNull();
+    });
   });
 
   test("uses ready thread start progress to render the materialized first turn", async () => {

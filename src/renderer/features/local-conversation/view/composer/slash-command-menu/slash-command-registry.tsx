@@ -22,7 +22,6 @@ import {
   CodexSlashPetIcon,
   CodexSlashReasoningIcon,
   CodexSlashSideIcon,
-  CodexSlashSkillIcon,
   CodexSlashStatusIcon,
   ComposerPlanModeIcon,
 } from "@/components/shared/icons";
@@ -38,7 +37,6 @@ import { getThreadGoalMessage } from "../../../thread-goal-copy";
 import type {
   ComposerSlashCommand,
   ComposerSlashCommandContentProps,
-  ComposerSlashInlineSelection,
 } from "./slash-command-types";
 import { hasPlanMode, resolveNextComposerPlanMode } from "../composer-plan-mode";
 
@@ -47,7 +45,6 @@ interface BuildSlashCommandsInput {
   actions: ThreadStageActions;
   serviceTier: CodexServiceTier;
   setServiceTier: (tier: CodexServiceTier, source: string) => void;
-  insertPluginMention: (plugin: NonNullable<ThreadFooterModel["composerPlugins"]>[number]) => void;
   openExpandedDialog: () => void;
   onPetToggle: () => void;
   activateGoalMode: () => void;
@@ -63,7 +60,10 @@ function canStartNewThreadGoalDraft(model: ThreadFooterModel, actions: ThreadSta
   return Boolean(model.newThreadTarget.sessionId && actions.onStartThreadForSession);
 }
 
-function canUseGoalCommand(model: ThreadFooterModel, actions: ThreadStageActions): boolean {
+export function canUseComposerGoal(
+  model: ThreadFooterModel,
+  actions: ThreadStageActions,
+): boolean {
   if (model.conversation === null) {
     return canStartNewThreadGoalDraft(model, actions);
   }
@@ -79,7 +79,7 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
   const threadId = input.model.conversation?.threadId ?? input.model.threadId;
   const canUseThread = Boolean(threadId);
   const canUseExistingThread = Boolean(input.model.conversation);
-  const canUseGoal = canUseGoalCommand(input.model, input.actions);
+  const canUseGoal = canUseComposerGoal(input.model, input.actions);
   const isSideConversation = input.model.conversation?.source?.sideConversation === true;
   const latestTurnId = input.model.body.latestTurnId;
   const commands: ComposerSlashCommand[] = [
@@ -154,7 +154,6 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
       description: getThreadGoalMessage("composer.goalSlashCommand.setDescription"),
       group: "Commands",
       icon: <CodexGoalTargetIcon className={iconClassName} />,
-      triggers: ["/", "@"],
       requiresEmptyComposer: false,
       isVisible: canUseGoal,
       onSelect: () => {
@@ -362,28 +361,7 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
     },
   ];
 
-  for (const plugin of input.model.composerPlugins ?? []) {
-    commands.push({
-      id: `skill:${plugin.path}`,
-      title: plugin.name,
-      description: plugin.path,
-      group: "Skills",
-      icon: <CodexSlashSkillIcon className={iconClassName} />,
-      onSelectFromInlineSlash: (selection) => insertPluginFromInline(selection, plugin, input.insertPluginMention),
-      onSelect: () => input.insertPluginMention(plugin),
-    });
-  }
-
   return commands;
-}
-
-function insertPluginFromInline(
-  selection: ComposerSlashInlineSelection,
-  plugin: NonNullable<ThreadFooterModel["composerPlugins"]>[number],
-  insertPluginMention: (plugin: NonNullable<ThreadFooterModel["composerPlugins"]>[number]) => void,
-) {
-  selection.clearTrigger();
-  insertPluginMention(plugin);
 }
 
 function ModelCommandContent({

@@ -58,6 +58,7 @@ export function SessionThreadPage({
   threadBodyVisible,
   onRefreshProjectSessions,
   onEnsureBlankSessionForProject,
+  onStartNewChatWithPrompt,
   onOpenPendingWorktree,
   newThreadComposerIntent,
   onConsumeNewThreadComposerIntent,
@@ -120,6 +121,9 @@ export function SessionThreadPage({
   onEnsureBlankSessionForProject: (
     projectId: string | null,
   ) => Promise<WorkbenchSessionRenderProjection>;
+  onStartNewChatWithPrompt?: NonNullable<
+    ThreadStageActions["onStartNewChatWithPrompt"]
+  >;
   onOpenPendingWorktree: (clientThreadId: string) => void;
   newThreadComposerIntent?: CodexComposerIntent | null;
   onConsumeNewThreadComposerIntent?:
@@ -443,6 +447,7 @@ export function SessionThreadPage({
       projectId: effectiveProjectId,
       onNewThreadProjectChange: setSelectedNewThreadProjectId,
       onRequestNewChatProjectCreate: onRequestProjectPickerOpen,
+      onStartNewChatWithPrompt,
       onNewThreadStartInTargetChange: (target) => {
         setSelectedNewThreadRunInTarget(target.runInTarget);
         if (target.runInTarget !== "newWorktree") {
@@ -488,6 +493,7 @@ export function SessionThreadPage({
   }), [
     codexControl,
     onEnsureBlankSessionForProject,
+    onStartNewChatWithPrompt,
     onRefreshProjectSessions,
     onOpenPendingWorktree,
     onQueueingEnabledChange,

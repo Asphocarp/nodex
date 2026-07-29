@@ -116,8 +116,8 @@ describe("ComposerScope draft ownership", () => {
       fileAttachments: [],
       addedFiles: [],
       imageAttachments: [],
+      appshotContexts: [],
       pastedTextAttachments: [],
-      skillMentions: [],
       commentAttachments: [],
       goalModeActive: false,
     });

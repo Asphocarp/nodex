@@ -45,7 +45,7 @@ describe("ExpandedSlashCommandDialog", () => {
     expect(compactRow.getAttribute("aria-selected")).toBe("true");
 
     await act(async () => {
-      fireEvent.mouseEnter(modelRow);
+      fireEvent.mouseMove(modelRow);
       await Promise.resolve();
     });
     expect(modelRow.getAttribute("aria-selected")).toBe("true");

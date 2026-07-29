@@ -252,6 +252,8 @@ function installComposerWindowApi(testInvoke?: TestInvoke): void {
           return undefined;
         case "codex:thread:goal:editable-objective:read":
           return args[0];
+        case "codex:composer-appshot:target":
+          return { available: false, target: null };
         default:
           return null;
       }
@@ -980,7 +982,11 @@ describe("ThreadComposer speed menu", () => {
       { onSendPrompt: async () => { throw new Error("transport failed"); } },
     );
     await submitCurrentComposerDraft(sendView);
-    await waitFor(() => expect(readComposerText(sendView)).toBe("preserve failed send"));
+    await waitFor(() =>
+      expect(readComposerText(sendView)).toBe(
+        "preserve failed send Failure Context ",
+      )
+    );
     expect(sendView.container.textContent?.includes("Failure Context") ?? false).toBe(true);
     sendView.unmount();
 
@@ -1048,6 +1054,7 @@ describe("ThreadComposer speed menu", () => {
     };
     const view = render(renderTree(firstIntent));
     await settleComposerFrame();
+    expect(readComposerText(view)).toBe("keep prompt Alpha ");
     expect(view.container.textContent?.includes("Alpha") ?? false).toBe(true);
 
     await act(async () => {
@@ -1060,7 +1067,7 @@ describe("ThreadComposer speed menu", () => {
       await Promise.resolve();
     });
     await settleComposerFrame();
-    expect(readComposerText(view)).toBe("keep prompt");
+    expect(readComposerText(view)).toBe("keep prompt Alpha Beta ");
     expect(view.container.textContent?.includes("Alpha") ?? false).toBe(true);
     expect(view.container.textContent?.includes("Beta") ?? false).toBe(true);
 
@@ -1074,6 +1081,7 @@ describe("ThreadComposer speed menu", () => {
       await Promise.resolve();
     });
     await settleComposerFrame();
+    expect(readComposerText(view)).toBe("keep prompt Beta ");
     expect(view.container.textContent?.includes("Alpha") ?? false).toBe(false);
     expect(view.container.textContent?.includes("Beta") ?? false).toBe(true);
   });
@@ -1163,7 +1171,7 @@ describe("ThreadComposer speed menu", () => {
     expect(menuItems.some((node) => node.textContent?.includes("Speed"))).toBe(false);
   });
 
-  test("add-context menu uses Codex row order without a title row", async () => {
+  test("add-context menu groups direct actions in Codex row order", async () => {
     resetStorage();
     const selectedModes: string[] = [];
     const view = await renderComposer({
@@ -1187,7 +1195,7 @@ describe("ThreadComposer speed menu", () => {
 
     const bodyText = view.container.ownerDocument.body.textContent ?? "";
     expect(Boolean(bodyText.includes("Add files and more"))).toBe(false);
-    expect(Boolean(bodyText.includes("Add photos & files"))).toBe(true);
+    expect(Boolean(bodyText.includes("Files and folders"))).toBe(true);
     expect(Boolean(bodyText.includes("Plan mode"))).toBe(true);
     expect(Boolean(bodyText.includes("Speed"))).toBe(false);
     expect(Boolean(bodyText.includes("Plugins"))).toBe(false);
@@ -1203,6 +1211,79 @@ describe("ThreadComposer speed menu", () => {
     });
 
     expect(selectedModes[0]).toBe("plan");
+  });
+
+  test("captures the discovered foreground app as a structured Appshot attachment", async () => {
+    resetStorage();
+    const sentPromptInputs: unknown[] = [];
+    const target = {
+      id: "target-1",
+      appName: "Safari",
+      bundleIdentifier: "com.apple.Safari",
+      windowTitle: "Nodex",
+      iconSmallDataUrl: "data:image/png;base64,aWNvbg==",
+    };
+    const context = {
+      id: "appshot-1",
+      appName: "Safari",
+      bundleIdentifier: "com.apple.Safari",
+      windowTitle: "Nodex",
+      axTree: "AXWindow title=Nodex",
+      imageName: "Safari Appshot.png",
+      imageDataUrl: "data:image/png;base64,YXBwc2hvdA==",
+      appIconDataUrl: "data:image/png;base64,aWNvbg==",
+    };
+    const view = await renderComposer(
+      undefined,
+      {
+        onSendPrompt: async (_prompt, options) => {
+          sentPromptInputs.push(options?.promptInput ?? null);
+        },
+      },
+      async (channel, ...args) => {
+        if (channel === "codex:composer-appshot:target") {
+          return { available: true, target };
+        }
+        if (channel === "codex:composer-appshot:capture") {
+          expect(args[0]).toEqual({ targetId: "target-1" });
+          return context;
+        }
+        return undefined;
+      },
+    );
+
+    const trigger = view.getByLabelText("Add files and more");
+    await act(async () => {
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
+      await Promise.resolve();
+    });
+    const appshotRow = await waitFor(() => {
+      const row = view.container.querySelector(
+        '[data-add-context-row="appshot"]',
+      );
+      if (!(row instanceof HTMLElement)) {
+        throw new Error("Expected the foreground Appshot row.");
+      }
+      return row;
+    });
+    expect(appshotRow.textContent).toContain("Attach Safari");
+
+    await act(async () => {
+      fireEvent.click(appshotRow);
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(
+        view.container.querySelector('[data-composer-appshot="true"]'),
+      ).not.toBeNull();
+    });
+
+    await submitCurrentComposerDraft(view);
+    expect(sentPromptInputs).toEqual([{
+      text: "",
+      appshots: [context],
+    }]);
   });
 
   test("shift-tab toggles Plan mode and blocks focus traversal", async () => {
@@ -1296,7 +1377,7 @@ describe("ThreadComposer speed menu", () => {
 
   test("add-context prompt input keeps file and added sidecars, images, and plugin skills distinct", () => {
     const promptInput = __composerAddContextTestUtils.buildComposerPromptInput({
-      prompt: "  Use these\n",
+      prompt: "  Use these\n[$Computer Use](/plugins/computer-use)",
       attachments: {
         fileAttachments: [{
           uiId: "file_1",
@@ -1315,6 +1396,7 @@ describe("ThreadComposer speed menu", () => {
           },
         }],
         imageAttachments: [{ id: "image_1", filename: "diagram.png", path: "/tmp/diagram.png", dataUrl: "data:image/png;base64,aW1hZ2U=" }],
+        appshotContexts: [],
         pastedTextAttachments: [{
           id: "pasted_text_1",
           status: "ready",
@@ -1330,17 +1412,165 @@ describe("ThreadComposer speed menu", () => {
             characterCount: 19,
           },
         }],
-        skillMentions: [{ id: "skill_1", name: "Computer Use", path: "/plugins/computer-use" }],
         commentAttachments: [],
         browserAnnotationAttachments: [],
       },
     });
 
     expect(JSON.stringify(promptInput)).toBe(
-      "{\"text\":\"  Use these\\n\",\"images\":[{\"source\":\"data:image/png;base64,aW1hZ2U=\",\"caption\":\"diagram.png\"}],\"textAttachments\":[{\"file\":{\"label\":\"Pasted text.txt\",\"path\":\"/tmp/pasted-text.txt\",\"fsPath\":\"/tmp/pasted-text.txt\"},\"preview\":\"Pasted requirements\",\"characterCount\":19}],\"fileAttachments\":[{\"label\":\"notes.md\",\"path\":\"/tmp/notes.md\",\"fsPath\":\"/tmp/notes.md\"}],\"addedFiles\":[{\"label\":\"generated.md\",\"path\":\"/tmp/generated.md\",\"fsPath\":\"/tmp/generated.md\"}],\"skills\":[{\"name\":\"Computer Use\",\"path\":\"/plugins/computer-use\"}]}",
+      "{\"text\":\"  Use these\\n\",\"documentItems\":[{\"type\":\"text\",\"text\":\"  Use these\\n\"},{\"type\":\"skill\",\"name\":\"Computer Use\",\"path\":\"/plugins/computer-use\"}],\"images\":[{\"source\":\"data:image/png;base64,aW1hZ2U=\",\"caption\":\"diagram.png\"}],\"textAttachments\":[{\"file\":{\"label\":\"Pasted text.txt\",\"path\":\"/tmp/pasted-text.txt\",\"fsPath\":\"/tmp/pasted-text.txt\"},\"preview\":\"Pasted requirements\",\"characterCount\":19}],\"fileAttachments\":[{\"label\":\"notes.md\",\"path\":\"/tmp/notes.md\",\"fsPath\":\"/tmp/notes.md\"}],\"addedFiles\":[{\"label\":\"generated.md\",\"path\":\"/tmp/generated.md\",\"fsPath\":\"/tmp/generated.md\"}],\"skills\":[{\"name\":\"Computer Use\",\"path\":\"/plugins/computer-use\"}]}",
     );
     expect(__composerAddContextTestUtils.isComposerImageFile({ label: "diagram.png", path: "/tmp/diagram.png" })).toBe(true);
     expect(__composerAddContextTestUtils.isComposerImageFile({ label: "notes.md", path: "/tmp/notes.md" })).toBe(false);
+  });
+
+  test("compiles document-owned mentions into structured prompt input", () => {
+    const promptInput = __composerAddContextTestUtils.buildComposerPromptInput({
+      prompt: [
+        "Use [@Browser](plugin://browser@openai-bundled)",
+        "and [$plugin-management](app://plugin-management)",
+        "and [$PDF](/skills/pdf/SKILL.md)",
+        "with [notes.md](/tmp/notes.md)",
+      ].join("\n"),
+      attachments: {
+        fileAttachments: [],
+        addedFiles: [],
+        imageAttachments: [],
+        appshotContexts: [],
+        pastedTextAttachments: [],
+        commentAttachments: [],
+        browserAnnotationAttachments: [],
+      },
+    });
+
+    expect(promptInput).toEqual({
+      text: "Use \nand \nand \nwith ",
+      documentItems: [{
+        type: "text",
+        text: "Use ",
+      }, {
+        type: "mention",
+        name: "Browser",
+        path: "plugin://browser@openai-bundled",
+      }, {
+        type: "text",
+        text: "\nand ",
+      }, {
+        type: "mention",
+        name: "plugin-management",
+        path: "app://plugin-management",
+      }, {
+        type: "text",
+        text: "\nand ",
+      }, {
+        type: "skill",
+        name: "PDF",
+        path: "/skills/pdf/SKILL.md",
+      }, {
+        type: "text",
+        text: "\nwith ",
+      }, {
+        type: "mention",
+        name: "notes.md",
+        path: "/tmp/notes.md",
+      }],
+      mentions: [
+        {
+          name: "Browser",
+          path: "plugin://browser@openai-bundled",
+        },
+        {
+          name: "plugin-management",
+          path: "app://plugin-management",
+        },
+        {
+          name: "notes.md",
+          path: "/tmp/notes.md",
+        },
+      ],
+      skills: [{
+        name: "PDF",
+        path: "/skills/pdf/SKILL.md",
+      }],
+    });
+  });
+
+  test("restores all structured mentions into the persisted prompt document", () => {
+    expect(__composerAddContextTestUtils.buildPersistedMentionPrompt({
+      text: "",
+      mentions: [{
+        name: "Browser",
+        path: "plugin://browser@openai-bundled",
+      }, {
+        name: "Plugin Management",
+        path: "app://plugin-management",
+      }, {
+        name: "notes.md",
+        path: "/tmp/notes.md",
+      }, {
+        name: "Release notes",
+        path: "sites-project://site-1",
+      }, {
+        name: "Prior research",
+        path: "chatgpt-conversation://conversation-1",
+      }],
+      skills: [{
+        name: "PDF",
+        path: "/skills/pdf/SKILL.md",
+      }],
+    })).toBe(
+      "[@Browser](plugin://browser@openai-bundled) [$plugin-management](app://plugin-management) [notes.md](/tmp/notes.md) [Release notes](sites-project://site-1) [Prior research](chatgpt-conversation://conversation-1) [$PDF](/skills/pdf/SKILL.md)",
+    );
+  });
+
+  test("restores an ordered prompt document without moving mentions", () => {
+    expect(__composerAddContextTestUtils.buildPersistedPromptDocument({
+      text: "Open  then ",
+      documentItems: [{
+        type: "text",
+        text: "Open ",
+      }, {
+        type: "mention",
+        name: "notes.md",
+        path: "docs/notes.md",
+      }, {
+        type: "text",
+        text: " then ",
+      }, {
+        type: "skill",
+        name: "PDF",
+        path: "/skills/pdf/SKILL.md",
+      }],
+    })).toBe(
+      "Open [notes.md](docs/notes.md) then [$PDF](/skills/pdf/SKILL.md)",
+    );
+  });
+
+  test("does not demote document mentions into footer file attachments", () => {
+    const attachmentState = __composerAddContextTestUtils
+      .buildComposerAttachmentStateFromPromptInput({
+        text: "",
+        mentions: [{
+          name: "notes.md",
+          path: "/tmp/notes.md",
+        }],
+      });
+
+    expect(attachmentState.fileAttachments).toEqual([]);
+  });
+
+  test("replacing structured mention input removes prior document mentions", () => {
+    expect(__composerAddContextTestUtils.removePersistedMentionPrompt(
+      [
+        "Keep [notes.md](/tmp/notes.md)",
+        "remove [@Browser](plugin://browser@openai-bundled)",
+        "and [$PDF](/skills/pdf/SKILL.md)",
+      ].join("\n"),
+    )).toBe([
+      "Keep ",
+      "remove ",
+      "and",
+    ].join("\n"));
   });
 
   test("restores pasted source metadata exactly and treats an explicit empty file channel as authoritative", () => {
@@ -1448,12 +1678,24 @@ describe("ThreadComposer speed menu", () => {
     }));
   });
 
-  test("plugin flyout inserts a structured skill mention", async () => {
+  test("unified add-context menu inserts a structured plugin mention", async () => {
     resetStorage();
     const sentPromptInputs: string[] = [];
     const view = await renderComposer(
       {
-        composerPlugins: [{ name: "Computer Use", path: "/plugins/computer-use" }],
+        composerPlugins: [{
+          id: "computer-use@openai-bundled",
+          name: "Computer",
+          displayName: "Computer",
+          description: "Control Mac apps from ChatGPT",
+          defaultPrompt: null,
+          installed: true,
+          enabled: true,
+          path: "plugin://computer-use@openai-bundled",
+          iconUrl: null,
+          iconUrlDark: null,
+          brandColor: null,
+        }],
       },
       {
         onSendPrompt: async (_prompt, opts) => {
@@ -1469,35 +1711,536 @@ describe("ThreadComposer speed menu", () => {
       await Promise.resolve();
     });
 
-    const pluginTrigger = Array.from(view.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'))
-      .find((node) => node.textContent?.includes("Plugins"));
-    if (!(pluginTrigger instanceof HTMLElement)) {
-      throw new Error("Expected the Plugins flyout trigger.");
-    }
-
-    await act(async () => {
-      fireEvent.click(pluginTrigger);
-      await Promise.resolve();
-    });
-
-    const pluginItem = view.container.ownerDocument.body.querySelector('[data-add-context-plugin="Computer Use"]');
+    const pluginItem = view.container.querySelector('[data-add-context-plugin="Computer"]');
     if (!(pluginItem instanceof HTMLElement)) {
-      throw new Error("Expected the Computer Use plugin row.");
+      throw new Error("Expected the Computer plugin row.");
     }
+    const editor = view.container.querySelector("[contenteditable='true']");
+    if (!(editor instanceof HTMLElement)) {
+      throw new Error("Expected the composer editor.");
+    }
+    expect(document.activeElement).toBe(editor);
 
     await act(async () => {
-      fireEvent.click(pluginItem);
+      fireEvent.keyDown(editor, { key: "ArrowUp" });
+      await Promise.resolve();
+    });
+    expect(pluginItem.getAttribute("aria-selected")).toBe("true");
+
+    await act(async () => {
+      fireEvent.keyDown(editor, { key: "Enter" });
       await Promise.resolve();
     });
 
-    expect(Boolean(view.container.textContent?.includes("Computer Use"))).toBe(true);
+    expect(
+      editor.querySelector(
+        "[plugin-mention-path='plugin://computer-use@openai-bundled']",
+      ),
+    ).not.toBeNull();
     const sendButton = view.getByLabelText("Send prompt");
     await act(async () => {
       fireEvent.click(sendButton);
       await Promise.resolve();
     });
 
-    expect(Boolean((sentPromptInputs[0] ?? "").includes("\"skills\":[{\"name\":\"Computer Use\",\"path\":\"/plugins/computer-use\"}]"))).toBe(true);
+    expect(JSON.parse(sentPromptInputs[0] ?? "null")).toMatchObject({
+      mentions: [{
+        name: "Computer",
+        path: "plugin://computer-use@openai-bundled",
+      }],
+    });
+    expect(sentPromptInputs[0]).not.toContain("\"skills\"");
+  });
+
+  test("inserts authenticated Sites and ChatGPT conversation mentions", async () => {
+    resetStorage();
+    const sentPromptInputs: string[] = [];
+    const view = await renderComposer(
+      {
+        composerSitesAvailable: true,
+        composerSites: [{
+          id: "appgprj_release",
+          title: "Release notes",
+          slug: "release-notes",
+          currentLiveUrl: "https://release.chatgpt.site/docs",
+          path: "sites-project://appgprj_release",
+        }],
+        composerChatGptConversationsAvailable: true,
+        composerChatGptConversations: [{
+          conversationId: "conversation/research",
+          title: "Prior research",
+          path: "chatgpt-conversation://conversation%2Fresearch",
+        }],
+      },
+      {
+        onSendPrompt: async (_prompt, opts) => {
+          sentPromptInputs.push(JSON.stringify(opts?.promptInput ?? null));
+        },
+      },
+    );
+    const trigger = view.getByLabelText("Add files and more");
+    const openMenu = async () => {
+      await act(async () => {
+        fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+        fireEvent.click(trigger);
+        await Promise.resolve();
+      });
+    };
+
+    await openMenu();
+    const siteRow = view.container.querySelector(
+      '[data-add-context-row="site:appgprj_release"]',
+    );
+    if (!(siteRow instanceof HTMLElement)) {
+      throw new Error("Expected the Sites project row.");
+    }
+    expect(siteRow.textContent).toContain("release.chatgpt.site/docs");
+    await act(async () => {
+      fireEvent.click(siteRow);
+      await Promise.resolve();
+    });
+
+    await openMenu();
+    const conversationRow = view.container.querySelector(
+      '[data-add-context-row="chatgpt-conversation:conversation/research"]',
+    );
+    if (!(conversationRow instanceof HTMLElement)) {
+      throw new Error("Expected the ChatGPT conversation row.");
+    }
+    await act(async () => {
+      fireEvent.click(conversationRow);
+      await Promise.resolve();
+    });
+
+    const editor = view.container.querySelector("[contenteditable='true']");
+    if (!(editor instanceof HTMLElement)) {
+      throw new Error("Expected the composer editor.");
+    }
+    expect(
+      editor.querySelector(
+        "[sites-project-mention-path='sites-project://appgprj_release']",
+      ),
+    ).not.toBeNull();
+    expect(
+      editor.querySelector(
+        "[chatgpt-conversation-mention-path='chatgpt-conversation://conversation%2Fresearch']",
+      ),
+    ).not.toBeNull();
+
+    await act(async () => {
+      fireEvent.click(view.getByLabelText("Send prompt"));
+      await Promise.resolve();
+    });
+    expect(JSON.parse(sentPromptInputs[0] ?? "null")).toMatchObject({
+      mentions: [
+        {
+          name: "Release notes",
+          path: "sites-project://appgprj_release",
+        },
+        {
+          name: "Prior research",
+          path: "chatgpt-conversation://conversation%2Fresearch",
+        },
+      ],
+    });
+  });
+
+  test("activates an install suggestion before exposing its plugin mention", async () => {
+    resetStorage();
+    const activationInputs: unknown[] = [];
+    const view = await renderComposer(
+      {
+        composerPlugins: [{
+          id: "browser@openai-bundled",
+          name: "Browser",
+          displayName: "Browser",
+          description: "Control the in-app browser with ChatGPT",
+          defaultPrompt: null,
+          installed: false,
+          enabled: false,
+          path: "plugin://browser@openai-bundled",
+          iconUrl: null,
+          iconUrlDark: null,
+          brandColor: null,
+        }],
+      },
+      undefined,
+      async (channel, ...args) => {
+        if (channel !== "codex:composer-plugins:activate") {
+          return undefined;
+        }
+        activationInputs.push(args[0]);
+        return null;
+      },
+    );
+
+    const trigger = view.getByLabelText("Add files and more");
+    await act(async () => {
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
+      await Promise.resolve();
+    });
+    const browserRow = view.container.querySelector(
+      '[data-add-context-plugin="Browser"]',
+    );
+    if (!(browserRow instanceof HTMLElement)) {
+      throw new Error("Expected the Browser plugin row.");
+    }
+
+    await act(async () => {
+      fireEvent.click(browserRow);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(activationInputs).toEqual([{
+        id: "browser@openai-bundled",
+        cwds: ["/tmp/project"],
+      }]);
+    });
+    expect(
+      view.container.querySelector(
+        "[plugin-mention-path='plugin://browser@openai-bundled']",
+      ),
+    ).not.toBeNull();
+  });
+
+  test("Record a skill activates its plugin and prefills a new chat", async () => {
+    resetStorage();
+    const activationInputs: unknown[] = [];
+    const newChatInputs: unknown[] = [];
+    const view = await renderComposer(
+      {
+        composerPlugins: [{
+          id: "record-and-replay@openai-bundled",
+          name: "record-and-replay",
+          displayName: "Record and Replay",
+          description: "Turn a workflow into a reusable skill",
+          defaultPrompt: "Record this workflow as a reusable skill.",
+          installed: false,
+          enabled: false,
+          path: "plugin://record-and-replay@openai-bundled",
+          iconUrl: null,
+          iconUrlDark: null,
+          brandColor: null,
+        }],
+      },
+      {
+        onStartNewChatWithPrompt: async (input) => {
+          newChatInputs.push(input);
+        },
+      },
+      async (channel, ...args) => {
+        if (channel !== "codex:composer-plugins:activate") {
+          return undefined;
+        }
+        activationInputs.push(args[0]);
+        return null;
+      },
+    );
+
+    const trigger = view.getByLabelText("Add files and more");
+    await act(async () => {
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
+      await Promise.resolve();
+    });
+    const recordRow = view.container.querySelector(
+      '[data-add-context-row="record-skill"]',
+    );
+    if (!(recordRow instanceof HTMLElement)) {
+      throw new Error("Expected the Record a skill action.");
+    }
+    expect(
+      view.container.querySelector(
+        '[data-add-context-plugin="Record and Replay"]',
+      ),
+    ).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(recordRow);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(activationInputs).toHaveLength(1);
+      expect(newChatInputs).toEqual([{
+        projectId: "project_1",
+        prompt:
+          "[@Record and Replay](plugin://record-and-replay@openai-bundled) Record this workflow as a reusable skill.",
+      }]);
+    });
+  });
+
+  test("Work in a project replaces the root suggestions with project choices", async () => {
+    resetStorage();
+    const selectedProjectIds: Array<string | null> = [];
+    const view = await renderComposer(
+      {
+        conversation: null,
+        isNewThreadTab: true,
+        newThreadTarget: {
+          projectId: "project_1",
+          projectName: "Nodex",
+          sessionId: "session_1",
+          threadTitle: "New thread",
+          runInTarget: "localProject",
+        },
+        newThreadProjectSelector: {
+          selectedProjectId: "project_1",
+          disabled: false,
+          canAddProject: true,
+          projects: [
+            {
+              id: "project_1",
+              label: "Nodex",
+              appearance: {
+                color: "green",
+                marker: { kind: "icon", icon: "plant" },
+              },
+              description: "/tmp/project",
+              primaryWorkspaceRoot: "/tmp/project",
+              searchText: "project_1 nodex /tmp/project",
+            },
+            {
+              id: "project_2",
+              label: "Devtools Codex",
+              appearance: {
+                color: "blue",
+                marker: { kind: "icon", icon: "function" },
+              },
+              description: "/tmp/devtools-codex",
+              primaryWorkspaceRoot: "/tmp/devtools-codex",
+              searchText:
+                "project_2 devtools codex /tmp/devtools-codex",
+            },
+          ],
+        },
+      },
+      {
+        onNewThreadProjectChange: (projectId) => {
+          selectedProjectIds.push(projectId);
+        },
+      },
+    );
+
+    const trigger = view.getByLabelText("Add files and more");
+    await act(async () => {
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
+      await Promise.resolve();
+    });
+    const projectAction = view.container.querySelector(
+      '[data-add-context-row="project"]',
+    );
+    if (!(projectAction instanceof HTMLElement)) {
+      throw new Error("Expected the Work in a project action.");
+    }
+
+    await act(async () => {
+      fireEvent.click(projectAction);
+      await Promise.resolve();
+    });
+
+    const projectMenu = view.getByLabelText("Work in a project");
+    const projectRows = Array.from(
+      projectMenu.querySelectorAll("[data-add-context-row]"),
+    ).map((row) => row.getAttribute("data-add-context-row"));
+    expect(projectRows).toEqual([
+      "project:none",
+      "project:project_1",
+      "project:project_2",
+    ]);
+    expect(
+      projectMenu.querySelector(
+        '[data-add-context-row="project:project_1"] [data-state="checked"]',
+      ),
+    ).not.toBeNull();
+
+    const devtoolsProject = projectMenu.querySelector(
+      '[data-add-context-row="project:project_2"]',
+    );
+    if (!(devtoolsProject instanceof HTMLElement)) {
+      throw new Error("Expected the Devtools Codex project row.");
+    }
+    await act(async () => {
+      fireEvent.click(devtoolsProject);
+      await Promise.resolve();
+    });
+
+    expect(selectedProjectIds).toEqual(["project_2"]);
+    expect(
+      view.container.querySelector('[aria-label="Work in a project"]'),
+    ).toBeNull();
+  });
+
+  test("app rows insert canonical app mentions", async () => {
+    resetStorage();
+    const sentPromptInputs: string[] = [];
+    const view = await renderComposer(
+      {
+        composerApps: [{
+          id: "plugin-management",
+          name: "Plugin Management",
+          description: "Manage installed plugins",
+          logoUrl: null,
+          logoUrlDark: null,
+          iconAssets: null,
+          iconDarkAssets: null,
+          distributionChannel: null,
+          branding: null,
+          appMetadata: null,
+          labels: null,
+          installUrl: null,
+          isAccessible: true,
+          isEnabled: true,
+          pluginDisplayNames: [],
+        }],
+      },
+      {
+        onSendPrompt: async (_prompt, opts) => {
+          sentPromptInputs.push(JSON.stringify(opts?.promptInput ?? null));
+        },
+      },
+    );
+
+    const trigger = view.getByLabelText("Add files and more");
+    await act(async () => {
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
+      await Promise.resolve();
+    });
+
+    const appItem = view.container.querySelector(
+      '[data-add-context-app="Plugin Management"]',
+    );
+    if (!(appItem instanceof HTMLElement)) {
+      throw new Error("Expected the Plugin Management app row.");
+    }
+
+    await act(async () => {
+      fireEvent.click(appItem);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(view.getByLabelText("Send prompt"));
+      await Promise.resolve();
+    });
+
+    expect(JSON.parse(sentPromptInputs[0] ?? "null")).toMatchObject({
+      mentions: [{
+        name: "plugin-management",
+        path: "app://plugin-management",
+      }],
+    });
+  });
+
+  test("typed dollar suggestions combine skills and apps without section headers", async () => {
+    resetStorage();
+    const sentPromptInputs: string[] = [];
+    const view = await renderComposer(
+      {
+        composerIntent: {
+          prompt: "$plug",
+          focusNonce: 1,
+        },
+        composerSkills: [{
+          name: "plugin-creator",
+          displayName: "Plugin Creator",
+          description: "Create Codex plugins",
+          iconUrl: null,
+          brandColor: null,
+          path: "/skills/plugin-creator/SKILL.md",
+          scope: "system",
+        }],
+        composerApps: [{
+          id: "plugin-management",
+          name: "Plugin Management",
+          description: "Manage installed plugins",
+          logoUrl: null,
+          logoUrlDark: null,
+          iconAssets: null,
+          iconDarkAssets: null,
+          distributionChannel: null,
+          branding: null,
+          appMetadata: null,
+          labels: null,
+          installUrl: null,
+          isAccessible: true,
+          isEnabled: true,
+          pluginDisplayNames: [],
+        }],
+      },
+      {
+        onSendPrompt: async (_prompt, opts) => {
+          sentPromptInputs.push(JSON.stringify(opts?.promptInput ?? null));
+        },
+      },
+    );
+
+    const menu = await waitFor(() => {
+      const element = view.container.querySelector(
+        '[data-skill-mention-menu="true"]',
+      );
+      if (!(element instanceof HTMLElement)) {
+        throw new Error("Expected the skill mention menu.");
+      }
+      return element;
+    });
+    expect(menu.querySelector('[data-add-context-row="skill:/skills/plugin-creator/SKILL.md"]'))
+      .not.toBeNull();
+    const appItem = menu.querySelector(
+      '[data-add-context-app="Plugin Management"]',
+    );
+    if (!(appItem instanceof HTMLElement)) {
+      throw new Error("Expected the Plugin Management app row.");
+    }
+
+    await act(async () => {
+      fireEvent.click(appItem);
+      await Promise.resolve();
+    });
+    const editor = view.container.querySelector("[contenteditable='true']");
+    expect(editor?.textContent).toContain("Plugin Management");
+    expect(editor?.textContent).not.toContain("$Plugin Management");
+
+    await act(async () => {
+      fireEvent.click(view.getByLabelText("Send prompt"));
+      await Promise.resolve();
+    });
+    expect(JSON.parse(sentPromptInputs[0] ?? "null")).toMatchObject({
+      mentions: [{
+        name: "plugin-management",
+        path: "app://plugin-management",
+      }],
+    });
+  });
+
+  test("empty plus suggestions leave skills to the dedicated dollar surface", async () => {
+    resetStorage();
+    const view = await renderComposer({
+      composerSkills: [{
+        name: "pdf",
+        displayName: "PDF",
+        description: "Read and create PDFs",
+        iconUrl: null,
+        brandColor: null,
+        path: "/skills/pdf/SKILL.md",
+        scope: "system",
+      }],
+    });
+
+    const trigger = view.getByLabelText("Add files and more");
+    await act(async () => {
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
+      await Promise.resolve();
+    });
+
+    const menu = view.container.querySelector('[data-add-context-menu="true"]');
+    expect(menu?.querySelector('[data-add-context-row="skill:/skills/pdf/SKILL.md"]'))
+      .toBeNull();
+    expect(menu?.textContent).toContain("Type to search files or chats");
   });
 
   test("opens the Codex-style inline slash command menu above the composer", async () => {
@@ -2133,7 +2876,7 @@ describe("ThreadComposer speed menu", () => {
       scrollIntoViewCalls = 0;
       list.scrollTop = 180;
       await act(async () => {
-        fireEvent.mouseEnter(modelRow);
+        fireEvent.mouseMove(modelRow);
         await Promise.resolve();
       });
 

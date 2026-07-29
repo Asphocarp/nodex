@@ -3,6 +3,10 @@ import { invoke, readDatabaseViewWindow } from "./api";
 import { queryKeys } from "./query-keys";
 import type {
   CodexAutomationRunsInboxResponse,
+  CodexComposerChatGptConversationListResult,
+  CodexComposerPlugin,
+  CodexComposerSiteListResult,
+  CodexComposerSkill,
   CodexModelOption,
   CodexScheduledAutomationListResponse,
   ProtocolMcpResourceReadResponse,
@@ -141,6 +145,68 @@ export function codexModelsListQueryOptions() {
     queryKey: queryKeys.codexModels.list(),
     queryFn: () => invoke("codex:model:list") as Promise<CodexModelOption[]>,
     staleTime: 60_000,
+  });
+}
+
+export function codexComposerPluginsListQueryOptions(cwds: readonly string[]) {
+  const normalizedCwds = Array.from(new Set(
+    cwds.map((cwd) => cwd.trim()).filter(Boolean),
+  )).sort();
+
+  return queryOptions({
+    queryKey: queryKeys.codexComposerPlugins.list(normalizedCwds),
+    queryFn: () => invoke(
+      "codex:composer-plugins:list",
+      { cwds: normalizedCwds },
+    ) as Promise<CodexComposerPlugin[]>,
+    retry: false,
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
+  });
+}
+
+export function codexComposerSkillsListQueryOptions(cwds: readonly string[]) {
+  const normalizedCwds = Array.from(new Set(
+    cwds.map((cwd) => cwd.trim()).filter(Boolean),
+  )).sort();
+
+  return queryOptions({
+    queryKey: queryKeys.codexComposerSkills.list(normalizedCwds),
+    queryFn: () => invoke(
+      "codex:composer-skills:list",
+      { cwds: normalizedCwds },
+    ) as Promise<CodexComposerSkill[]>,
+    retry: false,
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
+  });
+}
+
+export function codexComposerSitesListQueryOptions() {
+  return queryOptions({
+    queryKey: queryKeys.codexComposerSites.list(),
+    queryFn: () => invoke(
+      "codex:composer-sites:list",
+    ) as Promise<CodexComposerSiteListResult>,
+    retry: false,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: true,
+  });
+}
+
+export function codexComposerChatGptConversationsListQueryOptions(
+  query: string,
+) {
+  const normalizedQuery = query.trim();
+  return queryOptions({
+    queryKey: queryKeys.codexComposerChatGptConversations.list(normalizedQuery),
+    queryFn: () => invoke(
+      "codex:composer-chatgpt-conversations:list",
+      { query: normalizedQuery },
+    ) as Promise<CodexComposerChatGptConversationListResult>,
+    retry: false,
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
   });
 }
 

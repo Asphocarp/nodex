@@ -19,6 +19,7 @@ const browserManifestRelativePath =
 const browserRuntimeSchemaVersion = 3;
 const expectedBinaryPaths = new Map([
   ["nodex", "Resources/bin/nodex"],
+  ["nodex-appshot-helper", "Resources/bin/nodex-appshot-helper"],
   ["nodex-browser-profile-helper", "Resources/bin/nodex-browser-profile-helper"],
   ["nodex-core", "Resources/bin/nodex-core"],
   ["nodex-service", "Helpers/Nodex Service.app/Contents/MacOS/nodex-service"],

@@ -12,7 +12,7 @@ import {
 import { performance } from "node:perf_hooks";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, resolve, sep } from "node:path";
+import { dirname, isAbsolute, resolve, sep } from "node:path";
 import { writeImageToClipboard } from "./clipboard-image-writer";
 import { inspectClipboardPasteItems } from "./clipboard-paste-inspector";
 import { prepareComposerPickedFiles } from "./composer-picked-files";
@@ -56,6 +56,7 @@ import {
   parseCodexUserInputAutoResolutionTarget,
 } from "../shared/codex-user-input-auto-resolution";
 import { codexService } from "./codex/codex-service";
+import { composerAppshotService } from "./composer-appshot-service";
 import {
   createCodexProjectlessWorkspace,
   parseCodexProjectlessThreadCwdInput,
@@ -1040,6 +1041,57 @@ function assertValidOccurrenceUpdateIpcInput(
   ) {
     throw new Error("Missing or invalid occurrence updates");
   }
+}
+
+function parseComposerInventoryCwds(input: unknown): string[] {
+  if (
+    typeof input !== "object"
+    || input === null
+    || !("cwds" in input)
+    || !Array.isArray(input.cwds)
+    || input.cwds.length > 32
+    || input.cwds.some((cwd) =>
+      typeof cwd !== "string"
+      || cwd.length > 4_096
+      || (cwd.trim().length > 0 && !isAbsolute(cwd.trim()))
+    )
+  ) {
+    throw new Error("Invalid composer inventory input");
+  }
+  return input.cwds;
+}
+
+function parseComposerPluginActivationInput(input: unknown): {
+  id: string;
+  cwds: string[];
+} {
+  if (
+    typeof input !== "object"
+    || input === null
+    || !("id" in input)
+    || typeof input.id !== "string"
+    || input.id.trim().length === 0
+    || input.id.length > 512
+  ) {
+    throw new Error("Invalid composer plugin activation input");
+  }
+  return {
+    id: input.id.trim(),
+    cwds: parseComposerInventoryCwds(input),
+  };
+}
+
+function parseComposerChatGptConversationQuery(input: unknown): string {
+  if (
+    typeof input !== "object"
+    || input === null
+    || !("query" in input)
+    || typeof input.query !== "string"
+    || input.query.length > 1_000
+  ) {
+    throw new Error("Invalid composer ChatGPT conversation query");
+  }
+  return input.query.trim();
 }
 
 export function registerIpcHandlers(
@@ -3592,6 +3644,40 @@ export function registerIpcHandlers(
   });
 
   registerHandle("codex:model:list", () => codexService.listModels());
+  registerHandle("codex:composer-plugins:list", (_, input) =>
+    codexService.listComposerPlugins(parseComposerInventoryCwds(input)),
+  );
+  registerHandle("codex:composer-plugins:activate", (_, input) =>
+    codexService.activateComposerPlugin(
+      parseComposerPluginActivationInput(input),
+    ),
+  );
+  registerHandle("codex:composer-skills:list", (_, input) =>
+    codexService.listComposerSkills(parseComposerInventoryCwds(input)),
+  );
+  registerHandle("codex:composer-sites:list", () =>
+    codexService.listComposerSites(),
+  );
+  registerHandle("codex:composer-chatgpt-conversations:list", (_, input) =>
+    codexService.listComposerChatGptConversations(
+      parseComposerChatGptConversationQuery(input),
+    ),
+  );
+  registerHandle("codex:composer-appshot:target", () =>
+    composerAppshotService.readTarget(),
+  );
+  registerHandle("codex:composer-appshot:capture", (_, input) => {
+    if (
+      typeof input !== "object"
+      || input === null
+      || typeof input.targetId !== "string"
+      || !input.targetId.trim()
+      || input.targetId.length > 512
+    ) {
+      throw new Error("Invalid Appshot capture target");
+    }
+    return composerAppshotService.capture(input.targetId.trim());
+  });
 
   registerHandle("agent-runtime:catalog:get", (_, options?: { refresh?: boolean }) =>
     codexService.listAgentProviderCatalog({ refresh: options?.refresh === true }),

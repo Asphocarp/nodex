@@ -282,6 +282,17 @@ import type {
   GhPrUpdateInput,
   ReviewDiffRequest,
   ReviewDiffResult,
+  CodexComposerAppshotCaptureInput,
+  CodexComposerAppshotContext,
+  CodexComposerAppshotTargetResult,
+  CodexComposerChatGptConversationListInput,
+  CodexComposerChatGptConversationListResult,
+  CodexComposerPlugin,
+  CodexComposerPluginActivateInput,
+  CodexComposerPluginListInput,
+  CodexComposerSiteListResult,
+  CodexComposerSkill,
+  CodexComposerSkillListInput,
   CodexHostMessage,
   CodexModelOption,
   CodexMcpServerElicitationResponse,
@@ -1644,6 +1655,34 @@ export interface IpcApi {
   "codex:model:list": {
     args: [];
     result: CodexModelOption[];
+  };
+  "codex:composer-plugins:list": {
+    args: [input: CodexComposerPluginListInput];
+    result: CodexComposerPlugin[];
+  };
+  "codex:composer-plugins:activate": {
+    args: [input: CodexComposerPluginActivateInput];
+    result: void;
+  };
+  "codex:composer-skills:list": {
+    args: [input: CodexComposerSkillListInput];
+    result: CodexComposerSkill[];
+  };
+  "codex:composer-sites:list": {
+    args: [];
+    result: CodexComposerSiteListResult;
+  };
+  "codex:composer-chatgpt-conversations:list": {
+    args: [input: CodexComposerChatGptConversationListInput];
+    result: CodexComposerChatGptConversationListResult;
+  };
+  "codex:composer-appshot:target": {
+    args: [];
+    result: CodexComposerAppshotTargetResult;
+  };
+  "codex:composer-appshot:capture": {
+    args: [input: CodexComposerAppshotCaptureInput];
+    result: CodexComposerAppshotContext;
   };
   "agent-runtime:catalog:get": {
     args: [options?: { refresh?: boolean }];

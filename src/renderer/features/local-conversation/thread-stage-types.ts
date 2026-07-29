@@ -11,7 +11,11 @@ import type {
   CodexCanonicalSetupCodexStepResponse,
   CodexCollaborationModeKind,
   CodexPermissionState,
+  CodexComposerChatGptConversation,
   CodexComposerIntent,
+  CodexComposerPlugin,
+  CodexComposerSite,
+  CodexComposerSkill,
   CodexCollaborationModePreset,
   CodexConnectionState,
   CodexDictationStateSnapshot,
@@ -274,7 +278,6 @@ export interface ThreadStageActions {
   onPermissionModeChange: (mode: CodexPermissionMode) => void | Promise<void>;
   onQueueingEnabledChange: (enabled: boolean) => void;
   onOpenSubagentsPanel?: () => void | Promise<void>;
-  onComposerIdeContextEnabledChange?: (enabled: boolean) => void;
   onStartThreadForSession?: (input: {
     projectId: string | null;
     sessionId: string;
@@ -292,8 +295,13 @@ export interface ThreadStageActions {
   onRefreshNewThreadStartInEnvironments?: () => Promise<void>;
   onOpenNewThreadLocalEnvironmentsSettings?: () => void;
   onOpenHooksSettings?: (target: CodexHooksSettingsTarget) => void;
-  onNewThreadProjectChange?: (projectId: string) => void;
+  onNewThreadProjectChange?: (projectId: string | null) => void;
   onRequestNewChatProjectCreate?: () => void;
+  onStartNewChatWithPrompt?: (input: {
+    projectId: string | null;
+    prompt: string;
+  }) => Promise<void>;
+  onComposerCapabilitiesChanged?: () => Promise<void>;
   onSendPrompt: (prompt: string, opts?: { collaborationMode?: CodexCollaborationModeKind; promptInput?: CodexPromptInput }) => Promise<void>;
   onOpenSideChat?: (input?: ThreadOpenSideChatInput) => Promise<void>;
   onOpenMcpAppSidePanel?: (input: ThreadMcpAppSidePanelInput) => Promise<void>;
@@ -997,14 +1005,18 @@ export interface ThreadFooterModel {
   newThreadComposerIntent?: CodexComposerIntent | null;
   composerScopeIdentity?: string | null;
   dictation: CodexDictationStateSnapshot;
-  composerIdeContext?: {
-    isConnected: boolean;
-    isEnabled: boolean;
-  };
-  composerPlugins?: {
-    name: string;
-    path: string;
-  }[];
+  composerPlugins?: CodexComposerPlugin[];
+  composerPluginsLoading?: boolean;
+  composerSkills?: CodexComposerSkill[];
+  composerSkillsLoading?: boolean;
+  composerApps?: readonly ProtocolAppInfo[];
+  composerAppsLoading?: boolean;
+  composerSites?: readonly CodexComposerSite[];
+  composerSitesAvailable?: boolean;
+  composerSitesLoading?: boolean;
+  composerChatGptConversations?: readonly CodexComposerChatGptConversation[];
+  composerChatGptConversationsAvailable?: boolean;
+  composerChatGptConversationsLoading?: boolean;
 }
 
 export interface ThreadStageScreenProps {

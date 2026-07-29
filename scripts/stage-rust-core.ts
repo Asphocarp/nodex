@@ -115,6 +115,26 @@ const stage = ({ targetArch, outputRoot, signIdentity }: Arguments): void => {
       "-o",
       serviceBuild,
     ]);
+    const appshotHelperSource = path.join(
+      repositoryRoot,
+      "resources",
+      "macos",
+      "nodex-appshot-helper.swift",
+    );
+    const appshotHelperBuild = path.join(
+      stagingRoot,
+      ".nodex-appshot-helper.build",
+    );
+    execFileSync("xcrun", [
+      "swiftc",
+      "-O",
+      "-parse-as-library",
+      "-target",
+      swiftTarget(targetArch),
+      appshotHelperSource,
+      "-o",
+      appshotHelperBuild,
+    ]);
 
     const binaries: ReadonlyArray<{
       readonly name: NativeRuntimeBinaryName;
@@ -138,6 +158,7 @@ const stage = ({ targetArch, outputRoot, signIdentity }: Arguments): void => {
         name: "nodex",
         source: path.join(repositoryRoot, "target", target, "release", "nodex"),
       },
+      { name: "nodex-appshot-helper", source: appshotHelperBuild },
       { name: "nodex-service", source: serviceBuild },
     ] as const;
     const entries = binaries.map(({ name, source }) => {

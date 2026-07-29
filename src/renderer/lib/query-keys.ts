@@ -157,6 +157,26 @@ export const queryKeys = {
     all: () => ["codexModels"] as const,
     list: () => ["codexModels", "list"] as const,
   },
+  codexComposerPlugins: {
+    all: () => ["codexComposerPlugins"] as const,
+    list: (cwds: readonly string[]) => ["codexComposerPlugins", "list", ...cwds] as const,
+  },
+  codexComposerSkills: {
+    all: () => ["codexComposerSkills"] as const,
+    list: (cwds: readonly string[]) => ["codexComposerSkills", "list", ...cwds] as const,
+  },
+  codexComposerSites: {
+    all: () => ["codexComposerSites"] as const,
+    list: () => ["codexComposerSites", "list"] as const,
+  },
+  codexComposerChatGptConversations: {
+    all: () => ["codexComposerChatGptConversations"] as const,
+    list: (query: string) => [
+      "codexComposerChatGptConversations",
+      "list",
+      query,
+    ] as const,
+  },
   agentProviderCatalog: {
     all: () => ["agentProviderCatalog"] as const,
     current: () => ["agentProviderCatalog", "current"] as const,

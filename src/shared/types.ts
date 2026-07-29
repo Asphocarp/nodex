@@ -31,6 +31,7 @@ import type {
   RateLimitResetCreditsSummary as CodexAppServerRateLimitResetCreditsSummary,
   SandboxMode as CodexAppServerSandboxMode,
   SandboxPolicy as CodexAppServerSandboxPolicy,
+  SkillScope as CodexAppServerSkillScope,
   ReviewStartParams as CodexAppServerReviewStartParams,
   ReviewStartResponse as CodexAppServerReviewStartResponse,
   ReviewTarget as CodexAppServerReviewTarget,
@@ -2087,6 +2088,121 @@ export interface CodexPromptSkillInput {
   path: string;
 }
 
+export type CodexPromptDocumentInput =
+  | {
+    type: "text";
+    text: string;
+  }
+  | ({
+    type: "mention";
+  } & CodexPromptMentionInput)
+  | ({
+    type: "skill";
+  } & CodexPromptSkillInput);
+
+/**
+ * Renderer-safe projection of an installed Codex plugin for composer mention
+ * surfaces. Local package paths stay in main; the renderer receives only
+ * catalog metadata and the canonical plugin mention URI.
+ */
+export interface CodexComposerPlugin {
+  id: string;
+  name: string;
+  displayName: string;
+  description: string | null;
+  defaultPrompt: string | null;
+  installed: boolean;
+  enabled: boolean;
+  path: string;
+  iconUrl: string | null;
+  iconUrlDark: string | null;
+  brandColor: string | null;
+}
+
+export interface CodexComposerPluginListInput {
+  cwds: string[];
+}
+
+export interface CodexComposerPluginActivateInput {
+  id: string;
+  cwds: string[];
+}
+
+/** Renderer-safe projection of an enabled Codex skill for composer suggestions. */
+export interface CodexComposerSkill {
+  name: string;
+  displayName: string;
+  description: string;
+  iconUrl: string | null;
+  brandColor: string | null;
+  path: string;
+  scope: CodexAppServerSkillScope;
+}
+
+export interface CodexComposerSkillListInput {
+  cwds: string[];
+}
+
+/** Renderer-safe projection of one Sites project for composer suggestions. */
+export interface CodexComposerSite {
+  id: string;
+  title: string;
+  slug: string;
+  currentLiveUrl: string | null;
+  path: string;
+}
+
+export interface CodexComposerSiteListResult {
+  available: boolean;
+  sites: CodexComposerSite[];
+}
+
+/** Renderer-safe projection of one ChatGPT conversation for composer suggestions. */
+export interface CodexComposerChatGptConversation {
+  conversationId: string;
+  title: string;
+  path: string;
+}
+
+export interface CodexComposerChatGptConversationListInput {
+  query: string;
+}
+
+export interface CodexComposerChatGptConversationListResult {
+  available: boolean;
+  conversations: CodexComposerChatGptConversation[];
+}
+
+/** Opaque, renderer-safe handle for the most recent foreground macOS window. */
+export interface CodexComposerAppshotTarget {
+  id: string;
+  appName: string;
+  bundleIdentifier: string;
+  windowTitle: string | null;
+  iconSmallDataUrl: string | null;
+}
+
+export interface CodexComposerAppshotTargetResult {
+  available: boolean;
+  target: CodexComposerAppshotTarget | null;
+}
+
+export interface CodexComposerAppshotCaptureInput {
+  targetId: string;
+}
+
+/** Screenshot plus application context attached by the composer Appshot flow. */
+export interface CodexComposerAppshotContext {
+  id: string;
+  appName: string;
+  bundleIdentifier: string;
+  windowTitle: string | null;
+  axTree: string;
+  imageName: string;
+  imageDataUrl: string;
+  appIconDataUrl: string | null;
+}
+
 export interface CodexRawPromptTextAttachmentInput {
   text: string;
   file?: CodexLiveFileAttachment;
@@ -2163,10 +2279,12 @@ export interface CodexPromptAgentConfigInput {
 
 export interface CodexPromptInput {
   text: string;
+  documentItems?: CodexPromptDocumentInput[];
   textAttachments?: CodexPromptTextAttachmentInput[];
   fileAttachments?: CodexLiveFileAttachment[];
   addedFiles?: CodexLiveFileAttachment[];
   images?: CodexPromptImageInput[];
+  appshots?: CodexComposerAppshotContext[];
   mentions?: CodexPromptMentionInput[];
   skills?: CodexPromptSkillInput[];
   commentAttachments?: CodexReviewDiffCommentAttachment[];
