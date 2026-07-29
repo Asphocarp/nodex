@@ -42,6 +42,11 @@ import { replaceOwnedDirectory } from "./replace-owned-directory";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDir, "..");
+const EXECUTABLE_RUNTIME_MODE = 0o755;
+const REGULAR_RUNTIME_MODE = 0o644;
+const canonicalRuntimeMode = (executable: boolean): number => (
+  executable ? EXECUTABLE_RUNTIME_MODE : REGULAR_RUNTIME_MODE
+);
 
 type StageAgentRuntimeOptions = {
   archivePath?: string;
@@ -125,9 +130,13 @@ function assertNoSymlinks(rootPath: string, currentPath = rootPath): void {
 
 function copyRuntimeFile(sourcePath: string, destinationPath: string): void {
   assertRegularFile(sourcePath, relative(dirname(sourcePath), sourcePath));
+  const sourceMode = statSync(sourcePath).mode;
   mkdirSync(dirname(destinationPath), { recursive: true });
   copyFileSync(sourcePath, destinationPath);
-  chmodSync(destinationPath, statSync(sourcePath).mode & 0o777);
+  chmodSync(
+    destinationPath,
+    canonicalRuntimeMode((sourceMode & 0o111) !== 0),
+  );
 }
 
 function listRuntimeArtifacts(runtimeRoot: string, currentPath = runtimeRoot): AgentRuntimeArtifact[] {
@@ -212,6 +221,7 @@ function readReusableRuntime(input: {
     if (!runtimeRootStats.isDirectory() || runtimeRootStats.isSymbolicLink()) return null;
     const stats = lstatSync(metadataPath);
     if (!stats.isFile() || stats.isSymbolicLink()) return null;
+    if ((stats.mode & 0o777) !== REGULAR_RUNTIME_MODE) return null;
     metadata = parseBundledAgentRuntimeMetadata(
       JSON.parse(readFileSync(metadataPath, "utf8")) as unknown,
     );
@@ -465,7 +475,7 @@ export async function stageCodexRuntime(
 
     const artifacts = listRuntimeArtifacts(tempRuntimeRoot);
     for (const artifact of artifacts) {
-      const expectedMode = artifact.executable ? 0o755 : 0o644;
+      const expectedMode = canonicalRuntimeMode(artifact.executable);
       const artifactPath = join(tempRuntimeRoot, ...artifact.path.split("/"));
       if ((lstatSync(artifactPath).mode & 0o777) !== expectedMode) {
         throw new Error(`Staged agent runtime artifact has an unsafe mode: ${artifact.path}`);
@@ -509,11 +519,13 @@ export async function stageCodexRuntime(
       );
     }
 
+    const metadataPath = join(tempRuntimeRoot, AGENT_RUNTIME_METADATA_FILENAME);
     writeFileSync(
-      join(tempRuntimeRoot, AGENT_RUNTIME_METADATA_FILENAME),
+      metadataPath,
       `${JSON.stringify(metadata, null, 2)}\n`,
       "utf8",
     );
+    chmodSync(metadataPath, REGULAR_RUNTIME_MODE);
     replaceOwnedDirectory(tempRuntimeRoot, join(outputPath, "agent-runtime"));
     return metadata;
   } finally {

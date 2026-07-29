@@ -18,7 +18,10 @@ function writeExecutable(filePath: string, body: string): void {
   fs.chmodSync(filePath, 0o755);
 }
 
-function makeFakeOpenInterpreterRelease(input?: { omitCodeModeHost?: boolean }): {
+function makeFakeOpenInterpreterRelease(input?: {
+  omitCodeModeHost?: boolean;
+  restrictiveSourceModes?: boolean;
+}): {
   cleanup: () => void;
   lockPath: string;
   projectRoot: string;
@@ -54,6 +57,15 @@ function makeFakeOpenInterpreterRelease(input?: { omitCodeModeHost?: boolean }):
   writeExecutable(path.join(sourceRoot, "bin", "i"), "#!/bin/sh\necho duplicate\n");
   writeExecutable(path.join(sourceRoot, "codex-path", "rg"), "#!/bin/sh\necho rg\n");
   writeExecutable(path.join(sourceRoot, "codex-resources", "zsh", "bin", "zsh"), "#!/bin/sh\necho zsh\n");
+
+  if (input?.restrictiveSourceModes) {
+    for (const artifactPath of requiredArtifacts) {
+      const filePath = path.join(sourceRoot, artifactPath);
+      if (!fs.existsSync(filePath)) continue;
+      const mode = (fs.statSync(filePath).mode & 0o111) !== 0 ? 0o700 : 0o600;
+      fs.chmodSync(filePath, mode);
+    }
+  }
 
   const licensePath = path.join(projectRoot, "resources", "third-party", "open-interpreter", "LICENSE");
   const noticePath = path.join(projectRoot, "resources", "third-party", "open-interpreter", "NOTICE");
@@ -242,6 +254,40 @@ describe("stage-codex-runtime", () => {
     }
   });
 
+  test("normalizes runtime modes from a release extracted under a restrictive umask", async () => {
+    const fixture = makeFakeOpenInterpreterRelease({ restrictiveSourceModes: true });
+    const outputRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-stage-agent-runtime-out-"));
+    const outputPath = path.join(outputRoot, "codex-runtime");
+
+    try {
+      const metadata = await (async () => {
+        const previousUmask = process.umask(0o077);
+        try {
+          return await stageCodexRuntime({
+            targetPlatform: "darwin",
+            targetArch: "arm64",
+            outputPath,
+            sourceRoot: fixture.sourceRoot,
+            lockPath: fixture.lockPath,
+            projectRootPath: fixture.projectRoot,
+          });
+        } finally {
+          process.umask(previousUmask);
+        }
+      })();
+      const runtimeRoot = path.join(outputPath, "agent-runtime");
+
+      for (const artifact of metadata.artifacts) {
+        const artifactPath = path.join(runtimeRoot, ...artifact.path.split("/"));
+        expect(fs.statSync(artifactPath).mode & 0o777).toBe(artifact.executable ? 0o755 : 0o644);
+      }
+      expect(fs.statSync(path.join(runtimeRoot, "agent-runtime.json")).mode & 0o777).toBe(0o644);
+    } finally {
+      fixture.cleanup();
+      fs.rmSync(outputRoot, { recursive: true, force: true });
+    }
+  });
+
   test("reuses an exact lock-bound runtime and repairs content damage", async () => {
     const fixture = makeFakeOpenInterpreterRelease();
     const outputRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-stage-agent-runtime-out-"));
@@ -267,6 +313,11 @@ describe("stage-codex-runtime", () => {
       fs.chmodSync(entrypoint, 0o700);
       await stageCodexRuntime(options);
       expect(fs.statSync(entrypoint).mode & 0o777).toBe(0o755);
+
+      const metadataPath = path.join(outputPath, "agent-runtime", "agent-runtime.json");
+      fs.chmodSync(metadataPath, 0o600);
+      await stageCodexRuntime(options);
+      expect(fs.statSync(metadataPath).mode & 0o777).toBe(0o644);
 
       fs.writeFileSync(entrypoint, "damaged", "utf8");
       await stageCodexRuntime(options);
